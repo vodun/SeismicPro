@@ -163,14 +163,25 @@ class SeismicBatch(Batch):
     def _init_component(self, *args, dst, **kwargs):
         """Create and preallocate a new attribute with the name ``dst`` if it
         does not exist and return batch indices."""
-        _ = args, kwargs
+        _ = args
+        src = kwargs.get('src')
         dst = (dst, ) if isinstance(dst, str) else dst
 
-        for comp in dst:
-            self.meta[comp] = self.meta[comp] if comp in self.meta else dict()
+        if isinstance(src, str):
+            src = (src, ) * len(dst)
+        elif len(dst) != len(src):
+            raise ValueError(f'Length of src and dst should be equal. Now is len(src)={len(src)}, '\
+                             f'len(dst)={len(dst)}')
 
-            if self.components is None or comp not in self.components:
-                self.add_components(comp, init=self.array_of_nones)
+        for comp_from, comp_to in zip(src, dst):
+            if comp_to not in self.meta:
+                if comp_from in self.meta:
+                    self.meta[comp_to] = self.meta[comp_from].copy()
+                else:
+                    self.meta[comp_to] = dict()
+
+            if self.components is None or comp_to not in self.components:
+                self.add_components(comp_to, init=self.array_of_nones)
 
         return self.indices
 
@@ -239,81 +250,6 @@ class SeismicBatch(Batch):
             return values
 
         return np.array(np.split(values, np.cumsum(tracecounts)[:-1]) + [None])[:-1]
-
-    @action
-    def copy_meta(self, from_comp, to_comp, keys=None):
-        """Copy meta from one component to another or form few components. One can copy either
-        full meta or only particular keys.
-
-        Parameters
-        ----------
-        from_comp : str or array-like
-            Component's name to copy meta from or list of component's names.
-        to_comp : str or array-like
-            Component's name to copy meta in or list of component's names.
-        keys : str, array-like or None, optional
-            if None, all meta will be copied
-            if str, only meta[keys] will be copied
-            if array-like,
-                if 1d array-like, for each `to_comp` will be used same keys
-                if 2d array-like, for each `to_comp` will be used particular keys.
-                It means that i-th component will contain only `keys[i]` elements from meta.
-
-        Raises
-        ------
-        ValueError : if `from_comp` and `to_comp` have different length.
-        ValueError : if one of given to `from_comp` component doesn't exist.
-
-        Note
-        ----
-            The copied meta will not overwrite the old meta.
-
-        Examples
-        --------
-        Use all meta:
-            >>> batch.copy_meta('raw', 'new_raw')
-            >>> batch.meta
-            {'raw': {'arg_1': 'val_1', 'arg_2': 'val_2', 'arg_3': 'val_3'},
-            'new_raw': {'arg_1': 'val_1', 'arg_2': 'val_2', 'arg_3': 'val_3'}}
-
-
-        Copy two values:
-            >>> batch.copy_meta('raw', 'new_raw', key=['arg_1', 'arg_2'])
-            >>> batch.meta
-            {'raw': {'arg_1': 'val_1', 'arg_2': 'val_2', 'arg_3': 'val_3'},
-            'new_raw': {'arg_1': 'val_1', 'arg_2': 'val_2'}}
-
-
-        Use for several components:
-            >>> batch.copy_meta(['raw', 'raw'], ['new_raw', 'new_raw_2'], key=[['arg_1'], ['arg_2']])
-            >>> batch.meta
-            {'raw': {'arg_1': 'val_1', 'arg_2': 'val_2', 'arg_3': 'val_3'},
-            'new_raw': {'arg_1': 'val_1'},
-            'new_raw': {'arg_2': 'val_2'}}
-        """
-        from_comp = (from_comp, ) if isinstance(from_comp, str) else from_comp
-        to_comp = (to_comp, ) if isinstance(to_comp, str) else to_comp
-
-        if len(from_comp) != len(to_comp):
-            raise ValueError('Length from_comp should be equal to to_comp length.')
-
-        if isinstance(keys, str) or keys is None:
-            keys = (keys, ) * len(from_comp)
-
-        for ix, (fr_comp, t_comp) in enumerate(zip(from_comp, to_comp)):
-            if fr_comp not in self.meta:
-                raise ValueError(f'{fr_comp} not exist.')
-
-            added_meta = self.meta[fr_comp].copy()
-            if keys[ix] is not None:
-                if isinstance(keys[ix], str):
-                    added_meta = {k: added_meta[k] for k in keys}
-                else:
-                    added_meta = {k: added_meta[k] for k in keys[ix]}
-            added_meta.update(**self.meta[t_comp])
-            self.meta[t_comp] = added_meta
-
-        return self
 
     @action
     @inbatch_parallel(init="_init_component", target="threads")
