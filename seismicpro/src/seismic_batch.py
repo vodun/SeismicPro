@@ -1,5 +1,6 @@
 """Seismic batch.""" # pylint: disable=too-many-lines
 import os
+import warnings
 from textwrap import dedent
 import numpy as np
 import matplotlib.pyplot as plt
@@ -160,28 +161,32 @@ class SeismicBatch(Batch):
         if preloaded is None:
             self.meta = dict()
 
-    def _init_component(self, *args, dst, **kwargs):
+    def _init_component(self, src, dst, *args, **kwargs):
         """Create and preallocate a new attribute with the name ``dst`` if it
         does not exist and return batch indices."""
         _ = args
-        src = kwargs.get('src')
         dst = (dst, ) if isinstance(dst, str) else dst
+        copy_meta = True
 
         if isinstance(src, str):
             src = (src, ) * len(dst)
+
         elif len(dst) != len(src):
-            raise ValueError(f'Length of src and dst should be equal. Now is len(src)={len(src)}, '\
-                             f'len(dst)={len(dst)}')
+            copy_meta = False
+            warnings.warn("length of src and dst are not equal, note that meta for new components will be empty.")
 
-        for comp_from, comp_to in zip(src, dst):
-            if comp_to not in self.meta:
-                if comp_from in self.meta:
-                    self.meta[comp_to] = self.meta[comp_from].copy()
-                else:
-                    self.meta[comp_to] = dict()
-
-            if self.components is None or comp_to not in self.components:
-                self.add_components(comp_to, init=self.array_of_nones)
+        for ix, idst in enumerate(dst):
+            if copy_meta:
+                isrc = src[ix]
+                if idst not in self.meta:
+                    if isrc in self.meta:
+                        self.meta[idst] = self.meta[isrc].copy()
+                    else:
+                        self.meta[idst] = dict()
+            else:
+                self.meta[idst] = dict()
+            if self.components is None or idst not in self.components:
+                self.add_components(idst, init=self.array_of_nones)
 
         return self.indices
 
