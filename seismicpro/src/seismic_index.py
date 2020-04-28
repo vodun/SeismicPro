@@ -184,7 +184,7 @@ class TraceIndex(DatasetIndex):
         return type(self).from_index(index=indices, idf=df, index_name=self.name)
 
     def concat(self, other):
-        """ Concatenate vertically current and `other` indices DataFrames. 
+        """ Concatenate vertically current and `other` indices DataFrames.
 
         Parameters
         ----------
