@@ -1,5 +1,7 @@
 """Seismic batch.""" # pylint: disable=too-many-lines
 import os
+from itertools import product
+
 from textwrap import dedent
 import numpy as np
 import matplotlib.pyplot as plt
@@ -1394,7 +1396,7 @@ class SeismicBatch(Batch):
         getattr(self, dst)[pos] = equalized_field
         return self
 
-    def _crop(self, image, coords, shape):
+    def _crop(self, image, coords, shape, pad_zeros):
         """ Perform crops from the image.
         Number of crops is defined by the number of elements in `coords` parameter.
 
@@ -1406,6 +1408,8 @@ class SeismicBatch(Batch):
             The list of top-left (x,y) coordinates for each crop.
         shape: tuple of ints
             Crop shape.
+        pad_zeros: bool
+            Wether to zero-pad incomplete crops
 
         Returns
         -------
@@ -1414,16 +1418,27 @@ class SeismicBatch(Batch):
         """
         res = np.empty((len(coords), ), dtype='O')
         for i, (x, y) in enumerate(coords):
-            if (x + shape[0] > image.shape[0]) or (y + shape[1] > image.shape[1]):
-                raise ValueError('Coordinates', (x, y), 'exceed feasible region of seismogramm shape: ', image.shape,
-                                 'with crop shape: ', shape)
-            res[i] = image[x:x+shape[0], y:y+shape[1]]
+
+            if pad_zeros:
+                arr = np.zeros(shape)
+
+                x1 = min(x + shape[0], image.shape[0])
+                y1 = min(y + shape[1], image.shape[1])
+
+                arr[:x1-x, :y1-y] = image[x:x1, y:y1]
+                res[i] = arr
+
+            else:
+                if (x + shape[0] > image.shape[0]) or (y + shape[1] > image.shape[1]):
+                    raise ValueError(f'Coordinates {x, y} exceed feasible region of seismogramm shape: {image.shape},',
+                                     f'with crop shape: {shape} but pad_zeros is False')
+                res[i] = image[x:x+shape[0], y:y+shape[1]]
         return res
 
     @action
     @inbatch_parallel(init='_init_component')
     @apply_to_each_component
-    def crop(self, index, src, coords, shape, dst=None):
+    def crop(self, index, src, coords, shape, dst=None, pad_zeros=False):
         """ Crop from seismograms by given coordinates.
 
         Parameters
@@ -1443,6 +1458,8 @@ class SeismicBatch(Batch):
                   (num_crops, 2) and different coords will be sampled for each batch item.
         shape: tuple of ints
             Crop shape.
+        pad_zeros: bool
+            Wether to zero-pad incomplete crops
 
         Returns
         -------
@@ -1471,8 +1488,8 @@ class SeismicBatch(Batch):
             crop(src=['raw', 'mask], dst=['raw_crop', 'mask_crop], shape=(100, 256),
                 coords=P(R('uniform', size=(N_RANDOM_CROPS, 2)))).next_batch(2)
         """
-        if not isinstance(self.index, FieldIndex):
-            raise NotImplementedError("Index must be FieldIndex, not {}".format(type(self.index)))
+        if isinstance(self.index, SegyFilesIndex):
+            raise NotImplementedError("Index can't be SegyFilesIndex")
 
         pos = self.get_pos(None, None, index)
         field = getattr(self, src)[pos]
@@ -1485,7 +1502,90 @@ class SeismicBatch(Batch):
         else:
             xy = np.array(coords)
 
-        getattr(self, dst)[pos] = self._crop(field, xy, shape)
+        getattr(self, dst)[pos] = self._crop(field, xy, shape, pad_zeros)
+
+        self.meta[dst].update({'source': src})
+
+    @action
+    @inbatch_parallel(init='_init_component')
+    @apply_to_each_component
+    def assemble_crops(self, index, src, coords, dst=None):
+        """
+        Assembles crops from `src` into single seismogram using coordinates from `coords`
+
+        Parameters
+        ----------
+        src : str
+            component with crops
+        dst : str
+            component to put the result to. If None, `dst` == `src`
+        coords : list of tuples (int, int)
+            list of coordinates of upper left corners of crops from `src`.
+            The length of the list should be same as number of crops in `src`
+        """
+
+        if isinstance(self.index, SegyFilesIndex):
+            raise NotImplementedError("Index can't be SegyFilesIndex")
+
+        pos = self.get_pos(None, None, index)
+        crops = getattr(self, src)[pos]
+
+        res_x = self.index.tracecounts[pos]
+        res_y = len(self.meta[self.meta[src]['source']]['samples'])
+
+        res = np.zeros((res_x, res_y))
+        crop_counts = np.zeros((res_x, res_y))
+
+        for crop_coords, crop in zip(coords, crops):
+            x, y = crop_coords
+            len_x, len_y = crop.shape
+
+            x1 = min(x+len_x, res_x)
+            y1 = min(y+len_y, res_y)
+
+            res[x:x1, y:y1] = crop[:x1-x, :y1-y]
+            crop_counts[x:x1, y:y1] += 1
+
+        crop_counts[crop_counts == 0] = 1
+
+        getattr(self, dst)[pos] = res / crop_counts
+
+    @action
+    @inbatch_parallel(init='_init_component')
+    @apply_to_each_component
+    def make_grid_for_crops(self, index, src, dst, shape, drop_last=True):
+        """ Generate coordinates for crops that cover all seismogram
+
+        Parameters
+        ----------
+        src : str
+            component from which the crops will be cropped
+        dst : str
+            component to store crops coordinates
+        shape : tuple of ints
+            crop shape
+        drop_last: bool
+            If True, drop border crops if they are incomplete
+        """
+        
+        if isinstance(self.index, SegyFilesIndex):
+            raise NotImplementedError("Index can't be SegyFilesIndex")
+
+        pos = self.get_pos(None, None, index)
+        field = getattr(self, src)[pos]
+
+        len_x, len_y = field.shape
+        x, y = shape
+
+        coords_x = np.arange(0, len_x, x)
+        if len_x % x != 0 and drop_last:
+            coords_x = coords_x[:-1]
+
+        coords_y = np.arange(0, len_y, y)
+        if len_y % y != 0 and drop_last:
+            coords_y = coords_y[:-1]
+
+        getattr(self, dst)[pos] = list(product(coords_x, coords_y))
 
     @inbatch_parallel(init='_init_component', target="threads")
     def shift_pick_phase(self, index, src, src_traces, dst=None, shift=1.5, threshold=0.05):
