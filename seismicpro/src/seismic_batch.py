@@ -164,7 +164,7 @@ class SeismicBatch(Batch):
     def _init_component(self, src, dst, *args, **kwargs):
         """Create and preallocate a new attribute with the name ``dst`` if it
         does not exist and return batch indices."""
-        _ = args
+        _ = args, kwargs
         dst = (dst, ) if isinstance(dst, str) else dst
         copy_meta = True
 
@@ -185,6 +185,7 @@ class SeismicBatch(Batch):
                         self.meta[idst] = dict()
             else:
                 self.meta[idst] = dict()
+
             if self.components is None or idst not in self.components:
                 self.add_components(idst, init=self.array_of_nones)
 
