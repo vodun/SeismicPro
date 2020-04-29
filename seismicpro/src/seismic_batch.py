@@ -1498,8 +1498,8 @@ class SeismicBatch(Batch):
 
             else:
                 if (x + shape[0] > image.shape[0]) or (y + shape[1] > image.shape[1]):
-                    raise ValueError(f'Coordinates {x, y} exceed feasible region of seismogramm shape: {image.shape},',
-                                     f'with crop shape: {shape} but pad_zeros is False')
+                    raise ValueError('Coordinates {} exceed feasible region of seismogram with shape {}'.format((x, y), image.shape) +
+                                     ', with crop shape {} but pad_zeros is False'.format(shape))
                 res[i] = image[x:x+shape[0], y:y+shape[1]]
         return res
 
