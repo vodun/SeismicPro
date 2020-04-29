@@ -161,7 +161,7 @@ class SeismicBatch(Batch):
         if preloaded is None:
             self.meta = dict()
 
-    def _init_component(self, src, dst, *args, **kwargs):
+    def _init_component(self, *args, src, dst, **kwargs):
         """Create and preallocate a new attribute with the name ``dst`` if it
         does not exist and return batch indices."""
         _ = args, kwargs
