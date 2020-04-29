@@ -1077,6 +1077,73 @@ class SeismicBatch(Batch):
                      dpi=dpi, line_color=line_color, title=title, **kwargs)
         return self
 
+    def crops_plot(self, src, index, # pylint: disable=too-many-branches, too-many-arguments
+                   num_crops=None,
+                   wiggle=False, std=1,
+                   src_picking=None, s=None, scatter_color=None,
+                   figsize=None, title=None,
+                   save_to=None, dpi=None, **kwargs):
+        """Plot seismic traces.
+
+        Parameters
+        ----------
+        src : str or array of str
+            The batch component(s) with data to show.
+        index : same type as batch.indices
+            Data index to show.
+        num_crops: int or None
+            If not None, random `num_crops` crops are shown, all crops otherwise
+        wiggle : bool, default to False
+            Show traces in a wiggle form.
+        std : scalar, optional
+            Amplitude scale for traces in wiggle form.
+        src_picking : str
+            Component with picking data.
+        s : scalar or array_like, shape (n, ), optional
+            The marker size in points**2.
+        scatter_color : color, sequence, or sequence of color, optional
+            The marker color.
+        figsize : array-like, optional
+            Output plot size.
+        save_to : str or None, optional
+            If not None, save plot to given path.
+        dpi : int, optional, default: None
+            The resolution argument for matplotlib.pyplot.savefig.
+        title : str
+            Plot title.
+        kwargs : dict
+            Additional keyword arguments for plot.
+
+        Returns
+        -------
+        Multi-column subplots.
+        """
+        pos = self.get_pos(None, 'indices', index)
+
+        if src_picking is not None:
+            raise NotImplementedError()
+
+        pts_picking = None
+
+        arrs = getattr(self, src)[pos]
+        names = self.meta[src]['coords']
+
+        if num_crops is not None and num_crops < len(arrs):
+            crops_indices = np.random.choice(np.arange(len(arrs)), size=num_crops, replace=False)
+            arrs = arrs[crops_indices]
+            names = names[crops_indices]
+        else:
+            num_crops = len(arrs)
+
+        names = [str(c) for c in names]
+        title = "{} crops from {}".format(num_crops, index)
+
+        seismic_plot(arrs=arrs, wiggle=wiggle, std=std,
+                     pts=pts_picking, s=s, scatter_color=scatter_color,
+                     figsize=figsize, names=names, save_to=save_to,
+                     dpi=dpi, title=title, **kwargs)
+        return self
+
     def spectrum_plot(self, src, index, frame, max_freq=None,
                       figsize=None, save_to=None, **kwargs):
         """Plot seismogram(s) and power spectrum of given region in the seismogram(s).
@@ -1504,12 +1571,12 @@ class SeismicBatch(Batch):
 
         getattr(self, dst)[pos] = self._crop(field, xy, shape, pad_zeros)
 
-        self.meta[dst].update({'source': src})
+        self.meta[dst].update({'source': src, 'coords': xy})
 
     @action
     @inbatch_parallel(init='_init_component')
     @apply_to_each_component
-    def assemble_crops(self, index, src, coords, dst=None):
+    def assemble_crops(self, index, src, dst=None):
         """
         Assembles crops from `src` into single seismogram using coordinates from `coords`
 
@@ -1529,6 +1596,7 @@ class SeismicBatch(Batch):
 
         pos = self.get_pos(None, None, index)
         crops = getattr(self, src)[pos]
+        coords = self.meta[src]['coords']
 
         res_x = self.index.tracecounts[pos]
         res_y = len(self.meta[self.meta[src]['source']]['samples'])
@@ -1567,7 +1635,7 @@ class SeismicBatch(Batch):
         drop_last: bool
             If True, drop border crops if they are incomplete
         """
-        
+
         if isinstance(self.index, SegyFilesIndex):
             raise NotImplementedError("Index can't be SegyFilesIndex")
 
