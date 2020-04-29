@@ -1126,7 +1126,8 @@ class SeismicBatch(Batch):
         pts_picking = None
 
         arrs = getattr(self, src)[pos]
-        names = self.meta[src]['coords']
+        total_crops = len(arrs)
+        names = self.meta[src]['coords'][index]
 
         if num_crops is not None and num_crops < len(arrs):
             crops_indices = np.random.choice(np.arange(len(arrs)), size=num_crops, replace=False)
@@ -1136,7 +1137,7 @@ class SeismicBatch(Batch):
             num_crops = len(arrs)
 
         names = [str(c) for c in names]
-        title = "{} crops from {}".format(num_crops, index)
+        title = "{} (of {}) crops from {}".format(num_crops, total_crops, index)
 
         seismic_plot(arrs=arrs, wiggle=wiggle, std=std,
                      pts=pts_picking, s=s, scatter_color=scatter_color,
@@ -1571,7 +1572,9 @@ class SeismicBatch(Batch):
 
         getattr(self, dst)[pos] = self._crop(field, xy, shape, pad_zeros)
 
-        self.meta[dst].update({'source': src, 'coords': xy})
+        self.meta[dst].setdefault('source', src)
+        self.meta[dst].setdefault('coords', {})
+        self.meta[dst]['coords'][index] = xy
 
     @action
     @inbatch_parallel(init='_init_component')
@@ -1596,7 +1599,7 @@ class SeismicBatch(Batch):
 
         pos = self.get_pos(None, None, index)
         crops = getattr(self, src)[pos]
-        coords = self.meta[src]['coords']
+        coords = self.meta[src]['coords'][index]
 
         res_x = self.index.tracecounts[pos]
         res_y = len(self.meta[self.meta[src]['source']]['samples'])
