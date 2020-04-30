@@ -21,13 +21,11 @@ class UnetAtt(EncoderDecoder):
 
     @classmethod
     def initial_block(cls, inputs, name='initial_block', **kwargs):
-#     def initial_block(self, inputs, *args, **kwargs):
         _ = name, kwargs
         return inputs
 
     @classmethod
     def body(cls, inputs, name='body', **kwargs):
-#     def body(self, inputs, *args, **kwargs):
         _ = name
         raw, offset = inputs
 
@@ -39,7 +37,6 @@ class UnetAtt(EncoderDecoder):
         return main, att, raw, offset
 
     def head(self, inputs, targets, name='head', **kwargs):
-#     def head(self, inputs, *args, **kwargs):
         _ = targets, name, kwargs
         main, att, raw, offset = inputs
 
