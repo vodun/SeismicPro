@@ -1,4 +1,5 @@
 """ UnetAttention model """
+# pylint: disable=signature-differs
 import tensorflow as tf
 
 from ..batchflow.batchflow.models.tf import EncoderDecoder
