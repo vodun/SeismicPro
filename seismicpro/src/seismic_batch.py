@@ -1,6 +1,5 @@
 """Seismic batch.""" # pylint: disable=too-many-lines
 import os
-import warnings
 from textwrap import dedent
 import numpy as np
 import matplotlib.pyplot as plt
@@ -264,12 +263,11 @@ class SeismicBatch(Batch):
         if len(from_comp) != len(to_comp):
             raise ValueError('Length from_comp should be equal to to_comp length.')
 
-        for ix, (fr_comp, t_comp) in enumerate(zip(from_comp, to_comp)):
+        for fr_comp, t_comp in zip(from_comp, to_comp):
             if fr_comp not in self.meta:
                 raise ValueError(f'{fr_comp} not exist.')
 
-            added_meta = self.meta[fr_comp]
-            new_meta = dict(added_meta)
+            new_meta = self.meta[fr_comp].copy()
             new_meta.update(**self.meta[t_comp])
             self.meta[t_comp] = new_meta
 
