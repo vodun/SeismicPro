@@ -161,33 +161,17 @@ class SeismicBatch(Batch):
         if preloaded is None:
             self.meta = dict()
 
-    def _init_component(self, *args, src, dst, **kwargs):
+    def _init_component(self, *args, dst, **kwargs):
         """Create and preallocate a new attribute with the name ``dst`` if it
         does not exist and return batch indices."""
         _ = args, kwargs
         dst = (dst, ) if isinstance(dst, str) else dst
-        copy_meta = True
 
-        if isinstance(src, str):
-            src = (src, ) * len(dst)
+        for comp in dst:
+            self.meta[comp] = self.meta[comp] if comp in self.meta else dict()
 
-        elif len(dst) != len(src):
-            copy_meta = False
-            warnings.warn("length of src and dst are not equal, note that meta for new components will be empty.")
-
-        for ix, idst in enumerate(dst):
-            if copy_meta:
-                isrc = src[ix]
-                if idst not in self.meta:
-                    if isrc in self.meta:
-                        self.meta[idst] = self.meta[isrc].copy()
-                    else:
-                        self.meta[idst] = dict()
-            else:
-                self.meta[idst] = dict()
-
-            if self.components is None or idst not in self.components:
-                self.add_components(idst, init=self.array_of_nones)
+            if self.components is None or comp not in self.components:
+                self.add_components(comp, init=self.array_of_nones)
 
         return self.indices
 
@@ -256,6 +240,40 @@ class SeismicBatch(Batch):
             return values
 
         return np.array(np.split(values, np.cumsum(tracecounts)[:-1]) + [None])[:-1]
+
+    def copy_meta(self, from_comp, to_comp):
+        """Copy meta from one component to another or form few components. One can copy either
+        full meta or only particular keys.
+        Parameters
+        ----------
+        from_comp : str or array-like
+            Component's name to copy meta from or list of component's names.
+        to_comp : str or array-like
+            Component's name to copy meta in or list of component's names.
+        Raises
+        ------
+            ValueError : if `from_comp` and `to_comp` have different length.
+            ValueError : if one of given to `from_comp` component doesn't exist.
+        Note
+        ----
+            The copied meta will not overwrite the old meta.
+        """
+        from_comp = (from_comp, ) if isinstance(from_comp, str) else from_comp
+        to_comp = (to_comp, ) if isinstance(to_comp, str) else to_comp
+
+        if len(from_comp) != len(to_comp):
+            raise ValueError('Length from_comp should be equal to to_comp length.')
+
+        for ix, (fr_comp, t_comp) in enumerate(zip(from_comp, to_comp)):
+            if fr_comp not in self.meta:
+                raise ValueError(f'{fr_comp} not exist.')
+
+            added_meta = self.meta[fr_comp]
+            new_meta = dict(added_meta)
+            new_meta.update(**self.meta[t_comp])
+            self.meta[t_comp] = new_meta
+
+        return self
 
     @action
     @inbatch_parallel(init="_init_component", target="threads")
@@ -669,6 +687,7 @@ class SeismicBatch(Batch):
         pos = self.get_pos(None, src, index)
         data = getattr(self, src)[pos]
         getattr(self, dst)[pos] = data[:, slice_obj]
+        self.copy_meta(src, dst)
         return self
 
     @action
@@ -701,6 +720,7 @@ class SeismicBatch(Batch):
 
         kwargs['pad_width'] = [(0, 0)] + [pad_width] + [(0, 0)] * (data.ndim - 2)
         getattr(self, dst)[pos] = np.pad(data, **kwargs)
+        self.copy_meta(src, dst)
         return self
 
     @inbatch_parallel(init="_init_component", target="threads")
@@ -766,7 +786,7 @@ class SeismicBatch(Batch):
 
         self._sort(src=src, sort_by=sort_by, current_sorting=current_sorting, dst=dst)
         self.meta[dst]['sorting'] = sort_by
-
+        self.copy_meta(src, dst)
         return self
 
     @action
@@ -936,7 +956,7 @@ class SeismicBatch(Batch):
                 new_field.append(field[ix][new_ts])
 
         getattr(self, dst)[pos] = np.array(new_field)
-        self.meta[dst] = self.meta[src].copy()
+        self.copy_meta(src, dst)
         return self
 
     @action
@@ -990,6 +1010,7 @@ class SeismicBatch(Batch):
         v_pow, t_pow = params
 
         self._correct_sph_div(src=src, dst=dst, time=time, speed=speed, v_pow=v_pow, t_pow=t_pow)
+        self.copy_meta(src, dst)
         return self
 
     @inbatch_parallel(init='_init_component')
@@ -1214,6 +1235,7 @@ class SeismicBatch(Batch):
 
         dst_data = np.split(std_data, ind)
         setattr(self, dst, np.array(dst_data + [None])[:-1]) # array implicitly converted to object dtype
+        self.copy_meta(src, dst)
         return self
 
     @action
@@ -1409,6 +1431,7 @@ class SeismicBatch(Batch):
         equalized_field = field / p_95
 
         getattr(self, dst)[pos] = equalized_field
+        self.copy_meta(src, dst)
         return self
 
     def _crop(self, image, coords, shape):
