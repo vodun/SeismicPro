@@ -1088,7 +1088,7 @@ class SeismicBatch(Batch):
         Parameters
         ----------
         src : str or array of str
-            The batch component(s) with data to show.
+            The batch component(s) with crops to show.
         index : same type as batch.indices
             Data index to show.
         num_crops: int or None
