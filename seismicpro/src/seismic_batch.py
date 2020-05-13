@@ -190,8 +190,8 @@ class SeismicBatch(Batch):
 
         Note
         ----
-        Batch items in each component should be filtered in decorated action.
-        This post function creates new instance of SeismicBatch with new index
+        1. Batch items in each component should be filtered in decorated action.
+        2. This post function creates new instance of SeismicBatch with new index
         instance and copies filtered components from original batch for elements
         in new index.
         """
@@ -243,19 +243,22 @@ class SeismicBatch(Batch):
     def copy_meta(self, from_comp, to_comp):
         """Copy meta from one component to another or form few components. One can copy either
         full meta or only particular keys.
+
         Parameters
         ----------
         from_comp : str or array-like
             Component's name to copy meta from or list of component's names.
         to_comp : str or array-like
             Component's name to copy meta in or list of component's names.
+
         Raises
         ------
             ValueError : if `from_comp` and `to_comp` have different length.
             ValueError : if one of given to `from_comp` component doesn't exist.
+
         Note
         ----
-            The copied meta will not overwrite the old meta.
+        The copied meta will not overwrite the old meta.
         """
         from_comp = (from_comp, ) if isinstance(from_comp, str) else from_comp
         to_comp = (to_comp, ) if isinstance(to_comp, str) else to_comp
@@ -680,6 +683,10 @@ class SeismicBatch(Batch):
         -------
         batch : SeismicBatch
             Batch with sliced traces.
+
+        Note
+        ----
+        This action copies all meta from `src` component to `dst` component.
         """
         _ = args
         pos = self.get_pos(None, src, index)
@@ -708,6 +715,10 @@ class SeismicBatch(Batch):
         -------
         batch : SeismicBatch
             Batch with padded traces.
+
+        Note
+        ----
+        This action copies all meta from `src` component to `dst` component.
         """
         _ = args
         pos = self.get_pos(None, src, index)
@@ -772,6 +783,11 @@ class SeismicBatch(Batch):
         -------
         batch : SeismicBatch
             Batch with new trace sorting.
+
+        Note
+        ----
+        1. This action copies all meta from `src` component to `dst` component.
+        2. `dst` meta contains sorting type in `meta['sorting']`.
         """
         _ = args
         if src in self.meta.keys():
@@ -890,14 +906,15 @@ class SeismicBatch(Batch):
             : SeismicBatch
             Traces straightened on the basis of speed and time values.
 
+        Raises
+        ------
+        ValueError : Raise if traces are not sorted by offset.
+
         Note
         ----
         1. Works only with sorted traces by offset.
         2. Works properly only with CustomIndex with CDP index.
-
-        Raises
-        ------
-        ValueError : Raise if traces are not sorted by offset.
+        3. This action copies all meta from `src` component to `dst` component.
         """
         if not isinstance(self.index, CustomIndex):
             raise ValueError("Index must be CustomIndex, not {}".format(type(self.index)))
@@ -987,14 +1004,15 @@ class SeismicBatch(Batch):
             : SeismicBatch
             Batch of shot gathers with corrected spherical divergence.
 
-        Note
-        ----
-        Works properly only with FieldIndex.
-
         Raises
         ------
         ValueError : If Index is not FieldIndex.
         ValueError : If length of ```params``` not equal to 2.
+
+        Note
+        ----
+        1. Works properly only with FieldIndex.
+        2. This action copies all meta from `src` component to `dst` component.
         """
         if not isinstance(self.index, FieldIndex):
             raise ValueError("Index must be FieldIndex, not {}".format(type(self.index)))
@@ -1224,6 +1242,10 @@ class SeismicBatch(Batch):
         -------
         batch : SeismicBatch
             Batch with the standardized traces.
+
+        Note
+        ----
+        This action copies all meta from `src` component to `dst` component.
         """
         data = np.concatenate(getattr(self, src))
         std_data = (data - np.mean(data, axis=1, keepdims=True)) / (np.std(data, axis=1, keepdims=True) + 10 ** -6)
@@ -1405,10 +1427,11 @@ class SeismicBatch(Batch):
 
         Note
         ----
-        Works properly only with FieldIndex.
-        If `params` dict is user-defined, `survey_id_col` should be
+        1. Works properly only with FieldIndex.
+        2. If `params` dict is user-defined, `survey_id_col` should be
         provided excplicitly either as argument, or as `params` dict key-value
         pair.
+        3. This action copies all meta from `src` component to `dst` component.
         """
         if not isinstance(self.index, FieldIndex):
             raise ValueError("Index must be FieldIndex, not {}".format(type(self.index)))
@@ -1495,8 +1518,8 @@ class SeismicBatch(Batch):
 
         Notes
         -----
-        - Works properly only with FieldIndex.
-        - `R` samples a relative position of top-left coordinate in a feasible region of seismogram.
+        1. Works properly only with FieldIndex.
+        2. `R` samples a relative position of top-left coordinate in a feasible region of seismogram.
 
         Examples
         --------
@@ -1543,7 +1566,6 @@ class SeismicBatch(Batch):
         threshold: float
             Threshold determining amplitude, such that all the samples with amplitude less then threshold would be
             skipped. Introduced because of unstable behaviour of the hilbert transform at the begining of the signal.
-
          """
         shift *= np.pi
         pos = self.get_pos(None, src, index)
