@@ -240,7 +240,7 @@ class SeismicBatch(Batch):
 
         return np.array(np.split(values, np.cumsum(tracecounts)[:-1]) + [None])[:-1]
 
-    def copy_meta(self, from_comp, to_comp):
+    def copy_meta(self, from_comp, to_comp, overwrite=False):
         """Copy meta from one component to another or form few components. One can copy either
         full meta or only particular keys.
 
@@ -269,10 +269,12 @@ class SeismicBatch(Batch):
         for fr_comp, t_comp in zip(from_comp, to_comp):
             if fr_comp not in self.meta:
                 raise ValueError(f'{fr_comp} not exist.')
-
-            new_meta = self.meta[fr_comp].copy()
-            new_meta.update(**self.meta[t_comp])
-            self.meta[t_comp] = new_meta
+            if overwrite:
+                self.meta[t_comp].update(**self.meta[fr_comp])
+            else:
+                new_meta = self.meta[fr_comp].copy()
+                new_meta.update(**self.meta[t_comp])
+                self.meta[t_comp] = new_meta
 
         return self
 
