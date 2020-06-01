@@ -241,8 +241,8 @@ class SeismicBatch(Batch):
         return np.array(np.split(values, np.cumsum(tracecounts)[:-1]) + [None])[:-1]
 
     def copy_meta(self, from_comp, to_comp, overwrite=False):
-        """Copy meta from one component to another or form few components. One can copy either
-        full meta or only particular keys.
+        """Copy meta from one component to another or form list of components to list of
+        components with same length.
 
         Parameters
         ----------
@@ -250,21 +250,21 @@ class SeismicBatch(Batch):
             Component's name to copy meta from or list of component's names.
         to_comp : str or array-like
             Component's name to copy meta in or list of component's names.
+        overwrite : bool
+            If True, all meta from `to_comp` will be rewritten by meta from `from_comp`.
+            If False, only new meta from will be added.
 
         Raises
         ------
             ValueError : if `from_comp` and `to_comp` have different length.
             ValueError : if one of given to `from_comp` component doesn't exist.
-
-        Note
-        ----
-        The copied meta will not overwrite the old meta.
         """
         from_comp = (from_comp, ) if isinstance(from_comp, str) else from_comp
         to_comp = (to_comp, ) if isinstance(to_comp, str) else to_comp
 
         if len(from_comp) != len(to_comp):
-            raise ValueError('Length from_comp should be equal to to_comp length.')
+            raise ValueError("Unexpected length of component's lists. Given len(from_comp)="
+                              "{} != len(to_comp)={}.".format(len(to_comp), len(from_comp)))
 
         for fr_comp, t_comp in zip(from_comp, to_comp):
             if fr_comp not in self.meta:
@@ -801,8 +801,8 @@ class SeismicBatch(Batch):
             return self
 
         self._sort(src=src, sort_by=sort_by, current_sorting=current_sorting, dst=dst)
-        self.meta[dst]['sorting'] = sort_by
         self.copy_meta(src, dst)
+        self.meta[dst]['sorting'] = sort_by
         return self
 
     @action
