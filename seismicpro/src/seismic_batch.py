@@ -268,7 +268,7 @@ class SeismicBatch(Batch):
 
         for fr_comp, t_comp in zip(from_comp, to_comp):
             if fr_comp not in self.meta:
-                raise ValueError(f'{fr_comp} not exist.')
+                raise ValueError('{} does not exist.'.format(fr_comp))
             if overwrite:
                 self.meta[t_comp].update(**self.meta[fr_comp])
             else:
