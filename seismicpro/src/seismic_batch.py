@@ -264,7 +264,7 @@ class SeismicBatch(Batch):
 
         if len(from_comp) != len(to_comp):
             raise ValueError("Unexpected length of component's lists. Given len(from_comp)="
-                              "{} != len(to_comp)={}.".format(len(to_comp), len(from_comp)))
+                             "{} != len(to_comp)={}.".format(len(to_comp), len(from_comp)))
 
         for fr_comp, t_comp in zip(from_comp, to_comp):
             if fr_comp not in self.meta:
