@@ -1016,7 +1016,7 @@ class SeismicBatch(Batch):
                                scroll_step=scroll_step, **kwargs)
         return fig, tracker
 
-    def seismic_plot(self, src, index, wiggle=False, xlim=None, ylim=None, std=1, # pylint: too-many-arguments
+    def seismic_plot(self, src, index, wiggle=False, xlim=None, ylim=None, std=1, # pylint: disable=too-many-arguments
                      src_picking=None, s=None, scatter_color=None, figsize=None,
                      save_to=None, dpi=None, line_color=None, title=None, **kwargs):
         """Plot seismic traces.
@@ -1077,7 +1077,7 @@ class SeismicBatch(Batch):
                      dpi=dpi, line_color=line_color, title=title, **kwargs)
         return self
 
-    def crops_plot(self, src, index, # pylint: too-many-arguments
+    def crops_plot(self, src, index, # pylint: disable=too-many-arguments
                    num_crops=None,
                    wiggle=False, std=1,
                    src_picking=None, s=None, scatter_color=None,
