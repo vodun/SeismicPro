@@ -1016,7 +1016,7 @@ class SeismicBatch(Batch):
                                scroll_step=scroll_step, **kwargs)
         return fig, tracker
 
-    def seismic_plot(self, src, index, wiggle=False, xlim=None, ylim=None, std=1, # pylint: disable=too-many-branches, too-many-arguments
+    def seismic_plot(self, src, index, wiggle=False, xlim=None, ylim=None, std=1, # pylint: too-many-arguments
                      src_picking=None, s=None, scatter_color=None, figsize=None,
                      save_to=None, dpi=None, line_color=None, title=None, **kwargs):
         """Plot seismic traces.
@@ -1077,7 +1077,7 @@ class SeismicBatch(Batch):
                      dpi=dpi, line_color=line_color, title=title, **kwargs)
         return self
 
-    def crops_plot(self, src, index, # pylint: disable=too-many-branches, too-many-arguments
+    def crops_plot(self, src, index, # pylint: too-many-arguments
                    num_crops=None,
                    wiggle=False, std=1,
                    src_picking=None, s=None, scatter_color=None,
@@ -1118,6 +1118,10 @@ class SeismicBatch(Batch):
         -------
         Multi-column subplots.
         """
+
+        if 'coords' not in self.meta[src]:
+            raise ValueError("{} component doesn't contain crops!".format(src))
+
         pos = self.get_pos(None, 'indices', index)
 
         if src_picking is not None:
@@ -1486,7 +1490,6 @@ class SeismicBatch(Batch):
         """
         res = np.empty((len(coords), ), dtype='O')
         for i, (x, y) in enumerate(coords):
-
             if pad_zeros:
                 arr = np.zeros(shape)
 
@@ -1501,6 +1504,7 @@ class SeismicBatch(Batch):
                     raise ValueError('Coordinates', (x, y), 'exceed feasible region of seismogram with shape',
                                      image.shape, ', with crop shape', shape, 'but pad_zeros is False')
                 res[i] = image[x:x+shape[0], y:y+shape[1]]
+                
         return res
 
     @action
@@ -1542,7 +1546,6 @@ class SeismicBatch(Batch):
 
         Notes
         -----
-        - Works properly only with FieldIndex.
         - `R` samples a relative position of top-left coordinate in a feasible region of seismogram.
 
         Examples
@@ -1579,9 +1582,9 @@ class SeismicBatch(Batch):
     @action
     @inbatch_parallel(init='_init_component')
     @apply_to_each_component
-    def assemble_crops(self, index, src, dst=None):
+    def assemble_crops(self, index, src, dst):
         """
-        Assembles crops from `src` into single seismogram using coordinates from `coords`
+        Assembles crops from `src` into a single seismogram
 
         Parameters
         ----------
@@ -1589,13 +1592,13 @@ class SeismicBatch(Batch):
             component with crops
         dst : str
             component to put the result to. If None, `dst` == `src`
-        coords : list of tuples (int, int)
-            list of coordinates of upper left corners of crops from `src`.
-            The length of the list should be same as number of crops in `src`
         """
 
         if isinstance(self.index, SegyFilesIndex):
             raise NotImplementedError("Index can't be SegyFilesIndex")
+
+        if 'coords' not in self.meta[src]:
+            raise ValueError("{} component doesn't contain crops!".format(src))
 
         pos = self.get_pos(None, None, index)
         crops = getattr(self, src)[pos]
