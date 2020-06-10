@@ -1,0 +1,14 @@
+md5: f95708911d665edf257ea8ce37c5befd
+locked: true
+deps:
+- path: seismic_processing/teapot/npr3_field_10.sgy
+  repo:
+    url: https://github.com/gazprom-neft/seismic_data.git
+    rev: test_data
+    rev_lock: e8fa1d2a545285e1d968461c9a79d4aa7aab03ae
+outs:
+- md5: 13452f10d4f90426d9e48af533592f44
+  path: npr3_field_10.sgy
+  cache: true
+  metric: false
+  persist: false
