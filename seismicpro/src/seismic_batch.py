@@ -1518,7 +1518,7 @@ class SeismicBatch(Batch):
         pos = self.get_pos(None, src, index)
         arr = getattr(self, src)[pos]
 
-        if all(((0 < x < 1) and (0 < y < 1)) for x, y in coords):
+        if all(((0 <= x < 1) and (0 <= y < 1)) for x, y in coords):
             feasible_region = np.array(arr.shape) - shape
             xy = (feasible_region * coords).astype(int)
             if np.any(xy < 0):
