@@ -808,7 +808,7 @@ class SeismicBatch(Batch):
 
     @action
     @inbatch_parallel(init="indices", post='_post_filter_by_mask', target="threads")
-    def drop_zero_traces(self, index, src, num_zero, all_comps_sorted=True, **kwargs):
+    def drop_zero_traces(self, index, src, num_zero, all_comps_sorted=True):
         """Drop traces with sequence of zeros longer than ```num_zero```.
 
         This action drops traces from index dataframe and from all batch components
@@ -840,7 +840,6 @@ class SeismicBatch(Batch):
         This action creates new instance of SeismicBatch with new index
         instance.
         """
-        _ = kwargs
         sorting = self.meta[src]['sorting']
         if sorting is None and not isinstance(self.index, TraceIndex):
             raise ValueError('traces in `{}` component should be sorted '
