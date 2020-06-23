@@ -37,7 +37,7 @@ class UnetAtt(EncoderDecoder):
         return main, att, raw, offset
 
     @classmethod
-    def head(self, inputs, targets, name='head', **kwargs):
+    def head(cls, inputs, targets, name='head', **kwargs):
         _ = targets, name, kwargs
         main, att, raw, offset = inputs
 
