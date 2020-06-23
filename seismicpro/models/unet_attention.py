@@ -1,5 +1,4 @@
 """ UnetAttention model """
-# pylint: disable=signature-differs
 import tensorflow as tf
 
 from ..batchflow.batchflow.models.tf import EncoderDecoder
@@ -20,12 +19,14 @@ class UnetAtt(EncoderDecoder):
 
         return config
 
-    def initial_block(self, inputs, *args, **kwargs):
-        _ = args, kwargs
+    @classmethod
+    def initial_block(cls, inputs, name='initial_block', **kwargs):
+        _ = name, kwargs
         return inputs
 
-    def body(self, inputs, *args, **kwargs):
-        _ = args
+    @classmethod
+    def body(cls, inputs, name='body', **kwargs):
+        _ = name
         raw, offset = inputs
 
         main_config = kwargs.pop('main')
@@ -35,8 +36,9 @@ class UnetAtt(EncoderDecoder):
         att = super().body(raw, name='attention', **{**kwargs, **attn_config}) # pylint: disable=not-a-mapping
         return main, att, raw, offset
 
-    def head(self, inputs, *args, **kwargs):
-        _ = args, kwargs
+    @classmethod
+    def head(self, inputs, targets, name='head', **kwargs):
+        _ = targets, name, kwargs
         main, att, raw, offset = inputs
 
         #Get a single channel with sigmoid activation for the attention branch
