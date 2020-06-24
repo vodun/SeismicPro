@@ -36,8 +36,7 @@ class UnetAtt(EncoderDecoder):
         att = super().body(raw, name='attention', **{**kwargs, **attn_config}) # pylint: disable=not-a-mapping
         return main, att, raw, offset
 
-    @classmethod
-    def head(cls, inputs, targets, name='head', **kwargs):
+    def head(self, inputs, targets, name='head', **kwargs):
         _ = targets, name, kwargs
         main, att, raw, offset = inputs
 
