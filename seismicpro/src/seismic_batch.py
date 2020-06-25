@@ -241,7 +241,7 @@ class SeismicBatch(Batch):
         return np.array(np.split(values, np.cumsum(tracecounts)[:-1]) + [None])[:-1]
 
     def copy_meta(self, from_comp, to_comp, overwrite):
-        """Copy meta from one component to another or form list of components to list of
+        """Copy meta from one component to another or from list of components to list of
         components with same length.
 
         Parameters
