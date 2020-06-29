@@ -1,4 +1,0 @@
-[cache]
-    dir = /data/seismic_data/.dvc/cache
-    protected = true
-    type = symlink

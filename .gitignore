@@ -5,4 +5,8 @@ __pycache__/
 notebooks/
 demo/
 .idea/
+
+# Ignore SEGY files
 *.sgy
+# except demo data
+!datasets/demo_data/*.sgy
