@@ -1,5 +1,6 @@
 """Seismic batch.""" # pylint: disable=too-many-lines
 import os
+import warnings
 from textwrap import dedent
 import numpy as np
 import matplotlib.pyplot as plt
@@ -240,7 +241,7 @@ class SeismicBatch(Batch):
 
         return np.array(np.split(values, np.cumsum(tracecounts)[:-1]) + [None])[:-1]
 
-    def copy_meta(self, from_comp, to_comp, overwrite):
+    def copy_meta(self, from_comp, to_comp):
         """Copy meta from one component to another or from list of components to list of
         components with same length.
 
@@ -250,15 +251,21 @@ class SeismicBatch(Batch):
             Component's name to copy meta from or list of component's names.
         to_comp : str or array-like
             Component's name to copy meta in or list of component's names.
-        overwrite : bool
-            If True, all meta from `to_comp` will be replaced by meta from `from_comp`. Keys that exist in
-            only `to_comp` will remain.
-            If False, only new meta from will be added.
 
         Raises
         ------
             ValueError : if `from_comp` and `to_comp` have different length.
             ValueError : if one of given to `from_comp` component doesn't exist.
+
+        Returns
+        -------
+        batch : SeismicBatch
+            Batch with new meta, components' data remains unchanged.
+
+        Note
+        ----
+        If a component from `to_comp` has meta data, it will always be replaced with meta from
+        the corresponding `from_comp`.
         """
         from_comp = (from_comp, ) if isinstance(from_comp, str) else from_comp
         to_comp = (to_comp, ) if isinstance(to_comp, str) else to_comp
@@ -270,12 +277,15 @@ class SeismicBatch(Batch):
         for fr_comp, t_comp in zip(from_comp, to_comp):
             if fr_comp not in self.meta:
                 raise ValueError('{} does not exist.'.format(fr_comp))
-            if overwrite:
-                self.meta[t_comp].update(**self.meta[fr_comp])
+
+            if fr_comp == t_comp:
+                continue
             else:
-                new_meta = self.meta[fr_comp].copy()
-                new_meta.update(**self.meta[t_comp])
-                self.meta[t_comp] = new_meta
+                if self.meta[t_comp]:
+                    warnings.warn("Meta of component {} is not empty and".format(t_comp) + \
+                                  " will be replaced by the meta from component {}.".format(fr_comp),
+                                  UserWarning)
+                self.meta[t_comp] = self.meta[fr_comp].copy()
 
         return self
 
@@ -695,7 +705,7 @@ class SeismicBatch(Batch):
         pos = self.get_pos(None, src, index)
         data = getattr(self, src)[pos]
         getattr(self, dst)[pos] = data[:, slice_obj]
-        self.copy_meta(src, dst, overwrite=True)
+        self.copy_meta(src, dst)
         return self
 
     @action
@@ -732,7 +742,7 @@ class SeismicBatch(Batch):
 
         kwargs['pad_width'] = [(0, 0)] + [pad_width] + [(0, 0)] * (data.ndim - 2)
         getattr(self, dst)[pos] = np.pad(data, **kwargs)
-        self.copy_meta(src, dst, overwrite=True)
+        self.copy_meta(src, dst)
         return self
 
     @inbatch_parallel(init="_init_component", target="threads")
@@ -802,7 +812,7 @@ class SeismicBatch(Batch):
             return self
 
         self._sort(src=src, sort_by=sort_by, current_sorting=current_sorting, dst=dst)
-        self.copy_meta(src, dst, overwrite=True)
+        self.copy_meta(src, dst)
         self.meta[dst]['sorting'] = sort_by
         return self
 
@@ -973,7 +983,7 @@ class SeismicBatch(Batch):
                 new_field.append(field[ix][new_ts])
 
         getattr(self, dst)[pos] = np.array(new_field)
-        self.copy_meta(src, dst, overwrite=True)
+        self.copy_meta(src, dst)
         return self
 
     @action
@@ -1028,7 +1038,7 @@ class SeismicBatch(Batch):
         v_pow, t_pow = params
 
         self._correct_sph_div(src=src, dst=dst, time=time, speed=speed, v_pow=v_pow, t_pow=t_pow)
-        self.copy_meta(src, dst, overwrite=True)
+        self.copy_meta(src, dst)
         return self
 
     @inbatch_parallel(init='_init_component')
@@ -1257,7 +1267,7 @@ class SeismicBatch(Batch):
 
         dst_data = np.split(std_data, ind)
         setattr(self, dst, np.array(dst_data + [None])[:-1]) # array implicitly converted to object dtype
-        self.copy_meta(src, dst, overwrite=True)
+        self.copy_meta(src, dst)
         return self
 
     @action
@@ -1454,7 +1464,7 @@ class SeismicBatch(Batch):
         equalized_field = field / p_95
 
         getattr(self, dst)[pos] = equalized_field
-        self.copy_meta(src, dst, overwrite=True)
+        self.copy_meta(src, dst)
         return self
 
     def _crop(self, image, coords, shape):
