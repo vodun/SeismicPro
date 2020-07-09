@@ -248,9 +248,9 @@ class SeismicBatch(Batch):
         Parameters
         ----------
         from_comp : str or array-like
-            Component's name to copy meta from or list of component's names.
+            Component's name to copy meta from or list with names of components.
         to_comp : str or array-like
-            Component's name to copy meta in or list of component's names.
+            Component's name to copy meta in or list with names of components.
 
         Raises
         ------
