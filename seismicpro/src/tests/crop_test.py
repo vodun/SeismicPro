@@ -15,8 +15,8 @@ PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../../datas
 
 PARAMS = {
     # (index_type, batch_size): crop_shapes
-    (FieldIndex, 5): [(100, 150), (12, 100), (12, 2000), (912, 2000)],
-    (TraceIndex, 100): [(100, 1), (12, 1), (2000, 1)]
+    (FieldIndex, 5): [(100, 150), (12, 100), (12, 2000), (912, 2000), (1000, 2100)],
+    (TraceIndex, 100): [(1, 150), (1, 100), (1, 2000), (1, 2100)]
 }
 
 PARAMS_LIST = [(*it_bs, cs) for it_bs in PARAMS for cs in PARAMS[it_bs]]
@@ -27,7 +27,8 @@ class TestCropAssemble:
 
     @pytest.mark.parametrize('single_iteration', [True, pytest.param(False, marks=pytest.mark.slow)])
     @pytest.mark.parametrize('index_type,batch_size,crop_shape', PARAMS_LIST)
-    def test_crop_assemble(self, index_type, batch_size, crop_shape, single_iteration):
+    @pytest.mark.parametrize('assemble_fill_value', [0, 0.5])
+    def test_crop_assemble(self, index_type, batch_size, crop_shape, single_iteration, assemble_fill_value):
         """
         Make crops that cover whole array using regular grid,
         then assemble those crops and
@@ -45,7 +46,7 @@ class TestCropAssemble:
             .update(V('raw', 'a'), B('raw'))
             .make_grid_for_crops(src='raw', dst='coords', shape=crop_shape, drop_last=False)
             .crop(src='raw', dst='crops', coords=P(B('coords')), shape=crop_shape, pad_zeros=True)
-            .assemble_crops(src='crops', dst='assemble')
+            .assemble_crops(src='crops', dst='assemble', fill_value=assemble_fill_value)
             .update(V('assemble', 'a'), B('assemble'))
             )
 
@@ -97,7 +98,7 @@ class TestCropAssemble:
             .init_variable('crops', default=[])
             .load(components='raw', fmt='segy', tslice=slice(2000))
             .update(V('raw', 'a'), B('raw'))
-            .crop(src='raw', dst='crops', coords=[(0, 0), (0, 0.5)], shape=(1, 1), pad_zeros=True)
+            .crop(src='raw', dst='crops', coords=[(0, 0), (0, 0.5)], shape=(1, 1), pad_zeros=False)
             .update(V('crops', 'a'), B('crops'))
             )
 

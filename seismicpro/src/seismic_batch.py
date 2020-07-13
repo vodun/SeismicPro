@@ -1469,6 +1469,46 @@ class SeismicBatch(Batch):
         return self
 
 
+    @action
+    @inbatch_parallel(init='_init_component')
+    @apply_to_each_component
+    def make_grid_for_crops(self, index, src, dst, shape, drop_last=True):
+        """ Generate coordinates for crops that cover all seismogram
+
+        Parameters
+        ----------
+        src : str
+            component from which the crops will be cropped
+        dst : str
+            component to store crops coordinates
+        shape : tuple of ints
+            crop shape
+        drop_last: bool
+            If True, drop border crops if they are incomplete
+        """
+
+        if isinstance(self.index, SegyFilesIndex):
+            raise NotImplementedError("Index can't be SegyFilesIndex")
+
+        pos = self.get_pos(None, None, index)
+        field = getattr(self, src)[pos]
+
+        len_x, len_y = field.shape
+        x, y = shape
+
+        coords_x = np.arange(0, len_x, x)
+        if len_x % x != 0 and drop_last:
+            coords_x = coords_x[:-1]
+
+        coords_y = np.arange(0, len_y, y)
+        if len_y % y != 0 and drop_last:
+            coords_y = coords_y[:-1]
+
+        getattr(self, dst)[pos] = list(product(coords_x, coords_y))
+
+        return self
+
+
     @inbatch_parallel(init='indices')
     def __crop(self, index, src, coords, shape, pad_zeros, dst=None):
         """ Generate crops from an array with seismic data
@@ -1485,7 +1525,7 @@ class SeismicBatch(Batch):
         else:
             xy = np.array(coords)
 
-        res = np.empty((len(xy), ), dtype='O')
+        res = np.empty((len(xy), *shape))
         for i, (x, y) in enumerate(xy):
             if pad_zeros:
                 crop = np.zeros(shape)
@@ -1530,7 +1570,7 @@ class SeismicBatch(Batch):
         shape: tuple of ints
             Crop shape.
         pad_zeros: bool
-            Wether to zero-pad incomplete crops
+            Wether to zero-pad incomplete crops. Valid only for absolute coordinates
 
         Returns
         -------
@@ -1563,7 +1603,7 @@ class SeismicBatch(Batch):
 
         self._init_component(dst=dst)
         self.meta[dst]['crop_coords'] = {}
-        self.meta[dst]['source'] = src
+        self.meta[dst]['crops_source'] = src
 
         self.__crop(src, coords, shape, pad_zeros, dst)
 
@@ -1573,7 +1613,7 @@ class SeismicBatch(Batch):
     @action
     @inbatch_parallel(init='_init_component')
     @apply_to_each_component
-    def assemble_crops(self, index, src, dst):
+    def assemble_crops(self, index, src, dst, fill_value=0.0):
         """
         Assembles crops from `src` into a single seismogram
 
@@ -1582,7 +1622,7 @@ class SeismicBatch(Batch):
         src : str
             component with crops
         dst : str
-            component to put the result to. If None, `dst` == `src`
+            component to put the result to.
         """
 
         if isinstance(self.index, SegyFilesIndex):
@@ -1596,9 +1636,9 @@ class SeismicBatch(Batch):
         coords = self.meta[src]['crop_coords'][index]
 
         res_x = self.index.tracecounts[pos]
-        res_y = len(self.meta[self.meta[src]['source']]['samples'])
+        res_y = len(self.meta[self.meta[src]['crops_source']]['samples'])
 
-        res = np.zeros((res_x, res_y))
+        res = np.full((res_x, res_y), fill_value, dtype=float)
         crop_counts = np.zeros((res_x, res_y))
 
         for crop_coords, crop in zip(coords, crops):
@@ -1614,46 +1654,6 @@ class SeismicBatch(Batch):
         crop_counts[crop_counts == 0] = 1
 
         getattr(self, dst)[pos] = res / crop_counts
-
-        return self
-
-
-    @action
-    @inbatch_parallel(init='_init_component')
-    @apply_to_each_component
-    def make_grid_for_crops(self, index, src, dst, shape, drop_last=True):
-        """ Generate coordinates for crops that cover all seismogram
-
-        Parameters
-        ----------
-        src : str
-            component from which the crops will be cropped
-        dst : str
-            component to store crops coordinates
-        shape : tuple of ints
-            crop shape
-        drop_last: bool
-            If True, drop border crops if they are incomplete
-        """
-
-        if isinstance(self.index, SegyFilesIndex):
-            raise NotImplementedError("Index can't be SegyFilesIndex")
-
-        pos = self.get_pos(None, None, index)
-        field = getattr(self, src)[pos]
-
-        len_x, len_y = field.shape
-        x, y = shape
-
-        coords_x = np.arange(0, len_x, x)
-        if len_x % x != 0 and drop_last:
-            coords_x = coords_x[:-1]
-
-        coords_y = np.arange(0, len_y, y)
-        if len_y % y != 0 and drop_last:
-            coords_y = coords_y[:-1]
-
-        getattr(self, dst)[pos] = list(product(coords_x, coords_y))
 
         return self
 
