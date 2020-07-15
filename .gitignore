@@ -5,8 +5,10 @@ __pycache__/
 notebooks/
 demo/
 .idea/
+.vscode/
+.pytest_cache/
 
 # Ignore SEGY files
 *.sgy
-# except demo data
-!datasets/demo_data/*.sgy
+# except in datasets
+!datasets/**/*.sgy
