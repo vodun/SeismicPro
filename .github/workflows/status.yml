@@ -24,7 +24,7 @@ jobs:
 
     - name: Run tests
       if: always()
-      run: pytest -m "not slow" --disable-pytest-warnings -v
+      run: pytest -m "not slow" --disable-pytest-warnings -v seismicpro/src/tests
 
     - name: Slack notification
       if: success()
