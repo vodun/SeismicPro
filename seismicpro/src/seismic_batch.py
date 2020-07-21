@@ -2,6 +2,7 @@
 import os
 from itertools import product
 
+import warnings
 from textwrap import dedent
 import numpy as np
 import matplotlib.pyplot as plt
@@ -192,8 +193,8 @@ class SeismicBatch(Batch):
 
         Note
         ----
-        Batch items in each component should be filtered in decorated action.
-        This post function creates new instance of SeismicBatch with new index
+        1. Batch items in each component should be filtered in decorated action.
+        2. This post function creates new instance of SeismicBatch with new index
         instance and copies filtered components from original batch for elements
         in new index.
         """
@@ -241,6 +242,54 @@ class SeismicBatch(Batch):
             return values
 
         return np.array(np.split(values, np.cumsum(tracecounts)[:-1]) + [None])[:-1]
+
+    def copy_meta(self, from_comp, to_comp):
+        """Copy meta from one component to another or from list of components to list of
+        components with same length.
+
+        Parameters
+        ----------
+        from_comp : str or array-like
+            Component's name to copy meta from or list with names of components.
+        to_comp : str or array-like
+            Component's name to copy meta in or list with names of components.
+
+        Raises
+        ------
+            ValueError : if `from_comp` and `to_comp` have different length.
+            ValueError : if one of given to `from_comp` component doesn't exist.
+
+        Returns
+        -------
+        batch : SeismicBatch
+            Batch with new meta, components' data remains unchanged.
+
+        Note
+        ----
+        If a component from `to_comp` has meta data, it will always be replaced with meta from
+        the corresponding `from_comp`.
+        """
+        from_comp = (from_comp, ) if isinstance(from_comp, str) else from_comp
+        to_comp = (to_comp, ) if isinstance(to_comp, str) else to_comp
+
+        if len(from_comp) != len(to_comp):
+            raise ValueError("Unexpected length of component's lists. Given len(from_comp)="
+                             "{} != len(to_comp)={}.".format(len(to_comp), len(from_comp)))
+
+        for fr_comp, t_comp in zip(from_comp, to_comp):
+            if fr_comp not in self.meta:
+                raise ValueError('{} does not exist.'.format(fr_comp))
+
+            if fr_comp == t_comp:
+                continue
+
+            if self.meta[t_comp]:
+                warnings.warn("Meta of component {} is not empty and".format(t_comp) + \
+                              " will be replaced by the meta from component {}.".format(fr_comp),
+                              UserWarning)
+            self.meta[t_comp] = self.meta[fr_comp].copy()
+
+        return self
 
     @action
     @inbatch_parallel(init="_init_component", target="threads")
@@ -649,11 +698,16 @@ class SeismicBatch(Batch):
         -------
         batch : SeismicBatch
             Batch with sliced traces.
+
+        Note
+        ----
+        This action copies all meta from `src` component to `dst` component.
         """
         _ = args
         pos = self.get_pos(None, src, index)
         data = getattr(self, src)[pos]
         getattr(self, dst)[pos] = data[:, slice_obj]
+        self.copy_meta(src, dst)
         return self
 
     @action
@@ -676,6 +730,10 @@ class SeismicBatch(Batch):
         -------
         batch : SeismicBatch
             Batch with padded traces.
+
+        Note
+        ----
+        This action copies all meta from `src` component to `dst` component.
         """
         _ = args
         pos = self.get_pos(None, src, index)
@@ -686,6 +744,7 @@ class SeismicBatch(Batch):
 
         kwargs['pad_width'] = [(0, 0)] + [pad_width] + [(0, 0)] * (data.ndim - 2)
         getattr(self, dst)[pos] = np.pad(data, **kwargs)
+        self.copy_meta(src, dst)
         return self
 
     @inbatch_parallel(init="_init_component", target="threads")
@@ -739,6 +798,11 @@ class SeismicBatch(Batch):
         -------
         batch : SeismicBatch
             Batch with new trace sorting.
+
+        Note
+        ----
+        1. This action copies all meta from `src` component to `dst` component.
+        2. `dst` meta contains sorting type in `meta['sorting']`.
         """
         _ = args
         if src in self.meta.keys():
@@ -750,13 +814,13 @@ class SeismicBatch(Batch):
             return self
 
         self._sort(src=src, sort_by=sort_by, current_sorting=current_sorting, dst=dst)
+        self.copy_meta(src, dst)
         self.meta[dst]['sorting'] = sort_by
-
         return self
 
     @action
     @inbatch_parallel(init="indices", post='_post_filter_by_mask', target="threads")
-    def drop_zero_traces(self, index, src, num_zero, all_comps_sorted=True, **kwargs):
+    def drop_zero_traces(self, index, src, num_zero, all_comps_sorted=True):
         """Drop traces with sequence of zeros longer than ```num_zero```.
 
         This action drops traces from index dataframe and from all batch components
@@ -788,7 +852,6 @@ class SeismicBatch(Batch):
         This action creates new instance of SeismicBatch with new index
         instance.
         """
-        _ = kwargs
         sorting = self.meta[src]['sorting']
         if sorting is None and not isinstance(self.index, TraceIndex):
             raise ValueError('traces in `{}` component should be sorted '
@@ -857,14 +920,15 @@ class SeismicBatch(Batch):
             : SeismicBatch
             Traces straightened on the basis of speed and time values.
 
+        Raises
+        ------
+        ValueError : Raise if traces are not sorted by offset.
+
         Note
         ----
         1. Works only with sorted traces by offset.
         2. Works properly only with CustomIndex with CDP index.
-
-        Raises
-        ------
-        ValueError : Raise if traces are not sorted by offset.
+        3. This action copies all meta from `src` component to `dst` component.
         """
         if not isinstance(self.index, CustomIndex):
             raise ValueError("Index must be CustomIndex, not {}".format(type(self.index)))
@@ -921,7 +985,7 @@ class SeismicBatch(Batch):
                 new_field.append(field[ix][new_ts])
 
         getattr(self, dst)[pos] = np.array(new_field)
-        self.meta[dst] = self.meta[src].copy()
+        self.copy_meta(src, dst)
         return self
 
     @action
@@ -954,14 +1018,15 @@ class SeismicBatch(Batch):
             : SeismicBatch
             Batch of shot gathers with corrected spherical divergence.
 
-        Note
-        ----
-        Works properly only with FieldIndex.
-
         Raises
         ------
         ValueError : If Index is not FieldIndex.
         ValueError : If length of ```params``` not equal to 2.
+
+        Note
+        ----
+        1. Works properly only with FieldIndex.
+        2. This action copies all meta from `src` component to `dst` component.
         """
         if not isinstance(self.index, FieldIndex):
             raise ValueError("Index must be FieldIndex, not {}".format(type(self.index)))
@@ -975,6 +1040,7 @@ class SeismicBatch(Batch):
         v_pow, t_pow = params
 
         self._correct_sph_div(src=src, dst=dst, time=time, speed=speed, v_pow=v_pow, t_pow=t_pow)
+        self.copy_meta(src, dst)
         return self
 
     @inbatch_parallel(init='_init_component')
@@ -1262,6 +1328,10 @@ class SeismicBatch(Batch):
         -------
         batch : SeismicBatch
             Batch with the standardized traces.
+
+        Note
+        ----
+        This action copies all meta from `src` component to `dst` component.
         """
         data = np.concatenate(getattr(self, src))
         std_data = (data - np.mean(data, axis=1, keepdims=True)) / (np.std(data, axis=1, keepdims=True) + 10 ** -6)
@@ -1271,6 +1341,7 @@ class SeismicBatch(Batch):
 
         dst_data = np.split(std_data, ind)
         setattr(self, dst, np.array(dst_data + [None])[:-1]) # array implicitly converted to object dtype
+        self.copy_meta(src, dst)
         return self
 
     @action
@@ -1442,10 +1513,11 @@ class SeismicBatch(Batch):
 
         Note
         ----
-        Works properly only with FieldIndex.
-        If `params` dict is user-defined, `survey_id_col` should be
+        1. Works properly only with FieldIndex.
+        2. If `params` dict is user-defined, `survey_id_col` should be
         provided excplicitly either as argument, or as `params` dict key-value
         pair.
+        3. This action copies all meta from `src` component to `dst` component.
         """
         if not isinstance(self.index, FieldIndex):
             raise ValueError("Index must be FieldIndex, not {}".format(type(self.index)))
@@ -1466,6 +1538,7 @@ class SeismicBatch(Batch):
         equalized_field = field / p_95
 
         getattr(self, dst)[pos] = equalized_field
+        self.copy_meta(src, dst)
         return self
 
 
@@ -1585,7 +1658,8 @@ class SeismicBatch(Batch):
 
         Notes
         -----
-        - `R` samples a relative position of top-left coordinate in a feasible region of seismogram.
+        1. Works properly only with FieldIndex.
+        2. `R` samples a relative position of top-left coordinate in a feasible region of seismogram.
 
         Examples
         --------
@@ -1678,7 +1752,6 @@ class SeismicBatch(Batch):
         threshold: float
             Threshold determining amplitude, such that all the samples with amplitude less then threshold would be
             skipped. Introduced because of unstable behaviour of the hilbert transform at the begining of the signal.
-
          """
         shift *= np.pi
         pos = self.get_pos(None, src, index)
