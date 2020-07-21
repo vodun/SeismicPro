@@ -22,6 +22,10 @@ jobs:
     - name: Check pylint
       run: pylint -rn --rcfile pylintrc seismicpro
 
+    - name: Run tests
+      if: always()
+      run: pytest -m "not slow" --disable-pytest-warnings -v
+
     - name: Slack notification
       if: success()
       env:
