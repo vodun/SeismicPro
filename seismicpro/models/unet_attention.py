@@ -22,6 +22,7 @@ class UnetAtt(EncoderDecoder):
 
     @classmethod
     def initial_block(cls, inputs, name='initial_block', **kwargs):
+        """Initial preprocessing. see :meth: `~.TFModel.initial_block` """
         _ = name, kwargs
         return inputs
 
