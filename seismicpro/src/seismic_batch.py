@@ -1623,6 +1623,8 @@ class SeismicBatch(Batch):
             component with crops
         dst : str
             component to put the result to.
+        fill_value : float
+            the area that is not covered with crops is filled with this value
         """
 
         if isinstance(self.index, SegyFilesIndex):
