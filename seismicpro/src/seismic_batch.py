@@ -1,5 +1,8 @@
 """Seismic batch.""" # pylint: disable=too-many-lines
 import os
+from itertools import product
+
+import warnings
 from textwrap import dedent
 import numpy as np
 import matplotlib.pyplot as plt
@@ -190,8 +193,8 @@ class SeismicBatch(Batch):
 
         Note
         ----
-        Batch items in each component should be filtered in decorated action.
-        This post function creates new instance of SeismicBatch with new index
+        1. Batch items in each component should be filtered in decorated action.
+        2. This post function creates new instance of SeismicBatch with new index
         instance and copies filtered components from original batch for elements
         in new index.
         """
@@ -239,6 +242,54 @@ class SeismicBatch(Batch):
             return values
 
         return np.array(np.split(values, np.cumsum(tracecounts)[:-1]) + [None])[:-1]
+
+    def copy_meta(self, from_comp, to_comp):
+        """Copy meta from one component to another or from list of components to list of
+        components with same length.
+
+        Parameters
+        ----------
+        from_comp : str or array-like
+            Component's name to copy meta from or list with names of components.
+        to_comp : str or array-like
+            Component's name to copy meta in or list with names of components.
+
+        Raises
+        ------
+            ValueError : if `from_comp` and `to_comp` have different length.
+            ValueError : if one of given to `from_comp` component doesn't exist.
+
+        Returns
+        -------
+        batch : SeismicBatch
+            Batch with new meta, components' data remains unchanged.
+
+        Note
+        ----
+        If a component from `to_comp` has meta data, it will always be replaced with meta from
+        the corresponding `from_comp`.
+        """
+        from_comp = (from_comp, ) if isinstance(from_comp, str) else from_comp
+        to_comp = (to_comp, ) if isinstance(to_comp, str) else to_comp
+
+        if len(from_comp) != len(to_comp):
+            raise ValueError("Unexpected length of component's lists. Given len(from_comp)="
+                             "{} != len(to_comp)={}.".format(len(to_comp), len(from_comp)))
+
+        for fr_comp, t_comp in zip(from_comp, to_comp):
+            if fr_comp not in self.meta:
+                raise ValueError('{} does not exist.'.format(fr_comp))
+
+            if fr_comp == t_comp:
+                continue
+
+            if self.meta[t_comp]:
+                warnings.warn("Meta of component {} is not empty and".format(t_comp) + \
+                              " will be replaced by the meta from component {}.".format(fr_comp),
+                              UserWarning)
+            self.meta[t_comp] = self.meta[fr_comp].copy()
+
+        return self
 
     @action
     @inbatch_parallel(init="_init_component", target="threads")
@@ -647,11 +698,16 @@ class SeismicBatch(Batch):
         -------
         batch : SeismicBatch
             Batch with sliced traces.
+
+        Note
+        ----
+        This action copies all meta from `src` component to `dst` component.
         """
         _ = args
         pos = self.get_pos(None, src, index)
         data = getattr(self, src)[pos]
         getattr(self, dst)[pos] = data[:, slice_obj]
+        self.copy_meta(src, dst)
         return self
 
     @action
@@ -674,6 +730,10 @@ class SeismicBatch(Batch):
         -------
         batch : SeismicBatch
             Batch with padded traces.
+
+        Note
+        ----
+        This action copies all meta from `src` component to `dst` component.
         """
         _ = args
         pos = self.get_pos(None, src, index)
@@ -684,6 +744,7 @@ class SeismicBatch(Batch):
 
         kwargs['pad_width'] = [(0, 0)] + [pad_width] + [(0, 0)] * (data.ndim - 2)
         getattr(self, dst)[pos] = np.pad(data, **kwargs)
+        self.copy_meta(src, dst)
         return self
 
     @inbatch_parallel(init="_init_component", target="threads")
@@ -737,6 +798,11 @@ class SeismicBatch(Batch):
         -------
         batch : SeismicBatch
             Batch with new trace sorting.
+
+        Note
+        ----
+        1. This action copies all meta from `src` component to `dst` component.
+        2. `dst` meta contains sorting type in `meta['sorting']`.
         """
         _ = args
         if src in self.meta.keys():
@@ -748,13 +814,13 @@ class SeismicBatch(Batch):
             return self
 
         self._sort(src=src, sort_by=sort_by, current_sorting=current_sorting, dst=dst)
+        self.copy_meta(src, dst)
         self.meta[dst]['sorting'] = sort_by
-
         return self
 
     @action
     @inbatch_parallel(init="indices", post='_post_filter_by_mask', target="threads")
-    def drop_zero_traces(self, index, src, num_zero, all_comps_sorted=True, **kwargs):
+    def drop_zero_traces(self, index, src, num_zero, all_comps_sorted=True):
         """Drop traces with sequence of zeros longer than ```num_zero```.
 
         This action drops traces from index dataframe and from all batch components
@@ -786,7 +852,6 @@ class SeismicBatch(Batch):
         This action creates new instance of SeismicBatch with new index
         instance.
         """
-        _ = kwargs
         sorting = self.meta[src]['sorting']
         if sorting is None and not isinstance(self.index, TraceIndex):
             raise ValueError('traces in `{}` component should be sorted '
@@ -855,14 +920,15 @@ class SeismicBatch(Batch):
             : SeismicBatch
             Traces straightened on the basis of speed and time values.
 
+        Raises
+        ------
+        ValueError : Raise if traces are not sorted by offset.
+
         Note
         ----
         1. Works only with sorted traces by offset.
         2. Works properly only with CustomIndex with CDP index.
-
-        Raises
-        ------
-        ValueError : Raise if traces are not sorted by offset.
+        3. This action copies all meta from `src` component to `dst` component.
         """
         if not isinstance(self.index, CustomIndex):
             raise ValueError("Index must be CustomIndex, not {}".format(type(self.index)))
@@ -919,7 +985,7 @@ class SeismicBatch(Batch):
                 new_field.append(field[ix][new_ts])
 
         getattr(self, dst)[pos] = np.array(new_field)
-        self.meta[dst] = self.meta[src].copy()
+        self.copy_meta(src, dst)
         return self
 
     @action
@@ -952,14 +1018,15 @@ class SeismicBatch(Batch):
             : SeismicBatch
             Batch of shot gathers with corrected spherical divergence.
 
-        Note
-        ----
-        Works properly only with FieldIndex.
-
         Raises
         ------
         ValueError : If Index is not FieldIndex.
         ValueError : If length of ```params``` not equal to 2.
+
+        Note
+        ----
+        1. Works properly only with FieldIndex.
+        2. This action copies all meta from `src` component to `dst` component.
         """
         if not isinstance(self.index, FieldIndex):
             raise ValueError("Index must be FieldIndex, not {}".format(type(self.index)))
@@ -973,6 +1040,7 @@ class SeismicBatch(Batch):
         v_pow, t_pow = params
 
         self._correct_sph_div(src=src, dst=dst, time=time, speed=speed, v_pow=v_pow, t_pow=t_pow)
+        self.copy_meta(src, dst)
         return self
 
     @inbatch_parallel(init='_init_component')
@@ -1014,7 +1082,7 @@ class SeismicBatch(Batch):
                                scroll_step=scroll_step, **kwargs)
         return fig, tracker
 
-    def seismic_plot(self, src, index, wiggle=False, xlim=None, ylim=None, std=1, # pylint: disable=too-many-branches, too-many-arguments
+    def seismic_plot(self, src, index, wiggle=False, xlim=None, ylim=None, std=1, # pylint: disable=too-many-arguments
                      src_picking=None, s=None, scatter_color=None, figsize=None,
                      save_to=None, dpi=None, line_color=None, title=None, **kwargs):
         """Plot seismic traces.
@@ -1073,6 +1141,78 @@ class SeismicBatch(Batch):
                      pts=pts_picking, s=s, scatter_color=scatter_color,
                      figsize=figsize, names=names, save_to=save_to,
                      dpi=dpi, line_color=line_color, title=title, **kwargs)
+        return self
+
+    def crops_plot(self, src, index, # pylint: disable=too-many-arguments
+                   num_crops=None,
+                   wiggle=False, std=1,
+                   src_picking=None, s=None, scatter_color=None,
+                   figsize=None, title=None,
+                   save_to=None, dpi=None, **kwargs):
+        """Plot seismic traces.
+
+        Parameters
+        ----------
+        src : str or array of str
+            The batch component(s) with crops to show.
+        index : same type as batch.indices
+            Data index to show.
+        num_crops: int or None
+            If not None, random `num_crops` crops are shown, all crops otherwise
+        wiggle : bool, default to False
+            Show traces in a wiggle form.
+        std : scalar, optional
+            Amplitude scale for traces in wiggle form.
+        src_picking : str
+            Component with picking data.
+        s : scalar or array_like, shape (n, ), optional
+            The marker size in points**2.
+        scatter_color : color, sequence, or sequence of color, optional
+            The marker color.
+        figsize : array-like, optional
+            Output plot size.
+        save_to : str or None, optional
+            If not None, save plot to given path.
+        dpi : int, optional, default: None
+            The resolution argument for matplotlib.pyplot.savefig.
+        title : str
+            Plot title.
+        kwargs : dict
+            Additional keyword arguments for plot.
+
+        Returns
+        -------
+        Multi-column subplots.
+        """
+
+        if 'crop_coords' not in self.meta[src]:
+            raise ValueError("{} component doesn't contain crops!".format(src))
+
+        pos = self.get_pos(None, 'indices', index)
+
+        if src_picking is not None:
+            raise NotImplementedError()
+
+        pts_picking = None
+
+        arrs = getattr(self, src)[pos]
+        total_crops = len(arrs)
+        names = self.meta[src]['crop_coords'][index]
+
+        if num_crops is not None and num_crops < len(arrs):
+            crops_indices = np.random.choice(np.arange(len(arrs)), size=num_crops, replace=False)
+            arrs = arrs[crops_indices]
+            names = names[crops_indices]
+        else:
+            num_crops = len(arrs)
+
+        names = [str(c) for c in names]
+        title = "{} (of {}) crops from {}".format(num_crops, total_crops, index)
+
+        seismic_plot(arrs=arrs, wiggle=wiggle, std=std,
+                     pts=pts_picking, s=s, scatter_color=scatter_color,
+                     figsize=figsize, names=names, save_to=save_to,
+                     dpi=dpi, title=title, **kwargs)
         return self
 
     def spectrum_plot(self, src, index, frame, max_freq=None,
@@ -1188,6 +1328,10 @@ class SeismicBatch(Batch):
         -------
         batch : SeismicBatch
             Batch with the standardized traces.
+
+        Note
+        ----
+        This action copies all meta from `src` component to `dst` component.
         """
         data = np.concatenate(getattr(self, src))
         std_data = (data - np.mean(data, axis=1, keepdims=True)) / (np.std(data, axis=1, keepdims=True) + 10 ** -6)
@@ -1197,6 +1341,7 @@ class SeismicBatch(Batch):
 
         dst_data = np.split(std_data, ind)
         setattr(self, dst, np.array(dst_data + [None])[:-1]) # array implicitly converted to object dtype
+        self.copy_meta(src, dst)
         return self
 
     @action
@@ -1371,10 +1516,11 @@ class SeismicBatch(Batch):
 
         Note
         ----
-        Works properly only with FieldIndex or TraceIndex.
-        If `params` dict is user-defined, `survey_id_col` should be
+        1. Works properly only with FieldIndex.
+        2. If `params` dict is user-defined, `survey_id_col` should be
         provided excplicitly either as argument, or as `params` dict key-value
         pair.
+        3. This action copies all meta from `src` component to `dst` component.
         """
         if not isinstance(self.index, (FieldIndex, TraceIndex)):
             raise ValueError("Index must be FieldIndex or TraceIndex, not {}".format(type(self.index)))
@@ -1395,39 +1541,91 @@ class SeismicBatch(Batch):
         equalized_field = (field / p_95) if not upscale else (field * p_95)
 
         getattr(self, dst)[pos] = equalized_field
+        self.copy_meta(src, dst)
         return self
 
-
-    def _crop(self, image, coords, shape):
-        """ Perform crops from the image.
-        Number of crops is defined by the number of elements in `coords` parameter.
-
-        Parameters
-        ----------
-        image : np.array
-            Image to crop from.
-        coords: list of tuples
-            The list of top-left (x,y) coordinates for each crop.
-        shape: tuple of ints
-            Crop shape.
-
-        Returns
-        -------
-        res: np.array, dtype='O'
-            Array with crops.
-        """
-        res = np.empty((len(coords), ), dtype='O')
-        for i, (x, y) in enumerate(coords):
-            if (x + shape[0] > image.shape[0]) or (y + shape[1] > image.shape[1]):
-                raise ValueError('Coordinates', (x, y), 'exceed feasible region of seismogramm shape: ', image.shape,
-                                 'with crop shape: ', shape)
-            res[i] = image[x:x+shape[0], y:y+shape[1]]
-        return res
 
     @action
     @inbatch_parallel(init='_init_component')
     @apply_to_each_component
-    def crop(self, index, src, coords, shape, dst=None):
+    def make_grid_for_crops(self, index, src, dst, shape, drop_last=True):
+        """ Generate coordinates for crops that cover all seismogram
+
+        Parameters
+        ----------
+        src : str
+            component from which the crops will be cropped
+        dst : str
+            component to store crops coordinates
+        shape : tuple of ints
+            crop shape
+        drop_last: bool
+            If True, drop border crops if they are incomplete
+        """
+
+        if isinstance(self.index, SegyFilesIndex):
+            raise NotImplementedError("Index can't be SegyFilesIndex")
+
+        pos = self.get_pos(None, None, index)
+        field = getattr(self, src)[pos]
+
+        len_x, len_y = field.shape
+        x, y = shape
+
+        coords_x = np.arange(0, len_x, x)
+        if len_x % x != 0 and drop_last:
+            coords_x = coords_x[:-1]
+
+        coords_y = np.arange(0, len_y, y)
+        if len_y % y != 0 and drop_last:
+            coords_y = coords_y[:-1]
+
+        getattr(self, dst)[pos] = list(product(coords_x, coords_y))
+
+        return self
+
+
+    @inbatch_parallel(init='indices')
+    def __crop(self, index, src, coords, shape, pad_zeros, dst=None):
+        """ Generate crops from an array with seismic data
+        see :meth:`~SeismicBatch.crop` for full description
+        """
+        pos = self.get_pos(None, src, index)
+        arr = getattr(self, src)[pos]
+
+        if all(((0 <= x < 1) and (0 <= y < 1)) for x, y in coords):
+            feasible_region = np.array(arr.shape) - shape
+            xy = (feasible_region * coords).astype(int)
+            if np.any(xy < 0):
+                raise ValueError("`shape` is larger than one of seismogram's dimensions")
+        else:
+            xy = np.array(coords)
+
+        res = np.empty((len(xy), *shape))
+        for i, (x, y) in enumerate(xy):
+            if pad_zeros:
+                crop = np.zeros(shape)
+
+                x1 = min(x + shape[0], arr.shape[0])
+                y1 = min(y + shape[1], arr.shape[1])
+
+                crop[:x1-x, :y1-y] = arr[x:x1, y:y1]
+                res[i] = crop
+
+            else:
+                if (x + shape[0] > arr.shape[0]) or (y + shape[1] > arr.shape[1]):
+                    raise ValueError('Coordinates', (x, y), 'exceed feasible region of seismogram with shape',
+                                     arr.shape, ', with crop shape', shape, 'but pad_zeros is False')
+                res[i] = arr[x:x+shape[0], y:y+shape[1]]
+
+        getattr(self, dst)[pos] = res
+
+        self.meta[dst]['crop_coords'][index] = xy
+
+
+    @action
+    @apply_to_each_component
+    def crop(self, src, coords, shape, dst=None, pad_zeros=False):
         """ Crop from seismograms by given coordinates.
 
         Parameters
@@ -1447,6 +1645,8 @@ class SeismicBatch(Batch):
                   (num_crops, 2) and different coords will be sampled for each batch item.
         shape: tuple of ints
             Crop shape.
+        pad_zeros: bool
+            Wether to zero-pad incomplete crops. Valid only for absolute coordinates
 
         Returns
         -------
@@ -1461,8 +1661,8 @@ class SeismicBatch(Batch):
 
         Notes
         -----
-        - Works properly only with FieldIndex.
-        - `R` samples a relative position of top-left coordinate in a feasible region of seismogram.
+        1. Works properly only with FieldIndex.
+        2. `R` samples a relative position of top-left coordinate in a feasible region of seismogram.
 
         Examples
         --------
@@ -1475,21 +1675,67 @@ class SeismicBatch(Batch):
             crop(src=['raw', 'mask], dst=['raw_crop', 'mask_crop], shape=(100, 256),
                 coords=P(R('uniform', size=(N_RANDOM_CROPS, 2)))).next_batch(2)
         """
-        if not isinstance(self.index, FieldIndex):
-            raise NotImplementedError("Index must be FieldIndex, not {}".format(type(self.index)))
+        if isinstance(self.index, SegyFilesIndex):
+            raise NotImplementedError("Index can't be SegyFilesIndex")
+
+        self._init_component(dst=dst)
+        self.meta[dst]['crop_coords'] = {}
+        self.meta[dst]['crops_source'] = src
+
+        self.__crop(src, coords, shape, pad_zeros, dst)
+
+        return self
+
+
+    @action
+    @inbatch_parallel(init='_init_component')
+    @apply_to_each_component
+    def assemble_crops(self, index, src, dst, fill_value=0.0):
+        """
+        Assembles crops from `src` into a single seismogram
+
+        Parameters
+        ----------
+        src : str
+            component with crops
+        dst : str
+            component to put the result to.
+        fill_value : float
+            the area that is not covered with crops is filled with this value
+        """
+
+        if isinstance(self.index, SegyFilesIndex):
+            raise NotImplementedError("Index can't be SegyFilesIndex")
+
+        if 'crop_coords' not in self.meta[src]:
+            raise ValueError("{} component doesn't contain crops!".format(src))
 
         pos = self.get_pos(None, None, index)
-        field = getattr(self, src)[pos]
+        crops = getattr(self, src)[pos]
+        coords = self.meta[src]['crop_coords'][index]
 
-        if all(((0 < x < 1) and (0 < y < 1)) for x, y in coords):
-            feasible_region = np.array(field.shape) - shape
-            xy = (feasible_region * coords).astype(int)
-            if np.any(xy < 0):
-                raise ValueError("`shape` is larger than one of seismogram's dimensions")
-        else:
-            xy = np.array(coords)
+        res_x = self.index.tracecounts[pos]
+        res_y = len(self.meta[self.meta[src]['crops_source']]['samples'])
 
-        getattr(self, dst)[pos] = self._crop(field, xy, shape)
+        res = np.full((res_x, res_y), fill_value, dtype=float)
+        crop_counts = np.zeros((res_x, res_y))
+
+        for crop_coords, crop in zip(coords, crops):
+            x, y = crop_coords
+            len_x, len_y = crop.shape
+
+            x1 = min(x+len_x, res_x)
+            y1 = min(y+len_y, res_y)
+
+            res[x:x1, y:y1] = crop[:x1-x, :y1-y]
+            crop_counts[x:x1, y:y1] += 1
+
+        crop_counts[crop_counts == 0] = 1
+
+        getattr(self, dst)[pos] = res / crop_counts
+
+        return self
+
 
     @inbatch_parallel(init='_init_component', target="threads")
     def shift_pick_phase(self, index, src, src_traces, dst=None, shift=1.5, threshold=0.05):
@@ -1509,7 +1755,6 @@ class SeismicBatch(Batch):
         threshold: float
             Threshold determining amplitude, such that all the samples with amplitude less then threshold would be
             skipped. Introduced because of unstable behaviour of the hilbert transform at the begining of the signal.
-
          """
         shift *= np.pi
         pos = self.get_pos(None, src, index)

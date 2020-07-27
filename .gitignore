@@ -2,7 +2,14 @@
 .cache/
 __pycache__/
 .ipynb_checkpoints/
+.vscode/
 notebooks/
 demo/
 .idea/
+.vscode/
+.pytest_cache/
+
+# Ignore SEGY files
 *.sgy
+# except in datasets
+!datasets/**/*.sgy
