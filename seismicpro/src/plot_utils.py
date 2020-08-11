@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib import patches, colors as mcolors
+from matplotlib.colors import LinearSegmentedColormap, BoundaryNorm
 from .utils import measure_gain_amplitude
 
 class IndexTracker:
@@ -529,4 +530,30 @@ def show_2d_heatmap(idf, figsize=None, save_to=None, dpi=300, **kwargs):
     plt.ylabel('y-Bins')
     if save_to is not None:
         plt.savefig(save_to, dpi=dpi)
+    plt.show()
+
+def plot_metrics_map(metrics_map, max_value=None, extent_coords=None, title=None, figsize=None, save_dir=None):
+    """plot metrics map"""
+    colors = ((1, 1, 1), (1, 0, 0))
+
+    metrics_map = np.nan_to_num(metrics_map, nan=1e-6)
+
+    max_value = max_value if max_value is not None else metrics_map.max()
+    bounds = [0, *np.linspace(max_value*.05, max_value*.95, 50), max_value]
+
+    cm = LinearSegmentedColormap.from_list(
+        'cm', colors, N=len(bounds))
+    cm.set_under('white')
+    cm.set_over('red')
+
+    norm = BoundaryNorm(boundaries=bounds, ncolors=cm.N)
+    fig = plt.figure(figsize=figsize)
+    im = plt.imshow(metrics_map, origin='lower', interpolation='nearest',
+                    vmin=np.min(metrics_map[metrics_map>0]), cmap=cm,
+                    norm=norm, aspect='auto', extent=extent_coords)
+    plt.title(title, fontsize=18)
+    fig.colorbar(im, extend='both')
+
+    if save_dir:
+        plt.savefig(save_dir, bbox_inches='tight', pad_inches=0.1)
     plt.show()
