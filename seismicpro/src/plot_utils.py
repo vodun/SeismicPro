@@ -549,7 +549,7 @@ def plot_metrics_map(metrics_map, max_value=None, extent_coords=None, title=None
     norm = BoundaryNorm(boundaries=bounds, ncolors=cm.N)
     fig = plt.figure(figsize=figsize)
     im = plt.imshow(metrics_map, origin='lower', interpolation='nearest',
-                    vmin=np.min(metrics_map[metrics_map>0]), cmap=cm,
+                    vmin=np.min(metrics_map[metrics_map > 0]), cmap=cm,
                     norm=norm, aspect='auto', extent=extent_coords)
     plt.title(title, fontsize=18)
     fig.colorbar(im, extend='both')

@@ -885,8 +885,8 @@ def construct_metrics_map(coords_x, coords_y, metrics, bin_size):
 
     for i in prange(len(range_x)):
         for j in prange(len(range_y)):
-            mask = ((coords_x - range_x[i] > 0) & (coords_x - range_x[i] < bin_size) &
-                    (coords_y - range_y[j] > 0) & (coords_y - range_y[j] < bin_size))
+            mask = ((coords_x - range_x[i] >= 0) & (coords_x - range_x[i] <= bin_size) &
+                    (coords_y - range_y[j] >= 0) & (coords_y - range_y[j] <= bin_size))
             if mask.sum() > 0:
                 metrics_map[j, i] = metrics[mask].mean()
     return metrics_map
