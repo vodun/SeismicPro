@@ -61,7 +61,7 @@ def partialmethod(func, *frozen_args, **frozen_kwargs):
     method : callable
         Wrapped method.
     """
-    @wraps(func)
+    @functools.wraps(func)
     def method(self, *args, **kwargs):
         """Wrapped method."""
         return func(self, *frozen_args, *args, **frozen_kwargs, **kwargs)
