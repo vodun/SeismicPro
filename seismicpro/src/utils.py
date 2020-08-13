@@ -14,6 +14,7 @@ from ..batchflow import FilesIndex
 
 DEFAULT_SEGY_HEADERS = ['FieldRecord', 'TraceNumber', 'TRACE_SEQUENCE_FILE', 'CDP']
 SUPPORT_SEGY_HEADERS = ['GroupX', 'GroupY']
+GATHER_HEADERS = ['FieldRecord', 'RecieverID', 'CDP']
 FILE_DEPENDEND_COLUMNS = ['TRACE_SEQUENCE_FILE', 'file_id']
 
 
@@ -605,7 +606,8 @@ def make_segy_index(filename, extra_headers=None, limits=None):
             meta[k] = segyfile.attributes(getattr(segyio.TraceField, k))[limits]
 
         meta['file_id'] = np.repeat(filename, segyfile.tracecount)[limits]
-        meta['RecieverID'] = 0.5 * (meta['GroupX'] + meta['GroupY']) * (meta['GroupX'] + meta['GroupY'] + 1) + meta['GroupY']
+        meta['RecieverID'] = (0.5 * (meta['GroupX'] + meta['GroupY']) * \
+                              (meta['GroupX'] + meta['GroupY'] + 1) + meta['GroupY'])
         for k in del_headers:
             del meta[k]
 
@@ -637,7 +639,7 @@ def build_segy_df(extra_headers=None, name=None, limits=None, **kwargs):
     df = pd.concat([make_segy_index(index.get_fullpath(i), extra_headers, limits) for
                     i in sorted(index.indices)])
     if len(index) > 1:
-        for colname in ['FieldRecord', 'Group', 'CDP']:
+        for colname in GATHER_HEADERS:
             if any(df[[colname, 'file_id']].groupby(colname).nunique()[('file_id')] > 1):
                 raise ValueError((f'Non-unique values in {colname} among provided files!',
                                   'Resulting index may not be unique.'))
