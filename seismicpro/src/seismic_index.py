@@ -1,4 +1,5 @@
 """Index for SeismicBatch."""
+import warnings
 import numpy as np
 import pandas as pd
 from sklearn.neighbors import NearestNeighbors
@@ -46,7 +47,7 @@ class TraceIndex(DatasetIndex):
 
     @property
     def name(self):
-        """Return a number of indexed traces."""
+        """Return a name of current index column."""
         return self._idf.index.name
 
     def get_df(self, index=None, reset=True):
@@ -196,6 +197,9 @@ class TraceIndex(DatasetIndex):
             : TraceIndex
             Concatenated index.
         """
+        warn_msg = 'Concatenation of several `Index` instances may result in non-unique index.'
+        warnings.warn(warn_msg, RuntimeWarning)
+
         if not isinstance(other, (list, tuple)):
             other = [other]
 

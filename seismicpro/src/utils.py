@@ -12,7 +12,7 @@ import segyio
 
 from ..batchflow import FilesIndex
 
-DEFAULT_SEGY_HEADERS = ['FieldRecord', 'TraceNumber', 'TRACE_SEQUENCE_FILE']
+DEFAULT_SEGY_HEADERS = ['FieldRecord', 'TraceNumber', 'TRACE_SEQUENCE_FILE', 'GroupX', 'GroupY', 'CDP']
 FILE_DEPENDEND_COLUMNS = ['TRACE_SEQUENCE_FILE', 'file_id']
 
 
@@ -42,30 +42,6 @@ def make_index(paths, index_type, extra_headers=None, index_name=None):
                             (index_type(name=name, path=path, extra_headers=extra_headers, index_name=index_name)
                              for name, path in paths.items()))
 
-
-def partialmethod(func, *frozen_args, **frozen_kwargs):
-    """Wrap a method with partial application of given positional and keyword
-    arguments.
-
-    Parameters
-    ----------
-    func : callable
-        A method to wrap.
-    frozen_args : misc
-        Fixed positional arguments.
-    frozen_kwargs : misc
-        Fixed keyword arguments.
-
-    Returns
-    -------
-    method : callable
-        Wrapped method.
-    """
-    @functools.wraps(func)
-    def method(self, *args, **kwargs):
-        """Wrapped method."""
-        return func(self, *frozen_args, *args, **frozen_kwargs, **kwargs)
-    return method
 
 def print_results(df, layout, average_repetitions=False, sort_by=None, ascending=True, n_last=100):
     """ Show results given by research dataframe.
@@ -600,6 +576,7 @@ def make_segy_index(filename, extra_headers=None, limits=None):
             meta[k] = segyfile.attributes(getattr(segyio.TraceField, k))[limits]
 
         meta['file_id'] = np.repeat(filename, segyfile.tracecount)[limits]
+        meta['Group'] = np.array(['_'.join(x) for x in zip(meta['GroupX'].astype(str), meta['GroupY'].astype(str))])
 
     df = pd.DataFrame(meta)
     return df
@@ -610,7 +587,7 @@ def build_segy_df(extra_headers=None, name=None, limits=None, **kwargs):
     Parameters
     ----------
     extra_headers : array-like or str
-        Additional headers to put unto DataFrme. If 'all', all headers are included.
+        Additional headers to put into DataFrame. If 'all', all headers are included.
     name : str
         Name that will be associated with indexed traces.
     limits : slice or int, default to None
@@ -628,6 +605,9 @@ def build_segy_df(extra_headers=None, name=None, limits=None, **kwargs):
     index = FilesIndex(**kwargs)
     df = pd.concat([make_segy_index(index.get_fullpath(i), extra_headers, limits) for
                     i in sorted(index.indices)])
+    for colname in ['FieldRecord', 'Group', 'CDP']:
+        if any(df[[colname, 'file_id']].groupby(colname).nunique()[('file_id')] > 1):
+            raise ValueError(f'Non-unique values in {colname} among provided files! Resulting index may not be unique.')
     if markup_path is not None:
         markup = pd.read_csv(markup_path)
         df = df.merge(markup, how='inner')
