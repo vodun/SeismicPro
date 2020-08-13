@@ -12,7 +12,8 @@ import segyio
 
 from ..batchflow import FilesIndex
 
-DEFAULT_SEGY_HEADERS = ['FieldRecord', 'TraceNumber', 'TRACE_SEQUENCE_FILE', 'GroupX', 'GroupY', 'CDP']
+DEFAULT_SEGY_HEADERS = ['FieldRecord', 'TraceNumber', 'TRACE_SEQUENCE_FILE', 'CDP']
+SUPPORT_SEGY_HEADERS = ['GroupX', 'GroupY']
 FILE_DEPENDEND_COLUMNS = ['TRACE_SEQUENCE_FILE', 'file_id']
 
 
@@ -589,10 +590,14 @@ def make_segy_index(filename, extra_headers=None, limits=None):
         segyfile.mmap()
         if extra_headers == 'all':
             headers = [h.__str__() for h in segyio.TraceField.enums()]
+            del_headers = []
         elif extra_headers is None:
-            headers = DEFAULT_SEGY_HEADERS
+            headers = DEFAULT_SEGY_HEADERS + SUPPORT_SEGY_HEADERS
+            del_headers = SUPPORT_SEGY_HEADERS
         else:
-            headers = set(DEFAULT_SEGY_HEADERS + list(extra_headers))
+            extra_headers = extra_headers if isinstance(extra_headers, (list, tuple)) else [extra_headers]
+            headers = set(DEFAULT_SEGY_HEADERS + extra_headers + SUPPORT_SEGY_HEADERS)
+            del_headers = set(SUPPORT_SEGY_HEADERS).difference(set(extra_headers))
 
         meta = dict()
 
@@ -600,7 +605,9 @@ def make_segy_index(filename, extra_headers=None, limits=None):
             meta[k] = segyfile.attributes(getattr(segyio.TraceField, k))[limits]
 
         meta['file_id'] = np.repeat(filename, segyfile.tracecount)[limits]
-        meta['Group'] = np.array(['_'.join(x) for x in zip(meta['GroupX'].astype(str), meta['GroupY'].astype(str))])
+        meta['RecieverID'] = 0.5 * (meta['GroupX'] + meta['GroupY']) * (meta['GroupX'] + meta['GroupY'] + 1) + meta['GroupY']
+        for k in del_headers:
+            del meta[k]
 
     df = pd.DataFrame(meta)
     return df
@@ -629,9 +636,11 @@ def build_segy_df(extra_headers=None, name=None, limits=None, **kwargs):
     index = FilesIndex(**kwargs)
     df = pd.concat([make_segy_index(index.get_fullpath(i), extra_headers, limits) for
                     i in sorted(index.indices)])
-    for colname in ['FieldRecord', 'Group', 'CDP']:
-        if any(df[[colname, 'file_id']].groupby(colname).nunique()[('file_id')] > 1):
-            raise ValueError(f'Non-unique values in {colname} among provided files! Resulting index may not be unique.')
+    if len(index) > 1:
+        for colname in ['FieldRecord', 'Group', 'CDP']:
+            if any(df[[colname, 'file_id']].groupby(colname).nunique()[('file_id')] > 1):
+                raise ValueError((f'Non-unique values in {colname} among provided files!',
+                                  'Resulting index may not be unique.'))
     if markup_path is not None:
         markup = pd.read_csv(markup_path)
         df = df.merge(markup, how='inner')
