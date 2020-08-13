@@ -43,6 +43,30 @@ def make_index(paths, index_type, extra_headers=None, index_name=None):
                              for name, path in paths.items()))
 
 
+def partialmethod(func, *frozen_args, **frozen_kwargs):
+    """Wrap a method with partial application of given positional and keyword
+    arguments.
+
+    Parameters
+    ----------
+    func : callable
+        A method to wrap.
+    frozen_args : misc
+        Fixed positional arguments.
+    frozen_kwargs : misc
+        Fixed keyword arguments.
+
+    Returns
+    -------
+    method : callable
+        Wrapped method.
+    """
+    @wraps(func)
+    def method(self, *args, **kwargs):
+        """Wrapped method."""
+        return func(self, *frozen_args, *args, **frozen_kwargs, **kwargs)
+    return method
+
 def print_results(df, layout, average_repetitions=False, sort_by=None, ascending=True, n_last=100):
     """ Show results given by research dataframe.
 

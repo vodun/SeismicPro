@@ -12,11 +12,10 @@ import pywt
 import segyio
 
 from ..batchflow import action, inbatch_parallel, Batch, any_action_failed
-from ..batchflow.utils import partialmethod
 
 from .seismic_index import SegyFilesIndex, FieldIndex, KNNIndex, TraceIndex, CustomIndex
 
-from .utils import (FILE_DEPENDEND_COLUMNS, calculate_sdc_for_field, massive_block,
+from .utils import (FILE_DEPENDEND_COLUMNS, partialmethod, calculate_sdc_for_field, massive_block,
                     check_unique_fieldrecord_across_surveys)
 from .file_utils import write_segy_file
 from .plot_utils import IndexTracker, spectrum_plot, seismic_plot, statistics_plot, gain_plot
