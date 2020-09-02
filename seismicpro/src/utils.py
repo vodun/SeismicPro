@@ -591,14 +591,14 @@ def make_segy_index(filename, extra_headers=None, limits=None):
         segyfile.mmap()
         if extra_headers == 'all':
             headers = [h.__str__() for h in segyio.TraceField.enums()]
-            del_headers = []
+            tmp_headers = []
         elif extra_headers is None:
             headers = DEFAULT_SEGY_HEADERS + SUPPORT_SEGY_HEADERS
-            del_headers = SUPPORT_SEGY_HEADERS
+            tmp_headers = SUPPORT_SEGY_HEADERS
         else:
             extra_headers = extra_headers if isinstance(extra_headers, (list, tuple)) else [extra_headers]
             headers = set(DEFAULT_SEGY_HEADERS + extra_headers + SUPPORT_SEGY_HEADERS)
-            del_headers = set(SUPPORT_SEGY_HEADERS).difference(set(extra_headers))
+            tmp_headers = set(SUPPORT_SEGY_HEADERS) - (set(extra_headers))
 
         meta = dict()
 
@@ -606,9 +606,8 @@ def make_segy_index(filename, extra_headers=None, limits=None):
             meta[k] = segyfile.attributes(getattr(segyio.TraceField, k))[limits]
 
         meta['file_id'] = np.repeat(filename, segyfile.tracecount)[limits]
-        meta['RecieverID'] = (0.5 * (meta['GroupX'] + meta['GroupY']) * \
-                              (meta['GroupX'] + meta['GroupY'] + 1) + meta['GroupY'])
-        for k in del_headers:
+        meta['RecieverID'] = np.array([hash(pair) for pair in zip(meta['GroupX'], meta['GroupY'])])
+        for k in tmp_headers:
             del meta[k]
 
     df = pd.DataFrame(meta)
@@ -640,7 +639,7 @@ def build_segy_df(extra_headers=None, name=None, limits=None, **kwargs):
                     i in sorted(index.indices)])
     if len(index) > 1:
         for colname in GATHER_HEADERS:
-            if any(df[[colname, 'file_id']].groupby(colname).nunique()[('file_id')] > 1):
+            if np.any(df[[colname, 'file_id']].groupby(colname).nunique()[('file_id')] > 1):
                 raise ValueError((f'Non-unique values in {colname} among provided files!',
                                   'Resulting index may not be unique.'))
     if markup_path is not None:

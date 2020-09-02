@@ -203,9 +203,8 @@ class TraceIndex(DatasetIndex):
         if not isinstance(other, (list, tuple)):
             other = [other]
 
-        df = [self.get_df()]
         other_dfs = [index.get_df() for index in other]
-        concat_dfs = pd.concat(df + other_dfs, ignore_index=True)
+        concat_dfs = pd.concat([self.get_df()] + other_dfs, ignore_index=True)
 
         if self.name is not None:
             concat_dfs.set_index(self.name, inplace=True)
