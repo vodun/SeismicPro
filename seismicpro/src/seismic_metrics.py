@@ -12,10 +12,11 @@ METRICS_ALIASES = {
     'map': 'construct_map'
 }
 
-class SemblanceMetrics(SeismicBatch):
+class SemblanceMetrics():
     @action
     @inbatch_parallel(init="_init_component", target="threads")
     def calculate_minmax(self, index, src, dst):
+        """some docs"""
         pos = self.get_pos(None, src, index)
         semblance = getattr(self, src)[pos]
         getattr(self, dst)[pos] = np.max(np.max(semblance, axis=1) - np.min(semblance, axis=1))
@@ -24,6 +25,7 @@ class SemblanceMetrics(SeismicBatch):
     @action
     @inbatch_parallel(init="_init_component", target="threads")
     def calculate_std(self, index, src, dst):
+        """some docs"""
         pos = self.get_pos(None, src, index)
         semblance = getattr(self, src)[pos]
         getattr(self, dst)[pos] =  np.max(np.std(semblance, axis=1))
@@ -49,6 +51,7 @@ class MetricsMap(Metrics):
 
     @property
     def maps_list(self):
+        """get map list"""
         return self._maps_list
 
     def append(self, metrics):
