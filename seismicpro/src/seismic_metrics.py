@@ -70,12 +70,12 @@ class MetricsMap(Metrics):
         metrics = np.array(list(metrics), dtype=np.float32)
         return np.array(coords_x, dtype=np.float32), np.array(coords_y, dtype=np.float32), metrics
 
-    def construct_map(self, bin_size=500, max_value=None, title=None, figsize=None, save_dir=None):
+    def construct_map(self, bin_size=500, max_value=None, title=None, figsize=None, save_dir=None, pad=False):
         coords_x, coords_y, metrics = self._split_result()
 
         metric_map = construct_metrics_map(coords_x=coords_x, coords_y=coords_y, metrics=metrics, bin_size=bin_size)
         extent_coords = [coords_x.min(), coords_x.max(), coords_y.min(), coords_y.max()]
         plot_metrics_map(metrics_map=metric_map, max_value=max_value, extent_coords=extent_coords,
-                         title=title, figsize=figsize, save_dir=save_dir)
+                         title=title, figsize=figsize, save_dir=save_dir, pad=pad)
         return metric_map
 
