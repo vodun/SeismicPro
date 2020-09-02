@@ -596,7 +596,7 @@ def make_segy_index(filename, extra_headers=None, limits=None):
             headers = DEFAULT_SEGY_HEADERS + SUPPORT_SEGY_HEADERS
             tmp_headers = SUPPORT_SEGY_HEADERS
         else:
-            extra_headers = extra_headers if isinstance(extra_headers, (list, tuple)) else [extra_headers]
+            extra_headers = [extra_headers] if isinstance(extra_headers, str) else list(extra_headers)
             headers = set(DEFAULT_SEGY_HEADERS + extra_headers + SUPPORT_SEGY_HEADERS)
             tmp_headers = set(SUPPORT_SEGY_HEADERS) - (set(extra_headers))
 
