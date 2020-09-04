@@ -35,12 +35,13 @@ class SemblanceMetrics:
 
 class MetricsMap(Metrics):
     """seismic metrics class"""
-    def __init__(self, index, metrics, coords, *args, **kwargs):
+    def __init__(self, metrics, coords, *args, **kwargs):
         _ = args, kwargs
         super().__init__()
 
         self.metrics = metrics
-        self.coords = [index.get_df(index=ix)[coords].values[0] for ix in index.indices]
+        unique_coords, position = np.unique(coords, axis=0, return_index=True)
+        self.coords = unique_coords[np.argsort(position)]
         self._maps_list = [[*coord, metric] for coord, metric in zip(self.coords, self.metrics)]
 
         self._agg_fn_dict = {'mean': np.nanmean,
