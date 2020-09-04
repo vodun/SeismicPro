@@ -598,7 +598,7 @@ def make_segy_index(filename, extra_headers=None, limits=None):
         else:
             extra_headers = [extra_headers] if isinstance(extra_headers, str) else list(extra_headers)
             headers = set(DEFAULT_SEGY_HEADERS + extra_headers + SUPPORT_SEGY_HEADERS)
-            tmp_headers = set(SUPPORT_SEGY_HEADERS) - (set(extra_headers))
+            tmp_headers = set(SUPPORT_SEGY_HEADERS) - set(extra_headers)
 
         meta = dict()
 

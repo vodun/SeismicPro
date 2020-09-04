@@ -1516,7 +1516,7 @@ class SeismicBatch(Batch):
         Note
         ----
         1. If `params` dict is user-defined, `survey_id_col` should be
-        providestr(err) + '\nd excplicitly either as argument, or as `params` dict key-value
+        provided excplicitly either as argument, or as `params` dict key-value
         pair.
         2. This action copies all meta from `src` component to `dst` component.
         """
