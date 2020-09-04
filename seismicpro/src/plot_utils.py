@@ -535,24 +535,21 @@ def show_2d_heatmap(idf, figsize=None, save_to=None, dpi=300, **kwargs):
 def plot_metrics_map(metrics_map, max_value=None, extent_coords=None, title=None, figsize=None,
                      save_dir=None, pad=False):
     """plot metrics map"""
-    colors = ((0, 1, 0), (1, 1, 0), (1, 0, 0))
+    colors = ((0.0, 0.6, 0.0), (.66, 1, 0), (0.9, 0.0, 0.0))
 
     metrics_map = np.nan_to_num(metrics_map, nan=0)
     metrics_map = np.pad(metrics_map, pad_width=1) if pad else metrics_map
 
     max_value = max_value if max_value is not None else metrics_map.max()
-    bounds = [0, *np.linspace(max_value*.05, max_value*.95, 50), max_value]
-
     cm = LinearSegmentedColormap.from_list(
-        'cm', colors, N=len(bounds))
-    cm.set_under('white')
+        'cm', colors)
+    cm.set_under('black')
     cm.set_over('red')
 
-    norm = BoundaryNorm(boundaries=bounds, ncolors=cm.N)
     fig = plt.figure(figsize=figsize)
     im = plt.imshow(metrics_map, origin='lower', interpolation='nearest',
                     vmin=np.min(metrics_map[metrics_map > 0]), cmap=cm,
-                    norm=norm, aspect='auto', extent=extent_coords)
+                    aspect='auto', extent=extent_coords)
 
     plt.title(title, fontsize=18)
     fig.colorbar(im, extend='both')
