@@ -1,10 +1,9 @@
 """File contains metircs for seismic processing."""
 import numpy as np
+from numba import njit, prange
 
-from .utils import construct_metrics_map
 from .plot_utils import plot_metrics_map
 
-from .seismic_batch import SeismicBatch
 from ..batchflow import action, inbatch_parallel
 from ..batchflow.models.metrics import Metrics
 
@@ -12,39 +11,38 @@ METRICS_ALIASES = {
     'map': 'construct_map'
 }
 
-class SemblanceMetrics():
-    @action
-    @inbatch_parallel(init="_init_component", target="threads")
-    def calculate_minmax(self, index, src, dst):
-        """some docs"""
-        pos = self.get_pos(None, src, index)
-        semblance = getattr(self, src)[pos]
-        getattr(self, dst)[pos] = np.max(np.max(semblance, axis=1) - np.min(semblance, axis=1))
-        return self
+class SemblanceMetrics:
+    """"Semblance metrics class"""
 
-    @action
+    @staticmethod
     @inbatch_parallel(init="_init_component", target="threads")
-    def calculate_std(self, index, src, dst):
+    def calculate_minmax(batch, index, src, dst):
         """some docs"""
-        pos = self.get_pos(None, src, index)
-        semblance = getattr(self, src)[pos]
-        getattr(self, dst)[pos] =  np.max(np.std(semblance, axis=1))
-        return self
+        pos = batch.get_pos(None, src, index)
+        semblance = getattr(batch, src)[pos]
+        getattr(batch, dst)[pos] = np.max(np.max(semblance, axis=1) - np.min(semblance, axis=1))
+        return batch
+
+    @staticmethod
+    @inbatch_parallel(init="_init_component", target="threads")
+    def calculate_std(batch, index, src, dst):
+        """some docs"""
+        pos = batch.get_pos(None, src, index)
+        semblance = getattr(batch, src)[pos]
+        getattr(batch, dst)[pos] = np.max(np.std(semblance, axis=1))
+        return batch
+
 
 class MetricsMap(Metrics):
     """seismic metrics class"""
-    def __init__(self, index, metrics, *args, map_type='sources', **kwargs):
+    def __init__(self, index, metrics, coords, *args, **kwargs):
         _ = args, kwargs
         super().__init__()
+
         self.metrics = metrics
+        self.coords = [index.get_df(index=ix)[coords].values[0] for ix in index.indices]
+        self._maps_list = [[*coord, metric] for coord, metric in zip(self.coords, self.metrics)]
 
-        self.coords = None
-        if map_type == 'sources':
-            self.coords = index.get_df()[["SourceX", "SourceY"]].values[0]
-        elif map_type == 'receivers':
-            self.coords = index.get_df()[["GroupX", "GroupY"]].values[0]
-
-        self._maps_list = [[*self.coords, self.metrics]]
         self._agg_fn_dict = {'mean': np.nanmean,
                              'max': np.nanmax,
                              'min': np.nanmin}
@@ -56,7 +54,7 @@ class MetricsMap(Metrics):
 
     def append(self, metrics):
         """append"""
-        self._maps_list.append(metrics._maps_list[0])
+        self._maps_list.extend(metrics._maps_list)
 
     def __getattr__(self, name):
         if name == "METRICS_ALIASES":
@@ -64,18 +62,34 @@ class MetricsMap(Metrics):
         name = METRICS_ALIASES.get(name, name)
         return object.__getattribute__(self, name)
 
-    def _split_result(self):
+    def __split_result(self):
         """split_result"""
         coords_x, coords_y, metrics = np.array(self._maps_list).T
         metrics = np.array(list(metrics), dtype=np.float32)
         return np.array(coords_x, dtype=np.float32), np.array(coords_y, dtype=np.float32), metrics
 
-    def construct_map(self, bin_size=500, max_value=None, title=None, figsize=None, save_dir=None, pad=False):
-        coords_x, coords_y, metrics = self._split_result()
-
-        metric_map = construct_metrics_map(coords_x=coords_x, coords_y=coords_y, metrics=metrics, bin_size=bin_size)
+    def construct_map(self, bin_size=500, max_value=None, title=None, figsize=None, save_dir=None, pad=False, plot=True):
+        """Each value in resulted map represent average value of metrics for coordinates belongs to current bin."""
+        coords_x, coords_y, metrics = self.__split_result()
+        metric_map = self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y, metrics=metrics, bin_size=bin_size)
         extent_coords = [coords_x.min(), coords_x.max(), coords_y.min(), coords_y.max()]
-        plot_metrics_map(metrics_map=metric_map, max_value=max_value, extent_coords=extent_coords,
-                         title=title, figsize=figsize, save_dir=save_dir, pad=pad)
+        if plot:
+            plot_metrics_map(metrics_map=metric_map, max_value=max_value, extent_coords=extent_coords,
+                            title=title, figsize=figsize, save_dir=save_dir, pad=pad)
         return metric_map
 
+    @staticmethod
+    @njit(parallel=True)
+    def construct_metrics_map(coords_x, coords_y, metrics, bin_size):
+        """njit map"""
+        range_x = np.arange(coords_x.min(), coords_x.max() + bin_size, bin_size)
+        range_y = np.arange(coords_y.min(), coords_y.max() + bin_size, bin_size)
+        metrics_map = np.full((len(range_y), len(range_x)), np.nan)
+
+        for i in prange(len(range_x)):
+            for j in prange(len(range_y)):
+                mask = ((coords_x - range_x[i] >= 0) & (coords_x - range_x[i] < bin_size) &
+                        (coords_y - range_y[j] >= 0) & (coords_y - range_y[j] < bin_size))
+                if mask.sum() > 0:
+                    metrics_map[j, i] = metrics[mask].mean()
+        return metrics_map

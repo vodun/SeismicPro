@@ -8,7 +8,6 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
 from scipy.signal import medfilt, hilbert
-from numba import njit, prange
 import segyio
 
 from ..batchflow import FilesIndex
@@ -875,18 +874,3 @@ def transform_to_fixed_width_columns(path, path_save=None, n_spaces=8, max_len=(
             if path_save:
                 return
             shutil.copyfile(write_file.name, path)
-
-@njit(parallel=True)
-def construct_metrics_map(coords_x, coords_y, metrics, bin_size):
-    """njit map"""
-    range_x = np.arange(coords_x.min(), coords_x.max(), bin_size)
-    range_y = np.arange(coords_y.min(), coords_y.max(), bin_size)
-    metrics_map = np.full((len(range_y), len(range_x)), np.nan)
-
-    for i in prange(len(range_x)):
-        for j in prange(len(range_y)):
-            mask = ((coords_x - range_x[i] >= 0) & (coords_x - range_x[i] <= bin_size) &
-                    (coords_y - range_y[j] >= 0) & (coords_y - range_y[j] <= bin_size))
-            if mask.sum() > 0:
-                metrics_map[j, i] = metrics[mask].mean()
-    return metrics_map
