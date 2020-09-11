@@ -16,7 +16,8 @@ from ..batchflow import action, inbatch_parallel, Batch, any_action_failed
 from .seismic_index import SegyFilesIndex, FieldIndex, KNNIndex, TraceIndex, CustomIndex
 
 from .utils import (FILE_DEPENDEND_COLUMNS, partialmethod, calculate_sdc_for_field, massive_block,
-                    check_unique_fieldrecord_across_surveys)
+                    check_unique_fieldrecord_across_surveys, calc_semblance, interpolate_velocities,
+                    calc_bounds, calc_partial_semblance)
 from .file_utils import write_segy_file
 from .plot_utils import IndexTracker, spectrum_plot, seismic_plot, statistics_plot, gain_plot
 
@@ -220,6 +221,162 @@ class SeismicBatch(Batch):
             pos_old = self.get_pos(None, isrc, new_batch.indices)
             getattr(new_batch, isrc)[pos_new] = getattr(self, isrc)[pos_old]
         return new_batch
+
+    #---------------------------------------
+    # Speed Law Actions
+    #---------------------------------------
+
+    @action
+    def calculate_semblance(self, src, dst, velocities, velocities_length=100, window=25):
+        r"""
+        TODO: THIS DOCSTRING SHOULD BE REWRITTEN!
+
+        Calculate semblance for given fields from `src` component and save resulted semblance to `dst` component.
+        Semblance is a measure of multichannel coherence. This measure is calculated along all possible horizons from
+        a given speed range and with all possible starting points. Range of starting points is equal to field range.
+        Calculation of each horizon is based on the following formula.
+        :math:`th_i = \sqrt{t_z^2 + off_i^2/v^2}`, where
+        :math:`t_z` - start time of the horizon
+        :math:`off_i` - distance from the gather to the i-th trace (offset)
+        :math:`v` - speed for this horizon
+        :math:`th_i` - horizon time for given offset.
+        The value of horison amplitude in point t_h can be received from trace with same offset. In order to
+        calculate all the horizon values, you need to get the t_h values for all offsets.
+        Then, value :math:`f_{i, th_i} = trace_i[th_i]` is an amplitude for horizon with i-th offset.
+        Semblance calculate base on horizon values by the following formula:
+        :math:`S(k, th) = \frac{\sum^{k+N/2}_{k-N/2}(\sum^M_{i=1} \sum^M_{j=1} f_{i, th[j]})^2}
+                               {M \sum^{k+N/2}_{k-N/2}\sum^M_1 \sum^M_{j=1} f_{i, th[j]})^2}`, where
+        S - semblance value for range for starting point k
+        M - Number of traces in field
+        N - Window size
+        th - Horizon.
+        Resulted matrix contains semblance values based on horizons with each combinations of started point :math:`t_z`
+        and speed :math:`v`. This matrix has shape (time_length, velocity_length).
+        Parameters
+        ----------
+        src : str
+            The batch component to get field from.
+        dst : str
+            The batch component to put semblance in.
+        velocities : list with length 2 or more.
+            If length is 2, then the checked velocities will be sampled with given step via `step` parameter
+            from first value to the second one. If length is different, semblance will be calculated for given
+            velocities.
+        step: int
+            Step to sample velocity.
+        window: int
+            Window size for smoothing. It should be from 5 to 256ms.
+        Returns
+        -------
+            : SeismicBatch
+            Batch with semblance in `dst` component. `dst` components are now arrays
+            (of size batch items) of array (of size velocity values) of array (of field length).
+        Raises
+        ------
+        ValueError : if `method` receive wrong name.
+        Notes
+        -----
+        - Works properly only with CDP index.
+        - Adding 'velocity' to meta data.
+        """
+
+        if len(velocities) == 2:
+            velocities = np.linspace(*velocities, velocities_length)
+
+        # Converting ms to seconds.
+        times = self.meta[src]['samples'].astype(int) / 1000
+        dt = times[1] - times[0]
+
+        self._calculate_semblance_all(src=src, dst=dst, times=times, velocities=velocities, dt=dt,
+                                      window=window)
+        self.meta[dst].update(velocities=velocities)
+        return self
+
+    @action
+    @inbatch_parallel(init="_init_component", target="for")
+    def _calculate_semblance_all(self, index, src, dst, times, velocities, dt, window):
+        from time import time
+        pos = self.get_pos(None, src, index)
+        field = getattr(self, src)[pos]
+        offsets = np.sort(self.index.get_df(index=index)['offset'])
+
+        field = np.ascontiguousarray(field.T)
+        semblance = calc_semblance(field, times, offsets, velocities, dt, window)
+
+        getattr(self, dst)[pos] = semblance
+
+    @action
+    def calculate_residual_semblance(self, src, dst, velocities, velocity_points, velocities_length=100, window=25, p=0.2):
+        """ some docs """
+        if len(velocities) == 2:
+            velocities = np.linspace(*velocities, velocities_length)
+        times = self.meta[src]['samples'].astype(int) / 1000
+        dt = times[1] - times[0]
+
+        self._calc_residual_semblance(src=src, dst=dst, times=times, velocities=velocities, velocity_points=velocity_points,
+                                      dt=dt, window=window, p=p)
+
+        return self
+
+    @inbatch_parallel(init="_init_component", target="for")
+    def _calc_residual_semblance(self, index, src, dst, times, velocities, velocity_points, dt, window, p):
+        pos = self.get_pos(None, src, index)
+        field = getattr(self, src)[pos]
+        offsets = np.sort(self.index.get_df(index=index)['offset'])
+
+        interp_vel = interpolate_velocities(velocity_points, times)
+        lower_bounds, upper_bounds = calc_bounds(interp_vel, velocities, p)
+        semblance = calc_partial_semblance(seismogram=field.T, times=times, offsets=offsets, velocities=velocities,
+                                           lower_bounds=lower_bounds, upper_bounds=upper_bounds, dt=dt, window=window)
+        semblance_len = (upper_bounds - lower_bounds).max()
+        residual_semblance = np.zeros((len(times), semblance_len))
+
+        for i, (low, up) in enumerate(zip(lower_bounds, upper_bounds)):
+            ix = (semblance_len - (up - low)) // 2
+            residual_semblance[i, ix : ix + up - low] = semblance[i, low : up]
+
+        getattr(self, dst)[pos] = residual_semblance
+
+    @action
+    @inbatch_parallel(init='_init_component', target='threads')
+    @apply_to_each_component
+    def add_muting(self, index, src, dst, muting=None, picking=None, indent=None):
+        """muting - two arrays. first - offsets, second - time.
+        Picking is a component with picking values for every field in batch.
+        indet is a list with length of 2 or list with length = len(field).
+        """
+        pos = self.get_pos(None, src, index)
+        field = getattr(self, src)[pos]
+        offset = np.sort(self.index.get_df(index=index)['offset'])
+        t_step = np.diff(self.meta[src]['samples'][:2])[0]
+        poly_x, poly_y = None, None
+
+        if picking is not None:
+            indent = np.linspace(indent[0], indent[1], len(field)) if len(indent) == 2 else indent
+            picking = getattr(self, picking)[pos]
+            if len(picking) != len(field):
+                poly_x = offset.copy()
+                poly_y = picking.copy()
+        elif muting is not None:
+            indent = np.zeros(len(field))
+            poly_x, poly_y = muting
+        else:
+            raise ValueError('Either `picking` or `muting` should be determined.')
+
+        poly = np.polyfit(poly_x, poly_y, deg=2)
+        mute_samples = np.polyval(poly, offset) / t_step
+        if np.sum(mute_samples < 0) > 0:
+            mute_samples[mute_samples < 0] = 0
+        mute_time_mx = np.array([mute_samples]*field.shape[1]).T
+
+        time_idx = np.arange(0, field.shape[1])
+        time_idx_mx = np.array([time_idx]*field.shape[0])
+
+        mute_mask = time_idx_mx - mute_time_mx
+        mute_mask[mute_mask < 0] = 0
+        mute_mask = mute_mask.astype(bool)
+        muted_field = field * mute_mask
+        getattr(self, dst)[pos] = muted_field
 
     def trace_headers(self, header, flatten=False):
         """Get trace heades.

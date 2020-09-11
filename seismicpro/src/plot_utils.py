@@ -3,6 +3,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib import patches, colors as mcolors
+from matplotlib.collections import PatchCollection
+from matplotlib.patches import Ellipse
 from .utils import measure_gain_amplitude
 
 class IndexTracker:
@@ -47,7 +49,6 @@ def seismic_plot(arrs, wiggle=False, xlim=None, ylim=None, std=1, # pylint: disa
                  pts=None, s=None, scatter_color=None, names=None, figsize=None,
                  save_to=None, dpi=None, line_color=None, title=None, **kwargs):
     """Plot seismic traces.
-
     Parameters
     ----------
     arrs : array-like
@@ -80,17 +81,14 @@ def seismic_plot(arrs, wiggle=False, xlim=None, ylim=None, std=1, # pylint: disa
         Plot title.
     kwargs : dict
         Additional keyword arguments for plot.
-
     Returns
     -------
     Multi-column subplots.
-
     Raises
     ------
     ValueError
         If ```trace_col``` is sequence and it lenght is not equal to the number of traces.
         If dimensions of given ```arrs``` not in [1, 2].
-
     """
     if isinstance(arrs, np.ndarray) and arrs.ndim == 2:
         arrs = (arrs,)
@@ -527,4 +525,95 @@ def show_2d_heatmap(idf, figsize=None, save_to=None, dpi=300, **kwargs):
     plt.ylabel('y-Bins')
     if save_to is not None:
         plt.savefig(save_to, dpi=dpi)
+    plt.show()
+
+def semblance_plot(semblance, velocities, x_ticks=15, x_step=None, y_ticks=15, y_step=None, samples_step=None,
+                   velocity_points=None, point_size=50, name=None, index=None, figsize=None, save_dir=None, dpi=100):
+    """ Draw given semblance.
+
+    TODO: REWRITE DOCS
+
+    Parameters
+    ----------
+    semblance : numpy array
+        Matrix with semblance.
+    velocities : list of length 2 or list
+         if lenght == 2 - Min and max values of speed in ms/sec.
+         else first value should be minumum, last value - maximum.
+    velocity_step : int
+        Frequency of speed display on the x-axis.
+    velocity_points : list
+        list with elements in format [[time, velocity], ...].
+    color_points : str
+        Name of the colors.
+    name : str
+        Name of the title.
+    index : int
+        Seismic index or given seismogram.
+    figsize : tuple, optional
+        Output figure size.
+
+    Returns
+    -------
+    Semblance plot.
+    """
+    plt.figure(figsize=figsize)
+
+    max_val = np.max(semblance)
+    levels = (np.logspace(0, 1, num=16, base=500)/500) * max_val
+    levels[0] = 0
+    xlist = np.arange(0, semblance.shape[1])
+    ylist = np.arange(0, semblance.shape[0])
+    x_grid, y_grid = np.meshgrid(xlist, ylist)
+
+    fig, ax = plt.subplots(figsize=figsize)
+    norm = mcolors.BoundaryNorm(boundaries=levels, ncolors=256)
+    ax.contour(x_grid, y_grid, semblance, levels, colors='k', linewidths=.7, aplha=.5)
+    img = ax.imshow(semblance, norm=norm, aspect='auto', cmap=plt.get_cmap('jet'))
+    fig.colorbar(img, ticks=levels[1::2])
+
+    steps = samples_step if samples_step is not None else 1
+
+    if x_step is None:
+        ticks = np.linspace(0, semblance.shape[1], x_ticks)
+        labels = np.linspace(velocities[0], velocities[-1], x_ticks).astype(int)
+    else:
+        labels = np.arange(velocities[0], velocities[-1], x_step).astype(int)
+        ticks = np.linspace(0, semblance.shape[1], len(labels))
+    plt.xticks(ticks=ticks, labels=labels)
+
+    if y_step is None:
+        ticks = np.linspace(0, semblance.shape[0], y_ticks)
+        labels = np.linspace(0, semblance.shape[0] * steps, y_ticks).astype(int)
+    else:
+        labels = np.arange(0, len(semblance) * samples_step, y_step)
+        ticks = np.linspace(0, semblance.shape[0], len(labels))
+    plt.yticks(ticks=ticks, labels=labels)
+
+    ax.set_ylim(semblance.shape[0], 0)
+
+    if name is not None or index is not None:
+        ax.set_title(f'{name} {index}')
+    ax.set_xlabel('Speed')
+
+    if samples_step is not None:
+        ax.set_ylabel('Time')
+    else:
+        ax.set_ylabel('Samples')
+
+    ratio = int(semblance.shape[0] / semblance.shape[1])
+    width = semblance.shape[0] / (point_size * ratio)
+    height = semblance.shape[1] / point_size * ratio
+
+    if velocity_points is not None:
+        for time, vel in velocity_points:
+            time = np.int32(time/2)
+            vel = np.argmin(np.abs(np.linspace(velocities[0], velocities[-1],
+                                               semblance.shape[1]) - vel))
+            ellipse_big = Ellipse((vel, time), width, height, color='w')
+            ellipse_small = Ellipse((vel, time), width / 5, height / 5, color='r')
+            ax.add_patch(ellipse_big)
+            ax.add_patch(ellipse_small)
+    if save_dir:
+        plt.savefig(save_dir, bbox_inches='tight', pad_inches=0.1)
     plt.show()

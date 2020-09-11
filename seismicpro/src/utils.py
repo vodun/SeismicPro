@@ -6,9 +6,11 @@ import functools
 
 import numpy as np
 import pandas as pd
+import segyio
 from sklearn.linear_model import LinearRegression
 from scipy.signal import medfilt, hilbert
-import segyio
+from scipy.interpolate import interp1d
+from numba import njit, prange
 
 from ..batchflow import FilesIndex
 
@@ -888,3 +890,74 @@ def transform_to_fixed_width_columns(path, path_save=None, n_spaces=8, max_len=(
             if path_save:
                 return
             shutil.copyfile(write_file.name, path)
+
+
+@njit(nogil=True, fastmath=True)
+def correct_time(seismogram, time, offsets, velocity, dt):
+    """ correct time"""
+    res = np.zeros(len(offsets))
+    corrected_times = (np.sqrt(time**2 + offsets**2/velocity**2) / dt).astype(np.int32)
+    for i in range(len(offsets)):
+        corrected_time = corrected_times[i]
+        if corrected_time < len(seismogram):
+            res[i] = seismogram[corrected_time, i]
+    return res
+
+
+@njit(nogil=True, fastmath=True, parallel=True)
+def calc_semblance(seismogram, times, offsets, velocities, dt, window):
+    """ calculate semblance """
+    semblance = np.empty((len(seismogram), len(velocities)))
+
+    for j in prange(len(velocities)):
+        nmo = np.empty_like(seismogram)
+
+        for i in prange(len(times)):
+            nmo[i] = correct_time(seismogram, times[i], offsets, velocities[j], dt)
+
+        nmo_sum_2 = np.sum(nmo, axis=1)**2
+        nmo_2_sum = np.sum(nmo**2, axis=1)
+        for i in prange(len(nmo)):
+            semblance[i, j] = (np.sum(nmo_sum_2[max(0, i - window) : min(len(nmo) - 1, i + window)]) /
+                               (len(offsets) * np.sum(nmo_2_sum[max(0, i - window) : min(len(nmo) - 1, i + window)])
+                                + 1e-6))
+    return semblance
+
+def interpolate_velocities(velocity_points, times):
+    f = interp1d(velocity_points[:, 0], velocity_points[:, 1], fill_value="extrapolate")
+    return f(times)
+
+def calc_bound(interp_vel, velocities, p):
+    bounds = interp_vel * p
+    bounds = np.argmin(np.abs(bounds.reshape(-1, 1) - velocities), axis=1)
+    return bounds
+
+def calc_bounds(interp_vel, velocities, p):
+    interp_vel = np.clip(interp_vel, velocities[0], velocities[-1])
+    lower_bounds = calc_bound(interp_vel, velocities, 1 - p)
+    upper_bounds = calc_bound(interp_vel, velocities, 1 + p)
+    return lower_bounds, upper_bounds
+
+@njit(nogil=True, fastmath=True, parallel=True)
+def calc_partial_semblance(seismogram, times, offsets, velocities, lower_bounds, upper_bounds, dt=0.002, window=25):
+    semblance = np.zeros((len(seismogram), len(velocities)))
+    for i in prange(lower_bounds.min(), upper_bounds.max() + 1):
+        t_low = np.where(upper_bounds == i)[0]
+        t_low = 0 if len(t_low) == 0 else t_low[0]
+        t_low_window = max(0, t_low - window)
+
+        t_up = np.where(lower_bounds == i)[0]
+        t_up = len(times) - 1 if len(t_up) == 0 else t_up[-1]
+        t_up_window = min(len(times) - 1, t_up + window)
+
+        tmp = np.empty((t_up_window - t_low_window + 1, len(offsets)))
+        for t in range(t_low_window, t_up_window + 1):
+            tmp[t - t_low_window] = correct_time(seismogram, times[t], offsets, velocities[i], dt)
+
+        nmo_sum_2 = np.sum(tmp, axis=1)**2
+        nmo_2_sum = np.sum(tmp**2, axis=1)
+        for t in range(t_low, t_up + 1):
+            t_relative = t - t_low_window
+            semblance[t, i] = (np.sum(nmo_sum_2[max(0, t_relative - window) : t_relative + window]) /
+                            (len(offsets) * np.sum(nmo_2_sum[max(0, t_relative - window) : t_relative + window]) + 1e-6))
+    return semblance
