@@ -396,13 +396,13 @@ class SeismicBatch(Batch):
             data_2d = np.vstack(data)
         except ValueError as err:
             if length_alignment is None:
-                raise ValueError(str(err) + '\nTry to set length_alingment to \'max\' or \'min\'')
+                raise ValueError('Try to set length_alingment to \'max\' or \'min\'') from err
             if length_alignment == 'min':
                 nsamples = min([len(t) for t in data])
             elif length_alignment == 'max':
                 nsamples = max([len(t) for t in data])
             else:
-                raise NotImplementedError('Unknown length_alingment')
+                raise NotImplementedError('Unknown length_alingment') from err
             shape = (len(data), nsamples)
             data_2d = np.full(shape, pad_value)
             for i, arr in enumerate(data):
@@ -1465,7 +1465,8 @@ class SeismicBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component')
-    def equalize(self, index, src, dst, params, survey_id_col=None):
+    @apply_to_each_component
+    def equalize(self, index, src, dst, params, survey_id_col=None, upscale=False):
         """ Equalize amplitudes of different seismic surveys in dataset.
 
         This method performs quantile normalization by shifting and
@@ -1499,6 +1500,8 @@ class SeismicBatch(Batch):
             surveys from different seasons.
             Optional if `params` is a result of `SeismicDataset`'s
             method `find_equalization_params`.
+        upscale : bool, optional
+            weather to upscale batch items to its origin scale
 
         Returns
         -------
@@ -1507,35 +1510,30 @@ class SeismicBatch(Batch):
 
         Raises
         ------
-        ValueError : If index is not FieldIndex.
-        ValueError : If shot gather with same id is contained in more
+        ValueError : If gather with same id is contained in more
                      than one survey.
 
         Note
         ----
-        1. Works properly only with FieldIndex.
-        2. If `params` dict is user-defined, `survey_id_col` should be
+        1. If `params` dict is user-defined, `survey_id_col` should be
         provided excplicitly either as argument, or as `params` dict key-value
         pair.
-        3. This action copies all meta from `src` component to `dst` component.
+        2. This action copies all meta from `src` component to `dst` component.
         """
-        if not isinstance(self.index, FieldIndex):
-            raise ValueError("Index must be FieldIndex, not {}".format(type(self.index)))
-
         pos = self.get_pos(None, src, index)
         field = getattr(self, src)[pos]
 
         if survey_id_col is None:
             survey_id_col = params['survey_id_col']
 
-        surveys_by_fieldrecord = np.unique(self.index.get_df(index=index)[survey_id_col])
+        surveys_by_fieldrecord = np.unique(self.index.get_df(index=index, reset=False)[survey_id_col])
         check_unique_fieldrecord_across_surveys(surveys_by_fieldrecord, index)
         survey = surveys_by_fieldrecord[0]
 
         p_95 = params[survey]
 
         # shifting and scaling data so that 5th and 95th percentiles are -1 and 1 respectively
-        equalized_field = field / p_95
+        equalized_field = (field / p_95) if not upscale else (field * p_95)
 
         getattr(self, dst)[pos] = equalized_field
         self.copy_meta(src, dst)
