@@ -460,7 +460,7 @@ class SeismicBatch(Batch):
     @inbatch_parallel(init="indices", target="threads")
     def _dump_split_segy(self, index, src, path):
         """Dump data to segy files."""
-        pos = self.index.get_pos(ndex)
+        pos = self.index.get_pos(index)
         data = np.atleast_2d(getattr(self, src)[pos])
 
         path = os.path.join(path, str(index) + '.sgy')
