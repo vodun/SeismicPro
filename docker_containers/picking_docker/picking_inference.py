@@ -86,7 +86,7 @@ def predict(path_raw, path_model, num_zero=100, save_to='dump.csv',
                  .drop_zero_traces(num_zero=num_zero, src='raw')
                  .standardize(src='raw', dst='raw')
                  .add_components(components='predictions')
-                 .apply_transform_all(src='raw', dst='raw', func=lambda x: np.stack(x))
+                 .call(lambda batch: np.stack(batch.raw), save_to=B('raw'))
                  .predict_model('my_model', B('raw'), fetches='predictions',
                                 save_to=B('predictions', mode='a'))
                  .mask_to_pick(src='predictions', dst='predictions', labels=False)
