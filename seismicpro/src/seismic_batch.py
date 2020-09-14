@@ -271,6 +271,34 @@ class SeismicBatch(Batch):
             self.meta[t_comp] = self.meta[fr_comp].copy()
         return self
 
+    def items_viewer(self, src, scroll_step=1, **kwargs):
+        """Scroll and view batch items. Emaple of use:
+        ```
+        %matplotlib notebook
+
+        fig, tracker = batch.items_viewer('raw', vmin=-cv, vmax=cv, cmap='gray')
+        fig.canvas.mpl_connect('scroll_event', tracker.onscroll)
+        plt.show()
+        ```
+
+        Parameters
+        ----------
+        src : str
+            The batch component with data to show.
+        scroll_step : int, default: 1
+            Number of batch items scrolled at one time.
+        kwargs: dict
+            Additional keyword arguments for plt.
+
+        Returns
+        -------
+        fig, tracker
+        """
+        fig, ax = plt.subplots(1, 1)
+        tracker = IndexTracker(ax, getattr(self, src), self.indices,
+                               scroll_step=scroll_step, **kwargs)
+        return fig, tracker
+
     #---------------------------------------
     # Load and Dump
     #---------------------------------------
@@ -538,7 +566,11 @@ class SeismicBatch(Batch):
         return self
 
     #---------------------------------------
-    # Crops Actions
+    # Data Process Actions
+    #---------------------------------------
+
+    #---------------------------------------
+    # DPA. Cropping Actions
     #---------------------------------------
 
     @action
@@ -727,7 +759,7 @@ class SeismicBatch(Batch):
         return self
 
     #---------------------------------------
-    # Standardize Actions
+    # DPA. Standardize Actions
     #---------------------------------------
 
     @action
@@ -838,8 +870,80 @@ class SeismicBatch(Batch):
         return self
 
     #---------------------------------------
-    # Useful Actions
+    # DPA. Misc
     #---------------------------------------
+
+    @action
+    @inbatch_parallel(init="_init_component", target="threads")
+    @apply_to_each_component
+    def apply_along_axis(self, index, func, *args, src, dst=None, slice_axis=0, **kwargs):
+        """Apply function along specified axis of batch items.
+
+        Parameters
+        ----------
+        func : callable
+            A function to apply. Must accept a trace as its first argument.
+        src : str, array-like
+            Batch component name to get the data from.
+        dst : str, array-like
+            Batch component name to put the result in.
+        item_axis : int, default: 0
+            Batch item axis to apply ``func`` along.
+        slice_axis : int
+            Axis to iterate data over.
+        args : misc
+            Any additional positional arguments to ``func``.
+        kwargs : misc
+            Any additional named arguments to ``func``.
+
+        Returns
+        -------
+        batch : SeismicBatch
+            Transformed batch. Changes ``dst`` component.
+        """
+        i = self.get_pos(None, src, index)
+        src_data = getattr(self, src)[i]
+        dst_data = np.array([func(x, *args, **kwargs) for x in np.rollaxis(src_data, slice_axis)])
+        getattr(self, dst)[i] = dst_data
+
+    @action
+    @inbatch_parallel(init="_init_component", target="threads")
+    @apply_to_each_component
+    def band_pass_filter(self, index, *args, src, dst=None, lowcut=None, highcut=None, fs=1, order=5):
+        """Apply a band pass filter.
+
+        Parameters
+        ----------
+        src : str, array-like
+            The batch components to get the data from.
+        dst : str, array-like
+            The batch components to put the result in.
+        lowcut : real, optional
+            Lowcut frequency.
+        highcut : real, optional
+            Highcut frequency.
+        order : int
+            The order of the filter.
+        fs : real
+            Sampling rate.
+
+        Returns
+        -------
+        batch : SeismicBatch
+            Batch with filtered traces.
+        """
+        _ = args
+        i = self.get_pos(None, src, index)
+        traces = getattr(self, src)[i]
+        nyq = 0.5 * fs
+        if lowcut is None:
+            b, a = signal.butter(order, highcut / nyq, btype='high')
+        elif highcut is None:
+            b, a = signal.butter(order, lowcut / nyq, btype='low')
+        else:
+            b, a = signal.butter(order, [lowcut / nyq, highcut / nyq], btype='band')
+
+        getattr(self, dst)[i] = signal.lfilter(b, a, traces)
 
     @action
     def correct_spherical_divergence(self, src, dst, speed, params, time=None):
@@ -1078,6 +1182,104 @@ class SeismicBatch(Batch):
         return self
 
     @action
+    def mcm(self, src, dst, eps=3, length_win=12):
+        """Creates for each trace corresponding Energy function.
+        Based on Coppens(1985) method.
+
+        Parameters
+        ----------
+        src : str
+            The batch components to get the data from.
+        dst : str
+            The batch components to put the result in.
+        eps: float, default: 3
+            Stabilization constant that helps reduce the rapid fluctuations of energy function.
+        length_win: int, default: 12
+            The leading window length.
+
+        Returns
+        -------
+        batch : SeismicBatch
+            Batch with the energy function.
+        """
+        trace = np.concatenate(getattr(self, src))
+        energy = np.cumsum(trace**2, axis=1)
+        long_win, lead_win = energy, energy
+        lead_win[:, length_win:] = lead_win[:, length_win:] - lead_win[:, :-length_win]
+        energy = lead_win / (long_win + eps)
+        self.add_components(dst, init=np.array(energy + [None])[:-1]) # array implicitly converted to object dtype
+        return self
+
+    @action
+    @inbatch_parallel(init="_init_component", target="threads")
+    @apply_to_each_component
+    def pad_traces(self, index, *args, src, dst=None, **kwargs):
+        """
+        Pad traces with ```numpy.pad```.
+
+        Parameters
+        ----------
+        src : str, array-like
+            The batch components to get the data from.
+        dst : str, array-like
+            The batch components to put the result in.
+        kwargs : dict
+            Named arguments to ```numpy.pad```.
+
+        Returns
+        -------
+        batch : SeismicBatch
+            Batch with padded traces.
+
+        Note
+        ----
+        This action copies all meta from `src` component to `dst` component.
+        """
+        _ = args
+        pos = self.get_pos(None, src, index)
+        data = getattr(self, src)[pos]
+        pad_width = kwargs['pad_width']
+        if isinstance(pad_width, int):
+            pad_width = (pad_width, pad_width)
+
+        kwargs['pad_width'] = [(0, 0)] + [pad_width] + [(0, 0)] * (data.ndim - 2)
+        getattr(self, dst)[pos] = np.pad(data, **kwargs)
+        self.copy_meta(src, dst)
+        return self
+
+    @action
+    @inbatch_parallel(init="_init_component", target="threads")
+    @apply_to_each_component
+    def slice_traces(self, index, *args, src, slice_obj, dst=None):
+        """
+        Slice traces.
+
+        Parameters
+        ----------
+        src : str, array-like
+            The batch components to get the data from.
+        dst : str, array-like
+            The batch components to put the result in.
+        slice_obj : slice
+            Slice to extract from traces.
+
+        Returns
+        -------
+        batch : SeismicBatch
+            Batch with sliced traces.
+
+        Note
+        ----
+        This action copies all meta from `src` component to `dst` component.
+        """
+        _ = args
+        pos = self.get_pos(None, src, index)
+        data = getattr(self, src)[pos]
+        getattr(self, dst)[pos] = data[:, slice_obj]
+        self.copy_meta(src, dst)
+        return self
+
+    @action
     @apply_to_each_component
     def sort_traces(self, *args, src, sort_by, dst=None):
         """Sort traces.
@@ -1148,8 +1350,76 @@ class SeismicBatch(Batch):
         getattr(self, dst)[pos] = getattr(self, src)[pos][order]
         return self
 
+    @action
+    @inbatch_parallel(init="_init_component", target="threads")
+    @apply_to_each_component
+    def to_2d(self, index, *args, src, dst=None, length_alignment=None, pad_value=0):
+        """Convert array of 1d arrays to 2d array.
+
+        Parameters
+        ----------
+        src : str, array-like
+            The batch components to get the data from.
+        dst : str, array-like
+            The batch components to put the result in.
+        length_alignment : str, optional
+            Defines what to do with arrays of diffetent lengths.
+            If 'min', cut the end by minimal array length.
+            If 'max', pad the end to maximal array length.
+            If None, try to put array to 2d array as is.
+
+        Returns
+        -------
+        batch : SeismicBatch
+            Batch with items converted to 2d arrays.
+        """
+        _ = args
+        pos = self.get_pos(None, src, index)
+        data = getattr(self, src)[pos]
+        if data is None or len(data) == 0:
+            return
+
+        try:
+            data_2d = np.vstack(data)
+        except ValueError as err:
+            if length_alignment is None:
+                raise ValueError('Try to set length_alingment to \'max\' or \'min\'') from err
+            if length_alignment == 'min':
+                nsamples = min([len(t) for t in data])
+            elif length_alignment == 'max':
+                nsamples = max([len(t) for t in data])
+            else:
+                raise NotImplementedError('Unknown length_alingment') from err
+            shape = (len(data), nsamples)
+            data_2d = np.full(shape, pad_value)
+            for i, arr in enumerate(data):
+                data_2d[i, :len(arr)] = arr[:nsamples]
+
+        getattr(self, dst)[pos] = data_2d
+
+    def trace_headers(self, header, flatten=False):
+        """Get trace heades.
+
+        Parameters
+        ----------
+        header : string
+            Header name.
+        flatten : bool
+            If False, array of headers will be splitted according to batch item sizes.
+            If True, return a flattened array. Dafault to False.
+
+        Returns
+        -------
+        arr : ndarray
+            Arrays of trace headers."""
+        tracecounts = self.index.tracecounts
+        values = self.index.get_df()[header].values
+        if flatten:
+            return values
+        return np.array(np.split(values, np.cumsum(tracecounts)[:-1]) + [None])[:-1]
+
     #---------------------------------------
-    # Picking Actions
+    # DPA. Picking Actions
     #---------------------------------------
 
     @action
@@ -1257,6 +1527,29 @@ class SeismicBatch(Batch):
         n_skip = max((np.abs(trace[x:]) > threshold).argmax() - 1, 0)
         x += n_skip
         getattr(self, dst)[pos] = x
+        return self
+
+    @action
+    def energy_to_picking(self, src, dst):
+        """Convert energy function of the trace to the picking time by taking derivative
+        and finding maximum.
+
+        Parameters
+        ----------
+        src : str
+            The batch components to get the data from.
+        dst : str
+            The batch components to put the result in.
+
+        Returns
+        -------
+        batch : SeismicBatch
+            Batch with the predicted picking by MCM method.
+        """
+        energy = np.stack(getattr(self, src))
+        energy = np.gradient(energy, axis=1)
+        picking = np.argmax(energy, axis=1)
+        self.add_components(dst, np.array(picking + [None])[:-1]) # array implicitly converted to object dtype
         return self
 
     #---------------------------------------
@@ -1493,296 +1786,3 @@ class SeismicBatch(Batch):
         statistics_plot(arrs=arrs, stats=stats, rate=rate, names=names, figsize=figsize,
                         save_to=save_to, **kwargs)
         return self
-
-    #---------------------------------------
-    # Rarely Used Actions and Functions
-    #---------------------------------------
-
-    @action
-    @inbatch_parallel(init="_init_component", target="threads")
-    @apply_to_each_component
-    def apply_along_axis(self, index, func, *args, src, dst=None, slice_axis=0, **kwargs):
-        """Apply function along specified axis of batch items.
-
-        Parameters
-        ----------
-        func : callable
-            A function to apply. Must accept a trace as its first argument.
-        src : str, array-like
-            Batch component name to get the data from.
-        dst : str, array-like
-            Batch component name to put the result in.
-        item_axis : int, default: 0
-            Batch item axis to apply ``func`` along.
-        slice_axis : int
-            Axis to iterate data over.
-        args : misc
-            Any additional positional arguments to ``func``.
-        kwargs : misc
-            Any additional named arguments to ``func``.
-
-        Returns
-        -------
-        batch : SeismicBatch
-            Transformed batch. Changes ``dst`` component.
-        """
-        i = self.get_pos(None, src, index)
-        src_data = getattr(self, src)[i]
-        dst_data = np.array([func(x, *args, **kwargs) for x in np.rollaxis(src_data, slice_axis)])
-        getattr(self, dst)[i] = dst_data
-
-    @action
-    @inbatch_parallel(init="_init_component", target="threads")
-    @apply_to_each_component
-    def band_pass_filter(self, index, *args, src, dst=None, lowcut=None, highcut=None, fs=1, order=5):
-        """Apply a band pass filter.
-
-        Parameters
-        ----------
-        src : str, array-like
-            The batch components to get the data from.
-        dst : str, array-like
-            The batch components to put the result in.
-        lowcut : real, optional
-            Lowcut frequency.
-        highcut : real, optional
-            Highcut frequency.
-        order : int
-            The order of the filter.
-        fs : real
-            Sampling rate.
-
-        Returns
-        -------
-        batch : SeismicBatch
-            Batch with filtered traces.
-        """
-        _ = args
-        i = self.get_pos(None, src, index)
-        traces = getattr(self, src)[i]
-        nyq = 0.5 * fs
-        if lowcut is None:
-            b, a = signal.butter(order, highcut / nyq, btype='high')
-        elif highcut is None:
-            b, a = signal.butter(order, lowcut / nyq, btype='low')
-        else:
-            b, a = signal.butter(order, [lowcut / nyq, highcut / nyq], btype='band')
-
-        getattr(self, dst)[i] = signal.lfilter(b, a, traces)
-
-    @action
-    def energy_to_picking(self, src, dst):
-        """Convert energy function of the trace to the picking time by taking derivative
-        and finding maximum.
-
-        Parameters
-        ----------
-        src : str
-            The batch components to get the data from.
-        dst : str
-            The batch components to put the result in.
-
-        Returns
-        -------
-        batch : SeismicBatch
-            Batch with the predicted picking by MCM method.
-        """
-        energy = np.stack(getattr(self, src))
-        energy = np.gradient(energy, axis=1)
-        picking = np.argmax(energy, axis=1)
-        self.add_components(dst, np.array(picking + [None])[:-1]) # array implicitly converted to object dtype
-        return self
-
-    def items_viewer(self, src, scroll_step=1, **kwargs):
-        """Scroll and view batch items. Emaple of use:
-        ```
-        %matplotlib notebook
-
-        fig, tracker = batch.items_viewer('raw', vmin=-cv, vmax=cv, cmap='gray')
-        fig.canvas.mpl_connect('scroll_event', tracker.onscroll)
-        plt.show()
-        ```
-
-        Parameters
-        ----------
-        src : str
-            The batch component with data to show.
-        scroll_step : int, default: 1
-            Number of batch items scrolled at one time.
-        kwargs: dict
-            Additional keyword arguments for plt.
-
-        Returns
-        -------
-        fig, tracker
-        """
-        fig, ax = plt.subplots(1, 1)
-        tracker = IndexTracker(ax, getattr(self, src), self.indices,
-                               scroll_step=scroll_step, **kwargs)
-        return fig, tracker
-
-    @action
-    def mcm(self, src, dst, eps=3, length_win=12):
-        """Creates for each trace corresponding Energy function.
-        Based on Coppens(1985) method.
-
-        Parameters
-        ----------
-        src : str
-            The batch components to get the data from.
-        dst : str
-            The batch components to put the result in.
-        eps: float, default: 3
-            Stabilization constant that helps reduce the rapid fluctuations of energy function.
-        length_win: int, default: 12
-            The leading window length.
-
-        Returns
-        -------
-        batch : SeismicBatch
-            Batch with the energy function.
-        """
-        trace = np.concatenate(getattr(self, src))
-        energy = np.cumsum(trace**2, axis=1)
-        long_win, lead_win = energy, energy
-        lead_win[:, length_win:] = lead_win[:, length_win:] - lead_win[:, :-length_win]
-        energy = lead_win / (long_win + eps)
-        self.add_components(dst, init=np.array(energy + [None])[:-1]) # array implicitly converted to object dtype
-        return self
-
-    @action
-    @inbatch_parallel(init="_init_component", target="threads")
-    @apply_to_each_component
-    def pad_traces(self, index, *args, src, dst=None, **kwargs):
-        """
-        Pad traces with ```numpy.pad```.
-
-        Parameters
-        ----------
-        src : str, array-like
-            The batch components to get the data from.
-        dst : str, array-like
-            The batch components to put the result in.
-        kwargs : dict
-            Named arguments to ```numpy.pad```.
-
-        Returns
-        -------
-        batch : SeismicBatch
-            Batch with padded traces.
-
-        Note
-        ----
-        This action copies all meta from `src` component to `dst` component.
-        """
-        _ = args
-        pos = self.get_pos(None, src, index)
-        data = getattr(self, src)[pos]
-        pad_width = kwargs['pad_width']
-        if isinstance(pad_width, int):
-            pad_width = (pad_width, pad_width)
-
-        kwargs['pad_width'] = [(0, 0)] + [pad_width] + [(0, 0)] * (data.ndim - 2)
-        getattr(self, dst)[pos] = np.pad(data, **kwargs)
-        self.copy_meta(src, dst)
-        return self
-
-    @action
-    @inbatch_parallel(init="_init_component", target="threads")
-    @apply_to_each_component
-    def slice_traces(self, index, *args, src, slice_obj, dst=None):
-        """
-        Slice traces.
-
-        Parameters
-        ----------
-        src : str, array-like
-            The batch components to get the data from.
-        dst : str, array-like
-            The batch components to put the result in.
-        slice_obj : slice
-            Slice to extract from traces.
-
-        Returns
-        -------
-        batch : SeismicBatch
-            Batch with sliced traces.
-
-        Note
-        ----
-        This action copies all meta from `src` component to `dst` component.
-        """
-        _ = args
-        pos = self.get_pos(None, src, index)
-        data = getattr(self, src)[pos]
-        getattr(self, dst)[pos] = data[:, slice_obj]
-        self.copy_meta(src, dst)
-        return self
-
-    @action
-    @inbatch_parallel(init="_init_component", target="threads")
-    @apply_to_each_component
-    def to_2d(self, index, *args, src, dst=None, length_alignment=None, pad_value=0):
-        """Convert array of 1d arrays to 2d array.
-
-        Parameters
-        ----------
-        src : str, array-like
-            The batch components to get the data from.
-        dst : str, array-like
-            The batch components to put the result in.
-        length_alignment : str, optional
-            Defines what to do with arrays of diffetent lengths.
-            If 'min', cut the end by minimal array length.
-            If 'max', pad the end to maximal array length.
-            If None, try to put array to 2d array as is.
-
-        Returns
-        -------
-        batch : SeismicBatch
-            Batch with items converted to 2d arrays.
-        """
-        _ = args
-        pos = self.get_pos(None, src, index)
-        data = getattr(self, src)[pos]
-        if data is None or len(data) == 0:
-            return
-
-        try:
-            data_2d = np.vstack(data)
-        except ValueError as err:
-            if length_alignment is None:
-                raise ValueError('Try to set length_alingment to \'max\' or \'min\'') from err
-            if length_alignment == 'min':
-                nsamples = min([len(t) for t in data])
-            elif length_alignment == 'max':
-                nsamples = max([len(t) for t in data])
-            else:
-                raise NotImplementedError('Unknown length_alingment') from err
-            shape = (len(data), nsamples)
-            data_2d = np.full(shape, pad_value)
-            for i, arr in enumerate(data):
-                data_2d[i, :len(arr)] = arr[:nsamples]
-
-        getattr(self, dst)[pos] = data_2d
-
-    def trace_headers(self, header, flatten=False):
-        """Get trace heades.
-
-        Parameters
-        ----------
-        header : string
-            Header name.
-        flatten : bool
-            If False, array of headers will be splitted according to batch item sizes.
-            If True, return a flattened array. Dafault to False.
-
-        Returns
-        -------
-        arr : ndarray
-            Arrays of trace headers."""
-        tracecounts = self.index.tracecounts
-        values = self.index.get_df()[header].values
-        if flatten:
-            return values
-        return np.array(np.split(values, np.cumsum(tracecounts)[:-1]) + [None])[:-1]
