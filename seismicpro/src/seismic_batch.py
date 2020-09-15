@@ -17,7 +17,7 @@ from .seismic_index import SegyFilesIndex, FieldIndex, KNNIndex, TraceIndex, Cus
 
 from .utils import (FILE_DEPENDEND_COLUMNS, partialmethod, calculate_sdc_for_field, massive_block,
                     check_unique_fieldrecord_across_surveys, calc_semblance, interpolate_velocities,
-                    calc_bounds, calc_partial_semblance)
+                    calc_bounds, calc_partial_semblance, calc_velocity_model)
 from .file_utils import write_segy_file
 from .plot_utils import IndexTracker, spectrum_plot, seismic_plot, statistics_plot, gain_plot
 
@@ -222,9 +222,9 @@ class SeismicBatch(Batch):
             getattr(new_batch, isrc)[pos_new] = getattr(self, isrc)[pos_old]
         return new_batch
 
-    #---------------------------------------
-    # Speed Law Actions
-    #---------------------------------------
+    #-------------------------------------------------------------------------#
+    #                            Speed Law Actions                            #
+    #-------------------------------------------------------------------------#
 
     @action
     def calculate_semblance(self, src, dst, velocities, velocities_length=100, window=25):
@@ -287,14 +287,15 @@ class SeismicBatch(Batch):
         times = self.meta[src]['samples'].astype(int) / 1000
         dt = times[1] - times[0]
 
-        self._calculate_semblance_all(src=src, dst=dst, times=times, velocities=velocities, dt=dt,
-                                      window=window)
+        self.__calculate_semblance(src=src, dst=dst, times=times, velocities=velocities, dt=dt,
+                                   window=window)
+        self.copy_meta(src, dst)
         self.meta[dst].update(velocities=velocities)
         return self
 
     @action
     @inbatch_parallel(init="_init_component", target="for")
-    def _calculate_semblance_all(self, index, src, dst, times, velocities, dt, window):
+    def __calculate_semblance(self, index, src, dst, times, velocities, dt, window):
         from time import time
         pos = self.get_pos(None, src, index)
         field = getattr(self, src)[pos]
@@ -313,13 +314,13 @@ class SeismicBatch(Batch):
         times = self.meta[src]['samples'].astype(int) / 1000
         dt = times[1] - times[0]
 
-        self._calc_residual_semblance(src=src, dst=dst, times=times, velocities=velocities, velocity_points=velocity_points,
+        self.__calc_residual_semblance(src=src, dst=dst, times=times, velocities=velocities, velocity_points=velocity_points,
                                       dt=dt, window=window, p=p)
 
         return self
 
     @inbatch_parallel(init="_init_component", target="for")
-    def _calc_residual_semblance(self, index, src, dst, times, velocities, velocity_points, dt, window, p):
+    def __calc_residual_semblance(self, index, src, dst, times, velocities, velocity_points, dt, window, p):
         pos = self.get_pos(None, src, index)
         field = getattr(self, src)[pos]
         offsets = np.sort(self.index.get_df(index=index)['offset'])
@@ -336,6 +337,30 @@ class SeismicBatch(Batch):
             residual_semblance[i, ix : ix + up - low] = semblance[i, low : up]
 
         getattr(self, dst)[pos] = residual_semblance
+
+    @action
+    def find_speed_model(self, src, dst, area_factor=0.1):
+        """ some docs """
+        times = self.meta[src]['samples'].astype(int) / 1000
+        velocities = self.meta[src].get('velocities', None)
+
+        if velocities is None:
+            raise ValueError('Src should contains semblance.')
+
+        self.__find_speed_model(src=src, dst=dst, times=times, velocities=velocities, area_factor=area_factor)
+        return self
+
+    @inbatch_parallel(init='_init_component', target='threads')
+    def __find_speed_model(self, index, src, dst, times, velocities, area_factor):
+        pos = self.get_pos(None, src, index)
+        semblance = getattr(self, src)[pos]
+        semblance = np.ascontiguousarray(semblance)
+
+        speed_points, speed_metrics = calc_velocity_model(semblance=semblance, times=times,
+                                                          velocities=velocities, area_factor=area_factor)
+        self.copy_meta(src, dst)
+        self.meta[dst].update(speed_metrics=speed_metrics)
+        getattr(self, dst)[pos] = speed_points
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
@@ -377,6 +402,12 @@ class SeismicBatch(Batch):
         mute_mask = mute_mask.astype(bool)
         muted_field = field * mute_mask
         getattr(self, dst)[pos] = muted_field
+
+
+
+
+
+
 
     def trace_headers(self, header, flatten=False):
         """Get trace heades.

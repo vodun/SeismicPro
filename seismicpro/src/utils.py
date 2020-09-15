@@ -10,6 +10,7 @@ import segyio
 from sklearn.linear_model import LinearRegression
 from scipy.signal import medfilt, hilbert
 from scipy.interpolate import interp1d
+from scipy.ndimage.filters import maximum_filter
 from numba import njit, prange
 
 from ..batchflow import FilesIndex
@@ -923,9 +924,9 @@ def calc_semblance(seismogram, times, offsets, velocities, dt, window):
                                 + 1e-6))
     return semblance
 
-def interpolate_velocities(velocity_points, times):
-    f = interp1d(velocity_points[:, 0], velocity_points[:, 1], fill_value="extrapolate")
-    return f(times)
+# def interpolate_velocities(velocity_points, times):
+#     f = interp1d(velocity_points[:, 0], velocity_points[:, 1], fill_value="extrapolate")
+#     return f(times)
 
 def calc_bound(interp_vel, velocities, p):
     bounds = interp_vel * p
@@ -961,3 +962,37 @@ def calc_partial_semblance(seismogram, times, offsets, velocities, lower_bounds,
             semblance[t, i] = (np.sum(nmo_sum_2[max(0, t_relative - window) : t_relative + window]) /
                             (len(offsets) * np.sum(nmo_2_sum[max(0, t_relative - window) : t_relative + window]) + 1e-6))
     return semblance
+
+def select_candidate_points(last_point, points):
+    return [p for p in points if (p[0] > last_point[0]) and (p[1] > last_point[1])]
+
+def interpolate_velocities(points, times):
+    points_times, points_velocities = zip(*points)
+    f = interp1d(points_times, points_velocities, fill_value="extrapolate")
+    return f(times)
+
+def calc_trace_metric(semblance, points, times, velocities):
+    times_indices = np.arange(len(semblance))
+    velocity_indices = np.argmin(np.abs(velocities - interpolate_velocities(points, times).reshape(-1, 1)), axis=1)
+    return semblance[times_indices, velocity_indices].mean()
+
+def find_local_maximas(semblance, times, velocities, area_factor=0.1):
+    size = (area_factor * len(times), area_factor * len(velocities))
+    local_max_val = maximum_filter(semblance, size=size)
+    local_max_mask = np.isclose(local_max_val, semblance)
+    times_indices, velocities_indices = np.where(local_max_mask)
+    return list(zip(times[times_indices], velocities[velocities_indices]))
+
+def find_optimal_trace(semblance, selected_points, points, times, velocities):
+    candidate_list = select_candidate_points(selected_points[-1], points)
+    if not candidate_list:
+        return selected_points, calc_trace_metric(semblance, selected_points, times, velocities)
+
+    traces = [find_optimal_trace(semblance, selected_points + [point], points, times, velocities)
+              for point in candidate_list]
+    return max(traces, key=lambda x: x[1])
+
+def calc_velocity_model(semblance, times, velocities, area_factor=0.1):
+    maximas_list = find_local_maximas(semblance, times, velocities, area_factor=area_factor)
+    start_point = (times.min(), velocities.min())
+    return find_optimal_trace(semblance, [start_point], maximas_list, times, velocities)
