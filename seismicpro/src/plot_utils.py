@@ -621,27 +621,26 @@ def semblance_plot(semblance, velocities, x_ticks=15, x_step=None, y_ticks=15, y
         plt.savefig(save_dir, bbox_inches='tight', pad_inches=0.1)
     plt.show()
 
-def plot_metrics_map(metrics_map, max_value=None, extent_coords=None, title=None, figsize=None,
-                     save_dir=None, pad=False):
+def plot_metrics_map(metrics_map, vmin=None, vmax=None, extent_coords=None, cm=None, title=None, figsize=None,
+                     save_dir=None, pad=False, **kwargs):
     """plot metrics map"""
-    colors = ((0.0, 0.6, 0.0), (.66, 1, 0), (0.9, 0.0, 0.0))
+    metrics_map = np.pad(metrics_map, pad_width=1, constant_values=None) if pad else metrics_map
 
-    metrics_map = np.nan_to_num(metrics_map, nan=0)
-    metrics_map = np.pad(metrics_map, pad_width=1) if pad else metrics_map
-
-    max_value = max_value if max_value is not None else metrics_map.max()
-    cm = LinearSegmentedColormap.from_list(
-        'cm', colors)
-    cm.set_under('black')
-    cm.set_over('red')
+    vmin = np.min(metrics_map[metrics_map > 0]) if vmin is None else vmin
+    if cm is None:
+        colors = ((0.0, 0.6, 0.0), (.66, 1, 0), (0.9, 0.0, 0.0))
+        cm = LinearSegmentedColormap.from_list(
+            'cm', colors)
+        cm.set_under('black')
+        cm.set_over('red')
 
     fig = plt.figure(figsize=figsize)
-    im = plt.imshow(metrics_map, origin='lower', interpolation='nearest',
-                    vmin=np.min(metrics_map[metrics_map > 0]), cmap=cm,
-                    aspect='auto', extent=extent_coords)
+    img = plt.imshow(metrics_map, origin='lower', interpolation='nearest',
+                    vmin=vmin, vmax=vmax, cmap=cm, aspect='auto',
+                    extent=extent_coords, **kwargs)
 
     plt.title(title, fontsize=18)
-    fig.colorbar(im, extend='both')
+    fig.colorbar(img, extend='both')
 
     if save_dir:
         plt.savefig(save_dir, bbox_inches='tight', pad_inches=0.1)
