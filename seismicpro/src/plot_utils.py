@@ -106,15 +106,13 @@ def seismic_plot(arrs, wiggle=False, xlim=None, ylim=None, std=1, # pylint: disa
         if not wiggle:
             arr = np.squeeze(arr)
 
-        if xlim is None:
-            xlim = (0, len(arr))
+        xlim_curr = xlim or (0, len(arr))
 
         if arr.ndim == 2:
-            if ylim is None:
-                ylim = (0, len(arr[0]))
+            ylim_curr = ylim or (0, len(arr[0]))
 
             if wiggle:
-                offsets = np.arange(*xlim)
+                offsets = np.arange(*xlim_curr)
 
                 if isinstance(line_color, str):
                     line_color = [line_color] * len(offsets)
@@ -122,9 +120,9 @@ def seismic_plot(arrs, wiggle=False, xlim=None, ylim=None, std=1, # pylint: disa
                 if len(line_color) != len(offsets):
                     raise ValueError("Lenght of line_color must be equal to the number of traces.")
 
-                y = np.arange(*ylim)
+                y = np.arange(*ylim_curr)
                 for ix, k in enumerate(offsets):
-                    x = k + std * arr[k, slice(*ylim)] / np.std(arr)
+                    x = k + std * arr[k, slice(*ylim_curr)] / np.std(arr)
                     col = line_color[ix]
                     ax[0, i].plot(x, y, '{}-'.format(col))
                     ax[0, i].fill_betweenx(y, k, x, where=(x > k), color=col)
@@ -141,12 +139,12 @@ def seismic_plot(arrs, wiggle=False, xlim=None, ylim=None, std=1, # pylint: disa
             ax[0, i].set_title(names[i])
 
         if arr.ndim == 2:
-            ax[0, i].set_ylim([ylim[1], ylim[0]])
+            ax[0, i].set_ylim([ylim_curr[1], ylim_curr[0]])
             if (not wiggle) or (pts is not None):
-                ax[0, i].set_xlim(xlim)
+                ax[0, i].set_xlim(xlim_curr)
 
         if arr.ndim == 1:
-            plt.xlim(xlim)
+            plt.xlim(xlim_curr)
 
         if pts is not None:
             ax[0, i].scatter(*pts, s=s, c=scatter_color)
