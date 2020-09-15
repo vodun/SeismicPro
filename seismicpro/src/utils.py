@@ -606,8 +606,6 @@ def make_segy_index(filename, extra_headers=None, limits=None):
 
         meta['file_id'] = np.repeat(filename, segyfile.tracecount)[limits]
         meta['RecieverID'] = np.array([hash(pair) for pair in zip(meta['GroupX'], meta['GroupY'])])
-        for k in tmp_headers:
-            del meta[k]
 
     df = pd.DataFrame(meta)
     return df
