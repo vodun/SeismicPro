@@ -69,13 +69,16 @@ class MetricsMap(Metrics):
         metrics = np.array(list(metrics), dtype=np.float32)
         return np.array(coords_x, dtype=np.float32), np.array(coords_y, dtype=np.float32), metrics
 
-    def construct_map(self, bin_size=500, max_value=None, title=None, figsize=None, save_dir=None, pad=False, plot=True):
+    def construct_map(self, bin_size=500, vmin=None, vmax=None, cm=None, title=None, figsize=None, save_dir=None, pad=False, plot=True):
         """Each value in resulted map represent average value of metrics for coordinates belongs to current bin."""
+
+        if isinstance(bin_size, int):
+            bin_size = (bin_size, bin_size)
         coords_x, coords_y, metrics = self.__split_result()
         metric_map = self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y, metrics=metrics, bin_size=bin_size)
         extent_coords = [coords_x.min(), coords_x.max(), coords_y.min(), coords_y.max()]
         if plot:
-            plot_metrics_map(metrics_map=metric_map, max_value=max_value, extent_coords=extent_coords,
+            plot_metrics_map(metrics_map=metric_map, vmin=vmin, vmax=vmax, extent_coords=extent_coords, cm=cm,
                             title=title, figsize=figsize, save_dir=save_dir, pad=pad)
         return metric_map
 
@@ -83,14 +86,15 @@ class MetricsMap(Metrics):
     @njit(parallel=True)
     def construct_metrics_map(coords_x, coords_y, metrics, bin_size):
         """njit map"""
-        range_x = np.arange(coords_x.min(), coords_x.max() + bin_size, bin_size)
-        range_y = np.arange(coords_y.min(), coords_y.max() + bin_size, bin_size)
+        bin_size_x, bin_size_y = bin_size
+        range_x = np.arange(coords_x.min(), coords_x.max() + bin_size_x, bin_size_x)
+        range_y = np.arange(coords_y.min(), coords_y.max() + bin_size_y, bin_size_y)
         metrics_map = np.full((len(range_y), len(range_x)), np.nan)
 
         for i in prange(len(range_x)):
             for j in prange(len(range_y)):
-                mask = ((coords_x - range_x[i] >= 0) & (coords_x - range_x[i] < bin_size) &
-                        (coords_y - range_y[j] >= 0) & (coords_y - range_y[j] < bin_size))
+                mask = ((coords_x - range_x[i] >= 0) & (coords_x - range_x[i] < bin_size_x) &
+                        (coords_y - range_y[j] >= 0) & (coords_y - range_y[j] < bin_size_y))
                 if mask.sum() > 0:
                     metrics_map[j, i] = metrics[mask].mean()
         return metrics_map
