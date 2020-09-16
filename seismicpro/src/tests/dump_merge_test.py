@@ -14,7 +14,7 @@ PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../../datas
 
 
 def compare_files(path_1, path_2, compare_all):
-    """ Checks that the content of a given SGY-files is a subset of (or is equal to) 
+    """ Checks that the content of a given SGY-files is a subset of (or is equal to)
     the content of the other file
 
     Parameters
