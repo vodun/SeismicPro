@@ -634,7 +634,7 @@ def build_segy_df(extra_headers=None, name=None, limits=None, **kwargs):
                     i in sorted(index.indices)])
     if len(index) > 1:
         for colname in GATHER_HEADERS:
-            if np.any(concat_dfs[[colname, 'file_id']].groupby(colname).nunique()[('file_id')] > 1):
+            if np.any(df[[colname, 'file_id']].groupby(colname).nunique()[('file_id')] > 1):
                 raise ValueError((f'Non-unique values in {colname} among provided files!',
                                   'Resulting index may not be unique.'))
     if markup_path is not None:

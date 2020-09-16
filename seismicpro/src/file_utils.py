@@ -1,12 +1,13 @@
 """ Utility functions for files """
+
+import glob
+
 import segyio
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-import glob
 
 from ..batchflow import FilesIndex
-from .seismic_index import SegyFilesIndex
 
 def write_segy_file(data, df, samples, path, sorting=None, segy_format=1):
     """Write data and headers into SEGY file.
