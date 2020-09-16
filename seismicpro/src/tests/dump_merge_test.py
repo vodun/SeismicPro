@@ -82,11 +82,15 @@ def test_dump_split_merge(index_type, tmp_path):
     compare_files(PATH, merged_path, compare_all=False)
 
 
-@pytest.mark.parametrize('index_type, batch_size', [(FieldIndex, 4), (TraceIndex, 1000)])
-def test_dump_nosplit_merge(index_type, batch_size, tmp_path):
+@pytest.mark.parametrize('index_type, batch_size, use_asterix',
+                         [(FieldIndex, 4, True),
+                          (FieldIndex, 4, False),
+                          (TraceIndex, 1000, True)])
+def test_dump_nosplit_merge(index_type, batch_size, use_asterix, tmp_path):
     """
     Dump content batch-wise for the whole dataset. Merge dumped files.
     Check that merged and input files contents equal
+    The list of files to merge is formed by listing all files or using asterix notation
     """
 
     index = index_type(path=PATH, name='raw')
@@ -100,8 +104,13 @@ def test_dump_nosplit_merge(index_type, batch_size, tmp_path):
 
     ppl.run(batch_size=batch_size, n_epochs=1, drop_last=False, shuffle=False, bar=False)
 
+    if use_asterix:
+        files_list = os.path.join(tmp_path, "*.sgy")
+    else:
+        files_list = [os.path.join(tmp_path, f) for f in os.listdir(tmp_path) if f.endswith('.sgy')]
+
     merged_path = os.path.join(tmp_path, "out.sgy")
-    merge_segy_files(path=os.path.join(tmp_path, "*.sgy"),
+    merge_segy_files(path=files_list,
                      output_path=merged_path, bar=False)
 
     compare_files(PATH, merged_path, compare_all=True)
