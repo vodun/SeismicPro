@@ -14,6 +14,7 @@ from ..batchflow import FilesIndex
 
 DEFAULT_SEGY_HEADERS = ['FieldRecord', 'TraceNumber', 'TRACE_SEQUENCE_FILE', 'CDP']
 SUPPORT_SEGY_HEADERS = ['GroupX', 'GroupY']
+GATHER_HEADERS = ['FieldRecord', 'RecieverID', 'CDP']
 FILE_DEPENDEND_COLUMNS = ['TRACE_SEQUENCE_FILE', 'file_id']
 
 
@@ -631,6 +632,11 @@ def build_segy_df(extra_headers=None, name=None, limits=None, **kwargs):
     index = FilesIndex(**kwargs)
     df = pd.concat([make_segy_index(index.get_fullpath(i), extra_headers, limits) for
                     i in sorted(index.indices)])
+    if len(index) > 1:
+        for colname in GATHER_HEADERS:
+            if np.any(concat_dfs[[colname, 'file_id']].groupby(colname).nunique()[('file_id')] > 1):
+                raise ValueError((f'Non-unique values in {colname} among provided files!',
+                                  'Resulting index may not be unique.'))
     if markup_path is not None:
         markup = pd.read_csv(markup_path)
         df = df.merge(markup, how='inner')

@@ -11,9 +11,6 @@ from .utils import make_bin_index, build_sps_df, build_segy_df
 from .plot_utils import show_2d_heatmap, show_1d_heatmap
 
 
-GATHER_HEADERS = ['FieldRecord', 'RecieverID', 'CDP']
-
-
 class TraceIndex(DatasetIndex):
     """Index for individual seismic traces.
 
@@ -208,11 +205,6 @@ class TraceIndex(DatasetIndex):
 
         other_dfs = [index.get_df() for index in other]
         concat_dfs = pd.concat([self.get_df()] + other_dfs, ignore_index=True)
-
-        for colname in GATHER_HEADERS:
-            if np.any(concat_dfs[[colname, 'file_id']].groupby(colname).nunique()[('file_id')] > 1):
-                raise ValueError((f'Non-unique values in {colname} among provided files!',
-                                  'Resulting index may not be unique.'))
 
         if self.name is not None:
             concat_dfs.set_index(self.name, inplace=True)
