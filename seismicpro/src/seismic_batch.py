@@ -8,6 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy import signal
 from scipy.signal import hilbert
+from sklearn.linear_model import LinearRegression
 import pywt
 import segyio
 
@@ -871,7 +872,7 @@ class SeismicBatch(Batch):
         return self
 
     #-------------------------------------------------------------------------#
-    #                            Speed Law Actions                            #
+    #                          DPA. Speed Law Actions                         #
     #-------------------------------------------------------------------------#
 
     @action
@@ -944,7 +945,6 @@ class SeismicBatch(Batch):
     @action
     @inbatch_parallel(init="_init_component", target="for")
     def __calculate_semblance(self, index, src, dst, times, velocities, dt, window):
-        from time import time
         pos = self.get_pos(None, src, index)
         field = getattr(self, src)[pos]
         offsets = np.sort(self.index.get_df(index=index)['offset'])
@@ -1013,33 +1013,45 @@ class SeismicBatch(Batch):
     @action
     @inbatch_parallel(init='_init_component', target='threads')
     @apply_to_each_component
-    def add_muting(self, index, src, dst, muting=None, picking=None, indent=None):
+    def add_muting(self, index, src, dst, interpolation_type='polyfit', muting=None, picking=None, picking_length=None, indent=None):
         """muting - two arrays. first - offsets, second - time.
         Picking is a component with picking values for every field in batch.
         indet is a list with length of 2 or list with length = len(field).
         """
         pos = self.get_pos(None, src, index)
         field = getattr(self, src)[pos]
-        offset = np.sort(self.index.get_df(index=index)['offset'])
+        offsets = np.sort(self.index.get_df(index=index)['offset'])
         t_step = np.diff(self.meta[src]['samples'][:2])[0]
-        poly_x, poly_y = None, None
+        dt = t_step / 1000
+        data_x, data_y = None, None
+        indent = indent if indent is not None else 100
 
         if picking is not None:
-            indent = np.linspace(indent[0], indent[1], len(field)) if len(indent) == 2 else indent
             picking = getattr(self, picking)[pos]
-            if len(picking) != len(field):
-                poly_x = offset.copy()
-                poly_y = picking.copy()
+            data_x = offsets[:len(picking)].copy()
+            data_y = picking[:len(picking)].copy()
+
         elif muting is not None:
             indent = np.zeros(len(field))
-            poly_x, poly_y = muting
+            data_x, data_y = muting
         else:
             raise ValueError('Either `picking` or `muting` should be determined.')
 
-        poly = np.polyfit(poly_x, poly_y, deg=2)
-        mute_samples = np.polyval(poly, offset) / t_step
-        if np.sum(mute_samples < 0) > 0:
-            mute_samples[mute_samples < 0] = 0
+        if interpolation_type == 'polyfit':
+            poly = np.polyfit(data_x, data_y, deg=2)
+            mute_samples = np.polyval(poly, offset) / t_step
+            if np.sum(mute_samples < 0) > 0:
+                mute_samples[mute_samples < 0] = 0
+        elif interpolation_type == 'regression':
+            lin_reg = LinearRegression(fit_intercept=False)
+            # some magic happens below :/
+            lin_reg.fit(data_x.reshape(-1, 1), data_y.reshape(-1, 1))
+            indent = indent / t_step / 1000
+            lin_reg.coef_ += indent
+            mute_samples = lin_reg.predict(data_x.reshape(-1, 1)).reshape(-1) / t_step
+            mute_samples = mute_samples.astype(int)
+        else:
+            raise ValueError('Interpolation type must be "ployfit" or "regression" not "{}"'.format(interpolation_type))
         mute_time_mx = np.array([mute_samples]*field.shape[1]).T
 
         time_idx = np.arange(0, field.shape[1])
@@ -1050,6 +1062,7 @@ class SeismicBatch(Batch):
         mute_mask = mute_mask.astype(bool)
         muted_field = field * mute_mask
         getattr(self, dst)[pos] = muted_field
+        self.copy_meta(src, dst)
 
     #-------------------------------------------------------------------------#
     #                                DPA. Misc                                #

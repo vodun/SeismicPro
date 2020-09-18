@@ -530,7 +530,7 @@ def show_2d_heatmap(idf, figsize=None, save_to=None, dpi=300, **kwargs):
     plt.show()
 
 def semblance_plot(semblance, velocities, x_ticks=15, x_step=None, y_ticks=15, y_step=None, samples_step=None,
-                   velocity_points=None, point_size=50, name=None, index=None, figsize=None, save_dir=None, dpi=100):
+                   velocity_points=None, t_step=2, point_size=50, name=None, index=None, figsize=None, save_dir=None, dpi=100):
     """ Draw given semblance.
 
     TODO: REWRITE DOCS
@@ -596,7 +596,7 @@ def semblance_plot(semblance, velocities, x_ticks=15, x_step=None, y_ticks=15, y
 
     if name is not None or index is not None:
         ax.set_title(f'{name} {index}')
-    ax.set_xlabel('Speed')
+    ax.set_xlabel('Velocity')
 
     if samples_step is not None:
         ax.set_ylabel('Time')
@@ -609,7 +609,7 @@ def semblance_plot(semblance, velocities, x_ticks=15, x_step=None, y_ticks=15, y
 
     if velocity_points is not None:
         for time, vel in velocity_points:
-            time = np.int32(time/2)
+            time = np.int32(time / t_step)
             vel = np.argmin(np.abs(np.linspace(velocities[0], velocities[-1],
                                                semblance.shape[1]) - vel))
             ellipse_big = Ellipse((vel, time), width, height, color='w')
