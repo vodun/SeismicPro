@@ -4,7 +4,7 @@ from numba import njit, prange
 
 from .plot_utils import plot_metrics_map
 
-from ..batchflow import action, inbatch_parallel
+from ..batchflow import inbatch_parallel
 from ..batchflow.models.metrics import Metrics
 
 METRICS_ALIASES = {
@@ -42,7 +42,7 @@ class MetricsMap(Metrics):
         self.metrics = metrics
         self.coords = coords
 
-        if len(self.metrics) != self.coords:
+        if len(self.metrics) != len(self.coords):
             raise ValueError('length of given metrics do not match with length of coords.')
 
         self._maps_list = [[*coord, metric] for coord, metric in zip(self.coords, self.metrics)]
@@ -72,13 +72,15 @@ class MetricsMap(Metrics):
         metrics = np.array(list(metrics), dtype=np.float32)
         return np.array(coords_x, dtype=np.float32), np.array(coords_y, dtype=np.float32), metrics
 
-    def construct_map(self, bin_size=500, vmin=None, vmax=None, cm=None, title=None, figsize=None, save_dir=None, pad=False, plot=True):
+    def construct_map(self, bin_size=500, vmin=None, vmax=None, cm=None, title=None, figsize=None,
+                      save_dir=None, pad=False, plot=True):
         """Each value in resulted map represent average value of metrics for coordinates belongs to current bin."""
 
         if isinstance(bin_size, int):
             bin_size = (bin_size, bin_size)
         coords_x, coords_y, metrics = self.__split_result()
-        metric_map = self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y, metrics=metrics, bin_size=bin_size)
+        metric_map = self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y,
+                                                metrics=metrics, bin_size=bin_size)
         extent_coords = [coords_x.min(), coords_x.max(), coords_y.min(), coords_y.max()]
         if plot:
             plot_metrics_map(metrics_map=metric_map, vmin=vmin, vmax=vmax, extent_coords=extent_coords, cm=cm,
