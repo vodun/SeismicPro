@@ -626,7 +626,6 @@ def plot_metrics_map(metrics_map, vmin=None, vmax=None, extent_coords=None, cm=N
     """plot metrics map"""
     metrics_map = np.pad(metrics_map, pad_width=1, constant_values=None) if pad else metrics_map
 
-    vmin = np.min(metrics_map[metrics_map > 0]) if vmin is None else vmin
     if cm is None:
         colors = ((0.0, 0.6, 0.0), (.66, 1, 0), (0.9, 0.0, 0.0))
         cm = LinearSegmentedColormap.from_list(

@@ -40,8 +40,11 @@ class MetricsMap(Metrics):
         super().__init__()
 
         self.metrics = metrics
-        unique_coords, position = np.unique(coords, axis=0, return_index=True)
-        self.coords = unique_coords[np.argsort(position)]
+        self.coords = coords
+
+        if len(self.metrics) != self.coords:
+            raise ValueError('length of given metrics do not match with length of coords.')
+
         self._maps_list = [[*coord, metric] for coord, metric in zip(self.coords, self.metrics)]
 
         self._agg_fn_dict = {'mean': np.nanmean,
