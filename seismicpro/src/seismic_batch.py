@@ -1064,6 +1064,19 @@ class SeismicBatch(Batch):
         getattr(self, dst)[pos] = muted_field
         self.copy_meta(src, dst)
 
+    @action
+    @inbatch_parallel(init="_init_component", target="threads")
+    def get_coords_fm_supergather(self, index, src, dst):
+        """docs"""
+        pos = self.index.get_pos(index)
+        coords_x, coords_y = self.index.get_df(index=index)[src].values.T
+
+        coords_x, coords_y = np.unique(coords_x), np.unique(coords_y)
+
+        coords_x = coords_x[len(coords_x) // 2]
+        coords_y = coords_y[len(coords_y) // 2]
+        getattr(self, dst)[pos] = np.array([coords_x, coords_y])
+
     #-------------------------------------------------------------------------#
     #                                DPA. Misc                                #
     #-------------------------------------------------------------------------#

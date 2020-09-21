@@ -1,6 +1,7 @@
 """File contains metircs for seismic processing."""
 import numpy as np
 from numba import njit, prange
+from scipy import stats
 
 from .plot_utils import plot_metrics_map
 
@@ -32,6 +33,21 @@ class SemblanceMetrics:
         getattr(batch, dst)[pos] = np.max(np.std(semblance, axis=1))
         return batch
 
+class PickingMetrics:
+    """Docs """
+
+    @staticmethod
+    @inbatch_parallel(init="_init_component", target="threads")
+    def velocity(batch, index, dst, src_picking='picking', src_offset='offset'):
+        """some docs"""
+        pos = batch.get_pos(None, src_picking, index)
+        time = getattr(batch, src_picking)[pos]
+        offset = getattr(batch, src_offset)[pos]
+        mask = [time > 1]
+        time = time[mask]
+        offset = offset[mask]
+        getattr(batch, dst)[pos] = np.mean(offset / time)
+        return batch
 
 class MetricsMap(Metrics):
     """seismic metrics class"""
@@ -42,7 +58,7 @@ class MetricsMap(Metrics):
         self.metrics = metrics
         self.coords = coords
 
-        if len(self.metrics) != self.coords:
+        if len(self.metrics) != len(self.coords):
             raise ValueError('length of given metrics do not match with length of coords.')
 
         self._maps_list = [[*coord, metric] for coord, metric in zip(self.coords, self.metrics)]
