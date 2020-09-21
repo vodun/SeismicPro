@@ -70,7 +70,7 @@ def merge_segy_files(paths, output_path, bar=True):
     samples = None
 
     for fname in files_list:
-        with segyio.open(fname, strict=False) as f:
+        with segyio.open(fname, strict=False, ignore_geometry=True) as f:
             if samples is None:
                 samples = f.samples
             else:
@@ -89,7 +89,7 @@ def merge_segy_files(paths, output_path, bar=True):
         i = 0
         iterable = tqdm(files_list) if bar else files_list
         for index in iterable:
-            with segyio.open(index, strict=False) as src:
+            with segyio.open(index, strict=False, ignore_geometry=True) as src:
                 dst.trace[i: i + src.tracecount] = src.trace
                 dst.header[i: i + src.tracecount] = src.header
                 for j in range(src.tracecount):
