@@ -20,7 +20,7 @@ from .utils import (FILE_DEPENDEND_COLUMNS, partialmethod, calculate_sdc_for_fie
                     check_unique_fieldrecord_across_surveys, calc_semblance, interpolate_velocities,
                     calc_bounds, calc_partial_semblance, calc_velocity_model)
 from .file_utils import write_segy_file
-from .plot_utils import IndexTracker, spectrum_plot, seismic_plot, statistics_plot, gain_plot
+from .plot_utils import IndexTracker, spectrum_plot, seismic_plot, statistics_plot, gain_plot, semblance_plot
 
 INDEX_UID = 'TRACE_SEQUENCE_FILE'
 
@@ -872,7 +872,7 @@ class SeismicBatch(Batch):
         return self
 
     #-------------------------------------------------------------------------#
-    #                          DPA. Speed Law Actions                         #
+    #                        DPA. velocity Law Actions                        #
     #-------------------------------------------------------------------------#
 
     @action
@@ -882,12 +882,12 @@ class SeismicBatch(Batch):
 
         Calculate semblance for given fields from `src` component and save resulted semblance to `dst` component.
         Semblance is a measure of multichannel coherence. This measure is calculated along all possible horizons from
-        a given speed range and with all possible starting points. Range of starting points is equal to field range.
+        a given velocity range and with all possible starting points. Range of starting points is equal to field range.
         Calculation of each horizon is based on the following formula.
         :math:`th_i = \sqrt{t_z^2 + off_i^2/v^2}`, where
         :math:`t_z` - start time of the horizon
         :math:`off_i` - distance from the gather to the i-th trace (offset)
-        :math:`v` - speed for this horizon
+        :math:`v` - velocity for this horizon
         :math:`th_i` - horizon time for given offset.
         The value of horison amplitude in point t_h can be received from trace with same offset. In order to
         calculate all the horizon values, you need to get the t_h values for all offsets.
@@ -900,7 +900,7 @@ class SeismicBatch(Batch):
         N - Window size
         th - Horizon.
         Resulted matrix contains semblance values based on horizons with each combinations of started point :math:`t_z`
-        and speed :math:`v`. This matrix has shape (time_length, velocity_length).
+        and velocity :math:`v`. This matrix has shape (time_length, velocity_length).
         Parameters
         ----------
         src : str
@@ -936,7 +936,7 @@ class SeismicBatch(Batch):
         times = self.meta[src]['samples'].astype(int) / 1000
         dt = times[1] - times[0]
 
-        self.__calculate_semblance(src=src, dst=dst, times=times, velocities=velocities, dt=dt,
+        self._calculate_semblance(src=src, dst=dst, times=times, velocities=velocities, dt=dt,
                                    window=window)
         self.copy_meta(src, dst)
         self.meta[dst].update(velocities=velocities)
@@ -944,7 +944,7 @@ class SeismicBatch(Batch):
 
     @action
     @inbatch_parallel(init="_init_component", target="for")
-    def __calculate_semblance(self, index, src, dst, times, velocities, dt, window):
+    def _calculate_semblance(self, index, src, dst, times, velocities, dt, window):
         pos = self.get_pos(None, src, index)
         field = getattr(self, src)[pos]
         offsets = np.sort(self.index.get_df(index=index)['offset'])
@@ -962,13 +962,13 @@ class SeismicBatch(Batch):
         times = self.meta[src]['samples'].astype(int) / 1000
         dt = times[1] - times[0]
 
-        self.__calc_residual_semblance(src=src, dst=dst, times=times, velocities=velocities, velocity_points=velocity_points,
+        self._calc_residual_semblance(src=src, dst=dst, times=times, velocities=velocities, velocity_points=velocity_points,
                                       dt=dt, window=window, p=p)
 
         return self
 
     @inbatch_parallel(init="_init_component", target="for")
-    def __calc_residual_semblance(self, index, src, dst, times, velocities, velocity_points, dt, window, p):
+    def _calc_residual_semblance(self, index, src, dst, times, velocities, velocity_points, dt, window, p):
         pos = self.get_pos(None, src, index)
         field = getattr(self, src)[pos]
         offsets = np.sort(self.index.get_df(index=index)['offset'])
@@ -987,7 +987,7 @@ class SeismicBatch(Batch):
         getattr(self, dst)[pos] = residual_semblance
 
     @action
-    def find_speed_model(self, src, dst, area_factor=0.1):
+    def find_velocity_model(self, src, dst, area_factor=0.1):
         """ some docs """
         times = self.meta[src]['samples'].astype(int) / 1000
         velocities = self.meta[src].get('velocities', None)
@@ -995,25 +995,26 @@ class SeismicBatch(Batch):
         if velocities is None:
             raise ValueError('Src should contains semblance.')
 
-        self.__find_speed_model(src=src, dst=dst, times=times, velocities=velocities, area_factor=area_factor)
+        self._find_velocity_model(src=src, dst=dst, times=times, velocities=velocities, area_factor=area_factor)
         return self
 
     @inbatch_parallel(init='_init_component', target='threads')
-    def __find_speed_model(self, index, src, dst, times, velocities, area_factor):
+    def _find_velocity_model(self, index, src, dst, times, velocities, area_factor):
         pos = self.get_pos(None, src, index)
         semblance = getattr(self, src)[pos]
         semblance = np.ascontiguousarray(semblance)
 
-        speed_points, speed_metrics = calc_velocity_model(semblance=semblance, times=times,
+        velocity_points, velocity_metrics = calc_velocity_model(semblance=semblance, times=times,
                                                           velocities=velocities, area_factor=area_factor)
+        velocity_points[:, 0] *= 1000 # from m / ms to m / s
         self.copy_meta(src, dst)
-        self.meta[dst].update(speed_metrics=speed_metrics)
-        getattr(self, dst)[pos] = speed_points
+        self.meta[dst].update(velocity_metrics=velocity_metrics)
+        getattr(self, dst)[pos] = velocity_points
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
     @apply_to_each_component
-    def add_muting(self, index, src, dst, interpolation_type='polyfit', muting=None, picking=None, picking_length=None, indent=None):
+    def add_muting(self, index, src, dst, interp_type='polyfit', muting=None, picking=None, indent=None):
         """muting - two arrays. first - offsets, second - time.
         Picking is a component with picking values for every field in batch.
         indet is a list with length of 2 or list with length = len(field).
@@ -1022,36 +1023,33 @@ class SeismicBatch(Batch):
         field = getattr(self, src)[pos]
         offsets = np.sort(self.index.get_df(index=index)['offset'])
         t_step = np.diff(self.meta[src]['samples'][:2])[0]
-        dt = t_step / 1000
         data_x, data_y = None, None
-        indent = indent if indent is not None else 100
+        indent = indent if indent is not None else 0
 
         if picking is not None:
             picking = getattr(self, picking)[pos]
-            data_x = offsets[:len(picking)].copy()
-            data_y = picking[:len(picking)].copy()
-
+            data_x = picking[:len(picking)].copy() # ms
+            data_y = offsets[:len(picking)].copy() # meters
         elif muting is not None:
             indent = np.zeros(len(field))
             data_x, data_y = muting
         else:
             raise ValueError('Either `picking` or `muting` should be determined.')
 
-        if interpolation_type == 'polyfit':
+        if interp_type == 'polyfit':
             poly = np.polyfit(data_x, data_y, deg=2)
             mute_samples = np.polyval(poly, offset) / t_step
             if np.sum(mute_samples < 0) > 0:
                 mute_samples[mute_samples < 0] = 0
-        elif interpolation_type == 'regression':
+        elif interp_type == 'regression':
             lin_reg = LinearRegression(fit_intercept=False)
-            # some magic happens below :/
-            lin_reg.fit(data_x.reshape(-1, 1), data_y.reshape(-1, 1))
-            indent = indent / t_step / 1000
-            lin_reg.coef_ += indent
-            mute_samples = lin_reg.predict(data_x.reshape(-1, 1)).reshape(-1) / t_step
+            lin_reg.fit(data_x.reshape(-1, 1), data_y)
+            indent /= 1000 # to ms
+            velocity = lin_reg.coef_ - indent # reduce velocity by given indent. lin_reg.coef_ has m / ms
+            mute_samples = data_y / (velocity * t_step) # meters / samples
             mute_samples = mute_samples.astype(int)
         else:
-            raise ValueError('Interpolation type must be "ployfit" or "regression" not "{}"'.format(interpolation_type))
+            raise ValueError('Interpolation type must be "ployfit" or "regression" not "{}"'.format(interp_type))
         mute_time_mx = np.array([mute_samples]*field.shape[1]).T
 
         time_idx = np.arange(0, field.shape[1])
@@ -1993,4 +1991,34 @@ class SeismicBatch(Batch):
         rate = self.meta[src[0]]['interval'] / 1e6
         statistics_plot(arrs=arrs, stats=stats, rate=rate, names=names, figsize=figsize,
                         save_to=save_to, **kwargs)
+        return self
+
+    def semblance_plot(self, src, index, x_ticks=30, x_step=None, y_ticks=30, y_step=None, samples_step=None,
+                       velocity_points=None, point_size=50, name=None, figsize=None, save_dir=None, dpi=100, **kwargs):
+        """ Semblance plot.
+        TODO: REWRITE DOCS
+        Parameters
+        ----------
+         src : str
+            The batch component to get semblance from.
+        index : same type as batch.indices
+            Data index to show.
+        figsize : tuple with length 2
+            size of output graph.
+        Raises
+        ------
+        ValueError : if semblance isn't calculated.
+        """
+        velocities = self.meta[src].get('velocities')
+        if velocities is None:
+            raise ValueError(f'There is no semblance in {src} variable.')
+        pos = self.get_pos(None, src, index)
+        semblance = getattr(self, src)[pos]
+
+        samples = self.meta[src].get('samples')
+        samples_step = samples_step if samples is None else samples[1] - samples[0]
+
+        semblance_plot(semblance=semblance, velocities=velocities, x_ticks=x_ticks, x_step=x_step,
+                       y_ticks=y_ticks, y_step=y_step, samples_step=samples_step, velocity_points=velocity_points,
+                       point_size=point_size, name=name, index=index, figsize=figsize, save_dir=save_dir, dpi=dpi)
         return self

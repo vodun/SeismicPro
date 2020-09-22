@@ -977,7 +977,7 @@ def find_local_maximas(semblance, times, velocities, area_factor=0.1):
     local_max_val = maximum_filter(semblance, size=size)
     local_max_mask = np.isclose(local_max_val, semblance)
     times_indices, velocities_indices = np.where(local_max_mask)
-    return list(zip(times[times_indices] * 1000, velocities[velocities_indices]))
+    return list(zip(times[times_indices], velocities[velocities_indices]))
 
 def find_optimal_trace(semblance, selected_points, points, times, velocities):
     candidate_list = select_candidate_points(selected_points[-1], points)
