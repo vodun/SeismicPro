@@ -45,12 +45,12 @@ def write_segy_file(data, df, samples, path, sorting=None, segy_format=1):
         for i, x in enumerate(file.header[:]):
             x.update(meta[i])
 
-def merge_segy_files(paths, output_path, bar=True):
+def merge_segy_files(path, output_path, bar=True):
     """Merge segy files into a single segy file.
 
     Parameters
     ----------
-    paths : str or list of str
+    path : str or list of str
         Paths of files to merge, can use glob patterns
     output_path : str
         Path to output file.
@@ -58,13 +58,14 @@ def merge_segy_files(paths, output_path, bar=True):
         Whether to how progress bar (default = True).
 
     """
-    if isinstance(paths, str):
-        paths = [paths]
 
-    if len(paths) == 0:
-        raise ValueError("`paths` cannot be empty.")
+    if len(path) == 0:
+        raise ValueError("`path` cannot be empty.")
 
-    files_list = [f for path in paths for f in glob.iglob(path, recursive=True)]
+    if isinstance(path, str):
+        path = (path,)
+
+    files_list = [f for p in path for f in glob.iglob(p, recursive=True)]
 
     tracecounts = 0
     samples = None

@@ -14,8 +14,8 @@ PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../../datas
 
 
 def compare_files(path_1, path_2, compare_all):
-    """ Checks that the content of a given SGY-files is a subset of (or is equal to)
-    the content of the other file
+    """ Checks that all traces from SEG-Y file `path_2` are found in `path_1`,
+    or if `compare_all=True` that both files contain exacly same traces
 
     Parameters
     ----------
@@ -76,8 +76,7 @@ def test_dump_split_merge(index_type, tmp_path):
     ppl.next_batch(4)
 
     merged_path = os.path.join(tmp_path, "out.sgy")
-    merge_segy_files(paths=os.path.join(tmp_path, "*.sgy"),
-                     output_path=merged_path, bar=False)
+    merge_segy_files(path=os.path.join(tmp_path, "*.sgy"), output_path=merged_path, bar=False)
 
     compare_files(PATH, merged_path, compare_all=False)
 
@@ -110,7 +109,6 @@ def test_dump_nosplit_merge(index_type, batch_size, use_glob, tmp_path):
         files_list = [os.path.join(tmp_path, f) for f in os.listdir(tmp_path) if f.endswith('.sgy')]
 
     merged_path = os.path.join(tmp_path, "out.sgy")
-    merge_segy_files(paths=files_list,
-                     output_path=merged_path, bar=False)
+    merge_segy_files(path=files_list, output_path=merged_path, bar=False)
 
     compare_files(PATH, merged_path, compare_all=True)
