@@ -1006,6 +1006,8 @@ class SeismicBatch(Batch):
 
         velocity_points, velocity_metrics = calc_velocity_model(semblance=semblance, times=times,
                                                           velocities=velocities, area_factor=area_factor)
+
+        velocity_points = np.array(velocity_points)
         velocity_points[:, 0] *= 1000 # from m / ms to m / s
         self.copy_meta(src, dst)
         self.meta[dst].update(velocity_metrics=velocity_metrics)
