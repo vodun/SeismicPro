@@ -7,34 +7,42 @@ from .plot_utils import plot_metrics_map
 from ..batchflow import inbatch_parallel
 from ..batchflow.models.metrics import Metrics
 
-METRICS_ALIASES = {
-    'map': 'construct_map'
-}
 
-class SemblanceMetrics:
-    """"Semblance metrics class"""
+def quantile(array, q):
+    return  njit(lambda array: np.quantile(array, q=q))
 
-    @staticmethod
-    @inbatch_parallel(init="_init_component", target="threads")
-    def calculate_minmax(batch, index, src, dst):
-        """some docs"""
-        pos = batch.get_pos(None, src, index)
-        semblance = getattr(batch, src)[pos]
-        getattr(batch, dst)[pos] = np.max(np.max(semblance, axis=1) - np.min(semblance, axis=1))
-        return batch
+def absquantile(array, q):
+    return njit(lambda array: _absquantile(array, q=q))
 
-    @staticmethod
-    @inbatch_parallel(init="_init_component", target="threads")
-    def calculate_std(batch, index, src, dst):
-        """some docs"""
-        pos = batch.get_pos(None, src, index)
-        semblance = getattr(batch, src)[pos]
-        getattr(batch, dst)[pos] = np.max(np.std(semblance, axis=1))
-        return batch
+@njit
+def _absquantile(array, q):
+    shifted_array = array - np.mean(array)
+    val = np.quantile(np.abs(shifted_array), q)
+    ind = np.argmin(np.abs(np.abs(shifted_array) - val))
+    return array[ind]
 
+class NumbaNumpy:
+    """ Holder for jit-accelerated functions. """
+    #pylint: disable = unnecessary-lambda, undefined-variable
+    nanmin = njit(lambda array: np.nanmin(array))
+    nanmax = njit(lambda array: np.nanmax(array))
+    nanmean = njit(lambda array: np.nanmean(array))
+    nanstd = njit(lambda array: np.nanstd(array))
+
+    min = nanmin
+    max = nanmax
+    mean = nanmean
+    std = nanstd
+    quantile = quantile
+    absquantile = absquantile
 
 class MetricsMap(Metrics):
     """seismic metrics class"""
+
+    AVALIBALE_METRICS = [
+        'construct_map'
+    ]
+
     def __init__(self, metrics, coords, *args, **kwargs):
         _ = args, kwargs
         super().__init__()
@@ -45,42 +53,36 @@ class MetricsMap(Metrics):
         if len(self.metrics) != len(self.coords):
             raise ValueError('length of given metrics do not match with length of coords.')
 
-        self._maps_list = [[*coord, metric] for coord, metric in zip(self.coords, self.metrics)]
+        self.maps_list = [[*coord, metric] for coord, metric in zip(self.coords, self.metrics)]
 
         self._agg_fn_dict = {'mean': np.nanmean,
                              'max': np.nanmax,
                              'min': np.nanmin}
 
-    @property
-    def maps_list(self):
-        """get map list"""
-        return self._maps_list
+    def extend(self, metrics):
+        """Extend coordinates and metrics to global container."""
+        self.maps_list.extend(metrics.maps_list)
 
-    def append(self, metrics):
-        """append"""
-        self._maps_list.extend(metrics._maps_list)
-
-    def __getattr__(self, name):
-        if name == "METRICS_ALIASES":
-            raise AttributeError # See https://nedbatchelder.com/blog/201010/surprising_getattr_recursion.html
-        name = METRICS_ALIASES.get(name, name)
-        return object.__getattribute__(self, name)
-
-    def __split_result(self):
+    def _split_result(self):
         """split_result"""
-        coords_x, coords_y, metrics = np.array(self._maps_list).T
+        coords_x, coords_y, metrics = np.array(self.maps_list).T
         metrics = np.array(list(metrics), dtype=np.float32)
         return np.array(coords_x, dtype=np.float32), np.array(coords_y, dtype=np.float32), metrics
 
     def construct_map(self, bin_size=500, vmin=None, vmax=None, cm=None, title=None, figsize=None,
-                      save_dir=None, pad=False, plot=True):
-        """Each value in resulted map represent average value of metrics for coordinates belongs to current bin."""
+                      save_dir=None, pad=False, plot=True, aggr_bins='mean', aggr_bins_kwargs=None):
+        """ Each value in resulted map represent aggregated value of metrics for coordinates belongs to current bin.
+        """
 
         if isinstance(bin_size, int):
             bin_size = (bin_size, bin_size)
-        coords_x, coords_y, metrics = self.__split_result()
+        coords_x, coords_y, metrics = self._split_result()
+        call_aggr_bins = getattr(NumbaNumpy, aggr_bins)
+        call_aggr_bins = call_aggr_bins(None, **aggr_bins_kwargs) if aggr_bins_kwargs is not None else call_aggr_bins
+
         metric_map = self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y,
-                                                metrics=metrics, bin_size=bin_size)
+                                                metrics=metrics, bin_size=bin_size,
+                                                aggr_bins=call_aggr_bins)
         extent_coords = [coords_x.min(), coords_x.max(), coords_y.min(), coords_y.max()]
         if plot:
             plot_metrics_map(metrics_map=metric_map, vmin=vmin, vmax=vmax, extent_coords=extent_coords, cm=cm,
@@ -89,7 +91,7 @@ class MetricsMap(Metrics):
 
     @staticmethod
     @njit(parallel=True)
-    def construct_metrics_map(coords_x, coords_y, metrics, bin_size):
+    def construct_metrics_map(coords_x, coords_y, metrics, bin_size, aggr_bins):
         """njit map"""
         bin_size_x, bin_size_y = bin_size
         range_x = np.arange(coords_x.min(), coords_x.max() + bin_size_x, bin_size_x)
@@ -101,5 +103,5 @@ class MetricsMap(Metrics):
                 mask = ((coords_x - range_x[i] >= 0) & (coords_x - range_x[i] < bin_size_x) &
                         (coords_y - range_y[j] >= 0) & (coords_y - range_y[j] < bin_size_y))
                 if mask.sum() > 0:
-                    metrics_map[j, i] = metrics[mask].mean()
+                    metrics_map[j, i] = aggr_bins(metrics[mask])
         return metrics_map
