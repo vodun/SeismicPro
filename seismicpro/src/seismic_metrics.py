@@ -4,14 +4,17 @@ from numba import njit, prange
 
 from .plot_utils import plot_metrics_map
 
-from ..batchflow import inbatch_parallel
 from ..batchflow.models.metrics import Metrics
 
 
 def quantile(array, q):
+    """ numba quantile. """
+    _ = array
     return  njit(lambda array: np.quantile(array, q=q))
 
 def absquantile(array, q):
+    """ numba absquantile. """
+    _ = array
     return njit(lambda array: _absquantile(array, q=q))
 
 @njit
@@ -63,20 +66,20 @@ class MetricsMap(Metrics):
         """Extend coordinates and metrics to global container."""
         self.maps_list.extend(metrics.maps_list)
 
-    def _split_result(self):
-        """split_result"""
-        coords_x, coords_y, metrics = np.array(self.maps_list).T
-        metrics = np.array(list(metrics), dtype=np.float32)
-        return np.array(coords_x, dtype=np.float32), np.array(coords_y, dtype=np.float32), metrics
-
-    def construct_map(self, bin_size=500, vmin=None, vmax=None, cm=None, title=None, figsize=None,
+    def construct_map(self, bin_size=500, vmin=None, vmax=None, cm=None, title=None, figsize=None, #pylint: disable=too-many-arguments
                       save_dir=None, pad=False, plot=True, aggr_bins='mean', aggr_bins_kwargs=None):
         """ Each value in resulted map represent aggregated value of metrics for coordinates belongs to current bin.
         """
 
         if isinstance(bin_size, int):
             bin_size = (bin_size, bin_size)
-        coords_x, coords_y, metrics = self._split_result()
+
+        maps_list_transposed = np.array(self.maps_list).T
+
+        coords_x = np.array(maps_list_transposed[0], dtype=np.float32)
+        coords_y = np.array(maps_list_transposed[1], dtype=np.float32)
+        metrics = np.array(list(maps_list_transposed[2]), dtype=np.float32)
+
         call_aggr_bins = getattr(NumbaNumpy, aggr_bins)
         call_aggr_bins = call_aggr_bins(None, **aggr_bins_kwargs) if aggr_bins_kwargs is not None else call_aggr_bins
 
@@ -86,7 +89,7 @@ class MetricsMap(Metrics):
         extent_coords = [coords_x.min(), coords_x.max(), coords_y.min(), coords_y.max()]
         if plot:
             plot_metrics_map(metrics_map=metric_map, vmin=vmin, vmax=vmax, extent_coords=extent_coords, cm=cm,
-                            title=title, figsize=figsize, save_dir=save_dir, pad=pad)
+                             title=title, figsize=figsize, save_dir=save_dir, pad=pad)
         return metric_map
 
     @staticmethod
@@ -98,8 +101,8 @@ class MetricsMap(Metrics):
         range_y = np.arange(coords_y.min(), coords_y.max() + bin_size_y, bin_size_y)
         metrics_map = np.full((len(range_y), len(range_x)), np.nan)
 
-        for i in prange(len(range_x)):
-            for j in prange(len(range_y)):
+        for i in prange(len(range_x)): #pylint: disable=not-an-iterable
+            for j in prange(len(range_y)): #pylint: disable=not-an-iterable
                 mask = ((coords_x - range_x[i] >= 0) & (coords_x - range_x[i] < bin_size_x) &
                         (coords_y - range_y[j] >= 0) & (coords_y - range_y[j] < bin_size_y))
                 if mask.sum() > 0:
