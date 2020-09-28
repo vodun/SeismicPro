@@ -595,7 +595,7 @@ def build_segy_df(extra_headers=None, name=None, limits=None, **kwargs):
     return df
 
 def calc_sdc(ix, time, speed, v_pow, t_pow):
-    """ Calculate spherical divergence correction (SDC).
+    r""" Calculate spherical divergence correction (SDC).
     This value has the following formula:
     $$ g(t) = \frac{V_{rms}^{v_{pow}} * t^{t_{pow}}}{V_0} $$
 

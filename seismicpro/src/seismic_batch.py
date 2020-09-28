@@ -5,7 +5,6 @@ from itertools import product
 import warnings
 from textwrap import dedent
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy import signal
 from scipy.signal import hilbert
 import pywt

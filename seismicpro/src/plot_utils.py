@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib import patches, colors as mcolors
+from matplotlib import patches
 from .utils import measure_gain_amplitude
 
 
