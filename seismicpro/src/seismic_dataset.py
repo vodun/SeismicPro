@@ -6,7 +6,6 @@ from tdigest import TDigest
 from ..batchflow import Dataset
 from .seismic_index import FieldIndex
 from .seismic_batch import SeismicBatch
-from .utils import check_unique_fieldrecord_across_surveys
 
 
 class SeismicDataset(Dataset):

@@ -317,6 +317,53 @@ def statistics_plot(arrs, stats, rate=None, figsize=None, names=None,
 
     plt.show()
 
+def show_1d_heatmap(idf, figsize=None, save_to=None, dpi=300, **kwargs):
+    """Plot point distribution within 1D bins.
+
+    Parameters
+    ----------
+    idf : pandas.DataFrame
+        Index DataFrame.
+    figsize : tuple
+        Output figure size.
+    save_to : str, optional
+        If given, save plot to the path specified.
+    dpi : int
+        Resolution for saved figure.
+    kwargs : dict
+        Named argumets for ```matplotlib.pyplot.imshow```.
+
+    Returns
+    -------
+    Heatmap plot.
+    """
+    bin_counts = idf.groupby(level=[0]).size()
+    bins = np.array([i.split('/') for i in bin_counts.index])
+
+    bindf = pd.DataFrame(bins, columns=['line', 'pos'])
+    bindf['line_code'] = bindf['line'].astype('category').cat.codes + 1
+    bindf = bindf.astype({'pos': 'int'})
+    bindf['counts'] = bin_counts.values
+    bindf = bindf.sort_values(by='line')
+
+    brange = np.max(bindf[['line_code', 'pos']].values, axis=0)
+    hist = np.zeros(brange, dtype=int)
+    hist[bindf['line_code'].values - 1, bindf['pos'].values - 1] = bindf['counts'].values
+
+    if figsize is not None:
+        plt.figure(figsize=figsize)
+
+    heatmap = plt.imshow(hist, **kwargs)
+    plt.colorbar(heatmap)
+    plt.yticks(np.arange(brange[0]), bindf['line'].drop_duplicates().values, fontsize=8)
+    plt.xlabel("Bins index")
+    plt.ylabel("Line index")
+    plt.axes().set_aspect('auto')
+    if save_to is not None:
+        plt.savefig(save_to, dpi=dpi)
+
+    plt.show()
+
 def show_2d_heatmap(idf, figsize=None, save_to=None, dpi=300, **kwargs):
     """Plot point distribution within 2D bins.
 
