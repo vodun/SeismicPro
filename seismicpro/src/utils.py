@@ -69,63 +69,6 @@ def partialmethod(func, *frozen_args, **frozen_kwargs):
         return func(self, *frozen_args, *args, **frozen_kwargs, **kwargs)
     return method
 
-def print_results(df, layout, average_repetitions=False, sort_by=None, ascending=True, n_last=100):
-    """ Show results given by research dataframe.
-
-    Parameters
-    ----------
-    df : DataFrame
-        Research's results
-    layout : str
-        string where each element consists two parts that splited by /. First part is the type
-        of calculated value wrote in the "name" column. Second is name of column  with the parameters
-        that will be drawn.
-    average_repetitions : bool, optional
-        If True, then a separate values will be written
-        else one mean value will be written.
-    sort_by : str or None, optional
-        If not None, column's name to sort.
-    ascending : bool, None
-        Same as in ```pd.sort_value```.
-    n_last : int, optional
-        The number of iterations at the end of which the averaging takes place.
-
-    Returns
-    -------
-        : DataFrame
-        Research results in DataFrame, where indices is a config parameters and colums is `layout` values
-    """
-    columns = []
-    data = []
-    index = []
-    name, attr = layout.split('/')
-    ndf = df[df['name'] == name]
-    if average_repetitions:
-        columns.extend([name + '_mean', name + '_std'])
-    else:
-        columns.extend([name + '_' + str(i) for i in [*ndf['repetition'].unique(), 'mean', 'std']])
-    for config, cdf in ndf.groupby("config"):
-        index.append(config)
-        cdf = cdf.drop(['config', 'name'], axis=1).dropna(axis=1).astype('float')
-        if average_repetitions:
-            idf = cdf.groupby('iteration').mean().drop('repetition', axis=1)
-            max_iter = idf.index.max()
-            idf = idf[idf.index > max_iter - n_last]
-            data.append([idf[attr].mean(), idf[attr].std()])
-        else:
-            rep = []
-            for _, rdf in cdf.groupby('repetition'):
-                rdf = rdf.drop('repetition', axis=1)
-                max_iter = rdf['iteration'].max()
-                rdf = rdf[rdf['iteration'] > max_iter - n_last]
-                rep.append(rdf[attr].mean())
-            data.append([*rep, np.mean(rep), np.std(rep)])
-
-    res_df = pd.DataFrame(data=data, index=index, columns=columns)
-    if sort_by:
-        res_df.sort_values(by=sort_by, ascending=ascending, inplace=True)
-    return res_df
-
 def line_inclination(x, y):
     """Get regression line inclination towards x-axis.
 
@@ -651,28 +594,6 @@ def build_segy_df(extra_headers=None, name=None, limits=None, **kwargs):
                                             [''] * len(common_cols) + [name] * len(FILE_DEPENDEND_COLUMNS)])
     return df
 
-def calc_v_rms(t, speed):
-    r"""Calculate root mean square speed depend on time.
-    Value calculated by following formula:
-
-    $$ V_{rms} = \left(\frac{\sum_0^t V^2}{|V|} \right)^{1/2} $$
-    Where $|V|$ is a number of elements in V.
-
-    Parameters
-    ----------
-    t : int
-        Time value to calculate $V_rms$.
-
-    speed : array
-        Speed (V) with time values at each moment.
-
-    Returns
-    -------
-        : float
-        $V_{rms}$
-    """
-    return (np.mean(speed[:t+1]**2))**.5
-
 def calc_sdc(ix, time, speed, v_pow, t_pow):
     """ Calculate spherical divergence correction (SDC).
     This value has the following formula:
@@ -680,6 +601,9 @@ def calc_sdc(ix, time, speed, v_pow, t_pow):
 
     Here parameters $v_{pow} and t_{pow} is a hyperparameters.
     The quality of the correction depends on them.
+
+    $$ V_{rms} = \left(\frac{\sum_0^t V^2}{|V|} \right)^{1/2} $$
+    Where $|V|$ is a number of elements in V.
 
     Parameters
     ----------
@@ -699,7 +623,7 @@ def calc_sdc(ix, time, speed, v_pow, t_pow):
         : float
         Correction value to suppress the spherical divergence.
     """
-    correction = (calc_v_rms(ix, speed) ** v_pow * time[ix] ** t_pow)/speed[0]
+    correction = (((np.mean(speed[: ix+1]**2))**.5) ** v_pow * time[ix] ** t_pow)/speed[0]
     if correction == 0:
         return 1.
     return correction
@@ -834,21 +758,6 @@ def massive_block(data):
     ind.append(plus_one[:, 1][sort[-1]])
     ind.extend([0] * (arr.shape[0] - mask[-1] - 1))
     return ind
-
-def check_unique_fieldrecord_across_surveys(surveys_by_fieldrecord, index):
-    """
-    Check that FieldRecord with identifier `index` is present only in one survey.
-
-    Parameters
-    ----------
-    surveys_by_fieldrecord : array-like
-        Unique survey identifiers for given FieldRecord.
-    index : str, numeric
-        FieldRecord identifier.
-    """
-    if len(surveys_by_fieldrecord) != 1:
-        raise ValueError('Field {} represents data from more than one survey!'.format(index))
-
 
 def transform_to_fixed_width_columns(path, path_save=None, n_spaces=8, max_len=(6, 4)):
     """ Transforms the format of the csv file with dumped picking so all the columns are separated
