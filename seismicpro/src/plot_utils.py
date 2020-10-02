@@ -317,6 +317,30 @@ def statistics_plot(arrs, stats, rate=None, figsize=None, names=None,
 
     plt.show()
 
+def draw_histogram(df, layout, n_last):
+    """Draw histogram of following attribute.
+    Parameters
+    ----------
+    df : DataFrame
+        Research's results
+    layout : str
+        string where each element consists two parts that splited by /. First part is the type
+        of calculated value wrote in the "name" column. Second is name of column  with the parameters
+        that will be drawn.
+    n_last : int, optional
+        The number of iterations at the end of which the averaging takes place.
+    """
+    name, attr = layout.split('/')
+    max_iter = df['iteration'].max()
+    mean_val = df[(df['iteration'] > max_iter - n_last) & (df['name'] == name)].groupby('repetition').mean()[attr]
+    plt.figure(figsize=(8, 6))
+    plt.title('Histogram of {}'.format(attr))
+    plt.hist(mean_val)
+    plt.axvline(mean_val.mean(), color='b', linestyle='dashed', linewidth=1, label='mean {}'.format(attr))
+    plt.legend()
+    plt.show()
+    print('Average value (Median) is {:.4}\nStd is {:.4}'.format(mean_val.median(), mean_val.std()))
+
 def show_1d_heatmap(idf, figsize=None, save_to=None, dpi=300, **kwargs):
     """Plot point distribution within 1D bins.
 
