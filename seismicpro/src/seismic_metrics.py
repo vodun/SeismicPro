@@ -42,10 +42,6 @@ class NumbaNumpy:
 class MetricsMap(Metrics):
     """seismic metrics class"""
 
-    AVALIBALE_METRICS = [
-        'construct_map'
-    ]
-
     def __init__(self, metrics, coords, *args, **kwargs):
         _ = args, kwargs
         super().__init__()
@@ -67,7 +63,7 @@ class MetricsMap(Metrics):
         self.maps_list.extend(metrics.maps_list)
 
     def construct_map(self, bin_size=500, vmin=None, vmax=None, cm=None, title=None, figsize=None, #pylint: disable=too-many-arguments
-                      save_dir=None, pad=False, plot=True, aggr_bins='mean', aggr_bins_kwargs=None):
+                      save_to=None, pad=False, plot=True, agg_bins_fn='mean', agg_bins_kwargs=None):
         """ Each value in resulted map represent aggregated value of metrics for coordinates belongs to current bin.
         """
 
@@ -78,33 +74,50 @@ class MetricsMap(Metrics):
 
         coords_x = np.array(maps_list_transposed[0], dtype=np.float32)
         coords_y = np.array(maps_list_transposed[1], dtype=np.float32)
-        metrics = np.array(list(maps_list_transposed[2]), dtype=np.float32)
+        metrics = np.array(list(maps_list_transposed[2]))
+        if isinstance(metrics[0], (tuple, list, set, np.ndarray)):
+            if len(metrics[0].shape) > 1:
+                raise ValueError('Construct map does not work with 3d metrics yet.')
+            metrics_shapes = np.array([metric.shape for metric in metrics])
+            metrics_storage = np.empty((len(metrics), np.max(metrics_shapes)))
+            metrics_storage.fill(np.nan)
+            mask = np.zeros_like(metrics_storage) + np.arange(np.max(metrics_shapes))
+            mask = mask < metrics_shapes
+            metrics_storage[mask] = np.concatenate(metrics)
+            metrics = metrics_storage.copy()
+        metrics = np.array(metrics, dtype=np.float32)
 
-        call_aggr_bins = getattr(NumbaNumpy, aggr_bins)
-        call_aggr_bins = call_aggr_bins(None, **aggr_bins_kwargs) if aggr_bins_kwargs is not None else call_aggr_bins
+        if isinstance(agg_bins_fn, str):
+            call_agg_bins = getattr(NumbaNumpy, agg_bins_fn)
+            call_agg_bins = call_agg_bins(None, **agg_bins_kwargs) if agg_bins_kwargs is not None else call_agg_bins
+        elif isinstance(agg_bins_fn, callable):
+            raise ValueError('agg_bins_fn should be whether str or callable, not {}'.format(type(call_agg_bins)))
 
-        metric_map = self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y,
+        metric_map,shapes = self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y,
                                                 metrics=metrics, bin_size=bin_size,
-                                                aggr_bins=call_aggr_bins)
+                                                agg_bins_fn=call_agg_bins)
         extent_coords = [coords_x.min(), coords_x.max(), coords_y.min(), coords_y.max()]
         if plot:
             plot_metrics_map(metrics_map=metric_map, vmin=vmin, vmax=vmax, extent_coords=extent_coords, cm=cm,
-                             title=title, figsize=figsize, save_dir=save_dir, pad=pad)
-        return metric_map
+                             title=title, figsize=figsize, save_to=save_to, pad=pad)
+        return metric_map, shapes
 
     @staticmethod
     @njit(parallel=True)
-    def construct_metrics_map(coords_x, coords_y, metrics, bin_size, aggr_bins):
+    def construct_metrics_map(coords_x, coords_y, metrics, bin_size, agg_bins_fn):
         """njit map"""
+        shapes = []
         bin_size_x, bin_size_y = bin_size
-        range_x = np.arange(coords_x.min(), coords_x.max() + bin_size_x, bin_size_x)
-        range_y = np.arange(coords_y.min(), coords_y.max() + bin_size_y, bin_size_y)
+        range_x = np.arange(coords_x.min(), coords_x.max() + 1, bin_size_x)
+        range_y = np.arange(coords_y.min(), coords_y.max() + 1, bin_size_y)
         metrics_map = np.full((len(range_y), len(range_x)), np.nan)
-
         for i in prange(len(range_x)): #pylint: disable=not-an-iterable
             for j in prange(len(range_y)): #pylint: disable=not-an-iterable
                 mask = ((coords_x - range_x[i] >= 0) & (coords_x - range_x[i] < bin_size_x) &
                         (coords_y - range_y[j] >= 0) & (coords_y - range_y[j] < bin_size_y))
                 if mask.sum() > 0:
-                    metrics_map[j, i] = aggr_bins(metrics[mask])
-        return metrics_map
+                    notnan = np.ravel(metrics[mask])
+                    notnan = np.sum(~np.isnan(notnan))
+                    shapes.append([i, j, notnan])
+                    metrics_map[j, i] = agg_bins_fn(np.ravel(metrics[mask]))
+        return metrics_map, shapes
