@@ -531,7 +531,7 @@ def show_2d_heatmap(idf, figsize=None, save_to=None, dpi=300, **kwargs):
         plt.savefig(save_to, dpi=dpi)
     plt.show()
 
-def plot_metrics_map(metrics_map, vmin=None, vmax=None, extent_coords=None, cm=None, title=None, figsize=None,
+def plot_metrics_map(metrics_map, cm=None, title=None, figsize=None,
                      save_to=None, dpi=None, pad=False, **kwargs):
     """plot metrics map"""
     metrics_map = np.pad(metrics_map, pad_width=1, constant_values=None) if pad else metrics_map
@@ -543,10 +543,12 @@ def plot_metrics_map(metrics_map, vmin=None, vmax=None, extent_coords=None, cm=N
         cm.set_under('black')
         cm.set_over('red')
 
+    origin = kwargs.get('origin', 'lower')
+    aspect = kwargs.get('aspect', 'auto')
+
     fig = plt.figure(figsize=figsize)
-    img = plt.imshow(metrics_map, origin='lower', interpolation='nearest',
-                    vmin=vmin, vmax=vmax, cmap=cm, aspect='auto',
-                    extent=extent_coords, **kwargs)
+    img = plt.imshow(metrics_map, origin=origin, cmap=cm,
+                     aspect=aspect, **kwargs)
 
     plt.title(title, fontsize=18)
     fig.colorbar(img, extend='both')

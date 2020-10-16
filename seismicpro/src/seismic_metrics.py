@@ -17,7 +17,7 @@ class MetricsMap(Metrics):
         self.metrics_values = list(metrics) if isinstance(metrics, (list, tuple, set, np.ndarray)) else [metrics]
         self.coords = list(coords)
 
-        if len(self.metrics) != len(self.coords):
+        if len(self.metrics_values) != len(self.coords):
             raise ValueError('length of given metrics do not match with length of coords.')
 
         self._agg_fn_dict = {'mean': np.nanmean,
@@ -26,11 +26,11 @@ class MetricsMap(Metrics):
 
     def extend(self, metrics):
         """Extend coordinates and metrics to global container."""
-        self.metrics_values.extend(metrics.metrics)
+        self.metrics_values.extend(metrics.metrics_values)
         self.coords.extend(metrics.coords)
 
-    def construct_map(self, bin_size=500, vmin=None, vmax=None, cm=None, title=None, figsize=None, #pylint: disable=too-many-arguments
-                      save_to=None, dpi=None, pad=False, plot=True, agg_bins_fn='mean', agg_bins_kwargs=None):
+    def construct_map(self, bin_size=500, cm=None, title=None, figsize=None, save_to=None, dpi=None, #pylint: disable=too-many-arguments
+                      pad=False, plot=True, agg_bins_fn='mean', agg_bins_kwargs=None, **plot_kwargs):
         """ Each value in resulted map represent aggregated value of metrics for coordinates belongs to current bin.
         """
 
@@ -66,10 +66,12 @@ class MetricsMap(Metrics):
         metric_map = self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y,
                                                 metrics=metrics, bin_size=bin_size,
                                                 agg_bins_fn=call_agg_bins)
-        extent_coords = [coords_x.min(), coords_x.max(), coords_y.min(), coords_y.max()]
+
         if plot:
-            plot_metrics_map(metrics_map=metric_map, vmin=vmin, vmax=vmax, extent_coords=extent_coords, cm=cm,
-                             title=title, figsize=figsize, save_to=save_to, dpi=dpi, pad=pad)
+            extent = [coords_x.min(), coords_x.max(), coords_y.min(), coords_y.max()]
+            plot_metrics_map(metrics_map=metric_map, extent=extent, cm=cm, title=title,
+                             figsize=figsize, save_to=save_to, dpi=dpi, pad=pad,
+                             **plot_kwargs)
         return metric_map
 
     @staticmethod
