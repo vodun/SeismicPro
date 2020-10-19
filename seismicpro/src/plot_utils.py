@@ -543,8 +543,8 @@ def plot_metrics_map(metrics_map, cm=None, title=None, figsize=None,
         cm.set_under('black')
         cm.set_over('red')
 
-    origin = kwargs.get('origin', 'lower')
-    aspect = kwargs.get('aspect', 'auto')
+    origin = kwargs.pop('origin', 'lower')
+    aspect = kwargs.pop('aspect', 'auto')
 
     fig = plt.figure(figsize=figsize)
     img = plt.imshow(metrics_map, origin=origin, cmap=cm,
