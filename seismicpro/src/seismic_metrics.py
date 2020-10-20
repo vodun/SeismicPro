@@ -2,9 +2,9 @@
 import numpy as np
 from numba import njit, prange
 
-from .plot_utils import plot_metrics_map
+from ..batchflow.models.metrics import Metrics
 
-from seismicpro.batchflow.models.metrics import Metrics
+from .plot_utils import plot_metrics_map
 
 
 class MetricsMap(Metrics):
@@ -14,20 +14,31 @@ class MetricsMap(Metrics):
         _ = args, kwargs
         super().__init__()
 
-        self.metrics_values = list(metrics) if isinstance(metrics, (list, tuple, set, np.ndarray)) else [metrics]
-        self.coords = list(coords)
+        self._metrics_values = list(metrics) if isinstance(metrics, (list, tuple, set, np.ndarray)) else [metrics]
+        self._coords = list(coords)
 
-        if len(self.metrics_values) != len(self.coords):
+        if len(self._metrics_values) != len(self._coords):
             raise ValueError('length of given metrics do not match with length of coords.')
 
         self._agg_fn_dict = {'mean': np.nanmean,
                              'max': np.nanmax,
                              'min': np.nanmin}
 
+    @property
+    def metrics(self):
+        """Accumulated metrics values. """
+        return self._metrics_values
+
+    @property
+    def coords(self):
+        """Accumulated coordinates. """
+        return self._coords
+
+
     def extend(self, metrics):
         """Extend coordinates and metrics to global container."""
-        self.metrics_values.extend(metrics.metrics_values)
-        self.coords.extend(metrics.coords)
+        self._metrics_values.extend(metrics.metrics_values)
+        self._coords.extend(metrics.coords)
 
     def construct_map(self, bin_size=500, cm=None, title=None, figsize=None, save_to=None, dpi=None, #pylint: disable=too-many-arguments
                       pad=False, plot=True, agg_bins_fn='mean', agg_bins_kwargs=None, **plot_kwargs):
@@ -37,11 +48,11 @@ class MetricsMap(Metrics):
         if isinstance(bin_size, int):
             bin_size = (bin_size, bin_size)
 
-        coords = np.array(self.coords)
+        coords = np.array(self._coords)
         coords_x = np.array(coords[:, 0], dtype=np.float32)
         coords_y = np.array(coords[:, 1], dtype=np.float32)
 
-        metrics = np.array(list(self.metrics_values))
+        metrics = np.array(list(self._metrics_values))
 
         if isinstance(metrics[0], (tuple, list, set, np.ndarray)):
             if len(np.array(metrics[0]).shape) > 1:

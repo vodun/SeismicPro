@@ -396,13 +396,13 @@ class SeismicBatch(Batch):
             data_2d = np.vstack(data)
         except ValueError as err:
             if length_alignment is None:
-                raise ValueError(str(err) + '\nTry to set length_alingment to \'max\' or \'min\'')
+                raise ValueError(str(err) + '\nTry to set length_alingment to \'max\' or \'min\'') from err
             if length_alignment == 'min':
                 nsamples = min([len(t) for t in data])
             elif length_alignment == 'max':
                 nsamples = max([len(t) for t in data])
             else:
-                raise NotImplementedError('Unknown length_alingment')
+                raise NotImplementedError('Unknown length_alingment') from err
             shape = (len(data), nsamples)
             data_2d = np.full(shape, pad_value)
             for i, arr in enumerate(data):
