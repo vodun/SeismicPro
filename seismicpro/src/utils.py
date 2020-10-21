@@ -591,14 +591,11 @@ def make_segy_index(filename, extra_headers=None, limits=None):
         segyfile.mmap()
         if extra_headers == 'all':
             headers = [h.__str__() for h in segyio.TraceField.enums()]
-            tmp_headers = []
         elif extra_headers is None:
             headers = DEFAULT_SEGY_HEADERS + SUPPORT_SEGY_HEADERS
-            tmp_headers = SUPPORT_SEGY_HEADERS
         else:
             extra_headers = [extra_headers] if isinstance(extra_headers, str) else list(extra_headers)
             headers = set(DEFAULT_SEGY_HEADERS + extra_headers + SUPPORT_SEGY_HEADERS)
-            tmp_headers = set(SUPPORT_SEGY_HEADERS) - set(extra_headers)
 
         meta = dict()
 
@@ -607,8 +604,6 @@ def make_segy_index(filename, extra_headers=None, limits=None):
 
         meta['file_id'] = np.repeat(filename, segyfile.tracecount)[limits]
         meta['RecieverID'] = np.array([hash(pair) for pair in zip(meta['GroupX'], meta['GroupY'])])
-        for k in tmp_headers:
-            del meta[k]
 
     df = pd.DataFrame(meta)
     return df
