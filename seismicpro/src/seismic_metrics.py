@@ -37,8 +37,8 @@ class MetricsMap(Metrics):
 
     def extend(self, metrics):
         """Extend coordinates and metrics to global container."""
-        self._metrics_values.extend(metrics.metrics_values)
-        self._coords.extend(metrics.coords)
+        self._metrics_values.extend(metrics._metrics_values)
+        self._coords.extend(metrics._coords)
 
     def construct_map(self, bin_size=500, cm=None, title=None, figsize=None, save_to=None, dpi=None, #pylint: disable=too-many-arguments
                       pad=False, plot=True, agg_bins_fn='mean', agg_bins_kwargs=None, **plot_kwargs):
@@ -68,7 +68,7 @@ class MetricsMap(Metrics):
 
         if isinstance(agg_bins_fn, str):
             call_agg_bins = getattr(NumbaNumpy, agg_bins_fn)
-            call_agg_bins = call_agg_bins(None, **agg_bins_kwargs) if agg_bins_kwargs is not None else call_agg_bins
+            call_agg_bins = call_agg_bins(**agg_bins_kwargs) if agg_bins_kwargs else call_agg_bins
         elif callable(agg_bins_fn):
             call_agg_bins = agg_bins_fn
         else:
@@ -101,35 +101,28 @@ class MetricsMap(Metrics):
                     metrics_map[j, i] = agg_bins_fn(np.ravel(metrics[mask]))
         return metrics_map
 
-
-def quantile(array, q):
-    """ numba quantile. """
-    _ = array
-    return  njit(lambda array: np.quantile(array, q=q))
-
-def absquantile(array, q):
-    """ numba absquantile. """
-    _ = array
-    return njit(lambda array: _absquantile(array, q=q))
-
-@njit
-def _absquantile(array, q):
-    shifted_array = array - np.mean(array)
-    val = np.quantile(np.abs(shifted_array), q)
-    ind = np.argmin(np.abs(np.abs(shifted_array) - val))
-    return array[ind]
-
 class NumbaNumpy:
     """ Holder for jit-accelerated functions. """
     #pylint: disable = unnecessary-lambda, undefined-variable
-    nanmin = njit(lambda array: np.nanmin(array))
-    nanmax = njit(lambda array: np.nanmax(array))
-    nanmean = njit(lambda array: np.nanmean(array))
-    nanstd = njit(lambda array: np.nanstd(array))
+    min = njit(lambda array: np.nanmin(array))
+    max = njit(lambda array: np.nanmax(array))
+    mean = njit(lambda array: np.nanmean(array))
+    std = njit(lambda array: np.nanstd(array))
 
-    min = nanmin
-    max = nanmax
-    mean = nanmean
-    std = nanstd
-    quantile = quantile
-    absquantile = absquantile
+    @staticmethod
+    def quantile(q):
+        """ numba quantile. """
+        return  njit(lambda array: np.quantile(array, q=q))
+
+    @staticmethod
+    def absquantile(q):
+        """ numba absquantile. """
+        return njit(lambda array: _absquantile(array, q=q))
+
+    @staticmethod
+    @njit
+    def _absquantile(array, q):
+        shifted_array = array - np.mean(array)
+        val = np.quantile(np.abs(shifted_array), q)
+        ind = np.argmin(np.abs(np.abs(shifted_array) - val))
+        return array[ind]
