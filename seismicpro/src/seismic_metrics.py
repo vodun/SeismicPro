@@ -16,6 +16,8 @@ class MetricsMap(Metrics):
 
         self._metrics_values = list(metrics) if isinstance(metrics, (list, tuple, set, np.ndarray)) else [metrics]
         self._coords = list(coords)
+        self.call_agg_bins = None
+        self.call_name = None
 
         if len(self._metrics_values) != len(self._coords):
             raise ValueError('length of given metrics do not match with length of coords.')
@@ -34,11 +36,10 @@ class MetricsMap(Metrics):
         """Accumulated coordinates. """
         return self._coords
 
-
     def extend(self, metrics):
         """Extend coordinates and metrics to global container."""
-        self._metrics_values.extend(metrics._metrics_values)
-        self._coords.extend(metrics._coords)
+        self._metrics_values.extend(metrics.metrics)
+        self._coords.extend(metrics.coords)
 
     def construct_map(self, bin_size=500, cm=None, title=None, figsize=None, save_to=None, dpi=None, #pylint: disable=too-many-arguments
                       pad=False, plot=True, agg_bins_fn='mean', agg_bins_kwargs=None, **plot_kwargs):
@@ -57,6 +58,8 @@ class MetricsMap(Metrics):
         if isinstance(metrics[0], (tuple, list, set, np.ndarray)):
             if len(np.array(metrics[0]).shape) > 1:
                 raise ValueError('Construct map does not work with 3d metrics yet.')
+
+            # Pad metrics with NaNs if thay have a different shape.
             metrics_shapes = np.array([metric.shape for metric in metrics])
             metrics_storage = np.empty((len(metrics), np.max(metrics_shapes)))
             metrics_storage.fill(np.nan)
@@ -67,16 +70,23 @@ class MetricsMap(Metrics):
         metrics = np.array(metrics, dtype=np.float32)
 
         if isinstance(agg_bins_fn, str):
+            call_name = agg_bins_fn
             call_agg_bins = getattr(NumbaNumpy, agg_bins_fn)
             call_agg_bins = call_agg_bins(**agg_bins_kwargs) if agg_bins_kwargs else call_agg_bins
         elif callable(agg_bins_fn):
+            call_name = agg_bins_fn.__name__
             call_agg_bins = agg_bins_fn
         else:
             raise ValueError('agg_bins_fn should be whether str or callable, not {}'.format(type(agg_bins_fn)))
 
+        # We need to avoid recompiling the numba function if aggregation function hasn't changed.
+        if self.call_name is None or self.call_name != call_name:
+            self.call_name = call_name
+            self.call_agg_bins = call_agg_bins
+
         metric_map = self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y,
                                                 metrics=metrics, bin_size=bin_size,
-                                                agg_bins_fn=call_agg_bins)
+                                                agg_bins_fn=self.call_agg_bins)
 
         if plot:
             extent = [coords_x.min(), coords_x.max(), coords_y.min(), coords_y.max()]
