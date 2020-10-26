@@ -136,7 +136,7 @@ class SeismicDataset(Dataset):
                 raise ValueError('Field {} represents data from more than one survey!'.format(idx))
             survey = surveys_by_fieldrecord[0]
 
-            pos = batch.get_pos(None, component, idx)
+            pos = batch.index.get_pos(idx)
             sample = np.random.choice(getattr(batch, component)[pos].reshape(-1), size=sample_size)
 
             params[survey].batch_update(np.absolute(sample))

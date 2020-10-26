@@ -217,8 +217,8 @@ class SeismicBatch(Batch):
         new_batch.meta = self.meta
 
         for isrc in new_batch.components:
-            pos_new = new_batch.get_pos(None, isrc, new_batch.indices)
-            pos_old = self.get_pos(None, isrc, new_batch.indices)
+            pos_new = new_batch.index.get_pos(new_batch.indices)
+            pos_old = self.index.get_pos(new_batch.indices)
             getattr(new_batch, isrc)[pos_new] = getattr(self, isrc)[pos_old]
         return new_batch
 
@@ -341,7 +341,7 @@ class SeismicBatch(Batch):
     def _load_from_segy_file(self, index, *args, src, dst, tslice=None):
         """Load from a single segy file."""
         _ = src, args
-        pos = self.get_pos(None, "indices", index)
+        pos = self.index.get_pos(index)
         path = index
         trace_seq = self.index.get_df([index])[(INDEX_UID, src)]
         if tslice is None:
@@ -421,7 +421,7 @@ class SeismicBatch(Batch):
     @inbatch_parallel(init="indices", target="threads")
     def _dump_split_segy(self, index, src, path):
         """Dump data to segy files."""
-        pos = self.get_pos(None, src, index)
+        pos = self.index.get_pos(index)
         data = np.atleast_2d(getattr(self, src)[pos])
 
         path = os.path.join(path, str(index) + '.sgy')
@@ -564,7 +564,7 @@ class SeismicBatch(Batch):
         if isinstance(self.index, SegyFilesIndex):
             raise NotImplementedError("Index can't be SegyFilesIndex")
 
-        pos = self.get_pos(None, None, index)
+        pos = self.index.get_pos(index)
         field = getattr(self, src)[pos]
 
         len_x, len_y = field.shape
@@ -648,7 +648,7 @@ class SeismicBatch(Batch):
         """ Generate crops from an array with seismic data
         see :meth:`~SeismicBatch.crop` for full description
         """
-        pos = self.get_pos(None, src, index)
+        pos = self.index.get_pos(index)
         arr = getattr(self, src)[pos]
 
         if all(((0 <= x < 1) and (0 <= y < 1)) for x, y in coords):
@@ -703,7 +703,7 @@ class SeismicBatch(Batch):
         if 'crop_coords' not in self.meta[src]:
             raise ValueError("{} component doesn't contain crops!".format(src))
 
-        pos = self.get_pos(None, None, index)
+        pos = self.index.get_pos(index)
         crops = getattr(self, src)[pos]
         coords = self.meta[src]['crop_coords'][index]
 
@@ -820,7 +820,7 @@ class SeismicBatch(Batch):
         pair.
         2. This action copies all meta from `src` component to `dst` component.
         """
-        pos = self.get_pos(None, src, index)
+        pos = self.index.get_pos(index)
         field = getattr(self, src)[pos]
 
         if survey_id_col is None:
@@ -872,7 +872,7 @@ class SeismicBatch(Batch):
         batch : SeismicBatch
             Transformed batch. Changes ``dst`` component.
         """
-        i = self.get_pos(None, src, index)
+        i = self.index.get_pos(index)
         src_data = getattr(self, src)[i]
         dst_data = np.array([func(x, *args, **kwargs) for x in np.rollaxis(src_data, slice_axis)])
         getattr(self, dst)[i] = dst_data
@@ -904,7 +904,7 @@ class SeismicBatch(Batch):
             Batch with filtered traces.
         """
         _ = args
-        i = self.get_pos(None, src, index)
+        i = self.index.get_pos(index)
         traces = getattr(self, src)[i]
         nyq = 0.5 * fs
         if lowcut is None:
@@ -974,7 +974,7 @@ class SeismicBatch(Batch):
     @inbatch_parallel(init='_init_component')
     def _correct_sph_div(self, index, src, dst, time, speed, v_pow, t_pow):
         """Correct spherical divergence with given parameters. """
-        pos = self.get_pos(None, src, index)
+        pos = self.index.get_pos(index)
         field = getattr(self, src)[pos]
 
         correct_field = calculate_sdc_for_field(field, time, speed, v_pow=v_pow, t_pow=t_pow)
@@ -1026,7 +1026,7 @@ class SeismicBatch(Batch):
             if not has_same_sorting:
                 raise ValueError('all components in batch should have same sorting')
 
-        pos = self.get_pos(None, src, index)
+        pos = self.index.get_pos(index)
         traces = getattr(self, src)[pos]
         mask = list()
         for trace in traces:
@@ -1101,7 +1101,7 @@ class SeismicBatch(Batch):
         if index_name != 'CDP':
             raise ValueError("Index name must be CDP, not {}".format(index_name))
 
-        pos = self.get_pos(None, src, index)
+        pos = self.index.get_pos(index)
         field = getattr(self, src)[pos]
 
         offset = np.sort(self.index.get_df(index=index)['offset'])
@@ -1207,7 +1207,7 @@ class SeismicBatch(Batch):
         This action copies all meta from `src` component to `dst` component.
         """
         _ = args
-        pos = self.get_pos(None, src, index)
+        pos = self.index.get_pos(index)
         data = getattr(self, src)[pos]
         pad_width = kwargs['pad_width']
         if isinstance(pad_width, int):
@@ -1244,7 +1244,7 @@ class SeismicBatch(Batch):
         This action copies all meta from `src` component to `dst` component.
         """
         _ = args
-        pos = self.get_pos(None, src, index)
+        pos = self.index.get_pos(index)
         data = getattr(self, src)[pos]
         getattr(self, dst)[pos] = data[:, slice_obj]
         self.copy_meta(src, dst)
@@ -1308,7 +1308,7 @@ class SeismicBatch(Batch):
         batch : SeismicBatch
             Batch with new trace sorting.
         """
-        pos = self.get_pos(None, src, index)
+        pos = self.index.get_pos(index)
         df = self.index.get_df([index])
 
         if current_sorting:
@@ -1412,7 +1412,7 @@ class SeismicBatch(Batch):
             skipped. Introduced because of unstable behaviour of the hilbert transform at the begining of the signal.
          """
         shift *= np.pi
-        pos = self.get_pos(None, src, index)
+        pos = self.index.get_pos(index)
         pick = getattr(self, src)[pos]
         trace = getattr(self, src_traces)[pos]
         if isinstance(self.index, KNNIndex):
@@ -1501,7 +1501,7 @@ class SeismicBatch(Batch):
         -------
         Multi-column subplots.
         """
-        pos = self.get_pos(None, 'indices', index)
+        pos = self.index.get_pos(index)
         if len(np.atleast_1d(src)) == 1:
             src = (src,)
 
@@ -1565,7 +1565,7 @@ class SeismicBatch(Batch):
         if 'crop_coords' not in self.meta[src]:
             raise ValueError("{} component doesn't contain crops!".format(src))
 
-        pos = self.get_pos(None, 'indices', index)
+        pos = self.index.get_pos(index)
 
         if src_picking is not None:
             raise NotImplementedError()
@@ -1615,7 +1615,7 @@ class SeismicBatch(Batch):
         Gain's plot.
         """
         _ = kwargs
-        pos = self.get_pos(None, 'indices', index)
+        pos = self.index.get_pos(index)
         src = (src, ) if isinstance(src, str) else src
         sample = [getattr(self, source)[pos] for source in src]
         gain_plot(sample, window, xlim, ylim, figsize, names, **kwargs)
@@ -1646,7 +1646,7 @@ class SeismicBatch(Batch):
         -------
         Plot of seismogram(s) and power spectrum(s).
         """
-        pos = self.get_pos(None, 'indices', index)
+        pos = self.index.get_pos(index)
         if len(np.atleast_1d(src)) == 1:
             src = (src,)
 
@@ -1679,7 +1679,7 @@ class SeismicBatch(Batch):
         -------
         Plot of seismogram(s) and power spectrum(s).
         """
-        pos = self.get_pos(None, 'indices', index)
+        pos = self.index.get_pos(index)
         if len(np.atleast_1d(src)) == 1:
             src = (src,)
 
