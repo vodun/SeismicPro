@@ -18,8 +18,7 @@ disable=no-member, no-value-for-parameter, no-self-use, too-many-locals, too-few
         locally-disabled, wrong-import-position, invalid-sequence-index, redundant-keyword-arg, bad-super-call,
         no-self-argument, redefined-builtin, arguments-differ, len-as-condition, keyword-arg-before-vararg,
         assignment-from-none, useless-return, useless-import-alias, unnecessary-pass, cyclic-import,
-        assignment-from-no-return, comparison-with-callable, unnecessary-lambda, no-method-argument, blacklisted-name,
-        no-name-in-module, import-error
+        assignment-from-no-return, comparison-with-callable, unnecessary-lambda, no-method-argument, blacklisted-name
 
 [TYPECHECK]
 ignored-modules=numpy

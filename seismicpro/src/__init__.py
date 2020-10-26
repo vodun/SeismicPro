@@ -3,6 +3,7 @@ from .seismic_batch import SeismicBatch
 from .seismic_index import (FieldIndex, TraceIndex, BinsIndex,
                             SegyFilesIndex, CustomIndex, KNNIndex)
 from .seismic_dataset import SeismicDataset
+from .seismic_metrics import MetricsMap
 
 from .plot_utils import (spectrum_plot, seismic_plot, statistics_plot,
                          show_research, draw_histogram, gain_plot)

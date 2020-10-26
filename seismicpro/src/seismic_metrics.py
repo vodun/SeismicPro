@@ -1,4 +1,5 @@
 """File contains metircs for seismic processing."""
+# pylint: disable=no-name-in-module, import-error
 import numpy as np
 from numba import njit, prange
 
@@ -42,7 +43,8 @@ class MetricsMap(Metrics):
         self._coords.extend(metrics.coords)
 
     def construct_map(self, bin_size=500, cm=None, title=None, figsize=None, save_to=None, dpi=None, #pylint: disable=too-many-arguments
-                      pad=False, plot=True, agg_bins_fn='mean', agg_bins_kwargs=None, **plot_kwargs):
+                      pad=False, plot=True, agg_bins_fn='mean', agg_bins_kwargs=None, ravel_before_bins=True,
+                      **plot_kwargs):
         """ Each value in resulted map represent aggregated value of metrics for coordinates belongs to current bin.
         """
 
@@ -55,6 +57,7 @@ class MetricsMap(Metrics):
 
         metrics = np.array(list(self._metrics_values))
 
+        # If we have 1d array of metrics' values per point.
         if isinstance(metrics[0], (tuple, list, set, np.ndarray)):
             if len(np.array(metrics[0]).shape) > 1:
                 raise ValueError('Construct map does not work with 3d metrics yet.')
@@ -86,7 +89,8 @@ class MetricsMap(Metrics):
 
         metric_map = self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y,
                                                 metrics=metrics, bin_size=bin_size,
-                                                agg_bins_fn=self.call_agg_bins)
+                                                agg_bins_fn=self.call_agg_bins,
+                                                ravel=ravel_before_bins)
 
         if plot:
             extent = [coords_x.min(), coords_x.max(), coords_y.min(), coords_y.max()]
@@ -97,7 +101,7 @@ class MetricsMap(Metrics):
 
     @staticmethod
     @njit(parallel=True)
-    def construct_metrics_map(coords_x, coords_y, metrics, bin_size, agg_bins_fn):
+    def construct_metrics_map(coords_x, coords_y, metrics, bin_size, agg_bins_fn, ravel):
         """njit map"""
         bin_size_x, bin_size_y = bin_size
         range_x = np.arange(coords_x.min(), coords_x.max() + 1, bin_size_x)
@@ -108,7 +112,8 @@ class MetricsMap(Metrics):
                 mask = ((coords_x - range_x[i] >= 0) & (coords_x - range_x[i] < bin_size_x) &
                         (coords_y - range_y[j] >= 0) & (coords_y - range_y[j] < bin_size_y))
                 if mask.sum() > 0:
-                    metrics_map[j, i] = agg_bins_fn(np.ravel(metrics[mask]))
+                    metrics_bin = np.ravel(metrics[mask]).reshape(-1, 1) if ravel else metrics[mask]
+                    metrics_map[j, i] = agg_bins_fn(metrics_bin)
         return metrics_map
 
 class NumbaNumpy:
