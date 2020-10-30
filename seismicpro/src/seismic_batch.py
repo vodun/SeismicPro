@@ -5,7 +5,6 @@ from itertools import product
 import warnings
 from textwrap import dedent
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy import signal
 from scipy.signal import hilbert
 import pywt
@@ -15,10 +14,9 @@ from ..batchflow import action, inbatch_parallel, Batch, any_action_failed
 
 from .seismic_index import SegyFilesIndex, FieldIndex, KNNIndex, TraceIndex, CustomIndex
 
-from .utils import (FILE_DEPENDEND_COLUMNS, partialmethod, calculate_sdc_for_field, massive_block,
-                    check_unique_fieldrecord_across_surveys)
+from .utils import (FILE_DEPENDEND_COLUMNS, partialmethod, calculate_sdc_for_field, massive_block)
 from .file_utils import write_segy_file
-from .plot_utils import IndexTracker, spectrum_plot, seismic_plot, statistics_plot, gain_plot
+from .plot_utils import spectrum_plot, seismic_plot, statistics_plot, gain_plot
 
 INDEX_UID = 'TRACE_SEQUENCE_FILE'
 
@@ -270,34 +268,6 @@ class SeismicBatch(Batch):
                               UserWarning)
             self.meta[t_comp] = self.meta[fr_comp].copy()
         return self
-
-    def items_viewer(self, src, scroll_step=1, **kwargs):
-        """Scroll and view batch items. Emaple of use:
-        ```
-        %matplotlib notebook
-
-        fig, tracker = batch.items_viewer('raw', vmin=-cv, vmax=cv, cmap='gray')
-        fig.canvas.mpl_connect('scroll_event', tracker.onscroll)
-        plt.show()
-        ```
-
-        Parameters
-        ----------
-        src : str
-            The batch component with data to show.
-        scroll_step : int, default: 1
-            Number of batch items scrolled at one time.
-        kwargs: dict
-            Additional keyword arguments for plt.
-
-        Returns
-        -------
-        fig, tracker
-        """
-        fig, ax = plt.subplots(1, 1)
-        tracker = IndexTracker(ax, getattr(self, src), self.indices,
-                               scroll_step=scroll_step, **kwargs)
-        return fig, tracker
 
     #-------------------------------------------------------------------------#
     #                              Load and Dump                              #
@@ -857,7 +827,8 @@ class SeismicBatch(Batch):
             survey_id_col = params['survey_id_col']
 
         surveys_by_fieldrecord = np.unique(self.index.get_df(index=index, reset=False)[survey_id_col])
-        check_unique_fieldrecord_across_surveys(surveys_by_fieldrecord, index)
+        if len(surveys_by_fieldrecord) != 1:
+            raise ValueError('Field {} represents data from more than one survey!'.format(index))
         survey = surveys_by_fieldrecord[0]
 
         p_95 = params[survey]
@@ -1349,74 +1320,6 @@ class SeismicBatch(Batch):
 
         getattr(self, dst)[pos] = getattr(self, src)[pos][order]
         return self
-
-    @action
-    @inbatch_parallel(init="_init_component", target="threads")
-    @apply_to_each_component
-    def to_2d(self, index, *args, src, dst=None, length_alignment=None, pad_value=0):
-        """Convert array of 1d arrays to 2d array.
-
-        Parameters
-        ----------
-        src : str, array-like
-            The batch components to get the data from.
-        dst : str, array-like
-            The batch components to put the result in.
-        length_alignment : str, optional
-            Defines what to do with arrays of diffetent lengths.
-            If 'min', cut the end by minimal array length.
-            If 'max', pad the end to maximal array length.
-            If None, try to put array to 2d array as is.
-
-        Returns
-        -------
-        batch : SeismicBatch
-            Batch with items converted to 2d arrays.
-        """
-        _ = args
-        pos = self.index.get_pos(index)
-        data = getattr(self, src)[pos]
-        if data is None or len(data) == 0:
-            return
-
-        try:
-            data_2d = np.vstack(data)
-        except ValueError as err:
-            if length_alignment is None:
-                raise ValueError('Try to set length_alingment to \'max\' or \'min\'') from err
-            if length_alignment == 'min':
-                nsamples = min([len(t) for t in data])
-            elif length_alignment == 'max':
-                nsamples = max([len(t) for t in data])
-            else:
-                raise NotImplementedError('Unknown length_alingment') from err
-            shape = (len(data), nsamples)
-            data_2d = np.full(shape, pad_value)
-            for i, arr in enumerate(data):
-                data_2d[i, :len(arr)] = arr[:nsamples]
-
-        getattr(self, dst)[pos] = data_2d
-
-    def trace_headers(self, header, flatten=False):
-        """Get trace heades.
-
-        Parameters
-        ----------
-        header : string
-            Header name.
-        flatten : bool
-            If False, array of headers will be splitted according to batch item sizes.
-            If True, return a flattened array. Dafault to False.
-
-        Returns
-        -------
-        arr : ndarray
-            Arrays of trace headers."""
-        tracecounts = self.index.tracecounts
-        values = self.index.get_df()[header].values
-        if flatten:
-            return values
-        return np.array(np.split(values, np.cumsum(tracecounts)[:-1]) + [None])[:-1]
 
     #-------------------------------------------------------------------------#
     #                           DPA. Picking Actions                          #
