@@ -42,8 +42,7 @@ class MetricsMap(Metrics):
         self.coords.extend(metrics.coords)
 
     def construct_map(self, metrics_names, bin_size=500, cm=None, title=None, figsize=None, save_to=None, dpi=None, #pylint: disable=too-many-arguments
-                      pad=False, plot=True, agg_bins_fn='mean', agg_bins_kwargs=None, ravel_before_bins=True,
-                      **plot_kwargs):
+                      pad=False, plot=True, agg_bins_fn='mean', agg_bins_kwargs=None, **plot_kwargs):
         """ Each value in resulted map represent aggregated value of metrics for coordinates belongs to current bin.
         """
         metrics_names = [metrics_names] if isinstance(metrics_names, str) else metrics_names
@@ -60,7 +59,6 @@ class MetricsMap(Metrics):
                 len_of_copy = [len(metrics_array) for metrics_array in metrics]
                 coords = np.repeat(self.coords, len_of_copy, axis=0)
                 metrics = np.concatenate(metrics)
-                print(metrics.shape)
             else:
                 if len(metrics) != len(self.coords):
                     raise ValueError('smth')
@@ -87,22 +85,20 @@ class MetricsMap(Metrics):
 
             metric_map.append(self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y,
                                                          metrics=metrics, bin_size=bin_size,
-                                                         agg_bins_fn=self.call_agg_bins,
-                                                         ravel=ravel_before_bins))
+                                                         agg_bins_fn=self.call_agg_bins))
             if plot:
                 extent = [coords_x.min(), coords_x.max(), coords_y.min(), coords_y.max()]
                 # Avoid the situation when we have only one coordinate for x or y dimension.
                 extent[1] += 1 if extent[0] - extent[1] == 0 else 0
                 extent[3] += 1 if extent[2] - extent[3] == 0 else 0
-                print(np.array(metric_map).shape, coords_x.shape, coords_y.shape, metrics.shape)
                 plot_metrics_map(metrics_map=metric_map[-1], extent=extent, cm=cm, title=title,
-                                figsize=figsize, save_to=save_to, dpi=dpi, pad=pad,
-                                **plot_kwargs)
+                                 figsize=figsize, save_to=save_to, dpi=dpi, pad=pad,
+                                 **plot_kwargs)
         return metric_map
 
     @staticmethod
     @njit(parallel=True)
-    def construct_metrics_map(coords_x, coords_y, metrics, bin_size, agg_bins_fn, ravel):
+    def construct_metrics_map(coords_x, coords_y, metrics, bin_size, agg_bins_fn):
         """njit map"""
         bin_size_x, bin_size_y = bin_size
         range_x = np.arange(coords_x.min(), coords_x.max() + 1, bin_size_x)
@@ -113,8 +109,7 @@ class MetricsMap(Metrics):
                 mask = ((coords_x - range_x[i] >= 0) & (coords_x - range_x[i] < bin_size_x) &
                         (coords_y - range_y[j] >= 0) & (coords_y - range_y[j] < bin_size_y))
                 if mask.sum() > 0:
-                    metrics_bin = np.ravel(metrics[mask])
-                    metrics_map[j, i] = agg_bins_fn(metrics_bin)
+                    metrics_map[j, i] = agg_bins_fn(np.ravel(metrics[mask]))
         return metrics_map
 
 
