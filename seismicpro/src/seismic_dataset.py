@@ -6,7 +6,6 @@ from tdigest import TDigest
 from ..batchflow import Dataset
 from .seismic_index import FieldIndex
 from .seismic_batch import SeismicBatch
-from .utils import check_unique_fieldrecord_across_surveys
 
 
 class SeismicDataset(Dataset):
@@ -133,7 +132,8 @@ class SeismicDataset(Dataset):
 
         for idx in batch.indices:
             surveys_by_fieldrecord = np.unique(batch.index.get_df(index=idx)[survey_id_col])
-            check_unique_fieldrecord_across_surveys(surveys_by_fieldrecord, idx)
+            if len(surveys_by_fieldrecord) != 1:
+                raise ValueError('Field {} represents data from more than one survey!'.format(idx))
             survey = surveys_by_fieldrecord[0]
 
             pos = batch.index.get_pos(idx)
