@@ -11,92 +11,93 @@ from .plot_utils import plot_metrics_map
 class MetricsMap(Metrics):
     """seismic metrics class"""
 
-    def __init__(self, metrics, coords, *args, **kwargs):
-        _ = args, kwargs
+    def __init__(self, coords, *args, **kwargs):
+        _ = args
         super().__init__()
+        if not kwargs:
+            raise ValueError('Add at least one metrics.')
 
-        self._metrics_values = list(metrics) if isinstance(metrics, (list, tuple, set, np.ndarray)) else [metrics]
-        self._coords = list(coords)
+        # Create attributes with metrics.
+        for name, metrics in kwargs.items():
+            setattr(self, name, [metrics])
+
+        self.metrics_names = list(kwargs.keys())
+        self.coords = list(coords)
         self.call_agg_bins = None
         self.call_name = None
 
-        if len(self._metrics_values) != len(self._coords):
-            raise ValueError('length of given metrics do not match with length of coords.')
 
         self._agg_fn_dict = {'mean': np.nanmean,
                              'max': np.nanmax,
                              'min': np.nanmin}
 
-    @property
-    def metrics(self):
-        """Accumulated metrics values. """
-        return self._metrics_values
-
-    @property
-    def coords(self):
-        """Accumulated coordinates. """
-        return self._coords
-
     def extend(self, metrics):
         """Extend coordinates and metrics to global container."""
-        self._metrics_values.extend(metrics.metrics)
-        self._coords.extend(metrics.coords)
+        # Extend all attributes with given metrics values.
+        for name in self.metrics_names:
+            metrics_attr = getattr(self, name)
+            metrics_attr.extend(getattr(metrics, name))
+            setattr(self, name, metrics_attr)
 
-    def construct_map(self, bin_size=500, cm=None, title=None, figsize=None, save_to=None, dpi=None, #pylint: disable=too-many-arguments
+        self.coords.extend(metrics.coords)
+
+    def construct_map(self, metrics_names, bin_size=500, cm=None, title=None, figsize=None, save_to=None, dpi=None, #pylint: disable=too-many-arguments
                       pad=False, plot=True, agg_bins_fn='mean', agg_bins_kwargs=None, ravel_before_bins=True,
                       **plot_kwargs):
         """ Each value in resulted map represent aggregated value of metrics for coordinates belongs to current bin.
         """
+        metrics_names = [metrics_names] if isinstance(metrics_names, str) else metrics_names
 
-        if isinstance(bin_size, int):
-            bin_size = (bin_size, bin_size)
+        metric_map = []
+        for attr_name in metrics_names:
+            if isinstance(bin_size, int):
+                bin_size = (bin_size, bin_size)
 
-        coords = np.array(self._coords)
-        coords_x = np.array(coords[:, 0], dtype=np.float32)
-        coords_y = np.array(coords[:, 1], dtype=np.float32)
+            metrics = np.array(list(getattr(self, attr_name)))
 
-        metrics = np.array(list(self._metrics_values))
+            if len(metrics.shape) > 1:
+                metrics = np.concatenate(metrics)
+                len_of_copy = [len(metrics_array) for metrics_array in metrics]
+                coords = np.repeat(self.coords, len_of_copy, axis=0)
+                metrics = np.concatenate(metrics)
+                print(metrics.shape)
+            else:
+                if len(metrics) != len(self.coords):
+                    raise ValueError('smth')
+                coords = np.array(self.coords)
 
-        # If we have 1d array of metrics' values per point.
-        if isinstance(metrics[0], (tuple, list, set, np.ndarray)):
-            if len(np.array(metrics[0]).shape) > 1:
-                raise ValueError('Construct map does not work with 3d metrics yet.')
+            coords_x = np.array(coords[:, 0], dtype=np.int32)
+            coords_y = np.array(coords[:, 1], dtype=np.int32)
+            metrics = np.array(metrics, dtype=np.float32)
 
-            # Pad metrics with NaNs if thay have a different shape.
-            metrics_shapes = np.array([metric.shape for metric in metrics])
-            metrics_storage = np.empty((len(metrics), np.max(metrics_shapes)))
-            metrics_storage.fill(np.nan)
-            mask = np.zeros_like(metrics_storage) + np.arange(np.max(metrics_shapes))
-            mask = mask < metrics_shapes
-            metrics_storage[mask] = np.concatenate(metrics)
-            metrics = metrics_storage.copy()
-        metrics = np.array(metrics, dtype=np.float32)
+            if isinstance(agg_bins_fn, str):
+                call_name = agg_bins_fn
+                call_agg_bins = getattr(NumbaNumpy, agg_bins_fn)
+                call_agg_bins = call_agg_bins(**agg_bins_kwargs) if agg_bins_kwargs else call_agg_bins
+            elif callable(agg_bins_fn):
+                call_name = agg_bins_fn.__name__
+                call_agg_bins = agg_bins_fn
+            else:
+                raise ValueError('agg_bins_fn should be whether str or callable, not {}'.format(type(agg_bins_fn)))
 
-        if isinstance(agg_bins_fn, str):
-            call_name = agg_bins_fn
-            call_agg_bins = getattr(NumbaNumpy, agg_bins_fn)
-            call_agg_bins = call_agg_bins(**agg_bins_kwargs) if agg_bins_kwargs else call_agg_bins
-        elif callable(agg_bins_fn):
-            call_name = agg_bins_fn.__name__
-            call_agg_bins = agg_bins_fn
-        else:
-            raise ValueError('agg_bins_fn should be whether str or callable, not {}'.format(type(agg_bins_fn)))
+            # We need to avoid recompiling the numba function if aggregation function hasn't changed.
+            if self.call_name is None or self.call_name != call_name:
+                self.call_name = call_name
+                self.call_agg_bins = call_agg_bins
 
-        # We need to avoid recompiling the numba function if aggregation function hasn't changed.
-        if self.call_name is None or self.call_name != call_name:
-            self.call_name = call_name
-            self.call_agg_bins = call_agg_bins
-
-        metric_map = self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y,
-                                                metrics=metrics, bin_size=bin_size,
-                                                agg_bins_fn=self.call_agg_bins,
-                                                ravel=ravel_before_bins)
-
-        if plot:
-            extent = [coords_x.min(), coords_x.max(), coords_y.min(), coords_y.max()]
-            plot_metrics_map(metrics_map=metric_map, extent=extent, cm=cm, title=title,
-                             figsize=figsize, save_to=save_to, dpi=dpi, pad=pad,
-                             **plot_kwargs)
+            metric_map.append(self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y,
+                                                         metrics=metrics, bin_size=bin_size,
+                                                         agg_bins_fn=self.call_agg_bins,
+                                                         ravel=ravel_before_bins))
+            if plot:
+                extent = [coords_x.min(), coords_x.max(), coords_y.min(), coords_y.max()]
+                # Avoid the situation when we have only one coordinate for x or y dimension.
+                extent[1] += 1 if extent[0] - extent[1] == 0 else 0
+                extent[3] += 1 if extent[2] - extent[3] == 0 else 0
+                print(np.array(metric_map).shape, coords_x.shape, coords_y.shape, metrics.shape)
+                plot_metrics_map(metrics_map=metric_map[-1], extent=extent, cm=cm, title=title,
+                                figsize=figsize, save_to=save_to, dpi=dpi, pad=pad,
+                                **plot_kwargs)
         return metric_map
 
     @staticmethod
@@ -112,9 +113,10 @@ class MetricsMap(Metrics):
                 mask = ((coords_x - range_x[i] >= 0) & (coords_x - range_x[i] < bin_size_x) &
                         (coords_y - range_y[j] >= 0) & (coords_y - range_y[j] < bin_size_y))
                 if mask.sum() > 0:
-                    metrics_bin = np.ravel(metrics[mask]).reshape(-1, 1) if ravel else metrics[mask]
+                    metrics_bin = np.ravel(metrics[mask])
                     metrics_map[j, i] = agg_bins_fn(metrics_bin)
         return metrics_map
+
 
 class NumbaNumpy:
     """ Holder for jit-accelerated functions. """
@@ -138,6 +140,4 @@ class NumbaNumpy:
     @njit
     def _absquantile(array, q):
         shifted_array = array - np.mean(array)
-        val = np.quantile(np.abs(shifted_array), q)
-        ind = np.argmin(np.abs(np.abs(shifted_array) - val))
-        return array[ind]
+        return np.quantile(np.abs(shifted_array), q)
