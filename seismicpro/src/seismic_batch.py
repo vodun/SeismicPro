@@ -262,9 +262,9 @@ class SeismicBatch(Batch):
             if fr_comp == t_comp:
                 continue
 
-            if self.meta[t_comp]:
-                warnings.warn("Meta of component {} is not empty and".format(t_comp) + \
-                              " will be replaced by the meta from component {}.".format(fr_comp),
+            if t_comp in self.meta:
+                warnings.warn("Meta of the component {} is not empty and".format(t_comp) + \
+                              " will be replaced by the meta from the component {}.".format(fr_comp),
                               UserWarning)
             self.meta[t_comp] = self.meta[fr_comp].copy()
         return self
