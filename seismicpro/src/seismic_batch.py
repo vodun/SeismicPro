@@ -257,17 +257,79 @@ class SeismicBatch(Batch):
 
         for fr_comp, t_comp in zip(from_comp, to_comp):
             if fr_comp not in self.meta:
-                raise ValueError('{} does not exist.'.format(fr_comp))
+                raise ValueError('Meta of the component {} does not exist.'.format(fr_comp))
 
             if fr_comp == t_comp:
                 continue
 
-            if t_comp in self.meta:
+            if self.meta.get(t_comp):
                 warnings.warn("Meta of the component {} is not empty and".format(t_comp) + \
                               " will be replaced by the meta from the component {}.".format(fr_comp),
                               UserWarning)
+
             self.meta[t_comp] = self.meta[fr_comp].copy()
         return self
+
+    @action
+    def add_components(self, components, init=None):
+        """ Add new components
+
+        Parameters
+        ----------
+        components : str or list
+            new component names
+        init : array-like
+            initial component data
+
+        Raises
+        ------
+        ValueError
+            If a component or an attribute with the given name already exists
+        """
+        self._add_components(components, init)
+        return self
+
+    def _add_components(self, components, init):
+        if isinstance(components, str):
+            components = (components,)
+            init = (init,)
+        elif isinstance(components, (tuple, list)):
+            components = tuple(components)
+            if init is None:
+                init = (None,) * len(components)
+            else:
+                init = tuple(init)
+
+        for comp, value in zip(components, init):
+            if hasattr(self, comp):
+                raise ValueError("An attribute '%s' already exists" % comp)
+            if self.components is not None and comp in self.components:
+                raise ValueError("A components '%s' already exists" % comp)
+
+            if self.components is None:
+                self.components = tuple([comp])
+                if self._data is not None:
+                    warnings.warn("All batch data is erased")
+            else:
+                self.components = self.components + tuple([comp])
+            setattr(self, comp, value)
+
+            self.meta[comp] = dict()
+
+    def update_component(self, component, value):
+        """ Add new component or update existed one
+
+        Parameters
+        ----------
+        component : str
+            component name
+        value : array-like
+            component data
+        """
+        if component not in self.components:
+            self._add_components(component, init=value)
+        else:
+            setattr(self, component, value)
 
     #-------------------------------------------------------------------------#
     #                              Load and Dump                              #
@@ -759,7 +821,9 @@ class SeismicBatch(Batch):
         ind = np.cumsum(traces_in_item)[:-1]
 
         dst_data = np.split(std_data, ind)
-        setattr(self, dst, np.array(dst_data + [None])[:-1]) # array implicitly converted to object dtype
+        dst_data = np.array(dst_data + [None])[:-1] # array implicitly converted to object dtype
+
+        self.update_component(dst, dst_data)
         self.copy_meta(src, dst)
         return self
 
@@ -1178,7 +1242,7 @@ class SeismicBatch(Batch):
         long_win, lead_win = energy, energy
         lead_win[:, length_win:] = lead_win[:, length_win:] - lead_win[:, :-length_win]
         energy = lead_win / (long_win + eps)
-        self.add_components(dst, init=np.array(energy + [None])[:-1]) # array implicitly converted to object dtype
+        self.update_component(dst, np.array(energy + [None])[:-1]) # array implicitly converted to object dtype
         return self
 
     @action
@@ -1362,7 +1426,7 @@ class SeismicBatch(Batch):
 
         dst_data = np.split(dst_data, ind)
         dst_data = np.array([np.squeeze(i) for i in dst_data] + [None])[:-1]
-        setattr(self, dst, dst_data)
+        self.update_component(dst, dst_data)
         return self
 
     @action
@@ -1389,7 +1453,7 @@ class SeismicBatch(Batch):
             data = np.argmax(data, axis=1)
 
         dst_data = massive_block(data)
-        setattr(self, dst, np.array(dst_data + [None])[:-1]) # array implicitly converted to object dtype
+        self.update_component(dst, np.array(dst_data + [None])[:-1]) # array implicitly converted to object dtype
         return self
 
     @inbatch_parallel(init='_init_component', target="threads")
@@ -1452,7 +1516,7 @@ class SeismicBatch(Batch):
         energy = np.stack(getattr(self, src))
         energy = np.gradient(energy, axis=1)
         picking = np.argmax(energy, axis=1)
-        self.add_components(dst, np.array(picking + [None])[:-1]) # array implicitly converted to object dtype
+        self.update_component(dst, np.array(picking + [None])[:-1]) # array implicitly converted to object dtype
         return self
 
     #-------------------------------------------------------------------------#
