@@ -313,8 +313,8 @@ class SeismicBatch(Batch):
             else:
                 self.components = self.components + tuple([comp])
             setattr(self, comp, value)
-
-            self.meta[comp] = dict()
+            if comp not in self.meta:
+                self.meta[comp] = dict()
 
     def update_component(self, component, value):
         """ Add new component or update existed one
