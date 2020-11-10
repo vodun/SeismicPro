@@ -222,6 +222,45 @@ class SeismicBatch(Batch):
             getattr(new_batch, isrc)[pos_new] = getattr(self, isrc)[pos_old]
         return new_batch
 
+    @action
+    def add_components(self, components, init=None):
+        """ Add new components
+
+        Parameters
+        ----------
+        components : str or list
+            new component names
+        init : array-like
+            initial component data
+
+        Raises
+        ------
+        ValueError
+            If a component or an attribute with the given name already exists
+        """
+        super().add_components(components, init)
+
+        components = (components,) if isinstance(components, str) else components
+        for comp in components:
+            if comp not in self.meta:
+                self.meta[comp] = dict()
+        return self
+
+    def update_component(self, component, value):
+        """ Add new component or update existed one
+
+        Parameters
+        ----------
+        component : str
+            component name
+        value : array-like
+            component data
+        """
+        if component not in self.components:
+            self.add_components(component, init=value)
+        else:
+            setattr(self, component, value)
+
     def copy_meta(self, from_comp, to_comp):
         """Copy meta from one component to another or from list of components to list of
         components with same length.
@@ -262,74 +301,13 @@ class SeismicBatch(Batch):
             if fr_comp == t_comp:
                 continue
 
-            if self.meta.get(t_comp):
+            if t_comp in self.meta and self.meta[t_comp] != dict():
                 warnings.warn("Meta of the component {} is not empty and".format(t_comp) + \
                               " will be replaced by the meta from the component {}.".format(fr_comp),
                               UserWarning)
 
             self.meta[t_comp] = self.meta[fr_comp].copy()
         return self
-
-    @action
-    def add_components(self, components, init=None):
-        """ Add new components
-
-        Parameters
-        ----------
-        components : str or list
-            new component names
-        init : array-like
-            initial component data
-
-        Raises
-        ------
-        ValueError
-            If a component or an attribute with the given name already exists
-        """
-        self._add_components(components, init)
-        return self
-
-    def _add_components(self, components, init):
-        if isinstance(components, str):
-            components = (components,)
-            init = (init,)
-        elif isinstance(components, (tuple, list)):
-            components = tuple(components)
-            if init is None:
-                init = (None,) * len(components)
-            else:
-                init = tuple(init)
-
-        for comp, value in zip(components, init):
-            if hasattr(self, comp):
-                raise ValueError("An attribute '%s' already exists" % comp)
-            if self.components is not None and comp in self.components:
-                raise ValueError("A components '%s' already exists" % comp)
-
-            if self.components is None:
-                self.components = tuple([comp])
-                if self._data is not None:
-                    warnings.warn("All batch data is erased")
-            else:
-                self.components = self.components + tuple([comp])
-            setattr(self, comp, value)
-            if comp not in self.meta:
-                self.meta[comp] = dict()
-
-    def update_component(self, component, value):
-        """ Add new component or update existed one
-
-        Parameters
-        ----------
-        component : str
-            component name
-        value : array-like
-            component data
-        """
-        if component not in self.components:
-            self._add_components(component, init=value)
-        else:
-            setattr(self, component, value)
 
     #-------------------------------------------------------------------------#
     #                              Load and Dump                              #
