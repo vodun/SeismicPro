@@ -65,8 +65,8 @@ class MetricsMap(Metrics):
             coords = np.array(self.coords)
 
         if len(metrics) != len(coords):
-                raise ValueError("The length of given metrics is not corresponds with length of the coordinates.\
-                                  Check the metrics array, it is souldn't have a nested structure.")
+            raise ValueError("The length of given metrics is not corresponds with length of the coordinates.\
+                              Check the metrics array, it is souldn't have a nested structure.")
 
         coords_x = np.array(coords[:, 0], dtype=np.int32)
         coords_y = np.array(coords[:, 1], dtype=np.int32)
@@ -99,8 +99,8 @@ class MetricsMap(Metrics):
             extent[1] += 1 if extent[0] - extent[1] == 0 else 0
             extent[3] += 1 if extent[2] - extent[3] == 0 else 0
             plot_metrics_map(metrics_map=metric_map[-1], extent=extent, cm=cm, title=title,
-                                figsize=figsize, save_to=save_to, dpi=dpi, pad=pad,
-                                **plot_kwargs)
+                             figsize=figsize, save_to=save_to, dpi=dpi, pad=pad,
+                             **plot_kwargs)
         return metric_map
 
     @staticmethod
