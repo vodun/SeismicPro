@@ -52,7 +52,7 @@ class MetricsMap(Metrics):
         """
         metrics = np.array(list(getattr(self, metrics_name)))
 
-        if not metrics:
+        if not len(metrics):
             raise ValueError('Given metrics is empty.')
 
         # if metrics has an array for one coordinate, we repeat the coordinate value
@@ -98,7 +98,7 @@ class MetricsMap(Metrics):
             # Avoid the situation when we have only one coordinate for x or y dimension.
             extent[1] += 1 if extent[0] - extent[1] == 0 else 0
             extent[3] += 1 if extent[2] - extent[3] == 0 else 0
-            plot_metrics_map(metrics_map=metric_map[-1], extent=extent, cm=cm, title=title,
+            plot_metrics_map(metrics_map=metric_map, extent=extent, cm=cm, title=title,
                              figsize=figsize, save_to=save_to, dpi=dpi, pad=pad,
                              **plot_kwargs)
         return metric_map
