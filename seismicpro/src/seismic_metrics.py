@@ -19,13 +19,18 @@ class MetricsMap(Metrics):
 
         # Create attributes with metrics.
         for name, metrics in kwargs.items():
-            setattr(self, name, [metrics])
+            if isinstance(metrics, (int, float, bool, np.number)):
+                setattr(self, name, [metrics])
+            elif isinstance(metrics, (list, tuple, set, np.ndarray)):
+                setattr(self, name, [*metrics])
+            else:
+                raise ValueError("Wrong type of metrics have been given. "\
+                                 "Should be number or array but {} received.".format(type(metrics)))
 
         self.metrics_names = list(kwargs.keys())
         self.coords = list(coords)
         self.call_agg_bins = None
         self.call_name = None
-
 
         self._agg_fn_dict = {'mean': np.nanmean,
                              'max': np.nanmax,
@@ -41,59 +46,61 @@ class MetricsMap(Metrics):
 
         self.coords.extend(metrics.coords)
 
-    def construct_map(self, metrics_names, bin_size=500, cm=None, title=None, figsize=None, save_to=None, dpi=None, #pylint: disable=too-many-arguments
+    def construct_map(self, metrics_name, bin_size=500, cm=None, title=None, figsize=None, save_to=None, dpi=None, #pylint: disable=too-many-arguments
                       pad=False, plot=True, agg_bins_fn='mean', agg_bins_kwargs=None, **plot_kwargs):
         """ Each value in resulted map represent aggregated value of metrics for coordinates belongs to current bin.
         """
-        metrics_names = [metrics_names] if isinstance(metrics_names, str) else metrics_names
+        metrics = np.array(list(getattr(self, metrics_name)))
 
-        metric_map = []
-        for attr_name in metrics_names:
-            if isinstance(bin_size, int):
-                bin_size = (bin_size, bin_size)
+        if not metrics:
+            raise ValueError('Given metrics is empty.')
 
-            metrics = np.array(list(getattr(self, attr_name)))
+        # if metrics has an array for one coordinate, we repeat the coordinate value
+        # and expand the metric values into a one-dimensional array.
+        if isinstance(metrics[0], (list, tuple, set, np.ndarray)):
+            len_of_copy = [len(metrics_array) for metrics_array in metrics]
+            coords = np.repeat(self.coords, len_of_copy, axis=0)
+            metrics = np.concatenate(metrics)
+        else:
+            coords = np.array(self.coords)
 
-            if len(metrics.shape) > 1:
-                metrics = np.concatenate(metrics)
-                len_of_copy = [len(metrics_array) for metrics_array in metrics]
-                coords = np.repeat(self.coords, len_of_copy, axis=0)
-                metrics = np.concatenate(metrics)
-            else:
-                if len(metrics) != len(self.coords):
-                    raise ValueError('smth')
-                coords = np.array(self.coords)
+        if len(metrics) != len(coords):
+                raise ValueError("The length of given metrics is not corresponds with length of the coordinates.\
+                                  Check the metrics array, it is souldn't have a nested structure.")
 
-            coords_x = np.array(coords[:, 0], dtype=np.int32)
-            coords_y = np.array(coords[:, 1], dtype=np.int32)
-            metrics = np.array(metrics, dtype=np.float32)
+        coords_x = np.array(coords[:, 0], dtype=np.int32)
+        coords_y = np.array(coords[:, 1], dtype=np.int32)
+        metrics = np.array(metrics, dtype=np.float32)
 
-            if isinstance(agg_bins_fn, str):
-                call_name = agg_bins_fn
-                call_agg_bins = getattr(NumbaNumpy, agg_bins_fn)
-                call_agg_bins = call_agg_bins(**agg_bins_kwargs) if agg_bins_kwargs else call_agg_bins
-            elif callable(agg_bins_fn):
-                call_name = agg_bins_fn.__name__
-                call_agg_bins = agg_bins_fn
-            else:
-                raise ValueError('agg_bins_fn should be whether str or callable, not {}'.format(type(agg_bins_fn)))
+        if isinstance(bin_size, int):
+            bin_size = (bin_size, bin_size)
 
-            # We need to avoid recompiling the numba function if aggregation function hasn't changed.
-            if self.call_name is None or self.call_name != call_name:
-                self.call_name = call_name
-                self.call_agg_bins = call_agg_bins
+        if isinstance(agg_bins_fn, str):
+            call_name = agg_bins_fn
+            call_agg_bins = getattr(NumbaNumpy, agg_bins_fn)
+            call_agg_bins = call_agg_bins(**agg_bins_kwargs) if agg_bins_kwargs else call_agg_bins
+        elif callable(agg_bins_fn):
+            call_name = agg_bins_fn.__name__
+            call_agg_bins = agg_bins_fn
+        else:
+            raise ValueError('agg_bins_fn should be whether str or callable, not {}'.format(type(agg_bins_fn)))
 
-            metric_map.append(self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y,
-                                                         metrics=metrics, bin_size=bin_size,
-                                                         agg_bins_fn=self.call_agg_bins))
-            if plot:
-                extent = [coords_x.min(), coords_x.max(), coords_y.min(), coords_y.max()]
-                # Avoid the situation when we have only one coordinate for x or y dimension.
-                extent[1] += 1 if extent[0] - extent[1] == 0 else 0
-                extent[3] += 1 if extent[2] - extent[3] == 0 else 0
-                plot_metrics_map(metrics_map=metric_map[-1], extent=extent, cm=cm, title=title,
-                                 figsize=figsize, save_to=save_to, dpi=dpi, pad=pad,
-                                 **plot_kwargs)
+        # We need to avoid recompiling the numba function if aggregation function hasn't changed.
+        if self.call_name is None or self.call_name != call_name:
+            self.call_name = call_name
+            self.call_agg_bins = call_agg_bins
+
+        metric_map = self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y,
+                                                metrics=metrics, bin_size=bin_size,
+                                                agg_bins_fn=self.call_agg_bins)
+        if plot:
+            extent = [coords_x.min(), coords_x.max(), coords_y.min(), coords_y.max()]
+            # Avoid the situation when we have only one coordinate for x or y dimension.
+            extent[1] += 1 if extent[0] - extent[1] == 0 else 0
+            extent[3] += 1 if extent[2] - extent[3] == 0 else 0
+            plot_metrics_map(metrics_map=metric_map[-1], extent=extent, cm=cm, title=title,
+                                figsize=figsize, save_to=save_to, dpi=dpi, pad=pad,
+                                **plot_kwargs)
         return metric_map
 
     @staticmethod
