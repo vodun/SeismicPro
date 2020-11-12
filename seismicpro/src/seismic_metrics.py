@@ -46,8 +46,8 @@ class MetricsMap(Metrics):
 
         self.coords.extend(metrics.coords)
 
-    def construct_map(self, metrics_name, bin_size=500, cm=None, title=None, figsize=None, save_to=None, dpi=None, #pylint: disable=too-many-arguments
-                      pad=False, plot=True, agg_bins_fn='mean', agg_bins_kwargs=None, **plot_kwargs):
+    def construct_map(self, metrics_name, bin_size=500, agg_bins_fn='mean',
+                      agg_bins_kwargs=None, plot=True, **plot_kwargs):
         """ Each value in resulted map represent aggregated value of metrics for coordinates belongs to current bin.
         """
         metrics = np.array(list(getattr(self, metrics_name)))
@@ -93,14 +93,13 @@ class MetricsMap(Metrics):
         metric_map = self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y,
                                                 metrics=metrics, bin_size=bin_size,
                                                 agg_bins_fn=self.call_agg_bins)
+
         if plot:
             extent = [coords_x.min(), coords_x.max(), coords_y.min(), coords_y.max()]
             # Avoid the situation when we have only one coordinate for x or y dimension.
             extent[1] += 1 if extent[0] - extent[1] == 0 else 0
             extent[3] += 1 if extent[2] - extent[3] == 0 else 0
-            plot_metrics_map(metrics_map=metric_map, extent=extent, cm=cm, title=title,
-                             figsize=figsize, save_to=save_to, dpi=dpi, pad=pad,
-                             **plot_kwargs)
+            plot_metrics_map(metrics_map=metric_map, extent=extent, **plot_kwargs)
         return metric_map
 
     @staticmethod

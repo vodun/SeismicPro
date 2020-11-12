@@ -427,11 +427,10 @@ def show_2d_heatmap(idf, figsize=None, save_to=None, dpi=300, **kwargs):
         plt.savefig(save_to, dpi=dpi)
     plt.show()
 
-def plot_metrics_map(metrics_map, cm=None, title=None, figsize=None,
-                     save_to=None, dpi=None, pad=False, **kwargs):
+def plot_metrics_map(metrics_map, cm=None, title=None, figsize=(10, 7),
+                     save_to=None, dpi=None, pad=False, font_size=11,
+                     x_ticks=15, y_ticks=15, **kwargs):
     """plot metrics map"""
-    metrics_map = np.pad(metrics_map, pad_width=1, constant_values=None) if pad else metrics_map
-
     if cm is None:
         colors = ((0.0, 0.6, 0.0), (.66, 1, 0), (0.9, 0.0, 0.0))
         cm = mcolors.LinearSegmentedColormap.from_list(
@@ -441,14 +440,38 @@ def plot_metrics_map(metrics_map, cm=None, title=None, figsize=None,
 
     origin = kwargs.pop('origin', 'lower')
     aspect = kwargs.pop('aspect', 'auto')
-
-    fig = plt.figure(figsize=figsize)
-    img = plt.imshow(metrics_map, origin=origin, cmap=cm,
+    fig, ax = plt.subplots(figsize=figsize)
+    img = ax.imshow(metrics_map, origin=origin, cmap=cm,
                      aspect=aspect, **kwargs)
 
-    plt.title(title, fontsize=18)
-    fig.colorbar(img, extend='both')
+    if pad:
+        ax.use_sticky_edges = False
+        ax.margins(x=0.01, y=0.01)
+
+    ax.set_title(title, fontsize=font_size)
+    cbar = fig.colorbar(img, extend='both', ax=ax)
+    cbar.ax.tick_params(labelsize=font_size)
+
+    extent = kwargs.get('extent', [0, metrics_map.shape[1],
+                                   0, metrics_map.shape[0]])
+    set_ticks(ax, extent, x_ticks, y_ticks, font_size)
 
     if save_to:
         plt.savefig(save_to, dpi=dpi, bbox_inches='tight', pad_inches=0.1)
     plt.show()
+
+def set_ticks(ax, extent, x_ticks, y_ticks, font_size):
+    """Set x and y ticks."""
+    x_min, x_max, y_min, y_max = extent
+    ticks = np.linspace(x_min, x_max-1, x_ticks)
+    labels = np.linspace(x_min, x_max, x_ticks).astype(int)
+    ax.set_xticks(ticks)
+    ax.set_xticklabels(labels, size=font_size)
+
+    ticks = np.linspace(y_min, y_max-1, y_ticks)
+    labels = np.linspace(y_min, y_max, y_ticks).astype(int)
+    ax.set_yticks(ticks)
+    ax.set_yticklabels(labels, size=font_size)
+
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
+             rotation_mode="anchor")
