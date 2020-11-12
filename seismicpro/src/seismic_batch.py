@@ -247,7 +247,7 @@ class SeismicBatch(Batch):
         return self
 
     def update_component(self, component, value):
-        """ Add new component or update existed one
+        """ Add a new component or update an existing one
 
         Parameters
         ----------
@@ -301,7 +301,7 @@ class SeismicBatch(Batch):
             if fr_comp == t_comp:
                 continue
 
-            if t_comp in self.meta and self.meta[t_comp] != dict():
+            if self.meta.get(t_comp):
                 warnings.warn("Meta of the component {} is not empty and".format(t_comp) + \
                               " will be replaced by the meta from the component {}.".format(fr_comp),
                               UserWarning)
