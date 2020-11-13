@@ -134,7 +134,6 @@ class MetricsMap(Metrics):
             aggr_func = aggr_func(**agg_func_kwargs) if agg_func_kwargs else aggr_func
         elif callable(aggr_func):
             call_name = aggr_func.__name__
-            aggr_func = aggr_func
         else:
             raise ValueError('aggr_func should be whether str or callable, not {}'.format(type(aggr_func)))
 
