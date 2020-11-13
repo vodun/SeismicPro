@@ -428,9 +428,36 @@ def show_2d_heatmap(idf, figsize=None, save_to=None, dpi=300, **kwargs):
     plt.show()
 
 def plot_metrics_map(metrics_map, cm=None, title=None, figsize=(10, 7),
-                     save_to=None, dpi=None, pad=False, font_size=11,
-                     x_ticks=15, y_ticks=15, **kwargs):
-    """plot metrics map"""
+                     pad=False, font_size=11, x_ticks=15, y_ticks=15,
+                     save_to=None, dpi=None,  **kwargs):
+    """Plot map with metrics values.
+
+    Parameters
+    ----------
+    metrics_map : array-like
+        Array with aggregated metrics values.
+    cm : str or `~matplotlib.colors.Colormap`
+        Passed directly to `~matplotlib.imshow`
+    title : str
+        The title of the plot.
+    figsize : array-like with length 2
+        Output figure size.
+    pad : bool
+        If true, edges of the figure will be padded with thin while line.
+        otherwise, the figure will not change.
+    font_size : int
+        The size of text.
+    x_ticks : int
+        The number of coordinates on the x-axis.
+    y_ticks : int
+        The number of coordinates on the y-axis.
+    save_to : str, optional
+        If given, save plot to the path specified.
+    dpi : int
+        Resolution for saved figure.
+    kwargs : dict
+        Named arguments for :func:`matplotlib.pyplot.imshow`.
+    """
     if cm is None:
         colors = ((0.0, 0.6, 0.0), (.66, 1, 0), (0.9, 0.0, 0.0))
         cm = mcolors.LinearSegmentedColormap.from_list(
@@ -461,7 +488,21 @@ def plot_metrics_map(metrics_map, cm=None, title=None, figsize=(10, 7),
     plt.show()
 
 def set_ticks(ax, extent, x_ticks, y_ticks, font_size):
-    """Set x and y ticks."""
+    """Set x and y ticks.
+
+    Parameters
+    ----------
+    ax : matplotlib axes
+        Axes to which coordinates are added.
+    extent : floats (left, right, bottom, top)
+        The bounding box in data coordinates that the image will fill.
+    x_ticks : int
+        The number of coordinates on the x-axis.
+    y_ticks : int
+        The number of coordinates on the y-axis.
+    font_size : int
+        The size of text.
+    """
     x_min, x_max, y_min, y_max = extent
     ticks = np.linspace(x_min, x_max-1, x_ticks)
     labels = np.linspace(x_min, x_max, x_ticks).astype(int)

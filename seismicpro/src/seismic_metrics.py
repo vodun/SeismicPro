@@ -9,10 +9,37 @@ from .plot_utils import plot_metrics_map
 
 
 class MetricsMap(Metrics):
-    """seismic metrics class"""
+    """ Class for metrics aggregation and plotting. The aim on this class is accumulate coordinates
+    and quality values for current coordinates. Therefore, all calculation of quality values or coordinates
+    must be performed outside of the class.
 
-    def __init__(self, coords, *args, **kwargs):
-        _ = args
+    Parameters
+    ----------
+    coords : array-like with length 2
+        Array with coordinates for X and Y axes.
+    kwargs : dict
+        All given kwargs are considered quality values. Key value - any name, while value must be
+        whether number or 1-dimensional array.
+
+    Attributes
+    ----------
+    metrics_names : array-like
+        names of existing metrics.
+    coords : array-like
+        Array with shape (N, 2) that contains the X and Y coordinates.
+        Where N is a number of given coordinates.
+    aggr_func : str or callable
+        Function to aggregate metrics values in one bin.
+        If str, should be attribue's name from :class:`.NumbaNumpy`.
+        if callable, it will be applied for every bin independently.
+    call_name : str
+        Contains the name of used aggregation function.
+    Note
+    ----
+    1. All keys from kwargs become class attributes.
+    """
+
+    def __init__(self, coords, **kwargs):
         super().__init__()
         if not kwargs:
             raise ValueError('Add at least one metrics.')
@@ -29,7 +56,7 @@ class MetricsMap(Metrics):
 
         self.metrics_names = list(kwargs.keys())
         self.coords = list(coords)
-        self.call_agg_bins = None
+        self.aggr_func = None
         self.call_name = None
 
         self._agg_fn_dict = {'mean': np.nanmean,
@@ -46,9 +73,35 @@ class MetricsMap(Metrics):
 
         self.coords.extend(metrics.coords)
 
-    def construct_map(self, metrics_name, bin_size=500, agg_bins_fn='mean',
-                      agg_bins_kwargs=None, plot=True, **plot_kwargs):
-        """ Each value in resulted map represent aggregated value of metrics for coordinates belongs to current bin.
+    def construct_map(self, metrics_name, bin_size=500, aggr_func='mean',
+                      agg_func_kwargs=None, plot=True, **plot_kwargs):
+        """ All optained coordinates, are splitted into bins of the specified `bin_size`. Resulted map
+        is an array in which every value reflects the metric's value in one current bin. If there are no values
+        are included in the bin, it's value is None. Otherwise, the value of this bin is calculated based
+        on the aggregation function `agg_func`.
+
+        Each value in resulted map represent aggregated value of metrics for coordinates belongs to current bin.
+
+        Parameters
+        ----------
+        metrics_name : str
+            The name of metric to draw.
+        bin_size : int or array-like with length 2, optional, default 500
+            The size of bin by X and Y axes. Based on the received coordinates, the entire map
+            will be divided into bins with size `bin_size`.
+            If int, the bin size will be same for X and Y dimensions.
+        aggr_func : str or callable, optional, default 'mean'
+            Function to aggregate metrics values in one bin.
+            If str, should be attribue's name from meth:`NumbaNumpy`.
+            if callable, it will be applied for every bin independently.
+        agg_func_kwargs : dict, optional
+            Kwargs that will be applied to aggr_func before evaluating.
+        plot : bool, optional, default True
+            If True, metrics will be plotted
+        **plot_kwargs : dict
+            Kwargs that are passed directly to plotter, see :func:`.plot_utils.plot_metrics_map`.
+            (allowed arguments: cm, title, figsize, save_to, dpi, pad, font_size, x_ticks, y_ticks
+                               and kwargs to :func:`matplotlib.pyplot.imshow`.)
         """
         metrics = np.array(list(getattr(self, metrics_name)))
 
@@ -75,24 +128,24 @@ class MetricsMap(Metrics):
         if isinstance(bin_size, int):
             bin_size = (bin_size, bin_size)
 
-        if isinstance(agg_bins_fn, str):
-            call_name = agg_bins_fn
-            call_agg_bins = getattr(NumbaNumpy, agg_bins_fn)
-            call_agg_bins = call_agg_bins(**agg_bins_kwargs) if agg_bins_kwargs else call_agg_bins
-        elif callable(agg_bins_fn):
-            call_name = agg_bins_fn.__name__
-            call_agg_bins = agg_bins_fn
+        if isinstance(aggr_func, str):
+            call_name = aggr_func
+            aggr_func = getattr(NumbaNumpy, aggr_func)
+            aggr_func = aggr_func(**agg_func_kwargs) if agg_func_kwargs else aggr_func
+        elif callable(aggr_func):
+            call_name = aggr_func.__name__
+            aggr_func = aggr_func
         else:
-            raise ValueError('agg_bins_fn should be whether str or callable, not {}'.format(type(agg_bins_fn)))
+            raise ValueError('aggr_func should be whether str or callable, not {}'.format(type(aggr_func)))
 
         # We need to avoid recompiling the numba function if aggregation function hasn't changed.
         if self.call_name is None or self.call_name != call_name:
             self.call_name = call_name
-            self.call_agg_bins = call_agg_bins
+            self.aggr_func = aggr_func
 
         metric_map = self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y,
                                                 metrics=metrics, bin_size=bin_size,
-                                                agg_bins_fn=self.call_agg_bins)
+                                                aggr_func=self.aggr_func)
 
         if plot:
             extent = [coords_x.min(), coords_x.max(), coords_y.min(), coords_y.max()]
@@ -104,8 +157,22 @@ class MetricsMap(Metrics):
 
     @staticmethod
     @njit(parallel=True)
-    def construct_metrics_map(coords_x, coords_y, metrics, bin_size, agg_bins_fn):
-        """njit map"""
+    def construct_metrics_map(coords_x, coords_y, metrics, bin_size, aggr_func):
+        """Calculation of metrics map.
+
+        Parameters
+        ----------
+        coords_x : array-like
+            Coordinates for X axis.
+        coords_x : array-like
+            Coordinates for Y axis.
+        metrics : array-like
+            Quality values.
+        bin_size : tuple with length 2
+            The size of bin by X and Y axes.
+        arrg_func : numba callable
+            Function to aggregate metrics values in one bin.
+        """
         bin_size_x, bin_size_y = bin_size
         range_x = np.arange(coords_x.min(), coords_x.max() + 1, bin_size_x)
         range_y = np.arange(coords_y.min(), coords_y.max() + 1, bin_size_y)
@@ -115,7 +182,7 @@ class MetricsMap(Metrics):
                 mask = ((coords_x - range_x[i] >= 0) & (coords_x - range_x[i] < bin_size_x) &
                         (coords_y - range_y[j] >= 0) & (coords_y - range_y[j] < bin_size_y))
                 if mask.sum() > 0:
-                    metrics_map[j, i] = agg_bins_fn(np.ravel(metrics[mask]))
+                    metrics_map[j, i] = aggr_func(metrics[mask])
         return metrics_map
 
 
