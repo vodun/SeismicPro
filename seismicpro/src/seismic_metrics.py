@@ -8,8 +8,8 @@ from .plot_utils import plot_metrics_map
 
 
 class MetricsMap(Metrics):
-    """ Class for metrics aggregation and plotting. The aim on this class is accumulate coordinates
-    and quality values for current coordinates. Therefore, all calculation of quality values or coordinates
+    """ Class for metrics aggregation and plotting. This class aims to accumulate
+    coordinates and metrics values for current coordinates. Therefore, all calculations
     must be performed outside of the class.
 
     Parameters
@@ -17,20 +17,18 @@ class MetricsMap(Metrics):
     coords : array-like with length 2
         Array with coordinates for X and Y axes.
     kwargs : dict
-        All given kwargs are considered quality values. Key value - any name, while value must be
-        whether number or 1-dimensional array.
+        All given kwargs are considered quality values. The key value is any name,
+        and the value must be either number or a 1-dimensional array.
 
     Attributes
     ----------
     metrics_names : array-like
-        names of existing metrics.
+        Names of given metrics.
     coords : array-like
         Array with shape (N, 2) that contains the X and Y coordinates.
         Where N is a number of given coordinates.
     agg_func : str or callable
-        Function to aggregate metrics values in one bin.
-        If str, should be attribue's name from :class:`.NumbaNumpy`.
-        if callable, it will be applied for every bin independently.
+        See :meth:`.construct_map`
     call_name : str
         Contains the name of used aggregation function.
 
@@ -100,7 +98,7 @@ class MetricsMap(Metrics):
                       agg_func_kwargs=None, plot=True, **plot_kwargs):
         """ All optained coordinates, are splitted into bins of the specified `bin_size`. Resulted map
         is an array in which every value reflects the metric's value in one current bin. If there are no values
-        are included in the bin, it's value is None. Otherwise, the value of this bin is calculated based
+        are included in the bin, it's value is np.nan. Otherwise, the value of this bin is calculated based
         on the aggregation function `agg_func`.
 
         Each value in resulted map represent aggregated value of metrics for coordinates belongs to current bin.
@@ -115,12 +113,15 @@ class MetricsMap(Metrics):
             If int, the bin size will be same for X and Y dimensions.
         agg_func : str or callable, optional, default 'mean'
             Function to aggregate metrics values in one bin.
-            If str, should be attribue's name from meth:`NumbaNumpy`.
-            if callable, it will be applied for every bin independently.
+        If str, the function from :class:`.NumbaNumpy` will be used for aggregation.
+        If callable, it will be used for aggregation as this. The function used must be wrapped in the
+        njit decorator. The first argument is data for aggregation within the bin, the other arguments
+        can take any numeric values and must be passed using the `agg_func_kwargs`.
         agg_func_kwargs : dict, optional
             Kwargs that will be applied to agg_func before evaluating.
         plot : bool, optional, default True
-            If True, metrics will be plotted
+            If True, metrics will be plotted.
+            Otherwise the map will not be drawn.
         **plot_kwargs : dict
             Kwargs that are passed directly to plotter, see :func:`.plot_utils.plot_metrics_map`.
 
