@@ -1,4 +1,5 @@
 """File contains metircs for seismic processing."""
+# pylint: disable=no-name-in-module, import-error
 import numpy as np
 from numba import njit, prange
 
@@ -75,10 +76,9 @@ class MetricsMap(Metrics):
                                 "Should be number or array but {} received.".format(type(metrics)))
 
             if len(self.coords) != len(getattr(self, name)):
-                raise ValueError("Length of coordinates array doesn't match with {} array. "\
-                                 "Given length of coordinates is {} while"\
-                                 "length of {} is {}". format(name, len(self.coords),
-                                                              name, len(getattr(self, name))))
+                raise ValueError("Length of coordinates array doesn't match with '{0}' attribute. "\
+                                 "Given length of coordinates is {1} while "\
+                                 "length of '{0}' is {2}.". format(name, len(self.coords), len(getattr(self, name))))
 
         self.metrics_names = ('coords', ) + tuple(kwargs.keys())
         self.agg_func = None
@@ -123,6 +123,12 @@ class MetricsMap(Metrics):
             If True, metrics will be plotted
         **plot_kwargs : dict
             Kwargs that are passed directly to plotter, see :func:`.plot_utils.plot_metrics_map`.
+
+        Returns
+        -------
+            : two-dimensional np.ndarray
+            A matrix, where each value corresponds to the aggregated value
+            of all metrics included in a specific bin.
         """
         metrics = getattr(self, metrics_name)
 
