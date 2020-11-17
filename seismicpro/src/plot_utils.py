@@ -427,16 +427,16 @@ def show_2d_heatmap(idf, figsize=None, save_to=None, dpi=300, **kwargs):
         plt.savefig(save_to, dpi=dpi)
     plt.show()
 
-def plot_metrics_map(metrics_map, cm=None, title=None, figsize=(10, 7),
+def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7),
                      pad=False, font_size=11, x_ticks=15, y_ticks=15,
-                     save_to=None, dpi=None,  **kwargs):
+                     save_to=None, dpi=300,  **kwargs):
     """Plot map with metrics values.
 
     Parameters
     ----------
     metrics_map : array-like
         Array with aggregated metrics values.
-    cm : str or `~matplotlib.colors.Colormap`
+    cmap : str or `~matplotlib.colors.Colormap`
         Passed directly to `~matplotlib.imshow`
     title : str
         The title of the plot.
@@ -453,22 +453,22 @@ def plot_metrics_map(metrics_map, cm=None, title=None, figsize=(10, 7),
         The number of coordinates on the y-axis.
     save_to : str, optional
         If given, save plot to the path specified.
-    dpi : int
+    dpi : int, optional, default 300
         Resolution for saved figure.
     kwargs : dict
         Named arguments for :func:`matplotlib.pyplot.imshow`.
     """
-    if cm is None:
+    if cmap is None:
         colors = ((0.0, 0.6, 0.0), (.66, 1, 0), (0.9, 0.0, 0.0))
-        cm = mcolors.LinearSegmentedColormap.from_list(
-            'cm', colors)
-        cm.set_under('black')
-        cm.set_over('red')
+        cmap = mcolors.LinearSegmentedColormap.from_list(
+            'cmap', colors)
+        cmap.set_under('black')
+        cmap.set_over('red')
 
     origin = kwargs.pop('origin', 'lower')
     aspect = kwargs.pop('aspect', 'auto')
     fig, ax = plt.subplots(figsize=figsize)
-    img = ax.imshow(metrics_map, origin=origin, cmap=cm,
+    img = ax.imshow(metrics_map, origin=origin, cmap=cmap,
                      aspect=aspect, **kwargs)
 
     if pad:
@@ -481,13 +481,13 @@ def plot_metrics_map(metrics_map, cm=None, title=None, figsize=(10, 7),
 
     extent = kwargs.get('extent', [0, metrics_map.shape[1],
                                    0, metrics_map.shape[0]])
-    set_ticks(ax, extent, x_ticks, y_ticks, font_size)
+    _set_ticks(ax, extent, x_ticks, y_ticks, font_size, origin)
 
     if save_to:
         plt.savefig(save_to, dpi=dpi, bbox_inches='tight', pad_inches=0.1)
     plt.show()
 
-def set_ticks(ax, extent, x_ticks, y_ticks, font_size):
+def _set_ticks(ax, extent, x_ticks, y_ticks, font_size, origin):
     """Set x and y ticks.
 
     Parameters
@@ -502,6 +502,9 @@ def set_ticks(ax, extent, x_ticks, y_ticks, font_size):
         The number of coordinates on the y-axis.
     font_size : int
         The size of text.
+    origin : 'lower' or 'upper'
+        Place the [0, 0] index of the array in the 'upper' left or 'lower'
+        left corner of the axes.
     """
     x_min, x_max, y_min, y_max = extent
     ticks = np.linspace(x_min, x_max-1, x_ticks)
@@ -511,6 +514,7 @@ def set_ticks(ax, extent, x_ticks, y_ticks, font_size):
 
     ticks = np.linspace(y_min, y_max-1, y_ticks)
     labels = np.linspace(y_min, y_max, y_ticks).astype(int)
+    labels = labels[::-1] if origin == 'upper' else labels
     ax.set_yticks(ticks)
     ax.set_yticklabels(labels, size=font_size)
 
