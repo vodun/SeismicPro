@@ -33,10 +33,6 @@ class MetricsMap(Metrics):
     coords : array-like
         Array with shape (N, 2) that contains the X and Y coordinates.
         Where N is a number of given coordinates.
-    agg_func : str or callable
-        See :meth:`.construct_map`
-    call_name : str
-        Contains the name of the used aggregation function.
 
     Raises
     ------
@@ -86,17 +82,15 @@ class MetricsMap(Metrics):
                                  "length of '{0}' is {2}.". format(name, len(self.coords), len(getattr(self, name))))
 
         self.metrics_names = ('coords', ) + tuple(kwargs.keys())
-        self.agg_func = None
-        self.call_name = None
 
         # The dictionary contains functions for aggregating the resulting map.
         self._agg_fn_dict = {'mean': np.nanmean,
                              'max': np.nanmax,
                              'min': np.nanmin}
 
-    def extend(self, metrics):
-        """Extend coordinates and metrics to global container."""
-        # Extend all attributes with given metrics values.
+    def append(self, metrics):
+        """Append coordinates and metrics to global container."""
+        # Append all attributes with given metrics values.
         for name in self.metrics_names:
             updated_metrics = np.append(getattr(self, name), getattr(metrics, name), axis=0)
             setattr(self, name, updated_metrics)
@@ -163,23 +157,15 @@ class MetricsMap(Metrics):
             bin_size = (bin_size, bin_size)
 
         if isinstance(agg_func, str):
-            call_name = agg_func
             agg_func = getattr(NumbaNumpy, agg_func)
-        elif callable(agg_func):
-            call_name = agg_func.__name__
-        else:
+        elif not callable(agg_func):
             raise ValueError('agg_func should be whether str or callable, not {}'.format(type(agg_func)))
 
         agg_func = agg_func(**agg_func_kwargs) if agg_func_kwargs else agg_func
 
-        # We need to avoid recompiling the numba function if aggregation function hasn't changed.
-        if self.call_name is None or self.call_name != call_name:
-            self.call_name = call_name
-            self.agg_func = agg_func
-
         metrics_map = self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y,
-                                                metrics=metrics, bin_size=bin_size,
-                                                agg_func=self.agg_func)
+                                                 metrics=metrics, bin_size=bin_size,
+                                                 agg_func=agg_func)
 
         if plot:
             extent = [coords_x.min(), coords_x.max(), coords_y.min(), coords_y.max()]
