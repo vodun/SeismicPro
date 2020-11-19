@@ -427,7 +427,7 @@ def show_2d_heatmap(idf, figsize=None, save_to=None, dpi=300, **kwargs):
         plt.savefig(save_to, dpi=dpi)
     plt.show()
 
-def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7),
+def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 10),
                      pad=False, font_size=11, x_ticks=15, y_ticks=15,
                      save_to=None, dpi=300,  **kwargs):
     """Plot map with metrics values.
@@ -479,42 +479,49 @@ def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7),
     cbar = fig.colorbar(img, extend='both', ax=ax)
     cbar.ax.tick_params(labelsize=font_size)
 
-    extent = kwargs.get('extent', [0, metrics_map.shape[1],
-                                   0, metrics_map.shape[0]])
-    _set_ticks(ax, extent, x_ticks, y_ticks, font_size, origin)
+    extent_ticks = kwargs.get('extent', [0, metrics_map.shape[1],
+                                         0, metrics_map.shape[0]])
+    extent_labels = extent_ticks.copy()
+
+    if origin == 'upper':
+        extent_labels[2], extent_labels[3] = extent_labels[3], extent_labels[2]
+
+    _set_ticks(ax=ax, x_ticks=x_ticks, y_ticks=y_ticks, extent_ticks=extent_ticks,
+               extent_labels=extent_labels, font_size=font_size)
 
     if save_to:
         plt.savefig(save_to, dpi=dpi, bbox_inches='tight', pad_inches=0.1)
     plt.show()
 
-def _set_ticks(ax, extent, x_ticks, y_ticks, font_size, origin):
+def _set_ticks(ax, x_ticks, y_ticks, extent_ticks, extent_labels=None, font_size=None):
     """Set x and y ticks.
-
     Parameters
     ----------
     ax : matplotlib axes
         Axes to which coordinates are added.
-    extent : floats (left, right, bottom, top)
-        The bounding box in data coordinates that the image will fill.
     x_ticks : int
         The number of coordinates on the x-axis.
     y_ticks : int
         The number of coordinates on the y-axis.
+    extent_ticks : ints or floats (left, right, bottom, top)
+        The bounding box in data coordinates that the image will fill.
+    extent_labels : ints or floats (left, right, bottom, top)
+        The labels to place at the given *extent_ticks* locations.
     font_size : int
         The size of text.
-    origin : 'lower' or 'upper'
-        Place the [0, 0] index of the array in the 'upper' left or 'lower'
-        left corner of the axes.
     """
-    x_min, x_max, y_min, y_max = extent
+    x_min, x_max, y_min, y_max = extent_ticks
+
+    extent_labels = extent_ticks.copy() if extent_labels is None else extent_labels
+    x_min_lb, x_max_lb, y_min_lb, y_max_lb = extent_labels
+
     ticks = np.linspace(x_min, x_max-1, x_ticks)
-    labels = np.linspace(x_min, x_max, x_ticks).astype(int)
+    labels = np.linspace(x_min_lb, x_max_lb, x_ticks).astype(int)
     ax.set_xticks(ticks)
     ax.set_xticklabels(labels, size=font_size)
 
     ticks = np.linspace(y_min, y_max-1, y_ticks)
-    labels = np.linspace(y_min, y_max, y_ticks).astype(int)
-    labels = labels[::-1] if origin == 'upper' else labels
+    labels = np.linspace(y_min_lb, y_max_lb, y_ticks).astype(int)
     ax.set_yticks(ticks)
     ax.set_yticklabels(labels, size=font_size)
 
