@@ -7,6 +7,7 @@ from textwrap import dedent
 import numpy as np
 from scipy import signal
 from scipy.signal import hilbert
+from sklearn.linear_model import LinearRegression
 import pywt
 import segyio
 
@@ -14,9 +15,10 @@ from ..batchflow import action, inbatch_parallel, Batch, any_action_failed
 
 from .seismic_index import SegyFilesIndex, FieldIndex, KNNIndex, TraceIndex, CustomIndex
 
-from .utils import (FILE_DEPENDEND_COLUMNS, partialmethod, calculate_sdc_for_field, massive_block)
+from .utils import (FILE_DEPENDEND_COLUMNS, partialmethod, calculate_sdc_for_field, massive_block,
+                    calc_bounds, calc_semblance, calc_partial_semblance)
 from .file_utils import write_segy_file
-from .plot_utils import spectrum_plot, seismic_plot, statistics_plot, gain_plot
+from .plot_utils import spectrum_plot, seismic_plot, statistics_plot, gain_plot, semblance_plot
 
 INDEX_UID = 'TRACE_SEQUENCE_FILE'
 
@@ -262,7 +264,7 @@ class SeismicBatch(Batch):
             if fr_comp == t_comp:
                 continue
 
-            if self.meta[t_comp]:
+            if self.meta.get(t_comp):
                 warnings.warn("Meta of component {} is not empty and".format(t_comp) + \
                               " will be replaced by the meta from component {}.".format(fr_comp),
                               UserWarning)
@@ -839,6 +841,172 @@ class SeismicBatch(Batch):
         getattr(self, dst)[pos] = equalized_field
         self.copy_meta(src, dst)
         return self
+
+    #-------------------------------------------------------------------------#
+    #                        DPA. velocity Law Actions                        #
+    #-------------------------------------------------------------------------#
+
+    @action
+    def calculate_semblance(self, src, dst, velocities, velocities_length=100, window=25):
+        r"""
+        TODO: THIS DOCSTRING SHOULD BE REWRITTEN!
+
+        Calculate semblance for given fields from `src` component and save resulted semblance to `dst` component.
+        Semblance is a measure of multichannel coherence. This measure is calculated along all possible horizons from
+        a given velocity range and with all possible starting points. Range of starting points is equal to field range.
+        Calculation of each horizon is based on the following formula.
+        :math:`th_i = \sqrt{t_z^2 + off_i^2/v^2}`, where
+        :math:`t_z` - start time of the horizon
+        :math:`off_i` - distance from the gather to the i-th trace (offset)
+        :math:`v` - velocity for this horizon
+        :math:`th_i` - horizon time for given offset.
+        The value of horison amplitude in point t_h can be received from trace with same offset. In order to
+        calculate all the horizon values, you need to get the t_h values for all offsets.
+        Then, value :math:`f_{i, th_i} = trace_i[th_i]` is an amplitude for horizon with i-th offset.
+        Semblance calculate base on horizon values by the following formula:
+        :math:`S(k, th) = \frac{\sum^{k+N/2}_{k-N/2}(\sum^M_{i=1} \sum^M_{j=1} f_{i, th[j]})^2}
+                               {M \sum^{k+N/2}_{k-N/2}\sum^M_1 \sum^M_{j=1} f_{i, th[j]})^2}`, where
+        S - semblance value for range for starting point k
+        M - Number of traces in field
+        N - Window size
+        th - Horizon.
+        Resulted matrix contains semblance values based on horizons with each combinations of started point :math:`t_z`
+        and velocity :math:`v`. This matrix has shape (time_length, velocity_length).
+        Parameters
+        ----------
+        src : str
+            The batch component to get field from.
+        dst : str
+            The batch component to put semblance in.
+        velocities : list with length 2 or more.
+            If length is 2, then the checked velocities will be sampled with given step via `step` parameter
+            from first value to the second one. If length is different, semblance will be calculated for given
+            velocities.
+        step: int
+            Step to sample velocity.
+        window: int
+            Window size for smoothing. It should be from 5 to 256ms.
+        Returns
+        -------
+            : SeismicBatch
+            Batch with semblance in `dst` component. `dst` components are now arrays
+            (of size batch items) of array (of size velocity values) of array (of field length).
+        Raises
+        ------
+        ValueError : if `method` receive wrong name.
+        Notes
+        -----
+        - Works properly only with CDP index.
+        - Adding 'velocity' to meta data.
+        """
+
+        if len(velocities) == 2:
+            velocities = np.linspace(*velocities, velocities_length)
+
+        # Converting ms to seconds.
+        times = self.meta[src]['samples'].astype(int) / 1000
+        samples_step = times[1] - times[0]
+
+        self._calculate_semblance(src=src, dst=dst, times=times, velocities=velocities, samples_step=samples_step,
+                                   window=window)
+        self.copy_meta(src, dst)
+        self.meta[dst].update(velocities=velocities)
+        return self
+
+    @action
+    @inbatch_parallel(init="_init_component", target="for")
+    def _calculate_semblance(self, index, src, dst, times, velocities, samples_step, window):
+        pos = self.index.get_pos(index)
+        field = getattr(self, src)[pos]
+        offsets = np.sort(self.index.get_df(index=index)['offset'])
+
+        field = np.ascontiguousarray(field.T)
+        semblance = calc_semblance(field, times, offsets, velocities, samples_step, window)
+
+        getattr(self, dst)[pos] = semblance
+
+    @action
+    def calculate_residual_semblance(self, src, dst, velocities, velocity_points, velocities_length=100, window=25, p=0.2):
+        """ some docs """
+        if len(velocities) == 2:
+            velocities = np.linspace(*velocities, velocities_length)
+        times = self.meta[src]['samples'].astype(int) / 1000
+        samples_step = times[1] - times[0]
+
+        self._calc_residual_semblance(src=src, dst=dst, times=times, velocities=velocities, velocity_points=velocity_points,
+                                      samples_step=samples_step, window=window, p=p)
+
+        return self
+
+    @inbatch_parallel(init="_init_component", target="for")
+    def _calc_residual_semblance(self, index, src, dst, times, velocities, velocity_points, dt, window, prob):
+        pos = self.index.get_pos(index)
+        field = getattr(self, src)[pos]
+        offsets = np.sort(self.index.get_df(index=index)['offset'])
+
+        interp_vel = interpolate_velocities(velocity_points, times)
+        lower_bounds, upper_bounds = calc_bounds(interp_vel, velocities, prob)
+        semblance = calc_partial_semblance(seismogram=field.T, times=times, offsets=offsets, velocities=velocities,
+                                           lower_bounds=lower_bounds, upper_bounds=upper_bounds, dt=dt, window=window)
+        semblance_len = (upper_bounds - lower_bounds).max()
+        residual_semblance = np.zeros((len(times), semblance_len))
+
+        for i, (low, up) in enumerate(zip(lower_bounds, upper_bounds)):
+            ix = (semblance_len - (up - low)) // 2
+            residual_semblance[i, ix : ix + up - low] = semblance[i, low : up]
+
+        getattr(self, dst)[pos] = residual_semblance
+
+    @action
+    @inbatch_parallel(init='_init_component', target='threads')
+    @apply_to_each_component
+    def add_muting(self, index, src, dst, interp_type='polyfit', muting=None, picking=None, indent=None):
+        """muting - two arrays. first - offsets, second - time.
+        Picking is a component with picking values for every field in batch.
+        indet is a list with length of 2 or list with length = len(field).
+        """
+        pos = self.index.get_pos(index)
+        field = getattr(self, src)[pos]
+        offsets = np.sort(self.index.get_df(index=index)['offset'])
+        t_step = np.diff(self.meta[src]['samples'][:2])[0]
+        data_x, data_y = None, None
+        indent = indent if indent is not None else 0
+
+        if picking is not None:
+            picking = getattr(self, picking)[pos] # indices
+            data_x = picking[:len(picking)].copy() # ms
+            data_y = offsets[:len(picking)].copy() # meters
+        elif muting is not None:
+            indent = np.zeros(len(field))
+            data_x, data_y = muting
+        else:
+            raise ValueError('Either `picking` or `muting` should be determined.')
+
+        if interp_type == 'polyfit':
+            poly = np.polyfit(data_x, data_y, deg=2)
+            mute_samples = np.polyval(poly, offset) / t_step
+            if np.sum(mute_samples < 0) > 0:
+                mute_samples[mute_samples < 0] = 0
+        elif interp_type == 'regression':
+            lin_reg = LinearRegression(fit_intercept=False)
+            lin_reg.fit(data_x.reshape(-1, 1), data_y)
+            indent /= 1000 # to ms
+            velocity = lin_reg.coef_ - indent # reduce velocity by given indent. lin_reg.coef_ has m / ms
+            mute_samples = offsets / (velocity * t_step) # meters / samples
+            mute_samples = mute_samples.astype(int)
+        else:
+            raise ValueError('Interpolation type must be "ployfit" or "regression" not "{}"'.format(interp_type))
+        mute_time_mx = np.array([mute_samples]*field.shape[1]).T
+
+        time_idx = np.arange(0, field.shape[1])
+        time_idx_mx = np.array([time_idx]*field.shape[0])
+
+        mute_mask = time_idx_mx - mute_time_mx
+        mute_mask[mute_mask < 0] = 0
+        mute_mask = mute_mask.astype(bool)
+        muted_field = field * mute_mask
+        getattr(self, dst)[pos] = muted_field
+        self.copy_meta(src, dst)
 
     #-------------------------------------------------------------------------#
     #                                DPA. Misc                                #
@@ -1688,4 +1856,34 @@ class SeismicBatch(Batch):
         rate = self.meta[src[0]]['interval'] / 1e6
         statistics_plot(arrs=arrs, stats=stats, rate=rate, names=names, figsize=figsize,
                         save_to=save_to, **kwargs)
+        return self
+
+    def semblance_plot(self, src, index, x_ticks=15, y_ticks=15, velocity_points=None, point_size=50,
+                       name=None, figsize=(15, 12), save_dir=None, dpi=100, **kwargs):
+        """ Semblance plot.
+        TODO: REWRITE DOCS
+        Parameters
+        ----------
+         src : str
+            The batch component to get semblance from.
+        index : same type as batch.indices
+            Data index to show.
+        figsize : tuple with length 2
+            size of output graph.
+        Raises
+        ------
+        ValueError : if semblance isn't calculated.
+        """
+        velocities = self.meta[src].get('velocities')
+        if velocities is None:
+            raise ValueError(f'There is no semblance in {src} variable.')
+        pos = self.index.get_pos(index)
+        semblance = getattr(self, src)[pos]
+
+        samples = self.meta[src].get('samples')
+        samples_step = samples_step if samples is None else samples[1] - samples[0]
+
+        semblance_plot(semblance=semblance, velocities=velocities, x_ticks=x_ticks,
+                       y_ticks=y_ticks, samples_step=samples_step, velocity_points=velocity_points,
+                       point_size=point_size, name=name, index=index, figsize=figsize, save_dir=save_dir, dpi=dpi)
         return self

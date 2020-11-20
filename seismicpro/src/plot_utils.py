@@ -2,7 +2,9 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib import patches
+from matplotlib import patches, colors as mcolors
+from matplotlib.patches import Ellipse
+
 from .utils import measure_gain_amplitude
 
 
@@ -425,3 +427,115 @@ def show_2d_heatmap(idf, figsize=None, save_to=None, dpi=300, **kwargs):
     if save_to is not None:
         plt.savefig(save_to, dpi=dpi)
     plt.show()
+
+def semblance_plot(semblance, velocities, x_ticks=15, y_ticks=15, samples_step=None,
+                   velocity_points=None, point_size=50, name=None, index=None,
+                   figsize=None, font_size=11, save_dir=None, dpi=100):
+    """ Draw given semblance.
+
+    TODO: REWRITE DOCS
+
+    Parameters
+    ----------
+    semblance : numpy array
+        Matrix with semblance.
+    velocities : list of length 2 or list
+         if lenght == 2 - Min and max values of speed in ms/sec.
+         else first value should be minumum, last value - maximum.
+    velocity_step : int
+        Frequency of speed display on the x-axis.
+    velocity_points : list
+        list with elements in format [[time, velocity], ...].
+    color_points : str
+        Name of the colors.
+    name : str
+        Name of the title.
+    index : int
+        Seismic index or given seismogram.
+    figsize : tuple, optional
+        Output figure size.
+
+    Returns
+    -------
+    Semblance plot.
+    """
+    plt.figure(figsize=figsize)
+
+    max_val = np.max(semblance)
+    levels = (np.logspace(0, 1, num=16, base=500)/500) * max_val
+    levels[0] = 0
+    xlist = np.arange(0, semblance.shape[1])
+    ylist = np.arange(0, semblance.shape[0])
+    x_grid, y_grid = np.meshgrid(xlist, ylist)
+
+    fig, ax = plt.subplots(figsize=figsize)
+    norm = mcolors.BoundaryNorm(boundaries=levels, ncolors=256)
+    ax.contour(x_grid, y_grid, semblance, levels, colors='k', linewidths=.7, alpha=.5)
+    img = ax.imshow(semblance, norm=norm, aspect='auto', cmap=plt.get_cmap('jet'))
+    fig.colorbar(img, ticks=levels[1::2])
+
+    steps = samples_step if samples_step is not None else 1
+
+    extent_ticks = [0, semblance.shape[1], 0, semblance.shape[0]]
+    extent_labels = [velocities[0], velocities[-1], 0, semblance.shape[0] * steps]
+    _set_ticks(ax, x_ticks, y_ticks, extent_ticks, extent_labels, font_size)
+    ax.set_ylim(semblance.shape[0], 0)
+
+    if name is not None or index is not None:
+        name = name if name is not None else ''
+        index = index if index is not None else ''
+        ax.set_title('{} {}'.format(name, index))
+    ax.set_xlabel('Velocity')
+
+    if samples_step is not None:
+        ax.set_ylabel('Time')
+    else:
+        ax.set_ylabel('Samples')
+
+    if velocity_points is not None:
+        time = np.int32(velocity_points[:, 0] / samples_step)
+        vel_ixs = np.repeat(np.linspace(velocities[0], velocities[-1],
+                                        semblance.shape[1])[np.newaxis],
+                            len(time), axis=0)
+        vel_ixs = np.argmin(np.abs(vel_ixs - velocity_points[:, 1].reshape(-1, 1)), axis=1)
+        marker = 'o' if np.min(np.diff(np.sort(time))) > 50 else ''
+        plt.plot(vel_ixs, time, c='k', linewidth=3.5, alpha=.8, marker=marker)
+
+    if save_dir:
+        plt.savefig(save_dir, bbox_inches='tight', pad_inches=0.1)
+    plt.show()
+
+def _set_ticks(ax, x_ticks, y_ticks, extent_ticks, extent_labels=None, font_size=None):
+    """Set x and y ticks.
+    Parameters
+    ----------
+    ax : matplotlib axes
+        Axes to which coordinates are added.
+    x_ticks : int
+        The number of coordinates on the x-axis.
+    y_ticks : int
+        The number of coordinates on the y-axis.
+    extent_ticks : ints or floats (left, right, bottom, top)
+        The bounding box in data coordinates that the image will fill.
+    extent_labels : ints or floats (left, right, bottom, top)
+        The labels to place at the given *extent_ticks* locations.
+    font_size : int
+        The size of text.
+    """
+    x_min, x_max, y_min, y_max = extent_ticks
+
+    extent_labels = extent_ticks.copy() if extent_labels is None else extent_labels
+    x_min_lb, x_max_lb, y_min_lb, y_max_lb = extent_labels
+
+    ticks = np.linspace(x_min, x_max-1, x_ticks)
+    labels = np.linspace(x_min_lb, x_max_lb, x_ticks).astype(int)
+    ax.set_xticks(ticks)
+    ax.set_xticklabels(labels, size=font_size)
+
+    ticks = np.linspace(y_min, y_max-1, y_ticks)
+    labels = np.linspace(y_min_lb, y_max_lb, y_ticks).astype(int)
+    ax.set_yticks(ticks)
+    ax.set_yticklabels(labels, size=font_size)
+
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
+             rotation_mode="anchor")
