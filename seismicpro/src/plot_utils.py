@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib import patches, colors as mcolors
-from matplotlib.patches import Ellipse
 
 from .utils import measure_gain_amplitude
 
@@ -428,8 +427,8 @@ def show_2d_heatmap(idf, figsize=None, save_to=None, dpi=300, **kwargs):
         plt.savefig(save_to, dpi=dpi)
     plt.show()
 
-def semblance_plot(semblance, velocities, x_ticks=15, y_ticks=15, samples_step=None,
-                   velocity_points=None, point_size=50, name=None, index=None,
+def semblance_plot(semblance, velocities, x_ticks=15, y_ticks=15, samples_step=None, # pylint: disable=too-many-arguments
+                   velocity_law=None, name=None, index=None,
                    figsize=None, font_size=11, save_dir=None, dpi=100):
     """ Draw given semblance.
 
@@ -444,7 +443,7 @@ def semblance_plot(semblance, velocities, x_ticks=15, y_ticks=15, samples_step=N
          else first value should be minumum, last value - maximum.
     velocity_step : int
         Frequency of speed display on the x-axis.
-    velocity_points : list
+    velocity_law : list
         list with elements in format [[time, velocity], ...].
     color_points : str
         Name of the colors.
@@ -492,17 +491,17 @@ def semblance_plot(semblance, velocities, x_ticks=15, y_ticks=15, samples_step=N
     else:
         ax.set_ylabel('Samples')
 
-    if velocity_points is not None:
-        time = np.int32(velocity_points[:, 0] / samples_step)
+    if velocity_law is not None:
+        time = np.int32(velocity_law[:, 0] / samples_step)
         vel_ixs = np.repeat(np.linspace(velocities[0], velocities[-1],
                                         semblance.shape[1])[np.newaxis],
                             len(time), axis=0)
-        vel_ixs = np.argmin(np.abs(vel_ixs - velocity_points[:, 1].reshape(-1, 1)), axis=1)
+        vel_ixs = np.argmin(np.abs(vel_ixs - velocity_law[:, 1].reshape(-1, 1)), axis=1)
         marker = 'o' if np.min(np.diff(np.sort(time))) > 50 else ''
         plt.plot(vel_ixs, time, c='k', linewidth=3.5, alpha=.8, marker=marker)
 
     if save_dir:
-        plt.savefig(save_dir, bbox_inches='tight', pad_inches=0.1)
+        plt.savefig(save_dir, bbox_inches='tight', pad_inches=0.1, dpi=dpi)
     plt.show()
 
 def _set_ticks(ax, x_ticks, y_ticks, extent_ticks, extent_labels=None, font_size=None):

@@ -1,4 +1,5 @@
 """ Seismic batch tools """
+# pylint: disable=not-an-iterable
 import csv
 import shutil
 import tempfile
@@ -9,6 +10,7 @@ import pandas as pd
 from numba import njit, prange
 from sklearn.linear_model import LinearRegression
 from scipy.signal import medfilt, hilbert
+from scipy.interpolate import interp1d
 import segyio
 
 from ..batchflow import FilesIndex
@@ -825,7 +827,7 @@ def correct_time(field, time, offsets, velocity, samples_step):
     return corrected_field
 
 @njit(nogil=True, fastmath=True, parallel=True)
-def calc_partial_semblance(field, times, offsets, velocities, lower_bounds, upper_bounds, samples_step=0.002, window=25):
+def calc_partial_semblance(field, times, offsets, velocities, lower_bounds, upper_bounds, samples_step, window):
     """some docs"""
     semblance = np.zeros((len(field), len(velocities)))
     for i in prange(lower_bounds.min(), upper_bounds.max() + 1):
@@ -841,23 +843,30 @@ def calc_partial_semblance(field, times, offsets, velocities, lower_bounds, uppe
         for t in range(t_low_window, t_up_window + 1):
             tmp[t - t_low_window] = correct_time(field, times[t], offsets, velocities[i], samples_step)
 
-        nmo_sum_2 = np.sum(tmp, axis=1)**2
-        nmo_2_sum = np.sum(tmp**2, axis=1)
+        numerator = np.sum(tmp, axis=1)**2
+        denominator = np.sum(tmp**2, axis=1)
         for t in range(t_low, t_up + 1):
             t_relative = t - t_low_window
-            semblance[t, i] = (np.sum(nmo_sum_2[max(0, t_relative - window) : t_relative + window]) /
-                            (len(offsets) * np.sum(nmo_2_sum[max(0, t_relative - window) : t_relative + window]) + 1e-6))
+            semblance[t, i] = (np.sum(numerator[max(0, t_relative - window) : t_relative + window]) /
+                               (len(offsets) * np.sum(denominator[max(0, t_relative - window) : t_relative + window])
+                                + 1e-6))
     return semblance
 
-def calc_bound(interp_vel, velocities, prob):
+def interpolate_velocities(points, times):
+    """!!!"""
+    points_times, points_velocities = zip(*points)
+    f = interp1d(points_times, points_velocities, fill_value="extrapolate")
+    return f(times)
+
+def calc_bound(interpolated_velocity, velocities, p):
     """calc_bound"""
-    bounds = interp_vel * prob
+    bounds = interpolated_velocity * p
     bounds = np.argmin(np.abs(bounds.reshape(-1, 1) - velocities), axis=1)
     return bounds
 
-def calc_bounds(interp_vel, velocities, prob):
+def calc_bounds(interpolated_velocity, velocities, p):
     """calc_bound"""
-    interp_vel = np.clip(interp_vel, velocities[0], velocities[-1])
-    lower_bounds = calc_bound(interp_vel, velocities, 1 - prob)
-    upper_bounds = calc_bound(interp_vel, velocities, 1 + prob)
+    interpolated_velocity = np.clip(interpolated_velocity, velocities[0], velocities[-1])
+    lower_bounds = calc_bound(interpolated_velocity, velocities, 1 - p)
+    upper_bounds = calc_bound(interpolated_velocity, velocities, 1 + p)
     return lower_bounds, upper_bounds
