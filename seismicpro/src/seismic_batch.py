@@ -888,7 +888,8 @@ class SeismicBatch(Batch):
     #-------------------------------------------------------------------------#
 
     @action
-    def calculate_semblance(self, src, dst, velocities, window=25):
+    def calculate_vertical_velocity_semblance(self, src, dst, velocities, window=25, residual=False,
+                                              velocity_law=None, p=0.2):
         r"""
         TODO: THIS DOCSTRING SHOULD BE REWRITTEN!
 
@@ -944,8 +945,16 @@ class SeismicBatch(Batch):
         times = self.meta[src]['samples'] / 1000
         samples_step = times[1] - times[0]
 
-        self._calculate_semblance(src=src, dst=dst, times=times, velocities=velocities, samples_step=samples_step,
-                                   window=window)
+        if residual:
+            if velocity_law is None:
+                raise('Velocity_law can not be None when residual semblance is calculating.')
+            self._calc_residual_semblance(src=src, dst=dst, times=times, velocities=velocities,
+                                          velocity_law=velocity_law, samples_step=samples_step,
+                                          window=window, p=p)
+        else:
+            self._calculate_semblance(src=src, dst=dst, times=times, velocities=velocities,
+                                      samples_step=samples_step, window=window)
+
         self.copy_meta(src, dst)
         self.meta[dst].update(velocities=velocities)
         return self
@@ -962,31 +971,20 @@ class SeismicBatch(Batch):
 
         getattr(self, dst)[pos] = semblance
 
-    @action
-    def calculate_residual_semblance(self, src, dst, velocities, velocity_law, window=25, p=0.2):
-        """ some docs """
-        # Converting ms to seconds.
-        times = self.meta[src]['samples'] / 1000
-        samples_step = times[1] - times[0]
-
-        self._calc_residual_semblance(src=src, dst=dst, times=times, velocities=velocities, velocity_law=velocity_law,
-                                      samples_step=samples_step, window=window, p=p)
-        self.copy_meta(src, dst)
-        self.meta[dst].update(velocities=velocities)
-        return self
-
     @inbatch_parallel(init="_init_component", target="for")
     def _calc_residual_semblance(self, index, src, dst, times, velocities, velocity_law, samples_step, window, p):
         pos = self.index.get_pos(index)
         field = getattr(self, src)[pos]
         offsets = np.sort(self.index.get_df(index=index)['offset'])
-        velocity_law = getattr(self, velocity_law)[pos] if isinstance(velocity_law, str) else velocity_law
-        velocity_law[:, 0] /= 1000
 
-        interpolated_velocity = interpolate_velocities(velocity_law, times)
+        velocity_law = getattr(self, velocity_law)[pos] if isinstance(velocity_law, str) else velocity_law
+        vel_law = velocity_law.copy()
+        vel_law[:, 0] /= 1000
+        interpolated_velocity = interpolate_velocities(vel_law, times)
         lower_bounds, upper_bounds = calc_bounds(interpolated_velocity, velocities, p)
 
-        semblance = calc_partial_semblance(field=field.T, times=times, offsets=offsets, velocities=velocities,
+        field = np.ascontiguousarray(field.T)
+        semblance = calc_partial_semblance(field=field, times=times, offsets=offsets, velocities=velocities,
                                            lower_bounds=lower_bounds, upper_bounds=upper_bounds,
                                            samples_step=samples_step, window=window)
         semblance_len = (upper_bounds - lower_bounds).max()
