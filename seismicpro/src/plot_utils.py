@@ -481,10 +481,7 @@ def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 10),
 
     extent_ticks = kwargs.get('extent', [0, metrics_map.shape[1],
                                          0, metrics_map.shape[0]])
-    extent_labels = extent_ticks.copy()
-
-    if origin == 'upper':
-        extent_labels[2], extent_labels[3] = extent_labels[3], extent_labels[2]
+    extent_labels = None if origin == 'lower' else [*extent_ticks[:2], extent_ticks[3], extent_ticks[2]]
 
     _set_ticks(ax=ax, x_ticks=x_ticks, y_ticks=y_ticks, extent_ticks=extent_ticks,
                extent_labels=extent_labels, font_size=font_size)

@@ -97,13 +97,13 @@ class MetricsMap(Metrics):
 
     def construct_map(self, metrics_name, bin_size=500, agg_func='mean',
                       agg_func_kwargs=None, plot=True, **plot_kwargs):
-        """ All optained coordinates are split into bins of the specified `bin_size`. The resulted map
+        """ All obtained coordinates are split into bins of the specified `bin_size`. The resulted map
         is an array in which every value reflects the metric's value in one current bin. If there are
-        no values are included in the bin, it values is np.nan. Otherwise, the value of this bin is
+        no values included in the bin, it values is np.nan. Otherwise, the value of this bin is
         calculated based on the aggregation function `agg_func`.
 
         Each value in the resulted map represents the aggregated value of metrics for coordinates
-        belongs to the current bin.
+        that belong to the current bin.
 
         Parameters
         ----------
