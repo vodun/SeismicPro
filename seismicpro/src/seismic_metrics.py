@@ -24,12 +24,12 @@ class MetricsMap(Metrics):
            metrics_name_N : metrics_value_N}``
 
         Here, the ``metric_name`` is any string while ``metrics_value`` should be represented by
-        one of the following formats: a number, a one-dimensional vector, or an array of one-dimensional arrays.
+        one of the following formats: a number, a one-dimensional array, or an array of one-dimensional arrays.
 
-            * If number, it corresponds to the one passed coordinate. Note, in this case,
-              only one coordinate should be given.
-            * If one-dimensional vector, each value from the array will correspond
-              to its own pair of coordinates.
+            * If number, it corresponds to the one passed coordinate. Note, in this case,only one coordinate
+              should be given.
+            * If one-dimensional array, each value from the array will correspond to a pair of coordinates
+              with the same index. It means that the value of the metric ``metrics_value[i]`` suits ``coords[i]``.
             * If an array of arrays, each coordinate will have an array suit to it.
 
     Attributes
