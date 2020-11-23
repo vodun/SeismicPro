@@ -14,17 +14,23 @@ class MetricsMap(Metrics):
 
     Parameters
     ----------
-    coords : array-like with length 2
+    coords : array-like
         Array with coordinates for X and Y axes.
     kwargs : dict
-        All given kwargs are considered quality values. The key value is any name,
-        and the value of the metric can be represented by a number, a one-dimensional vector,
-        or an array of one-dimensional arrays.
-        A metric can only be a number if one coordinate was passed, then the metric value
-        will correspond to that coordinate.
-        If the metric is a one-dimensional vector, each value from the array will correspond
-        to its own pair of coordinates.
-        If the metric is an array of arrays, each coordinate will have an array suit to it.
+        All of the given kwargs are considered as metrics. The kwargs dict have the following structure:
+
+        ``{metircs_name_1 : metrics_value_1,
+           ...
+           metrics_name_N : metrics_value_N}``
+
+        Here, the ``metric_name`` is any string while ``metrics_value`` should be represented by
+        one of the following formats: a number, a one-dimensional vector, or an array of one-dimensional arrays.
+
+            * If number, it corresponds to the one passed coordinate. Note, in this case,
+              only one coordinate should be given.
+            * If one-dimensional vector, each value from the array will correspond
+              to its own pair of coordinates.
+            * If an array of arrays, each coordinate will have an array suit to it.
 
     Attributes
     ----------
@@ -53,9 +59,12 @@ class MetricsMap(Metrics):
         if not kwargs:
             raise ValueError("At least one metric should be passed.")
 
-        if isinstance(coords, (list, tuple, set, np.ndarray)):
+        if isinstance(coords, (list, tuple, np.ndarray)):
             self.coords = np.asarray(coords)
-            for coord_ix, coord in enumerate(coords):
+            # Assume case when coords is one-dimensional array and cast it to two-dimensional array.
+            self.coords = self.coords if self.coords.ndim == 2 else np.array([self.coords])
+
+            for coord_ix, coord in enumerate(self.coords):
                 if len(coord) != 2:
                     raise ValueError("An array with coordinates must contain only two values "\
                                      "(X and Y) for each metrics value, but the coordinate with index "\
@@ -68,7 +77,7 @@ class MetricsMap(Metrics):
         for name, metrics in kwargs.items():
             if isinstance(metrics, (int, float, bool, np.number)):
                 setattr(self, name, np.asarray([metrics]))
-            elif isinstance(metrics, (list, tuple, set)):
+            elif isinstance(metrics, (list, tuple)):
                 setattr(self, name, np.array(metrics, dtype=np.object))
             elif isinstance(metrics, np.ndarray):
                 setattr(self, name, metrics)
@@ -112,7 +121,7 @@ class MetricsMap(Metrics):
         bin_size : int, float or array-like with length 2, optional, default 500
             The size of the bin by X and Y axes. Based on the received coordinates, the entire map
             will be divided into bins with the size `bin_size`.
-            If int, the bin size will be the same for X and Y dimensions.
+            If int or float, the bin size will be the same for X and Y dimensions.
         agg_func : str or callable, optional, default 'mean'
             Function to aggregate metrics values in one bin.
             If str, the function from :class:`.NumbaNumpy` will be used for aggregation.
