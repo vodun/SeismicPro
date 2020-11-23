@@ -428,8 +428,8 @@ def show_2d_heatmap(idf, figsize=None, save_to=None, dpi=300, **kwargs):
     plt.show()
 
 def semblance_plot(semblance, velocities, x_ticks=15, y_ticks=15, samples_step=None, # pylint: disable=too-many-arguments
-                   velocity_law=None, name=None, index=None,
-                   figsize=None, font_size=11, save_dir=None, dpi=100):
+                   velocity_law=None, name=None, index=None, figsize=None, font_size=11,
+                   save_dir=None, dpi=100):
     """ Draw given semblance.
 
     TODO: REWRITE DOCS
@@ -469,8 +469,8 @@ def semblance_plot(semblance, velocities, x_ticks=15, y_ticks=15, samples_step=N
 
     fig, ax = plt.subplots(figsize=figsize)
     norm = mcolors.BoundaryNorm(boundaries=levels, ncolors=256)
-    ax.contour(x_grid, y_grid, semblance, levels, colors='k', linewidths=.7, alpha=.5)
-    img = ax.imshow(semblance, norm=norm, aspect='auto', cmap=plt.get_cmap('jet'))
+    ax.contour(x_grid, y_grid, semblance, levels, colors='k', linewidths=.5, alpha=.5)
+    img = ax.imshow(semblance, norm=norm, aspect='auto', cmap=plt.get_cmap('semblance'))
     fig.colorbar(img, ticks=levels[1::2])
 
     steps = samples_step if samples_step is not None else 1
@@ -498,7 +498,7 @@ def semblance_plot(semblance, velocities, x_ticks=15, y_ticks=15, samples_step=N
                             len(time), axis=0)
         vel_ixs = np.argmin(np.abs(vel_ixs - velocity_law[:, 1].reshape(-1, 1)), axis=1)
         marker = 'o' if np.min(np.diff(np.sort(time))) > 50 else ''
-        plt.plot(vel_ixs, time, c='k', linewidth=3.5, alpha=.8, marker=marker)
+        plt.plot(vel_ixs, time, c='#fafcc2', linewidth=2.5, marker=marker)
 
     if save_dir:
         plt.savefig(save_dir, bbox_inches='tight', pad_inches=0.1, dpi=dpi)
