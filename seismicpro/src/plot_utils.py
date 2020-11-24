@@ -470,7 +470,7 @@ def semblance_plot(semblance, velocities, x_ticks=15, y_ticks=15, samples_step=N
     fig, ax = plt.subplots(figsize=figsize)
     norm = mcolors.BoundaryNorm(boundaries=levels, ncolors=256)
     ax.contour(x_grid, y_grid, semblance, levels, colors='k', linewidths=.5, alpha=.5)
-    img = ax.imshow(semblance, norm=norm, aspect='auto', cmap=plt.get_cmap('semblance'))
+    img = ax.imshow(semblance, norm=norm, aspect='auto', cmap=plt.get_cmap('seismic'))
     fig.colorbar(img, ticks=levels[1::2])
 
     steps = samples_step if samples_step is not None else 1
@@ -492,14 +492,11 @@ def semblance_plot(semblance, velocities, x_ticks=15, y_ticks=15, samples_step=N
         ax.set_ylabel('Samples')
 
     if velocity_law is not None:
-        time = np.int32(velocity_law[:, 0] / samples_step)
-        vel_ixs = np.repeat(np.linspace(velocities[0], velocities[-1],
-                                        semblance.shape[1])[np.newaxis],
-                            len(time), axis=0)
-        vel_ixs = np.argmin(np.abs(vel_ixs - velocity_law[:, 1].reshape(-1, 1)), axis=1)
+        velocity_law = np.asarray(velocity_law) if isinstance(velocity_law, (tuple, list)) else velocity_law
+        time = velocity_law[:, 0] / samples_step
         marker = 'o' if np.min(np.diff(np.sort(time))) > 50 else ''
-        plt.plot(vel_ixs, time, c='#fafcc2', linewidth=2.5, marker=marker)
-
+        normalized_vel = (velocity_law[:, 1] - velocities[0]) / (velocities[-1] - velocities[0]) * len(velocities)
+        plt.plot(normalized_vel, time, c='#fafcc2', linewidth=2.5, marker=marker)
     if save_dir:
         plt.savefig(save_dir, bbox_inches='tight', pad_inches=0.1, dpi=dpi)
     plt.show()
