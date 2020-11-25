@@ -5,6 +5,7 @@ from numba import njit, prange
 
 from ..batchflow.models.metrics import Metrics
 from .plot_utils import plot_metrics_map
+from .utils import create_args, to_numba
 
 
 class MetricsMap(Metrics):
@@ -53,6 +54,16 @@ class MetricsMap(Metrics):
     1. All keys from kwargs become class attributes.
     2. The length of the metric array and the coordinate array must match.
     """
+
+    DEFAULT_METRICS = {
+    'std' : njit(lambda array: np.nanstd(array)),
+    'max' : njit(lambda array: np.nanmax(array)),
+    'mean' : njit(lambda array: np.nanmin(array)),
+    'mean' : njit(lambda array: np.nanmean(array)),
+    'median' : njit(lambda array: np.nanmedian(array)),
+    'quantile' : lambda array, q: np.nanquantile(array, q=q),
+    'absquantile' : lambda array, q: np.quantile(np.abs(array - np.mean(array)), q)
+    }
 
     def __init__(self, coords, **kwargs):
         super().__init__()
@@ -163,11 +174,13 @@ class MetricsMap(Metrics):
             bin_size = (bin_size, bin_size)
 
         if isinstance(agg_func, str):
-            agg_func = getattr(NumbaNumpy, agg_func)
+            agg_func = self.DEFAULT_METRICS[agg_func]
         elif not callable(agg_func):
             raise ValueError('agg_func should be whether str or callable, not {}'.format(type(agg_func)))
 
-        agg_func = agg_func(**agg_func_kwargs) if agg_func_kwargs else agg_func
+        if agg_func_kwargs:
+            args = create_args(agg_func, **agg_func_kwargs)
+            agg_func = to_numba(agg_func, args)
 
         metrics_map = self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y,
                                                  metrics=metrics, bin_size=bin_size,
@@ -217,28 +230,3 @@ class MetricsMap(Metrics):
                 if mask.sum() > 0:
                     metrics_map[j, i] = agg_func(metrics[mask])
         return metrics_map
-
-
-class NumbaNumpy:
-    """ Holder for jit-accelerated functions. """
-    #pylint: disable = unnecessary-lambda, undefined-variable
-    min = njit(lambda array: np.nanmin(array))
-    max = njit(lambda array: np.nanmax(array))
-    mean = njit(lambda array: np.nanmean(array))
-    std = njit(lambda array: np.nanstd(array))
-
-    @staticmethod
-    def quantile(q):
-        """ numba quantile. """
-        return  njit(lambda array: np.quantile(array, q=q))
-
-    @staticmethod
-    def absquantile(q):
-        """ numba absquantile. """
-        return njit(lambda array: _absquantile(array, q=q))
-
-    @staticmethod
-    @njit
-    def _absquantile(array, q):
-        shifted_array = array - np.mean(array)
-        return np.quantile(np.abs(shifted_array), q)

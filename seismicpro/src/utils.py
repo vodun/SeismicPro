@@ -3,11 +3,13 @@ import csv
 import shutil
 import tempfile
 import functools
+import inspect
 
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
 from scipy.signal import medfilt, hilbert
+from numba import njit
 import segyio
 
 from ..batchflow import FilesIndex
@@ -792,3 +794,23 @@ def transform_to_fixed_width_columns(path, path_save=None, n_spaces=8, max_len=(
             if path_save:
                 return
             shutil.copyfile(write_file.name, path)
+
+def create_args(call, **kwargs):
+    """ some docs """
+    params = inspect.signature(call).parameters
+    args = list(np.zeros(len(params.keys()) - 1))
+
+    for i, (name, par_def) in enumerate(params.items()):
+        # Pass the first argmunet
+        if i == 0:
+            continue
+        val = kwargs.get(name, par_def.default)
+        if val is inspect._empty:
+            raise ValueError('smth')
+        args[i-1] = val
+    return tuple(args)
+
+def to_numba(call, args):
+    """ some docs """
+    numba_call = njit(call)
+    return njit(lambda array: numba_call(array, *args))
