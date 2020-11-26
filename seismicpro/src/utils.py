@@ -805,12 +805,7 @@ def create_args(call, **kwargs):
         if i == 0:
             continue
         val = kwargs.get(name, par_def.default)
-        if val is inspect._empty:
+        if val is inspect.Parameter.empty:
             raise ValueError('smth')
         args[i-1] = val
     return tuple(args)
-
-def to_numba(call, args):
-    """ some docs """
-    numba_call = njit(call)
-    return njit(lambda array: numba_call(array, *args))
