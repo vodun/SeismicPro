@@ -5,7 +5,7 @@ from numba import njit, prange
 
 from ..batchflow.models.metrics import Metrics
 from .plot_utils import plot_metrics_map
-from .utils import create_args, to_numba
+from .utils import create_args
 
 
 class MetricsMap(Metrics):
@@ -56,13 +56,13 @@ class MetricsMap(Metrics):
     """
 
     DEFAULT_METRICS = {
-    'std' : njit(lambda array: np.nanstd(array)),
-    'max' : njit(lambda array: np.nanmax(array)),
-    'mean' : njit(lambda array: np.nanmin(array)),
-    'mean' : njit(lambda array: np.nanmean(array)),
-    'median' : njit(lambda array: np.nanmedian(array)),
-    'quantile' : lambda array, q: np.nanquantile(array, q=q),
-    'absquantile' : lambda array, q: np.quantile(np.abs(array - np.mean(array)), q)
+        'std' : njit(lambda array: np.nanstd(array)),
+        'max' : njit(lambda array: np.nanmax(array)),
+        'min' : njit(lambda array: np.nanmin(array)),
+        'mean' : njit(lambda array: np.nanmin(array)),
+        'median' : njit(lambda array: np.nanmedian(array)),
+        'quantile' : njit(lambda array, q: np.nanquantile(array, q=q)),
+        'absquantile' : njit(lambda array, q: np.quantile(np.abs(array - np.mean(array)), q))
     }
 
     def __init__(self, coords, **kwargs):
@@ -70,19 +70,18 @@ class MetricsMap(Metrics):
         if not kwargs:
             raise ValueError("At least one metric should be passed.")
 
-        if isinstance(coords, (list, tuple, np.ndarray)):
-            self.coords = np.asarray(coords)
-            # Assume case when coords is one-dimensional array and cast it to two-dimensional array.
-            self.coords = self.coords if self.coords.ndim == 2 else np.array([self.coords])
-
-            for coord_ix, coord in enumerate(self.coords):
-                if len(coord) != 2:
-                    raise ValueError("An array with coordinates must contain only two values "\
-                                     "(X and Y) for each metrics value, but the coordinate with index "\
-                                     "{} has length = {}.".format(coord_ix, len(coord)))
-        else:
+        if not isinstance(coords, (list, tuple, np.ndarray)):
             raise TypeError("Wrong type of coords have been given. "\
                             "Should be array-like but {} received.".format(type(coords)))
+
+        self.coords = np.asarray(coords)
+        # Assume case when coords is one-dimensional array and cast it to two-dimensional array.
+        self.coords = self.coords if self.coords.ndim >= 2 else np.array([self.coords])
+        for coord_ix, coord in enumerate(self.coords):
+            if len(coord) != 2:
+                raise ValueError("An array with coordinates must contain only two values "\
+                                 "(X and Y) for each metrics value, but the coordinate with index "\
+                                 "{} has length = {}.".format(coord_ix, len(coord)))
 
         # Create attributes with metrics.
         for name, metrics in kwargs.items():
@@ -159,7 +158,7 @@ class MetricsMap(Metrics):
 
         # If metric has an array for one coordinate, we repeat the coordinate value
         # and expand the metric values into a one-dimensional array.
-        if isinstance(metrics[0], (list, tuple, set, np.ndarray)):
+        if isinstance(metrics[0], np.ndarray):
             len_of_copy = [len(metrics_array) for metrics_array in metrics]
             coords = np.repeat(self.coords, len_of_copy, axis=0)
             metrics = np.concatenate(metrics)
@@ -178,13 +177,13 @@ class MetricsMap(Metrics):
         elif not callable(agg_func):
             raise ValueError('agg_func should be whether str or callable, not {}'.format(type(agg_func)))
 
+        args = tuple()
         if agg_func_kwargs:
-            args = create_args(agg_func, **agg_func_kwargs)
-            agg_func = to_numba(agg_func, args)
+            args = create_args(agg_func.py_func, **agg_func_kwargs)
 
         metrics_map = self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y,
                                                  metrics=metrics, bin_size=bin_size,
-                                                 agg_func=agg_func)
+                                                 agg_func=agg_func, args=args)
 
         if plot:
             extent = [coords_x.min(), coords_x.max(), coords_y.min(), coords_y.max()]
@@ -198,7 +197,7 @@ class MetricsMap(Metrics):
 
     @staticmethod
     @njit(parallel=True)
-    def construct_metrics_map(coords_x, coords_y, metrics, bin_size, agg_func):
+    def construct_metrics_map(coords_x, coords_y, metrics, bin_size, agg_func, args):
         """Calculation of metrics map.
 
         Parameters
@@ -228,5 +227,5 @@ class MetricsMap(Metrics):
                 mask = ((coords_x - range_x[i] >= 0) & (coords_x - range_x[i] < bin_size_x) &
                         (coords_y - range_y[j] >= 0) & (coords_y - range_y[j] < bin_size_y))
                 if mask.sum() > 0:
-                    metrics_map[j, i] = agg_func(metrics[mask])
+                    metrics_map[j, i] = agg_func(metrics[mask], *args)
         return metrics_map
