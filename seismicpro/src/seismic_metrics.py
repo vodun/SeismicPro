@@ -176,7 +176,7 @@ class MetricsMap(Metrics):
         if isinstance(agg_func, str):
             agg_func = self.DEFAULT_METRICS[agg_func]
         elif not callable(agg_func):
-            raise ValueError("agg_func should be whether str or callable, not {}".format(type(agg_func)))
+            raise ValueError("agg_func should be either str or callable, not {}".format(type(agg_func)))
 
         args = tuple()
         if agg_func_kwargs:
