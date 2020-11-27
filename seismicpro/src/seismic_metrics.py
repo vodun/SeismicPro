@@ -45,6 +45,7 @@ class MetricsMap(Metrics):
     ValueError : If ndim for given coordinate is not equal to 2.
     ValueError : If shape of first dim is not equal to 2.
     TypeError : If given coordinates are not array-like.
+    TypeError : If given metrics is not array-like.
     ValueError : If the length of the metric array does not match the length of the array with coordinates.
 
     Note
@@ -77,13 +78,16 @@ class MetricsMap(Metrics):
         # length 2, resulted array will have 2 dims.
         self.coords = np.array(coords.tolist()) if coords.ndim == 1 else coords
         if self.coords.ndim != 2:
-            raise ValueError('Received coordinates have wrong number of dims.')
+            raise ValueError("Received coordinates have wrong number of dims.")
         if self.coords.shape[1] != 2:
-            raise ValueError('An array with coordinates must have shape (N, 2), where N is a number of elements'\
-                             ' but given array have shape {}'.format(self.coords.shape))
+            raise ValueError("An array with coordinates must have shape (N, 2), where N is a number of elements"\
+                             " but given array have shape {}".format(self.coords.shape))
 
         # Create attributes with metrics.
         for name, metrics in kwargs.items():
+            if not isinstance(metrics, (list, tuple, np.ndarray)):
+                raise TypeError("Received wrong type of '{}' metrics. "\
+                                "Must be array-like but received {}".format(name, type(metrics)))
             metrics = np.asarray(metrics)
             # Check whether metrics contains numeric or iterable.
             try:
@@ -172,7 +176,7 @@ class MetricsMap(Metrics):
         if isinstance(agg_func, str):
             agg_func = self.DEFAULT_METRICS[agg_func]
         elif not callable(agg_func):
-            raise ValueError('agg_func should be whether str or callable, not {}'.format(type(agg_func)))
+            raise ValueError("agg_func should be whether str or callable, not {}".format(type(agg_func)))
 
         args = tuple()
         if agg_func_kwargs:

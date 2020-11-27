@@ -9,7 +9,6 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
 from scipy.signal import medfilt, hilbert
-from numba import njit
 import segyio
 
 from ..batchflow import FilesIndex
