@@ -88,7 +88,7 @@ class MetricsMap(Metrics):
             # Check whether metrics contains numeric or iterable.
             try:
                 iter(metrics[0])
-            except TypeError as e:
+            except TypeError:
                 metrics = metrics.reshape(-1, 1)
             setattr(self, name, metrics)
 
