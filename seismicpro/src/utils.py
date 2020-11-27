@@ -794,17 +794,34 @@ def transform_to_fixed_width_columns(path, path_save=None, n_spaces=8, max_len=(
                 return
             shutil.copyfile(write_file.name, path)
 
-def create_args(call, **kwargs):
-    """ some docs """
+def create_args(call, skip_first=False, **kwargs):
+    """ Constructing tuple with positional arguments to callable ``call`` based on
+    ``kwargs`` and ``call``'s defaults.
+
+    Parameters
+    ----------
+    call : callable
+        Function to create positional arguments for.
+    skip_first : bool
+        If True, created tuple won't contain value for frist argument.
+        if False, created tuple will contain value for first argument.
+    kwargs : dict
+        Keyword arguments to function ``call``.
+
+    Returns
+    -------
+        : tuple
+        Positional arguments to ``call``.
+    """
     params = inspect.signature(call).parameters
-    args = list(np.zeros(len(params.keys()) - 1))
+    args = list(np.zeros(len(params.keys()) - skip_first))
 
     for i, (name, par_def) in enumerate(params.items()):
         # Pass the first argmunet
-        if i == 0:
+        if i == 0 and skip_first:
             continue
         val = kwargs.get(name, par_def.default)
         if val is inspect.Parameter.empty:
-            raise ValueError('smth')
-        args[i-1] = val
+            raise ValueError("Missed value to '{}' argument.".format(name))
+        args[i-skip_first] = val
     return tuple(args)

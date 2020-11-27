@@ -180,7 +180,7 @@ class MetricsMap(Metrics):
 
         args = tuple()
         if agg_func_kwargs:
-            args = create_args(agg_func.py_func, **agg_func_kwargs)
+            args = create_args(agg_func.py_func,  skip_first=True, **agg_func_kwargs)
 
         metrics_map = self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y,
                                                  metrics=metrics, bin_size=bin_size,
