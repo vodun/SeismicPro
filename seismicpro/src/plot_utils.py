@@ -427,9 +427,9 @@ def show_2d_heatmap(idf, figsize=None, save_to=None, dpi=300, **kwargs):
         plt.savefig(save_to, dpi=dpi)
     plt.show()
 
-def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 10),
-                     pad=False, font_size=11, x_ticks=15, y_ticks=15,
-                     save_to=None, dpi=300,  **kwargs):
+def metrics_map_plot(metrics_map, cmap=None, title=None, figsize=(10, 7), # pylint: disable= too-many-arguments
+                     pad=False, font_size=11, ticks_labels_x=None, ticks_labels_y=None,
+                     x_ticks=15, y_ticks=15, save_to=None, dpi=300, **kwargs):
     """Plot map with metrics values.
 
     Parameters
@@ -447,6 +447,10 @@ def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 10),
         otherwise, the figure will not change.
     font_size : int
         The size of text.
+    ticks_labels_x : array-like, optional
+        Ticks labels for x axis. Passed directly to :func:`matplotlib.axes.Axes.set_xticklabels`.
+    ticks_labels_y : array-like, optional
+        Ticks labels for x axis. Passed directly to :func:`matplotlib.axes.Axes.set_xticklabels`.
     x_ticks : int
         The number of coordinates on the x-axis.
     y_ticks : int
@@ -457,6 +461,11 @@ def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 10),
         Resolution for saved figure.
     kwargs : dict
         Named arguments for :func:`matplotlib.pyplot.imshow`.
+
+    Note
+    ----
+    1. The map draws with origin = 'lower' by default, keep it in mind when passing ticks_labels.
+    2. If ticks_labels_x or ticks_labels_y is not None, x_ticks and y_ticks won't be used.
     """
     if cmap is None:
         colors = ((0.0, 0.6, 0.0), (.66, 1, 0), (0.9, 0.0, 0.0))
@@ -479,48 +488,44 @@ def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 10),
     cbar = fig.colorbar(img, extend='both', ax=ax)
     cbar.ax.tick_params(labelsize=font_size)
 
-    extent_ticks = kwargs.get('extent', [0, metrics_map.shape[1],
-                                         0, metrics_map.shape[0]])
-    extent_labels = None if origin == 'lower' else [*extent_ticks[:2], extent_ticks[3], extent_ticks[2]]
-
-    _set_ticks(ax=ax, x_ticks=x_ticks, y_ticks=y_ticks, extent_ticks=extent_ticks,
-               extent_labels=extent_labels, font_size=font_size)
+    _set_ticks(ax=ax, img_shape=metrics_map.T.shape, ticks_labels_x=ticks_labels_x,
+               ticks_labels_y=ticks_labels_y, x_ticks=x_ticks, y_ticks=y_ticks,
+               font_size=font_size)
 
     if save_to:
         plt.savefig(save_to, dpi=dpi, bbox_inches='tight', pad_inches=0.1)
     plt.show()
 
-def _set_ticks(ax, x_ticks, y_ticks, extent_ticks, extent_labels=None, font_size=None):
+def _set_ticks(ax, img_shape, ticks_labels_x, ticks_labels_y, x_ticks,
+               y_ticks, font_size=None):
     """Set x and y ticks.
     Parameters
     ----------
     ax : matplotlib axes
         Axes to which coordinates are added.
+    img_shape : array with length 2
+        Shape of the image to add ticks to.
+    ticks_labels_x : array-like
+        Ticks labels for x axis. Passed directly to :func:`matplotlib.axes.Axes.set_xticklabels`.
+    ticks_labels_y : array-like
+         Ticks labels for y axis. Passed directly to :func:`matplotlib.axes.Axes.set_yticklabels`.
     x_ticks : int
         The number of coordinates on the x-axis.
     y_ticks : int
         The number of coordinates on the y-axis.
-    extent_ticks : ints or floats (left, right, bottom, top)
-        The bounding box in data coordinates that the image will fill.
-    extent_labels : ints or floats (left, right, bottom, top)
-        The labels to place at the given *extent_ticks* locations.
     font_size : int
         The size of text.
     """
-    x_min, x_max, y_min, y_max = extent_ticks
+    len_x_ticks = len(ticks_labels_x) if ticks_labels_x is not None else x_ticks
+    len_y_ticks = len(ticks_labels_y) if ticks_labels_y is not None else y_ticks
 
-    extent_labels = extent_ticks.copy() if extent_labels is None else extent_labels
-    x_min_lb, x_max_lb, y_min_lb, y_max_lb = extent_labels
+    ax.set_xticks(np.linspace(0, img_shape[0]-1, len_x_ticks))
+    ax.set_yticks(np.linspace(0, img_shape[1]-1, len_y_ticks))
 
-    ticks = np.linspace(x_min, x_max-1, x_ticks)
-    labels = np.linspace(x_min_lb, x_max_lb, x_ticks).astype(int)
-    ax.set_xticks(ticks)
-    ax.set_xticklabels(labels, size=font_size)
-
-    ticks = np.linspace(y_min, y_max-1, y_ticks)
-    labels = np.linspace(y_min_lb, y_max_lb, y_ticks).astype(int)
-    ax.set_yticks(ticks)
-    ax.set_yticklabels(labels, size=font_size)
+    if ticks_labels_x is not None:
+        ax.set_xticklabels(ticks_labels_x, size=font_size)
+    if ticks_labels_y is not None:
+        ax.set_yticklabels(ticks_labels_y, size=font_size)
 
     plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
              rotation_mode="anchor")

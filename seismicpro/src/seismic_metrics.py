@@ -4,7 +4,7 @@ import numpy as np
 from numba import njit, prange
 
 from ..batchflow.models.metrics import Metrics
-from .plot_utils import plot_metrics_map
+from .plot_utils import metrics_map_plot
 from .utils import create_args
 
 
@@ -115,7 +115,8 @@ class MetricsMap(Metrics):
             setattr(self, name, updated_metrics)
 
     def construct_map(self, metrics_name, bin_size=500, agg_func='mean',
-                      agg_func_kwargs=None, plot=True, **plot_kwargs):
+                      agg_func_kwargs=None, plot=True, x_ticks=15, y_ticks=15,
+                      **plot_kwargs):
         """ All obtained coordinates are split into bins of the specified `bin_size`. Each value in the
         resulted map represents the aggregated value of metrics for coordinates that belong to the current
         bin. If there are no values included in the bin, it values is np.nan. Otherwise, the value of this
@@ -141,6 +142,10 @@ class MetricsMap(Metrics):
         plot : bool, optional, default True
             If True, metrics will be plotted.
             Otherwise, the map will be returned without drawing.
+        x_ticks : int
+            The number of coordinates on the x-axis.
+        y_ticks : int
+            The number of coordinates on the y-axis.
         **plot_kwargs : dict
             Kwargs that are passed directly to plotter, see :func:`.plot_utils.plot_metrics_map`.
 
@@ -186,13 +191,10 @@ class MetricsMap(Metrics):
                                                  agg_func=agg_func, args=args)
 
         if plot:
-            extent = [coords_x.min(), coords_x.max(), coords_y.min(), coords_y.max()]
-            # Avoid the situation when we have only one unique coordinate for x or y dimension.
-            # Because in this case our maximum and minimum values for this axis will be
-            # the same, and imshow will draw an empty image.
-            extent[1] += 1 if extent[0] - extent[1] == 0 else 0
-            extent[3] += 1 if extent[2] - extent[3] == 0 else 0
-            plot_metrics_map(metrics_map=metrics_map, extent=extent, **plot_kwargs)
+            ticks_labels_x = np.linspace(coords_x.min(), coords_x.max(), x_ticks).astype(np.int32)
+            ticks_labels_y = np.linspace(coords_y.min(), coords_y.max(), y_ticks).astype(np.int32)
+            metrics_map_plot(metrics_map=metrics_map, ticks_labels_x=ticks_labels_x,
+                             ticks_labels_y=ticks_labels_y, **plot_kwargs)
         return metrics_map
 
     @staticmethod
