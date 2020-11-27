@@ -16,7 +16,7 @@ class MetricsMap(Metrics):
     Parameters
     ----------
     coords : array-like
-        Array with coordinates for X and Y axes.
+        Array of arrays with coordinates for X and Y axes.
     kwargs : dict
         All of the given kwargs are considered as metrics. The kwargs dict have the following structure:
 
@@ -25,17 +25,15 @@ class MetricsMap(Metrics):
            metrics_name_N : metrics_value_N}``
 
         Here, the ``metric_name`` is any string while ``metrics_value`` should be represented by
-        one of the following formats: a number, a one-dimensional array, or an array of one-dimensional arrays.
+        one of the following formats: a one-dimensional array, or an array of one-dimensional arrays.
 
-            * If number, it corresponds to the one passed coordinate. Note, in this case,only one coordinate
-              should be given.
             * If one-dimensional array, each value from the array will correspond to a pair of coordinates
               with the same index. It means that the value of the metric ``metrics_value[i]`` suits ``coords[i]``.
             * If an array of arrays, each coordinate will have an array suit to it.
 
     Attributes
     ----------
-    metrics_names : array-like
+    attribute_names : array-like
         Names of given metrics and coords.
     coords : array-like
         Array with shape (N, 2) that contains the X and Y coordinates.
@@ -44,9 +42,9 @@ class MetricsMap(Metrics):
     Raises
     ------
     ValueError : If kwargs are empty.
-    ValueError : If given coordinates have more than two values for one metrics value.
+    ValueError : If ndim for given coordinate is not equal to 2.
+    ValueError : If shape of first dim is not equal to 2.
     TypeError : If given coordinates are not array-like.
-    TypeError : If the metric is not a number or an array.
     ValueError : If the length of the metric array does not match the length of the array with coordinates.
 
     Note
@@ -74,33 +72,32 @@ class MetricsMap(Metrics):
             raise TypeError("Wrong type of coords have been given. "\
                             "Should be array-like but {} received.".format(type(coords)))
 
-        self.coords = np.asarray(coords)
-        # Assume case when coords is one-dimensional array and cast it to two-dimensional array.
-        self.coords = self.coords if self.coords.ndim >= 2 else np.array([self.coords])
-        for coord_ix, coord in enumerate(self.coords):
-            if len(coord) != 2:
-                raise ValueError("An array with coordinates must contain only two values "\
-                                 "(X and Y) for each metrics value, but the coordinate with index "\
-                                 "{} has length = {}.".format(coord_ix, len(coord)))
+        coords = np.asarray(coords)
+        # If received array with dtype object, cast it to dtype int or float. As far as all coordinates must have
+        # length 2, resulted array will have 2 dims.
+        self.coords = np.array(coords.tolist()) if coords.ndim == 1 else coords
+        if self.coords.ndim != 2:
+            raise ValueError('Received coordinates have wrong number of dims.')
+        if self.coords.shape[1] != 2:
+            raise ValueError('An array with coordinates must have shape (N, 2), where N is a number of elements'\
+                             ' but given array have shape {}'.format(self.coords.shape))
 
         # Create attributes with metrics.
         for name, metrics in kwargs.items():
-            if isinstance(metrics, (int, float, bool, np.number)):
-                setattr(self, name, np.asarray([metrics]))
-            elif isinstance(metrics, (list, tuple)):
-                setattr(self, name, np.array(metrics, dtype=np.object))
-            elif isinstance(metrics, np.ndarray):
-                setattr(self, name, metrics)
-            else:
-                raise TypeError("Wrong type of metrics have been given. "\
-                                "Should be number or array but {} received.".format(type(metrics)))
+            metrics = np.asarray(metrics)
+            # Check whether metrics contains numeric or iterable.
+            try:
+                iter(metrics[0])
+            except TypeError as e:
+                metrics = metrics.reshape(-1, 1)
+            setattr(self, name, metrics)
 
-            if len(self.coords) != len(getattr(self, name)):
+            if len(self.coords) != len(metrics):
                 raise ValueError("Length of coordinates array doesn't match with '{0}' attribute. "\
                                  "Given length of coordinates is {1} while "\
-                                 "length of '{0}' is {2}.". format(name, len(self.coords), len(getattr(self, name))))
+                                 "length of '{0}' is {2}.". format(name, len(self.coords), len(metrics)))
 
-        self.metrics_names = ('coords', ) + tuple(kwargs.keys())
+        self.attribute_names = ('coords', ) + tuple(kwargs.keys())
 
         # The dictionary contains functions for aggregating the resulting map.
         self._agg_fn_dict = {'mean': np.nanmean,
@@ -110,7 +107,7 @@ class MetricsMap(Metrics):
     def append(self, metrics):
         """Append coordinates and metrics to global container."""
         # Append all attributes with given metrics values.
-        for name in self.metrics_names:
+        for name in self.attribute_names:
             updated_metrics = np.append(getattr(self, name), getattr(metrics, name), axis=0)
             setattr(self, name, updated_metrics)
 
@@ -161,14 +158,9 @@ class MetricsMap(Metrics):
         """
         metrics = getattr(self, metrics_name)
 
-        # If metric has an array for one coordinate, we repeat the coordinate value
-        # and expand the metric values into a one-dimensional array.
-        if isinstance(metrics[0], np.ndarray):
-            len_of_copy = [len(metrics_array) for metrics_array in metrics]
-            coords = np.repeat(self.coords, len_of_copy, axis=0)
-            metrics = np.concatenate(metrics)
-        else:
-            coords = self.coords
+        len_of_copy = [len(metrics_array) for metrics_array in metrics]
+        coords = np.repeat(self.coords, len_of_copy, axis=0)
+        metrics = np.concatenate(metrics)
 
         coords_x = np.array(coords[:, 0], dtype=np.int32)
         coords_y = np.array(coords[:, 1], dtype=np.int32)
