@@ -427,7 +427,7 @@ def show_2d_heatmap(idf, figsize=None, save_to=None, dpi=300, **kwargs):
         plt.savefig(save_to, dpi=dpi)
     plt.show()
 
-def metrics_map_plot(metrics_map, cmap=None, title=None, figsize=(10, 7), # pylint: disable= too-many-arguments
+def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7), # pylint: disable= too-many-arguments
                      pad=False, font_size=11, ticks_labels_x=None, ticks_labels_y=None,
                      x_ticks=15, y_ticks=15, save_to=None, dpi=300, **kwargs):
     """Plot map with metrics values.
@@ -443,14 +443,14 @@ def metrics_map_plot(metrics_map, cmap=None, title=None, figsize=(10, 7), # pyli
     figsize : array-like with length 2
         Output figure size.
     pad : bool
-        If true, edges of the figure will be padded with thin while line.
+        If true, edges of the figure will be padded with a thin white line.
         otherwise, the figure will not change.
     font_size : int
         The size of text.
     ticks_labels_x : array-like, optional
         Ticks labels for x axis. Passed directly to :func:`matplotlib.axes.Axes.set_xticklabels`.
     ticks_labels_y : array-like, optional
-        Ticks labels for x axis. Passed directly to :func:`matplotlib.axes.Axes.set_xticklabels`.
+        Ticks labels for y axis. Passed directly to :func:`matplotlib.axes.Axes.set_yticklabels`.
     x_ticks : int
         The number of coordinates on the x-axis.
     y_ticks : int
@@ -464,7 +464,7 @@ def metrics_map_plot(metrics_map, cmap=None, title=None, figsize=(10, 7), # pyli
 
     Note
     ----
-    1. The map draws with origin = 'lower' by default, keep it in mind when passing ticks_labels.
+    1. The map is drawn with origin = 'lower' by default, keep it in mind when passing ticks_labels.
     2. If ticks_labels_x or ticks_labels_y is not None, x_ticks and y_ticks won't be used.
     """
     if cmap is None:
@@ -508,7 +508,7 @@ def _set_ticks(ax, img_shape, ticks_labels_x, ticks_labels_y, x_ticks,
     ticks_labels_x : array-like
         Ticks labels for x axis. Passed directly to :func:`matplotlib.axes.Axes.set_xticklabels`.
     ticks_labels_y : array-like
-         Ticks labels for y axis. Passed directly to :func:`matplotlib.axes.Axes.set_yticklabels`.
+        Ticks labels for y axis. Passed directly to :func:`matplotlib.axes.Axes.set_yticklabels`.
     x_ticks : int
         The number of coordinates on the x-axis.
     y_ticks : int

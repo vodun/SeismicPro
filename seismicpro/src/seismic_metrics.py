@@ -1,11 +1,12 @@
 """File contains metircs for seismic processing."""
 # pylint: disable=no-name-in-module, import-error
+import inspect
+
 import numpy as np
 from numba import njit, prange
 
 from ..batchflow.models.metrics import Metrics
-from .plot_utils import metrics_map_plot
-from .utils import create_args
+from .plot_utils import plot_metrics_map
 
 
 class MetricsMap(Metrics):
@@ -16,9 +17,9 @@ class MetricsMap(Metrics):
     Parameters
     ----------
     coords : array-like
-        Array of arrays with coordinates for X and Y axes.
+        Array of arrays with coordinates for X and Y axes. (добавь про 2d array)
     kwargs : dict
-        All of the given kwargs are considered as metrics. The kwargs dict have the following structure:
+        All of the given kwargs are considered as metrics. The kwargs dict has the following structure:
 
         ``{metircs_name_1 : metrics_value_1,
            ...
@@ -28,8 +29,9 @@ class MetricsMap(Metrics):
         one of the following formats: a one-dimensional array, or an array of one-dimensional arrays.
 
             * If one-dimensional array, each value from the array will correspond to a pair of coordinates
-              with the same index. It means that the value of the metric ``metrics_value[i]`` suits ``coords[i]``.
-            * If an array of arrays, each coordinate will have an array suit to it.
+              with the same index.
+            * If an array of arrays, each array of metrics values will match to a pair of coordinates with
+              the same index.
 
     Attributes
     ----------
@@ -38,6 +40,19 @@ class MetricsMap(Metrics):
     coords : array-like
         Array with shape (N, 2) that contains the X and Y coordinates.
         Where N is a number of given coordinates.
+    DEFAULT_METRICS : dict
+        Dict with functions for aggregation within a bin.
+        Available functions:
+
+            - std
+            - min
+            - max
+            - mean
+            - quantile
+            - absquantile
+
+    kwargs keys : array-like
+        All keys from kwargs become instance attributes that contain the corresponding metric values.
 
     Raises
     ------
@@ -50,8 +65,7 @@ class MetricsMap(Metrics):
 
     Note
     ----
-    1. All keys from kwargs become class attributes.
-    2. The length of the metric array and the coordinate array must match.
+    1. The length of the metric array and the coordinate array must match.
     """
 
     DEFAULT_METRICS = {
@@ -61,7 +75,7 @@ class MetricsMap(Metrics):
         'mean' : njit(lambda array: np.nanmin(array)),
         'median' : njit(lambda array: np.nanmedian(array)),
         'quantile' : njit(lambda array, q: np.nanquantile(array, q=q)),
-        'absquantile' : njit(lambda array, q: np.quantile(np.abs(array - np.mean(array)), q))
+        'absquantile' : njit(lambda array, q: np.nanquantile(np.abs(array - np.nanmean(array)), q))
     }
 
     def __init__(self, coords, **kwargs):
@@ -90,9 +104,7 @@ class MetricsMap(Metrics):
                                 "Must be array-like but received {}".format(name, type(metrics)))
             metrics = np.asarray(metrics)
             # Check whether metrics contains numeric or iterable.
-            try:
-                iter(metrics[0])
-            except TypeError:
+            if not isinstance(metrics[0], (list, tuple, np.ndarray)):
                 metrics = metrics.reshape(-1, 1)
             setattr(self, name, metrics)
 
@@ -112,7 +124,7 @@ class MetricsMap(Metrics):
         """Append coordinates and metrics to global container."""
         # Append all attributes with given metrics values.
         for name in self.attribute_names:
-            updated_metrics = np.append(getattr(self, name), getattr(metrics, name), axis=0)
+            updated_metrics = np.concatenate([getattr(self, name), getattr(metrics, name)])
             setattr(self, name, updated_metrics)
 
     def construct_map(self, metrics_name, bin_size=500, agg_func='mean',
@@ -120,8 +132,8 @@ class MetricsMap(Metrics):
                       **plot_kwargs):
         """ All obtained coordinates are split into bins of the specified `bin_size`. Each value in the
         resulted map represents the aggregated value of metrics for coordinates that belong to the current
-        bin. If there are no values included in the bin, it values is np.nan. Otherwise, the value of this
-        bin is calculated based on the aggregation function `agg_func`.
+        bin. If there are no values included in the bin, its values is `np.nan`. Otherwise, the value of this
+        bin is calculated by calling `agg_func`.
 
         Parameters
         ----------
@@ -133,13 +145,13 @@ class MetricsMap(Metrics):
             If int or float, the bin size will be the same for X and Y dimensions.
         agg_func : str or callable, optional, default 'mean'
             Function to aggregate metrics values in one bin.
-            If str, the function from :class:`.NumbaNumpy` will be used for aggregation.
-            If callable, it will be used for aggregation as this. The function used must
-            be wrapped in the `njit` decorator. The first argument is data for aggregation
-            within the bin, the other arguments can take any numeric values and must be
-            passed using the `agg_func_kwargs`.
+            If str, the function from `DEFAULT_METRICS` attribute will be used for aggregation.
+            If callable, it will be used for aggregation within a bin. The function used must
+            be wrapped in the `njit` decorator. The first argument is a 1-d numpy.ndarray,
+            containing metric values in a bin, the other arguments can take any numeric values
+            and must be passed using the `agg_func_kwargs`.
         agg_func_kwargs : dict, optional
-            Kwargs that will be applied to agg_func before evaluating.
+            Kwargs that will be passed to `agg_func` during evaluating.
         plot : bool, optional, default True
             If True, metrics will be plotted.
             Otherwise, the map will be returned without drawing.
@@ -152,18 +164,19 @@ class MetricsMap(Metrics):
 
         Returns
         -------
-            : two-dimensional np.ndarray
-            A matrix, where each value corresponds to the aggregated value
-            of all metrics included in a specific bin.
+        metrics_map : two-dimensional np.ndarray
+            A matrix, where each value is an aggregated metrics value.
 
         Raises
         ------
-        ValueError : If agg_func is not str or callable.
+        TypeError : If agg_func is not str or callable.
+        ValueError : If agg_func is str and is not one of the keys of DEFAULT_METRICS.
+        ValueError : If agg_func is not wrapped with @njit decorator.
         """
         metrics = getattr(self, metrics_name)
 
-        len_of_copy = [len(metrics_array) for metrics_array in metrics]
-        coords = np.repeat(self.coords, len_of_copy, axis=0)
+        coords_repeats = [len(metrics_array) for metrics_array in metrics]
+        coords = np.repeat(self.coords, coords_repeats, axis=0)
         metrics = np.concatenate(metrics)
 
         coords_x = np.array(coords[:, 0], dtype=np.int32)
@@ -174,13 +187,19 @@ class MetricsMap(Metrics):
             bin_size = (bin_size, bin_size)
 
         if isinstance(agg_func, str):
-            agg_func = self.DEFAULT_METRICS[agg_func]
+            agg_func = self.DEFAULT_METRICS.get(agg_func, agg_func)
+            if not callable(agg_func):
+                raise ValueError("{} is not valid value for aggregation." \
+                                 " Supported values are {}".format(agg_func, ' '.join(self.DEFAULT_METRICS.keys())))
         elif not callable(agg_func):
-            raise ValueError("agg_func should be either str or callable, not {}".format(type(agg_func)))
+            raise TypeError("agg_func should be either str or callable, not {}".format(type(agg_func)))
 
         args = tuple()
         if agg_func_kwargs:
-            args = create_args(agg_func.py_func,  skip_first=True, **agg_func_kwargs)
+            if not getattr(agg_func, 'py_func', False):
+                raise ValueError("It seems that the aggregation function is not njitted. "\
+                                 "Please wrap the function with @njit decorator.")
+            args = self._create_args(agg_func.py_func, **agg_func_kwargs)
 
         metrics_map = self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y,
                                                  metrics=metrics, bin_size=bin_size,
@@ -189,14 +208,42 @@ class MetricsMap(Metrics):
         if plot:
             ticks_labels_x = np.linspace(coords_x.min(), coords_x.max(), x_ticks).astype(np.int32)
             ticks_labels_y = np.linspace(coords_y.min(), coords_y.max(), y_ticks).astype(np.int32)
-            metrics_map_plot(metrics_map=metrics_map, ticks_labels_x=ticks_labels_x,
+            plot_metrics_map(metrics_map=metrics_map, ticks_labels_x=ticks_labels_x,
                              ticks_labels_y=ticks_labels_y, **plot_kwargs)
         return metrics_map
+
+    def _create_args(self, call, **kwargs):
+        """ Constructing tuple with positional arguments to callable ``call`` based on
+        ``kwargs`` and ``call``'s defaults.
+
+        Parameters
+        ----------
+        call : callable
+            Function to create positional arguments for.
+        kwargs : dict
+            Keyword arguments to function ``call``.
+
+        Returns
+        -------
+        args : tuple
+            Positional arguments to ``call``.
+        """
+        params = inspect.signature(call).parameters
+        args = [kwargs.get(name, param.default) for name, param in params.items()]
+        args = args[1:]
+
+        if inspect.Parameter.empty in args:
+            ix = np.argwhere(np.array(args) == inspect.Parameter.empty)[0][0]
+            name = list(params.keys())[ix+1]
+            raise ValueError("Missed value to '{}' argument.".format(name))
+
+        return tuple(args)
+
 
     @staticmethod
     @njit(parallel=True)
     def construct_metrics_map(coords_x, coords_y, metrics, bin_size, agg_func, args):
-        """Calculation of metrics map.
+        """Calculate of metrics map.
 
         Parameters
         ----------
@@ -205,15 +252,15 @@ class MetricsMap(Metrics):
         coords_x : array-like
             Coordinates for Y axis.
         metrics : array-like
-            Quality values.
+            1d array with metrics values.
         bin_size : tuple with length 2
             The size of bin by X and Y axes.
-        arrg_func : numba callable
+        agg_func : numba callable in nopython mode
             Function to aggregate metrics values in one bin.
 
         Returns
         -------
-            : two-dimensional array
+        metrics_map : two-dimensional array
             The resulting map with aggregated metric values by bins.
         """
         bin_size_x, bin_size_y = bin_size
@@ -224,6 +271,6 @@ class MetricsMap(Metrics):
             for j in prange(len(range_y)): #pylint: disable=not-an-iterable
                 mask = ((coords_x - range_x[i] >= 0) & (coords_x - range_x[i] < bin_size_x) &
                         (coords_y - range_y[j] >= 0) & (coords_y - range_y[j] < bin_size_y))
-                if mask.sum() > 0:
+                if np.any(mask):
                     metrics_map[j, i] = agg_func(metrics[mask], *args)
         return metrics_map
