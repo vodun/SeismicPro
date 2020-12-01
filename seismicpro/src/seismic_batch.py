@@ -894,18 +894,19 @@ class SeismicBatch(Batch):
         # Converting ms to seconds.
         times = self.meta[src]['samples'] / 1000
         samples_step = times[1] - times[0]
+        self.copy_meta(src, dst)
 
         if residual:
             if velocity_law is None:
-                raise ValueError('Velocity_law can not be None when residual semblance is calculating.')
+                raise ValueError('velocity_law can not be None when residual semblance is calculating.')
             self._calc_residual_semblance(src=src, dst=dst, times=times, velocities=velocities,
                                           velocity_law=velocity_law, samples_step=samples_step,
                                           window=window, p=p)
+            self.meta[dst].update(residual=True)
         else:
             self._calculate_semblance(src=src, dst=dst, times=times, velocities=velocities,
                                       samples_step=samples_step, window=window)
 
-        self.copy_meta(src, dst)
         self.meta[dst].update(velocities=velocities)
         return self
 
@@ -1859,20 +1860,21 @@ class SeismicBatch(Batch):
                         save_to=save_to, **kwargs)
         return self
 
-    def semblance_plot(self, src, index, x_ticks=15, y_ticks=15, velocity_law=None,
-                       name=None, figsize=(15, 12), save_dir=None, dpi=100):
+    def semblance_plot(self, src, index, velocity_law=None, x_ticks=15, y_ticks=15,
+                       title=None, figsize=(15, 12), font_size=11, save_dir=None, dpi=300):
         """ some plotters docs """
         velocities = self.meta[src].get('velocities')
         if velocities is None:
             raise ValueError('There is no semblance in {} variable.'.format(src))
+        residual = self.meta[src].get('residual', False)
+
         pos = self.index.get_pos(index)
         semblance = getattr(self, src)[pos]
 
         samples = self.meta[src].get('samples')
         samples_step = samples[1] - samples[0]
-
         velocity_law = getattr(self, velocity_law)[pos] if isinstance(velocity_law, str) else velocity_law
-        semblance_plot(semblance=semblance, velocities=velocities, x_ticks=x_ticks,
-                       y_ticks=y_ticks, samples_step=samples_step, velocity_law=velocity_law,
-                       name=name, index=index, figsize=figsize, save_dir=save_dir, dpi=dpi)
+        semblance_plot(semblance=semblance, velocities=velocities, velocity_law=velocity_law,
+                       samples_step=samples_step, residual=residual, x_ticks=x_ticks, y_ticks=y_ticks, title=title,
+                       index=index, figsize=figsize, font_size=font_size, save_dir=save_dir, dpi=dpi)
         return self

@@ -858,15 +858,9 @@ def interpolate_velocities(points, times):
     f = interp1d(points_times, points_velocities, fill_value="extrapolate")
     return f(times)
 
-def calc_bound(interpolated_velocity, velocities, p):
-    """calc_bound"""
-    bounds = interpolated_velocity * p
-    bounds = np.argmin(np.abs(bounds.reshape(-1, 1) - velocities), axis=1)
-    return bounds
-
 def calc_bounds(interpolated_velocity, velocities, p):
     """calc_bound"""
     interpolated_velocity = np.clip(interpolated_velocity, velocities[0], velocities[-1])
-    lower_bounds = calc_bound(interpolated_velocity, velocities, 1 - p)
-    upper_bounds = calc_bound(interpolated_velocity, velocities, 1 + p)
+    lower_bounds = np.argmin(np.abs((interpolated_velocity * (1 - p)).reshape(-1, 1) - velocities), axis=1)
+    upper_bounds = np.argmin(np.abs((interpolated_velocity * (1 + p)).reshape(-1, 1) - velocities), axis=1)
     return lower_bounds, upper_bounds

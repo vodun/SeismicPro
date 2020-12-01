@@ -427,39 +427,45 @@ def show_2d_heatmap(idf, figsize=None, save_to=None, dpi=300, **kwargs):
         plt.savefig(save_to, dpi=dpi)
     plt.show()
 
-def semblance_plot(semblance, velocities, x_ticks=15, y_ticks=15, samples_step=None, # pylint: disable=too-many-arguments
-                   velocity_law=None, name=None, index=None, figsize=None, font_size=11,
-                   save_dir=None, dpi=100):
-    """ Draw given semblance.
-
-    TODO: REWRITE DOCS
+def semblance_plot(semblance, velocities, velocity_law=None, samples_step=None, residual=False, # pylint: disable=too-many-arguments
+                   x_ticks=15, y_ticks=15, title=None, index=None, figsize=(15, 12), font_size=11,
+                   save_dir=None, dpi=300):
+    """ Plot vertical velocity semblance or residual semblance if flag `residual` is True. If `velocity_law` is given
+    and delay between velocities more then 50 ms, every given point will highlighted with a circle.
 
     Parameters
     ----------
-    semblance : numpy array
-        Matrix with semblance.
-    velocities : list of length 2 or list
-         if lenght == 2 - Min and max values of speed in ms/sec.
-         else first value should be minumum, last value - maximum.
-    velocity_step : int
-        Frequency of speed display on the x-axis.
-    velocity_law : list
-        list with elements in format [[time, velocity], ...].
-    color_points : str
-        Name of the colors.
-    name : str
-        Name of the title.
-    index : int
-        Seismic index or given seismogram.
+    semblance : 2-d np.ndarray
+        Array with  vertical velocity or residual sembalnce.
+    velocities :  array-like with length 2
+        Min and max values of speed in m/sec.
+    velocity_law : array-like, optional
+        Array with elements in format [[time, velocity], ...], by default None
+    samples_step : int, optional
+        Step in miliseconds between two samples, by default None
+    residual : bool, optional
+        If True, vertical line will be added in the middle of the graph.
+        Otherwise, !! , by default False
+    x_ticks : int, optional
+        The number of coordinates on the x-axis, by default 15
+    y_ticks : int, optional
+        The number of coordinates on the y-axis, by default 15
+    title : str, optional
+        Plot title, by default None
+    index : int, optional
+        Index of semblance if function calls from batch, by default None
     figsize : tuple, optional
-        Output figure size.
-
-    Returns
-    -------
-    Semblance plot.
+        Output plot size, by default (15, 12)
+    font_size : int, optional
+        The size of text, by default 11
+    save_dir : [type], optional
+        If given, save plot to the path specified, by default None
+    dpi : int, optional
+        Resolution for saved figure, by default 300
     """
     plt.figure(figsize=figsize)
-
+    # Split range of semblance on specific levels. Probably the levels are gonna scared
+    # unprepared person but i found the result based on this levels the most attractive.
     max_val = np.max(semblance)
     levels = (np.logspace(0, 1, num=16, base=500)/500) * max_val
     levels[0] = 0
@@ -467,71 +473,91 @@ def semblance_plot(semblance, velocities, x_ticks=15, y_ticks=15, samples_step=N
     ylist = np.arange(0, semblance.shape[0])
     x_grid, y_grid = np.meshgrid(xlist, ylist)
 
+    # Add the level lines and colorize the graph.
     fig, ax = plt.subplots(figsize=figsize)
     norm = mcolors.BoundaryNorm(boundaries=levels, ncolors=256)
     ax.contour(x_grid, y_grid, semblance, levels, colors='k', linewidths=.5, alpha=.5)
     img = ax.imshow(semblance, norm=norm, aspect='auto', cmap=plt.get_cmap('seismic'))
     fig.colorbar(img, ticks=levels[1::2])
 
-    steps = samples_step if samples_step is not None else 1
-
-    extent_ticks = [0, semblance.shape[1], 0, semblance.shape[0]]
-    extent_labels = [velocities[0], velocities[-1], 0, semblance.shape[0] * steps]
-    _set_ticks(ax, x_ticks, y_ticks, extent_ticks, extent_labels, font_size)
-    ax.set_ylim(semblance.shape[0], 0)
-
-    if name is not None or index is not None:
-        name = name if name is not None else ''
-        index = index if index is not None else ''
-        ax.set_title('{} {}'.format(name, index))
     ax.set_xlabel('Velocity')
-
+    # Set lables based on samples_step.
     if samples_step is not None:
         ax.set_ylabel('Time')
     else:
         ax.set_ylabel('Samples')
+    samples_step = samples_step if samples_step is not None else 1
 
-    if velocity_law is not None:
-        velocity_law = np.asarray(velocity_law) if isinstance(velocity_law, (tuple, list)) else velocity_law
-        time = velocity_law[:, 0] / samples_step
-        marker = 'o' if np.min(np.diff(np.sort(time))) > 50 else ''
-        normalized_vel = (velocity_law[:, 1] - velocities[0]) / (velocities[-1] - velocities[0]) * len(velocities)
-        plt.plot(normalized_vel, time, c='#fafcc2', linewidth=2.5, marker=marker)
+    # Add ticks and labels.
+    ticks_labels_x = np.linspace(velocities[0], velocities[-1], x_ticks).astype(np.int32)
+    ticks_labels_y = np.linspace(0, semblance.shape[0] * samples_step, y_ticks).astype(np.int32)
+    _set_ticks(ax, img_shape=semblance.T.shape, ticks_labels_x=ticks_labels_x,
+               ticks_labels_y=ticks_labels_y, font_size=font_size)
+    ax.set_ylim(semblance.shape[0], 0)
+
+    title_str = ''
+    if title is not None:
+        title_str += title + ' '
+    if index is not None:
+        title_str += str(index)
+    ax.set_title(title_str, fontsize=font_size)
+
+    # Adding a velocity line on semblance. If given residual semblance,
+    # a vertical line is added in the middle of the graph.
+    if residual or velocity_law is not None:
+        y_points = np.arange(len(semblance))
+        if velocity_law is not None:
+            # Find the coordinates on the graph that correspond to a certain velocity.
+            velocity_law = np.asarray(velocity_law) if isinstance(velocity_law, (tuple, list)) else velocity_law
+            x_points = (velocity_law[:, 1] - velocities[0]) / (velocities[-1] - velocities[0]) * len(velocities)
+            y_points = velocity_law[:, 0] / samples_step
+        if residual:
+            x_points = np.zeros(len(y_points)) + semblance.shape[1]/2
+        # Change marker of velocity points if they are set at distance from each other. This avoid dots
+        # in every point, if velocity law is set for each time.
+        marker = 'o' if np.min(np.diff(np.sort(y_points))) > 50 else ''
+        plt.plot(x_points, y_points, c='#fafcc2', linewidth=2.5, marker=marker)
+
     if save_dir:
         plt.savefig(save_dir, bbox_inches='tight', pad_inches=0.1, dpi=dpi)
     plt.show()
 
-def _set_ticks(ax, x_ticks, y_ticks, extent_ticks, extent_labels=None, font_size=None):
+def _set_ticks(ax, img_shape, ticks_labels_x=None, ticks_labels_y=None, x_ticks=None,
+               y_ticks=None, font_size=None):
     """Set x and y ticks.
+
     Parameters
     ----------
     ax : matplotlib axes
         Axes to which coordinates are added.
-    x_ticks : int
+    img_shape : array with length 2
+        Shape of the image to add ticks to.
+    ticks_labels_x : array-like, optional
+        Ticks labels for x axis. Passed directly to :func:`matplotlib.axes.Axes.set_xticklabels`.
+    ticks_labels_y : array-like, optional
+        Ticks labels for y axis. Passed directly to :func:`matplotlib.axes.Axes.set_yticklabels`.
+    x_ticks : int, optional
         The number of coordinates on the x-axis.
-    y_ticks : int
+    y_ticks : int, optional
         The number of coordinates on the y-axis.
-    extent_ticks : ints or floats (left, right, bottom, top)
-        The bounding box in data coordinates that the image will fill.
-    extent_labels : ints or floats (left, right, bottom, top)
-        The labels to place at the given *extent_ticks* locations.
-    font_size : int
+    font_size : int, optional
         The size of text.
+
+    Note
+    ----
+    1. Number of labels on x axis depends on length of `ticks_labels_x` or value of `x_ticks`. Moreover,
+    if `ticks_labels_x` is not None, it will be used regardless `x_ticks`. The same works for y axis.
     """
-    x_min, x_max, y_min, y_max = extent_ticks
+    len_x_ticks = len(ticks_labels_x) if ticks_labels_x is not None else x_ticks
+    len_y_ticks = len(ticks_labels_y) if ticks_labels_y is not None else y_ticks
 
-    extent_labels = extent_ticks.copy() if extent_labels is None else extent_labels
-    x_min_lb, x_max_lb, y_min_lb, y_max_lb = extent_labels
+    ax.set_xticks(np.linspace(0, img_shape[0]-1, len_x_ticks))
+    ax.set_yticks(np.linspace(0, img_shape[1]-1, len_y_ticks))
 
-    ticks = np.linspace(x_min, x_max-1, x_ticks)
-    labels = np.linspace(x_min_lb, x_max_lb, x_ticks).astype(int)
-    ax.set_xticks(ticks)
-    ax.set_xticklabels(labels, size=font_size)
-
-    ticks = np.linspace(y_min, y_max-1, y_ticks)
-    labels = np.linspace(y_min_lb, y_max_lb, y_ticks).astype(int)
-    ax.set_yticks(ticks)
-    ax.set_yticklabels(labels, size=font_size)
+    if ticks_labels_x is not None:
+        ax.set_xticklabels(ticks_labels_x, size=font_size)
+    if ticks_labels_y is not None:
+        ax.set_yticklabels(ticks_labels_y, size=font_size)
 
     plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
              rotation_mode="anchor")
