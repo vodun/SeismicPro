@@ -430,7 +430,7 @@ def show_2d_heatmap(idf, figsize=None, save_to=None, dpi=300, **kwargs):
 def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7), # pylint: disable= too-many-arguments
                      pad=False, font_size=11, ticks_labels_x=None, ticks_labels_y=None,
                      x_ticks=15, y_ticks=15, save_to=None, dpi=300, **kwargs):
-    """Plot map with metrics values.
+    """ Plot map with metrics values.
 
     Parameters
     ----------
@@ -497,7 +497,7 @@ def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7), # pyli
 
 def _set_ticks(ax, img_shape, ticks_labels_x=None, ticks_labels_y=None, x_ticks=None,
                y_ticks=None, font_size=None):
-    """Set x and y ticks.
+    """ Set x and y ticks.
 
     Parameters
     ----------

@@ -17,7 +17,7 @@ class MetricsMap(Metrics):
     Parameters
     ----------
     coords : array-like
-        Array of arrays with coordinates for X and Y axes. (добавь про 2d array)
+        Array of arrays or 2d array with coordinates for X and Y axes.
     kwargs : dict
         All of the given kwargs are considered as metrics. The kwargs dict has the following structure:
 
@@ -90,12 +90,13 @@ class MetricsMap(Metrics):
         coords = np.asarray(coords)
         # If received array with dtype object, cast it to dtype int or float. As far as all coordinates must have
         # length 2, resulted array will have 2 dims.
-        self.coords = np.array(coords.tolist()) if coords.ndim == 1 else coords
-        if self.coords.ndim != 2:
+        coords = np.array(coords.tolist()) if coords.ndim == 1 else coords
+        if coords.ndim != 2:
             raise ValueError("Received coordinates have wrong number of dims.")
-        if self.coords.shape[1] != 2:
+        if coords.shape[1] != 2:
             raise ValueError("An array with coordinates must have shape (N, 2), where N is a number of elements"\
-                             " but given array have shape {}".format(self.coords.shape))
+                             " but given array have shape {}".format(coords.shape))
+        self.coords = coords
 
         # Create attributes with metrics.
         for name, metrics in kwargs.items():
@@ -121,7 +122,7 @@ class MetricsMap(Metrics):
                              'min': np.nanmin}
 
     def append(self, metrics):
-        """Append coordinates and metrics to global container."""
+        """ Append coordinates and metrics to global container."""
         # Append all attributes with given metrics values.
         for name in self.attribute_names:
             updated_metrics = np.concatenate([getattr(self, name), getattr(metrics, name)])
@@ -241,7 +242,7 @@ class MetricsMap(Metrics):
     @staticmethod
     @njit(parallel=True)
     def construct_metrics_map(coords_x, coords_y, metrics, bin_size, agg_func, args):
-        """Calculate of metrics map.
+        """ Calculate of metrics map.
 
         Parameters
         ----------
