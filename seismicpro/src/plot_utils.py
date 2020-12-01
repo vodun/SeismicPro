@@ -465,7 +465,6 @@ def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7), # pyli
     Note
     ----
     1. The map is drawn with origin = 'lower' by default, keep it in mind when passing ticks_labels.
-    2. If ticks_labels_x or ticks_labels_y is not None, x_ticks and y_ticks won't be used.
     """
     if cmap is None:
         colors = ((0.0, 0.6, 0.0), (.66, 1, 0), (0.9, 0.0, 0.0))
@@ -496,25 +495,31 @@ def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7), # pyli
         plt.savefig(save_to, dpi=dpi, bbox_inches='tight', pad_inches=0.1)
     plt.show()
 
-def _set_ticks(ax, img_shape, ticks_labels_x, ticks_labels_y, x_ticks,
-               y_ticks, font_size=None):
+def _set_ticks(ax, img_shape, ticks_labels_x=None, ticks_labels_y=None, x_ticks=None,
+               y_ticks=None, font_size=None):
     """Set x and y ticks.
+
     Parameters
     ----------
     ax : matplotlib axes
         Axes to which coordinates are added.
     img_shape : array with length 2
         Shape of the image to add ticks to.
-    ticks_labels_x : array-like
+    ticks_labels_x : array-like, optional
         Ticks labels for x axis. Passed directly to :func:`matplotlib.axes.Axes.set_xticklabels`.
-    ticks_labels_y : array-like
+    ticks_labels_y : array-like, optional
         Ticks labels for y axis. Passed directly to :func:`matplotlib.axes.Axes.set_yticklabels`.
-    x_ticks : int
+    x_ticks : int, optional
         The number of coordinates on the x-axis.
-    y_ticks : int
+    y_ticks : int, optional
         The number of coordinates on the y-axis.
-    font_size : int
+    font_size : int, optional
         The size of text.
+
+    Note
+    ----
+    1. Number of labels on x axis depends on length of `ticks_labels_x` or value of `x_ticks`. Moreover,
+    if `ticks_labels_x` is not None, it will be used regardless `x_ticks`. The same works for y axis.
     """
     len_x_ticks = len(ticks_labels_x) if ticks_labels_x is not None else x_ticks
     len_y_ticks = len(ticks_labels_y) if ticks_labels_y is not None else y_ticks

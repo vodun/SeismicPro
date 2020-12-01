@@ -236,9 +236,7 @@ class MetricsMap(Metrics):
             ix = np.argwhere(np.array(args) == inspect.Parameter.empty)[0][0]
             name = list(params.keys())[ix+1]
             raise ValueError("Missed value to '{}' argument.".format(name))
-
         return tuple(args)
-
 
     @staticmethod
     @njit(parallel=True)
