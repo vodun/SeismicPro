@@ -95,7 +95,7 @@ class MetricsMap(Metrics):
             raise ValueError("Received coordinates have wrong number of dims.")
         if coords.shape[1] != 2:
             raise ValueError("An array with coordinates must have shape (N, 2), where N is a number of elements"\
-                             " but given array have shape {}".format(coords.shape))
+                             " but given array has shape {}".format(coords.shape))
         self.coords = coords
 
         # Create attributes with metrics.
@@ -190,10 +190,10 @@ class MetricsMap(Metrics):
         if isinstance(agg_func, str):
             agg_func = self.DEFAULT_METRICS.get(agg_func, agg_func)
             if not callable(agg_func):
-                raise ValueError("{} is not valid value for aggregation." \
-                                 " Supported values are {}".format(agg_func, ' '.join(self.DEFAULT_METRICS.keys())))
+                raise ValueError("'{}' is not valid value for aggregation." \
+                                 " Supported values are: '{}'".format(agg_func, "', '".join(self.DEFAULT_METRICS.keys())))
         elif not callable(agg_func):
-            raise TypeError("agg_func should be either str or callable, not {}".format(type(agg_func)))
+            raise TypeError("'agg_func' should be either str or callable, not {}".format(type(agg_func)))
 
         args = tuple()
         if agg_func_kwargs:
@@ -230,13 +230,11 @@ class MetricsMap(Metrics):
             Positional arguments to ``call``.
         """
         params = inspect.signature(call).parameters
-        args = [kwargs.get(name, param.default) for name, param in params.items()]
-        args = args[1:]
-
-        if inspect.Parameter.empty in args:
-            ix = np.argwhere(np.array(args) == inspect.Parameter.empty)[0][0]
-            name = list(params.keys())[ix+1]
-            raise ValueError("Missed value to '{}' argument.".format(name))
+        args = [kwargs.get(name, param.default) for name, param in params.items()][1:]
+        params_names = list(params.keys())[1:]
+        empty_params = [name for name, arg in zip(params_names, args) if arg == inspect.Parameter.empty]
+        if empty_params:
+            raise ValueError("Missed value to '{}' argument(s).".format("', '".join(empty_params)))
         return tuple(args)
 
     @staticmethod
