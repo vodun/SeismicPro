@@ -430,8 +430,8 @@ def show_2d_heatmap(idf, figsize=None, save_to=None, dpi=300, **kwargs):
 def semblance_plot(semblance, velocities, velocity_law=None, samples_step=None, residual=False, # pylint: disable=too-many-arguments
                    x_ticks=15, y_ticks=15, title=None, index=None, figsize=(15, 12), font_size=11,
                    save_dir=None, dpi=300):
-    """ Plot vertical velocity semblance or residual semblance if flag `residual` is True. If `velocity_law` is given
-    and delay between velocities more then 50 ms, every given point will highlighted with a circle.
+    """ Plot vertical velocity semblance or residual semblance if flag `residual` is True. Moreover, the plotter
+    is able to add velocity law above semblance by passing `velocity_law` parameter.
 
     Parameters
     ----------
@@ -440,28 +440,30 @@ def semblance_plot(semblance, velocities, velocity_law=None, samples_step=None, 
     velocities :  array-like with length 2
         Min and max values of speed in m/sec.
     velocity_law : array-like, optional
-        Array with elements in format [[time, velocity], ...], by default None
+        Array with elements in format [[time, velocity], ...]. If given, the law will be plot as a thin light
+        brown line above the semblance. Also, if delay between velocities more then 50 ms, every given point
+        will highlighted with a circle.
     samples_step : int, optional
-        Step in miliseconds between two samples, by default None
-    residual : bool, optional
-        If True, vertical line will be added in the middle of the graph.
-        Otherwise, !! , by default False
-    x_ticks : int, optional
-        The number of coordinates on the x-axis, by default 15
-    y_ticks : int, optional
-        The number of coordinates on the y-axis, by default 15
+        Step in miliseconds between two samples.
+    residual : bool, optional, by default False
+        If True, velocity law will be shown as a verical line in the middle of the graph.
+        Otherwise, velocity law is shown based on time and velocity from `velocity_law`.
+    x_ticks : int, optional, by default 15
+        The number of coordinates on the x-axis.
+    y_ticks : int, optional, by default 15
+        The number of coordinates on the y-axis.
     title : str, optional
-        Plot title, by default None
+        Plot title.
     index : int, optional
-        Index of semblance if function calls from batch, by default None
-    figsize : tuple, optional
-        Output plot size, by default (15, 12)
-    font_size : int, optional
-        The size of text, by default 11
+        Index of semblance if function calls from batch.
+    figsize : tuple, optional, by default (15, 12)
+        Output plot size.
+    font_size : int, optional, by default 11
+        The size of text.
     save_dir : [type], optional
-        If given, save plot to the path specified, by default None
-    dpi : int, optional
-        Resolution for saved figure, by default 300
+        If given, save plot to the path specified.
+    dpi : int, optional, by default 300
+        Resolution for saved figure.
     """
     plt.figure(figsize=figsize)
     # Split range of semblance on specific levels. Probably the levels are gonna scared
