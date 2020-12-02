@@ -104,7 +104,7 @@ class MetricsMap(Metrics):
                 raise TypeError("Received wrong type of '{}' metrics. "\
                                 "Must be array-like but received {}".format(name, type(metrics)))
             metrics = np.asarray(metrics)
-            # Check whether metrics contains numeric or iterable.
+            # Check whether metrics contains numeric or iterable. If numeric, reshape it to 2-d array.
             if not isinstance(metrics[0], (list, tuple, np.ndarray)):
                 metrics = metrics.reshape(-1, 1)
             setattr(self, name, metrics)
@@ -186,7 +186,8 @@ class MetricsMap(Metrics):
             agg_func = self.DEFAULT_METRICS.get(agg_func, agg_func)
             if not callable(agg_func):
                 raise ValueError("'{}' is not valid value for aggregation." \
-                                 " Supported values are: '{}'".format(agg_func, "', '".join(self.DEFAULT_METRICS.keys())))
+                                 " Supported values are: '{}'".format(agg_func,
+                                                                      "', '".join(self.DEFAULT_METRICS.keys())))
         elif not callable(agg_func):
             raise TypeError("'agg_func' should be either str or callable, not {}".format(type(agg_func)))
 

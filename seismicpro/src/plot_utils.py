@@ -436,30 +436,30 @@ def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7), # pyli
     ----------
     metrics_map : array-like
         Array with aggregated metrics values.
-    cmap : str or `~matplotlib.colors.Colormap`
+    cmap : str or `~matplotlib.colors.Colormap`, optional
         Passed directly to `~matplotlib.imshow`
-    title : str
+    title : str, optional
         The title of the plot.
-    figsize : array-like with length 2
+    figsize : array-like with length 2, optional, default (10, 7)
         Output figure size.
-    pad : bool
+    pad : bool, optional
         If true, edges of the figure will be padded with a thin white line.
         otherwise, the figure will not change.
-    font_size : int
+    font_size : int, optional, default 11
         The size of text.
     ticks_range_x : array-like with length 2, optional
         Min and max value of labels on the x-axis.
     ticks_range_y : array-like with length 2, optional
         Min and max value of labels on the y-axis.
-    x_ticks : int
+    x_ticks : int, optional, default 15
         The number of coordinates on the x-axis.
-    y_ticks : int
+    y_ticks : int, optional, default 15
         The number of coordinates on the y-axis.
     save_to : str, optional
         If given, save plot to the path specified.
     dpi : int, optional, default 300
         Resolution for saved figure.
-    kwargs : dict
+    kwargs : dict, optional
         Named arguments for :func:`matplotlib.pyplot.imshow`.
 
     Note
@@ -495,8 +495,8 @@ def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7), # pyli
         plt.savefig(save_to, dpi=dpi, bbox_inches='tight', pad_inches=0.1)
     plt.show()
 
-def _set_ticks(ax, img_shape, ticks_range_x=None, ticks_range_y=None, x_ticks=None,
-               y_ticks=None, font_size=None):
+def _set_ticks(ax, img_shape, ticks_range_x=None, ticks_range_y=None, x_ticks=15,
+               y_ticks=15, font_size=None):
     """ Set x and y ticks.
 
     Parameters
@@ -509,9 +509,9 @@ def _set_ticks(ax, img_shape, ticks_range_x=None, ticks_range_y=None, x_ticks=No
         Min and max value of labels on the x-axis.
     ticks_range_y : array-like with length 2, optional
         Min and max value of labels on the y-axis.
-    x_ticks : int, optional
+    x_ticks : int, optional, default 15
         The number of coordinates on the x-axis.
-    y_ticks : int, optional
+    y_ticks : int, optional, default 15
         The number of coordinates on the y-axis.
     font_size : int, optional
         The size of text.
