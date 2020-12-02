@@ -760,7 +760,7 @@ class SeismicBatch(Batch):
             x1 = min(x+len_x, res_x)
             y1 = min(y+len_y, res_y)
 
-            res[x:x1, y:y1] = crop[:x1-x, :y1-y]
+            res[x:x1, y:y1] += crop[:x1-x, :y1-y]
             crop_counts[x:x1, y:y1] += 1
 
         crop_counts[crop_counts == 0] = 1
