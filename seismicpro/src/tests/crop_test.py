@@ -27,7 +27,7 @@ class TestCropAssemble:
 
     @pytest.mark.parametrize('single_iteration', [True, pytest.param(False, marks=pytest.mark.slow)])
     @pytest.mark.parametrize('index_type,batch_size,crop_shape', PARAMS_LIST)
-    @pytest.mark.parametrize('assemble_fill_value', [0, 0.5])
+    @pytest.mark.parametrize('assemble_fill_value', [0, 0.5, None])
     def test_crop_assemble(self, index_type, batch_size, crop_shape, single_iteration, assemble_fill_value):
         """
         Make crops that cover whole array using regular grid,

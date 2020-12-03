@@ -750,7 +750,7 @@ class SeismicBatch(Batch):
         res_x = self.index.tracecounts[pos]
         res_y = len(self.meta[self.meta[src]['crops_source']]['samples'])
 
-        res = np.full((res_x, res_y), fill_value, dtype=float)
+        res = np.zeros((res_x, res_y), dtype=float)
         crop_counts = np.zeros((res_x, res_y))
 
         for crop_coords, crop in zip(coords, crops):
@@ -763,9 +763,13 @@ class SeismicBatch(Batch):
             res[x:x1, y:y1] += crop[:x1-x, :y1-y]
             crop_counts[x:x1, y:y1] += 1
 
-        crop_counts[crop_counts == 0] = 1
+        empty_samples_idx = (crop_counts == 0).nonzero()
+        crop_counts[empty_samples_idx] = 1
+        res = res / crop_counts
 
-        getattr(self, dst)[pos] = res / crop_counts
+        res[empty_samples_idx] = fill_value
+
+        getattr(self, dst)[pos] = res
         return self
 
     #-------------------------------------------------------------------------#
