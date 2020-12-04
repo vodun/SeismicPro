@@ -195,10 +195,8 @@ class MetricsMap(Metrics):
         if not hasattr(agg_func, 'py_func'):
                 raise ValueError("It seems that the aggregation function is not njitted. "\
                                  "Please wrap the function with @njit decorator.")
-
-        args = tuple()
-        if agg_func_kwargs:
-            args = self._create_args(agg_func.py_func, **agg_func_kwargs)
+        agg_func_kwargs = dict() if agg_func_kwargs is None else agg_func_kwargs
+        args = self._create_args(agg_func.py_func, **agg_func_kwargs)
 
         metrics_map = self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y,
                                                  metrics=metrics, bin_size=bin_size,
@@ -213,8 +211,9 @@ class MetricsMap(Metrics):
 
     def _create_args(self, call, **kwargs):
         """ Constructing tuple with positional arguments to callable `call` based on
-        `kwargs` and `call`'s defaults. The function omits the first argument
-        even if it was set by `kwargs`.
+        `kwargs` and `call`'s defaults. The function omits the first argument even if
+        it was set by `kwargs` because the first argument will be passed during the
+        metrics map's calculation.
 
         Parameters
         ----------
