@@ -725,7 +725,9 @@ class SeismicBatch(Batch):
     @apply_to_each_component
     def assemble_crops(self, index, src, dst, fill_value=0.0):
         """
-        Assembles crops from `src` into a single seismogram
+        Assembles crops from `src` into a single seismogram.
+        If some crops overlap then the resulting value for each point
+        is the mean over all corresponding points from different crops. 
 
         Parameters
         ----------
