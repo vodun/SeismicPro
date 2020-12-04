@@ -515,11 +515,6 @@ def _set_ticks(ax, img_shape, ticks_range_x=None, ticks_range_y=None, x_ticks=15
         The number of coordinates on the y-axis.
     fontsize : int, optional
         The size of text.
-
-    Note
-    ----
-    1. Number of labels on x axis depends on length of `ticks_labels_x` or value of `x_ticks`. Moreover,
-    if `ticks_labels_x` is not None, it will be used regardless `x_ticks`. The same works for y axis.
     """
     ax.set_xticks(np.linspace(0, img_shape[0]-1, x_ticks))
     ax.set_yticks(np.linspace(0, img_shape[1]-1, y_ticks))

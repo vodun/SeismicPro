@@ -191,11 +191,13 @@ class MetricsMap(Metrics):
         elif not callable(agg_func):
             raise TypeError("'agg_func' should be either str or callable, not {}".format(type(agg_func)))
 
-        args = tuple()
-        if agg_func_kwargs:
-            if not getattr(agg_func, 'py_func', False):
+        # Check whether the function is njitted.
+        if not hasattr(agg_func, 'py_func'):
                 raise ValueError("It seems that the aggregation function is not njitted. "\
                                  "Please wrap the function with @njit decorator.")
+
+        args = tuple()
+        if agg_func_kwargs:
             args = self._create_args(agg_func.py_func, **agg_func_kwargs)
 
         metrics_map = self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y,
@@ -210,20 +212,21 @@ class MetricsMap(Metrics):
         return metrics_map
 
     def _create_args(self, call, **kwargs):
-        """ Constructing tuple with positional arguments to callable ``call`` based on
-        ``kwargs`` and ``call``'s defaults.
+        """ Constructing tuple with positional arguments to callable `call` based on
+        `kwargs` and `call`'s defaults. The function omits the first argument
+        even if it was set by `kwargs`.
 
         Parameters
         ----------
         call : callable
             Function to create positional arguments for.
         kwargs : dict
-            Keyword arguments to function ``call``.
+            Keyword arguments to function `call`.
 
         Returns
         -------
         args : tuple
-            Positional arguments to ``call``.
+            Positional arguments to `call` without first argument.
         """
         params = inspect.signature(call).parameters
         args = [kwargs.get(name, param.default) for name, param in params.items()][1:]
