@@ -193,8 +193,8 @@ class MetricsMap(Metrics):
 
         # Check whether the function is njitted.
         if not hasattr(agg_func, 'py_func'):
-                raise ValueError("It seems that the aggregation function is not njitted. "\
-                                 "Please wrap the function with @njit decorator.")
+            raise ValueError("It seems that the aggregation function is not njitted. "\
+                             "Please wrap the function with @njit decorator.")
         agg_func_kwargs = dict() if agg_func_kwargs is None else agg_func_kwargs
         args = self._create_args(agg_func.py_func, **agg_func_kwargs)
 
