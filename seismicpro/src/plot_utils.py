@@ -2,7 +2,8 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib import patches
+from matplotlib import patches, colors as mcolors
+
 from .utils import measure_gain_amplitude
 
 
@@ -425,3 +426,105 @@ def show_2d_heatmap(idf, figsize=None, save_to=None, dpi=300, **kwargs):
     if save_to is not None:
         plt.savefig(save_to, dpi=dpi)
     plt.show()
+
+def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7), # pylint: disable= too-many-arguments
+                     pad=False, fontsize=11, ticks_range_x=None, ticks_range_y=None,
+                     x_ticks=15, y_ticks=15, save_to=None, dpi=300, **kwargs):
+    """ Plot map with metrics values.
+
+    Parameters
+    ----------
+    metrics_map : array-like
+        Array with aggregated metrics values.
+    cmap : str or `~matplotlib.colors.Colormap`, optional
+        Passed directly to `~matplotlib.imshow`
+    title : str, optional
+        The title of the plot.
+    figsize : array-like with length 2, optional, default (10, 7)
+        Output figure size.
+    pad : bool, optional
+        If true, edges of the figure will be padded with a thin white line.
+        otherwise, the figure will not change.
+    fontsize : int, optional, default 11
+        The size of text.
+    ticks_range_x : array-like with length 2, optional
+        Min and max value of labels on the x-axis.
+    ticks_range_y : array-like with length 2, optional
+        Min and max value of labels on the y-axis.
+    x_ticks : int, optional, default 15
+        The number of coordinates on the x-axis.
+    y_ticks : int, optional, default 15
+        The number of coordinates on the y-axis.
+    save_to : str, optional
+        If given, save plot to the path specified.
+    dpi : int, optional, default 300
+        Resolution for saved figure.
+    kwargs : dict, optional
+        Named arguments for :func:`matplotlib.pyplot.imshow`.
+
+    Note
+    ----
+    1. The map is drawn with origin = 'lower' by default, keep it in mind when passing ticks_labels.
+    """
+    if cmap is None:
+        colors = ((0.0, 0.6, 0.0), (.66, 1, 0), (0.9, 0.0, 0.0))
+        cmap = mcolors.LinearSegmentedColormap.from_list(
+            'cmap', colors)
+        cmap.set_under('black')
+        cmap.set_over('red')
+
+    origin = kwargs.pop('origin', 'lower')
+    aspect = kwargs.pop('aspect', 'auto')
+    fig, ax = plt.subplots(figsize=figsize)
+    img = ax.imshow(metrics_map, origin=origin, cmap=cmap,
+                     aspect=aspect, **kwargs)
+
+    if pad:
+        ax.use_sticky_edges = False
+        ax.margins(x=0.01, y=0.01)
+
+    ax.set_title(title, fontsize=fontsize)
+    cbar = fig.colorbar(img, extend='both', ax=ax)
+    cbar.ax.tick_params(labelsize=fontsize)
+
+    _set_ticks(ax=ax, img_shape=metrics_map.T.shape, ticks_range_x=ticks_range_x,
+               ticks_range_y=ticks_range_y, x_ticks=x_ticks, y_ticks=y_ticks,
+               fontsize=fontsize)
+
+    if save_to:
+        plt.savefig(save_to, dpi=dpi, bbox_inches='tight', pad_inches=0.1)
+    plt.show()
+
+def _set_ticks(ax, img_shape, ticks_range_x=None, ticks_range_y=None, x_ticks=15,
+               y_ticks=15, fontsize=None):
+    """ Set x and y ticks.
+
+    Parameters
+    ----------
+    ax : matplotlib axes
+        Axes to which coordinates are added.
+    img_shape : array with length 2
+        Shape of the image to add ticks to.
+    ticks_range_x : array-like with length 2, optional
+        Min and max value of labels on the x-axis.
+    ticks_range_y : array-like with length 2, optional
+        Min and max value of labels on the y-axis.
+    x_ticks : int, optional, default 15
+        The number of coordinates on the x-axis.
+    y_ticks : int, optional, default 15
+        The number of coordinates on the y-axis.
+    fontsize : int, optional
+        The size of text.
+    """
+    ax.set_xticks(np.linspace(0, img_shape[0]-1, x_ticks))
+    ax.set_yticks(np.linspace(0, img_shape[1]-1, y_ticks))
+
+    if ticks_range_x is not None:
+        ticks_labels_x = np.linspace(*ticks_range_x, x_ticks).astype(np.int32)
+        ax.set_xticklabels(ticks_labels_x, size=fontsize)
+    if ticks_range_y is not None:
+        ticks_labels_y = np.linspace(*ticks_range_y, y_ticks).astype(np.int32)
+        ax.set_yticklabels(ticks_labels_y, size=fontsize)
+
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
+             rotation_mode="anchor")
