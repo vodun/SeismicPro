@@ -1002,7 +1002,7 @@ class SeismicBatch(Batch):
 
         mute_mask = (np.arange(field.shape[1]).reshape(1, -1) - mute_samples.reshape(-1, 1)) > 0
         muted_field = field * mute_mask
-        getattr(self, dst)[pos] = mute_samples
+        getattr(self, dst)[pos] = muted_field
         self.copy_meta(src, dst)
 
     #-------------------------------------------------------------------------#
