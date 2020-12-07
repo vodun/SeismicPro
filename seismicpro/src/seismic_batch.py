@@ -896,7 +896,7 @@ class SeismicBatch(Batch):
         self.copy_meta(src, dst)
         self.meta[dst].update(velocities=velocities.copy())
 
-        # To maintain same dimension during calculation we cast velocity from meters/sec to meters/miliseconds
+        # To maintain same units during calculation we cast velocity from m/s to m/ms
         # because time measured in milisecond.
         velocities /= 1000
         if residual:
@@ -906,7 +906,7 @@ class SeismicBatch(Batch):
             self._calc_residual_semblance(src=src, dst=dst, times=times, velocities=velocities,
                                           velocity_law=velocity_law, samples_step=samples_step,
                                           window=window, p=p)
-            self.meta[dst].update(residual=True)
+            self.meta[dst].update(residual=True, p=p)
         else:
             self._calculate_semblance(src=src, dst=dst, times=times, velocities=velocities,
                                       samples_step=samples_step, window=window)
@@ -939,18 +939,19 @@ class SeismicBatch(Batch):
                                            samples_step=samples_step, window=window)
         semblance_len = (upper_bounds - lower_bounds).max()
         residual_semblance = np.zeros((len(times), semblance_len))
-
-        for i, (low_bound, up_bound) in enumerate(zip(lower_bounds, upper_bounds)):
-            ix = (semblance_len - (up_bound - low_bound)) // 2
-            residual_semblance[i, ix : ix + up_bound - low_bound] = semblance[i, low_bound : up_bound]
-
+        # Interpolate resulted semblance to get a rectangular image.
+        for i, smb in enumerate(semblance):
+            ixs = np.where(smb)[0]
+            cropped_smb = smb[ixs[0]: ixs[-1]+1]
+            residual_semblance[i] = np.interp(np.linspace(0, len(cropped_smb)-1, semblance_len),
+                                              np.arange(len(cropped_smb)), cropped_smb)
         getattr(self, dst)[pos] = residual_semblance
 
     @action
     @inbatch_parallel(init='_init_component', target='threads')
     @apply_to_each_component
-    def add_muting(self, index, src, dst, interp_type='interpolation', muting=None, picking=None, indent=None):
-        """ Zeroing seismogram below ``muting`` or ``picking`` times.
+    def add_muting(self, index, src, dst, muting=None, picking=None, indent=0):
+        """ Zeroing seismogram above ``muting`` or ``picking`` times.
 
         Parameters
         ----------
@@ -961,52 +962,47 @@ class SeismicBatch(Batch):
             ``[[time_1, offset_1],
                 ...
                [time_N, offset_N]]``
-        Picking : str, optional
-            Name of the comonent with picking values.
+            Here, `time` should be measured in milliseconds, and `offsets` should be measured in meters.
+        picking : str, optional
+            Name of the component with picking values.
+        indent : int or float
+            Velocity measured in m/s that used to reduce the velocity of the signal above which the
+            muting will be performed. Works only for `picking`.
 
         """
         pos = self.index.get_pos(index)
         field = getattr(self, src)[pos]
         offsets = np.sort(self.index.get_df(index=index)['offset'])
         samples_step = np.diff(self.meta[src]['samples'][:2])[0]
-        data_x, data_y = None, None
-        indent = indent if indent is not None else 0
 
         if picking is not None:
             picking = getattr(self, picking)[pos]
             data_y = np.array(picking, dtype=np.int32) # ms
             data_x = offsets[:len(data_y)].copy() # meters
+            # Compute the velocity of the signal described by given picking points. In this case,
+            # the velocity represents the coefficient of linear regression: `y = x*k`, where y is offsets (in meters)
+            # and x is a time (in ms) of given points than k has m/ms units.
+            lin_reg = LinearRegression(fit_intercept=False)
+            lin_reg.fit(data_y.reshape(-1, 1), data_x)
+            indent /= 1000 # from m/s to m/ms
+            # If one wants to mute below given points, the found velocity reduces by given indent.
+            velocity = lin_reg.coef_ - indent
+            mute_samples = offsets / (velocity * samples_step) # m/samples
+            mute_samples = mute_samples.astype(int)
         elif muting is not None:
-            indent = np.zeros(len(field))
             muting = np.asarray(muting) if isinstance(muting, (tuple, list)) else muting
             data_y, data_x = muting[:, 0], muting[:, 1]
-        else:
-            raise ValueError('Either `picking` or `muting` should be determined.')
-
-        if interp_type == 'interpolation':
-            poly = np.polyfit(data_x, data_y, deg=2)
+            # Pointwise interpolation for specified muting points.
+            poly = np.polyfit(data_x, data_y, deg=1)
             mute_samples = np.polyval(poly, offsets) / samples_step
             if np.sum(mute_samples < 0) > 0:
                 mute_samples[mute_samples < 0] = 0
-        elif interp_type == 'regression':
-            lin_reg = LinearRegression(fit_intercept=False)
-            lin_reg.fit(data_y.reshape(-1, 1), data_x)
-            indent /= 1000 # to ms
-            velocity = lin_reg.coef_ - indent # reduce velocity by given indent. lin_reg.coef_ has m / ms
-            mute_samples = offsets / (velocity * samples_step) # meters / samples
-            mute_samples = mute_samples.astype(int)
         else:
-            raise ValueError('Interpolation type must be "interpolation" or "regression" not "{}"'.format(interp_type))
-        mute_time_mx = np.array([mute_samples]*field.shape[1]).T
+            raise ValueError('Either `picking` or `muting` should be determined.')
 
-        time_idx = np.arange(0, field.shape[1])
-        time_idx_mx = np.array([time_idx]*field.shape[0])
-
-        mute_mask = time_idx_mx - mute_time_mx
-        mute_mask[mute_mask < 0] = 0
-        mute_mask = mute_mask.astype(bool)
+        mute_mask = (np.arange(field.shape[1]).reshape(1, -1) - mute_samples.reshape(-1, 1)) > 0
         muted_field = field * mute_mask
-        getattr(self, dst)[pos] = muted_field
+        getattr(self, dst)[pos] = mute_samples
         self.copy_meta(src, dst)
 
     #-------------------------------------------------------------------------#
@@ -1887,7 +1883,7 @@ class SeismicBatch(Batch):
         if velocities is None:
             raise ValueError('There is no semblance in {} variable.'.format(src))
         residual = self.meta[src].get('residual', False)
-
+        p = self.meta[src].get('p', None)
         pos = self.index.get_pos(index)
         semblance = getattr(self, src)[pos]
 
@@ -1895,5 +1891,5 @@ class SeismicBatch(Batch):
         samples_step = samples[1] - samples[0]
         velocity_law = getattr(self, velocity_law)[pos] if isinstance(velocity_law, str) else velocity_law
         semblance_plot(semblance=semblance, velocities=velocities, velocity_law=velocity_law,
-                       samples_step=samples_step, residual=residual, **kwargs)
+                       samples_step=samples_step, residual=residual, p=p, **kwargs)
         return self

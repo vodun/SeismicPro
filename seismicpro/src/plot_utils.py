@@ -427,9 +427,8 @@ def show_2d_heatmap(idf, figsize=None, save_to=None, dpi=300, **kwargs):
         plt.savefig(save_to, dpi=dpi)
     plt.show()
 
-def semblance_plot(semblance, velocities, velocity_law=None, samples_step=None, residual=False, # pylint: disable=too-many-arguments
-                   x_ticks=15, y_ticks=15, title=None, index=None, figsize=(15, 12), font_size=11,
-                   save_dir=None, dpi=300):
+def semblance_plot(semblance, velocities, velocity_law=None, samples_step=None, residual=False, p=0.2, # pylint: disable=too-many-arguments
+                   title='', index='', figsize=(15, 12), fontsize=11, grid=False, save_to=None, dpi=300, **kwargs):
     """ Plot vertical velocity semblance or residual semblance if flag `residual` is True. Moreover, the plotter
     is able to add velocity law above semblance by passing `velocity_law` parameter.
 
@@ -448,24 +447,28 @@ def semblance_plot(semblance, velocities, velocity_law=None, samples_step=None, 
     residual : bool, optional, by default False
         If True, velocity law will be shown as a verical line in the middle of the graph.
         Otherwise, velocity law is shown based on time and velocity from `velocity_law`.
-    x_ticks : int, optional, by default 15
-        The number of coordinates on the x-axis.
-    y_ticks : int, optional, by default 15
-        The number of coordinates on the y-axis.
+    p : float, optional
+        !!!!!
     title : str, optional
         Plot title.
     index : int, optional
         Index of semblance if function calls from batch.
     figsize : tuple, optional, by default (15, 12)
         Output plot size.
-    font_size : int, optional, by default 11
+    fontsize : int, optional, by default 11
         The size of text.
-    save_dir : [type], optional
+    save_to : [type], optional
         If given, save plot to the path specified.
     dpi : int, optional, by default 300
         Resolution for saved figure.
+
+    Note
+    ----
+    1. The labels of y-axis depend of `samples_step`. If passed, we assume that y-axis now
+    is measured in milliseconds from `0` to `semblance.shape[0] * samples_step`.
+    Otherwise, y-axis measured in samples.
+    2. Kwargs passed into the :func:`._set_ticks`.
     """
-    plt.figure(figsize=figsize)
     # Split range of semblance on specific levels. Probably the levels are gonna scared
     # unprepared person but i found the result based on this levels the most attractive.
     max_val = np.max(semblance)
@@ -479,30 +482,18 @@ def semblance_plot(semblance, velocities, velocity_law=None, samples_step=None, 
     fig, ax = plt.subplots(figsize=figsize)
     norm = mcolors.BoundaryNorm(boundaries=levels, ncolors=256)
     ax.contour(x_grid, y_grid, semblance, levels, colors='k', linewidths=.5, alpha=.5)
-    img = ax.imshow(semblance, norm=norm, aspect='auto', cmap=plt.get_cmap('seismic'))
+    img = ax.imshow(semblance, norm=norm, aspect='auto', cmap='seismic')
     fig.colorbar(img, ticks=levels[1::2])
 
-    ax.set_xlabel('Velocity')
     # Set lables based on samples_step.
     if samples_step is not None:
         ax.set_ylabel('Time')
     else:
         ax.set_ylabel('Samples')
-    samples_step = samples_step if samples_step is not None else 1
+        samples_step = 1
 
-    # Add ticks and labels.
-    ticks_labels_x = np.linspace(velocities[0], velocities[-1], x_ticks).astype(np.int32)
-    ticks_labels_y = np.linspace(0, semblance.shape[0] * samples_step, y_ticks).astype(np.int32)
-    _set_ticks(ax, img_shape=semblance.T.shape, ticks_labels_x=ticks_labels_x,
-               ticks_labels_y=ticks_labels_y, font_size=font_size)
-    ax.set_ylim(semblance.shape[0], 0)
-
-    title_str = ''
-    if title is not None:
-        title_str += title + ' '
-    if index is not None:
-        title_str += str(index)
-    ax.set_title(title_str, fontsize=font_size)
+    if title or index:
+        ax.set_title('{} {}'.format(title, index), fontsize=fontsize)
 
     # Adding a velocity line on semblance. If given residual semblance,
     # a vertical line is added in the middle of the graph.
@@ -515,18 +506,31 @@ def semblance_plot(semblance, velocities, velocity_law=None, samples_step=None, 
             y_points = velocity_law[:, 0] / samples_step
         if residual:
             x_points = np.zeros(len(y_points)) + semblance.shape[1]/2
+            ticks_range_x = [-p*100, p*100]
+            ax.set_xlabel('Velocity deviation (%)')
+            kwargs.update(rotation=0)
+        else:
+            ticks_range_x = [velocities[0], velocities[-1]]
+            ax.set_xlabel('Velocity (m/s)')
         # Change marker of velocity points if they are set at distance from each other. This avoid dots
-        # in every point, if velocity law is set for each time.
+        # in every point, if velocity law is set for every time.
         marker = 'o' if np.min(np.diff(np.sort(y_points))) > 50 else ''
         plt.plot(x_points, y_points, c='#fafcc2', linewidth=2.5, marker=marker)
 
-    if save_dir:
-        plt.savefig(save_dir, bbox_inches='tight', pad_inches=0.1, dpi=dpi)
+    # Set ticks and add labels for y axis.
+    ticks_range_y = [0, semblance.shape[0] * samples_step]
+    _set_ticks(ax, img_shape=semblance.T.shape, ticks_range_x=ticks_range_x,
+               ticks_range_y=ticks_range_y, fontsize=fontsize, **kwargs)
+    ax.set_ylim(semblance.shape[0], 0)
+    if grid:
+        ax.grid(c='k')
+    if save_to:
+        plt.savefig(save_to, bbox_inches='tight', pad_inches=0.1, dpi=dpi)
     plt.show()
 
-def _set_ticks(ax, img_shape, ticks_labels_x=None, ticks_labels_y=None, x_ticks=None,
-               y_ticks=None, font_size=None):
-    """Set x and y ticks.
+def _set_ticks(ax, img_shape, ticks_range_x=None, ticks_range_y=None, x_ticks=15,
+               y_ticks=15, fontsize=None, rotation=45):
+    """ Set x and y ticks.
 
     Parameters
     ----------
@@ -534,15 +538,15 @@ def _set_ticks(ax, img_shape, ticks_labels_x=None, ticks_labels_y=None, x_ticks=
         Axes to which coordinates are added.
     img_shape : array with length 2
         Shape of the image to add ticks to.
-    ticks_labels_x : array-like, optional
-        Ticks labels for x axis. Passed directly to :func:`matplotlib.axes.Axes.set_xticklabels`.
-    ticks_labels_y : array-like, optional
-        Ticks labels for y axis. Passed directly to :func:`matplotlib.axes.Axes.set_yticklabels`.
-    x_ticks : int, optional
+    ticks_range_x : array-like with length 2, optional
+        Min and max value of labels on the x-axis.
+    ticks_range_y : array-like with length 2, optional
+        Min and max value of labels on the y-axis.
+    x_ticks : int, optional, default 15
         The number of coordinates on the x-axis.
-    y_ticks : int, optional
+    y_ticks : int, optional, default 15
         The number of coordinates on the y-axis.
-    font_size : int, optional
+    fontsize : int, optional
         The size of text.
 
     Note
@@ -550,16 +554,15 @@ def _set_ticks(ax, img_shape, ticks_labels_x=None, ticks_labels_y=None, x_ticks=
     1. Number of labels on x axis depends on length of `ticks_labels_x` or value of `x_ticks`. Moreover,
     if `ticks_labels_x` is not None, it will be used regardless `x_ticks`. The same works for y axis.
     """
-    len_x_ticks = len(ticks_labels_x) if ticks_labels_x is not None else x_ticks
-    len_y_ticks = len(ticks_labels_y) if ticks_labels_y is not None else y_ticks
+    ax.set_xticks(np.linspace(0, img_shape[0]-1, x_ticks))
+    ax.set_yticks(np.linspace(0, img_shape[1]-1, y_ticks))
 
-    ax.set_xticks(np.linspace(0, img_shape[0]-1, len_x_ticks))
-    ax.set_yticks(np.linspace(0, img_shape[1]-1, len_y_ticks))
+    if ticks_range_x is not None:
+        ticks_labels_x = np.linspace(*ticks_range_x, x_ticks).astype(np.int32)
+        ax.set_xticklabels(ticks_labels_x, size=fontsize)
+    if ticks_range_y is not None:
+        ticks_labels_y = np.linspace(*ticks_range_y, y_ticks).astype(np.int32)
+        ax.set_yticklabels(ticks_labels_y, size=fontsize)
 
-    if ticks_labels_x is not None:
-        ax.set_xticklabels(ticks_labels_x, size=font_size)
-    if ticks_labels_y is not None:
-        ax.set_yticklabels(ticks_labels_y, size=font_size)
-
-    plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
+    plt.setp(ax.get_xticklabels(), rotation=rotation, ha="right",
              rotation_mode="anchor")

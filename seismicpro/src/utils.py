@@ -810,8 +810,10 @@ def calc_semblance(field, times, offsets, velocities, samples_step, window):
         numerator = np.sum(nmo, axis=1)**2
         denominator = np.sum(nmo**2, axis=1)
         for i in prange(len(nmo)):
-            semblance[i, j] = (np.sum(numerator[max(0, i - window) : min(len(nmo) - 1, i + window)]) /
-                               (len(offsets) * np.sum(denominator[max(0, i - window) : min(len(nmo) - 1, i + window)])
+            ix_from = max(0, i - window)
+            ix_to = min(len(nmo) - 1, i + window)
+            semblance[i, j] = (np.sum(numerator[ix_from : ix_to]) /
+                               (len(offsets) * np.sum(denominator[ix_from : ix_to])
                                 + 1e-6))
     return semblance
 
@@ -847,8 +849,10 @@ def calc_partial_semblance(field, times, offsets, velocities, lower_bounds, uppe
         denominator = np.sum(tmp**2, axis=1)
         for t in range(t_low, t_up + 1):
             t_relative = t - t_low_window
-            semblance[t, i] = (np.sum(numerator[max(0, t_relative - window) : t_relative + window]) /
-                               (len(offsets) * np.sum(denominator[max(0, t_relative - window) : t_relative + window])
+            ix_from = max(0, t_relative - window)
+            ix_to = t_relative + window
+            semblance[t, i] = (np.sum(numerator[ix_from : ix_to]) /
+                               (len(offsets) * np.sum(denominator[ix_from : ix_to])
                                 + 1e-6))
     return semblance
 
