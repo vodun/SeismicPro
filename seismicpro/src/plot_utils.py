@@ -427,6 +427,74 @@ def show_2d_heatmap(idf, figsize=None, save_to=None, dpi=300, **kwargs):
         plt.savefig(save_to, dpi=dpi)
     plt.show()
 
+def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7), # pylint: disable= too-many-arguments
+                     pad=False, fontsize=11, ticks_range_x=None, ticks_range_y=None,
+                     x_ticks=15, y_ticks=15, save_to=None, dpi=300, **kwargs):
+    """ Plot map with metrics values.
+
+    Parameters
+    ----------
+    metrics_map : array-like
+        Array with aggregated metrics values.
+    cmap : str or `~matplotlib.colors.Colormap`, optional
+        Passed directly to `~matplotlib.imshow`
+    title : str, optional
+        The title of the plot.
+    figsize : array-like with length 2, optional, default (10, 7)
+        Output figure size.
+    pad : bool, optional
+        If true, edges of the figure will be padded with a thin white line.
+        otherwise, the figure will not change.
+    fontsize : int, optional, default 11
+        The size of text.
+    ticks_range_x : array-like with length 2, optional
+        Min and max value of labels on the x-axis.
+    ticks_range_y : array-like with length 2, optional
+        Min and max value of labels on the y-axis.
+    x_ticks : int, optional, default 15
+        The number of coordinates on the x-axis.
+    y_ticks : int, optional, default 15
+        The number of coordinates on the y-axis.
+    save_to : str, optional
+        If given, save plot to the path specified.
+    dpi : int, optional, default 300
+        Resolution for saved figure.
+    kwargs : dict, optional
+        Named arguments for :func:`matplotlib.pyplot.imshow`.
+
+    Note
+    ----
+    1. The map is drawn with origin = 'lower' by default, keep it in mind when passing ticks_labels.
+    """
+    if cmap is None:
+        colors = ((0.0, 0.6, 0.0), (.66, 1, 0), (0.9, 0.0, 0.0))
+        cmap = mcolors.LinearSegmentedColormap.from_list(
+            'cmap', colors)
+        cmap.set_under('black')
+        cmap.set_over('red')
+
+    origin = kwargs.pop('origin', 'lower')
+    aspect = kwargs.pop('aspect', 'auto')
+    fig, ax = plt.subplots(figsize=figsize)
+    img = ax.imshow(metrics_map, origin=origin, cmap=cmap,
+                     aspect=aspect, **kwargs)
+
+    if pad:
+        ax.use_sticky_edges = False
+        ax.margins(x=0.01, y=0.01)
+
+    ax.set_title(title, fontsize=fontsize)
+    cbar = fig.colorbar(img, extend='both', ax=ax)
+    cbar.ax.tick_params(labelsize=fontsize)
+
+    _set_ticks(ax=ax, img_shape=metrics_map.T.shape, ticks_range_x=ticks_range_x,
+               ticks_range_y=ticks_range_y, x_ticks=x_ticks, y_ticks=y_ticks,
+               fontsize=fontsize)
+
+    if save_to:
+        plt.savefig(save_to, dpi=dpi, bbox_inches='tight', pad_inches=0.1)
+    plt.show()
+
 def semblance_plot(semblance, velocities, velocity_law=None, samples_step=None, residual=False, p=0.2, # pylint: disable=too-many-arguments
                    title='', index='', figsize=(15, 12), fontsize=11, grid=False, save_to=None, dpi=300, **kwargs):
     """ Plot vertical velocity semblance or residual semblance if flag `residual` is True. Moreover, the plotter
@@ -548,11 +616,8 @@ def _set_ticks(ax, img_shape, ticks_range_x=None, ticks_range_y=None, x_ticks=15
         The number of coordinates on the y-axis.
     fontsize : int, optional
         The size of text.
-
-    Note
-    ----
-    1. Number of labels on x axis depends on length of `ticks_labels_x` or value of `x_ticks`. Moreover,
-    if `ticks_labels_x` is not None, it will be used regardless `x_ticks`. The same works for y axis.
+    rotation : int, optional
+        Degree of rotation of the labels on the x axis.
     """
     ax.set_xticks(np.linspace(0, img_shape[0]-1, x_ticks))
     ax.set_yticks(np.linspace(0, img_shape[1]-1, y_ticks))
