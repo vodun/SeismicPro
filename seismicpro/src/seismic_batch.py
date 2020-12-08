@@ -727,7 +727,7 @@ class SeismicBatch(Batch):
         """
         Assembles crops from `src` into a single seismogram.
         If some crops overlap then the resulting value for each point
-        is the mean over all corresponding points from different crops. 
+        is the mean over all corresponding points from different crops.
 
         Parameters
         ----------
