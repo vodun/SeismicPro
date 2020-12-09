@@ -722,7 +722,6 @@ class SeismicBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component')
-    @apply_to_each_component
     def assemble_crops(self, index, src, dst, fill_value=0.0):
         """
         Assembles crops from `src` into a single seismogram.
@@ -737,6 +736,14 @@ class SeismicBatch(Batch):
             component to put the result to.
         fill_value : float
             the area that is not covered with crops is filled with this value
+
+        Raises
+        ------
+        NotImplementedError
+            if index is SegyFilesIndex
+
+        ValueError
+            if src doesn't contain crops
         """
 
         if isinstance(self.index, SegyFilesIndex):
