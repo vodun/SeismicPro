@@ -30,7 +30,7 @@ setup(
         'tqdm==4.30.0',
         'segyio==1.8.3',
         'scikit-image>=0.13.1',
-        'numba>=0.35.0'
+        'numba>=0.35.0',
     ],
     extras_require={
         'tensorflow': ['tensorflow>=1.12'],
@@ -38,6 +38,7 @@ setup(
         'keras': ['keras>=2.0.0'],
         'torch': ['torch>=1.0.0'],
         'hmmlearn': ['hmmlearn==0.2.0'],
+        'seismiqb' : ['seismiqb @ https://github.com/gazprom-neft/seismiqb/archive/master.zip'],
     },
     classifiers=[
         'Development Status :: 4 - Beta',
