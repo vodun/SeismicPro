@@ -38,7 +38,7 @@ setup(
         'keras': ['keras>=2.0.0'],
         'torch': ['torch>=1.0.0'],
         'hmmlearn': ['hmmlearn==0.2.0'],
-        'seismiqb' : ['seismiqb @ https://github.com/gazprom-neft/seismiqb/archive/master.zip'],
+        'seismiqb' : ['seismiqb @ https://github.com/gazprom-neft/seismiqb/archive/load_dump.zip'],
     },
     classifiers=[
         'Development Status :: 4 - Beta',
