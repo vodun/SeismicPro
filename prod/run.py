@@ -36,7 +36,10 @@ class SimpleMetrics:
 def parse_args():
     """ Parse argumets. """
     parser = argparse.ArgumentParser()
-    parser.add_argument('-p', '--path', nargs="+", help="Path to data.", required=True)
+    parser.add_argument('-p', '--paths', nargs="+", help="Path to files. First, specify the path for the file before \
+                                                         processing, then specify the path to the file after \
+                                                         processing, separated by a space.",
+                        required=True)
     parser.add_argument('-b', '--bin_size', nargs="+", help="The size of the bin by X and Y axes. Can be whether \
                                                              one or two numbers. If two, they must be separated \
                                                              by a space.",
@@ -81,7 +84,7 @@ def parse_args():
                        dpi=args.dpi,
                        save_to=args.save)
 
-    return construct_metrics(paths=args.path,
+    return construct_metrics(paths=args.paths,
                    bin_size=bin_size,
                    agg_func=args.agg_func,
                    velocities=velocities,
