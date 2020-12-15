@@ -1,4 +1,4 @@
-""" file contains metrics based on semblance for ground-roll attenuation. """
+""" File contains metrics based on semblance for ground-roll attenuation. """
 import os
 import sys
 import argparse
@@ -19,7 +19,12 @@ class SimpleMetrics:
     @staticmethod
     @inbatch_parallel(init="_init_component", target="threads")
     def calculate_minmax(batch, index, src, raw_semb, dst):
-        """some docs"""
+        """ Calculation of metric that is designed to evaluate the quality of the noise reduction process.
+        The metric value is the ratio of two values. The numerator is a maximum difference (at one time)
+        of correlation on the semblance of raw data. The denominator is a maximum difference (at one time)
+        of correlation on the difference semblance.
+        Where the difference semblance is obtained on the basis of the seismogram - attenuated seismogram.
+        """
         pos = batch.index.get_pos(index)
         diff_semblance = getattr(batch, src)[pos]
         raw_semblance = getattr(batch, raw_semb)[pos]
@@ -32,32 +37,36 @@ def parse_args():
     """ Parse argumets. """
     parser = argparse.ArgumentParser()
     parser.add_argument('-p', '--path', nargs="+", help="Path to data.", required=True)
-    parser.add_argument('-b', '--bin_size', nargs="+", help=" ",
+    parser.add_argument('-b', '--bin_size', nargs="+", help="The size of the bin by X and Y axes. Can be whether \
+                                                             one or two numbers. If two, they must be separated \
+                                                             by a space.",
                         required=True)
-    parser.add_argument('-vr', '--velocity_range', nargs='+', help="Path to data. Waits for two numbers separated by a space \
-                                                        without any additional symbols (ex: 1000 1010).", required=True)
-    parser.add_argument('-vn', '--velocity_number', type=int, help=" ", required=True)
-    parser.add_argument('-a', '--agg_func', type=str, help=" ", required=False,
-                        default='mean', choices= ['std', 'max', 'min', 'mean', 'median'])
-    parser.add_argument('-w', '--window', type=int, help="Window size. ",
-                    required=False, default=25)
+    parser.add_argument('-vr', '--velocity_range', nargs='+', help="Min and max velocity values mesures in m/s. \
+                                                                    Waits for two numbers separated by a space \
+                                                                    without any additional symbols (ex: 1000 1010).",
+                        required=True)
+    parser.add_argument('-vn', '--velocity_number', type=int, help="The number of velocities between the minimum and \
+                                                                    maximum velocities values.",
+                        required=True)
+    parser.add_argument('-a', '--agg_func', type=str, help="Function to aggregate metrics values in one bin.",
+                        required=False, default='mean', choices= ['std', 'max', 'min', 'mean', 'median'])
+    parser.add_argument('-w', '--window', type=int, help="Window size.", required=False, default=25)
     # plotter args
     parser.add_argument('-pf', '--figsize', nargs="+", help="Size of metrics map. Should be two numbers "\
-                                                            " without any additional symbopythls.",
+                                                            "without any additional symbopythls.",
                         required=False, default=(20, 7))
     parser.add_argument('-pt', '--title', type=str, help="Title for metrics map.",
                         required=False, default=None)
-    parser.add_argument('-pd', '--pad', type=bool, help="Whether to add padding or not",
+    parser.add_argument('-pd', '--pad', type=bool, help="Whether to add a white line at the corners or not",
                         required=False, default=None)
     parser.add_argument('-s', '--save', type=str, help="Path to save resulted plot. By default it will be saved to \
                                                         the current directory with name 'metrics_map'.",
                         required=False, default='metrics_map.png')
-    parser.add_argument('-d', '--dpi', type=int, help=" ",
+    parser.add_argument('-d', '--dpi', type=int, help="Output dpi.",
                     required=False, default=300)
 
     args = parser.parse_args()
-    to_int = lambda a: list(map(int, a)) if a is not None else a
-    # import pdb;pdb.set_trace()
+    to_int = lambda a: tuple(map(int, a)) if a is not None else a
     bin_size = to_int(args.bin_size)
     velocity_range = to_int(args.velocity_range)
     figsize = to_int(args.figsize)
@@ -81,6 +90,7 @@ def parse_args():
 
 
 def construct_metrics(paths, bin_size, agg_func, velocities, window, **plot_kwargs):
+    """ Calculate of metrics map. """
     path_in, path_out = paths
     extra_headers=['offset', 'SourceX',  'SourceY']
     components = ('raw', 'out')
