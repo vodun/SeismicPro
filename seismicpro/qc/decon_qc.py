@@ -56,8 +56,8 @@ def run_decon_qc():
 
     qc = DeconQC()
     qc.plot(path_before, path_after, heights=heights, fwindows=fwindows, kernel=kernel, block_size=block_size)
-    save_path = 'decon_qc_{}_{}.jpg'.format(os.path.splitext(os.path.basename(path_before)),
-                                            os.path.splitext(os.path.basename(path_after)))
+    save_path = 'decon_qc_{}_{}.jpg'.format(os.path.splitext(os.path.basename(path_before)[0]),
+                                            os.path.splitext(os.path.basename(path_after))[0])
     qc.save_plot(save_path)
 
 

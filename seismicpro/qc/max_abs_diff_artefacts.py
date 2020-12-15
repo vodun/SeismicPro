@@ -3,10 +3,10 @@ Script for searching artefacts by calculating
 difference between raw and denoised max_abs amplitude and divided by median(abs(raw))
 """
 
-import sys
 import argparse
 
 import numpy as np
+from matplotlib import colors
 
 from seismicpro.batchflow import V, B, action, inbatch_parallel
 from seismicpro.src import FieldIndex, SeismicDataset, SeismicBatch
@@ -31,7 +31,7 @@ class MaxAbsBatch(SeismicBatch):
             name of the component to put result to
         """
 
-        pos = self.get_pos(None, 'raw', index)
+        pos = self.index.get_pos(index)
         raw = getattr(self, 'raw')[pos]
         lift = getattr(self, 'lift')[pos]
 
@@ -72,7 +72,8 @@ def max_abs_all(raw_path, lift_path, out_path):
         path to results
 
     """
-    index = make_index({'raw': raw_path, 'lift': lift_path}, index_type=FieldIndex, extra_headers=['offset'])
+    index = make_index({'raw': raw_path, 'lift': lift_path}, index_type=FieldIndex,
+                       extra_headers=['offset', 'SourceX', 'SourceY'])
     test_set = SeismicDataset(index, batch_class=MaxAbsBatch)
 
     test_pipeline = (test_set.p
@@ -100,8 +101,15 @@ def max_abs_all(raw_path, lift_path, out_path):
             outf.write("{},{}\n".format(idx, val))
 
     metrics = test_pipeline.v('metrics')
-    metrics.evaluate('map', bin_size=10, figsize=(10, 7), save_dir='artifacts.jpg', pad=True, max_value=20)
 
+    divnorm = colors.TwoSlopeNorm(vmin=-100, vcenter=0, vmax=100)
+    cm = ((0.9, 0.0, 0.0), (.66, 1, 0), (0.0, 0.6, 0.0))
+    cmap = colors.LinearSegmentedColormap.from_list(
+        'cmap', cm)
+    cmap.set_under('black')
+    cmap.set_over('red')
+
+    metrics.construct_map('metrics', 100, 'min', save_to='artifacts.jpg', cmap=cmap, norm=divnorm)
 
 
 if __name__ == "__main__":

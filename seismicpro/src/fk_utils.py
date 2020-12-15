@@ -156,7 +156,7 @@ def process_kk_notch(inp_path, save_to, kk_params, notch_params, device):
 
     print("default workers:", fft.get_workers())
 
-    if not os.path.exists(os.path.dirname(save_to)):
+    if not os.path.exists(os.path.dirname(save_to) or './'):
         os.mkdir(os.path.dirname(save_to))
 
     with tempfile.TemporaryDirectory() as tmpdirname:
