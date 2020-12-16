@@ -495,7 +495,7 @@ def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7), # pyli
         plt.savefig(save_to, dpi=dpi, bbox_inches='tight', pad_inches=0.1)
     plt.show()
 
-def semblance_plot(semblance, velocities, velocity_law=None, samples_step=None, residual=False, p=0.2, # pylint: disable=too-many-arguments
+def semblance_plot(semblance, velocities, velocity_law=None, samples_step=None, residual=False, deviation=0.2, # pylint: disable=too-many-arguments
                    title='', index='', figsize=(15, 12), fontsize=11, grid=False, save_to=None, dpi=300, **kwargs):
     """ Plot vertical velocity semblance or residual semblance if flag `residual` is True. Moreover, the plotter
     is able to add velocity law above semblance by passing `velocity_law` parameter.
@@ -503,8 +503,8 @@ def semblance_plot(semblance, velocities, velocity_law=None, samples_step=None, 
     Parameters
     ----------
     semblance : 2-d np.ndarray
-        Array with  vertical velocity or residual sembalnce.
-    velocities :  array-like with length 2
+        Array with vertical velocity or residual sembalnce.
+    velocities : array-like with length 2
         Min and max values of speed in m/sec.
     velocity_law : array-like, optional
         Array with elements in format [[time, velocity], ...]. If given, the law will be plot as a thin light
@@ -515,8 +515,8 @@ def semblance_plot(semblance, velocities, velocity_law=None, samples_step=None, 
     residual : bool, optional, by default False
         If True, velocity law will be shown as a verical line in the middle of the graph.
         Otherwise, velocity law is shown based on time and velocity from `velocity_law`.
-    p : float, optional
-        !!!!!
+    deviation : float, optional, default 0.2
+        Deviation from the velocity law. Used only for residual semblance.
     title : str, optional
         Plot title.
     index : int, optional
@@ -525,7 +525,9 @@ def semblance_plot(semblance, velocities, velocity_law=None, samples_step=None, 
         Output plot size.
     fontsize : int, optional, by default 11
         The size of text.
-    save_to : [type], optional
+    grid : bool, optional, by default False
+        If given, add a gird to the graph.
+    save_to : str, optional
         If given, save plot to the path specified.
     dpi : int, optional, by default 300
         Resolution for saved figure.
@@ -563,30 +565,31 @@ def semblance_plot(semblance, velocities, velocity_law=None, samples_step=None, 
     if title or index:
         ax.set_title('{} {}'.format(title, index), fontsize=fontsize)
 
-    # Adding a velocity line on semblance. If given residual semblance,
+    # Set default x and y range, also add xlabels. Note that x range and
+    # xlabels can be changed if `residual` is True.
+    ticks_range_y = [0, semblance.shape[0] * samples_step]
+    ticks_range_x = [velocities[0], velocities[-1]]
+    ax.set_xlabel('Velocity (m/s)')
+
+    # Add a velocity line on semblance. If `residual` is True,
     # a vertical line is added in the middle of the graph.
     if residual or velocity_law is not None:
         y_points = np.arange(len(semblance))
         if velocity_law is not None:
             # Find the coordinates on the graph that correspond to a certain velocity.
             velocity_law = np.asarray(velocity_law) if isinstance(velocity_law, (tuple, list)) else velocity_law
-            x_points = (velocity_law[:, 1] - velocities[0]) / (velocities[-1] - velocities[0]) * len(velocities)
+            x_points = (velocity_law[:, 1] - velocities[0]) / (velocities[-1] - velocities[0]) * semblance.shape[1]
             y_points = velocity_law[:, 0] / samples_step
         if residual:
             x_points = np.zeros(len(y_points)) + semblance.shape[1]/2
-            ticks_range_x = [-p*100, p*100]
+            ticks_range_x = [-deviation*100, deviation*100]
             ax.set_xlabel('Velocity deviation (%)')
             kwargs.update(rotation=0)
-        else:
-            ticks_range_x = [velocities[0], velocities[-1]]
-            ax.set_xlabel('Velocity (m/s)')
         # Change marker of velocity points if they are set at distance from each other. This avoid dots
         # in every point, if velocity law is set for every time.
         marker = 'o' if np.min(np.diff(np.sort(y_points))) > 50 else ''
         plt.plot(x_points, y_points, c='#fafcc2', linewidth=2.5, marker=marker)
 
-    # Set ticks and add labels for y axis.
-    ticks_range_y = [0, semblance.shape[0] * samples_step]
     _set_ticks(ax, img_shape=semblance.T.shape, ticks_range_x=ticks_range_x,
                ticks_range_y=ticks_range_y, fontsize=fontsize, **kwargs)
     ax.set_ylim(semblance.shape[0], 0)

@@ -805,7 +805,7 @@ def calc_semblance(field, times, offsets, velocities, samples_step, window):
         nmo = np.empty_like(field)
 
         for i in prange(len(times)):
-            nmo[i] = correct_time(field, times[i], offsets, velocities[j], samples_step)
+            nmo[i] = calculate_nmo(field, times[i], offsets, velocities[j], samples_step)
 
         numerator = np.sum(nmo, axis=1)**2
         denominator = np.sum(nmo**2, axis=1)
@@ -818,7 +818,7 @@ def calc_semblance(field, times, offsets, velocities, samples_step, window):
     return semblance
 
 @njit(nogil=True, fastmath=True)
-def correct_time(field, time, offsets, velocity, samples_step):
+def calculate_nmo(field, time, offsets, velocity, samples_step):
     """ correct time"""
     corrected_field = np.zeros(len(offsets))
     corrected_times = (np.sqrt(time**2 + offsets**2/velocity**2) / samples_step).astype(np.int32)
@@ -843,7 +843,7 @@ def calc_partial_semblance(field, times, offsets, velocities, lower_bounds, uppe
 
         tmp = np.empty((t_up_window - t_low_window + 1, len(offsets)))
         for t in range(t_low_window, t_up_window + 1):
-            tmp[t - t_low_window] = correct_time(field, times[t], offsets, velocities[i], samples_step)
+            tmp[t - t_low_window] = calculate_nmo(field, times[t], offsets, velocities[i], samples_step)
 
         numerator = np.sum(tmp, axis=1)**2
         denominator = np.sum(tmp**2, axis=1)
@@ -854,13 +854,22 @@ def calc_partial_semblance(field, times, offsets, velocities, lower_bounds, uppe
             semblance[t, i] = (np.sum(numerator[ix_from : ix_to]) /
                                (len(offsets) * np.sum(denominator[ix_from : ix_to])
                                 + 1e-6))
-    return semblance
 
-def calculate_bounds(velocity_law, times, velocities, p):
+    semblance_len = (upper_bounds - lower_bounds).max()
+    residual_semblance = np.zeros((len(times), semblance_len))
+    # Interpolate resulted semblance to get a rectangular image.
+    for i in prange(len(semblance)):
+        ixs = np.where(semblance[i])[0]
+        cropped_smb = semblance[i][ixs[0]: ixs[-1]+1]
+        residual_semblance[i] = np.interp(np.linspace(0, len(cropped_smb)-1, semblance_len),
+                                          np.arange(len(cropped_smb)), cropped_smb)
+    return residual_semblance
+
+def calc_velocity_bounds(velocity_law, times, velocities, deviation):
     """ some """
     law_times, law_velocities = zip(*velocity_law)
     f = interp1d(law_times, law_velocities, fill_value="extrapolate")
     interpolated_velocity = np.clip(f(times), velocities[0], velocities[-1])
-    lower_bounds = np.argmin(np.abs((interpolated_velocity * (1 - p)).reshape(-1, 1) - velocities), axis=1)
-    upper_bounds = np.argmin(np.abs((interpolated_velocity * (1 + p)).reshape(-1, 1) - velocities), axis=1)
+    lower_bounds = np.argmin(np.abs((interpolated_velocity * (1 - deviation)).reshape(-1, 1) - velocities), axis=1)
+    upper_bounds = np.argmin(np.abs((interpolated_velocity * (1 + deviation)).reshape(-1, 1) - velocities), axis=1)
     return lower_bounds, upper_bounds

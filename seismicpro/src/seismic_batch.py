@@ -16,7 +16,7 @@ from ..batchflow import action, inbatch_parallel, Batch, any_action_failed
 from .seismic_index import SegyFilesIndex, FieldIndex, KNNIndex, TraceIndex, CustomIndex
 
 from .utils import (FILE_DEPENDEND_COLUMNS, partialmethod, calculate_sdc_for_field, massive_block,
-                    calc_semblance, calc_partial_semblance, calculate_bounds)
+                    calc_semblance, calc_partial_semblance, calc_velocity_bounds)
 from .file_utils import write_segy_file
 from .plot_utils import spectrum_plot, seismic_plot, statistics_plot, gain_plot, semblance_plot
 
@@ -889,8 +889,8 @@ class SeismicBatch(Batch):
 
     @action
     def calculate_vertical_velocity_semblance(self, src, dst, velocities, window=25, residual=False,
-                                              velocity_law=None, p=0.2):
-        """ Calculate semblance (or residual semblance) for given seismogram from `src` component and save the result
+                                              velocity_law=None, deviation=0.2):
+        r""" Calculate semblance (or residual semblance) for given seismogram from `src` component and save the result
         to `dst` component.
 
         Semblance is a measure of multichannel coherence. It's calculated along all possible horizons from a given
@@ -923,15 +923,18 @@ class SeismicBatch(Batch):
         dst : str
             The batch component to put semblance in.
         velocities : array-like
-
+            Range that determining the velocities involved in the semblance calculation.
         window : int, optional, by default 25
             Window size for smoothing. It should be from 5 to 256ms.
-        residual : bool, optional
-            [description], by default False
-        velocity_law : [type], optional
-            [description], by default None
-        p : float, optional
-            [description], by default 0.2
+        residual : bool, optional, by default False
+            If True, residual semblance will be computed.
+            Otherwise, semblance will be computed.
+        velocity_law : array-like, optional
+            Array with elements in format [[time, velocity], ...]. The array contains a set of non-decreasing
+            velocity points that correspond to the maximum correlation values.
+        deviation : float, optional, by default 0.2
+            Percentage deviation from the velocity law. Defines the width of the area around the velocity
+            law to construct the residual semblance.
 
         Returns
         -------
@@ -963,8 +966,8 @@ class SeismicBatch(Batch):
             velocity_law[:, 1] /= 1000
             self._calc_residual_semblance(src=src, dst=dst, times=times, velocities=velocities_ms,
                                           velocity_law=velocity_law, samples_step=samples_step,
-                                          window=window, p=p)
-            self.meta[dst].update(residual=True, p=p)
+                                          window=window, deviation=deviation)
+            self.meta[dst].update(residual=True, deviation=deviation)
         else:
             self._calculate_semblance(src=src, dst=dst, times=times, velocities=velocities_ms,
                                       samples_step=samples_step, window=window)
@@ -977,30 +980,25 @@ class SeismicBatch(Batch):
         offsets = np.sort(self.index.get_df(index=index)['offset'])
 
         field = np.ascontiguousarray(field.T)
-        semblance = calc_semblance(field, times, offsets, velocities, samples_step, window)
+        semblance = calc_semblance(field=field, times=times, offsets=offsets, velocities=velocities,
+                                   samples_step=samples_step, window=window)
         getattr(self, dst)[pos] = semblance
 
     @inbatch_parallel(init="_init_component", target="for")
-    def _calc_residual_semblance(self, index, src, dst, times, velocities, velocity_law, samples_step, window, p):
+    def _calc_residual_semblance(self, index, src, dst, times, velocities, velocity_law, samples_step,
+                                 window, deviation):
         pos = self.index.get_pos(index)
         field = getattr(self, src)[pos]
         offsets = np.sort(self.index.get_df(index=index)['offset'])
 
         velocity_law = getattr(self, velocity_law)[pos] if isinstance(velocity_law, str) else velocity_law
-        lower_bounds, upper_bounds = calculate_bounds(velocity_law, times, velocities, p)
+        lower_bounds, upper_bounds = calc_velocity_bounds(velocity_law=velocity_law, times=times,
+                                                          velocities=velocities, deviation=deviation)
 
         field = np.ascontiguousarray(field.T)
-        semblance = calc_partial_semblance(field=field, times=times, offsets=offsets, velocities=velocities,
-                                           lower_bounds=lower_bounds, upper_bounds=upper_bounds,
-                                           samples_step=samples_step, window=window)
-        semblance_len = (upper_bounds - lower_bounds).max()
-        residual_semblance = np.zeros((len(times), semblance_len))
-        # Interpolate resulted semblance to get a rectangular image.
-        for i, smb in enumerate(semblance):
-            ixs = np.where(smb)[0]
-            cropped_smb = smb[ixs[0]: ixs[-1]+1]
-            residual_semblance[i] = np.interp(np.linspace(0, len(cropped_smb)-1, semblance_len),
-                                              np.arange(len(cropped_smb)), cropped_smb)
+        residual_semblance = calc_partial_semblance(field=field, times=times, offsets=offsets, velocities=velocities,
+                                                    lower_bounds=lower_bounds, upper_bounds=upper_bounds,
+                                                    samples_step=samples_step, window=window)
         getattr(self, dst)[pos] = residual_semblance
 
     @action
@@ -1939,7 +1937,7 @@ class SeismicBatch(Batch):
         if velocities is None:
             raise ValueError('There is no semblance in {} variable.'.format(src))
         residual = self.meta[src].get('residual', False)
-        p = self.meta[src].get('p', None)
+        deviation = self.meta[src].get('deviation', None)
         pos = self.index.get_pos(index)
         semblance = getattr(self, src)[pos]
 
@@ -1947,5 +1945,6 @@ class SeismicBatch(Batch):
         samples_step = samples[1] - samples[0]
         velocity_law = getattr(self, velocity_law)[pos] if isinstance(velocity_law, str) else velocity_law
         semblance_plot(semblance=semblance, velocities=velocities, velocity_law=velocity_law,
-                       samples_step=samples_step, residual=residual, p=p, **kwargs)
+                       samples_step=samples_step, residual=residual, deviation=deviation, index=index,
+                       **kwargs)
         return self
