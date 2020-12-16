@@ -99,10 +99,10 @@ def update_avo_params(params, batch, component, class_size, storage_size, window
         Storage containing all previous AVO distributions and new AVO from this batch added to the end.
     """
     for idx in batch.indices:
-        pos = batch.get_pos(None, component, idx)
+        pos = batch.index.get_pos(idx)
         field = getattr(batch, component)[pos]
 
-        batch_df = batch.index.get_df(index=idx)
+        batch_df = batch.index.get_df(index=[idx])
         offset = np.sort(batch_df['offset'])
         samples = batch.meta[component]['samples']
         t_step = np.diff(samples[:2])[0]

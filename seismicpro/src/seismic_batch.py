@@ -560,8 +560,8 @@ class SeismicBatch(Batch):
         batch : SeismicBatch
             Batch unchanged.
         """
-        if not isinstance(self.index, FieldIndex):
-            raise ValueError('Geometry check dump works with FieldIndex only')
+        # if not isinstance(self.index, FieldIndex):
+        #     raise ValueError('Geometry check dump works with FieldIndex only')
         data = getattr(self, src)
 
         df = self.index.get_df(reset=True)[list(columns)].drop_duplicates()

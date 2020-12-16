@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 
 from seismicpro.src import SeismicDataset, SeismicBatch
-from utils import load_horizon, update_avo_params
+from .utils import load_horizon, update_avo_params
 
 class AvoDataset(SeismicDataset):
     """ Child of SeismicDataset. Used for constructing AVO distribution.

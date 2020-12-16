@@ -18,16 +18,9 @@ For thorothfull description of other aguments of the script use:
 >>> python3 run_avo.py -h
 """
 # pylint: disable=wrong-import-position
-import os
 import sys
 
 import argparse
-
-PATH = os.path.realpath(__file__)
-PATH = PATH.split('/')[:-2]
-PATH = '/'.join(PATH)
-
-sys.path.insert(0, os.path.join(PATH))
 
 from seismicpro.batchflow import B
 from seismicpro import FieldIndex, CustomIndex

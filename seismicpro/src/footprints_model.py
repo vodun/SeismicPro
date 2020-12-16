@@ -6,8 +6,8 @@ import tempfile
 import h5py
 
 from seismiqb.batchflow.batchflow.models.torch import EncoderDecoder
-from seismiqb.seismiqb.batchflow import D, B, V, Pipeline
-from seismiqb.seismiqb import SeismicGeometry, SeismicCubeset
+from seismiqb.batchflow import D, B, V, Pipeline
+from seismiqb import SeismicGeometry, SeismicCubeset
 
 
 def predict_footprints(inp_path, mdl_path, save_res, device='cpu'):

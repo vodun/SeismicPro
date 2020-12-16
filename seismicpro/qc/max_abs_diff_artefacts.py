@@ -83,7 +83,7 @@ def max_abs_all(raw_path, lift_path, out_path):
                      .load(components='lift', fmt='segy')
                      .get_max_abs(dst='res_all')
                      .gather_metrics(MetricsMap, metrics=B('res_all'),
-                                     coords=B('index').get_df()[['SourceX', 'SourceY']].values,
+                                     coords=B('index').get_df()[['SourceX', 'SourceY']].drop_duplicates().values,
                                      save_to=V('metrics', mode='a'))
                      .update(V('res_all', mode='a'), B('res_all'))
                     )
