@@ -890,7 +890,65 @@ class SeismicBatch(Batch):
     @action
     def calculate_vertical_velocity_semblance(self, src, dst, velocities, window=25, residual=False,
                                               velocity_law=None, p=0.2):
-        r""" Some docs """
+        """ Calculate semblance (or residual semblance) for given seismogram from `src` component and save the result
+        to `dst` component.
+
+        Semblance is a measure of multichannel coherence. It's calculated along all possible horizons from a given
+        velocity range (via `velocities`) and with all possible starting points. Range of starting points is equal
+        to field range. Calculation of each horizon is based on the formula:
+        :math:`th_i = \sqrt{t_z^2 + l_i^2/v^2}`, where
+        :math:`t_z` - start time of the horizon
+        :math:`l_i` - distance from the gather to the i-th trace (offset)
+        :math:`v` - velocity for this horizon
+        :math:`th_i` - horizon time for given offset.
+
+        The value of horison amplitude in point `th_i` can be received from trace with same offset. In order to
+        calculate all the horizon values, you need to get the `th_i` values for all offsets.
+        Then, value :math:`f_{i, th_i} = trace_i[th_i]` is an amplitude for horizon with i-th offset.
+
+        Received horizons are used during semblance estimation by following formula:
+        :math:`S(k, th) = \frac{\sum^{k+N/2}_{k-N/2}(\sum^M_{i=1} \sum^M_{j=1} f_{i, th[j]})^2}
+                            {M \sum^{k+N/2}_{k-N/2}\sum^M_1 \sum^M_{j=1} f_{i, th[j]})^2}`, where
+        S - semblance value for range for starting point k
+        M - Number of traces in field
+        N - Window size
+        th - Horizon.
+        Resulted matrix contains semblance values based on horizons with each combinations of started point :math:`t_z`
+        and velocity :math:`v`. This matrix has shape (time_length, velocity_length).
+
+        Parameters
+        ----------
+        src : str
+            The batch component to get field from.
+        dst : str
+            The batch component to put semblance in.
+        velocities : array-like
+
+        window : int, optional, by default 25
+            Window size for smoothing. It should be from 5 to 256ms.
+        residual : bool, optional
+            [description], by default False
+        velocity_law : [type], optional
+            [description], by default None
+        p : float, optional
+            [description], by default 0.2
+
+        Returns
+        -------
+        batch : SeismicBatch
+            Batch with semblance in `dst` component. `dst` components are now arrays
+            (of size batch items) of array (of size velocity values) of array (of field length).
+
+        Raises
+        ------
+        ValueError
+            if `method` receive wrong name.
+
+        Notes
+        -----
+        - Works properly only with CDP index.
+        - Adding 'velocity' to meta data.
+        """
         times = self.meta[src]['samples']
         samples_step = times[1] - times[0]
         self.copy_meta(src, dst)
@@ -898,21 +956,20 @@ class SeismicBatch(Batch):
 
         # To maintain same units during calculation we cast velocity from m/s to m/ms
         # because time measured in milisecond.
-        velocities /= 1000
+        velocities_ms = velocities / 1000
         if residual:
             if velocity_law is None:
                 raise ValueError('velocity_law can not be None when residual semblance is calculating.')
             velocity_law[:, 1] /= 1000
-            self._calc_residual_semblance(src=src, dst=dst, times=times, velocities=velocities,
+            self._calc_residual_semblance(src=src, dst=dst, times=times, velocities=velocities_ms,
                                           velocity_law=velocity_law, samples_step=samples_step,
                                           window=window, p=p)
             self.meta[dst].update(residual=True, p=p)
         else:
-            self._calculate_semblance(src=src, dst=dst, times=times, velocities=velocities,
+            self._calculate_semblance(src=src, dst=dst, times=times, velocities=velocities_ms,
                                       samples_step=samples_step, window=window)
         return self
 
-    @action
     @inbatch_parallel(init="_init_component", target="for")
     def _calculate_semblance(self, index, src, dst, times, velocities, samples_step, window):
         pos = self.index.get_pos(index)
@@ -921,7 +978,6 @@ class SeismicBatch(Batch):
 
         field = np.ascontiguousarray(field.T)
         semblance = calc_semblance(field, times, offsets, velocities, samples_step, window)
-
         getattr(self, dst)[pos] = semblance
 
     @inbatch_parallel(init="_init_component", target="for")
