@@ -1,4 +1,5 @@
 """ Seismic batch tools """
+# pylint: disable=not-an-iterable
 import csv
 import shutil
 import tempfile
@@ -6,8 +7,10 @@ import functools
 
 import numpy as np
 import pandas as pd
+from numba import njit, prange
 from sklearn.linear_model import LinearRegression
 from scipy.signal import medfilt, hilbert
+from scipy.interpolate import interp1d
 import segyio
 
 from ..batchflow import FilesIndex
@@ -793,3 +796,72 @@ def transform_to_fixed_width_columns(path, path_save=None, n_spaces=8, max_len=(
             if path_save:
                 return
             shutil.copyfile(write_file.name, path)
+
+@njit(nogil=True, fastmath=True, parallel=True)
+def calc_semblance(field, times, offsets, velocities, samples_step, window):
+    """ calculate semblance """
+    semblance = np.empty((len(field), len(velocities)))
+
+    for j in prange(len(velocities)):
+        nmo = np.empty_like(field)
+
+        for i in prange(len(times)):
+            nmo[i] = correct_time(field, times[i], offsets, velocities[j], samples_step)
+
+        numerator = np.sum(nmo, axis=1)**2
+        denominator = np.sum(nmo**2, axis=1)
+        for i in prange(len(nmo)):
+            ix_from = max(0, i - window)
+            ix_to = min(len(nmo) - 1, i + window)
+            semblance[i, j] = (np.sum(numerator[ix_from : ix_to]) /
+                               (len(offsets) * np.sum(denominator[ix_from : ix_to])
+                                + 1e-6))
+    return semblance
+
+@njit(nogil=True, fastmath=True)
+def correct_time(field, time, offsets, velocity, samples_step):
+    """ correct time"""
+    corrected_field = np.zeros(len(offsets))
+    corrected_times = (np.sqrt(time**2 + offsets**2/velocity**2) / samples_step).astype(np.int32)
+    for i in range(len(offsets)):
+        corrected_time = corrected_times[i]
+        if corrected_time < len(field):
+            corrected_field[i] = field[corrected_time, i]
+    return corrected_field
+
+@njit(nogil=True, fastmath=True, parallel=True)
+def calc_partial_semblance(field, times, offsets, velocities, lower_bounds, upper_bounds, samples_step, window):
+    """some docs"""
+    semblance = np.zeros((len(field), len(velocities)))
+    for i in prange(lower_bounds.min(), upper_bounds.max() + 1):
+        t_low = np.where(upper_bounds == i)[0]
+        t_low = 0 if len(t_low) == 0 else t_low[0]
+        t_low_window = max(0, t_low - window)
+
+        t_up = np.where(lower_bounds == i)[0]
+        t_up = len(times) - 1 if len(t_up) == 0 else t_up[-1]
+        t_up_window = min(len(times) - 1, t_up + window)
+
+        tmp = np.empty((t_up_window - t_low_window + 1, len(offsets)))
+        for t in range(t_low_window, t_up_window + 1):
+            tmp[t - t_low_window] = correct_time(field, times[t], offsets, velocities[i], samples_step)
+
+        numerator = np.sum(tmp, axis=1)**2
+        denominator = np.sum(tmp**2, axis=1)
+        for t in range(t_low, t_up + 1):
+            t_relative = t - t_low_window
+            ix_from = max(0, t_relative - window)
+            ix_to = t_relative + window
+            semblance[t, i] = (np.sum(numerator[ix_from : ix_to]) /
+                               (len(offsets) * np.sum(denominator[ix_from : ix_to])
+                                + 1e-6))
+    return semblance
+
+def calculate_bounds(velocity_law, times, velocities, p):
+    """ some """
+    law_times, law_velocities = zip(*velocity_law)
+    f = interp1d(law_times, law_velocities, fill_value="extrapolate")
+    interpolated_velocity = np.clip(f(times), velocities[0], velocities[-1])
+    lower_bounds = np.argmin(np.abs((interpolated_velocity * (1 - p)).reshape(-1, 1) - velocities), axis=1)
+    upper_bounds = np.argmin(np.abs((interpolated_velocity * (1 + p)).reshape(-1, 1) - velocities), axis=1)
+    return lower_bounds, upper_bounds

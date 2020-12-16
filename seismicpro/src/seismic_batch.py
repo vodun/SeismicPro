@@ -7,6 +7,7 @@ from textwrap import dedent
 import numpy as np
 from scipy import signal
 from scipy.signal import hilbert
+from sklearn.linear_model import LinearRegression
 import pywt
 import segyio
 
@@ -14,9 +15,10 @@ from ..batchflow import action, inbatch_parallel, Batch, any_action_failed
 
 from .seismic_index import SegyFilesIndex, FieldIndex, KNNIndex, TraceIndex, CustomIndex
 
-from .utils import (FILE_DEPENDEND_COLUMNS, partialmethod, calculate_sdc_for_field, massive_block)
+from .utils import (FILE_DEPENDEND_COLUMNS, partialmethod, calculate_sdc_for_field, massive_block,
+                    calc_semblance, calc_partial_semblance, calculate_bounds)
 from .file_utils import write_segy_file
-from .plot_utils import spectrum_plot, seismic_plot, statistics_plot, gain_plot
+from .plot_utils import spectrum_plot, seismic_plot, statistics_plot, gain_plot, semblance_plot
 
 INDEX_UID = 'TRACE_SEQUENCE_FILE'
 
@@ -305,7 +307,6 @@ class SeismicBatch(Batch):
                 warnings.warn("Meta of the component {} is not empty and".format(t_comp) + \
                               " will be replaced by the meta from the component {}.".format(fr_comp),
                               UserWarning)
-
             self.meta[t_comp] = self.meta[fr_comp].copy()
         return self
 
@@ -881,6 +882,128 @@ class SeismicBatch(Batch):
         getattr(self, dst)[pos] = equalized_field
         self.copy_meta(src, dst)
         return self
+
+    #-------------------------------------------------------------------------#
+    #                        DPA. Velocity Law Actions                        #
+    #-------------------------------------------------------------------------#
+
+    @action
+    def calculate_vertical_velocity_semblance(self, src, dst, velocities, window=25, residual=False,
+                                              velocity_law=None, p=0.2):
+        r""" Some docs """
+        times = self.meta[src]['samples']
+        samples_step = times[1] - times[0]
+        self.copy_meta(src, dst)
+        self.meta[dst].update(velocities=velocities.copy())
+
+        # To maintain same units during calculation we cast velocity from m/s to m/ms
+        # because time measured in milisecond.
+        velocities /= 1000
+        if residual:
+            if velocity_law is None:
+                raise ValueError('velocity_law can not be None when residual semblance is calculating.')
+            velocity_law[:, 1] /= 1000
+            self._calc_residual_semblance(src=src, dst=dst, times=times, velocities=velocities,
+                                          velocity_law=velocity_law, samples_step=samples_step,
+                                          window=window, p=p)
+            self.meta[dst].update(residual=True, p=p)
+        else:
+            self._calculate_semblance(src=src, dst=dst, times=times, velocities=velocities,
+                                      samples_step=samples_step, window=window)
+        return self
+
+    @action
+    @inbatch_parallel(init="_init_component", target="for")
+    def _calculate_semblance(self, index, src, dst, times, velocities, samples_step, window):
+        pos = self.index.get_pos(index)
+        field = getattr(self, src)[pos]
+        offsets = np.sort(self.index.get_df(index=index)['offset'])
+
+        field = np.ascontiguousarray(field.T)
+        semblance = calc_semblance(field, times, offsets, velocities, samples_step, window)
+
+        getattr(self, dst)[pos] = semblance
+
+    @inbatch_parallel(init="_init_component", target="for")
+    def _calc_residual_semblance(self, index, src, dst, times, velocities, velocity_law, samples_step, window, p):
+        pos = self.index.get_pos(index)
+        field = getattr(self, src)[pos]
+        offsets = np.sort(self.index.get_df(index=index)['offset'])
+
+        velocity_law = getattr(self, velocity_law)[pos] if isinstance(velocity_law, str) else velocity_law
+        lower_bounds, upper_bounds = calculate_bounds(velocity_law, times, velocities, p)
+
+        field = np.ascontiguousarray(field.T)
+        semblance = calc_partial_semblance(field=field, times=times, offsets=offsets, velocities=velocities,
+                                           lower_bounds=lower_bounds, upper_bounds=upper_bounds,
+                                           samples_step=samples_step, window=window)
+        semblance_len = (upper_bounds - lower_bounds).max()
+        residual_semblance = np.zeros((len(times), semblance_len))
+        # Interpolate resulted semblance to get a rectangular image.
+        for i, smb in enumerate(semblance):
+            ixs = np.where(smb)[0]
+            cropped_smb = smb[ixs[0]: ixs[-1]+1]
+            residual_semblance[i] = np.interp(np.linspace(0, len(cropped_smb)-1, semblance_len),
+                                              np.arange(len(cropped_smb)), cropped_smb)
+        getattr(self, dst)[pos] = residual_semblance
+
+    @action
+    @inbatch_parallel(init='_init_component', target='threads')
+    @apply_to_each_component
+    def add_muting(self, index, src, dst, muting=None, picking=None, indent=0):
+        """ Zeroing seismogram above ``muting`` or ``picking`` times.
+
+        Parameters
+        ----------
+        some parameters
+
+        muting : array-like, optional
+            Array with structure:
+            ``[[time_1, offset_1],
+                ...
+               [time_N, offset_N]]``
+            Here, `time` should be measured in milliseconds, and `offsets` should be measured in meters.
+        picking : str, optional
+            Name of the component with picking values.
+        indent : int or float
+            Velocity measured in m/s that used to reduce the velocity of the signal above which the
+            muting will be performed. Works only for `picking`.
+
+        """
+        pos = self.index.get_pos(index)
+        field = getattr(self, src)[pos]
+        offsets = np.sort(self.index.get_df(index=index)['offset'])
+        samples_step = np.diff(self.meta[src]['samples'][:2])[0]
+
+        if picking is not None:
+            picking = getattr(self, picking)[pos]
+            data_y = np.array(picking, dtype=np.int32) # ms
+            data_x = offsets[:len(data_y)].copy() # meters
+            # Compute the velocity of the signal described by given picking points. In this case,
+            # the velocity represents the coefficient of linear regression: `y = x*k`, where y is offsets (in meters)
+            # and x is a time (in ms) of given points than k has m/ms units.
+            lin_reg = LinearRegression(fit_intercept=False)
+            lin_reg.fit(data_y.reshape(-1, 1), data_x)
+            indent /= 1000 # from m/s to m/ms
+            # If one wants to mute below given points, the found velocity reduces by given indent.
+            velocity = lin_reg.coef_ - indent
+            mute_samples = offsets / (velocity * samples_step) # m/samples
+            mute_samples = mute_samples.astype(int)
+        elif muting is not None:
+            muting = np.asarray(muting) if isinstance(muting, (tuple, list)) else muting
+            data_y, data_x = muting[:, 0], muting[:, 1]
+            # Pointwise interpolation for specified muting points.
+            poly = np.polyfit(data_x, data_y, deg=1)
+            mute_samples = np.polyval(poly, offsets) / samples_step
+            if np.sum(mute_samples < 0) > 0:
+                mute_samples[mute_samples < 0] = 0
+        else:
+            raise ValueError('Either `picking` or `muting` should be determined.')
+
+        mute_mask = (np.arange(field.shape[1]).reshape(1, -1) - mute_samples.reshape(-1, 1)) > 0
+        muted_field = field * mute_mask
+        getattr(self, dst)[pos] = muted_field
+        self.copy_meta(src, dst)
 
     #-------------------------------------------------------------------------#
     #                                DPA. Misc                                #
@@ -1730,4 +1853,43 @@ class SeismicBatch(Batch):
         rate = self.meta[src[0]]['interval'] / 1e6
         statistics_plot(arrs=arrs, stats=stats, rate=rate, names=names, figsize=figsize,
                         save_to=save_to, **kwargs)
+        return self
+
+    def semblance_plot(self, src, index, velocity_law=None, **kwargs):
+        """Plot vertical velocity semblance.
+
+        Parameters
+        ----------
+        src : str
+            The batch component with data to show,
+        index : same type as batch.indices
+            Data index to show.
+        velocity_law : array-like, optional
+            See :func:`.plot_utils.semblance_plot`.
+        kwargs : dict
+            All kwargs parameters are passed directly to :func:`.plot_utils.semblance_plot`.
+
+        Returns
+        -------
+        batch : SeismicBatch
+            Batch without changes.
+
+        Raises
+        ------
+        ValueError
+            If passed `src` doesn't have semblance.
+        """
+        velocities = self.meta[src].get('velocities')
+        if velocities is None:
+            raise ValueError('There is no semblance in {} variable.'.format(src))
+        residual = self.meta[src].get('residual', False)
+        p = self.meta[src].get('p', None)
+        pos = self.index.get_pos(index)
+        semblance = getattr(self, src)[pos]
+
+        samples = self.meta[src].get('samples')
+        samples_step = samples[1] - samples[0]
+        velocity_law = getattr(self, velocity_law)[pos] if isinstance(velocity_law, str) else velocity_law
+        semblance_plot(semblance=semblance, velocities=velocities, velocity_law=velocity_law,
+                       samples_step=samples_step, residual=residual, p=p, **kwargs)
         return self
