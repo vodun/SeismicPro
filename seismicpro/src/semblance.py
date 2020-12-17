@@ -1,10 +1,12 @@
+""" File contains classes for velocity analysis."""
+# pylint: disable=not-an-iterable
 import numpy as np
 import matplotlib.pyplot as plt
 from numba import njit, prange
 from scipy.interpolate import interp1d
 from matplotlib import colors as mcolors
 
-from .plot_utils import semblance_plot
+from .plot_utils import _set_ticks
 
 
 class BaseSemblance:
@@ -19,15 +21,15 @@ class BaseSemblance:
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def base_calc_semblance(seismogram, semblance, ix, times, offsets, velocity, samples_step,
+    def base_calc_semblance(seismogram, semblance, ix, times, offsets, velocity, samples_step, # pylint: disable=too-many-arguments
                             window, calc_nmo_func, nmo, t_min, t_max, t_window_min, t_window_max):
         """ !! """
-        for i in range(t_window_min, t_window_max):
+        for i in prange(t_window_min, t_window_max):
             nmo[i - t_window_min] = calc_nmo_func(seismogram, times[i], offsets, velocity, samples_step)
 
         numerator = np.sum(nmo, axis=1)**2
         denominator = np.sum(nmo**2, axis=1)
-        for t in range(t_min, t_max):
+        for t in prange(t_min, t_max):
             t_rel = t - t_window_min
             ix_from = max(0, t_rel - window)
             ix_to = min(len(nmo) - 1, t_rel + window)
@@ -47,6 +49,46 @@ class BaseSemblance:
                 corrected_seismogram[i] = seismogram[corrected_time, i]
         return corrected_seismogram
 
+    # TODO: sort args, add docs, delete func form plot_utils
+    def plot(self, semblance, ticks_range_x, ticks_range_y, xlabel='', figsize=(15, 12), title='', index='', fontsize=11,
+             x_points=None, y_points=None,  grid=None, save_to=None, dpi=300, **kwargs):
+        """ !! """
+        # Split range of semblance on specific levels. Probably the levels are gonna scared
+        # unprepared person but i found the result based on this levels the most attractive.
+        max_val = np.max(semblance)
+        levels = (np.logspace(0, 1, num=16, base=500)/500) * max_val
+        levels[0] = 0
+        xlist = np.arange(0, semblance.shape[1])
+        ylist = np.arange(0, semblance.shape[0])
+        x_grid, y_grid = np.meshgrid(xlist, ylist)
+
+        # Add the level lines and colorize the graph.
+        fig, ax = plt.subplots(figsize=figsize)
+        norm = mcolors.BoundaryNorm(boundaries=levels, ncolors=256)
+        ax.contour(x_grid, y_grid, semblance, levels, colors='k', linewidths=.5, alpha=.5)
+        img = ax.imshow(semblance, norm=norm, aspect='auto', cmap='seismic')
+        fig.colorbar(img, ticks=levels[1::2])
+
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel('Time')
+
+        if title or index:
+            ax.set_title('{} {}'.format(title, index), fontsize=fontsize)
+
+        # Change marker of velocity points if they are set at distance from each other.
+        # This avoid dots in every point, if velocity law is set for every time.
+        if x_points is not None and y_points is not None:
+            marker = 'o' if np.min(np.diff(np.sort(y_points))) > 50 else ''
+            plt.plot(x_points, y_points, c='#fafcc2', linewidth=2.5, marker=marker)
+
+        _set_ticks(ax, img_shape=semblance.T.shape, ticks_range_x=ticks_range_x,
+                    ticks_range_y=ticks_range_y, **kwargs)
+        ax.set_ylim(semblance.shape[0], 0)
+        if grid:
+            ax.grid(c='k')
+        if save_to:
+            plt.savefig(save_to, bbox_inches='tight', pad_inches=0.1, dpi=dpi)
+        plt.show()
 
 class Semblance(BaseSemblance):
     """!!"""
@@ -58,6 +100,7 @@ class Semblance(BaseSemblance):
 
     @property
     def semblance(self):
+        """!!"""
         return self._semblance.copy()
 
     def _calc_semblance(self):
@@ -81,10 +124,19 @@ class Semblance(BaseSemblance):
                       nmo=nmo, t_min=0, t_max=len(nmo), t_window_min=0, t_window_max=len(times))
         return semblance
 
-    def plot(self, **kwargs):
+    def plot(self, stacking_velocity=None, **kwargs):
         """ !! """
-        semblance_plot(semblance=self.semblance, velocities=self._velocities, samples_step=self._samples_step,
-                       **kwargs)
+        x_points, y_points = None, None
+        # Add a velocity line on semblance.
+        if stacking_velocity is not None:
+            # Find the coordinates on the graph that correspond to a certain velocity.
+            stacking_velocity = np.asarray(stacking_velocity)
+            x_points = ((stacking_velocity[:, 1] - self._velocities[0]) /
+                        (self._velocities[-1] - self._velocities[0]) * self.semblance.shape[1])
+            y_points = stacking_velocity[:, 0] / self._samples_step
+        ticks_range_y = [0, self.semblance.shape[0] * self._samples_step]
+        ticks_range_x = [self._velocities[0], self._velocities[-1]]
+        super().plot(self.semblance, ticks_range_x, ticks_range_y, x_points=x_points, y_points=y_points, xlabel='Velocity (m/s)', **kwargs)
 
     def calc_minmax_metrics(self, other):
         """" other is a raw semblance here, while self is a diff. """
@@ -105,6 +157,7 @@ class ResidualSemblance(BaseSemblance):
 
     @property
     def residual_semblance(self):
+        """ !! """
         return self._residual_semblance.copy()
 
     def _calc_residual_semblance(self):
@@ -164,5 +217,10 @@ class ResidualSemblance(BaseSemblance):
 
     def plot(self, **kwargs):
         """ !! """
-        semblance_plot(semblance=self.residual_semblance, velocities=self._velocities, velocity_law=self._stacking_velocity,
-                       samples_step=self._samples_step, residual=True, deviation=self._deviation, **kwargs)
+        y_points = np.arange(len(self.residual_semblance))
+        x_points = np.zeros(len(y_points)) + self.residual_semblance.shape[1]/2
+
+        ticks_range_y = [0, self.residual_semblance.shape[0] * self._samples_step]
+        ticks_range_x = [-self._deviation*100, self._deviation*100]
+
+        super().plot(self.residual_semblance, ticks_range_x, ticks_range_y, x_points=x_points, y_points=y_points, xlabel='Velocity deviation (%)', **kwargs)
