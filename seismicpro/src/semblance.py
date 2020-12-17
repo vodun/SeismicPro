@@ -49,9 +49,8 @@ class BaseSemblance:
                 corrected_seismogram[i] = seismogram[corrected_time, i]
         return corrected_seismogram
 
-    # TODO: sort args, add docs, delete func form plot_utils
-    def plot(self, semblance, ticks_range_x, ticks_range_y, xlabel='', figsize=(15, 12), title='', index='', fontsize=11,
-             x_points=None, y_points=None,  grid=None, save_to=None, dpi=300, **kwargs):
+    def plot(self, semblance, ticks_range_x, ticks_range_y, xlabel='', figsize=(15, 12), title='', index='', # pylint: disable=too-many-arguments
+             fontsize=11, x_points=None, y_points=None,  grid=None, save_to=None, dpi=300, **kwargs):
         """ !! """
         # Split range of semblance on specific levels. Probably the levels are gonna scared
         # unprepared person but i found the result based on this levels the most attractive.
@@ -136,7 +135,8 @@ class Semblance(BaseSemblance):
             y_points = stacking_velocity[:, 0] / self._samples_step
         ticks_range_y = [0, self.semblance.shape[0] * self._samples_step]
         ticks_range_x = [self._velocities[0], self._velocities[-1]]
-        super().plot(self.semblance, ticks_range_x, ticks_range_y, x_points=x_points, y_points=y_points, xlabel='Velocity (m/s)', **kwargs)
+        super().plot(self.semblance, ticks_range_x, ticks_range_y, x_points=x_points,
+                     y_points=y_points, xlabel='Velocity (m/s)', **kwargs)
 
     def calc_minmax_metrics(self, other):
         """" other is a raw semblance here, while self is a diff. """
@@ -223,4 +223,5 @@ class ResidualSemblance(BaseSemblance):
         ticks_range_y = [0, self.residual_semblance.shape[0] * self._samples_step]
         ticks_range_x = [-self._deviation*100, self._deviation*100]
 
-        super().plot(self.residual_semblance, ticks_range_x, ticks_range_y, x_points=x_points, y_points=y_points, xlabel='Velocity deviation (%)', **kwargs)
+        super().plot(self.residual_semblance, ticks_range_x, ticks_range_y, x_points=x_points,
+                     y_points=y_points, xlabel='Velocity deviation (%)', **kwargs)
