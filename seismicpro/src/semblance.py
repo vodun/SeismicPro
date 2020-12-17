@@ -1,0 +1,168 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from numba import njit, prange
+from scipy.interpolate import interp1d
+from matplotlib import colors as mcolors
+
+from .plot_utils import semblance_plot
+
+
+class BaseSemblance:
+    """ Base class for velocity analysis. """
+    def __init__(self, seismogram, times, offsets, velocities, window):
+        self._seismogram = np.ascontiguousarray(seismogram.T)
+        self._times = times # ms
+        self._offsets = offsets # m
+        self._velocities = velocities # m/s
+        self._samples_step = self._times[1] - self._times[0]
+        self._window = window
+
+    @staticmethod
+    @njit(nogil=True, fastmath=True, parallel=True)
+    def base_calc_semblance(seismogram, semblance, ix, times, offsets, velocity, samples_step,
+                            window, calc_nmo_func, nmo, t_min, t_max, t_window_min, t_window_max):
+        """ !! """
+        for i in range(t_window_min, t_window_max):
+            nmo[i - t_window_min] = calc_nmo_func(seismogram, times[i], offsets, velocity, samples_step)
+
+        numerator = np.sum(nmo, axis=1)**2
+        denominator = np.sum(nmo**2, axis=1)
+        for t in range(t_min, t_max):
+            t_rel = t - t_window_min
+            ix_from = max(0, t_rel - window)
+            ix_to = min(len(nmo) - 1, t_rel + window)
+            semblance[t, ix] = (np.sum(numerator[ix_from : ix_to]) /
+                                (len(offsets) * np.sum(denominator[ix_from : ix_to])
+                                 + 1e-6))
+
+    @staticmethod
+    @njit(nogil=True, fastmath=True)
+    def base_calc_nmo(seismogram, time, offsets, velocity, samples_step):
+        """ correct time"""
+        corrected_seismogram = np.zeros(len(offsets))
+        corrected_times = (np.sqrt(time**2 + offsets**2/velocity**2) / samples_step).astype(np.int32)
+        for i in range(len(offsets)):
+            corrected_time = corrected_times[i]
+            if corrected_time < len(seismogram):
+                corrected_seismogram[i] = seismogram[corrected_time, i]
+        return corrected_seismogram
+
+
+class Semblance(BaseSemblance):
+    """!!"""
+    def __init__(self, seismogram, times, offsets, velocities, window=25):
+        super().__init__(seismogram=seismogram, times=times, offsets=offsets,
+                         velocities=velocities, window=window)
+        self._semblance = None
+        self._calc_semblance()
+
+    @property
+    def semblance(self):
+        return self._semblance.copy()
+
+    def _calc_semblance(self):
+        """ semblance """
+        velocities_ms = self._velocities / 1000 # from m/s to m/ms
+        self._semblance = self.calc_numba_semblance(base_func=self.base_calc_semblance,
+                                                    calc_nmo_func=self.base_calc_nmo,
+                                                    seismogram=self._seismogram, times=self._times,
+                                                    offsets=self._offsets, velocities=velocities_ms,
+                                                    samples_step=self._samples_step, window=self._window)
+
+    @staticmethod
+    @njit(nogil=True, fastmath=True, parallel=True)
+    def calc_numba_semblance(base_func, calc_nmo_func, seismogram, times, offsets, velocities, samples_step, window):
+        """ calculate semblance """
+        semblance = np.empty((len(seismogram), len(velocities)))
+        for j in prange(len(velocities)):
+            nmo = np.empty_like(seismogram)
+            base_func(seismogram=seismogram, semblance=semblance, ix=j, times=times, offsets=offsets,
+                      velocity=velocities[j], samples_step=samples_step, window=window, calc_nmo_func=calc_nmo_func,
+                      nmo=nmo, t_min=0, t_max=len(nmo), t_window_min=0, t_window_max=len(times))
+        return semblance
+
+    def plot(self, **kwargs):
+        """ !! """
+        semblance_plot(semblance=self.semblance, velocities=self._velocities, samples_step=self._samples_step,
+                       **kwargs)
+
+    def calc_minmax_metrics(self, other):
+        """" other is a raw semblance here, while self is a diff. """
+        minmax_self = np.max(np.max(self.semblance, axis=1) - np.min(self.semblance, axis=1))
+        minmax_other = np.max(np.max(other.semblance, axis=1) - np.min(other.semblance, axis=1))
+        return minmax_self / (minmax_other + 1e-11)
+
+
+class ResidualSemblance(BaseSemblance):
+    """!!"""
+    def __init__(self, seismogram, times, offsets, velocities, stacking_velocity, window=25, deviation=0.2):
+        super().__init__(seismogram, times, offsets, velocities, window)
+        self._residual_semblance = None
+        self._stacking_velocity = stacking_velocity
+        self._deviation = deviation
+
+        self._calc_residual_semblance()
+
+    @property
+    def residual_semblance(self):
+        return self._residual_semblance.copy()
+
+    def _calc_residual_semblance(self):
+        """ semblance """
+        velocities_ms = self._velocities / 1000 # from m/s to m/ms
+        stacking_velocity_ms = self._stacking_velocity.copy()
+        stacking_velocity_ms[:, 1] /= 1000 # from m/s to m/ms
+
+        left_bounds, right_bounds = self._calc_velocity_bounds()
+        self._residual_semblance = self._calc_numba_res_semblance(base_func=self.base_calc_semblance,
+                                                        calc_nmo_func=self.base_calc_nmo,
+                                                        seismogram=self._seismogram, times=self._times,
+                                                        offsets=self._offsets, velocities=velocities_ms,
+                                                        left_bounds=left_bounds, right_bounds=right_bounds,
+                                                        samples_step=self._samples_step, window=self._window)
+
+    def _calc_velocity_bounds(self):
+        """ some """
+        stacking_times, stacking_velocities = zip(*self._stacking_velocity)
+        f = interp1d(stacking_times, stacking_velocities, fill_value="extrapolate")
+        interpolated_velocity = np.clip(f(self._times), self._velocities[0], self._velocities[-1])
+        left_bound = (interpolated_velocity * (1 - self._deviation)).reshape(-1, 1)
+        left_bounds = np.argmin(np.abs(left_bound - self._velocities), axis=1)
+        right_bound = (interpolated_velocity * (1 + self._deviation)).reshape(-1, 1)
+        right_bounds = np.argmin(np.abs(right_bound - self._velocities), axis=1)
+        return left_bounds, right_bounds
+
+    @staticmethod
+    @njit(nogil=True, fastmath=True, parallel=True)
+    def _calc_numba_res_semblance(base_func, calc_nmo_func, seismogram, times, offsets, velocities, left_bounds,
+                                  right_bounds, samples_step, window):
+        """some docs"""
+        semblance = np.zeros((len(seismogram), len(velocities)))
+        for i in prange(left_bounds.min(), right_bounds.max() + 1):
+            t_low = np.where(right_bounds == i)[0]
+            t_low = 0 if len(t_low) == 0 else t_low[0]
+            t_low_window = max(0, t_low - window)
+
+            t_up = np.where(left_bounds == i)[0]
+            t_up = len(times) - 1 if len(t_up) == 0 else t_up[-1]
+            t_up_window = min(len(times) - 1, t_up + window)
+
+            nmo = np.empty((t_up_window - t_low_window + 1, len(offsets)))
+            base_func(seismogram=seismogram, semblance=semblance, ix=i, times=times, offsets=offsets,
+                      velocity=velocities[i], samples_step=samples_step, window=window, calc_nmo_func=calc_nmo_func,
+                      nmo=nmo, t_min=t_low, t_max=t_up+1, t_window_min=t_low_window, t_window_max=t_up_window+1)
+
+        semblance_len = (right_bounds - left_bounds).max()
+        residual_semblance = np.zeros((len(times), semblance_len))
+        # Interpolate resulted semblance to get a rectangular image.
+        for i in prange(len(semblance)):
+            ixs = np.where(semblance[i])[0]
+            cropped_smb = semblance[i][ixs[0]: ixs[-1]+1]
+            residual_semblance[i] = np.interp(np.linspace(0, len(cropped_smb)-1, semblance_len),
+                                            np.arange(len(cropped_smb)), cropped_smb)
+        return residual_semblance
+
+    def plot(self, **kwargs):
+        """ !! """
+        semblance_plot(semblance=self.residual_semblance, velocities=self._velocities, velocity_law=self._stacking_velocity,
+                       samples_step=self._samples_step, residual=True, deviation=self._deviation, **kwargs)
