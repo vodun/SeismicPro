@@ -14,9 +14,8 @@ import segyio
 from ..batchflow import action, inbatch_parallel, Batch, any_action_failed
 
 from .seismic_index import SegyFilesIndex, FieldIndex, KNNIndex, TraceIndex, CustomIndex
-
-from .utils import (FILE_DEPENDEND_COLUMNS, partialmethod, calculate_sdc_for_field, massive_block,
-                    calc_semblance, calc_partial_semblance, calc_velocity_bounds)
+from .semblance import Semblance, ResidualSemblance
+from .utils import (FILE_DEPENDEND_COLUMNS, partialmethod, calculate_sdc_for_field, massive_block)
 from .file_utils import write_segy_file
 from .plot_utils import spectrum_plot, seismic_plot, statistics_plot, gain_plot, semblance_plot
 
@@ -888,8 +887,7 @@ class SeismicBatch(Batch):
     #-------------------------------------------------------------------------#
 
     @action
-    def calculate_vertical_velocity_semblance(self, src, dst, velocities, window=25, residual=False,
-                                              velocity_law=None, deviation=0.2):
+    def calculate_vertical_velocity_semblance(self, src, dst, velocities, window=25):
         r""" Calculate semblance (or residual semblance) for given seismogram from `src` component and save the result
         to `dst` component.
 
@@ -929,7 +927,7 @@ class SeismicBatch(Batch):
         residual : bool, optional, by default False
             If True, residual semblance will be computed.
             Otherwise, semblance will be computed.
-        velocity_law : array-like, optional
+        stacking_velocity : array-like, optional
             Array with elements in format [[time, velocity], ...]. The array contains a set of non-decreasing
             velocity points that correspond to the maximum correlation values.
         deviation : float, optional, by default 0.2
@@ -953,52 +951,42 @@ class SeismicBatch(Batch):
         - Adding 'velocity' to meta data.
         """
         times = self.meta[src]['samples']
-        samples_step = times[1] - times[0]
         self.copy_meta(src, dst)
-        self.meta[dst].update(velocities=velocities.copy())
 
-        # To maintain same units during calculation we cast velocity from m/s to m/ms
-        # because time measured in milisecond.
-        velocities_ms = velocities / 1000
-        if residual:
-            if velocity_law is None:
-                raise ValueError('velocity_law can not be None when residual semblance is calculating.')
-            velocity_law[:, 1] /= 1000
-            self._calc_residual_semblance(src=src, dst=dst, times=times, velocities=velocities_ms,
-                                          velocity_law=velocity_law, samples_step=samples_step,
-                                          window=window, deviation=deviation)
-            self.meta[dst].update(residual=True, deviation=deviation)
-        else:
-            self._calculate_semblance(src=src, dst=dst, times=times, velocities=velocities_ms,
-                                      samples_step=samples_step, window=window)
+        self._calculate_semblance(src=src, dst=dst, times=times, velocities=velocities, window=window)
         return self
 
     @inbatch_parallel(init="_init_component", target="for")
-    def _calculate_semblance(self, index, src, dst, times, velocities, samples_step, window):
+    def _calculate_semblance(self, index, src, dst, times, velocities, window):
         pos = self.index.get_pos(index)
-        field = getattr(self, src)[pos]
+        seismogram = getattr(self, src)[pos]
         offsets = np.sort(self.index.get_df(index=index)['offset'])
 
-        field = np.ascontiguousarray(field.T)
-        semblance = calc_semblance(field=field, times=times, offsets=offsets, velocities=velocities,
-                                   samples_step=samples_step, window=window)
+        semblance = Semblance(seismogram=seismogram, times=times, offsets=offsets,
+                              velocities=velocities, window=window)
         getattr(self, dst)[pos] = semblance
 
+    @action
+    def calculate_residual_semblance(self, src, dst, velocities, stacking_velocity, window=25, deviation=0.2):
+        """!!!"""
+        times = self.meta[src]['samples']
+        self.copy_meta(src, dst)
+
+        self._calc_residual_semblance(src=src, dst=dst, times=times, velocities=velocities,
+                                      stacking_velocity=stacking_velocity, window=window, deviation=deviation)
+        return self
+
     @inbatch_parallel(init="_init_component", target="for")
-    def _calc_residual_semblance(self, index, src, dst, times, velocities, velocity_law, samples_step,
-                                 window, deviation):
+    def _calc_residual_semblance(self, index, src, dst, times, velocities, stacking_velocity, window, deviation):
         pos = self.index.get_pos(index)
-        field = getattr(self, src)[pos]
+        seismogram = getattr(self, src)[pos]
         offsets = np.sort(self.index.get_df(index=index)['offset'])
+        if isinstance(stacking_velocity, str):
+            stacking_velocity = getattr(self, stacking_velocity)[pos]
 
-        velocity_law = getattr(self, velocity_law)[pos] if isinstance(velocity_law, str) else velocity_law
-        lower_bounds, upper_bounds = calc_velocity_bounds(velocity_law=velocity_law, times=times,
-                                                          velocities=velocities, deviation=deviation)
-
-        field = np.ascontiguousarray(field.T)
-        residual_semblance = calc_partial_semblance(field=field, times=times, offsets=offsets, velocities=velocities,
-                                                    lower_bounds=lower_bounds, upper_bounds=upper_bounds,
-                                                    samples_step=samples_step, window=window)
+        residual_semblance = ResidualSemblance(seismogram=seismogram, times=times, offsets=offsets,
+                                               velocities=velocities, window=window,
+                                               stacking_velocity=stacking_velocity, deviation=deviation)
         getattr(self, dst)[pos] = residual_semblance
 
     @action
@@ -1909,7 +1897,7 @@ class SeismicBatch(Batch):
                         save_to=save_to, **kwargs)
         return self
 
-    def semblance_plot(self, src, index, velocity_law=None, **kwargs):
+    def semblance_plot(self, src, index, stacking_velocity=None, **kwargs):
         """Plot vertical velocity semblance.
 
         Parameters
@@ -1918,7 +1906,7 @@ class SeismicBatch(Batch):
             The batch component with data to show,
         index : same type as batch.indices
             Data index to show.
-        velocity_law : array-like, optional
+        stacking_velocity : array-like, optional
             See :func:`.plot_utils.semblance_plot`.
         kwargs : dict
             All kwargs parameters are passed directly to :func:`.plot_utils.semblance_plot`.
@@ -1933,18 +1921,14 @@ class SeismicBatch(Batch):
         ValueError
             If passed `src` doesn't have semblance.
         """
-        velocities = self.meta[src].get('velocities')
-        if velocities is None:
-            raise ValueError('There is no semblance in {} variable.'.format(src))
-        residual = self.meta[src].get('residual', False)
-        deviation = self.meta[src].get('deviation', None)
         pos = self.index.get_pos(index)
         semblance = getattr(self, src)[pos]
+        if not isinstance(semblance, Semblance) and not isinstance(semblance, ResidualSemblance):
+            raise ValueError('There is no semblance in {} variable.'.format(src))
 
-        samples = self.meta[src].get('samples')
-        samples_step = samples[1] - samples[0]
-        velocity_law = getattr(self, velocity_law)[pos] if isinstance(velocity_law, str) else velocity_law
-        semblance_plot(semblance=semblance, velocities=velocities, velocity_law=velocity_law,
-                       samples_step=samples_step, residual=residual, deviation=deviation, index=index,
-                       **kwargs)
+        if isinstance(stacking_velocity, str):
+            stacking_velocity = getattr(self, stacking_velocity)[pos]
+        if stacking_velocity is not None:
+            kwargs.update(stacking_velocity=stacking_velocity)
+        semblance.plot(**kwargs)
         return self
