@@ -21,9 +21,11 @@ class BaseSemblance:
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def base_calc_semblance(seismogram, semblance, ix, times, offsets, velocity, samples_step, # pylint: disable=too-many-arguments
-                            window, calc_nmo_func, nmo, t_min, t_max, t_window_min, t_window_max):
-        """ !! """
+    def base_calc_semblance(calc_nmo_func, seismogram, semblance, ix, times, offsets, velocity, samples_step, # pylint: disable=too-many-arguments
+                            window, nmo, t_min, t_max):
+        """ Calculated semblance for specified velocity in preset window from `t_min` to `t_max`. """
+        t_window_min = max(0, t_min - window)
+        t_window_max = min(len(times) - 1, t_max + window)
         for i in prange(t_window_min, t_window_max):
             nmo[i - t_window_min] = calc_nmo_func(seismogram, times[i], offsets, velocity, samples_step)
 
@@ -49,9 +51,46 @@ class BaseSemblance:
                 corrected_seismogram[i] = seismogram[corrected_time, i]
         return corrected_seismogram
 
-    def plot(self, semblance, ticks_range_x, ticks_range_y, xlabel='', figsize=(15, 12), title='', index='', # pylint: disable=too-many-arguments
-             fontsize=11, x_points=None, y_points=None,  grid=None, save_to=None, dpi=300, **kwargs):
-        """ !! """
+    def plot(self, semblance, ticks_range_x, ticks_range_y, figsize=(15, 12), xlabel='', title='', index='', # pylint: disable=too-many-arguments
+             fontsize=11, grid=None, x_points=None, y_points=None, save_to=None, dpi=300, **kwargs):
+        """ Base plotter for vertical velocity semblance. The plotter adds level lines, colors the graph,
+        signs axes and values, also draws a stacking velocity, if specified (via `x_points` and `y_points`).
+
+        Parameters
+        ----------
+        semblance : 2-d np.ndarray
+            Array with vertical velocity or residual sembalnce.
+        velocities : array-like with length 2
+            Min and max values of speed in m/sec.
+        samples_step : int, optional
+            Step in miliseconds between two samples.
+        residual : bool, optional, by default False
+            If True, velocity law will be shown as a verical line in the middle of the graph.
+            Otherwise, velocity law is shown based on time and velocity from `velocity_law`.
+        deviation : float, optional, default 0.2
+            Deviation from the velocity law. Used only for residual semblance.
+        title : str, optional
+            Plot title.
+        index : int, optional
+            Index of semblance if function calls from batch.
+        figsize : tuple, optional, by default (15, 12)
+            Output plot size.
+        fontsize : int, optional, by default 11
+            The size of text.
+        grid : bool, optional, by default False
+            If given, add a gird to the graph.
+        save_to : str, optional
+            If given, save plot to the path specified.
+        dpi : int, optional, by default 300
+            Resolution for saved figure.
+
+        Note
+        ----
+        1. The labels of y-axis depend of `samples_step`. If passed, we assume that y-axis now
+        is measured in milliseconds from `0` to `semblance.shape[0] * samples_step`.
+        Otherwise, y-axis measured in samples.
+        2. Kwargs passed into the :func:`._set_ticks`.
+        """
         # Split range of semblance on specific levels. Probably the levels are gonna scared
         # unprepared person but i found the result based on this levels the most attractive.
         max_val = np.max(semblance)
@@ -118,13 +157,23 @@ class Semblance(BaseSemblance):
         semblance = np.empty((len(seismogram), len(velocities)))
         for j in prange(len(velocities)):
             nmo = np.empty_like(seismogram)
-            base_func(seismogram=seismogram, semblance=semblance, ix=j, times=times, offsets=offsets,
-                      velocity=velocities[j], samples_step=samples_step, window=window, calc_nmo_func=calc_nmo_func,
-                      nmo=nmo, t_min=0, t_max=len(nmo), t_window_min=0, t_window_max=len(times))
+            base_func(calc_nmo_func=calc_nmo_func, seismogram=seismogram, semblance=semblance, ix=j, times=times,
+                      offsets=offsets, velocity=velocities[j], samples_step=samples_step, window=window, nmo=nmo,
+                      t_min=0, t_max=len(nmo))
         return semblance
 
     def plot(self, stacking_velocity=None, **kwargs):
-        """ !! """
+        """ Plot vertical velocity semblance.
+
+        Parameters
+        ----------
+        stacking_velocity : array-like, optional
+            Array with elements in format [[time, velocity], ...]. If given, the law will be plot as a thin light
+            brown line above the semblance. Also, if delay between velocities more than 50 ms, every given point
+            will highlighted with a circle.
+        kwargs : dict, optional
+            Arguments for :func:`~BaseSemblance.plot` and for :func:`._set_ticks`.
+        """
         x_points, y_points = None, None
         # Add a velocity line on semblance.
         if stacking_velocity is not None:
@@ -179,10 +228,11 @@ class ResidualSemblance(BaseSemblance):
         stacking_times, stacking_velocities = zip(*self._stacking_velocity)
         f = interp1d(stacking_times, stacking_velocities, fill_value="extrapolate")
         interpolated_velocity = np.clip(f(self._times), self._velocities[0], self._velocities[-1])
-        left_bound = (interpolated_velocity * (1 - self._deviation)).reshape(-1, 1)
-        left_bounds = np.argmin(np.abs(left_bound - self._velocities), axis=1)
-        right_bound = (interpolated_velocity * (1 + self._deviation)).reshape(-1, 1)
-        right_bounds = np.argmin(np.abs(right_bound - self._velocities), axis=1)
+
+        left_bounds = (interpolated_velocity * (1 - self._deviation)).reshape(-1, 1)
+        left_bounds = np.argmin(np.abs(left_bounds - self._velocities), axis=1)
+        right_bounds = (interpolated_velocity * (1 + self._deviation)).reshape(-1, 1)
+        right_bounds = np.argmin(np.abs(right_bounds - self._velocities), axis=1)
         return left_bounds, right_bounds
 
     @staticmethod
@@ -192,18 +242,18 @@ class ResidualSemblance(BaseSemblance):
         """some docs"""
         semblance = np.zeros((len(seismogram), len(velocities)))
         for i in prange(left_bounds.min(), right_bounds.max() + 1):
-            t_low = np.where(right_bounds == i)[0]
-            t_low = 0 if len(t_low) == 0 else t_low[0]
-            t_low_window = max(0, t_low - window)
+            t_min = np.where(right_bounds == i)[0]
+            t_min = 0 if len(t_min) == 0 else t_min[0]
+            t_window_min = max(0, t_min - window)
 
-            t_up = np.where(left_bounds == i)[0]
-            t_up = len(times) - 1 if len(t_up) == 0 else t_up[-1]
-            t_up_window = min(len(times) - 1, t_up + window)
+            t_max = np.where(left_bounds == i)[0]
+            t_max = len(times) - 1 if len(t_max) == 0 else t_max[-1]
+            t_window_max = min(len(times) - 1, t_max + window)
 
-            nmo = np.empty((t_up_window - t_low_window + 1, len(offsets)))
-            base_func(seismogram=seismogram, semblance=semblance, ix=i, times=times, offsets=offsets,
-                      velocity=velocities[i], samples_step=samples_step, window=window, calc_nmo_func=calc_nmo_func,
-                      nmo=nmo, t_min=t_low, t_max=t_up+1, t_window_min=t_low_window, t_window_max=t_up_window+1)
+            nmo = np.empty((t_window_max - t_window_min + 1, len(offsets)))
+            base_func(calc_nmo_func=calc_nmo_func, seismogram=seismogram, semblance=semblance, ix=i, times=times,
+                      offsets=offsets, velocity=velocities[i], samples_step=samples_step, window=window, nmo=nmo,
+                      t_min=t_min, t_max=t_max+1)
 
         semblance_len = (right_bounds - left_bounds).max()
         residual_semblance = np.zeros((len(times), semblance_len))
@@ -216,12 +266,20 @@ class ResidualSemblance(BaseSemblance):
         return residual_semblance
 
     def plot(self, **kwargs):
-        """ !! """
-        y_points = np.arange(len(self.residual_semblance))
+        """ Plot vertical residual semblance. The plot always have a vertical line in the middle, but if
+        if delay between velocities in `self._stacking_velocity` more than 50 ms, every given point will
+        highlighted with a circle.
+
+        Parameters
+        ----------
+        kwargs : dict, optional
+            Arguments for :func:`~BaseSemblance.plot` and for :func:`._set_ticks`.
+        """
+        y_points = self._stacking_velocity[:, 0] / self._samples_step # from ms to ix
         x_points = np.zeros(len(y_points)) + self.residual_semblance.shape[1]/2
 
-        ticks_range_y = [0, self.residual_semblance.shape[0] * self._samples_step]
+        ticks_range_y = [0, self.residual_semblance.shape[0] * self._samples_step] # from ix to ms
         ticks_range_x = [-self._deviation*100, self._deviation*100]
 
-        super().plot(self.residual_semblance, ticks_range_x, ticks_range_y, x_points=x_points,
-                     y_points=y_points, xlabel='Velocity deviation (%)', **kwargs)
+        super().plot(self.residual_semblance, ticks_range_x=ticks_range_x, ticks_range_y=ticks_range_y,
+                     x_points=x_points, y_points=y_points, xlabel='Velocity deviation (%)', **kwargs)
