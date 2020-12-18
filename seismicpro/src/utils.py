@@ -7,10 +7,8 @@ import functools
 
 import numpy as np
 import pandas as pd
-from numba import njit, prange
 from sklearn.linear_model import LinearRegression
 from scipy.signal import medfilt, hilbert
-from scipy.interpolate import interp1d
 import segyio
 
 from ..batchflow import FilesIndex

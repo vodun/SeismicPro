@@ -17,7 +17,7 @@ from .seismic_index import SegyFilesIndex, FieldIndex, KNNIndex, TraceIndex, Cus
 from .semblance import Semblance, ResidualSemblance
 from .utils import (FILE_DEPENDEND_COLUMNS, partialmethod, calculate_sdc_for_field, massive_block)
 from .file_utils import write_segy_file
-from .plot_utils import spectrum_plot, seismic_plot, statistics_plot, gain_plot, semblance_plot
+from .plot_utils import spectrum_plot, seismic_plot, statistics_plot, gain_plot
 
 INDEX_UID = 'TRACE_SEQUENCE_FILE'
 
@@ -968,7 +968,7 @@ class SeismicBatch(Batch):
 
     @action
     def calculate_residual_semblance(self, src, dst, velocities, stacking_velocity, window=25, deviation=0.2):
-        """!!!"""
+        """ !! """
         times = self.meta[src]['samples']
         self.copy_meta(src, dst)
 
