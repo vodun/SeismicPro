@@ -888,31 +888,10 @@ class SeismicBatch(Batch):
 
     @action
     def calculate_vertical_velocity_semblance(self, src, dst, velocities, window=25):
-        r""" Calculate semblance (or residual semblance) for given seismogram from `src` component and save the result
+        """ Calculate semblance for given seismogram from `src` component and save the result
         to `dst` component.
 
-        Semblance is a measure of multichannel coherence. It's calculated along all possible horizons from a given
-        velocity range (via `velocities`) and with all possible starting points. Range of starting points is equal
-        to field range. Calculation of each horizon is based on the formula:
-        :math:`th_i = \sqrt{t_z^2 + l_i^2/v^2}`, where
-        :math:`t_z` - start time of the horizon
-        :math:`l_i` - distance from the gather to the i-th trace (offset)
-        :math:`v` - velocity for this horizon
-        :math:`th_i` - horizon time for given offset.
-
-        The value of horison amplitude in point `th_i` can be received from trace with same offset. In order to
-        calculate all the horizon values, you need to get the `th_i` values for all offsets.
-        Then, value :math:`f_{i, th_i} = trace_i[th_i]` is an amplitude for horizon with i-th offset.
-
-        Received horizons are used during semblance estimation by following formula:
-        :math:`S(k, th) = \frac{\sum^{k+N/2}_{k-N/2}(\sum^M_{i=1} \sum^M_{j=1} f_{i, th[j]})^2}
-                            {M \sum^{k+N/2}_{k-N/2}\sum^M_1 \sum^M_{j=1} f_{i, th[j]})^2}`, where
-        S - semblance value for range for starting point k
-        M - Number of traces in field
-        N - Window size
-        th - Horizon.
-        Resulted matrix contains semblance values based on horizons with each combinations of started point :math:`t_z`
-        and velocity :math:`v`. This matrix has shape (time_length, velocity_length).
+        See detailed documentation in :class:`~semblance.Semblance`.
 
         Parameters
         ----------
@@ -924,15 +903,6 @@ class SeismicBatch(Batch):
             Range that determining the velocities involved in the semblance calculation.
         window : int, optional, by default 25
             Window size for smoothing. It should be from 5 to 256ms.
-        residual : bool, optional, by default False
-            If True, residual semblance will be computed.
-            Otherwise, semblance will be computed.
-        stacking_velocity : array-like, optional
-            Array with elements in format [[time, velocity], ...]. The array contains a set of non-decreasing
-            velocity points that correspond to the maximum correlation values.
-        deviation : float, optional, by default 0.2
-            Percentage deviation from the velocity law. Defines the width of the area around the velocity
-            law to construct the residual semblance.
 
         Returns
         -------
@@ -940,15 +910,9 @@ class SeismicBatch(Batch):
             Batch with semblance in `dst` component. `dst` components are now arrays
             (of size batch items) of array (of size velocity values) of array (of field length).
 
-        Raises
-        ------
-        ValueError
-            if `method` receive wrong name.
-
         Notes
         -----
-        - Works properly only with CDP index.
-        - Adding 'velocity' to meta data.
+        1. Works properly only with CDP index.
         """
         times = self.meta[src]['samples']
         self.copy_meta(src, dst)
@@ -968,7 +932,29 @@ class SeismicBatch(Batch):
 
     @action
     def calculate_residual_semblance(self, src, dst, velocities, stacking_velocity, window=25, deviation=0.2):
-        """ !! """
+        """ !!
+
+        Parameters
+        ----------
+        src : str
+            The batch component to get field from.
+        dst : str
+            The batch component to put semblance in.
+        velocities : array-like
+            Range that determining the velocities involved in the semblance calculation.
+        stacking_velocity : array-like, optional
+            Array with elements in format [[time, velocity], ...]. The array contains a set of non-decreasing
+            velocity points that correspond to the maximum correlation values.
+        window : int, optional, by default 25
+            Window size for smoothing. It should be from 5 to 256ms.
+        deviation : float, optional, by default 0.2
+            Percentage deviation from the velocity law. Defines the width of the area around the velocity
+            law to construct the residual semblance.
+
+        Returns
+        -------
+
+        """
         times = self.meta[src]['samples']
         self.copy_meta(src, dst)
 

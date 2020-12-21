@@ -9,6 +9,19 @@ from matplotlib import colors as mcolors
 from .plot_utils import _set_ticks
 
 
+def use_docs_from(method_from):
+    """ !! """
+    def wrapper(method_to):
+        """ !! """
+        from_name = method_from.__qualname__
+        message = '|  For clarity, the docstrings of the `{}` are shown below.  |'.format(from_name)
+        line = '\n' + '-' * len(message) + '\n'
+        support_string = line + message + line
+        method_to.__doc__ += support_string + method_from.__doc__
+        return method_to
+    return wrapper
+
+
 class BaseSemblance:
     """ Base class for velocity analysis.
 
@@ -77,16 +90,15 @@ class BaseSemblance:
                 corrected_seismogram[i] = seismogram[corrected_time, i]
         return corrected_seismogram
 
-
     def plot(self, semblance, ticks_range_x, ticks_range_y, xlabel='', title='', index='', figsize=(15, 12), # pylint: disable=too-many-arguments
              fontsize=11, grid=None, x_points=None, y_points=None, save_to=None, dpi=300, **kwargs):
-        """ Base plotter for vertical velocity semblance. The plotter adds level lines, colors the graph,
+        """ Base plotter for vertical velocity semblance. The plotter adds level lines, colors the graph, \
         signs axes and values, also draws a stacking velocity, if specified (via `x_points` and `y_points`).
 
         Parameters
         ----------
         semblance : 2-d np.ndarray
-            Array with vertical velocity or residual sembalnce.
+            Array with vertical velocity or residual semblance.
         ticks_range_x : array-like with length 2, optional
             Min and max value of labels on the x-axis.
         ticks_range_y : array-like with length 2, optional
@@ -154,15 +166,39 @@ class BaseSemblance:
         plt.show()
 
 
+@use_docs_from(BaseSemblance)
 class Semblance(BaseSemblance):
-    """ !!
+    r"""  Semblance is a normalized output-input energy ratio for CDP seismogram. This ratio aims to obtain picks that
+    correspond to the best coherency of the signal along a hyperbolic trajectory over the entire spread length of the
+    CDP gather.
+
+    The semblance is computed by:
+    :math:`S(k, v) = \frac{\sum^{k+N/2}_{i=k-N/2}(\sum^{M-1}_{j=0} f_{j}(i, v))^2}
+                          {M \sum^{k+N/2}_{i=k-N/2}\sum^{M-1}_{j=0} f_{j}(i, v)^2}`, where
+    S - semblance value for starting time point `k` and velocity `v`,
+    M - number of traces in gather,
+    N - window size,
+    f_{j}(i, v) - the amplitude value on the i-th trace at NMO corrected time j.
+
+    Vector f(i, v) represents a normal moveout correction for i-th trace and velocity `v`.
+    :math:`f_{j}(i, v) = \sqrt{t_0^2 + \frac{l_i^2}{v^2}}`, where
+    :math:`t_0` - start time of hyperbola assosicated with velocity v,
+    :math:`l_i` - distance from the gather to the i-th trace (offset),
+    :math:`v` - velocity value.
+
+    The resulted matrix contains vertical velocity semblance values based on hyperbolas with each combination of the
+    started point :math:`k` and velocity :math:`v`. This matrix has a shape (time_length, velocity_length).
 
     Attributes
     ----------
-    _semblance : 2d np.ndarray
-         Array with vertical velocity sembalnce.
+    semblance : 2d np.ndarray
+         Array with vertical velocity semblance.
 
-    Other attributes described in :class:`~BaseSemblance`.
+    Note
+    ----
+    1. Other attributes described in :class:`~BaseSemblance`.
+    2. Detailed description of the vertical velocity semblance computation is presented
+    in the method :func:`~Semblance._calc_semblance`.
     """
     def __init__(self, seismogram, times, offsets, velocities, window=25):
         super().__init__(seismogram=seismogram, times=times, offsets=offsets,
@@ -172,22 +208,45 @@ class Semblance(BaseSemblance):
 
     @property
     def semblance(self):
-        """ !! """
+        """ Property returns the copy of `_semblance` attribute in order to save semblance from occasional changes. """
         return self._semblance.copy()
 
     def _calc_semblance(self):
-        """ !! """
+        """ Calculation of vertical velocity semblance starts with computing normal moveout for the entire seismogram
+        with specified velocity. NMO corrected gather stacked along the offset axis in two ways. The first stack is a
+        squared sum of amplitudes named `numerator` while the second one was a sum of squared amplitudes named
+        `denominator`. Thus, the resulted semblance values for particular velocity are received as a ratio of these
+        stacks in the specified window. The same algorithm repeats for every velocity point.
+
+        Note
+        ----
+        1. In order to maintain the correct units, the velocities are converted to the the meter / millisecond.
+        """
         velocities_ms = self._velocities / 1000 # from m/s to m/ms
-        self._semblance = self.calc_numba_semblance(base_func=self.base_calc_semblance,
-                                                    calc_nmo_func=self.base_calc_nmo,
-                                                    seismogram=self._seismogram, times=self._times,
-                                                    offsets=self._offsets, velocities=velocities_ms,
-                                                    samples_step=self._samples_step, window=self._window)
+        self._semblance = self._calc_semblance_numba(base_func=self.base_calc_semblance,
+                                                     calc_nmo_func=self.base_calc_nmo,
+                                                     seismogram=self._seismogram, times=self._times,
+                                                     offsets=self._offsets, velocities=velocities_ms,
+                                                     samples_step=self._samples_step, window=self._window)
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def calc_numba_semblance(base_func, calc_nmo_func, seismogram, times, offsets, velocities, samples_step, window):
-        """ !! """
+    def _calc_semblance_numba(base_func, calc_nmo_func, seismogram, times, offsets, velocities, samples_step, window):
+        """ Parallelized method for calculating vertical semblance. Most of this method uses the class attributes
+        already described in other methods, so only unique parameters will be described here.
+
+        Parameters
+        ----------
+        base_func : callable with njit decorator
+            Base function for semblance computation.
+        calc_nmo_func : callable with njit decorator
+            Callable that calculates normal moveout for given seismogram, time, velocity and offset.
+
+        Returns
+        -------
+        semblance : 2d np.ndarray
+            Array with vertical velocity semblance.
+        """
         semblance = np.empty((len(seismogram), len(velocities)))
         for j in prange(len(velocities)):
             nmo = np.empty_like(seismogram)
@@ -196,6 +255,7 @@ class Semblance(BaseSemblance):
                       t_min=0, t_max=len(nmo))
         return semblance
 
+    @use_docs_from(BaseSemblance.plot)
     def plot(self, stacking_velocity=None, **kwargs):
         """ Plot vertical velocity semblance.
 
@@ -222,19 +282,20 @@ class Semblance(BaseSemblance):
                      y_points=y_points, xlabel='Velocity (m/s)', **kwargs)
 
     def calc_minmax_metrics(self, other):
-        """" other is a raw semblance here, while self is a diff. """
+        """" !!!!! other is a raw semblance here, while self is a diff. """
         minmax_self = np.max(np.max(self.semblance, axis=1) - np.min(self.semblance, axis=1))
         minmax_other = np.max(np.max(other.semblance, axis=1) - np.min(other.semblance, axis=1))
         return minmax_self / (minmax_other + 1e-11)
 
 
+@use_docs_from(BaseSemblance)
 class ResidualSemblance(BaseSemblance):
-    """ !!
+    """
 
     Attributes
     ----------
     _residual_semblance : 2d np.ndarray
-        Array with vertical residual sembalnce.
+        Array with vertical residual semblance.
     _stacking_velocity : array-like, optional
         !!!!! Array with elements in format [[time, velocity], ...].
     _deviation : float, optional, default 0.2
@@ -261,7 +322,7 @@ class ResidualSemblance(BaseSemblance):
         stacking_velocity_ms[:, 1] /= 1000 # from m/s to m/ms
 
         left_bounds, right_bounds = self._calc_velocity_bounds()
-        self._residual_semblance = self._calc_numba_res_semblance(base_func=self.base_calc_semblance,
+        self._residual_semblance = self._calc_res_semblance_numba(base_func=self.base_calc_semblance,
                                                         calc_nmo_func=self.base_calc_nmo,
                                                         seismogram=self._seismogram, times=self._times,
                                                         offsets=self._offsets, velocities=velocities_ms,
@@ -282,7 +343,7 @@ class ResidualSemblance(BaseSemblance):
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def _calc_numba_res_semblance(base_func, calc_nmo_func, seismogram, times, offsets, velocities, left_bounds,
+    def _calc_res_semblance_numba(base_func, calc_nmo_func, seismogram, times, offsets, velocities, left_bounds,
                                   right_bounds, samples_step, window):
         """ !! """
         semblance = np.zeros((len(seismogram), len(velocities)))
@@ -310,6 +371,7 @@ class ResidualSemblance(BaseSemblance):
                                             np.arange(len(cropped_smb)), cropped_smb)
         return residual_semblance
 
+    @use_docs_from(BaseSemblance.plot)
     def plot(self, **kwargs):
         """ Plot vertical residual semblance. The plot always have a vertical line in the middle, but if
         if delay between velocities in `self._stacking_velocity` more than 50 ms, every given point will

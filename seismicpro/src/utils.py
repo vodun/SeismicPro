@@ -1,5 +1,4 @@
 """ Seismic batch tools """
-# pylint: disable=not-an-iterable
 import csv
 import shutil
 import tempfile
