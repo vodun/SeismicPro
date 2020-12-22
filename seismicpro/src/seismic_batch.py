@@ -888,27 +888,27 @@ class SeismicBatch(Batch):
 
     @action
     def calculate_vertical_velocity_semblance(self, src, dst, velocities, window=25):
-        """ Calculate semblance for given seismogram from `src` component and save the result
-        to `dst` component.
+        """ Calculate vertical velocity semblance for given seismogram from `src` component and save the result to
+        `dst` component.
 
         See detailed documentation in :class:`~semblance.Semblance`.
 
         Parameters
         ----------
         src : str
-            The batch component to get field from.
+            The batch component to get the field from.
         dst : str
             The batch component to put semblance in.
         velocities : array-like
-            Range that determining the velocities involved in the semblance calculation.
+            The range that determining the velocities involved in the semblance calculation.
         window : int, optional, by default 25
             Window size for smoothing. It should be from 5 to 256ms.
 
         Returns
         -------
         batch : SeismicBatch
-            Batch with semblance in `dst` component. `dst` components are now arrays
-            (of size batch items) of array (of size velocity values) of array (of field length).
+            Batch with vertical velocity semblance semblance in `dst` component. `dst` components are now arrays
+            (of size batch items) of an array (of size velocity values) of an array (of field length).
 
         Notes
         -----
@@ -932,28 +932,36 @@ class SeismicBatch(Batch):
 
     @action
     def calculate_residual_semblance(self, src, dst, velocities, stacking_velocity, window=25, deviation=0.2):
-        """ !!
+        """ Calculate the residual semblance for given seismogram from `src` component and save the result to
+        `dst` component.
+
+        See detailed documentation in :class:`~semblance.ResidualSemblance`.
 
         Parameters
         ----------
         src : str
-            The batch component to get field from.
+            The batch component to get the field from.
         dst : str
             The batch component to put semblance in.
         velocities : array-like
-            Range that determining the velocities involved in the semblance calculation.
+            The range that determining the velocities involved in the semblance calculation.
         stacking_velocity : array-like, optional
             Array with elements in format [[time, velocity], ...]. The array contains a set of non-decreasing
             velocity points that correspond to the maximum correlation values.
         window : int, optional, by default 25
             Window size for smoothing. It should be from 5 to 256ms.
         deviation : float, optional, by default 0.2
-            Percentage deviation from the velocity law. Defines the width of the area around the velocity
-            law to construct the residual semblance.
+            Percentage deviation from the velocity law. Defines the width of the area around the velocity law to
+            construct the residual semblance.
 
         Returns
         -------
+        batch : SeismicBatch
+            Batch with residual semblance in `dst` component.
 
+        Notes
+        -----
+        1. Works properly only with CDP index.
         """
         times = self.meta[src]['samples']
         self.copy_meta(src, dst)
