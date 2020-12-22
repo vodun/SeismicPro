@@ -978,7 +978,7 @@ class SeismicBatch(Batch):
     @action
     @inbatch_parallel(init='_init_component', target='threads')
     @apply_to_each_component
-    def add_muting(self, index, src, dst, muting=None, picking=None, indent=0):
+    def add_muting(self, index, src, dst, muting=None, picking=None, indent=0, save_muting_to=None):
         """ Zeroing seismogram above ``muting`` or ``picking`` times.
 
         Parameters
@@ -1001,7 +1001,7 @@ class SeismicBatch(Batch):
         pos = self.index.get_pos(index)
         field = getattr(self, src)[pos]
         offsets = np.sort(self.index.get_df(index=index)['offset'])
-        samples_step = np.diff(self.meta[src]['samples'][:2])[0]
+        sample_rate = np.diff(self.meta[src]['samples'][:2])[0]
 
         if picking is not None:
             picking = getattr(self, picking)[pos]
@@ -1015,19 +1015,23 @@ class SeismicBatch(Batch):
             indent /= 1000 # from m/s to m/ms
             # If one wants to mute below given points, the found velocity reduces by given indent.
             velocity = lin_reg.coef_ - indent
-            mute_samples = offsets / (velocity * samples_step) # m/samples
+            mute_samples = offsets / (velocity * sample_rate) # m/samples
             mute_samples = mute_samples.astype(int)
         elif muting is not None:
             muting = np.asarray(muting) if isinstance(muting, (tuple, list)) else muting
             data_y, data_x = muting[:, 0], muting[:, 1]
             # Pointwise interpolation for specified muting points.
             poly = np.polyfit(data_x, data_y, deg=1)
-            mute_samples = np.polyval(poly, offsets) / samples_step
+            mute_samples = np.polyval(poly, offsets) / sample_rate
             if np.sum(mute_samples < 0) > 0:
                 mute_samples[mute_samples < 0] = 0
         else:
             raise ValueError('Either `picking` or `muting` should be determined.')
 
+        if save_muting_to is not None:
+            if save_muting_to not in self.components:
+                self.add_components(save_muting_to, self.array_of_nones)
+                getattr(self, save_muting_to)[pos] = mute_samples * sample_rate
         mute_mask = (np.arange(field.shape[1]).reshape(1, -1) - mute_samples.reshape(-1, 1)) > 0
         muted_field = field * mute_mask
         getattr(self, dst)[pos] = muted_field
@@ -1916,5 +1920,6 @@ class SeismicBatch(Batch):
             stacking_velocity = getattr(self, stacking_velocity)[pos]
         if stacking_velocity is not None:
             kwargs.update(stacking_velocity=stacking_velocity)
+        kwargs.update(index=index)
         semblance.plot(**kwargs)
         return self

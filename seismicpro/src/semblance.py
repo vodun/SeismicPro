@@ -41,7 +41,7 @@ class BaseSemblance:
     _velocities : array-like
         Arrange of velocity values defined the limits for semblance computation.
         Measured in meters/seconds.
-    _samples_step : int or float
+    _sample_rate : int or float
         Step in miliseconds between signal amplitude measurements during shooting.
         Measured in miliseconds.
     _window : int
@@ -53,12 +53,12 @@ class BaseSemblance:
         self._times = times # ms
         self._offsets = offsets # m
         self._velocities = velocities # m/s
-        self._samples_step = self._times[1] - self._times[0]
+        self._sample_rate = self._times[1] - self._times[0]
         self._window = window
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def base_calc_semblance(calc_nmo_func, seismogram, semblance, ix, times, offsets, velocity, samples_step, # pylint: disable=too-many-arguments
+    def base_calc_semblance(calc_nmo_func, seismogram, semblance, ix, times, offsets, velocity, sample_rate, # pylint: disable=too-many-arguments
                             window, nmo, t_min, t_max):
         """ Calculate semblance for specified velocity in preset time window from `t_min` to `t_max`.
         !!!!!
@@ -66,7 +66,7 @@ class BaseSemblance:
         t_window_min = max(0, t_min - window)
         t_window_max = min(len(times) - 1, t_max + window)
         for i in prange(t_window_min, t_window_max):
-            nmo[i - t_window_min] = calc_nmo_func(seismogram, times[i], offsets, velocity, samples_step)
+            nmo[i - t_window_min] = calc_nmo_func(seismogram, times[i], offsets, velocity, sample_rate)
 
         numerator = np.sum(nmo, axis=1)**2
         denominator = np.sum(nmo**2, axis=1)
@@ -80,10 +80,10 @@ class BaseSemblance:
 
     @staticmethod
     @njit(nogil=True, fastmath=True)
-    def base_calc_nmo(seismogram, time, offsets, velocity, samples_step):
+    def base_calc_nmo(seismogram, time, offsets, velocity, sample_rate):
         """ !!! """
         corrected_seismogram = np.zeros(len(offsets))
-        corrected_times = (np.sqrt(time**2 + offsets**2/velocity**2) / samples_step).astype(np.int32)
+        corrected_times = (np.sqrt(time**2 + offsets**2/velocity**2) / sample_rate).astype(np.int32)
         for i in range(len(offsets)):
             corrected_time = corrected_times[i]
             if corrected_time < len(seismogram):
@@ -92,7 +92,7 @@ class BaseSemblance:
 
     def plot(self, semblance, ticks_range_x, ticks_range_y, xlabel='', title='', index='', figsize=(15, 12), # pylint: disable=too-many-arguments
              fontsize=11, grid=None, x_points=None, y_points=None, save_to=None, dpi=300, **kwargs):
-        """ Base plotter for vertical velocity semblance. The plotter adds level lines, colors the graph, \
+        """ Base plotter for vertical velocity semblance. The plotter adds level lines, colors the graph,
         signs axes and values, also draws a stacking velocity, if specified (via `x_points` and `y_points`).
 
         Parameters
@@ -180,7 +180,7 @@ class Semblance(BaseSemblance):
     N - window size,
     f_{j}(i, v) - the amplitude value on the i-th trace at NMO corrected time j.
 
-    Vector f(i, v) represents a normal moveout correction for i-th trace and velocity `v`.
+    Vector f(i, v) represents a normal moveout correction with velocity `v` for i-th trace.
     :math:`f_{j}(i, v) = \sqrt{t_0^2 + \frac{l_i^2}{v^2}}`, where
     :math:`t_0` - start time of hyperbola assosicated with velocity v,
     :math:`l_i` - distance from the gather to the i-th trace (offset),
@@ -227,13 +227,13 @@ class Semblance(BaseSemblance):
                                                      calc_nmo_func=self.base_calc_nmo,
                                                      seismogram=self._seismogram, times=self._times,
                                                      offsets=self._offsets, velocities=velocities_ms,
-                                                     samples_step=self._samples_step, window=self._window)
+                                                     sample_rate=self._sample_rate, window=self._window)
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def _calc_semblance_numba(base_func, calc_nmo_func, seismogram, times, offsets, velocities, samples_step, window):
-        """ Parallelized method for calculating vertical semblance. Most of this method uses the class attributes
-        already described in other methods, so only unique parameters will be described here.
+    def _calc_semblance_numba(base_func, calc_nmo_func, seismogram, times, offsets, velocities, sample_rate, window):
+        """ Parallelized method for calculating vertical velocity semblance. Most of this method uses the class
+        attributes already described in init method, so only unique parameters will be described here.
 
         Parameters
         ----------
@@ -251,7 +251,7 @@ class Semblance(BaseSemblance):
         for j in prange(len(velocities)):
             nmo = np.empty_like(seismogram)
             base_func(calc_nmo_func=calc_nmo_func, seismogram=seismogram, semblance=semblance, ix=j, times=times,
-                      offsets=offsets, velocity=velocities[j], samples_step=samples_step, window=window, nmo=nmo,
+                      offsets=offsets, velocity=velocities[j], sample_rate=sample_rate, window=window, nmo=nmo,
                       t_min=0, t_max=len(nmo))
         return semblance
 
@@ -275,14 +275,33 @@ class Semblance(BaseSemblance):
             stacking_velocity = np.asarray(stacking_velocity)
             x_points = ((stacking_velocity[:, 1] - self._velocities[0]) /
                         (self._velocities[-1] - self._velocities[0]) * self.semblance.shape[1])
-            y_points = stacking_velocity[:, 0] / self._samples_step
-        ticks_range_y = [0, self.semblance.shape[0] * self._samples_step]
+            y_points = stacking_velocity[:, 0] / self._sample_rate
+        ticks_range_y = [0, self.semblance.shape[0] * self._sample_rate]
         ticks_range_x = [self._velocities[0], self._velocities[-1]]
         super().plot(self.semblance, ticks_range_x, ticks_range_y, x_points=x_points,
                      y_points=y_points, xlabel='Velocity (m/s)', **kwargs)
 
     def calc_minmax_metrics(self, other):
-        """" !!!!! other is a raw semblance here, while self is a diff. """
+        r"""" The metric designed to search for signal leakage in the process of ground-roll attenuation. The metric is
+        based on the assumption that the semblance from the difference seismogram between the raw and attenuated
+        seismograms should not have pronounced energy maxima at the semblance.
+
+        Hence, we calculate the maximum difference between the energy values at each time on the difference
+        semblance and took the maximal difference. The same is calculated for raw semblance. Resulted metrics value is
+        a ratio of maximal difference on differential semblance and maximal difference on raw semblance.
+
+        Parameters
+        ----------
+        self : Semblance
+            Class containing semblance for  difference seismogram.
+        other : Semblance
+            Class containing semblance for raw gather.
+
+        Returns
+        -------
+        metircs : float
+            Metrics value represented how much signal leaked out during the seismogram processing.
+        """
         minmax_self = np.max(np.max(self.semblance, axis=1) - np.min(self.semblance, axis=1))
         minmax_other = np.max(np.max(other.semblance, axis=1) - np.min(other.semblance, axis=1))
         return minmax_self / (minmax_other + 1e-11)
@@ -290,16 +309,33 @@ class Semblance(BaseSemblance):
 
 @use_docs_from(BaseSemblance)
 class ResidualSemblance(BaseSemblance):
-    """
+    """ Residual Semblance is a normalized output-input energy ratio for CDP seismogram along picked stacking velocity.
+
+    The method of computation at a single point completely coincides with the calculation of the :class:`~Semblance`,
+    however, the residual semblance is computed in a specified area around the velocity, which allows finding
+    errors and update the initially picked stacking velocity. The boundaries in which the calculation is performed for
+    a given i-th stacking velocity are determined as `stacking_velocity[i]`*(1 +- `deviation`).
+
+    Since the boundaries will be different for each stacking velocity, the residual semblance values are interpolated
+    to obtain a rectangular matrix or size (time_length, max(right_boundary - left_boundary)), where right_boundary is
+    the upper limit for calculating the residual semblance for each velocity and left_boundary is a lower limit.
+
+    Thus, the final semblance is a rectangular matrix, the central values of which indicate the energy ratio at the
+    points corresponding to the current stacking velocity. The center line should contain the maximum energy values for
+    every velocity points. If this condition is not met, then it is necessary to correct the stacking velocity.
 
     Attributes
     ----------
     _residual_semblance : 2d np.ndarray
         Array with vertical residual semblance.
     _stacking_velocity : array-like, optional
-        !!!!! Array with elements in format [[time, velocity], ...].
+        Array with elements in format [[time, velocity], ...]. Non-decreasing function passing through the maximum
+        energy values on the semblance graph.
     _deviation : float, optional, default 0.2
-        !!!!!
+        The deviation of the border from the current stacking veloicty value. Based on this value, the boundaries are
+        determined in which the resiudal semblance is calculated. The boundaries in which the calculation is performed
+        for a given i-th stacking velocity are determined as `stacking_velocity[i]`*(1 +- `deviation`).
+
     Other attributes described in :class:`~BaseSemblance`.
     """
     def __init__(self, seismogram, times, offsets, velocities, stacking_velocity, window=25, deviation=0.2):
@@ -312,11 +348,13 @@ class ResidualSemblance(BaseSemblance):
 
     @property
     def residual_semblance(self):
-        """ !! """
+        """ Property returns the copy of `_residual_semblance` attribute in order to save semblance from occasional
+        changes.
+        """
         return self._residual_semblance.copy()
 
     def _calc_residual_semblance(self):
-        """ !! """
+        """ Obtaining boundaries based on a given stacking velocity and calculating residual semblance. """
         velocities_ms = self._velocities / 1000 # from m/s to m/ms
         stacking_velocity_ms = self._stacking_velocity.copy()
         stacking_velocity_ms[:, 1] /= 1000 # from m/s to m/ms
@@ -327,14 +365,26 @@ class ResidualSemblance(BaseSemblance):
                                                         seismogram=self._seismogram, times=self._times,
                                                         offsets=self._offsets, velocities=velocities_ms,
                                                         left_bounds=left_bounds, right_bounds=right_bounds,
-                                                        samples_step=self._samples_step, window=self._window)
+                                                        sample_rate=self._sample_rate, window=self._window)
 
     def _calc_velocity_bounds(self):
-        """ !! """
+        """ Calculates the boundaries within which the residual semblance will be considered.To obtain a continuous
+        boundary, the stacking velosity values are interpolated.
+
+        Returns
+        -------
+        left_bounds : 1d array
+            Indices of corresponding velocities on left bounds for each time.
+        right_bounds : 1d array
+            Indices of corresponding velocities on right bounds for each time.
+        """
+        # Interpolate velocity because it is necessary to know the boundary for each time while the stacking velocity
+        # might be set for arbitrary times.
         stacking_times, stacking_velocities = zip(*self._stacking_velocity)
         f = interp1d(stacking_times, stacking_velocities, fill_value="extrapolate")
         interpolated_velocity = np.clip(f(self._times), self._velocities[0], self._velocities[-1])
 
+        # Define an indices of velocities that corresponds to velocities on found boundaries.
         left_bounds = (interpolated_velocity * (1 - self._deviation)).reshape(-1, 1)
         left_bounds = np.argmin(np.abs(left_bounds - self._velocities), axis=1)
         right_bounds = (interpolated_velocity * (1 + self._deviation)).reshape(-1, 1)
@@ -344,8 +394,26 @@ class ResidualSemblance(BaseSemblance):
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_res_semblance_numba(base_func, calc_nmo_func, seismogram, times, offsets, velocities, left_bounds,
-                                  right_bounds, samples_step, window):
-        """ !! """
+                                  right_bounds, sample_rate, window):
+        """ Parallelized method for calculating residual semblance. Most of this method uses the class attributes
+        already described in init method, so only unique parameters will be described here.
+
+        Parameters
+        ----------
+        base_func : callable with njit decorator
+            Base function for semblance computation.
+        calc_nmo_func : callable with njit decorator
+            Callable that calculates normal moveout for given seismogram, time, velocity and offset.
+        left_bounds : 1d array
+            Indices of corresponding velocities on left bounds for each time.
+        right_bounds : 1d array
+            Indices of corresponding velocities on right bounds for each time.
+
+        Returns
+        -------
+        semblance : 2d np.ndarray
+            Array with residual semblance.
+        """
         semblance = np.zeros((len(seismogram), len(velocities)))
         for i in prange(left_bounds.min(), right_bounds.max() + 1):
             t_min = np.where(right_bounds == i)[0]
@@ -358,7 +426,7 @@ class ResidualSemblance(BaseSemblance):
 
             nmo = np.empty((t_window_max - t_window_min + 1, len(offsets)))
             base_func(calc_nmo_func=calc_nmo_func, seismogram=seismogram, semblance=semblance, ix=i, times=times,
-                      offsets=offsets, velocity=velocities[i], samples_step=samples_step, window=window, nmo=nmo,
+                      offsets=offsets, velocity=velocities[i], sample_rate=sample_rate, window=window, nmo=nmo,
                       t_min=t_min, t_max=t_max+1)
 
         semblance_len = (right_bounds - left_bounds).max()
@@ -382,10 +450,10 @@ class ResidualSemblance(BaseSemblance):
         kwargs : dict, optional
             Arguments for :func:`~BaseSemblance.plot` and for :func:`._set_ticks`.
         """
-        y_points = self._stacking_velocity[:, 0] / self._samples_step # from ms to ix
+        y_points = self._stacking_velocity[:, 0] / self._sample_rate # from ms to ix
         x_points = np.zeros(len(y_points)) + self.residual_semblance.shape[1]/2
 
-        ticks_range_y = [0, self.residual_semblance.shape[0] * self._samples_step] # from ix to ms
+        ticks_range_y = [0, self.residual_semblance.shape[0] * self._sample_rate] # from ix to ms
         ticks_range_x = [-self._deviation*100, self._deviation*100]
 
         super().plot(self.residual_semblance, ticks_range_x=ticks_range_x, ticks_range_y=ticks_range_y,
