@@ -887,7 +887,7 @@ class SeismicBatch(Batch):
     #-------------------------------------------------------------------------#
 
     @action
-    def calculate_vertical_velocity_semblance(self, src, dst, velocities, window=25):
+    def calculate_semblance(self, src, dst, velocities, window=25):
         """ Calculate vertical velocity semblance for given seismogram from `src` component and save the result to
         `dst` component.
 
@@ -920,7 +920,7 @@ class SeismicBatch(Batch):
         self._calculate_semblance(src=src, dst=dst, times=times, velocities=velocities, window=window)
         return self
 
-    @inbatch_parallel(init="_init_component", target="for")
+    @inbatch_parallel(init="_init_component", target='threads')
     def _calculate_semblance(self, index, src, dst, times, velocities, window):
         pos = self.index.get_pos(index)
         seismogram = getattr(self, src)[pos]
@@ -970,7 +970,7 @@ class SeismicBatch(Batch):
                                       stacking_velocity=stacking_velocity, window=window, deviation=deviation)
         return self
 
-    @inbatch_parallel(init="_init_component", target="for")
+    @inbatch_parallel(init="_init_component", target="threads")
     def _calc_residual_semblance(self, index, src, dst, times, velocities, stacking_velocity, window, deviation):
         pos = self.index.get_pos(index)
         seismogram = getattr(self, src)[pos]
