@@ -936,8 +936,8 @@ class SeismicBatch(Batch):
         getattr(self, dst)[pos] = semblance
 
     @action
-    def calculate_residual_semblance(self, src, dst, velocities, stacking_velocities, win_size=25, deviation=0.2):
-        """ Calculate the residual semblance for given seismogram from `src` component and save the result to
+    def calculate_residual_semblance(self, src, dst, num_vels, stacking_velocities, win_size=25, deviation=0.2):
+        """ Calculate the vertical residual semblance for given seismogram from `src` component and save the result to
         `dst` component.
 
         See detailed documentation in :class:`~semblance.ResidualSemblance`.
@@ -948,12 +948,12 @@ class SeismicBatch(Batch):
             The batch component to get the seismogram from.
         dst : str
             The batch component to put semblance in.
-        velocities : array-like
-            The range that determining the velocities involved in the semblance calculation.
+        num_vels : array-like
+            The number of velocities that are involved in the calculation of the vertical residual semblance.
         stacking_velocities : array-like or str, optional
             If array, is an array with elements in format [[time, velocity], ...]. The array contains a set of
             non-decreasing velocity points that correspond to the maximum correlation values.
-            else is a component's name with stacking_velocities.
+            Else is a component's name with stacking_velocities.
         win_size : int, optional, by default 25
             Window size for smoothing semblance over time axis.
             Measured in samples.
@@ -976,12 +976,12 @@ class SeismicBatch(Batch):
         if self.meta[src]['sorting'] != 'offset':
             raise ValueError('Seismogram should be sorted by `offset`.')
 
-        self._calc_residual_semblance(src=src, dst=dst, times=times, velocities=velocities,
+        self._calc_residual_semblance(src=src, dst=dst, times=times, num_vels=num_vels,
                                       stacking_velocities=stacking_velocities, win_size=win_size, deviation=deviation)
         return self
 
     @inbatch_parallel(init="_init_component", target="threads")
-    def _calc_residual_semblance(self, index, src, dst, times, velocities, stacking_velocities, win_size, deviation):
+    def _calc_residual_semblance(self, index, src, dst, times, num_vels, stacking_velocities, win_size, deviation):
         pos = self.index.get_pos(index)
         seismogram = getattr(self, src)[pos]
         offsets = np.sort(self.index.get_df(index=index)['offset'])
@@ -990,43 +990,48 @@ class SeismicBatch(Batch):
             stacking_velocities = getattr(self, stacking_velocities)[pos]
 
         residual_semblance = ResidualSemblance(seismogram=seismogram, times=times, offsets=offsets,
-                                               velocities=velocities, win_size=win_size,
+                                               num_vels=num_vels, win_size=win_size,
                                                stacking_velocities=stacking_velocities, deviation=deviation)
         getattr(self, dst)[pos] = residual_semblance
 
     @action
-    @inbatch_parallel(init='_init_component', target='threads')
     @apply_to_each_component
-    def add_muting(self, index, src, dst, muting=None, picking=None, indent=0, dst_muting=None):
+    def add_muting(self, src, dst, muting=None, picking=None, indent=0, dst_muting=None):
         """ Zeroing seismogram above ``muting`` or ``picking`` times.
 
         Parameters
         ----------
-        some parameters
-
         muting : array-like, optional
-            Array with structure:
-            ``[[time_1, offset_1],
-                ...
-               [time_N, offset_N]]``
+            The array contains the points to mute seismogram with structure:
+            ```[[time_1, offset_1],
+                 ...
+                [time_N, offset_N]]```
             Here, `time` should be measured in milliseconds, and `offsets` should be measured in meters.
         picking : str, optional
             Name of the component with picking values.
         indent : int or float
             Velocity measured in m/s that used to reduce the velocity of the signal above which the
             muting will be performed. Works only for `picking`.
-
+        dst_muting : str
+            Component's name to save muting values.
 
         Raises
         ------
         ValueError
             If seismogram is not sorted by `offset`.
         """
-        pos = self.index.get_pos(index)
-        seismogram = getattr(self, src)[pos]
+        self.update_component(dst_muting, self.array_of_nones)
 
         if self.meta[src]['sorting'] != 'offset':
             raise ValueError('Seismogram should be sorted by `offset`.')
+
+        self._add_muting(src=src, dst=dst, muting=muting, picking=picking, indent=indent, dst_muting=dst_muting)
+        return self
+
+    @inbatch_parallel(init='_init_component', target='threads')
+    def _add_muting(self, index, src, dst, muting, picking, indent, dst_muting):
+        pos = self.index.get_pos(index)
+        seismogram = getattr(self, src)[pos]
 
         offsets = np.sort(self.index.get_df(index=index)['offset'])
         sample_rate = np.diff(self.meta[src]['samples'][:2])[0]
@@ -1054,12 +1059,11 @@ class SeismicBatch(Batch):
         else:
             raise ValueError('Either `picking` or `muting` should be determined.')
 
-        if dst_muting is not None:
-            if dst_muting not in self.components:
-                self.add_components(dst_muting, self.array_of_nones)
-            getattr(self, component)[pos] = mute_samples*sample_rate
-
         mute_samples = np.clip(mute_samples, 0, seismogram.shape[1])
+
+        if dst_muting is not None:
+            getattr(self, dst_muting)[pos] = mute_samples*sample_rate
+
         mute_mask = (np.arange(seismogram.shape[1]).reshape(1, -1) - mute_samples.reshape(-1, 1)) > 0
         muted_seismogram = seismogram * mute_mask
         getattr(self, dst)[pos] = muted_seismogram
@@ -1938,7 +1942,7 @@ class SeismicBatch(Batch):
         Raises
         ------
         ValueError
-            If passed `src` doesn't have vertical velocity semblance..
+            If passed `src` doesn't have vertical velocity semblance.
         """
         pos = self.index.get_pos(index)
         semblance = getattr(self, src)[pos]
