@@ -1,4 +1,4 @@
-""" The file contains classes for velocity analysis."""
+""" The file contains classes for velocity analysis. """
 # pylint: disable=not-an-iterable
 import numpy as np
 import matplotlib.pyplot as plt
@@ -10,16 +10,27 @@ from .plot_utils import _set_ticks
 
 
 def use_docs_from(method_from):
-    """ !! """
-    def wrapper(method_to):
-        """ !! """
+    """ Decorator that adds the documentation from a `method_from` to `method_to`.
+
+    Parameters
+    ----------
+    method_from : function or Class
+    An instance to get documentation from.
+
+    Returns
+    -------
+    decorator : callable
+        Class decorator.
+    """
+    def decorator(method_to):
+        """ Returned decorator. """
         from_name = method_from.__qualname__
         message = '|  For clarity, the docstrings of the `{}` are shown below.  |'.format(from_name)
         line = '\n' + '-' * len(message) + '\n'
         support_string = line + message + line
         method_to.__doc__ += support_string + method_from.__doc__
         return method_to
-    return wrapper
+    return decorator
 
 
 class BaseSemblance:
@@ -55,8 +66,33 @@ class BaseSemblance:
     @njit(nogil=True, fastmath=True, parallel=True)
     def base_calc_semblance(calc_nmo_func, seismogram, times, offsets, velocity, sample_rate, # pylint: disable=too-many-arguments
                             win_size, t_min, t_max):
-        """ Calculate semblance for specified velocity in the preset time `win_size` from `t_min` to `t_max`.
-        !!!!!
+        """ Calculate semblance for specified velocity in the preset time window from `t_min` to `t_max`.
+
+        Parameters
+        ----------
+        calc_nmo_func : njitted callable
+            Callable that calculate normal moveout corrected seismogram for specified time and velocity values and
+            range of offsets.
+        seismogram : np.ndarray
+            Data for calculating semblance.
+        times : array-like
+            An array containing the recording time `time[i]` of a i-th amplitude value `_seismogram[0][i]`.
+        offsets : array-like
+            An array where i-th element is a distance from the source to the receiver that recorded a trace placed
+            in `_seismogram[i]`.
+        velocity : array-like
+            Velocity value for semblance computation.
+        sample_rate : int
+            Step in milliseconds between signal amplitude measurements during shooting.
+        t_min : int
+            Time value to start compute semblance from.
+        t_max : int
+            The last time value for semblance computation.
+
+        Returns
+        -------
+        slice_semblnace : 1d array
+            Semblance values for a specified `veloicty` in time range from `t_min` to `t_max`.
         """
         t_win_size_min = max(0, t_min - win_size)
         t_win_size_max = min(len(times) - 1, t_max + win_size)
@@ -80,7 +116,32 @@ class BaseSemblance:
     @staticmethod
     @njit(nogil=True, fastmath=True)
     def base_calc_nmo(seismogram, time, offsets, velocity, sample_rate):
-        """ !!! """
+        """ Default approach for normal moveout computation. Corrected seismogram calculates as following:
+        :math:`t_c = \sqrt{t^2 + \frac{l^2}{v^2}}`, where
+            t_c - corrected time value.
+            t - specified time value.
+            l - distance from source to receiver.
+            v - velocity.
+
+        Parameters
+        ----------
+        seismogram : np.ndarray
+            Data for calculating normal moveout.
+        time : int
+            Time value to calculate normal moveout.
+        offsets : array-like
+            An array where i-th element is a distance from the source to the receiver that recorded a trace placed
+            in `_seismogram[i]`.
+        velocity : array-like
+            Velocity value for nmo computation.
+        sample_rate : int
+            Step in milliseconds between signal amplitude measurements during shooting.
+
+        Returns
+        -------
+        corrected_seismogram : 2d array
+            NMO corrected seismogram.
+        """
         corrected_seismogram = np.zeros(len(offsets))
         corrected_times = (np.sqrt(time**2 + offsets**2/velocity**2) / sample_rate).astype(np.int32)
         for i in range(len(offsets)):
@@ -193,7 +254,8 @@ class Semblance(BaseSemblance):
     semblance : 2d np.ndarray
          Array with vertical velocity semblance.
     _velocities : array-like
-        Arrange of velocity values defined the limits for semblance computation. Measured in meters/seconds.
+        Arrange of velocity values defined the limits for semblance computation.
+        Measured in meters/seconds.
 
     Note
     ----
