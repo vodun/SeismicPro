@@ -116,7 +116,7 @@ class BaseSemblance:
     @staticmethod
     @njit(nogil=True, fastmath=True)
     def base_calc_nmo(seismogram, time, offsets, velocity, sample_rate):
-        """ Default approach for normal moveout computation. Corrected seismogram calculates as following:
+        r""" Default approach for normal moveout computation. Corrected seismogram calculates as following:
         :math:`t_c = \sqrt{t^2 + \frac{l^2}{v^2}}`, where
             t_c - corrected time value.
             t - specified time value.
@@ -496,11 +496,9 @@ class ResidualSemblance(BaseSemblance):
         for i in prange(left_bounds.min(), right_bounds.max() + 1):
             t_min = np.where(right_bounds == i)[0]
             t_min = 0 if len(t_min) == 0 else t_min[0]
-            t_win_size_min = max(0, t_min - win_size)
 
             t_max = np.where(left_bounds == i)[0]
             t_max = len(times) - 1 if len(t_max) == 0 else t_max[-1]
-            t_win_size_max = min(len(times) - 1, t_max + win_size)
 
             semblance[:, i][t_min: t_max+1] = base_func(calc_nmo_func=calc_nmo_func, seismogram=seismogram,
                                                         times=times, offsets=offsets, velocity=velocities[i],
