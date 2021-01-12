@@ -1,8 +1,14 @@
-"""File contains implemented abstarct classes for Survay and Gather classes. """
-from abs import ABCMeta, abstractmethod
+"""File contains implemented abstarct classes for Survey and Gather classes. """
+# pylint: disable=missing-docstring
 
-class AbstractSurvay(metaclass=ABCMeta):
-    """ Abstract class to check that all nesessery methods are implemented in `Survay` class """
+from abc import ABCMeta, abstractmethod
+
+class AbstractSurvey(metaclass=ABCMeta):
+    """ Abstract class to check that all nesessery methods are implemented in `Survey` class """
+    @abstractmethod
+    def __del__(self):
+        pass
+
     @abstractmethod
     def get_gather(self):
         pass
@@ -28,14 +34,10 @@ class AbstractSurvay(metaclass=ABCMeta):
         pass
 
 
-class AbstarctGather(metaclass=ABCMeta):
+class AbstractGather(metaclass=ABCMeta):
     """ Abstract class to check that all nesessery methods are implemented in `Gather` class """
     @abstractmethod
     def __getattr__(self):
-        pass
-
-    @abstractmethod
-    def load(self):
         pass
 
     @abstractmethod
