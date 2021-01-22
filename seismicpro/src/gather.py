@@ -10,7 +10,7 @@ TRACE_UID_HEADER = 'TRACE_SEQUENCE_FILE'
 
 class Gather(AbstractGather):
     """ !! """
-    def __init__(self, headers, path=None, name=None,  data=None):
+    def __init__(self, headers, path=None, name=None, data=None):
         self.headers = headers
         self.path = path
         self.name = name
