@@ -38,7 +38,7 @@ def add_gather_methods(cls):
         # TODO: fix target
         return action(inbatch_parallel(init="_init_component", target="for")(apply_to_each_component(batch_method)))
 
-    methods_list = ["plot"]  # TODO: parse abstract class and check that method is absent in `SeismicBatch`
+    methods_list = ["plot", "sort"]  # TODO: parse abstract class and check that method is absent in `SeismicBatch`
     for method in methods_list:
         setattr(cls, method, create_method(method))
     return cls
@@ -51,11 +51,14 @@ class SeismicBatch(Batch):
         if fmt.lower() in ["sgy", "segy"]:
             if src is None:
                 src = components
+            components = (components, ) if isinstance(components, str) else components
+
             self.add_components(components, init=[self.array_of_nones for _ in range(len(components))])
-            return self._load_gather(src=src, dst=components, **kwargs)
+            l = self._load_gather(src=src, dst=components, **kwargs)
+            return l
         return super().load(src=src, fmt=fmt, components=components, **kwargs)
 
-    @inbatch_parallel(init="indices", target="threads")
+    @inbatch_parallel(init="indices", target="for")
     @apply_to_each_component
     def _load_gather(self, index, *args, src, dst, **kwargs):
         pos = self.index.get_pos(index)

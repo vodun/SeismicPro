@@ -6,6 +6,8 @@ from .abstract_classes import AbstractGather
 
 TRACE_UID_HEADER = 'TRACE_SEQUENCE_FILE'
 
+
+
 class Gather(AbstractGather):
     """ !! """
     def __init__(self, headers, path=None, name=None,  data=None):
@@ -19,8 +21,13 @@ class Gather(AbstractGather):
 
     def dump(self):
         pass
-    def sort(self):
-        pass
+
+    def sort(self, by):
+        arg = np.argsort(self.headers[by].values, kind='stable')
+
+        self.data = self.data[arg]
+        self.headers = self.headers.loc[arg]
+        return self
 
     def equalize(self):
         pass

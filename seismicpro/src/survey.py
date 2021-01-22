@@ -10,15 +10,14 @@ from .abstract_classes import AbstractSurvey
 from ..batchflow.utils import is_iterable
 
 DEFAULT_HEADERS = ['offset', ]
-TRACE_UID_COLUMN = 'TraceSequenceNumber'
+TRACE_SEQUENCE_FILE = 'TraceSequenceFile'
 
 
 class Survey(AbstractSurvey):
     """ !! """
-    def __init__(self, path, header_index=None, header_cols=None, limits=None, name=None, **kwargs):
+    def __init__(self, path, header_index=None, header_cols=None, name=None, **kwargs):
         self.path = path
         self.headers = None
-        self.limits = slice(limits)
         basename = os.path.basename(self.path).split('.')[0]
         self.name = name if name is not None else basename
 
@@ -34,15 +33,16 @@ class Survey(AbstractSurvey):
 
         # Get attributes from segy.
         self.sample_rate = segyio.dt(self.segy_handler) / 1000
-        self.samples = self.segy_handler.samples[self.limits]
+        self.samples = self.segy_handler.samples
 
         headers = {}
         for column in load_headers:
-            headers[column] = self.segy_handler.attributes(getattr(segyio.TraceField, column))[self.limits]
+            headers[column] = self.segy_handler.attributes(segyio.tracefield.keys[column])[:]
 
         headers = pd.DataFrame(headers)
         headers.reset_index(inplace=True)
-        headers.rename(columns={'index': TRACE_UID_COLUMN}, inplace=True)
+        # TODO: add why do we use unknown column
+        headers.rename(columns={'index': TRACE_SEQUENCE_FILE}, inplace=True)
         headers.set_index(list(header_index), inplace=True)
         # To optimize futher sampling from mulitiindex.
         self.headers = headers.sort_index()
@@ -50,23 +50,47 @@ class Survey(AbstractSurvey):
     def __del__(self):
         self.segy_handler.close()
 
-    def get_gather(self, index=None, random=False):
+    def get_gather(self, index=None, limits=None):
         if index is None:
             # TODO: Write normal random choice.
-            index = self.headers.index[0] if random else np.random.choice(self.headers.index)
-
-        # Here we use
+            index = self.headers.index[0]
+        # TODO: description why do we use [index] instead of index.
         gather_headers = self.headers.loc[[index]].reset_index()
-        data = np.stack([self.load_trace(idx) for idx in gather_headers[TRACE_UID_COLUMN]])
-
+        data = np.stack([self.load_trace(idx, limits) for idx in gather_headers[TRACE_SEQUENCE_FILE]])
         gather = Gather(data=data, headers=gather_headers)
         return gather
 
-    def load_trace(self, index):
-        res = self.segy_handler.trace.raw[int(index)][self.limits]
+    def sample_gather(self, limits=None):
+        # TODO: write normal sampler here
+        index = np.random.choice(self.headers.index)
+        gather = get_gather(self, index=index, limits=limits)
+        return gather
+
+    def load_trace(self, index, limits=None):
+        """limits is an array [from, to]"""
+        limits = limits if limits is not None else [0, len(self.samples)]
+        trace_length = limits[1] - limits[0]
+
+        buf = np.empty(trace_length, dtype=np.float32)
+        # Args for segy loader are following:
+        #   * Buffer to write trace ampltudes
+        #   * Index of loading trace
+        #   * Unknown arg (always 1)
+        #   * Unknown arg (always 1)
+        #   * Position from which to start loading the trace
+        #   * Position where to end loading
+        #   * Step
+        #   * Number of overall samples.
+        res = self.segy_handler.xfd.gettr(buf, index, 1, 1, *limits, 1, trace_length)
         return res
 
     def dump(self):
+        """ params to dump:
+            1. spec
+            2. ext_headers (aka. self.segy_handler.text)
+            3. header
+            4. bin headers (aka. bin)
+        """
         pass
 
     def merge(self): # delete
