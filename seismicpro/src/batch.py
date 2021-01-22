@@ -55,7 +55,11 @@ class SeismicBatch(Batch):
             return self._load_gather(src=src, dst=components, **kwargs)
         return super().load(src=src, fmt=fmt, components=components, **kwargs)
 
-    @inbatch_parallel(init="indices", target="threads")
+    @property
+    def wrapped_indices(self):
+        return [[index] for index in self.indices.values.tolist()]
+
+    @inbatch_parallel(init="wrapped_indices", target="threads")
     @apply_to_each_component
     def _load_gather(self, index, *args, src, dst, **kwargs):
         pos = self.index.get_pos(index)
@@ -71,4 +75,4 @@ class SeismicBatch(Batch):
         for comp in dst:
             if self.components is None or comp not in self.components:
                 self.add_components(comp, init=self.array_of_nones)
-        return self.indices
+        return self.wrapped_indices

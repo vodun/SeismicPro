@@ -8,8 +8,8 @@ TRACE_UID_HEADER = 'TRACE_SEQUENCE_FILE'
 
 class Gather(AbstractGather):
     """ !! """
-    def __init__(self, headers, path=None, name=None,  data=None):
-        self.headers = headers
+    def __init__(self, header_cols, path=None, name=None, data=None):
+        self.header_cols = header_cols
         self.path = path
         self.name = name
         self.data = data
@@ -19,6 +19,7 @@ class Gather(AbstractGather):
 
     def dump(self):
         pass
+
     def sort(self):
         pass
 
