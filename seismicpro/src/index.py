@@ -24,7 +24,7 @@ class SeismicIndex(DatasetIndex):
 
     def build_from_index(self, index, survey_dict, headers):
         self.surveys_dict = survey_dict
-        self.headers = headers
+        self.headers = headers.loc[index]
         return index
 
     def build_from_survey(self, survey):
@@ -82,12 +82,17 @@ class SeismicIndex(DatasetIndex):
     @classmethod
     def merge(cls, surveys, *args, **kwargs):
         survey_indices = cls.surveys_to_indices(surveys)
-        return reduce(lambda x, y: cls.merge_two_indices(x, y, *args, **kwargs), survey_indices)
+        index = reduce(lambda x, y: cls.merge_two_indices(x, y, *args, **kwargs), survey_indices)
+        index._pos = index.build_pos()  # Build _pos dict explicitly if merge was called outside __init__
+        return index
 
     @classmethod
     def concat(cls, surveys, *args, **kwargs):
         surveys = cls.surveys_to_indices(surveys)
         # TODO: concat
+        index = None
+        # index._pos = index.build_pos()  # Build _pos dict explicitly if concat was called outside __init__
+        return index
 
     def create_subset(self, index):
         return type(self)(index=index, survey_dict=self.surveys_dict, headers=self.headers)
