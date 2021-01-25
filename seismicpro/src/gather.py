@@ -15,6 +15,7 @@ class Gather(AbstractGather):
         self.path = path
         self.name = name
         self.data = data
+        self.sort_by = None
 
     def __getattr__(self):
         pass
@@ -23,10 +24,14 @@ class Gather(AbstractGather):
         pass
 
     def sort(self, by):
+        if not isinstance(by, str):
+            raise TypeError('`by` should be str, not {}'.format(type(by)))
+
         arg = np.argsort(self.headers[by].values, kind='stable')
 
+        self.sort_by = by
         self.data = self.data[arg]
-        self.headers = self.headers.loc[arg]
+        self.headers = self.headers.iloc[arg]
         return self
 
     def equalize(self):
