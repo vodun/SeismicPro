@@ -15,14 +15,14 @@ TRACE_SEQUENCE_FILE = 'TraceSequenceFile'
 
 class Survey(AbstractSurvey):
     """ !! """
-    def __init__(self, path, header_index=None, header_cols=None, name=None, **kwargs):
+    def __init__(self, path, header_index, header_cols=None, name=None, **kwargs):
         self.path = path
         self.headers = None
-        basename = os.path.basename(self.path).split('.')[0]
+        basename = os.path.splitext(os.path.basename(self.path))
         self.name = name if name is not None else basename
 
         if header_cols == 'all':
-            header_cols = [header_name.__str__() for header_name in segyio.TraceField.enums()]
+            header_cols = tuple(segyio.tracefield.keys.keys())
 
         header_index = (header_index, ) if not is_iterable(header_index) else header_index
         header_cols = (header_cols, ) if not is_iterable(header_cols) else header_cols
@@ -57,7 +57,7 @@ class Survey(AbstractSurvey):
         # TODO: description why do we use [index] instead of index.
         gather_headers = self.headers.loc[[index]].reset_index()
         data = np.stack([self.load_trace(idx, limits) for idx in gather_headers[TRACE_SEQUENCE_FILE]])
-        gather = Gather(data=data, headers=gather_headers)
+        gather = Gather(data=data, headers=gather_headers, survey=self)
         return gather
 
     def sample_gather(self, limits=None):
