@@ -1,4 +1,5 @@
 from functools import reduce
+from os import stat
 
 import pandas as pd
 
@@ -72,6 +73,10 @@ class SeismicIndex(DatasetIndex):
             raise ValueError("All indices must be indexed by the same columns")
         index = cls()  # Create empty index
         index.surveys_dict = {**x.surveys_dict, **y.surveys_dict}
+        # Pad lists in surveys_dict to max len for further concat to work correctly
+        max_len = max(len(surveys) for surveys in index.surveys_dict.values())
+        for survey in index.surveys_dict:
+            index.surveys_dict[survey] += [None] * (max_len - len(index.surveys_dict[survey]))
         index.headers = pd.merge(x.headers.reset_index(), y.headers.reset_index(), *args, **kwargs)
         index.headers.set_index(x_index_columns, inplace=True)
         index._index = index.headers.index.unique()
@@ -86,12 +91,32 @@ class SeismicIndex(DatasetIndex):
         index._pos = index.build_pos()  # Build _pos dict explicitly if merge was called outside __init__
         return index
 
+    @staticmethod
+    def reindex_headers(survey, start_concat_id):
+        headers = survey.headers.copy()
+        concat_id_values = headers.index.levels[headers.index.names.index("CONCAT_ID")] + start_concat_id
+        headers.index = headers.index.set_levels(concat_id_values, "CONCAT_ID")
+        start_concat_id += max(len(val) for val in survey.surveys_dict.values())
+        return headers, start_concat_id
+
     @classmethod
     def concat(cls, surveys, *args, **kwargs):
         surveys = cls.surveys_to_indices(surveys)
-        # TODO: concat
-        index = None
-        # index._pos = index.build_pos()  # Build _pos dict explicitly if concat was called outside __init__
+        survey_names = surveys[0].surveys_dict.keys()
+        if any(survey_names != survey.surveys_dict.keys() for survey in surveys):
+            raise ValueError("Only surveys with the same name can be merged")
+
+        headers_list = []
+        start_concat_id = 0
+        for survey in surveys:
+            headers, start_concat_id = cls.reindex_headers(survey, start_concat_id)
+            headers_list.append(headers)
+
+        index = cls()  # Create empty index
+        index.surveys_dict = {key: sum([survey.surveys_dict[key] for survey in surveys], []) for key in survey_names}
+        index.headers = pd.concat(headers_list, *args, **kwargs)
+        index._index = index.headers.index.unique()
+        index._pos = index.build_pos()  # Build _pos dict explicitly if concat was called outside __init__
         return index
 
     def create_subset(self, index):
