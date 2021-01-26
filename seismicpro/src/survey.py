@@ -9,8 +9,9 @@ from .abstract_classes import AbstractSurvey
 
 from ..batchflow.utils import is_iterable
 
+
 DEFAULT_HEADERS = ['offset', ]
-TRACE_SEQUENCE_FILE = 'TraceSequenceFile'
+TRACE_ID_HEADER = 'TRACE_SEQUENCE_FILE'
 
 
 class Survey(AbstractSurvey):
@@ -18,7 +19,7 @@ class Survey(AbstractSurvey):
     def __init__(self, path, header_index, header_cols=None, name=None, **kwargs):
         self.path = path
         self.headers = None
-        basename = os.path.splitext(os.path.basename(self.path))
+        basename = os.path.splitext(os.path.basename(self.path))[0]
         self.name = name if name is not None else basename
 
         if header_cols == 'all':
@@ -27,6 +28,9 @@ class Survey(AbstractSurvey):
         header_index = (header_index, ) if not is_iterable(header_index) else header_index
         header_cols = (header_cols, ) if not is_iterable(header_cols) else header_cols
         load_headers = set(header_index) | set(header_cols)
+        # We always reconstruct this column, so there is no need to load it.
+        if TRACE_ID_HEADER in load_headers:
+            load_headers.remove(TRACE_ID_HEADER)
 
         self.segy_handler = segyio.open(self.path, ignore_geometry=True)
         self.segy_handler.mmap()
@@ -42,7 +46,7 @@ class Survey(AbstractSurvey):
         headers = pd.DataFrame(headers)
         headers.reset_index(inplace=True)
         # TODO: add why do we use unknown column
-        headers.rename(columns={'index': TRACE_SEQUENCE_FILE}, inplace=True)
+        headers.rename(columns={'index': TRACE_ID_HEADER}, inplace=True)
         headers.set_index(list(header_index), inplace=True)
         # To optimize futher sampling from mulitiindex.
         self.headers = headers.sort_index()
@@ -55,8 +59,8 @@ class Survey(AbstractSurvey):
             # TODO: Write normal random choice.
             index = self.headers.index[0]
         # TODO: description why do we use [index] instead of index.
-        gather_headers = self.headers.loc[[index]].reset_index()
-        data = np.stack([self.load_trace(idx, limits) for idx in gather_headers[TRACE_SEQUENCE_FILE]])
+        gather_headers = self.headers.loc[[index]]
+        data = np.stack([self.load_trace(idx, limits) for idx in gather_headers[TRACE_ID_HEADER]])
         gather = Gather(data=data, headers=gather_headers, survey=self)
         return gather
 

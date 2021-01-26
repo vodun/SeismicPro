@@ -7,8 +7,11 @@ import matplotlib.pyplot as plt
 
 from .abstract_classes import AbstractGather
 
+from ..batchflow.utils import is_iterable
+
 TRACE_ID_HEADER = 'TRACE_SEQUENCE_FILE'
 FILE_EXT = '.sgy'
+
 
 class Gather(AbstractGather):
     """ !! """
@@ -16,18 +19,21 @@ class Gather(AbstractGather):
         self.headers = headers
         self.survey = survey
         self.data = data
+        self.samples = survey.samples
         self.sort_by = None
 
     def __getattr__(self):
         pass
 
     def dump(self, path, name=None):
-        # TODO: Check does file.bin header matter?
+        # TODO: Check does file.bin header matters?
         parent_handler = self.survey.segy_handler
 
         if name is None:
-            gather_name = str(self.headers.index.value[0])
-            name = survey.name + '_' + gather_name + FILE_EXT
+            gather_name = self.headers.index.values[0]
+            gather_name = '_'.join(map(str, gather_name)) if is_iterable(gather_name) else str(gather_name)
+            name = self.survey.name + '_' + gather_name + FILE_EXT
+            print(name)
 
         name = name + FILE_EXT if len(os.path.splitext(name)[1]) == 0 else name
 
@@ -35,20 +41,22 @@ class Gather(AbstractGather):
 
         # Create segyio spec.
         spec = segyio.spec()
-        spec.samples = parent_handler.samples
+        spec.samples = self.samples
         spec.ext_headers = parent_handler.ext_headers
         spec.format = parent_handler.format
         spec.tracecount = len(self.data)
 
         # TODO: Can any operations change the order of the rows in the dataframe?
-        unindex_headers = self.headers.reset_index()
-        all_header_names = set(segyio.tracefield.keys.keys())
-        used_header_names = set(unindex_headers.columns) & all_header_names
+        trace_headers = self.headers.reset_index()
+        # We need to save start index in segy file in order to save correct header.
+        ix_start = np.min(trace_headers[TRACE_ID_HEADER])
+        # Select only the loaded headers from dataframe.
+        used_header_names = set(trace_headers.columns) & set(segyio.tracefield.keys.keys())
+        trace_headers = trace_headers[used_header_names]
 
-        # We are interested only in trace headers, thus we took only them.
-        trace_headers = unindex_headers[used_header_names]
-        # We need to fill this column because the trace order minght be changed during processing.
-        trace_headers[TRACE_ID_HEADER]= np.arange(len(trace_headers)) + 1
+        # We need to fill this column because the trace order minght be changed during the processing.
+        trace_headers.loc[trace_headers.index, TRACE_ID_HEADER] = np.arange(len(trace_headers)) + 1
+
         # Now we change column name's into byte number based on the segy standard.
         trace_headers.rename(columns=lambda col_name: segyio.tracefield.keys[col_name], inplace=True)
         trace_headers_dict = trace_headers.to_dict('index')
@@ -58,17 +66,15 @@ class Gather(AbstractGather):
             for i in range(spec.ext_headers + 1):
                 dump_handler.text[i] = parent_handler.text[i]
 
-            #!!This approach is possibly incorrect and needs to be checked when number of traces or samples ratio
-            # changes.
+            #This is possibly incorrect and needs to be checked when number of traces or samples ratio changes.
             dump_handler.bin = parent_handler.bin
 
             # Save traces and trace headers
             dump_handler.trace = self.data
-            dump_handler.header = parent_handler.header
+            dump_handler.header = parent_handler.header[ix_start: ix_start + spec.tracecount]
             # Update trace headers from self.headers.
             for i, dump_h in trace_headers_dict.items():
                 dump_handler.header[i].update(dump_h)
-
 
     def sort(self, by):
         if not isinstance(by, str):
