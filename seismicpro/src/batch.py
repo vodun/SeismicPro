@@ -62,7 +62,7 @@ class SeismicBatch(Batch):
     def wrapped_indices(self):
         return [[index] for index in self.indices.values.tolist()]
 
-    @inbatch_parallel(init="wrapped_indices", target="threads")
+    @inbatch_parallel(init="wrapped_indices", target="for")
     @apply_to_each_component
     def _load_gather(self, index, *args, src, dst, **kwargs):
         pos = self.index.get_pos(index)

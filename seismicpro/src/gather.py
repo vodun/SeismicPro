@@ -33,13 +33,10 @@ class Gather(AbstractGather):
             gather_name = self.headers.index.values[0]
             gather_name = '_'.join(map(str, gather_name)) if is_iterable(gather_name) else str(gather_name)
             name = self.survey.name + '_' + gather_name + FILE_EXT
-            print(name)
-
         name = name + FILE_EXT if len(os.path.splitext(name)[1]) == 0 else name
-
         full_path = os.path.join(path, name)
 
-        # Create segyio spec.
+        # Create segyio spec. We choose only specs that relate to unstructured data.
         spec = segyio.spec()
         spec.samples = self.samples
         spec.ext_headers = parent_handler.ext_headers
@@ -55,7 +52,7 @@ class Gather(AbstractGather):
         trace_headers = trace_headers[used_header_names]
 
         # We need to fill this column because the trace order minght be changed during the processing.
-        trace_headers.loc[trace_headers.index, TRACE_ID_HEADER] = np.arange(len(trace_headers)) + 1
+        trace_headers[TRACE_ID_HEADER] = np.arange(len(trace_headers)) + 1
 
         # Now we change column name's into byte number based on the segy standard.
         trace_headers.rename(columns=lambda col_name: segyio.tracefield.keys[col_name], inplace=True)
@@ -66,10 +63,10 @@ class Gather(AbstractGather):
             for i in range(spec.ext_headers + 1):
                 dump_handler.text[i] = parent_handler.text[i]
 
-            #This is possibly incorrect and needs to be checked when number of traces or samples ratio changes.
+            # This is possibly incorrect and needs to be checked when number of traces or samples ratio changes.
             dump_handler.bin = parent_handler.bin
 
-            # Save traces and trace headers
+            # Save traces and trace headers.
             dump_handler.trace = self.data
             dump_handler.header = parent_handler.header[ix_start: ix_start + spec.tracecount]
             # Update trace headers from self.headers.

@@ -59,7 +59,7 @@ class Survey(AbstractSurvey):
             # TODO: Write normal random choice.
             index = self.headers.index[0]
         # TODO: description why do we use [index] instead of index.
-        gather_headers = self.headers.loc[[index]]
+        gather_headers = self.headers.loc[[index]].copy()
         data = np.stack([self.load_trace(idx, limits) for idx in gather_headers[TRACE_ID_HEADER]])
         gather = Gather(data=data, headers=gather_headers, survey=self)
         return gather
