@@ -722,10 +722,11 @@ class SeismicBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component')
-    @apply_to_each_component
     def assemble_crops(self, index, src, dst, fill_value=0.0):
         """
-        Assembles crops from `src` into a single seismogram
+        Assembles crops from `src` into a single seismogram.
+        If some crops overlap then the resulting value for each point
+        is the mean over all corresponding points from different crops.
 
         Parameters
         ----------
@@ -735,6 +736,14 @@ class SeismicBatch(Batch):
             component to put the result to.
         fill_value : float
             the area that is not covered with crops is filled with this value
+
+        Raises
+        ------
+        NotImplementedError
+            if index is SegyFilesIndex
+
+        ValueError
+            if src doesn't contain crops
         """
 
         if isinstance(self.index, SegyFilesIndex):
@@ -750,7 +759,7 @@ class SeismicBatch(Batch):
         res_x = self.index.tracecounts[pos]
         res_y = len(self.meta[self.meta[src]['crops_source']]['samples'])
 
-        res = np.full((res_x, res_y), fill_value, dtype=float)
+        res = np.zeros((res_x, res_y), dtype=float)
         crop_counts = np.zeros((res_x, res_y))
 
         for crop_coords, crop in zip(coords, crops):
@@ -760,12 +769,16 @@ class SeismicBatch(Batch):
             x1 = min(x+len_x, res_x)
             y1 = min(y+len_y, res_y)
 
-            res[x:x1, y:y1] = crop[:x1-x, :y1-y]
+            res[x:x1, y:y1] += crop[:x1-x, :y1-y]
             crop_counts[x:x1, y:y1] += 1
 
-        crop_counts[crop_counts == 0] = 1
+        empty_samples_idx = (crop_counts == 0).nonzero()
+        crop_counts[empty_samples_idx] = 1
+        res = res / crop_counts
 
-        getattr(self, dst)[pos] = res / crop_counts
+        res[empty_samples_idx] = fill_value
+
+        getattr(self, dst)[pos] = res
         return self
 
     #-------------------------------------------------------------------------#
