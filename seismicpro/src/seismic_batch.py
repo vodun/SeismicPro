@@ -889,8 +889,8 @@ class SeismicBatch(Batch):
 
     @action
     def calculate_semblance(self, src, dst, velocities, win_size=25):
-        """ Calculate vertical velocity semblance for given seismogram from `src` component and save the result to
-        `dst` component.
+        """ Calculate vertical velocity semblance for given seismogram from `src` component and save the result
+        to `dst` component.
 
         See detailed documentation in :class:`~semblance.Semblance`.
 
@@ -903,14 +903,14 @@ class SeismicBatch(Batch):
         velocities : array-like
             A list of velocities to calculate semblance for.
         win_size : int, optional, by default 25 samples.
-            Window size for smoothing semblance over time axis.
+            Window size for smoothing semblance over the time axis.
             Measured in samples.
 
         Returns
         -------
         batch : SeismicBatch
-            Batch with calculated vertical velocity semblance in `dst` component. `dst` elements are now instances of
-            :class:`~semblance.Semblance` class.
+            Batch with calculated vertical velocity semblance in `dst` component.
+            `dst` elements are now instances of :class:`~semblance.Semblance` class.
 
         Raises
         ------
@@ -937,8 +937,8 @@ class SeismicBatch(Batch):
 
     @action
     def calculate_residual_semblance(self, src, dst, num_vels, stacking_velocities, win_size=25, deviation=0.2):
-        """ Calculate the vertical residual semblance for given seismogram from `src` component and save the result to
-        `dst` component.
+        """ Calculate the vertical residual semblance for a given seismogram from `src` component and save the result
+        to `dst` component.
 
         See detailed documentation in :class:`~semblance.ResidualSemblance`.
 
@@ -951,11 +951,12 @@ class SeismicBatch(Batch):
         num_vels : array-like
             The number of velocities that are involved in the calculation of the vertical residual semblance.
         stacking_velocities : array-like or str, optional
-            If array, is an array with elements in format [[time, velocity], ...]. The array contains a set of
-            non-decreasing velocity points that correspond to the maximum correlation values.
+            If array, is an array with elements in format [[time, velocity], ...]. Time measured in milliseconds,
+            velocity in meters/second. The array contains a set of non-decreasing velocity points that correspond
+            to the maximum correlation values.
             Else is a component's name with stacking_velocities.
         win_size : int, optional, by default 25
-            Window size for smoothing semblance over time axis.
+            Window size for smoothing semblance over the time axis.
             Measured in samples.
         deviation : float, optional, by default 0.2
             Percentage deviation from the stacking velocity. Defines the width of the area around the stacking velocity
@@ -997,7 +998,7 @@ class SeismicBatch(Batch):
     @action
     @apply_to_each_component
     def add_muting(self, src, dst, muting=None, picking=None, indent=0, dst_muting=None):
-        """ Zeroing seismogram above ``muting`` or ``picking`` times.
+        """ Set seismogram values above ``muting`` or ``picking`` times to zero.
 
         Parameters
         ----------
@@ -1013,7 +1014,7 @@ class SeismicBatch(Batch):
             Velocity measured in m/s that used to reduce the velocity of the signal above which the
             muting will be performed. Works only for `picking`.
         dst_muting : str
-            Component's name to save muting values.
+            Component's name to save muting times in milliseconds.
 
         Raises
         ------
@@ -1041,8 +1042,9 @@ class SeismicBatch(Batch):
             data_y = np.array(picking, dtype=np.int32) # ms
             data_x = offsets[:len(data_y)].copy() # meters
             # Compute the velocity of the signal described by given picking points. In this case,
-            # the velocity represents the coefficient of linear regression: `y = x*k`, where y is offsets (in meters)
-            # and x is a time (in ms) of given points than k has m/ms units.
+            # the velocity represents the coefficient of linear regression: `y = x*k + b`, where y is offsets
+            # (in meters) and x is a time (in ms) of given points, b is a bias (in meters), k is a desired
+            # velocity (in m/ms).
             lin_reg = LinearRegression(fit_intercept=True)
             lin_reg.fit(data_y.reshape(-1, 1), data_x)
             indent /= 1000 # from m/s to m/ms
@@ -1920,7 +1922,7 @@ class SeismicBatch(Batch):
         return self
 
     def semblance_plot(self, src, index, stacking_velocities=None, **kwargs):
-        """Plot vertical velocity semblance.
+        """ Plot vertical velocity semblance.
 
         Parameters
         ----------
@@ -1929,8 +1931,8 @@ class SeismicBatch(Batch):
         index : same type as batch.indices
             Data index to show.
         stacking_velocities : array-like, optional
-            If array-like, see :func:`.semblance.Semblance.plot` for detal description.s
-            Else, is a component's name with semblance.
+            If array-like, see :func:`.semblance.Semblance.plot` for detal description.
+            Else, is a component's name with velocities.
         kwargs : dict
             All kwargs parameters are passed directly to :func:`.semblance.Semblance.plot`.
 
@@ -1954,12 +1956,12 @@ class SeismicBatch(Batch):
         if stacking_velocities is not None:
             kwargs.update(stacking_velocities=stacking_velocities)
 
-        kwargs.update(index=index)
+        kwargs['title'] = '{} {}'.format(kwargs.get('title', ''), index)
         semblance.plot(**kwargs)
         return self
 
     def residual_semblance_plot(self, src, index, **kwargs):
-        """Plot vertical residual semblance.
+        """ Plot vertical residual semblance.
 
         Parameters
         ----------
@@ -1978,7 +1980,7 @@ class SeismicBatch(Batch):
         Raises
         ------
         ValueError
-            If passed `src` doesn't have vertical residual semblance.
+            If passed `src` doesn't have a vertical residual semblance.
         """
         pos = self.index.get_pos(index)
         res_semblance = getattr(self, src)[pos]
@@ -1986,6 +1988,6 @@ class SeismicBatch(Batch):
         if not isinstance(res_semblance, ResidualSemblance):
             raise ValueError('There is no vertical residual semblance in {} variable.'.format(src))
 
-        kwargs.update(index=index)
+        kwargs['title'] = '{} {}'.format(kwargs.get('title', ''), index)
         res_semblance.plot(**kwargs)
         return self

@@ -40,7 +40,7 @@ class BaseSemblance:
     ----------
     _seismogram : array-like
         Data for calculating semblance. The attribute is stored in a transposed form due to performance reasons.
-        The first dimention of the `_seismogram` is a trace number, second is a trace's amplitude.
+        The first dimension of the `_seismogram` is a trace number, second is a time.
     _times : array-like
         An array containing the recording time `time[i]` of a i-th amplitude value `_seismogram[0][i]`.
         Measured in milliseconds.
@@ -71,8 +71,8 @@ class BaseSemblance:
         Parameters
         ----------
         calc_nmo_func : njitted callable
-            Callable that calculate normal moveout corrected seismogram for specified time and velocity values and
-            range of offsets.
+            Callable that calculates normal moveout corrected seismogram for specified time and velocity values
+            and range of offsets.
         seismogram : np.ndarray
             Data for calculating semblance.
         times : array-like
@@ -120,7 +120,7 @@ class BaseSemblance:
         :math:`t_c = \sqrt{t^2 + \frac{l^2}{v^2}}`, where
             t_c - corrected time value.
             t - specified time value.
-            l - distance from source to receiver.
+            l - distance from the source to receiver.
             v - velocity.
 
         Parameters
@@ -130,17 +130,17 @@ class BaseSemblance:
         time : int
             Time value to calculate normal moveout.
         offsets : array-like
-            An array where i-th element is a distance from the source to the receiver that recorded a trace placed
-            in `_seismogram[i]`.
+            An array where i-th element is a distance from the source to the receiver
+            that recorded a trace placed in `_seismogram[i]`.
         velocity : array-like
-            Velocity value for nmo computation.
+            Velocity value for NMO computation.
         sample_rate : int
             Step in milliseconds between signal amplitude measurements during shooting.
 
         Returns
         -------
         corrected_seismogram : 2d array
-            NMO corrected seismogram.
+            NMO corrected hodograph.
         """
         corrected_seismogram = np.zeros(len(offsets))
         corrected_times = (np.sqrt(time**2 + offsets**2/velocity**2) / sample_rate).astype(np.int32)
@@ -150,7 +150,7 @@ class BaseSemblance:
                 corrected_seismogram[i] = seismogram[corrected_time, i]
         return corrected_seismogram
 
-    def plot(self, semblance, ticks_range_x, ticks_range_y, xlabel='', title='', index='', figsize=(15, 12), # pylint: disable=too-many-arguments
+    def plot(self, semblance, ticks_range_x, ticks_range_y, xlabel='', title='', figsize=(15, 12), # pylint: disable=too-many-arguments
              fontsize=11, grid=None, x_points=None, y_points=None, save_to=None, dpi=300, **kwargs):
         """ Base plotter for vertical velocity semblance. The plotter adds level lines, colors the graph, signs axes
         and values, also draw a stacking velocity, if specified (via `x_points` and `y_points`).
@@ -167,8 +167,6 @@ class BaseSemblance:
             The label of the x-axis.
         title : str, optional, by default ''
             Plot title.
-        index : str, optional, by default ''
-            Index of semblance if the function calls from a batch.
         figsize : tuple, optional, by default (15, 12)
             Output plot size.
         grid : bool, optional, by default False
@@ -177,7 +175,7 @@ class BaseSemblance:
             Points of stacking velocity by the x-axis. The point is an index in semblance that corresponds to the
             current velocity.
         y_points : array-like, optional
-            Points of stacking velocity by the y-axis. THe point is an index in semblance that corresponds to the
+            Points of stacking velocity by the y-axis. The point is an index in semblance that corresponds to the
             current time.
         save_to : str, optional
             If given, save the plot to the path specified.
@@ -188,8 +186,8 @@ class BaseSemblance:
         ----
         1. Kwargs passed into the :func:`._set_ticks`.
         """
-        # Split range of semblance on specific levels. Probably the levels are gonna scared
-        # unprepared person but i found the result based on this levels the most attractive.
+        # Split range of semblance on specific levels. Probably the levels are gonna scared unprepared person but
+        # we found the result based on these levels the most attractive.
         max_val = np.max(semblance)
         levels = (np.logspace(0, 1, num=16, base=500)/500) * max_val
         levels[0] = 0
@@ -207,11 +205,11 @@ class BaseSemblance:
         ax.set_xlabel(xlabel)
         ax.set_ylabel('Time')
 
-        if title or index:
-            ax.set_title('{} {}'.format(title, index), fontsize=fontsize)
+        if title:
+            ax.set_title(title, fontsize=fontsize)
 
         # Change marker of velocity points if they are set at distance from each other.
-        # This avoid dots in every point, if velocity law is set for every time.
+        # It avoids dots in every point if velocity law is set for every time.
         if x_points is not None and y_points is not None:
             marker = 'o' if np.min(np.diff(np.sort(y_points))) > 50 else ''
             plt.plot(x_points, y_points, c='#fafcc2', linewidth=2.5, marker=marker)
@@ -229,8 +227,8 @@ class BaseSemblance:
 @use_docs_from(BaseSemblance)
 class Semblance(BaseSemblance):
     r""" Semblance is a normalized output-input energy ratio for CDP seismogram. This ratio aims to obtain picks that
-    correspond to the best coherency of the signal along a hyperbolic trajectory over the entire spread length of the
-    CDP gather.
+    correspond to the best coherency of the signal along a hyperbolic trajectory over the entire spread length
+    of the CDP gather.
 
     The semblance is computed by:
     :math:`S(k, v) = \frac{\sum^{k+N/2}_{i=k-N/2}(\sum^{M-1}_{j=0} f_{j}(i, v))^2}
@@ -247,7 +245,8 @@ class Semblance(BaseSemblance):
     :math:`v` - velocity value.
 
     The resulted matrix contains vertical velocity semblance values based on hyperbolas with each combination of the
-    started point :math:`k` and velocity :math:`v`. This matrix has a shape (time_length, velocity_length).
+    started point :math:`k` and velocity :math:`v`.
+    This matrix has a shape (time_length, velocity_length).
 
     Attributes
     ----------
@@ -261,7 +260,7 @@ class Semblance(BaseSemblance):
     ----
     1. Other attributes described in :class:`~BaseSemblance`.
     2. Detailed description of the vertical velocity semblance computation is presented
-    in the method :func:`~Semblance._calc_semblance`.
+       in the method :func:`~Semblance._calc_semblance`.
     """
     def __init__(self, seismogram, times, offsets, velocities, win_size=25):
         super().__init__(seismogram=seismogram, times=times, offsets=offsets, win_size=win_size)
@@ -272,7 +271,7 @@ class Semblance(BaseSemblance):
 
     @property
     def semblance(self):
-        """ Property returns the copy of `_semblance` attribute in order to save semblance from occasional changes. """
+        """ Property returns the copy of `_semblance` attribute to save semblance from occasional changes. """
         return self._semblance.copy()
 
     def _calc_semblance(self):
@@ -350,9 +349,9 @@ class Semblance(BaseSemblance):
         gathers should not have pronounced energy maxima.
 
         Hence, we calculate the maximum difference between the energy values at each time on the difference vertical
-        semblance and took the maximal value. The same is calculated for raw cdp gather vertical semblance. The
-        resulted metrics value is a ratio of maximal difference on difference vertical semblance and maximal difference
-        on raw cdp gather vertical semblance.
+        semblance and took the maximal value. The same is calculated for raw CDP gather vertical semblance.
+        The resulted metrics value is a ratio of maximal difference on difference vertical semblance and maximal
+        difference on raw CDP gather vertical semblance.
 
         Parameters
         ----------
@@ -376,13 +375,14 @@ class ResidualSemblance(BaseSemblance):
     """ Residual Semblance is a normalized output-input energy ratio for CDP seismogram along picked stacking velocity.
 
     The method of computation at a single point completely coincides with the calculation of the :class:`~Semblance`,
-    however, the residual semblance is computed in a specified area around the velocity, which allows finding
-    errors and update the initially picked stacking velocity. The boundaries in which the calculation is performed for
-    a given i-th stacking velocity are determined as `stacking_velocities[i]`*(1 +- `deviation`).
+    however, the residual semblance is computed in a specified area around the velocity, which allows finding errors
+    and update the initially picked stacking velocity. The boundaries in which the calculation is performed for a given
+    i-th stacking velocity are determined as `stacking_velocities[i]`*(1 +- `deviation`).
 
-    Since the boundaries will be different for each stacking velocity, the residual semblance values is interpolated
-    to obtain a rectangular matrix of size (time_length, max(right_boundary - left_boundary)), where `left_boundary`
-    and `rignt_boundary` are the left and the right boundaries at the last timestamp respectively.
+    Since the boundaries will be different for each stacking velocity, the residual semblance values are interpolated
+    to obtain a rectangular matrix of size (time_length, last_right_boundary - last_left_boundary), where
+    `last_left_boundary` and `last_left_boundary` are the left and the right boundaries at the last timestamp
+    respectively.
 
     Thus, the final semblance is a rectangular matrix, the central values of which indicate the energy ratio at the
     points corresponding to the current stacking velocity. The centerline should contain the maximum energy values for
@@ -391,23 +391,23 @@ class ResidualSemblance(BaseSemblance):
     Parameters
     ----------
     num_vels : int
-        The number of velocities in an array `_velocities`.
+        The number of velocities to compute semblance for.
 
     Attributes
     ----------
     _residual_semblance : 2d np.ndarray
         Array with vertical residual semblance.
     _stacking_velocities : array-like, optional
-        Array with elements in format [[time, velocity], ...]. Non-decreasing function passing through the maximum
-        energy values on the semblance graph.
+        Array with elements in format [[time, velocity], ...]. Non-decreasing
+        function passing through the maximum energy values on the semblance graph.
     _deviation : float, optional, default 0.2
         The deviation of the border from the current stacking velocity value. Based on this value, the boundaries are
         determined in which the residual semblance is calculated. The boundaries in which the calculation is performed
         for a given i-th stacking velocity are determined as `stacking_velocities[i]`*(1 +- `deviation`).
     _velocities : array-like
-        Arrange of velocity values with the limits for vertical residual semblance computation defined as a numpy
-        linspace from `min(stacking_velocities) * (1-deviation)` to `max(stacking_velocities) * (1+deviation)` with
-        `num_vels` elements.
+        Arrange of velocity values with the limits for vertical residual semblance computation defined as a
+        `numpy.linspace` from `min(stacking_velocities) * (1-deviation)` to
+        `max(stacking_velocities) * (1+deviation)` with `num_vels` elements.
         Measured in meters/seconds.
 
     Other attributes described in :class:`~BaseSemblance`.
@@ -425,9 +425,7 @@ class ResidualSemblance(BaseSemblance):
 
     @property
     def residual_semblance(self):
-        """ Property returns the copy of `_residual_semblance` attribute in order to save semblance from occasional
-        changes.
-        """
+        """ Property returns the copy of `_residual_semblance` attribute to save semblance from occasional changes. """
         return self._residual_semblance.copy()
 
     def _calc_residual_semblance(self):
@@ -506,8 +504,8 @@ class ResidualSemblance(BaseSemblance):
                                                         t_max=t_max+1)
 
         semblance_len = (right_bounds - left_bounds).max()
-        residual_semblance = np.zeros((len(times), semblance_len))
-        # Interpolate semblance to get a rectangular image.
+        residual_semblance = np.empty((len(times), semblance_len))
+        # # Interpolate semblance to get a rectangular image.
         for i in prange(len(semblance)):
             ixs = np.where(semblance[i])[0]
             cropped_smb = semblance[i][ixs[0]: ixs[-1]+1]
@@ -518,8 +516,8 @@ class ResidualSemblance(BaseSemblance):
 
     @use_docs_from(BaseSemblance.plot)
     def plot(self, **kwargs):
-        """ Plot vertical residual semblance. The plot always has a vertical line in the middle, but if the delay
-        between velocities in `self._stacking_velocities` more than 50 ms, every given point will be highlighted with
+        """ Plot vertical residual semblance. The graph always has a vertical line in the middle, but if the delay
+        between velocities in `self._stacking_velocities` is greater 50 ms, every given point will be highlighted with
         a circle.
 
         Parameters
