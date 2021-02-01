@@ -39,14 +39,13 @@ class BaseSemblance:
     Attributes
     ----------
     _seismogram : array-like
-        Data for calculating semblance. The attribute is stored in a transposed form due to performance reasons.
-        The first dimension of the `_seismogram` is a trace number, second is a time.
+        Data for calculating semblance. The attribute is stored in a transposed form due to performance reasons,
+        so that `_seismogram.shape` is (num_traces, trace_lenght).
     _times : array-like
-        An array containing the recording time `time[i]` of a i-th amplitude value `_seismogram[0][i]`.
+        An array containing the recording time for each trace value.
         Measured in milliseconds.
     _offsets : array-like
-        An array where i-th element is a distance from the source to the receiver that recorded a trace placed
-        in `_seismogram[i]`.
+        The distance from the source to the receiver for each trace.
         Measured in meters.
     _sample_rate : int or float
         Step in milliseconds between signal amplitude measurements during shooting.
@@ -76,22 +75,26 @@ class BaseSemblance:
         seismogram : np.ndarray
             Data for calculating semblance.
         times : array-like
-            An array containing the recording time `time[i]` of a i-th amplitude value `_seismogram[0][i]`.
+            An array containing the recording time for each trace value.
         offsets : array-like
-            An array where i-th element is a distance from the source to the receiver that recorded a trace placed
-            in `_seismogram[i]`.
+            The distance from the source to the receiver for each trace.
         velocity : array-like
             Velocity value for semblance computation.
         sample_rate : int
             Step in milliseconds between signal amplitude measurements during shooting.
+        _win_size : int
+            Window size for smoothing the semblance.
+            Measured in samples.
         t_min : int
             Time value to start compute semblance from.
+            Measured in samples.
         t_max : int
             The last time value for semblance computation.
+            Measured in samples.
 
         Returns
         -------
-        slice_semblnace : 1d array
+        slice_semblance : 1d array
             Semblance values for a specified `veloicty` in time range from `t_min` to `t_max`.
         """
         t_win_size_min = max(0, t_min - win_size)
@@ -116,7 +119,8 @@ class BaseSemblance:
     @staticmethod
     @njit(nogil=True, fastmath=True)
     def base_calc_nmo(seismogram, time, offsets, velocity, sample_rate):
-        r""" Default approach for normal moveout computation. Corrected seismogram calculates as following:
+        r""" Default approach for normal moveout computation for single hodograph. Corrected seismogram calculates
+        as following:
         :math:`t_c = \sqrt{t^2 + \frac{l^2}{v^2}}`, where
             t_c - corrected time value.
             t - specified time value.
@@ -139,7 +143,7 @@ class BaseSemblance:
 
         Returns
         -------
-        corrected_seismogram : 2d array
+        corrected_seismogram : 1d array
             NMO corrected hodograph.
         """
         corrected_seismogram = np.zeros(len(offsets))
@@ -186,8 +190,8 @@ class BaseSemblance:
         ----
         1. Kwargs passed into the :func:`._set_ticks`.
         """
-        # Split range of semblance on specific levels. Probably the levels are gonna scared unprepared person but
-        # we found the result based on these levels the most attractive.
+        # Split range of semblance amplitudes on 16 discrete levels. Arguable approach, but
+        # we find the result based on these levels the most attractive.
         max_val = np.max(semblance)
         levels = (np.logspace(0, 1, num=16, base=500)/500) * max_val
         levels[0] = 0
@@ -226,9 +230,10 @@ class BaseSemblance:
 
 @use_docs_from(BaseSemblance)
 class Semblance(BaseSemblance):
-    r""" Semblance is a normalized output-input energy ratio for CDP seismogram. This ratio aims to obtain picks that
-    correspond to the best coherency of the signal along a hyperbolic trajectory over the entire spread length
-    of the CDP gather.
+    r""" Semblance is a normalized output-input energy ratio for CDP seismogram.
+
+    The higher the values of semblance are, the more coherent the signal is along a hyperbolic trajectory over the
+    entire spread length of the CDP gather.
 
     The semblance is computed by:
     :math:`S(k, v) = \frac{\sum^{k+N/2}_{i=k-N/2}(\sum^{M-1}_{j=0} f_{j}(i, v))^2}
@@ -253,13 +258,14 @@ class Semblance(BaseSemblance):
     semblance : 2d np.ndarray
          Array with vertical velocity semblance.
     _velocities : array-like
-        Arrange of velocity values defined the limits for semblance computation.
+        Array of velocity values defined the limits for semblance computation.
         Measured in meters/seconds.
+
+    See other attributes described in :class:`~BaseSemblance`.
 
     Note
     ----
-    1. Other attributes described in :class:`~BaseSemblance`.
-    2. Detailed description of the vertical velocity semblance computation is presented
+    1. Detailed description of the vertical velocity semblance computation is presented
        in the method :func:`~Semblance._calc_semblance`.
     """
     def __init__(self, seismogram, times, offsets, velocities, win_size=25):
@@ -377,7 +383,7 @@ class ResidualSemblance(BaseSemblance):
     The method of computation at a single point completely coincides with the calculation of the :class:`~Semblance`,
     however, the residual semblance is computed in a specified area around the velocity, which allows finding errors
     and update the initially picked stacking velocity. The boundaries in which the calculation is performed for a given
-    i-th stacking velocity are determined as `stacking_velocities[i]`*(1 +- `deviation`).
+    i-th stacking velocity are determined as `stacking_velocities[i]`*(1 +- `relative_margin`).
 
     Since the boundaries will be different for each stacking velocity, the residual semblance values are interpolated
     to obtain a rectangular matrix of size (time_length, last_right_boundary - last_left_boundary), where
@@ -400,25 +406,24 @@ class ResidualSemblance(BaseSemblance):
     _stacking_velocities : array-like, optional
         Array with elements in format [[time, velocity], ...]. Non-decreasing
         function passing through the maximum energy values on the semblance graph.
-    _deviation : float, optional, default 0.2
-        The deviation of the border from the current stacking velocity value. Based on this value, the boundaries are
-        determined in which the residual semblance is calculated. The boundaries in which the calculation is performed
-        for a given i-th stacking velocity are determined as `stacking_velocities[i]`*(1 +- `deviation`).
+    _relative_margin : float, optional, default 0.2
+        The relative velocity margin determines the border for a particular stacking velocity value. The boundaries for
+        every stacking velocity are `stacking_velocities[i]`*(1 +- `relative_margin`).
     _velocities : array-like
         Arrange of velocity values with the limits for vertical residual semblance computation defined as a
-        `numpy.linspace` from `min(stacking_velocities) * (1-deviation)` to
-        `max(stacking_velocities) * (1+deviation)` with `num_vels` elements.
+        `numpy.linspace` from `min(stacking_velocities) * (1-relative_margin)` to
+        `max(stacking_velocities) * (1+relative_margin)` with `num_vels` elements.
         Measured in meters/seconds.
 
     Other attributes described in :class:`~BaseSemblance`.
     """
-    def __init__(self, seismogram, times, offsets, stacking_velocities, num_vels=140, win_size=25, deviation=0.2):
+    def __init__(self, seismogram, times, offsets, stacking_velocities, num_vels=140, win_size=25, relative_margin=0.2):
         super().__init__(seismogram, times, offsets, win_size)
         self._residual_semblance = None
         self._stacking_velocities = stacking_velocities
-        self._deviation = deviation
-        self._velocities = np.linspace(np.min(self._stacking_velocities[:, 1]) * (1 - self._deviation),
-                                       np.max(self._stacking_velocities[:, 1]) * (1 + self._deviation),
+        self._relative_margin = relative_margin
+        self._velocities = np.linspace(np.min(self._stacking_velocities[:, 1]) * (1 - self._relative_margin),
+                                       np.max(self._stacking_velocities[:, 1]) * (1 + self._relative_margin),
                                        num_vels)
 
         self._calc_residual_semblance()
@@ -461,9 +466,9 @@ class ResidualSemblance(BaseSemblance):
         interpolated_velocity = np.clip(f(self._times), self._velocities[0], self._velocities[-1])
 
         # Define indices of velocities that correspond to velocities on found boundaries.
-        left_bounds = (interpolated_velocity * (1 - self._deviation)).reshape(-1, 1)
+        left_bounds = (interpolated_velocity * (1 - self._relative_margin)).reshape(-1, 1)
         left_bounds = np.argmin(np.abs(left_bounds - self._velocities), axis=1)
-        right_bounds = (interpolated_velocity * (1 + self._deviation)).reshape(-1, 1)
+        right_bounds = (interpolated_velocity * (1 + self._relative_margin)).reshape(-1, 1)
         right_bounds = np.argmin(np.abs(right_bounds - self._velocities), axis=1)
         return left_bounds, right_bounds
 
@@ -529,7 +534,7 @@ class ResidualSemblance(BaseSemblance):
         x_points = np.zeros(len(y_points)) + self.residual_semblance.shape[1]/2
 
         ticks_range_y = [0, self.residual_semblance.shape[0] * self._sample_rate] # from ix to ms
-        ticks_range_x = [-self._deviation*100, self._deviation*100]
+        ticks_range_x = [-self._relative_margin*100, self._relative_margin*100]
 
         super().plot(self.residual_semblance, ticks_range_x=ticks_range_x, ticks_range_y=ticks_range_y,
-                     x_points=x_points, y_points=y_points, xlabel='Velocity deviation (%)', **kwargs)
+                     x_points=x_points, y_points=y_points, xlabel='Relative velocity margin (%)', **kwargs)

@@ -949,7 +949,7 @@ class SeismicBatch(Batch):
         getattr(self, dst)[pos] = semblance
 
     @action
-    def calculate_residual_semblance(self, src, dst, num_vels, stacking_velocities, win_size=25, deviation=0.2):
+    def calculate_residual_semblance(self, src, dst, num_vels, stacking_velocities, win_size=25, relative_margin=0.2):
         """ Calculate the vertical residual semblance for a given seismogram from `src` component and save the result
         to `dst` component.
 
@@ -971,9 +971,9 @@ class SeismicBatch(Batch):
         win_size : int, optional, by default 25
             Window size for smoothing semblance over the time axis.
             Measured in samples.
-        deviation : float, optional, by default 0.2
-            Percentage deviation from the stacking velocity. Defines the width of the area around the stacking velocity
-            to construct the residual semblance.
+        relative_margin : float, optional, by default 0.2
+            The relative velocity margin from the stacking velocity. Defines the width of the area around the
+            stacking velocity to construct the residual semblance.
 
         Returns
         -------
@@ -991,11 +991,13 @@ class SeismicBatch(Batch):
             raise ValueError('Seismogram should be sorted by `offset`.')
 
         self._calc_residual_semblance(src=src, dst=dst, times=times, num_vels=num_vels,
-                                      stacking_velocities=stacking_velocities, win_size=win_size, deviation=deviation)
+                                      stacking_velocities=stacking_velocities, win_size=win_size,
+                                      relative_margin=relative_margin)
         return self
 
     @inbatch_parallel(init="_init_component", target="threads")
-    def _calc_residual_semblance(self, index, src, dst, times, num_vels, stacking_velocities, win_size, deviation):
+    def _calc_residual_semblance(self, index, src, dst, times, num_vels, stacking_velocities,
+                                 win_size, relative_margin):
         pos = self.index.get_pos(index)
         seismogram = getattr(self, src)[pos]
         offsets = np.sort(self.index.get_df(index=index)['offset'])
@@ -1005,7 +1007,8 @@ class SeismicBatch(Batch):
 
         residual_semblance = ResidualSemblance(seismogram=seismogram, times=times, offsets=offsets,
                                                num_vels=num_vels, win_size=win_size,
-                                               stacking_velocities=stacking_velocities, deviation=deviation)
+                                               stacking_velocities=stacking_velocities,
+                                               relative_margin=relative_margin)
         getattr(self, dst)[pos] = residual_semblance
 
     @action
@@ -1034,11 +1037,10 @@ class SeismicBatch(Batch):
         ValueError
             If seismogram is not sorted by `offset`.
         """
-        self.update_component(dst_muting, self.array_of_nones)
-
         if self.meta[src]['sorting'] != 'offset':
             raise ValueError('Seismogram should be sorted by `offset`.')
 
+        self.update_component(dst_muting, self.array_of_nones)
         self._add_muting(src=src, dst=dst, muting=muting, picking=picking, indent=indent, dst_muting=dst_muting)
         return self
 
