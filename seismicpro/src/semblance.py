@@ -134,8 +134,7 @@ class BaseSemblance:
         time : int
             Time value to calculate normal moveout.
         offsets : array-like
-            An array where i-th element is a distance from the source to the receiver
-            that recorded a trace placed in `_seismogram[i]`.
+            The distance from the source to the receiver for each trace.
         velocity : array-like
             Velocity value for NMO computation.
         sample_rate : int
@@ -350,14 +349,9 @@ class Semblance(BaseSemblance):
                      y_points=y_points, xlabel='Velocity (m/s)', **kwargs)
 
     def calc_minmax_metrics(self, other):
-        """" The metric is designed to search for signal leakage in the process of ground-roll attenuation. The metric
-        is based on the assumption that the difference gather vertical semblance calculated from the raw and processed
-        gathers should not have pronounced energy maxima.
-
-        Hence, we calculate the maximum difference between the energy values at each time on the difference vertical
-        semblance and took the maximal value. The same is calculated for raw CDP gather vertical semblance.
-        The resulted metrics value is a ratio of maximal difference on difference vertical semblance and maximal
-        difference on raw CDP gather vertical semblance.
+        """" The metric is designed to search for signal leakage in the process of ground-roll attenuation.
+        It is based on the assumption that a vertical velocity semblance calculated for the difference between a raw
+        and processed gather should not have pronounced energy maxima.
 
         Parameters
         ----------
@@ -386,9 +380,8 @@ class ResidualSemblance(BaseSemblance):
     i-th stacking velocity are determined as `stacking_velocities[i]`*(1 +- `relative_margin`).
 
     Since the boundaries will be different for each stacking velocity, the residual semblance values are interpolated
-    to obtain a rectangular matrix of size (time_length, last_right_boundary - last_left_boundary), where
-    `last_left_boundary` and `last_left_boundary` are the left and the right boundaries at the last timestamp
-    respectively.
+    to obtain a rectangular matrix of size (time_length, max(right_boundary - left_boundary)), where
+    `left_boundary` and `right_boundary` are the left and the right boundaries for each timestamp respectively.
 
     Thus, the final semblance is a rectangular matrix, the central values of which indicate the energy ratio at the
     points corresponding to the current stacking velocity. The centerline should contain the maximum energy values for
@@ -512,8 +505,8 @@ class ResidualSemblance(BaseSemblance):
         residual_semblance = np.empty((len(times), semblance_len))
         # # Interpolate semblance to get a rectangular image.
         for i in prange(len(semblance)):
-            ixs = np.where(semblance[i])[0]
-            cropped_smb = semblance[i][ixs[0]: ixs[-1]+1]
+            left_bound, right_bound = left_bounds[i], right_bounds[i]
+            cropped_smb = semblance[i][left_bound: right_bound+1]
             residual_semblance[i] = np.interp(np.linspace(0, len(cropped_smb)-1, semblance_len),
                                               np.arange(len(cropped_smb)),
                                               cropped_smb)
