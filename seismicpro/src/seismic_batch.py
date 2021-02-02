@@ -7,13 +7,15 @@ from textwrap import dedent
 import numpy as np
 from scipy import signal
 from scipy.signal import hilbert
+from scipy.interpolate import interp1d
+from sklearn.linear_model import LinearRegression
 import pywt
 import segyio
 
 from ..batchflow import action, inbatch_parallel, Batch, any_action_failed
 
 from .seismic_index import SegyFilesIndex, FieldIndex, KNNIndex, TraceIndex, CustomIndex
-
+from .semblance import Semblance, ResidualSemblance
 from .utils import (FILE_DEPENDEND_COLUMNS, partialmethod, calculate_sdc_for_field, massive_block)
 from .file_utils import write_segy_file
 from .plot_utils import spectrum_plot, seismic_plot, statistics_plot, gain_plot
@@ -305,7 +307,6 @@ class SeismicBatch(Batch):
                 warnings.warn("Meta of the component {} is not empty and".format(t_comp) + \
                               " will be replaced by the meta from the component {}.".format(fr_comp),
                               UserWarning)
-
             self.meta[t_comp] = self.meta[fr_comp].copy()
         return self
 
@@ -896,6 +897,194 @@ class SeismicBatch(Batch):
         return self
 
     #-------------------------------------------------------------------------#
+    #                DPA. Stacking Velocity Calculation Actions               #
+    #-------------------------------------------------------------------------#
+
+    @action
+    def calculate_semblance(self, src, dst, velocities, win_size=25):
+        """ Calculate vertical velocity semblance for given seismogram from `src` component and save the result
+        to `dst` component.
+
+        See detailed documentation in :class:`~semblance.Semblance`.
+
+        Parameters
+        ----------
+        src : str
+            The batch component to get the seismogram from.
+        dst : str
+            The batch component to put semblance in.
+        velocities : array-like
+            A list of velocities to calculate semblance for.
+        win_size : int, optional, by default 25 samples.
+            Window size for smoothing semblance over the time axis.
+            Measured in samples.
+
+        Returns
+        -------
+        batch : SeismicBatch
+            Batch with calculated vertical velocity semblance in `dst` component.
+            `dst` elements are now instances of :class:`~semblance.Semblance` class.
+
+        Raises
+        ------
+        ValueError
+            If seismogram is not sorted by `offset`.
+        """
+        times = self.meta[src]['samples']
+
+        if self.meta[src]['sorting'] != 'offset':
+            raise ValueError('Seismogram should be sorted by `offset`.')
+
+        self._calculate_semblance(src=src, dst=dst, times=times, velocities=velocities, win_size=win_size)
+        return self
+
+    @inbatch_parallel(init="_init_component", target='threads')
+    def _calculate_semblance(self, index, src, dst, times, velocities, win_size):
+        pos = self.index.get_pos(index)
+        seismogram = getattr(self, src)[pos]
+        offsets = np.sort(self.index.get_df(index=index)['offset'])
+
+        semblance = Semblance(seismogram=seismogram, times=times, offsets=offsets,
+                              velocities=velocities, win_size=win_size)
+        getattr(self, dst)[pos] = semblance
+
+    @action
+    def calculate_residual_semblance(self, src, dst, num_vels, stacking_velocities, win_size=25, relative_margin=0.2):
+        """ Calculate the vertical residual semblance for a given seismogram from `src` component and save the result
+        to `dst` component.
+
+        See detailed documentation in :class:`~semblance.ResidualSemblance`.
+
+        Parameters
+        ----------
+        src : str
+            The batch component to get the seismogram from.
+        dst : str
+            The batch component to put semblance in.
+        num_vels : array-like
+            The number of velocities that are involved in the calculation of the vertical residual semblance.
+        stacking_velocities : array-like or str
+            If array-like, contains non-decreasing peaked stacking velocities in the following format:
+            [[time, velocity], ...], where time is measured in milliseconds and velocity in meters/second.
+            If str, contains a component's name with stacking velocities in the same format.
+        win_size : int, optional, by default 25
+            Window size for smoothing semblance over the time axis.
+            Measured in samples.
+        relative_margin : float, optional, by default 0.2
+            Defines a relative velocity margin from the stacking velocity to construct the residual semblance.
+
+        Returns
+        -------
+        batch : SeismicBatch
+            Batch with residual semblance in `dst` component.
+
+        Raises
+        ------
+        ValueError
+            If seismogram is not sorted by `offset`.
+        """
+        times = self.meta[src]['samples']
+
+        if self.meta[src]['sorting'] != 'offset':
+            raise ValueError('Seismogram should be sorted by `offset`.')
+
+        self._calc_residual_semblance(src=src, dst=dst, times=times, num_vels=num_vels,
+                                      stacking_velocities=stacking_velocities, win_size=win_size,
+                                      relative_margin=relative_margin)
+        return self
+
+    @inbatch_parallel(init="_init_component", target="threads")
+    def _calc_residual_semblance(self, index, src, dst, times, num_vels, stacking_velocities,
+                                 win_size, relative_margin):
+        pos = self.index.get_pos(index)
+        seismogram = getattr(self, src)[pos]
+        offsets = np.sort(self.index.get_df(index=index)['offset'])
+
+        if isinstance(stacking_velocities, str):
+            stacking_velocities = getattr(self, stacking_velocities)[pos]
+
+        residual_semblance = ResidualSemblance(seismogram=seismogram, times=times, offsets=offsets,
+                                               num_vels=num_vels, win_size=win_size,
+                                               stacking_velocities=stacking_velocities,
+                                               relative_margin=relative_margin)
+        getattr(self, dst)[pos] = residual_semblance
+
+    @action
+    @apply_to_each_component
+    def add_muting(self, src, dst, muting=None, picking=None, indent=0, dst_muting=None):
+        """ Set seismogram values above ``muting`` or ``picking`` times to zero.
+
+        Parameters
+        ----------
+        muting : array-like, optional
+            The array contains the points to mute seismogram with structure:
+            ```[[time_1, offset_1],
+                 ...
+                [time_N, offset_N]]```
+            Here, `time` should be measured in milliseconds, and `offsets` should be measured in meters.
+        picking : str, optional
+            Name of the component with picking values.
+        indent : int or float
+            Velocity measured in m/s that used to reduce the velocity of the signal above which the
+            muting will be performed. Works only for `picking`.
+        dst_muting : str
+            Component's name to save muting times in milliseconds.
+
+        Raises
+        ------
+        ValueError
+            If seismogram is not sorted by `offset`.
+        """
+        if self.meta[src]['sorting'] != 'offset':
+            raise ValueError('Seismogram should be sorted by `offset`.')
+
+        self.update_component(dst_muting, self.array_of_nones)
+        self._add_muting(src=src, dst=dst, muting=muting, picking=picking, indent=indent, dst_muting=dst_muting)
+        return self
+
+    @inbatch_parallel(init='_init_component', target='threads')
+    def _add_muting(self, index, src, dst, muting, picking, indent, dst_muting):
+        pos = self.index.get_pos(index)
+        seismogram = getattr(self, src)[pos]
+
+        offsets = np.sort(self.index.get_df(index=index)['offset'])
+        sample_rate = np.diff(self.meta[src]['samples'][:2])[0]
+
+        if picking is not None:
+            picking = getattr(self, picking)[pos]
+            data_y = np.array(picking, dtype=np.int32) # ms
+            data_x = offsets[:len(data_y)].copy() # meters
+            # Compute the velocity of the signal described by given picking points. In this case,
+            # the velocity represents the coefficient of linear regression: `y = x*k + b`, where y is offsets
+            # (in meters) and x is a time (in ms) of given points, b is a bias (in meters), k is a desired
+            # velocity (in m/ms).
+            lin_reg = LinearRegression(fit_intercept=True)
+            lin_reg.fit(data_y.reshape(-1, 1), data_x)
+            indent /= 1000 # from m/s to m/ms
+            # If one wants to mute below given points, the found velocity reduces by given indent.
+            velocity = lin_reg.coef_ - indent
+            mute_samples = offsets / (velocity * sample_rate) # m/samples
+            mute_samples = mute_samples.astype(int)
+        elif muting is not None:
+            muting = np.asarray(muting) if isinstance(muting, (tuple, list)) else muting
+            data_y, data_x = muting[:, 0], muting[:, 1]
+            # Pointwise interpolation for specified muting points.
+            interp_func = interp1d(data_x, data_y, fill_value='extrapolate')
+            mute_samples = interp_func(offsets) / sample_rate
+        else:
+            raise ValueError('Either `picking` or `muting` should be determined.')
+
+        mute_samples = np.clip(mute_samples, 0, seismogram.shape[1])
+
+        if dst_muting is not None:
+            getattr(self, dst_muting)[pos] = mute_samples*sample_rate
+
+        mute_mask = (np.arange(seismogram.shape[1]).reshape(1, -1) - mute_samples.reshape(-1, 1)) > 0
+        muted_seismogram = seismogram * mute_mask
+        getattr(self, dst)[pos] = muted_seismogram
+        self.copy_meta(src, dst)
+
+    #-------------------------------------------------------------------------#
     #                                DPA. Misc                                #
     #-------------------------------------------------------------------------#
 
@@ -1221,7 +1410,7 @@ class SeismicBatch(Batch):
         eps: float, default: 3
             Stabilization constant that helps reduce the rapid fluctuations of energy function.
         length_win: int, default: 12
-            The leading window length.
+            The leading win_size length.
 
         Returns
         -------
@@ -1647,15 +1836,15 @@ class SeismicBatch(Batch):
                      dpi=dpi, title=title, **kwargs)
         return self
 
-    def gain_plot(self, src, index, window=51, xlim=None, ylim=None,
+    def gain_plot(self, src, index, win_size=51, xlim=None, ylim=None,
                   figsize=None, names=None, **kwargs):
         """Gain's graph plots the ratio of the maximum mean value of
         the amplitude to the mean value of the amplitude at the moment t.
 
         Parameters
         ----------
-        window : int, default 51
-            Size of smoothing window of the median filter.
+        win_size : int, default 51
+            Size of smoothing win_size of the median filter.
         xlim : tuple or list with size 2
             Bounds for plot's x-axis.
         ylim : tuple or list with size 2
@@ -1673,7 +1862,7 @@ class SeismicBatch(Batch):
         pos = self.index.get_pos(index)
         src = (src, ) if isinstance(src, str) else src
         sample = [getattr(self, source)[pos] for source in src]
-        gain_plot(sample, window, xlim, ylim, figsize, names, **kwargs)
+        gain_plot(sample, win_size, xlim, ylim, figsize, names, **kwargs)
         return self
 
     def spectrum_plot(self, src, index, frame, max_freq=None,
@@ -1743,4 +1932,75 @@ class SeismicBatch(Batch):
         rate = self.meta[src[0]]['interval'] / 1e6
         statistics_plot(arrs=arrs, stats=stats, rate=rate, names=names, figsize=figsize,
                         save_to=save_to, **kwargs)
+        return self
+
+    def semblance_plot(self, src, index, stacking_velocities=None, **kwargs):
+        """ Plot vertical velocity semblance.
+
+        Parameters
+        ----------
+        src : str
+            The batch component with data to show,
+        index : same type as batch.indices
+            Data index to show.
+        stacking_velocities : array-like, optional
+            If array-like, see :func:`.semblance.Semblance.plot` for a detailed description.
+            Else, is a component's name with velocities.
+        kwargs : dict
+            All kwargs parameters are passed directly to :func:`.semblance.Semblance.plot`.
+
+        Returns
+        -------
+        batch : SeismicBatch
+            Batch without changes.
+
+        Raises
+        ------
+        ValueError
+            If passed `src` doesn't have vertical velocity semblance.
+        """
+        pos = self.index.get_pos(index)
+        semblance = getattr(self, src)[pos]
+        if not isinstance(semblance, Semblance):
+            raise ValueError('There is no vertical velocity semblance in {} variable.'.format(src))
+
+        if isinstance(stacking_velocities, str):
+            stacking_velocities = getattr(self, stacking_velocities)[pos]
+        if stacking_velocities is not None:
+            kwargs.update(stacking_velocities=stacking_velocities)
+
+        kwargs['title'] = '{} {}'.format(kwargs.get('title', ''), index).strip()
+        semblance.plot(**kwargs)
+        return self
+
+    def residual_semblance_plot(self, src, index, **kwargs):
+        """ Plot vertical residual semblance.
+
+        Parameters
+        ----------
+        src : str
+            The batch component with data to show.
+        index : same type as batch.indices
+            Data index to show.
+        kwargs : dict
+            All kwargs parameters are passed directly to :func:`.semblance.ResidualSemblance.plot`.
+
+        Returns
+        -------
+        batch : SeismicBatch
+            Batch without changes.
+
+        Raises
+        ------
+        ValueError
+            If passed `src` doesn't have a vertical residual semblance.
+        """
+        pos = self.index.get_pos(index)
+        res_semblance = getattr(self, src)[pos]
+
+        if not isinstance(res_semblance, ResidualSemblance):
+            raise ValueError('There is no vertical residual semblance in {} variable.'.format(src))
+
+        kwargs['title'] = '{} {}'.format(kwargs.get('title', ''), index).strip()
+        res_semblance.plot(**kwargs)
         return self
