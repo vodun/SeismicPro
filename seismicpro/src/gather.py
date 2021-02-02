@@ -22,8 +22,13 @@ class Gather(AbstractGather):
         self.samples = survey.samples
         self.sort_by = None
 
-    def __getattr__(self):
-        pass
+    @property
+    def offsets(self):
+        return self.headers['offset'].values
+
+    @property
+    def sample_rate(self):
+        return self.survey.sample_rate
 
     def dump(self, path, name=None):
         # TODO: Check does file.bin header matters?
@@ -43,7 +48,6 @@ class Gather(AbstractGather):
         spec.format = parent_handler.format
         spec.tracecount = len(self.data)
 
-        # TODO: Can any operations change the order of the rows in the dataframe?
         trace_headers = self.headers.reset_index()
         # We need to save start index in segy file in order to save correct header.
         ix_start = np.min(trace_headers[TRACE_ID_HEADER])
@@ -73,18 +77,22 @@ class Gather(AbstractGather):
             for i, dump_h in trace_headers_dict.items():
                 dump_handler.header[i].update(dump_h)
 
-    def sort(self, by):
+    def __copy(self):
+        """ return a copy of gather object. """
+        # TODO: Write real copy, not creating new instance
+        return Gather(headers=self.headers, data=self.data, survey=self.survey)
+
+    def sort(self, by, copy=True):
         if not isinstance(by, str):
             raise TypeError('`by` should be str, not {}'.format(type(by)))
-
         arg = np.argsort(self.headers[by].values, kind='stable')
+        sort_self = self.__copy() if copy else self
+        sort_self.sort_by = by
+        sort_self.data = self.data[arg]
+        sort_self.headers = self.headers.iloc[arg]
+        return sort_self
 
-        self.sort_by = by
-        self.data = self.data[arg]
-        self.headers = self.headers.iloc[arg]
-        return self
-
-    def equalize(self):
+    def equalize(self, attr):
         pass
 
     def band_pass_filter(self):
