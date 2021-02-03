@@ -56,13 +56,14 @@ class MetricsMap(Metrics):
 
     Raises
     ------
-    ValueError : If kwargs are empty.
-    ValueError : If ndim for given coordinate is not equal to 2.
-    ValueError : If shape of first dim is not equal to 2.
-    TypeError : If given coordinates are not array-like.
-    TypeError : If given metrics is not array-like.
-    ValueError : If the length of the metric array does not match the length of the array with coordinates.
-
+    ValueError
+        If kwargs are empty.
+        If ndim for given coordinate is not equal to 2.
+        If shape of first dim is not equal to 2.
+        If the length of the metric array does not match the length of the array with coordinates.
+    TypeError
+        If given coordinates are not array-like.
+        If given metrics is not array-like.
     Note
     ----
     1. The length of the metric array and the coordinate array must match.
@@ -165,9 +166,11 @@ class MetricsMap(Metrics):
 
         Raises
         ------
-        TypeError : If agg_func is not str or callable.
-        ValueError : If agg_func is str and is not one of the keys of DEFAULT_METRICS.
-        ValueError : If agg_func is not wrapped with @njit decorator.
+        TypeError
+            If agg_func is not str or callable.
+        ValueError
+            If agg_func is str and is not one of the keys of DEFAULT_METRICS.
+            If agg_func is not wrapped with @njit decorator.
         """
         metrics = getattr(self, metrics_name)
 
@@ -252,6 +255,8 @@ class MetricsMap(Metrics):
             The size of bin by X and Y axes.
         agg_func : numba callable in nopython mode
             Function to aggregate metrics values in one bin.
+        args : tuple
+            Positional arguments to the specified `agg_func`.
 
         Returns
         -------
