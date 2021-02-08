@@ -64,9 +64,9 @@ class SeismicBatch(Batch):
 
     @inbatch_parallel(init="wrapped_indices", target="for")
     @apply_to_each_component
-    def _load_gather(self, index, *args, src, dst, **kwargs):
+    def _load_gather(self, index, *args, src, dst, limits=None, **kwargs):
         pos = self.index.get_pos(index)
-        getattr(self, dst)[pos] = self.index.get_gather(survey_name=src, index=index)
+        getattr(self, dst)[pos] = self.index.get_gather(survey_name=src, index=index, limits=limits)
         return self
 
     def _init_component(self, *args, dst, **kwargs):

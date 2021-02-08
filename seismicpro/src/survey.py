@@ -56,7 +56,6 @@ class Survey(AbstractSurvey):
 
     def get_gather(self, index=None, limits=None):
         if index is None:
-            # TODO: Write normal random choice.
             index = self.headers.index[0]
         # TODO: description why do we use [index] instead of index.
         gather_headers = self.headers.loc[[index]].copy()
