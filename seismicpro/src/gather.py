@@ -20,15 +20,12 @@ class Gather(AbstractGather):
         self.survey = survey
         self.data = data
         self.samples = survey.samples
+        self.sample_rate = self.survey.sample_rate
         self.sort_by = None
 
     @property
     def offsets(self):
         return self.headers['offset'].values
-
-    @property
-    def sample_rate(self):
-        return self.survey.sample_rate
 
     def dump(self, path, name=None):
         # TODO: Check does file.bin header matters?
