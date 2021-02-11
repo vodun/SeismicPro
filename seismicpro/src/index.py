@@ -134,11 +134,12 @@ class SeismicIndex(DatasetIndex):
         return self.surveys_dict[survey_name][concat_id].get_gather(index=survey_index, limits=limits)
 
     def reindex(self, new_index):
-        #TODO: Check how it works with concat.
         new_index = np.array(new_index).ravel().tolist()
         self.headers.reset_index(inplace=True)
         # TODO: Rewrite next line, looks ugly, this line shouldn't change the order of columns.
-        main_index = list(np.unique(['CONCAT_ID'] + new_index))
+        if "CONCAT_ID" in new_index:
+            raise ValueError("This column can't be index for surveys")
+        main_index = ["CONCAT_ID"] + new_index
         self.headers.set_index(main_index, inplace=True)
 
         for name, surveys in self.surveys_dict.items():
