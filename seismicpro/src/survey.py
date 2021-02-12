@@ -38,6 +38,7 @@ class Survey(AbstractSurvey):
         # Get attributes from segy.
         self.sample_rate = segyio.dt(self.segy_handler) / 1000
         self.samples = self.segy_handler.samples
+        self.samples_length = len(self.samples)
 
         headers = {}
         for column in load_headers:
@@ -55,6 +56,15 @@ class Survey(AbstractSurvey):
         self.segy_handler.close()
 
     def get_gather(self, index=None, limits=None):
+        limits = limits if limits is not None else [0, self.samples_length]
+        limits = np.array(limits).tolist()
+        if len(limits) == 1 or limits[1] > self.samples_length:
+            limits = [limits[0], self.samples_length]
+        elif limits[1] < 0:
+            limits[1] += self.samples_length
+        if limits[0] > limits[1]:
+            raise ValueError('Given wrong limits.')
+
         if index is None:
             index = self.headers.index[0]
         # TODO: description why do we use [index] instead of index.
@@ -66,14 +76,12 @@ class Survey(AbstractSurvey):
     def sample_gather(self, limits=None):
         # TODO: write normal sampler here
         index = np.random.choice(self.headers.index)
-        gather = get_gather(self, index=index, limits=limits)
+        gather = self.get_gather(index=index, limits=limits)
         return gather
 
-    def load_trace(self, index, limits=None):
+    def load_trace(self, index, limits):
         """limits is an array [from, to]"""
-        limits = limits if limits is not None else [0, len(self.samples)]
         trace_length = limits[1] - limits[0]
-
         buf = np.empty(trace_length, dtype=np.float32)
         # Args for segy loader are following:
         #   * Buffer to write trace ampltudes

@@ -9,47 +9,41 @@ from seismicpro.batchflow import NamedExpression
 from seismicpro.batchflow.batchflow.named_expr import _DummyBatch
 
 
-class ObjectAttr:
-    def __init__(self, value):
-        self.value = value
+
+class Component:
+    def __init__(self, component):
+        self.component = component
 
     def __getattr__(self, name):
-        return np.array([getattr(val, name) for val in self.value])
+        return np.array([getattr(val, name) for val in self.component])
 
     def __setattr__(self, name, value):
-        if name is 'value':
+        if name == 'component':
             self.__dict__[name] = value
         else:
-            for item, val in zip(self.value, value):
+            for item, val in zip(self.component, value):
                 setattr(item, name, val)
 
     def __getitem__(self, key):
-        return np.array([val.headers[key].values for val in self.value])
+        # note, the __getitem__ method must be overridden in the component class.
+        return np.array([val[key] for val in self.component])
 
     def __setitem__(self, key, value):
         key = np.array(key).ravel().tolist()
-        for item, val in zip(self.value, value):
-            val = pd.DataFrame(val, columns=key, index=item.headers.index)
-            item.headers[key] = val
+        for item, val in zip(self.component, value):
+            # note, the __setitem__ method must be overridden in the component class.
+            item[key] = val
 
 
 
 class SU(NamedExpression):
     """ !! """
-    def __init__(self, name=None, mode='w'):
-        super().__init__(name, mode)
-
     def get(self, batch=None, pipeline=None, model=None):
         """ !! """
         if self.params:
             batch, pipeline, model = self.params
         name = super()._get_name(batch=batch, pipeline=pipeline, model=model)
         if isinstance(batch, _DummyBatch):
-            raise ValueError("Batch expressions are not allowed in static models: B('%s')" % name)
-        return ObjectAttr(getattr(batch, name))
-
-    def assign(self, value, **kwargs):#, batch=None, pipeline=None, model=None):
-        """ !! """
-        #probably not needed.
-
-
+            # TODO: rewrite messsage
+            raise ValueError("Batch expressions are not allowed in static model")
+        return Component(getattr(batch, name))

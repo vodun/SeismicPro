@@ -3,6 +3,7 @@ import os
 
 import segyio
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 
 from .abstract_classes import AbstractGather
@@ -88,6 +89,14 @@ class Gather(AbstractGather):
         sort_self.data = self.data[arg]
         sort_self.headers = self.headers.iloc[arg]
         return sort_self
+
+    def __getitem__(self, key):
+        return self.headers[key].values
+
+    def __setitem__(self, key, value):
+        key = np.array(key).ravel().tolist()
+        val = pd.DataFrame(value, columns=key, index=self.headers.index)
+        self.headers[key] = val
 
     def equalize(self, attr):
         pass
