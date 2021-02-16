@@ -5,16 +5,14 @@ import numpy as np
 import pandas as pd
 
 from .gather import Gather
-from .abstract_classes import AbstractSurvey
-
 from ..batchflow.utils import is_iterable
 
 
-DEFAULT_HEADERS = ['offset', ]
+DEFAULT_HEADERS = ['offset',]
 TRACE_ID_HEADER = 'TRACE_SEQUENCE_FILE'
 
 
-class Survey(AbstractSurvey):
+class Survey:
     """ !! """
     def __init__(self, path, header_index, header_cols=None, name=None, **kwargs):
         self.path = path
@@ -102,12 +100,6 @@ class Survey(AbstractSurvey):
             3. header
             4. bin headers (aka. bin)
         """
-        pass
-
-    def merge(self): # delete
-        pass
-
-    def concat(self):
         pass
 
     def find_sdc_params(self):

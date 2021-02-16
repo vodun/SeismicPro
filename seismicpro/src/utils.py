@@ -18,6 +18,14 @@ GATHER_HEADERS = ['FieldRecord', 'RecieverID', 'CDP']
 FILE_DEPENDEND_COLUMNS = ['TRACE_SEQUENCE_FILE', 'file_id']
 
 
+def to_list(obj):
+    """Cast an object to a list. Almost identical to `list(obj)` for 1-D
+    objects, except for `str`, which won't be split into separate letters but
+    transformed into a list of a single element.
+    """
+    return np.array(obj).ravel().tolist()
+
+
 def make_index(paths, index_type, extra_headers=None, index_name=None):
     """
     make index given components and paths

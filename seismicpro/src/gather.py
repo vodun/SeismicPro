@@ -1,20 +1,21 @@
 """ File with gather class. """
 import os
+import copy
 
 import segyio
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from .abstract_classes import AbstractGather
-
+from .decorators import batch_method
 from ..batchflow.utils import is_iterable
+
 
 TRACE_ID_HEADER = 'TRACE_SEQUENCE_FILE'
 FILE_EXT = '.sgy'
 
 
-class Gather(AbstractGather):
+class Gather:
     """ !! """
     def __init__(self, headers, data, survey=None):
         self.headers = headers
@@ -28,6 +29,16 @@ class Gather(AbstractGather):
     def offsets(self):
         return self.headers['offset'].values
 
+    @batch_method
+    def copy(self):
+        survey = self.survey
+        self.survey = None
+        self_copy = copy.deepcopy(self)
+        self_copy.survey = survey
+        self.survey = survey
+        return self_copy
+
+    @batch_method
     def dump(self, path, name=None):
         # TODO: Check does file.bin header matters?
         parent_handler = self.survey.segy_handler
@@ -75,20 +86,15 @@ class Gather(AbstractGather):
             for i, dump_h in trace_headers_dict.items():
                 dump_handler.header[i].update(dump_h)
 
-    def __copy(self):
-        """ return a copy of gather object. """
-        # TODO: Write real copy, not creating new instance
-        return Gather(headers=self.headers, data=self.data, survey=self.survey)
-
-    def sort(self, by, copy=True):
+    @batch_method(target="threads")
+    def sort(self, by):
         if not isinstance(by, str):
             raise TypeError('`by` should be str, not {}'.format(type(by)))
         arg = np.argsort(self.headers[by].values, kind='stable')
-        sort_self = self.__copy() if copy else self
-        sort_self.sort_by = by
-        sort_self.data = self.data[arg]
-        sort_self.headers = self.headers.iloc[arg]
-        return sort_self
+        self.sort_by = by
+        self.data = self.data[arg]
+        self.headers = self.headers.iloc[arg]
+        return self
 
     def __getitem__(self, key):
         return self.headers[key].values
@@ -122,6 +128,7 @@ class Gather(AbstractGather):
     def slice_traces(self):
         pass
 
+    @batch_method(target="for")
     def plot(self):
         kwargs = {
             'cmap': 'gray',
@@ -131,7 +138,7 @@ class Gather(AbstractGather):
         }
         plt.figure(figsize=(10, 7))
         plt.imshow(self.data.T, **kwargs)
-
+        return self
 
     def plot_gain(self):
         pass
