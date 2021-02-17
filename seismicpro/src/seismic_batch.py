@@ -1109,27 +1109,6 @@ class SeismicBatch(Batch):
 
         getattr(self, dst)[pos] = diff_semblance.calc_na_metrics(semblance)
 
-    @action
-    @inbatch_parallel(init="_init_component", target="threads")
-    def generate_one_horizon(self, index, src, dst, t_zero, velocity, val, use_old=False, length=1.):
-        """Generate empty seismogram with one horizon or add new horizon to seismogram"""
-        pos = self.index.get_pos(index)
-        field = getattr(self, src)[0]
-        time_range_ms = self.meta[src]['samples']
-        offset = np.sort(self.index.get_df(index=index)['offset'])
-        off_length = int(len(offset) * length)
-
-        new_field = field.copy() if use_old else np.zeros_like(field)
-        # t_zero = np.round(t_zero.astype(int)
-        velocity /= 1000
-        for i, off in enumerate(offset[:off_length]):
-            t_new = np.round(np.sqrt(t_zero**2 + (off/velocity)**2)/time_range_ms[1]).astype(int)
-            new_field[i][t_new:t_new+1] = val
-
-        getattr(self, dst)[0] = np.array(new_field)
-        return self
-
-
     #-------------------------------------------------------------------------#
     #                                DPA. Misc                                #
     #-------------------------------------------------------------------------#
