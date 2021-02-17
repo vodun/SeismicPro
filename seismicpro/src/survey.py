@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 
 from .gather import Gather
+from .utils import to_list
 from ..batchflow.utils import is_iterable
 
 
@@ -23,9 +24,9 @@ class Survey:
         if header_cols == 'all':
             header_cols = tuple(segyio.tracefield.keys.keys())
 
-        header_index = (header_index, ) if not is_iterable(header_index) else header_index
-        header_cols = (header_cols, ) if not is_iterable(header_cols) else header_cols
-        load_headers = set(header_index) | set(header_cols)
+        header_index = to_list(header_index)
+        load_headers = set(header_index) if header_cols is None else set(header_index) | set(to_list(header_cols))
+
         # We always reconstruct this column, so there is no need to load it.
         if TRACE_ID_HEADER in load_headers:
             load_headers.remove(TRACE_ID_HEADER)
@@ -42,10 +43,11 @@ class Survey:
         for column in load_headers:
             headers[column] = self.segy_handler.attributes(segyio.tracefield.keys[column])[:]
 
-        headers = pd.DataFrame(headers)
+        headers = pd.DataFrame(headers)#, index=np.arange(len(headers[header_index[0]]), dtype=np.int32))
         headers.reset_index(inplace=True)
-        # TODO: add why do we use unknown column
+        # TODO: add why do we use unknown column, note that in our case it starts with 0, not 1.
         headers.rename(columns={'index': TRACE_ID_HEADER}, inplace=True)
+        headers[TRACE_ID_HEADER] = headers[TRACE_ID_HEADER].astype(np.int32)
         headers.set_index(list(header_index), inplace=True)
         # To optimize futher sampling from mulitiindex.
         self.headers = headers.sort_index()
@@ -60,7 +62,7 @@ class Survey:
             limits = [limits[0], self.samples_length]
         elif limits[1] < 0:
             limits[1] += self.samples_length
-        if limits[0] > limits[1]:
+        if limits[0] > limits[1] or limits[0] < 0:
             raise ValueError('Given wrong limits.')
 
         if index is None:
