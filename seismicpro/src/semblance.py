@@ -348,7 +348,7 @@ class Semblance(BaseSemblance):
         super().plot(self.semblance, ticks_range_x, ticks_range_y, x_points=x_points,
                      y_points=y_points, xlabel='Velocity (m/s)', **kwargs)
 
-    def calc_minmax_metrics(self, other):
+    def calc_na_metrics(self, other):
         """" The metric is designed to search for signal leakage in the process of ground-roll attenuation.
         It is based on the assumption that a vertical velocity semblance calculated for the difference between a raw
         and processed gather should not have pronounced energy maxima.
