@@ -1086,7 +1086,7 @@ class SeismicBatch(Batch):
 
     @action
     @inbatch_parallel(init="_init_component", target="threads")
-    def calculate_na_metrics(self, index, src, src_diff, dst, **kwargs):
+    def calculate_na_metrics(self, index, src, src_diff, dst):
         """ calculation of a metric to estimate the quality of noise attenuation.
 
         Parameters
