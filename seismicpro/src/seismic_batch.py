@@ -1084,6 +1084,31 @@ class SeismicBatch(Batch):
         getattr(self, dst)[pos] = muted_seismogram
         self.copy_meta(src, dst)
 
+    @action
+    @inbatch_parallel(init="_init_component", target="threads")
+    def calculate_na_metrics(self, index, src, src_diff, dst):
+        """ calculation of a metric to estimate the quality of noise attenuation.
+
+        Parameters
+        ----------
+        src : str
+            The batch component to get the semblance from.
+        src_diff : str
+            The batch component to get the difference semblance from.
+        dst : str
+            The batch component to put metric value in.
+
+        Returns
+        -------
+        batch : SeismicBatch
+            Batch with metrics value in `dst` component.
+        """
+        pos = self.index.get_pos(index)
+        diff_semblance = getattr(self, src_diff)[pos]
+        semblance = getattr(self, src)[pos]
+
+        getattr(self, dst)[pos] = diff_semblance.calc_na_metrics(semblance)
+
     #-------------------------------------------------------------------------#
     #                                DPA. Misc                                #
     #-------------------------------------------------------------------------#
