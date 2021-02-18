@@ -7,27 +7,38 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+from .utils import to_list
 from .decorators import batch_method
-from ..batchflow.utils import is_iterable
 
 
 TRACE_ID_HEADER = 'TRACE_SEQUENCE_FILE'
-FILE_EXT = '.sgy'
 
 
 class Gather:
     """ !! """
-    def __init__(self, headers, data, survey=None):
+    def __init__(self, headers, data, survey):
         self.headers = headers
-        self.survey = survey
         self.data = data
+        self.survey = survey
         self.samples = survey.samples
-        self.sample_rate = self.survey.sample_rate
+        self.sample_rate = survey.sample_rate
         self.sort_by = None
+
+    def __getitem__(self, key):
+        return self.headers[key].values
+
+    def __setitem__(self, key, value):
+        key = to_list(key)
+        val = pd.DataFrame(value, columns=key, index=self.headers.index)
+        self.headers[key] = val
 
     @property
     def offsets(self):
         return self.headers['offset'].values
+
+    @property
+    def index(self):
+        return self.headers.index.values[0]
 
     @batch_method
     def copy(self):
@@ -44,10 +55,9 @@ class Gather:
         parent_handler = self.survey.segy_handler
 
         if name is None:
-            gather_name = self.headers.index.values[0]
-            gather_name = '_'.join(map(str, gather_name)) if is_iterable(gather_name) else str(gather_name)
-            name = self.survey.name + '_' + gather_name + FILE_EXT
-        name = name + FILE_EXT if len(os.path.splitext(name)[1]) == 0 else name
+            name = "_".join(map(str, [self.survey.name] + to_list(self.index)))
+        if os.path.splitext(name)[1] == "":
+            name += '.sgy'
         full_path = os.path.join(path, name)
 
         # Create segyio spec. We choose only specs that relate to unstructured data.
@@ -90,19 +100,11 @@ class Gather:
     def sort(self, by):
         if not isinstance(by, str):
             raise TypeError('`by` should be str, not {}'.format(type(by)))
-        arg = np.argsort(self.headers[by].values, kind='stable')
+        order = np.argsort(self.headers[by].values, kind='stable')
         self.sort_by = by
-        self.data = self.data[arg]
-        self.headers = self.headers.iloc[arg]
+        self.data = self.data[order]
+        self.headers = self.headers.iloc[order]
         return self
-
-    def __getitem__(self, key):
-        return self.headers[key].values
-
-    def __setitem__(self, key, value):
-        key = np.array(key).ravel().tolist()
-        val = pd.DataFrame(value, columns=key, index=self.headers.index)
-        self.headers[key] = val
 
     def equalize(self, attr):
         pass

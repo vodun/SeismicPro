@@ -1,9 +1,9 @@
 from functools import reduce
-from os import stat
 
 import numpy as np
 import pandas as pd
 
+from .utils import to_list
 from ..batchflow import DatasetIndex
 
 
@@ -41,9 +41,9 @@ class SeismicIndex(DatasetIndex):
         return index
 
     def build_from_surveys(self, surveys, mode, *args, **kwargs):
-        if mode in ("merge", "m"):
+        if mode in {"merge", "m"}:
             index = SeismicIndex.merge(surveys, *args, **kwargs)
-        elif mode in ("concat", "c"):
+        elif mode in {"concat", "c"}:
             index = SeismicIndex.concat(surveys, *args, **kwargs)
         else:
             raise ValueError("Unknown mode {}".format(mode))
@@ -59,7 +59,7 @@ class SeismicIndex(DatasetIndex):
         return survey_indices
 
     def get_pos(self, index):
-        # Only single index!
+        # TODO: Mention in docs that only single index is allowed!
         return self._pos[index]
 
     @classmethod
@@ -134,7 +134,7 @@ class SeismicIndex(DatasetIndex):
         return self.surveys_dict[survey_name][concat_id].get_gather(index=survey_index, limits=limits)
 
     def reindex(self, new_index):
-        new_index = np.array(new_index).ravel().tolist()
+        new_index = to_list(new_index)
         self.headers.reset_index(inplace=True)
         # TODO: Rewrite next line, looks ugly, this line shouldn't change the order of columns.
         if "CONCAT_ID" in new_index:
@@ -142,9 +142,12 @@ class SeismicIndex(DatasetIndex):
         main_index = ["CONCAT_ID"] + new_index
         self.headers.set_index(main_index, inplace=True)
 
-        for name, surveys in self.surveys_dict.items():
+        for surveys in self.surveys_dict.values():
             for survey in surveys:
+                # TODO: redirect to survey.reindex
                 survey.headers.reset_index(inplace=True)
                 survey.headers.set_index(new_index, inplace=True)
+
         self._index = self.headers.index.unique()
         self._pos = self.build_pos()  # Build _pos dict explicitly if concat was called outside __init__
+        return self

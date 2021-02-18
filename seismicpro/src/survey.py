@@ -6,26 +6,28 @@ import pandas as pd
 
 from .gather import Gather
 from .utils import to_list
-from ..batchflow.utils import is_iterable
 
 
-DEFAULT_HEADERS = ['offset',]
+DEFAULT_HEADERS = {'offset',}
 TRACE_ID_HEADER = 'TRACE_SEQUENCE_FILE'
 
 
 class Survey:
     """ !! """
-    def __init__(self, path, header_index, header_cols=None, name=None, **kwargs):
+    def __init__(self, path, header_index, header_cols=None, name=None):
         self.path = path
-        self.headers = None
         basename = os.path.splitext(os.path.basename(self.path))[0]
         self.name = name if name is not None else basename
 
-        if header_cols == 'all':
-            header_cols = tuple(segyio.tracefield.keys.keys())
+        if header_cols is None:
+            header_cols = set()
+        elif header_cols == 'all':
+            header_cols = set(segyio.tracefield.keys.keys())
+        else:
+            header_cols = set(to_list(header_cols))
 
         header_index = to_list(header_index)
-        load_headers = set(header_index) if header_cols is None else set(header_index) | set(to_list(header_cols))
+        load_headers = set(header_index) | header_cols | DEFAULT_HEADERS
 
         # We always reconstruct this column, so there is no need to load it.
         if TRACE_ID_HEADER in load_headers:
@@ -43,12 +45,10 @@ class Survey:
         for column in load_headers:
             headers[column] = self.segy_handler.attributes(segyio.tracefield.keys[column])[:]
 
-        headers = pd.DataFrame(headers)#, index=np.arange(len(headers[header_index[0]]), dtype=np.int32))
-        headers.reset_index(inplace=True)
+        headers = pd.DataFrame(headers).reset_index()
         # TODO: add why do we use unknown column, note that in our case it starts with 0, not 1.
         headers.rename(columns={'index': TRACE_ID_HEADER}, inplace=True)
-        headers[TRACE_ID_HEADER] = headers[TRACE_ID_HEADER].astype(np.int32)
-        headers.set_index(list(header_index), inplace=True)
+        headers.set_index(header_index, inplace=True)
         # To optimize futher sampling from mulitiindex.
         self.headers = headers.sort_index()
 
@@ -65,12 +65,10 @@ class Survey:
         if limits[0] > limits[1] or limits[0] < 0:
             raise ValueError('Given wrong limits.')
 
-        if index is None:
-            index = self.headers.index[0]
         # TODO: description why do we use [index] instead of index.
         gather_headers = self.headers.loc[[index]].copy()
         data = np.stack([self.load_trace(idx, limits) for idx in gather_headers[TRACE_ID_HEADER]])
-        gather = Gather(data=data, headers=gather_headers, survey=self)
+        gather = Gather(headers=gather_headers, data=data, survey=self)
         return gather
 
     def sample_gather(self, limits=None):
@@ -94,15 +92,6 @@ class Survey:
         #   * Number of overall samples.
         res = self.segy_handler.xfd.gettr(buf, index, 1, 1, *limits, 1, trace_length)
         return res
-
-    def dump(self):
-        """ params to dump:
-            1. spec
-            2. ext_headers (aka. self.segy_handler.text)
-            3. header
-            4. bin headers (aka. bin)
-        """
-        pass
 
     def find_sdc_params(self):
         pass
