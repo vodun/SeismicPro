@@ -1,5 +1,7 @@
 [![License](https://img.shields.io/github/license/analysiscenter/batchflow.svg)](https://www.apache.org/licenses/LICENSE-2.0)
-[![Python](https://img.shields.io/badge/python-3.5-blue.svg)](https://python.org)
+[![Python](https://img.shields.io/badge/python-3.6-blue.svg)](https://python.org)
+[![PyTorch](https://img.shields.io/badge/PyTorch-1.7-orange.svg)](https://pytorch.org)
+[![Status](https://github.com/gazprom-neft/SeismicPro/workflows/status/badge.svg)](https://github.com/gazprom-neft/SeismicPro/actions?query=workflow%3Astatus)
 
 # SeismicPro
 
@@ -79,7 +81,7 @@ File with first-break picking data is expected to be in csv (comma-separated-val
 
 > `SeismicPro` module is in the beta stage. Your suggestions and improvements are very welcome.
 
-> `SeismicPro` supports python 3.5 or higher.
+> `SeismicPro` supports python 3.6 or higher.
 
 ### Installation as a python package
 
