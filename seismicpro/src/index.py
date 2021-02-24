@@ -145,8 +145,7 @@ class SeismicIndex(DatasetIndex):
         for surveys in self.surveys_dict.values():
             for survey in surveys:
                 # TODO: redirect to survey.reindex
-                survey.headers.reset_index(inplace=True)
-                survey.headers.set_index(new_index, inplace=True)
+                survey.reindex(new_index)
 
         self._index = self.headers.index.unique()
         self._pos = self.build_pos()  # Build _pos dict explicitly if concat was called outside __init__

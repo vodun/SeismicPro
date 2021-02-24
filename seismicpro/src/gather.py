@@ -11,9 +11,6 @@ from .utils import to_list
 from .decorators import batch_method
 
 
-TRACE_ID_HEADER = 'TRACE_SEQUENCE_FILE'
-
-
 class Gather:
     """ !! """
     def __init__(self, headers, data, survey):
@@ -69,13 +66,13 @@ class Gather:
 
         trace_headers = self.headers.reset_index()
         # We need to save start index in segy file in order to save correct header.
-        ix_start = np.min(trace_headers[TRACE_ID_HEADER])
+        trace_ids = trace_headers[self.survey.TRACE_ID_HEADER].values
         # Select only the loaded headers from dataframe.
         used_header_names = set(trace_headers.columns) & set(segyio.tracefield.keys.keys())
         trace_headers = trace_headers[used_header_names]
 
         # We need to fill this column because the trace order minght be changed during the processing.
-        trace_headers[TRACE_ID_HEADER] = np.arange(len(trace_headers)) + 1
+        trace_headers[self.survey.TRACE_ID_HEADER] = np.arange(len(trace_headers)) + 1
 
         # Now we change column name's into byte number based on the segy standard.
         trace_headers.rename(columns=lambda col_name: segyio.tracefield.keys[col_name], inplace=True)
@@ -91,9 +88,9 @@ class Gather:
 
             # Save traces and trace headers.
             dump_handler.trace = self.data
-            dump_handler.header = parent_handler.header[ix_start: ix_start + spec.tracecount]
             # Update trace headers from self.headers.
             for i, dump_h in trace_headers_dict.items():
+                dump_handler.header[i].update(parent_handler.header[trace_ids[i]])
                 dump_handler.header[i].update(dump_h)
 
     @batch_method(target="threads")

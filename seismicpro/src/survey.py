@@ -9,11 +9,11 @@ from .utils import to_list
 
 
 DEFAULT_HEADERS = {'offset',}
-TRACE_ID_HEADER = 'TRACE_SEQUENCE_FILE'
 
 
 class Survey:
     """ !! """
+    TRACE_ID_HEADER = 'TRACE_SEQUENCE_FILE'
     def __init__(self, path, header_index, header_cols=None, name=None):
         self.path = path
         basename = os.path.splitext(os.path.basename(self.path))[0]
@@ -30,8 +30,8 @@ class Survey:
         load_headers = set(header_index) | header_cols | DEFAULT_HEADERS
 
         # We always reconstruct this column, so there is no need to load it.
-        if TRACE_ID_HEADER in load_headers:
-            load_headers.remove(TRACE_ID_HEADER)
+        if self.TRACE_ID_HEADER in load_headers:
+            load_headers.remove(self.TRACE_ID_HEADER)
 
         self.segy_handler = segyio.open(self.path, ignore_geometry=True)
         self.segy_handler.mmap()
@@ -46,8 +46,9 @@ class Survey:
             headers[column] = self.segy_handler.attributes(segyio.tracefield.keys[column])[:]
 
         headers = pd.DataFrame(headers).reset_index()
-        # TODO: add why do we use unknown column, note that in our case it starts with 0, not 1.
-        headers.rename(columns={'index': TRACE_ID_HEADER}, inplace=True)
+        # TODO: add why do we use unknown column
+        headers.rename(columns={'index': self.TRACE_ID_HEADER}, inplace=True)
+        headers[self.TRACE_ID_HEADER] += 1
         headers.set_index(header_index, inplace=True)
         # To optimize futher sampling from mulitiindex.
         self.headers = headers.sort_index()
@@ -56,18 +57,16 @@ class Survey:
         self.segy_handler.close()
 
     def get_gather(self, index=None, limits=None):
-        limits = limits if limits is not None else [0, self.samples_length]
-        limits = np.array(limits).tolist()
-        if len(limits) == 1 or limits[1] > self.samples_length:
-            limits = [limits[0], self.samples_length]
-        elif limits[1] < 0:
-            limits[1] += self.samples_length
-        if limits[0] > limits[1] or limits[0] < 0:
-            raise ValueError('Given wrong limits.')
+        if not isinstance(limits, slice):
+            limits = slice(*to_list(limits))
+        limits = limits.indices(self.samples_length)
+        trace_length = len(range(*limits))
+        if trace_length == 0:
+            raise ValueError('Trace length must be positive.')
 
         # TODO: description why do we use [index] instead of index.
         gather_headers = self.headers.loc[[index]].copy()
-        data = np.stack([self.load_trace(idx, limits) for idx in gather_headers[TRACE_ID_HEADER]])
+        data = np.stack([self.load_trace(idx-1, limits, trace_length) for idx in gather_headers[self.TRACE_ID_HEADER]])
         gather = Gather(headers=gather_headers, data=data, survey=self)
         return gather
 
@@ -77,9 +76,8 @@ class Survey:
         gather = self.get_gather(index=index, limits=limits)
         return gather
 
-    def load_trace(self, index, limits):
+    def load_trace(self, index, limits, trace_length):
         """limits is an array [from, to]"""
-        trace_length = limits[1] - limits[0]
         buf = np.empty(trace_length, dtype=np.float32)
         # Args for segy loader are following:
         #   * Buffer to write trace ampltudes
@@ -90,8 +88,13 @@ class Survey:
         #   * Position where to end loading
         #   * Step
         #   * Number of overall samples.
-        res = self.segy_handler.xfd.gettr(buf, index, 1, 1, *limits, 1, trace_length)
+
+        res = self.segy_handler.xfd.gettr(buf, index, 1, 1, *limits, trace_length)
         return res
+
+    def reindex(self, new_index):
+        self.headers.reset_index(inplace=True)
+        self.headers.set_index(new_index, inplace=True)
 
     def find_sdc_params(self):
         pass
