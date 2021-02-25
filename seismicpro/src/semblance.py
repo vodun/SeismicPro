@@ -38,9 +38,9 @@ class BaseSemblance:
 
     Attributes
     ----------
-    _seismogram : array-like
+    _gather : array-like
         Data for calculating semblance. The attribute is stored in a transposed form due to performance reasons,
-        so that `_seismogram.shape` is (num_traces, trace_lenght).
+        so that `_gather.shape` is (num_traces, trace_lenght).
     _times : array-like
         An array containing the recording time for each trace value.
         Measured in milliseconds.
@@ -54,8 +54,8 @@ class BaseSemblance:
         Window size for smoothing the semblance.
         Measured in samples.
     """
-    def __init__(self, seismogram, times, offsets, win_size):
-        self._seismogram = np.ascontiguousarray(seismogram.T)
+    def __init__(self, gather, times, offsets, win_size):
+        self._gather = np.ascontiguousarray(gather.T)
         self._times = times # ms
         self._offsets = offsets # m
         self._sample_rate = self._times[1] - self._times[0]
@@ -63,16 +63,16 @@ class BaseSemblance:
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def base_calc_semblance(calc_nmo_func, seismogram, times, offsets, velocity, sample_rate, # pylint: disable=too-many-arguments
+    def base_calc_semblance(calc_nmo_func, gather, times, offsets, velocity, sample_rate, # pylint: disable=too-many-arguments
                             win_size, t_min, t_max):
         """ Calculate semblance for specified velocity in the preset time window from `t_min` to `t_max`.
 
         Parameters
         ----------
         calc_nmo_func : njitted callable
-            Callable that calculates normal moveout corrected seismogram for specified time and velocity values
+            Callable that calculates normal moveout corrected gather for specified time and velocity values
             and range of offsets.
-        seismogram : np.ndarray
+        gather : np.ndarray
             Data for calculating semblance.
         times : array-like
             An array containing the recording time for each trace value.
@@ -100,9 +100,9 @@ class BaseSemblance:
         t_win_size_min = max(0, t_min - win_size)
         t_win_size_max = min(len(times) - 1, t_max + win_size)
 
-        nmo = np.empty((t_win_size_max - t_win_size_min + 1, seismogram.shape[1]))
+        nmo = np.empty((t_win_size_max - t_win_size_min + 1, gather.shape[1]))
         for i in prange(t_win_size_min, t_win_size_max):
-            nmo[i - t_win_size_min] = calc_nmo_func(seismogram, times[i], offsets, velocity, sample_rate)
+            nmo[i - t_win_size_min] = calc_nmo_func(gather, times[i], offsets, velocity, sample_rate)
 
         numerator = np.sum(nmo, axis=1)**2
         denominator = np.sum(nmo**2, axis=1)
@@ -118,8 +118,8 @@ class BaseSemblance:
 
     @staticmethod
     @njit(nogil=True, fastmath=True)
-    def base_calc_nmo(seismogram, time, offsets, velocity, sample_rate):
-        r""" Default approach for normal moveout computation for single hodograph. Corrected seismogram calculates
+    def base_calc_nmo(gather, time, offsets, velocity, sample_rate):
+        r""" Default approach for normal moveout computation for single hodograph. Corrected gather calculates
         as following:
         :math:`t_c = \sqrt{t^2 + \frac{l^2}{v^2}}`, where
             t_c - corrected time value.
@@ -129,7 +129,7 @@ class BaseSemblance:
 
         Parameters
         ----------
-        seismogram : np.ndarray
+        gather : np.ndarray
             Data for calculating normal moveout.
         time : int
             Time value to calculate normal moveout.
@@ -142,16 +142,16 @@ class BaseSemblance:
 
         Returns
         -------
-        corrected_seismogram : 1d array
+        corrected_gather : 1d array
             NMO corrected hodograph.
         """
-        corrected_seismogram = np.zeros(len(offsets))
+        corrected_gather = np.zeros(len(offsets))
         corrected_times = (np.sqrt(time**2 + offsets**2/velocity**2) / sample_rate).astype(np.int32)
         for i in range(len(offsets)):
             corrected_time = corrected_times[i]
-            if corrected_time < len(seismogram):
-                corrected_seismogram[i] = seismogram[corrected_time, i]
-        return corrected_seismogram
+            if corrected_time < len(gather):
+                corrected_gather[i] = gather[corrected_time, i]
+        return corrected_gather
 
     def plot(self, semblance, ticks_range_x, ticks_range_y, xlabel='', title='', figsize=(15, 12), # pylint: disable=too-many-arguments
              fontsize=11, grid=None, x_points=None, y_points=None, save_to=None, dpi=300, **kwargs):
@@ -229,7 +229,7 @@ class BaseSemblance:
 
 @use_docs_from(BaseSemblance)
 class Semblance(BaseSemblance):
-    r""" Semblance is a normalized output-input energy ratio for CDP seismogram.
+    r""" Semblance is a normalized output-input energy ratio for CDP gather.
 
     The higher the values of semblance are, the more coherent the signal is along a hyperbolic trajectory over the
     entire spread length of the CDP gather.
@@ -267,8 +267,8 @@ class Semblance(BaseSemblance):
     1. Detailed description of the vertical velocity semblance computation is presented
        in the method :func:`~Semblance._calc_semblance`.
     """
-    def __init__(self, seismogram, times, offsets, velocities, win_size=25):
-        super().__init__(seismogram=seismogram, times=times, offsets=offsets, win_size=win_size)
+    def __init__(self, gather, times, offsets, velocities, win_size=25):
+        super().__init__(gather=gather, times=times, offsets=offsets, win_size=win_size)
         self._semblance = None
         self._velocities = velocities # m/s
 
@@ -280,7 +280,7 @@ class Semblance(BaseSemblance):
         return self._semblance.copy()
 
     def _calc_semblance(self):
-        """ Calculation of vertical velocity semblance starts with computing normal moveout for the entire seismogram
+        """ Calculation of vertical velocity semblance starts with computing normal moveout for the entire gather
         with specified velocity. NMO corrected gather stacked along the offset axis in two ways. The first stack is a
         squared sum of amplitudes named `numerator` while the second one was a sum of squared amplitudes named
         `denominator`. Thus, the resulted semblance values for particular velocity are received as a ratio of these
@@ -293,13 +293,13 @@ class Semblance(BaseSemblance):
         velocities_ms = self._velocities / 1000 # from m/s to m/ms
         self._semblance = self._calc_semblance_numba(base_func=self.base_calc_semblance,
                                                      calc_nmo_func=self.base_calc_nmo,
-                                                     seismogram=self._seismogram, times=self._times,
+                                                     gather=self._gather, times=self._times,
                                                      offsets=self._offsets, velocities=velocities_ms,
                                                      sample_rate=self._sample_rate, win_size=self._win_size)
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def _calc_semblance_numba(base_func, calc_nmo_func, seismogram, times, offsets, velocities, sample_rate, win_size):
+    def _calc_semblance_numba(base_func, calc_nmo_func, gather, times, offsets, velocities, sample_rate, win_size):
         """ Parallelized method for calculating vertical velocity semblance. Most of this method uses the class
         attributes already described in the init method, so unique parameters will be described here.
 
@@ -308,18 +308,18 @@ class Semblance(BaseSemblance):
         base_func : callable with njit decorator
             Base function for semblance computation.
         calc_nmo_func : callable with njit decorator
-            Callable that calculates normal moveout for given seismogram, time, velocity, and offset.
+            Callable that calculates normal moveout for given gather, time, velocity, and offset.
 
         Returns
         -------
         semblance : 2d np.ndarray
             Array with vertical velocity semblance.
         """
-        semblance = np.empty((len(seismogram), len(velocities)))
+        semblance = np.empty((len(gather), len(velocities)))
         for j in prange(len(velocities)):
-            semblance[:, j] = base_func(calc_nmo_func=calc_nmo_func, seismogram=seismogram, times=times,
+            semblance[:, j] = base_func(calc_nmo_func=calc_nmo_func, gather=gather, times=times,
                                         offsets=offsets, velocity=velocities[j], sample_rate=sample_rate,
-                                        win_size=win_size, t_min=0, t_max=len(seismogram))
+                                        win_size=win_size, t_min=0, t_max=len(gather))
         return semblance
 
     @use_docs_from(BaseSemblance.plot)
@@ -356,14 +356,14 @@ class Semblance(BaseSemblance):
         Parameters
         ----------
         self : Semblance
-            Class containing semblance for difference seismogram.
+            Class containing semblance for difference gather.
         other : Semblance
             Class containing semblance for raw gather.
 
         Returns
         -------
         metrics : float
-            Metrics value represented how much signal leaked out during the seismogram processing.
+            Metrics value represented how much signal leaked out during the gather processing.
         """
         minmax_self = np.max(self.semblance, axis=1) - np.min(self.semblance, axis=1)
         minmax_other = np.max(other.semblance, axis=1) - np.min(other.semblance, axis=1)
@@ -372,7 +372,7 @@ class Semblance(BaseSemblance):
 
 @use_docs_from(BaseSemblance)
 class ResidualSemblance(BaseSemblance):
-    """ Residual Semblance is a normalized output-input energy ratio for CDP seismogram along picked stacking velocity.
+    """ Residual Semblance is a normalized output-input energy ratio for CDP gather along picked stacking velocity.
 
     The method of computation at a single point completely coincides with the calculation of the :class:`~Semblance`,
     however, the residual semblance is computed in a specified area around the velocity, which allows finding errors
@@ -410,8 +410,8 @@ class ResidualSemblance(BaseSemblance):
 
     Other attributes described in :class:`~BaseSemblance`.
     """
-    def __init__(self, seismogram, times, offsets, stacking_velocities, num_vels=140, win_size=25, relative_margin=0.2):
-        super().__init__(seismogram, times, offsets, win_size)
+    def __init__(self, gather, times, offsets, stacking_velocities, num_vels=140, win_size=25, relative_margin=0.2):
+        super().__init__(gather, times, offsets, win_size)
         self._residual_semblance = None
         self._stacking_velocities = stacking_velocities
         self._relative_margin = relative_margin
@@ -435,7 +435,7 @@ class ResidualSemblance(BaseSemblance):
         left_bounds, right_bounds = self._calc_velocity_bounds()
         self._residual_semblance = self._calc_res_semblance_numba(base_func=self.base_calc_semblance,
                                                                   calc_nmo_func=self.base_calc_nmo,
-                                                                  seismogram=self._seismogram, times=self._times,
+                                                                  gather=self._gather, times=self._times,
                                                                   offsets=self._offsets, velocities=velocities_ms,
                                                                   left_bounds=left_bounds, right_bounds=right_bounds,
                                                                   sample_rate=self._sample_rate,
@@ -467,7 +467,7 @@ class ResidualSemblance(BaseSemblance):
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def _calc_res_semblance_numba(base_func, calc_nmo_func, seismogram, times, offsets, velocities, left_bounds,
+    def _calc_res_semblance_numba(base_func, calc_nmo_func, gather, times, offsets, velocities, left_bounds,
                                   right_bounds, sample_rate, win_size):
         """ Parallelized method for calculating residual semblance. Most of this method uses the class attributes
         already described in the init method, so unique parameters will be described here.
@@ -477,7 +477,7 @@ class ResidualSemblance(BaseSemblance):
         base_func : callable with njit decorator
             Base function for semblance computation.
         calc_nmo_func : callable with njit decorator
-            Callable that calculates normal moveout for given seismogram, time, velocity, and offset.
+            Callable that calculates normal moveout for given gather, time, velocity, and offset.
         left_bounds : 1d array
             Indices of corresponding velocities on left bounds for each time.
         right_bounds : 1d array
@@ -488,7 +488,7 @@ class ResidualSemblance(BaseSemblance):
         semblance : 2d np.ndarray
             Array with residual semblance.
         """
-        semblance = np.zeros((len(seismogram), len(velocities)))
+        semblance = np.zeros((len(gather), len(velocities)))
         for i in prange(left_bounds.min(), right_bounds.max() + 1):
             t_min = np.where(right_bounds == i)[0]
             t_min = 0 if len(t_min) == 0 else t_min[0]
@@ -496,7 +496,7 @@ class ResidualSemblance(BaseSemblance):
             t_max = np.where(left_bounds == i)[0]
             t_max = len(times) - 1 if len(t_max) == 0 else t_max[-1]
 
-            semblance[:, i][t_min: t_max+1] = base_func(calc_nmo_func=calc_nmo_func, seismogram=seismogram,
+            semblance[:, i][t_min: t_max+1] = base_func(calc_nmo_func=calc_nmo_func, gather=gather,
                                                         times=times, offsets=offsets, velocity=velocities[i],
                                                         sample_rate=sample_rate, win_size=win_size, t_min=t_min,
                                                         t_max=t_max+1)

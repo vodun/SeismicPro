@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 
 from .utils import to_list
 from .decorators import batch_method
+from .semblance import Semblance, ResidualSemblance
 
 
 class Gather:
@@ -102,6 +103,17 @@ class Gather:
         self.data = self.data[order]
         self.headers = self.headers.iloc[order]
         return self
+
+    @batch_method(target='for')
+    def caluclate_semblance(self, velocities, win_size=25):
+        return Semblance(gather=self.data, times=self.samples, offsets=self.offsets,
+                         velocities=velocities, win_size=win_size)
+
+    @batch_method(target='for')
+    def calculate_residual_semblance(self, stacking_velocities, num_vels=140, win_size=25, relative_margin=0.2):
+        return ResidualSemblance(gather=self.data, times=self.samples, offsets=self.offsets,
+                                 stacking_velocities=stacking_velocities, num_vels=num_vels, win_size=win_size,
+                                 relative_margin=relative_margin)
 
     def equalize(self, attr):
         pass

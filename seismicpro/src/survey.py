@@ -95,6 +95,7 @@ class Survey:
     def reindex(self, new_index):
         self.headers.reset_index(inplace=True)
         self.headers.set_index(new_index, inplace=True)
+        return self
 
     def find_sdc_params(self):
         pass

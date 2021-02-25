@@ -135,16 +135,13 @@ class SeismicIndex(DatasetIndex):
 
     def reindex(self, new_index):
         new_index = to_list(new_index)
-        self.headers.reset_index(inplace=True)
+        nlevels = self.headers.index.nlevels # we can use nlevels here because self.headers is always MultiIndex
+        self.headers.reset_index(level=list(range(1, nlevels)), inplace=True)
         # TODO: Rewrite next line, looks ugly, this line shouldn't change the order of columns.
-        if "CONCAT_ID" in new_index:
-            raise ValueError("This column can't be index for surveys")
-        main_index = ["CONCAT_ID"] + new_index
-        self.headers.set_index(main_index, inplace=True)
+        self.headers.set_index(new_index, append=True, inplace=True)
 
         for surveys in self.surveys_dict.values():
             for survey in surveys:
-                # TODO: redirect to survey.reindex
                 survey.reindex(new_index)
 
         self._index = self.headers.index.unique()
