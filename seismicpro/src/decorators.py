@@ -20,15 +20,13 @@ def batch_method(*args, target="for"):
     return decorator
 
 
-def _apply_to_each_component(method, target="for", target_dict=None, check_src_type=True):
+def _apply_to_each_component(method, target="for", target_dict=None, check_src_type=True, method_name=None):
     if target_dict is None:
         target_dict = {}
-
     @wraps(method)
     def decorated_method(self, *args, src, dst=None, **kwargs):
         src_list = to_list(src)
         dst_list = to_list(dst) if dst is not None else src_list
-
         for src, dst in zip(src_list, dst_list):
             src_target = target
             if check_src_type:
@@ -36,17 +34,23 @@ def _apply_to_each_component(method, target="for", target_dict=None, check_src_t
                 if len(src_type_set) != 1:
                     err_msg = "Component elements must have the same type, but {} found"
                     raise ValueError(err_msg.format(", ".join([str(t) for t in src_type_set])))
-                src_target = target_dict.get(src_type_set.pop(), target)
+                class_type = src_type_set.pop()
+                src_target = target_dict.get(class_type, target)
+                method_call = getattr(class_type, method_name)
+                if hasattr(method_call, "inbatch_parallel_target"):
+                    # We need this to benchmark our model.
+                    if src_target != method_call.inbatch_parallel_target:
+                        src_target = method_call.inbatch_parallel_target
             parallel_method = inbatch_parallel(init="_init_component", target=src_target)(method)
             parallel_method(self, *args, src=src, dst=dst, **kwargs)
         return self
     return decorated_method
 
 
-def apply_to_each_component(*args, target="for", target_dict=None, check_src_type=True):
+def apply_to_each_component(*args, target="for", target_dict=None, check_src_type=True, method_name=None):
     if len(args) == 1 and callable(args[0]):
         return _apply_to_each_component(args[0])
-    return partial(_apply_to_each_component, target=target, target_dict=target_dict, check_src_type=check_src_type)
+    return partial(_apply_to_each_component, target=target, target_dict=target_dict, check_src_type=check_src_type, method_name=method_name)
 
 
 def get_methods(cls):
@@ -69,7 +73,7 @@ def add_batch_methods(*component_classes):
                 if src != dst:
                     obj = obj.copy()
                 getattr(self, dst)[pos] = getattr(obj, method_name)(*args, **kwargs)
-            return action(apply_to_each_component(target_dict=target_dict)(method))
+            return action(apply_to_each_component(target_dict=target_dict, method_name=method_name)(method))
 
         for method_name, target_dict in methods_dict.items():
             setattr(cls, method_name, create_method(method_name, target_dict))
