@@ -1,10 +1,11 @@
 from .gather import Gather
-from .decorators import add_batch_methods, apply_to_each_component
+from .semblance import Semblance, ResidualSemblance
+from .decorators import create_batch_methods, apply_to_each_component
 from .utils import to_list
-from ..batchflow import Batch, action, inbatch_parallel
+from ..batchflow import Batch, action
 
 
-@add_batch_methods(Gather)
+@create_batch_methods(Gather, Semblance, ResidualSemblance)
 class SeismicBatch(Batch):
     @property
     def wrapped_indices(self):
@@ -26,7 +27,7 @@ class SeismicBatch(Batch):
             return self._load_gather(src=src, dst=components, **kwargs)
         return super().load(src=src, fmt=fmt, components=components, **kwargs)
 
-    @apply_to_each_component(target="threads", check_src_type=False)
+    @apply_to_each_component(target="threads", fetch_method_target=False)
     def _load_gather(self, index, src, dst, **kwargs):
         pos = self.index.get_pos(index)
         getattr(self, dst)[pos] = self.index.get_gather(survey_name=src, index=index, **kwargs)

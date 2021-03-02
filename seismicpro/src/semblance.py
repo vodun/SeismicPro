@@ -7,6 +7,7 @@ from scipy.interpolate import interp1d
 from matplotlib import colors as mcolors
 
 from .plot_utils import _set_ticks
+from .decorators import batch_method
 
 
 def use_docs_from(method_from):
@@ -322,6 +323,7 @@ class Semblance(BaseSemblance):
                                         win_size=win_size, t_min=0, t_max=len(gather))
         return semblance
 
+    @batch_method(target="for")
     @use_docs_from(BaseSemblance.plot)
     def plot(self, stacking_velocities=None, **kwargs):
         """ Plot vertical velocity semblance.
@@ -512,6 +514,7 @@ class ResidualSemblance(BaseSemblance):
                                               cropped_smb)
         return residual_semblance
 
+    @batch_method(target="for")
     @use_docs_from(BaseSemblance.plot)
     def plot(self, **kwargs):
         """ Plot vertical residual semblance. The graph always has a vertical line in the middle, but if the delay

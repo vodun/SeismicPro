@@ -47,7 +47,7 @@ class Gather:
         self.survey = survey
         return self_copy
 
-    @batch_method
+    @batch_method(force=True)
     def dump(self, path, name=None):
         # TODO: Check does file.bin header matters?
         parent_handler = self.survey.segy_handler
@@ -105,7 +105,7 @@ class Gather:
         return self
 
     @batch_method(target='for')
-    def caluclate_semblance(self, velocities, win_size=25):
+    def calculate_semblance(self, velocities, win_size=25):
         return Semblance(gather=self.data, times=self.samples, offsets=self.offsets,
                          velocities=velocities, win_size=win_size)
 
