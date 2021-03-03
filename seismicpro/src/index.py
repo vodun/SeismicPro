@@ -123,7 +123,7 @@ class SeismicIndex(DatasetIndex):
     def create_subset(self, index):
         return type(self)(index=index, survey_dict=self.surveys_dict, headers=self.headers)
 
-    def get_gather(self, survey_name, index, limits=None):
+    def get_gather(self, survey_name, index, **kwargs):
         if survey_name not in self.surveys_dict:
             err_msg = "Unknown survey name {}, the index contains only {}"
             raise KeyError(err_msg.format(survey_name, ",".join(self.surveys_dict.keys())))
@@ -131,7 +131,7 @@ class SeismicIndex(DatasetIndex):
         survey_index = index[1:]
         if len(survey_index) == 1:
             survey_index = survey_index[0]
-        return self.surveys_dict[survey_name][concat_id].get_gather(index=survey_index, limits=limits)
+        return self.surveys_dict[survey_name][concat_id].get_gather(index=survey_index, **kwargs)
 
     def reindex(self, new_index):
         new_index = to_list(new_index)

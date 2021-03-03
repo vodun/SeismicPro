@@ -52,11 +52,12 @@ class Survey:
         headers.set_index(header_index, inplace=True)
         # To optimize futher sampling from mulitiindex.
         self.headers = headers.sort_index()
+        self.is_trace_index = (header_index == to_list(self.TRACE_ID_HEADER))
 
     def __del__(self):
         self.segy_handler.close()
 
-    def get_gather(self, index=None, limits=None):
+    def get_gather(self, index=None, limits=None, copy_headers=True):
         if not isinstance(limits, slice):
             limits = slice(*to_list(limits))
         limits = limits.indices(self.samples_length)
@@ -64,16 +65,25 @@ class Survey:
         if trace_length == 0:
             raise ValueError('Trace length must be positive.')
 
-        # TODO: description why do we use [index] instead of index.
-        gather_headers = self.headers.loc[[index]].copy()
-        data = np.stack([self.load_trace(idx-1, limits, trace_length) for idx in gather_headers[self.TRACE_ID_HEADER]])
+        # Avoid time-consuming reset_index in case of iteration over individual traces
+        # Use slicing instead of indexing to guarantee that DataFrame is always returned
+        if self.is_trace_index:
+            gather_headers = self.headers.iloc[index - 1 : index - 1]
+            trace_indices = [index - 1]
+        else:
+            gather_headers = self.headers.loc[index:index]
+            trace_indices = gather_headers.reset_index()[self.TRACE_ID_HEADER].values - 1
+
+        if copy_headers:
+            gather_headers = gather_headers.copy()
+        data = np.stack([self.load_trace(i, limits, trace_length) for i in trace_indices])
         gather = Gather(headers=gather_headers, data=data, survey=self)
         return gather
 
-    def sample_gather(self, limits=None):
+    def sample_gather(self, limits=None, copy_headers=True):
         # TODO: write normal sampler here
         index = np.random.choice(self.headers.index)
-        gather = self.get_gather(index=index, limits=limits)
+        gather = self.get_gather(index=index, limits=limits, copy_headers=copy_headers)
         return gather
 
     def load_trace(self, index, limits, trace_length):
@@ -88,13 +98,13 @@ class Survey:
         #   * Position where to end loading
         #   * Step
         #   * Number of overall samples.
-
         res = self.segy_handler.xfd.gettr(buf, index, 1, 1, *limits, trace_length)
         return res
 
     def reindex(self, new_index):
         self.headers.reset_index(inplace=True)
         self.headers.set_index(new_index, inplace=True)
+        # TODO: add sort and update self.is_trace_index
         return self
 
     def find_sdc_params(self):
