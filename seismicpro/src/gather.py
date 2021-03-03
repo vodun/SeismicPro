@@ -106,11 +106,15 @@ class Gather:
 
     @batch_method(target='for')
     def calculate_semblance(self, velocities, win_size=25):
+        if self.sort_by != 'offset':
+            raise ValueError(f'Gather should be sorted by `offset` not {self.sort_by}.')
         return Semblance(gather=self.data, times=self.samples, offsets=self.offsets,
                          velocities=velocities, win_size=win_size)
 
     @batch_method(target='for')
     def calculate_residual_semblance(self, stacking_velocities, num_vels=140, win_size=25, relative_margin=0.2):
+        if self.sort_by != 'offset':
+            raise ValueError(f'Gather should be sorted by `offset` not {self.sort_by}.')
         return ResidualSemblance(gather=self.data, times=self.samples, offsets=self.offsets,
                                  stacking_velocities=stacking_velocities, num_vels=num_vels, win_size=win_size,
                                  relative_margin=relative_margin)

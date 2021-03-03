@@ -104,7 +104,8 @@ class Survey:
     def reindex(self, new_index):
         self.headers.reset_index(inplace=True)
         self.headers.set_index(new_index, inplace=True)
-        # TODO: add sort and update self.is_trace_index
+        self.headers.sort_index(inplace=True)
+        self.is_trace_index = (to_list(new_index) == to_list(self.TRACE_ID_HEADER))
         return self
 
     def find_sdc_params(self):

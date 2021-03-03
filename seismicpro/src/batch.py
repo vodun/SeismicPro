@@ -27,7 +27,7 @@ class SeismicBatch(Batch):
             return self._load_gather(src=src, dst=components, **kwargs)
         return super().load(src=src, fmt=fmt, components=components, **kwargs)
 
-    @apply_to_each_component(target="threads", fetch_method_target=False)
+    @apply_to_each_component(target="for", fetch_method_target=False)
     def _load_gather(self, index, src, dst, **kwargs):
         pos = self.index.get_pos(index)
         getattr(self, dst)[pos] = self.index.get_gather(survey_name=src, index=index, **kwargs)
