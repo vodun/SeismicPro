@@ -104,6 +104,13 @@ class Gather:
         self.headers = self.headers.iloc[order]
         return self
 
+    @batch_method(target="threads")
+    def mute(self, muting, **kwargs):
+        from .muting import PickingMuting, Muting
+        mask = muting.create_mask(self.data.shape)
+        self.data = self.data * mask
+        return self
+
     @batch_method(target='for')
     def calculate_semblance(self, velocities, win_size=25):
         if self.sort_by != 'offset':

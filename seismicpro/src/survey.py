@@ -28,6 +28,7 @@ class Survey:
 
         header_index = to_list(header_index)
         load_headers = set(header_index) | header_cols | DEFAULT_HEADERS
+        self.is_trace_index = (header_index == to_list(self.TRACE_ID_HEADER))
 
         # We always reconstruct this column, so there is no need to load it.
         if self.TRACE_ID_HEADER in load_headers:
@@ -52,7 +53,6 @@ class Survey:
         headers.set_index(header_index, inplace=True)
         # To optimize futher sampling from mulitiindex.
         self.headers = headers.sort_index()
-        self.is_trace_index = (header_index == to_list(self.TRACE_ID_HEADER))
 
     def __del__(self):
         self.segy_handler.close()
@@ -100,6 +100,22 @@ class Survey:
         #   * Number of overall samples.
         res = self.segy_handler.xfd.gettr(buf, index, 1, 1, *limits, trace_length)
         return res
+
+    def load_picking(self, path):
+        with open(path) as file:
+            lines = file.readlines()
+
+        splitted_numbers = np.array(list(map(lambda line: line.replace(',', '.').split(), lines)))
+        picking = np.array(splitted_numbers[:, 2], dtype=np.float32)
+        headers = np.array(splitted_numbers[:, :2], dtype=np.int)
+        picking_df = pd.DataFrame(headers, columns=['FieldRecord', 'TraceNumber'])
+        picking_df['Picking'] = picking
+        picking_df.sort_values(by=['FieldRecord', 'TraceNumber'], inplace=True)
+        headers = self.headers.reset_index()
+        headers.sort_values(by=['FieldRecord', 'TraceNumber'], inplace=True)
+        headers = headers.merge(picking_df)
+        headers.set_index(self.headers.index.name, inplace=True)
+        self.headers = headers.sort_index()
 
     def reindex(self, new_index):
         self.headers.reset_index(inplace=True)
