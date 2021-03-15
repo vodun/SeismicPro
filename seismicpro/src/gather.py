@@ -105,8 +105,10 @@ class Gather:
         return self
 
     @batch_method(target="threads")
-    def mute(self, muting, **kwargs):
-        from .muting import PickingMuting, Muting
+    def mute(self, muting, interpolate=False, **kwargs):
+        # Pointwise interpolation for specified muting points.
+        if interpolate:
+            muting.interpolate(offsets=self.offsets, sample_rate=self.sample_rate, **kwargs)
         mask = muting.create_mask(self.data.shape)
         self.data = self.data * mask
         return self
