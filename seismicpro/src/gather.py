@@ -38,6 +38,10 @@ class Gather:
     def index(self):
         return self.headers.index.values[0]
 
+    @property
+    def shape(self):
+        return self.data.shape
+
     @batch_method
     def copy(self):
         survey = self.survey
@@ -105,12 +109,9 @@ class Gather:
         return self
 
     @batch_method(target="threads")
-    def mute(self, muting, interpolate=False, **kwargs):
-        # Pointwise interpolation for specified muting points.
-        if interpolate:
-            muting.interpolate(offsets=self.offsets, sample_rate=self.sample_rate, **kwargs)
-        mask = muting.create_mask(self.data.shape)
-        self.data = self.data * mask
+    def mute(self, muting):
+        self.data = self.data * muting.create_mask(trace_len=self.shape[1], offsets=self.offsets,
+                                                   sample_rate=self.sample_rate)
         return self
 
     @batch_method(target='for')
@@ -127,6 +128,9 @@ class Gather:
         return ResidualSemblance(gather=self.data, times=self.samples, offsets=self.offsets,
                                  stacking_velocities=stacking_velocities, num_vels=num_vels, win_size=win_size,
                                  relative_margin=relative_margin)
+
+    def __len__(self):
+        return len(self.data)
 
     def equalize(self, attr):
         pass
