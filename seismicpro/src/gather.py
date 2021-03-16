@@ -129,9 +129,6 @@ class Gather:
                                  stacking_velocities=stacking_velocities, num_vels=num_vels, win_size=win_size,
                                  relative_margin=relative_margin)
 
-    def __len__(self):
-        return len(self.data)
-
     def equalize(self, attr):
         pass
 

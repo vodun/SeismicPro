@@ -102,18 +102,21 @@ class Survey:
         return res
 
     def load_picking(self, path):
+        segy_columns = ['FieldRecord', 'TraceNumber']
+        picking_columns = segy_columns + ['Picking']
         with open(path) as file:
             lines = file.readlines()
 
         splitted_numbers = np.array(list(map(lambda line: line.replace(',', '.').split(), lines)))
-        picking = np.array(splitted_numbers[:, 2], dtype=np.float32)
-        headers = np.array(splitted_numbers[:, :2], dtype=np.int)
-        picking_df = pd.DataFrame(headers, columns=['FieldRecord', 'TraceNumber'])
-        picking_df['Picking'] = picking
-        picking_df.sort_values(by=['FieldRecord', 'TraceNumber'], inplace=True)
+        picking_df = pd.DataFrame(splitted_numbers, columns=picking_columns)
+        picking_df = picking_df.astype({name: dtype for name, dtype in zip(picking_columns, [int, int, float])})
+
         headers = self.headers.reset_index()
-        headers.sort_values(by=['FieldRecord', 'TraceNumber'], inplace=True)
-        headers = headers.merge(picking_df)
+        if len(set(segy_columns) & set(headers)) < len(segy_columns):
+            missed_cols = set(segy_columns) - set(headers)
+            raise ValueError(f'Missing {missed_cols} column(s). This columns are required for picking loading.')
+
+        headers = headers.merge(picking_df, on=segy_columns)
         headers.set_index(self.headers.index.name, inplace=True)
         self.headers = headers.sort_index()
 
