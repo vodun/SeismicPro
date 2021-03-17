@@ -9,7 +9,7 @@ from scipy import signal
 from scipy.signal import hilbert
 from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
-import pywt
+
 import segyio
 
 from ..batchflow import action, inbatch_parallel, Batch, any_action_failed
@@ -35,15 +35,6 @@ ACTIONS_DICT = {
     "ifft": (np.fft.ifft, "numpy.fft.ifft", "an inverse Discrete Fourier Transform"),
     "rfft": (np.fft.rfft, "numpy.fft.rfft", "a real-input Discrete Fourier Transform"),
     "irfft": (np.fft.irfft, "numpy.fft.irfft", "a real-input inverse Discrete Fourier Transform"),
-    "dwt": (pywt.dwt, "pywt.dwt", "a single level Discrete Wavelet Transform"),
-    "idwt": (lambda x, *args, **kwargs: pywt.idwt(*x, *args, **kwargs), "pywt.idwt",
-             "a single level inverse Discrete Wavelet Transform"),
-    "wavedec": (pywt.wavedec, "pywt.wavedec", "a multilevel 1D Discrete Wavelet Transform"),
-    "waverec": (lambda x, *args, **kwargs: pywt.waverec(list(x), *args, **kwargs), "pywt.waverec",
-                "a multilevel 1D Inverse Discrete Wavelet Transform"),
-    "pdwt": (lambda x, part, *args, **kwargs: pywt.downcoef(part, x, *args, **kwargs), "pywt.downcoef",
-             "a partial Discrete Wavelet Transform data decomposition"),
-    "cwt": (lambda x, *args, **kwargs: pywt.cwt(x, *args, **kwargs)[0].T, "pywt.cwt", "a Continuous Wavelet Transform"),
 }
 
 
