@@ -44,7 +44,7 @@ jobs:
     - name: Run basic tests
       run: |
         pip install -U pytest
-        pytest --disable-pytest-warnings -v seismicpro/src/tests/dump_merge_test.py
+        pytest  -m "not slow" --disable-pytest-warnings -v seismicpro/src/tests/crop_test.py
 
 
 # # -----------------------------------------
