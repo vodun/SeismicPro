@@ -23,7 +23,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
       with:
-        submodules: true
+        # submodules: true
         lfs: true
 
     - name: Set up Python ${{ matrix.python-version }} on ${{ matrix.os }}
@@ -36,8 +36,8 @@ jobs:
         pip install --user -U pip
         pip install --user -r requirements.txt
 
-    - name: Install batchflow requirements
-      run: pip install --user -r seismicpro/batchflow/requirements.txt
+    # - name: Install batchflow requirements
+    #   run: pip install --user -r seismicpro/batchflow/requirements.txt
 
     - name: Run 'import seismicpro'
       run: python -c 'import seismicpro'
@@ -84,7 +84,6 @@ jobs:
     - name: Run basic tests
       run: |
         pip install -U pytest
-        cd batchflow/tests
         pytest -m "not slow" --disable-pytest-warnings -v seismicpro/src/tests/dump_merge_test.py
 
 
