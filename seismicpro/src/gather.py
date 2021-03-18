@@ -21,6 +21,7 @@ class Gather:
         self.samples = survey.samples
         self.sample_rate = survey.sample_rate
         self.sort_by = None
+        self.mask = None
 
     def __getitem__(self, key):
         return self.headers[key].values
@@ -52,7 +53,7 @@ class Gather:
         return self_copy
 
     @batch_method(force=True)
-    def dump(self, path, name=None):
+    def dump(self, path, name=None, copy_header=False):
         # TODO: Check does file.bin header matters?
         parent_handler = self.survey.segy_handler
 
@@ -95,7 +96,8 @@ class Gather:
             dump_handler.trace = self.data
             # Update trace headers from self.headers.
             for i, dump_h in trace_headers_dict.items():
-                dump_handler.header[i].update(parent_handler.header[trace_ids[i]])
+                if copy_header:
+                    dump_handler.header[i].update(parent_handler.header[trace_ids[i]])
                 dump_handler.header[i].update(dump_h)
 
     @batch_method(target="threads")
@@ -106,6 +108,15 @@ class Gather:
         self.sort_by = by
         self.data = self.data[order]
         self.headers = self.headers.iloc[order]
+        return self
+
+    @batch_method(target="for")
+    def create_picking_mask(self):
+        if 'Picking' not in self.headers.columns:
+            raise ValueError('Load picking first.')
+        picking_ixs = np.around(self['Picking'] / self.sample_rate).astype(np.int32)
+        mask = (np.arange(self.shape[1]).reshape(1, -1) - picking_ixs.reshape(-1, 1)) > 0
+        self.mask = np.int32(mask.squeeze())
         return self
 
     @batch_method(target="threads")
