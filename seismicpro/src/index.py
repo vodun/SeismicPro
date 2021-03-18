@@ -131,7 +131,17 @@ class SeismicIndex(DatasetIndex):
         survey_index = index[1:]
         if len(survey_index) == 1:
             survey_index = survey_index[0]
-        return self.surveys_dict[survey_name][concat_id].get_gather(index=survey_index, **kwargs)
+        return self.surveys_dict[survey_name][concat_id].get_gather(index=survey_index, combined=False, **kwargs)
+
+    def get_combined_gather(self, survey_name, indices, **kwargs):
+        gathers = []
+        indices_headers = self.headers.loc[indices]
+        for concat_id, sub_headers in indices_headers.groupby("CONCAT_ID"):
+            concat_indices = sub_headers.reset_index(level=0, drop=True).index
+            gathers.append(self.surveys_dict[survey_name][concat_id].get_gather(index=concat_indices,
+                                                                                combined=True,
+                                                                                **kwargs))
+        return gathers
 
     def reindex(self, new_index):
         # We always keep 'CONCAT_ID' column in the index.

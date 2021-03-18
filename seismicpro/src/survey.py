@@ -28,7 +28,6 @@ class Survey:
 
         header_index = to_list(header_index)
         load_headers = set(header_index) | header_cols | DEFAULT_HEADERS
-        self.is_trace_index = (header_index == to_list(self.TRACE_ID_HEADER))
 
         # We always reconstruct this column, so there is no need to load it.
         if self.TRACE_ID_HEADER in load_headers:
@@ -57,7 +56,7 @@ class Survey:
     def __del__(self):
         self.segy_handler.close()
 
-    def get_gather(self, index=None, limits=None, copy_headers=True):
+    def get_gather(self, index=None, limits=None, copy_headers=True, combined=False):
         if not isinstance(limits, slice):
             limits = slice(*to_list(limits))
         limits = limits.indices(self.samples_length)
@@ -65,15 +64,12 @@ class Survey:
         if trace_length == 0:
             raise ValueError('Trace length must be positive.')
 
-        # Avoid time-consuming reset_index in case of iteration over individual traces
-        # Use slicing instead of indexing to guarantee that DataFrame is always returned
-        if self.is_trace_index:
-            gather_headers = self.headers.iloc[index - 1 : index - 1]
-            trace_indices = [index - 1]
+        if combined:
+            gather_headers = self.headers.loc[index]
         else:
             gather_headers = self.headers.loc[index:index]
-            trace_indices = gather_headers.reset_index()[self.TRACE_ID_HEADER].values - 1
 
+        trace_indices = gather_headers.reset_index()[self.TRACE_ID_HEADER].values - 1
         if copy_headers:
             gather_headers = gather_headers.copy()
         data = np.stack([self.load_trace(i, limits, trace_length) for i in trace_indices])
@@ -104,12 +100,7 @@ class Survey:
     def load_picking(self, path):
         segy_columns = ['FieldRecord', 'TraceNumber']
         picking_columns = segy_columns + ['Picking']
-        with open(path) as file:
-            lines = file.readlines()
-
-        splitted_numbers = np.array(list(map(lambda line: line.replace(',', '.').split(), lines)))
-        picking_df = pd.DataFrame(splitted_numbers, columns=picking_columns)
-        picking_df = picking_df.astype({name: dtype for name, dtype in zip(picking_columns, [int, int, float])})
+        picking_df = pd.read_csv(path, names=picking_columns, delim_whitespace=True, decimal=',')
 
         headers = self.headers.reset_index()
         if len(set(segy_columns) & set(headers)) < len(segy_columns):
@@ -124,7 +115,6 @@ class Survey:
         self.headers.reset_index(inplace=True)
         self.headers.set_index(new_index, inplace=True)
         self.headers.sort_index(inplace=True)
-        self.is_trace_index = (to_list(new_index) == to_list(self.TRACE_ID_HEADER))
         return self
 
     @staticmethod
@@ -159,7 +149,6 @@ class Survey:
             index_cols = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
         self.headers.set_index(index_cols, inplace=True)
         self.headers.sort_index(inplace=True)
-        self.is_trace_index = (to_list(index_cols) == to_list(self.TRACE_ID_HEADER))
         return self
 
     def find_sdc_params(self):
