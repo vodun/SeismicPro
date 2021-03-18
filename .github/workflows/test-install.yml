@@ -23,7 +23,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
       with:
-        # submodules: true
+        submodules: true
         lfs: true
 
     - name: Set up Python ${{ matrix.python-version }} on ${{ matrix.os }}
@@ -36,8 +36,8 @@ jobs:
         pip install --user -U pip
         pip install --user -r requirements.txt
 
-    # - name: Install batchflow requirements
-    #   run: pip install --user -r seismicpro/batchflow/requirements.txt
+    - name: Install batchflow requirements
+      run: pip install --user -r seismicpro/batchflow/requirements.txt
 
     - name: Run 'import seismicpro'
       run: python -c 'import seismicpro'
@@ -87,38 +87,40 @@ jobs:
         pytest -m "not slow" --disable-pytest-warnings -v seismicpro/src/tests/dump_merge_test.py
 
 
-# # -----------------------------------------
-# #    Install with pipenv
-# # -----------------------------------------
-#   install_with_pipenv:
+# -----------------------------------------
+#    Install with pipenv
+# -----------------------------------------
+  install_with_pipenv:
 
-#     strategy:
-#       fail-fast: false
-#       matrix:
-#         os: [ubuntu-latest, macos-latest, windows-latest]
-#         python-version: [3.6, 3.7, 3.8, 3.9]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest] #, macos-latest, windows-latest]
+        python-version: [3.6] #, 3.7, 3.8, 3.9]
 
-#     runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
 
-#     steps:
-#     - name: Set up Python ${{ matrix.python-version }} on ${{ matrix.os }}
-#       uses: actions/setup-python@v2
-#       with:
-#         python-version: ${{ matrix.python-version }}
+    steps:
+    - name: Set up Python ${{ matrix.python-version }} on ${{ matrix.os }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
 
-#     - name: Install with pipenv
-#       run: |
-#         pip install --user -U pip
-#         pip install wheel pipenv
-#         pipenv --python ${{ matrix.python-version }}
-#         pipenv install git+https://github.com/${{ github.event.pull_request.head.repo.full_name }}.git@${{ github.head_ref }}#egg=SeismicPro
+    - name: Install with pipenv
+      run: |
+        pip install --user -U pip
+        pip install wheel pipenv
+        pipenv --python ${{ matrix.python-version }}
+        pipenv install git+https://github.com/${{ github.event.pull_request.head.repo.full_name }}.git@${{ github.head_ref }}#egg=SeismicPro
 
-#     - name: Run 'import seismicpro' in installed environment
-#       run: pipenv run python -c 'import seismicpro'
+    - name: Run 'import seismicpro' in installed environment
+      run: pipenv run python -c 'import seismicpro'
 
-#     - uses: actions/checkout@v2
+    - uses: actions/checkout@v2
+      with:
+        lfs: true
 
-#     - name: Run basic tests
-#       run: |
-#         pipenv install pytest
-#         pipenv run python -m pytest --disable-pytest-warnings -v seismicpro/src/tests/dump_merge_test.py
+    - name: Run basic tests
+      run: |
+        pipenv install pytest
+        pipenv run python -m pytest --disable-pytest-warnings -v seismicpro/src/tests/dump_merge_test.py

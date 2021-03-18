@@ -19,18 +19,20 @@ setup(
     zip_safe=False,
     platforms='any',
     install_requires=[
-        'numpy>=1.16.0',
-        'scipy==1.3.3',
-        'pandas>=0.24.0',
-        'scikit-learn==0.21.3',
-        'PyWavelets>=1.0.1',
-        'matplotlib>=3.0.2',
-        'dill>=0.2.7.1',
+        'matplotlib>=3.3.1',
+        'numba>=0.52.0',
+        'numpy>=1.19.5',
+        'pandas>=1.1.5',
+        'scikit-learn>=0.23.2',
+        'scipy>=1.5.2',
+        'segyio>=1.9.5',
         'tdigest>=0.5.2.2',
-        'tqdm==4.30.0',
-        'segyio==1.8.3',
-        'scikit-image>=0.13.1',
-        'numba>=0.35.0'
+        'tqdm>=4.56.0',
+        'batchflow @ git+https://github.com/analysiscenter/batchflow.git@9823f369#egg=batchflow',
+
+        # 'dill>=0.2.7.1',
+        # 'scikit-image>=0.13.1',
+        # 'numba>=0.35.0'
     ],
     extras_require={
         'tensorflow': ['tensorflow>=1.12'],
