@@ -13,3 +13,4 @@ demo/
 *.sgy
 # except in datasets
 !datasets/**/*.sgy
+!seismicpro/datasets/**/*.sgy

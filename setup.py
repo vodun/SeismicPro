@@ -18,6 +18,8 @@ setup(
     long_description='',
     zip_safe=False,
     platforms='any',
+    include_package_data=True,
+    package_data={'': ['datasets/demo_data/*.sgy']},
     install_requires=[
         'matplotlib>=3.3.1',
         'numba>=0.52.0',
