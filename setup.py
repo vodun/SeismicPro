@@ -11,7 +11,7 @@ setup(
     packages=find_packages(exclude=['tutorials', 'docker_containers', 'datasets', 'models']),
     version=version,
     url='https://github.com/gazprom-neft/SeismicPro',
-    license='CC BY-NC-SA 4.0',
+    license='Apache License 2.0',
     author='Gazprom Neft DS team',
     author_email='rhudor@gmail.com',
     description='A framework for seismic data processing',
@@ -31,17 +31,9 @@ setup(
         'tdigest>=0.5.2.2',
         'tqdm>=4.56.0',
         'batchflow @ git+https://github.com/analysiscenter/batchflow.git@9823f369#egg=batchflow',
-
-        # 'dill>=0.2.7.1',
-        # 'scikit-image>=0.13.1',
-        # 'numba>=0.35.0'
     ],
     extras_require={
-        'tensorflow': ['tensorflow>=1.12'],
-        'tensorflow-gpu': ['tensorflow-gpu>=1.12'],
-        'keras': ['keras>=2.0.0'],
-        'torch': ['torch>=1.0.0'],
-        'hmmlearn': ['hmmlearn==0.2.0'],
+        'torch': ['torch>=1.7'],
     },
     classifiers=[
         'Development Status :: 4 - Beta',
@@ -51,8 +43,10 @@ setup(
         'Operating System :: OS Independent',
         'Programming Language :: Python',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
         'Topic :: Scientific/Engineering',
     ],
 )
