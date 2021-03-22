@@ -30,7 +30,7 @@ setup(
         'segyio>=1.9.5',
         'tdigest>=0.5.2.2',
         'tqdm>=4.56.0',
-        'batchflow @ git+https://github.com/analysiscenter/batchflow.git@9823f369#egg=batchflow',
+        # 'batchflow @ git+https://github.com/analysiscenter/batchflow.git@9823f369#egg=batchflow',
     ],
     extras_require={
         'torch': ['torch>=1.7'],
