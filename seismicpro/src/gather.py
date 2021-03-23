@@ -7,6 +7,7 @@ import segyio
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from numba import njit
 from scipy.interpolate import interp1d
 
 from .utils import to_list
@@ -114,13 +115,43 @@ class Gather:
         return self
 
     @batch_method(target="for")
-    def create_picking_mask(self):
+    def pick_to_mask(self):
         if 'Picking' not in self.headers.columns:
             raise ValueError('Load picking first.')
         picking_ixs = np.around(self['Picking'] / self.sample_rate).astype(np.int32)
-        mask = (np.arange(self.shape[1]).reshape(1, -1) - picking_ixs.reshape(-1, 1)) > 0
+        mask = (np.arange(1, self.shape[1]+1).reshape(1, -1) - picking_ixs.reshape(-1, 1)) > 0
         self.mask = np.int32(mask.squeeze())
         return self
+
+    @batch_method(target='for')
+    def mask_to_pick(self, save_col='Picking'):
+        if self.mask is None:
+            raise ValueError('Save mask to self.mask component.')
+        picking = np.array(self._mask_to_pick(self.mask))
+        self[save_col] = picking.astype(np.float32) * self.sample_rate
+        return self
+
+    @staticmethod
+    @njit
+    def _mask_to_pick(mask):
+        picking = []
+        for i in range(mask.shape[0]):
+            max_len, curr_len, start_ix = 0, 0, 0
+            for j in range(mask.shape[1]):
+                if mask[i][j] == 1:
+                    curr_len += 1
+                else:
+                    if curr_len > max_len:
+                        max_len = curr_len
+                        start_ix = j-curr_len
+                    curr_len = 0
+            if curr_len > max_len:
+                start_ix = mask.shape[1] - curr_len
+            picking.append(start_ix)
+        return picking
+
+    # @batch_method
+    # def standardize(self)
 
     @batch_method(target="threads")
     def mute(self, muting):

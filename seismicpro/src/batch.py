@@ -42,7 +42,7 @@ class SeismicBatch(Batch):
 
     def _load_combined_gather(self, src, dst, **kwargs):
         list_src, list_dst = to_list(src), to_list(dst)
-        index_len = len(np.unique(np.array(self.wrapped_indices)[:, 0]))
+        index_len = len(np.unique(np.array(self.indices.tolist())[:, 0]))
         new_batch = type(self)(DatasetIndex(np.arange(index_len)))
         if self.components is not None:
             for component in self.components:
