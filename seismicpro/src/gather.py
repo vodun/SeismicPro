@@ -140,6 +140,18 @@ class Gather:
                                  stacking_velocities=stacking_velocities, num_vels=num_vels, win_size=win_size,
                                  relative_margin=relative_margin)
 
+    @batch_method(target="for")
+    def get_central_cdp(self):
+        headers = self.headers.reset_index()
+        line_cols = ["INLINE_3D", "SUPERGATHER_INLINE_3D", "CROSSLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
+        if any(col not in headers for col in line_cols):
+            raise ValueError("The method can be applied only for supergathers")
+        mask = ((headers["SUPERGATHER_INLINE_3D"] == headers["INLINE_3D"]) &
+                (headers["SUPERGATHER_CROSSLINE_3D"] == headers["CROSSLINE_3D"])).values
+        self.headers = self.headers.loc[mask]
+        self.data = self.data[mask]
+        return self
+
     def equalize(self, attr):
         pass
 
