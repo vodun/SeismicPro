@@ -1,6 +1,7 @@
 """ File with gather class. """
 import os
 import copy
+import warnings
 
 import segyio
 import numpy as np
@@ -99,6 +100,7 @@ class Gather:
                 if copy_header:
                     dump_handler.header[i].update(parent_handler.header[trace_ids[i]])
                 dump_handler.header[i].update(dump_h)
+        return self
 
     @batch_method(target="threads")
     def sort(self, by):
@@ -150,6 +152,26 @@ class Gather:
                 (headers["SUPERGATHER_CROSSLINE_3D"] == headers["CROSSLINE_3D"])).values
         self.headers = self.headers.loc[mask]
         self.data = self.data[mask]
+        return self
+
+    @batch_method(target="for")
+    def stack_gather(self):
+        headers = self.headers.reset_index()
+        line_cols = ["INLINE_3D", "CROSSLINE_3D"]
+        if any(col not in headers for col in line_cols):
+            raise ValueError("The method can be applied only for CDP gathers")
+        headers = headers[line_cols].drop_duplicates()
+        if len(headers) != 1:
+            raise ValueError("Only a single CDP gather can be stacked")
+        self.headers = headers.set_index(line_cols)
+        self.headers[self.survey.TRACE_ID_HEADER] = 0
+
+        # TODO: avoid zeros in semblance calculation
+        self.data[self.data == 0] = np.nan
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            self.data = np.nanmean(self.data, axis=0, keepdims=True)
+        self.data = np.nan_to_num(self.data)
         return self
 
     def equalize(self, attr):
