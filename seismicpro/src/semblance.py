@@ -8,6 +8,7 @@ from matplotlib import colors as mcolors
 
 from .plot_utils import _set_ticks
 from .decorators import batch_method
+from .velocity_model import calc_velocity_model
 
 
 def use_docs_from(method_from):
@@ -349,6 +350,7 @@ class Semblance(BaseSemblance):
         ticks_range_x = [self._velocities[0], self._velocities[-1]]
         super().plot(self.semblance, ticks_range_x, ticks_range_y, x_points=x_points,
                      y_points=y_points, xlabel='Velocity (m/s)', **kwargs)
+        return self
 
     def calc_minmax_metrics(self, other):
         """" The metric is designed to search for signal leakage in the process of ground-roll attenuation.
@@ -371,6 +373,10 @@ class Semblance(BaseSemblance):
         minmax_other = np.max(other.semblance, axis=1) - np.min(other.semblance, axis=1)
         return np.max(minmax_self / (minmax_other + 1e-11))
 
+    @batch_method(target="for", copy=False)
+    def calc_velocity_model(self, v0_range=(1400, 1800), vn_range=(2500, 5000), n_times=25, n_vels=25, max_acc=None):
+        return calc_velocity_model(self._semblance, self._times, self._velocities, v0_range=v0_range,
+                                   vn_range=vn_range, n_times=n_times, n_vels=n_vels, max_acc=max_acc)[0]
 
 @use_docs_from(BaseSemblance)
 class ResidualSemblance(BaseSemblance):
@@ -534,3 +540,4 @@ class ResidualSemblance(BaseSemblance):
 
         super().plot(self.residual_semblance, ticks_range_x=ticks_range_x, ticks_range_y=ticks_range_y,
                      x_points=x_points, y_points=y_points, xlabel='Relative velocity margin (%)', **kwargs)
+        return self

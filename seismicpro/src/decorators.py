@@ -5,8 +5,8 @@ from .utils import to_list
 from ..batchflow import action, inbatch_parallel
 
 
-def batch_method(*args, target="for", force=False):
-    batch_method_params = {"target": target, "force": force}
+def batch_method(*args, target="for", force=False, copy=True):
+    batch_method_params = {"target": target, "force": force, "copy": copy}
 
     if len(args) == 1 and callable(args[0]):
         method = args[0]
@@ -73,7 +73,7 @@ def create_batch_methods(*component_classes):
             def method(self, index, *args, src=None, dst=None, **kwargs):
                 pos = self.index.get_pos(index)
                 obj = getattr(self, src)[pos]
-                if src != dst:
+                if getattr(obj, method_name).batch_method_params["copy"] and src != dst:
                     obj = obj.copy()
                 getattr(self, dst)[pos] = getattr(obj, method_name)(*args, **kwargs)
             method.__name__ = method_name
