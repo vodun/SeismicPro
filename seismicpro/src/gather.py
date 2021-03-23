@@ -162,7 +162,7 @@ class Gather:
         res = []
         for time, velocity in zip(self.samples, velocities):
             res.append(Semblance.base_calc_nmo(self.data.T, time, self.offsets, velocity, self.sample_rate))
-        self.data = np.stack(res).T
+        self.data = np.stack(res).T.astype(np.float32)
         return self
 
     @batch_method(target="for")
