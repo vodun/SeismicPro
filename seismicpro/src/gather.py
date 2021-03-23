@@ -7,6 +7,7 @@ import segyio
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from scipy.interpolate import interp1d
 
 from .utils import to_list
 from .decorators import batch_method
@@ -152,6 +153,16 @@ class Gather:
                 (headers["SUPERGATHER_CROSSLINE_3D"] == headers["CROSSLINE_3D"])).values
         self.headers = self.headers.loc[mask]
         self.data = self.data[mask]
+        return self
+
+    @batch_method(target="for")
+    def correct_gather(self, stacking_velocities):
+        velocity_interpolator = interp1d(*zip(*stacking_velocities), fill_value="extrapolate")
+        velocities = velocity_interpolator(self.samples) / 1000
+        res = []
+        for time, velocity in zip(self.samples, velocities):
+            res.append(Semblance.base_calc_nmo(self.data.T, time, self.offsets, velocity, self.sample_rate))
+        self.data = np.stack(res).T
         return self
 
     @batch_method(target="for")
