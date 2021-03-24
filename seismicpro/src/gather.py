@@ -13,6 +13,7 @@ from scipy.interpolate import interp1d
 from .utils import to_list
 from .decorators import batch_method
 from .semblance import Semblance, ResidualSemblance
+from .velocity_cube import VelocityLaw, VelocityCube
 
 
 class Gather:
@@ -45,6 +46,31 @@ class Gather:
     @property
     def shape(self):
         return self.data.shape
+
+    def _get_unique_header_val(self, header):
+        headers = self.headers.reset_index()
+        if header not in headers:
+            return None
+        unique_vals = np.unique(headers[header])
+        if len(unique_vals) > 1:
+            return None
+        return unique_vals.item()
+
+    @property
+    def inline(self):
+        return self._get_unique_header_val("INLINE_3D")
+
+    @property
+    def crossline(self):
+        return self._get_unique_header_val("CROSSLINE_3D")
+
+    @property
+    def supergather_inline(self):
+        return self._get_unique_header_val("SUPERGATHER_INLINE_3D")
+
+    @property
+    def supergather_crossline(self):
+        return self._get_unique_header_val("SUPERGATHER_CROSSLINE_3D")
 
     @batch_method
     def copy(self):
@@ -159,12 +185,13 @@ class Gather:
                                                    sample_rate=self.sample_rate)
         return self
 
-    @batch_method(target='for')
+    @batch_method(target="threads")
     def calculate_semblance(self, velocities, win_size=25):
         if self.sort_by != 'offset':
             raise ValueError(f'Gather should be sorted by `offset` not {self.sort_by}.')
         return Semblance(gather=self.data, times=self.samples, offsets=self.offsets,
-                         velocities=velocities, win_size=win_size)
+                         velocities=velocities, win_size=win_size,
+                         inline=self.supergather_inline, crossline=self.supergather_crossline)
 
     @batch_method(target='for')
     def calculate_residual_semblance(self, stacking_velocities, num_vels=140, win_size=25, relative_margin=0.2):
@@ -187,9 +214,12 @@ class Gather:
         return self
 
     @batch_method(target="for")
-    def correct_gather(self, stacking_velocities):
-        velocity_interpolator = interp1d(*zip(*stacking_velocities), fill_value="extrapolate")
-        velocities = velocity_interpolator(self.samples) / 1000
+    def correct_gather(self, velocity_model):
+        if isinstance(velocity_model, VelocityCube):
+            velocity_model = velocity_model.get_law(self.inline, self.crossline)
+        if not isinstance(velocity_model, VelocityLaw):
+            raise ValueError("Only VelocityCube or VelocityLaw instances can be passed as a velocity_model")
+        velocities = velocity_model(self.samples) / 1000
         res = []
         for time, velocity in zip(self.samples, velocities):
             res.append(Semblance.base_calc_nmo(self.data.T, time, self.offsets, velocity, self.sample_rate))

@@ -9,6 +9,7 @@ from matplotlib import colors as mcolors
 from .plot_utils import _set_ticks
 from .decorators import batch_method
 from .velocity_model import calc_velocity_model
+from .velocity_cube import VelocityLaw
 
 
 def use_docs_from(method_from):
@@ -269,11 +270,12 @@ class Semblance(BaseSemblance):
     1. Detailed description of the vertical velocity semblance computation is presented
        in the method :func:`~Semblance._calc_semblance`.
     """
-    def __init__(self, gather, times, offsets, velocities, win_size=25):
+    def __init__(self, gather, times, offsets, velocities, win_size=25, inline=None, crossline=None):
         super().__init__(gather=gather, times=times, offsets=offsets, win_size=win_size)
         self._semblance = None
         self._velocities = velocities # m/s
-
+        self.inline = inline
+        self.crossline = crossline
         self._calc_semblance()
 
     @property
@@ -375,8 +377,9 @@ class Semblance(BaseSemblance):
 
     @batch_method(target="for", copy=False)
     def calc_velocity_model(self, v0_range=(1400, 1800), vn_range=(2500, 5000), n_times=25, n_vels=25, max_acc=None):
-        return calc_velocity_model(self._semblance, self._times, self._velocities, v0_range=v0_range,
-                                   vn_range=vn_range, n_times=n_times, n_vels=n_vels, max_acc=max_acc)[0]
+        model = calc_velocity_model(self._semblance, self._times, self._velocities, v0_range=v0_range,
+                                    vn_range=vn_range, n_times=n_times, n_vels=n_vels, max_acc=max_acc)[0]
+        return VelocityLaw(self.inline, self.crossline, model=model)
 
 @use_docs_from(BaseSemblance)
 class ResidualSemblance(BaseSemblance):

@@ -52,3 +52,9 @@ class SeismicBatch(Batch):
             gather = self.index.get_combined_gather(survey_name=src, indices=self.indices, **kwargs)
             new_batch.add_components(dst, init=np.array(gather + [None])[:-1])
         return new_batch
+
+    @action
+    def update_cube(self, cube, src):
+        for model in getattr(self, src):
+            cube.update(model)
+        return self
