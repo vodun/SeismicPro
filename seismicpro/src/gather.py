@@ -176,9 +176,6 @@ class Gather:
             picking.append(start_ix)
         return picking
 
-    # @batch_method
-    # def standardize(self)
-
     @batch_method(target="threads")
     def mute(self, muting):
         self.data = self.data * muting.create_mask(trace_len=self.shape[1], offsets=self.offsets,
@@ -246,8 +243,36 @@ class Gather:
         self.data = np.nan_to_num(self.data)
         return self
 
-    def equalize(self, attr):
-        pass
+    @batch_method
+    def equalize(self, q):
+        survey = self.survey
+        if q in survey.quantiles.keys():
+            quantile = survey.quantiles[q]
+        else:
+            bin_counter = np.cumsum(survey.equalization_histogram)
+            position = bin_counter[-1] * q
+            bin_ix = np.argmax(bin_counter >= position)
+            left_bound = bin_counter[bin_ix-1] if bin_ix > 0 else 0
+            shift = (position - left_bound) / survey.equalization_histogram[bin_ix]
+            quantile = survey.bins[bin_ix] + (survey.bins[bin_ix+1] - survey.bins[bin_ix]) * shift
+
+        self.data = self.data / np.abs(quantile)
+
+    @batch_method(target='for')
+    def normalize(self, method='std', use_global=False):
+        mean = self.survey.mean if use_global else np.mean(self.data, axis=1, keepdims=True)
+        std = self.survey.std if use_global else np.std(self.data, axis=1, keepdims=True)
+        min_value = self.survey.min if use_global else np.min(self.data, axis=1, keepdims=True)
+        max_value = self.survey.max if use_global else np.max(self.data, axis=1, keepdims=True)
+
+        if method == 'std':
+            self.data = (self.data - mean) / (std + 10**-6)
+        if method == 'mean':
+            self.data = (self.data - mean) / (max_value - min_value)
+        if method == 'minmax':
+            self.data = (self.data - min_value) / (max_value - min_value)
+
+        return self
 
     def band_pass_filter(self):
         pass

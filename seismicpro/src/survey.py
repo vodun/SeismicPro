@@ -3,9 +3,12 @@ import os
 import segyio
 import numpy as np
 import pandas as pd
+from tqdm.notebook import tqdm
 
 from .gather import Gather
-from .utils import to_list
+from .utils import to_list, find_min_max
+from .dataset import SeismicDataset
+from .index import SeismicIndex
 
 
 DEFAULT_HEADERS = {'offset',}
@@ -18,6 +21,9 @@ class Survey:
         self.path = path
         basename = os.path.splitext(os.path.basename(self.path))[0]
         self.name = name if name is not None else basename
+        self.equalization_histogram = None
+        self.bins = None
+        self.quantiles = None
 
         if header_cols is None:
             header_cols = set()
@@ -154,5 +160,48 @@ class Survey:
     def find_sdc_params(self):
         pass
 
-    def find_equalization_params(self):
-        pass
+    def calculate_stats(self, dataset=None, n_samples=1000, n_bins=250, quantiles=None):
+        if dataset is not None:
+            traces_pos = dataset.index.headers.reset_index()['TRACE_SEQUENCE_FILE'].values
+        else:
+            traces_pos = self.headers.reset_index()['TRACE_SEQUENCE_FILE'].values
+
+        if n_samples is None:
+            n_samples = len(traces_pos)
+
+        subset_ixs = np.random.choice(len(traces_pos), n_samples, replace=False)
+        traces_pos = traces_pos[subset_ixs]
+        n_samples = len(traces_pos)
+
+        global_min, global_max = 0, 0
+        global_sum, global_sq_sum = 0, 0
+        traces_length = 0
+        # Accumulation of min/max, mean and std values for choosen subset.
+        for pos in tqdm(traces_pos, desc='Calculating min, max, mean, std.'):
+            trace = np.abs(self.load_trace(pos-1, (0, self.samples_length, 1), self.samples_length))
+            trace_min, trace_max = find_min_max(trace)
+            global_min = trace_min if global_min > trace_min else global_min
+            global_max = trace_max if global_max < trace_max else global_max
+            global_sum += np.sum(trace)
+            global_sq_sum += np.sum(trace**2)
+            traces_length += len(trace)
+
+        self.min = global_min
+        self.max = global_max
+        self.mean = global_sum / n_samples
+        self.std = np.sqrt((global_sq_sum / traces_length) - (global_sum / traces_length)**2)
+
+        bins = np.histogram_bin_edges(None, n_bins, range=(global_min, global_max))
+        self.equalization_histogram = np.zeros(n_bins)
+        self.bins = bins
+
+        traces = []
+        for pos in tqdm(traces_pos, desc='Calculating quantiles.'):
+            trace = np.abs(self.load_trace(pos-1, (0, self.samples_length, 1), self.samples_length))
+            self.equalization_histogram += np.histogram(trace, bins=bins)[0]
+            if quantiles is not None:
+                traces.append(trace)
+
+        self.quantiles = dict()
+        if quantiles is not None:
+            self.quantiles.update({q: np.quantile(traces, q) for q in quantiles})

@@ -6,6 +6,7 @@ import functools
 
 import numpy as np
 import pandas as pd
+from numba import njit
 from sklearn.linear_model import LinearRegression
 from scipy.signal import medfilt, hilbert
 import segyio
@@ -24,6 +25,15 @@ def to_list(obj):
     transformed into a list of a single element.
     """
     return np.array(obj).ravel().tolist()
+
+
+@njit
+def find_min_max(array):
+    min_value = max_value = array[0]
+    for i in range(1, len(array)):
+        min_value = min(array[i], min_value)
+        max_value = max(array[i], max_value)
+    return min_value, max_value
 
 
 def make_index(paths, index_type, extra_headers=None, index_name=None):
