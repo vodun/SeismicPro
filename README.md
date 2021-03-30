@@ -17,7 +17,6 @@ Content
 	* [Seismic data](#Seismic-data)
 	* [SPS data](#SPS-data)
 	* [Picking data](#Picking-data)
-* [Datasets](#Datasets)
 * [Models](#Models)
 * [Installation](#Installation)
 * [Literature](#Literature)
@@ -57,14 +56,6 @@ SPS data are expected as R, S, X text files in csv (comma-separated-values) form
 ### Picking data
 
 File with first-break picking data is expected to be in csv (comma-separated-values) format with columns **FieldRecord**, **TraceNumber**, **FIRST_BREAK_TIME**.
-
-## Datasets
-
-|Problem|Number of datasets|Number of fields|
-|---|---|---|
-|[Ground-roll attenuation](datasets/ground-roll_attenuation.ipynb)| 3 | 551, 991, 628 
-|[First-break picking](datasets/first_break_picking.ipynb)| 3 | 1001, 1001, 460
-|[Spherical divergence correction](datasets/spherical_divergence_correction.ipynb) | 1 | 10
 
 ## Models
 
