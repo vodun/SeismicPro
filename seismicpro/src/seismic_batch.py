@@ -9,7 +9,7 @@ from scipy import signal
 from scipy.signal import hilbert
 from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
-import pywt
+
 import segyio
 
 from ..batchflow import action, inbatch_parallel, Batch, any_action_failed
@@ -35,15 +35,6 @@ ACTIONS_DICT = {
     "ifft": (np.fft.ifft, "numpy.fft.ifft", "an inverse Discrete Fourier Transform"),
     "rfft": (np.fft.rfft, "numpy.fft.rfft", "a real-input Discrete Fourier Transform"),
     "irfft": (np.fft.irfft, "numpy.fft.irfft", "a real-input inverse Discrete Fourier Transform"),
-    "dwt": (pywt.dwt, "pywt.dwt", "a single level Discrete Wavelet Transform"),
-    "idwt": (lambda x, *args, **kwargs: pywt.idwt(*x, *args, **kwargs), "pywt.idwt",
-             "a single level inverse Discrete Wavelet Transform"),
-    "wavedec": (pywt.wavedec, "pywt.wavedec", "a multilevel 1D Discrete Wavelet Transform"),
-    "waverec": (lambda x, *args, **kwargs: pywt.waverec(list(x), *args, **kwargs), "pywt.waverec",
-                "a multilevel 1D Inverse Discrete Wavelet Transform"),
-    "pdwt": (lambda x, part, *args, **kwargs: pywt.downcoef(part, x, *args, **kwargs), "pywt.downcoef",
-             "a partial Discrete Wavelet Transform data decomposition"),
-    "cwt": (lambda x, *args, **kwargs: pywt.cwt(x, *args, **kwargs)[0].T, "pywt.cwt", "a Continuous Wavelet Transform"),
 }
 
 
@@ -1083,6 +1074,31 @@ class SeismicBatch(Batch):
         muted_seismogram = seismogram * mute_mask
         getattr(self, dst)[pos] = muted_seismogram
         self.copy_meta(src, dst)
+
+    @action
+    @inbatch_parallel(init="_init_component", target="threads")
+    def calculate_na_metrics(self, index, src, src_diff, dst):
+        """ calculation of a metric to estimate the quality of noise attenuation.
+
+        Parameters
+        ----------
+        src : str
+            The batch component to get the semblance from.
+        src_diff : str
+            The batch component to get the difference semblance from.
+        dst : str
+            The batch component to put metric value in.
+
+        Returns
+        -------
+        batch : SeismicBatch
+            Batch with metrics value in `dst` component.
+        """
+        pos = self.index.get_pos(index)
+        diff_semblance = getattr(self, src_diff)[pos]
+        semblance = getattr(self, src)[pos]
+
+        getattr(self, dst)[pos] = diff_semblance.calc_na_metrics(semblance)
 
     #-------------------------------------------------------------------------#
     #                                DPA. Misc                                #

@@ -10,7 +10,7 @@ from seismicpro.batchflow import V, P, B
 from seismicpro.src import SeismicDataset, FieldIndex, TraceIndex
 
 
-PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../../datasets/demo_data/teapot_dome_10.sgy')
+PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../datasets/demo_data/teapot_dome_10.sgy')
 # 10 field records with shapes (912, 2049) or (966, 2049)
 
 PARAMS = {

@@ -1,5 +1,7 @@
 [![License](https://img.shields.io/github/license/analysiscenter/batchflow.svg)](https://www.apache.org/licenses/LICENSE-2.0)
-[![Python](https://img.shields.io/badge/python-3.5-blue.svg)](https://python.org)
+[![Python](https://img.shields.io/badge/python-3.6-blue.svg)](https://python.org)
+[![PyTorch](https://img.shields.io/badge/PyTorch-1.7-orange.svg)](https://pytorch.org)
+[![Status](https://github.com/gazprom-neft/SeismicPro/workflows/status/badge.svg)](https://github.com/gazprom-neft/SeismicPro/actions?query=workflow%3Astatus)
 
 # SeismicPro
 
@@ -15,7 +17,6 @@ Content
 	* [Seismic data](#Seismic-data)
 	* [SPS data](#SPS-data)
 	* [Picking data](#Picking-data)
-* [Datasets](#Datasets)
 * [Models](#Models)
 * [Installation](#Installation)
 * [Literature](#Literature)
@@ -56,14 +57,6 @@ SPS data are expected as R, S, X text files in csv (comma-separated-values) form
 
 File with first-break picking data is expected to be in csv (comma-separated-values) format with columns **FieldRecord**, **TraceNumber**, **FIRST_BREAK_TIME**.
 
-## Datasets
-
-|Problem|Number of datasets|Number of fields|
-|---|---|---|
-|[Ground-roll attenuation](datasets/ground-roll_attenuation.ipynb)| 3 | 551, 991, 628 
-|[First-break picking](datasets/first_break_picking.ipynb)| 3 | 1001, 1001, 460
-|[Spherical divergence correction](datasets/spherical_divergence_correction.ipynb) | 1 | 10
-
 ## Models
 
 |Model|Architecture|Metrics|
@@ -79,7 +72,7 @@ File with first-break picking data is expected to be in csv (comma-separated-val
 
 > `SeismicPro` module is in the beta stage. Your suggestions and improvements are very welcome.
 
-> `SeismicPro` supports python 3.5 or higher.
+> `SeismicPro` supports python 3.6 or higher.
 
 ### Installation as a python package
 
