@@ -28,12 +28,15 @@ def to_list(obj):
 
 
 @njit
-def find_min_max(array):
+def find_stats(array):
     min_value = max_value = array[0]
+    tr_sum = tr_sq_sum = 0
     for i in range(1, len(array)):
         min_value = min(array[i], min_value)
         max_value = max(array[i], max_value)
-    return min_value, max_value
+        tr_sum += array[i]
+        tr_sq_sum += array[i]**2
+    return min_value, max_value, tr_sum, tr_sq_sum
 
 
 def make_index(paths, index_type, extra_headers=None, index_name=None):
