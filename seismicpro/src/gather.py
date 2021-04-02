@@ -141,20 +141,21 @@ class Gather:
         return self
 
     @batch_method(target="for")
-    def pick_to_mask(self):
-        if 'Picking' not in self.headers.columns:
+    def pick_to_mask(self, col_name='Picking'):
+        # TODO: check does it work for picking pipeline
+        if col_name not in self.headers.columns:
             raise ValueError('Load picking first.')
-        picking_ixs = np.around(self['Picking'] / self.sample_rate).astype(np.int32)
-        mask = (np.arange(1, self.shape[1]+1).reshape(1, -1) - picking_ixs.reshape(-1, 1)) > 0
-        self.mask = np.int32(mask.squeeze())
+        picking_ixs = np.around(self[col_name] / self.sample_rate).astype(np.int32) - 1
+        mask = (np.arange(self.shape[1]) - picking_ixs.reshape(-1, 1)) > 0
+        self.mask = np.int32(mask)
         return self
 
     @batch_method(target='for')
-    def mask_to_pick(self, save_col='Picking'):
+    def mask_to_pick(self, col_name='Picking'):
         if self.mask is None:
             raise ValueError('Save mask to self.mask component.')
         picking = np.array(self._mask_to_pick(self.mask))
-        self[save_col] = picking.astype(np.float32) * self.sample_rate
+        self[col_name] = picking.astype(np.float32) * self.sample_rate
         return self
 
     @staticmethod
@@ -243,35 +244,42 @@ class Gather:
         self.data = np.nan_to_num(self.data)
         return self
 
-    @batch_method
-    def equalize(self, q):
-        survey = self.survey
-        if q in survey.quantiles.keys():
-            quantile = survey.quantiles[q]
-        else:
-            bin_counter = np.cumsum(survey.equalization_histogram)
-            position = bin_counter[-1] * q
-            bin_ix = np.argmax(bin_counter >= position)
-            left_bound = bin_counter[bin_ix-1] if bin_ix > 0 else 0
-            shift = (position - left_bound) / survey.equalization_histogram[bin_ix]
-            quantile = survey.bins[bin_ix] + (survey.bins[bin_ix+1] - survey.bins[bin_ix]) * shift
-
-        self.data = self.data / np.abs(quantile)
+    def _apply_agg_func(self, func, func_kwargs=None, agg=False):
+        func_kwargs = dict() if func_kwargs is None else func_kwargs
+        func_kwargs.update(axis=None, keepdims=False)
+        if agg:
+            func_kwargs.update(axis=1, keepdims=True)
+        return func(self.data, **func_kwargs)
 
     @batch_method(target='for')
-    def normalize(self, method='std', use_global=False):
-        mean = self.survey.mean if use_global else np.mean(self.data, axis=1, keepdims=True)
-        std = self.survey.std if use_global else np.std(self.data, axis=1, keepdims=True)
-        min_value = self.survey.min if use_global else np.min(self.data, axis=1, keepdims=True)
-        max_value = self.survey.max if use_global else np.max(self.data, axis=1, keepdims=True)
+    def normalize_std(self, agg=False, use_global=False, eps=1e-10):
+        if use_global:
+            if self.survey.mean is None or self.survey.std is None:
+                # TODO: Change error message if function name will be changed in Survey.
+                err_msg = "The global statistics is not calculated yet,\
+                           use `use_global`=False or caluclate statistics use `Survey.calculate_stats()`"
+                raise ValueError(err_msg)
+            mean = self.survey.mean
+            std = self.survey.std
+        else:
+            mean = self._apply_agg_func(func=np.mean, agg=agg)
+            std = self._apply_agg_func(func=np.std, agg=agg)
 
-        if method == 'std':
-            self.data = (self.data - mean) / (std + 10**-6)
-        if method == 'mean':
-            self.data = (self.data - mean) / (max_value - min_value)
-        if method == 'minmax':
-            self.data = (self.data - min_value) / (max_value - min_value)
+        self.data = (self.data - mean) / (std + eps)
+        return self
 
+    @batch_method(target='for')
+    def normalize_minmax(self, q_min=0, q_max=1, agg=False, use_global=False, clip=False, eps=1e-10):
+        if use_global:
+            min_value = self.survey.get_quantile(q_min)
+            max_value = self.survey.get_quantile(q_max)
+        else:
+            min_value = self._apply_agg_func(func=np.quantile, func_kwargs=dict(q=q_min), agg=agg)
+            max_value = self._apply_agg_func(func=np.quantile, func_kwargs=dict(q=q_max), agg=agg)
+
+        self.data = (self.data - min_value) / (max_value - min_value + eps)
+        if clip:
+            self.data = np.clip(self.data, 0, 1)
         return self
 
     def band_pass_filter(self):
