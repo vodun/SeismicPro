@@ -24,7 +24,7 @@ class NearestInterpolator:
     def __init__(self, laws):
         self.laws = laws
         self.coords = np.stack(list(laws.keys()))
-        self.nn = NearestNeighbors(n_neighbors=1, n_jobs=-1)
+        self.nn = NearestNeighbors(n_neighbors=1)
         self.nn.fit(self.coords)
 
     def __call__(self, inline, crossline):
