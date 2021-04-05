@@ -1,5 +1,4 @@
 from functools import partial, wraps
-from collections import defaultdict
 
 from .utils import to_list
 from ..batchflow import action, inbatch_parallel

@@ -7,8 +7,6 @@ from tqdm.notebook import tqdm
 
 from .gather import Gather
 from .utils import to_list, find_stats
-from .dataset import SeismicDataset
-from .index import SeismicIndex
 
 
 DEFAULT_HEADERS = {'offset',}
@@ -154,9 +152,6 @@ class Survey:
         self.headers.set_index(index_cols, inplace=True)
         self.headers.sort_index(inplace=True)
         return self
-
-    def find_sdc_params(self):
-        pass
 
     def calculate_stats(self, dataset=None, n_samples=100000, quantiles=(0.01, 0.99)):
         headers = self.headers if dataset is None else dataset.index.headers

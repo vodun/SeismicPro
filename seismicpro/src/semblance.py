@@ -6,7 +6,7 @@ from numba import njit, prange
 from scipy.interpolate import interp1d
 from matplotlib import colors as mcolors
 
-from .plot_utils import _set_ticks
+from .utils import set_ticks
 from .decorators import batch_method
 from .velocity_model import calc_velocity_model
 from .velocity_cube import VelocityLaw
@@ -190,7 +190,7 @@ class BaseSemblance:
 
         Note
         ----
-        1. Kwargs passed into the :func:`._set_ticks`.
+        1. Kwargs passed into the :func:`.set_ticks`.
         """
         # Split range of semblance amplitudes on 16 discrete levels. Arguable approach, but
         # we find the result based on these levels the most attractive.
@@ -220,8 +220,8 @@ class BaseSemblance:
             marker = 'o' if np.min(np.diff(np.sort(y_points))) > 50 else ''
             plt.plot(x_points, y_points, c='#fafcc2', linewidth=2.5, marker=marker)
 
-        _set_ticks(ax, img_shape=semblance.T.shape, ticks_range_x=ticks_range_x,
-                   ticks_range_y=ticks_range_y, **kwargs)
+        set_ticks(ax, img_shape=semblance.T.shape, ticks_range_x=ticks_range_x,
+                  ticks_range_y=ticks_range_y, **kwargs)
         ax.set_ylim(semblance.shape[0], 0)
         if grid:
             ax.grid(c='k')
@@ -338,7 +338,7 @@ class Semblance(BaseSemblance):
             line above the semblance. Also, if the delay between velocities more than 50 ms, every given point will be
             highlighted with a circle.
         kwargs : dict, optional
-            Arguments for :func:`~BaseSemblance.plot` and for :func:`._set_ticks`.
+            Arguments for :func:`~BaseSemblance.plot` and for :func:`.set_ticks`.
         """
         x_points, y_points = None, None
         # Add a velocity line on semblance.
@@ -533,7 +533,7 @@ class ResidualSemblance(BaseSemblance):
         Parameters
         ----------
         kwargs : dict, optional
-            Arguments for :func:`~BaseSemblance.plot` and for :func:`._set_ticks`.
+            Arguments for :func:`~BaseSemblance.plot` and for :func:`.set_ticks`.
         """
         y_points = self._stacking_velocities[:, 0] / self._sample_rate # from ms to ix
         x_points = np.zeros(len(y_points)) + self.residual_semblance.shape[1]/2

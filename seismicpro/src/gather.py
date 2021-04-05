@@ -8,7 +8,6 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from numba import njit
-from scipy.interpolate import interp1d
 
 from .utils import to_list
 from .decorators import batch_method
@@ -282,27 +281,6 @@ class Gather:
             self.data = np.clip(self.data, 0, 1)
         return self
 
-    def band_pass_filter(self):
-        pass
-
-    def correct_spherical_divergence(self):
-        pass
-
-    def drop_zero_traces(self):
-        pass
-
-    def hodograph_straightening(self):
-        pass
-
-    def mcm(self):
-        pass
-
-    def pad_traces(self):
-        pass
-
-    def slice_traces(self):
-        pass
-
     @batch_method(target="for")
     def plot(self):
         kwargs = {
@@ -314,12 +292,3 @@ class Gather:
         plt.figure(figsize=(10, 7))
         plt.imshow(self.data.T, **kwargs)
         return self
-
-    def plot_gain(self):
-        pass
-
-    def plot_spectrum(self):
-        pass
-
-    def plot_stats(self):
-        pass

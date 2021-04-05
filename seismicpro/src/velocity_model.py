@@ -7,9 +7,11 @@ from numba import njit
 def get_index_by_val(val, array):
     return np.array([np.argmin(np.abs(v - array)) for v in val])
 
+
 @njit(nogil=True)
 def interpolate_indices(x0, y0, x1, y1, x):
     return (y1 * (x - x0) + y0 * (x1 - x)) // (x1 - x0)
+
 
 @njit(nogil=True)
 def create_edges(semblance, times, velocities, v0_range, vn_range, n_times, n_vels, gap):
@@ -48,12 +50,14 @@ def create_edges(semblance, times, velocities, v0_range, vn_range, n_times, n_ve
     weights -= min_weight
     return start_nodes, end_nodes, weights, min_weight, start_node, curr_nodes
 
+
 def create_graph(semblance, times, velocities, v0_range, vn_range, n_times, n_vels, gap):
     res = create_edges(semblance, times, velocities, np.array(v0_range), np.array(vn_range), n_times, n_vels, gap)
     *edges, min_weight, start_node, end_nodes = res
     graph = nx.DiGraph()
     graph.add_weighted_edges_from(zip(*edges))
     return graph, min_weight, start_node, end_nodes
+
 
 def calc_velocity_model(semblance, times, velocities, v0_range=(1400, 1800),
                         vn_range=(2500, 5000), n_times=25, n_vels=25, max_acc=None):
