@@ -6,7 +6,6 @@ import seaborn as sns
 from tqdm.notebook import tqdm
 import matplotlib.pyplot as plt
 
-sys.path.append('..')
 from seismicpro.src.utils import to_list
 from seismicpro.batchflow import Pipeline, V, F, Notifier
 
