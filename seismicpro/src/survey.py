@@ -1,4 +1,5 @@
 import os
+from copy import copy
 
 import segyio
 import numpy as np
@@ -57,6 +58,16 @@ class Survey:
 
     def __del__(self):
         self.segy_handler.close()
+
+    def __getstate__(self):
+        state = copy(self.__dict__)
+        state["segy_handler"] = None
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__ = state
+        self.segy_handler = segyio.open(self.path, ignore_geometry=True)
+        self.segy_handler.mmap()
 
     def get_gather(self, index=None, limits=None, copy_headers=True, combined=False):
         if not isinstance(limits, slice):
