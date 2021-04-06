@@ -7,7 +7,7 @@ import pandas as pd
 from tqdm.notebook import tqdm
 
 from .gather import Gather
-from .utils import to_list, find_stats
+from .utils import to_list, find_stats, create_supergather_index
 
 
 DEFAULT_HEADERS = {'offset',}
@@ -130,14 +130,11 @@ class Survey:
         self.headers.sort_index(inplace=True)
         return self
 
-    @staticmethod
-    def cartessian_product(x, y):
-        return np.dstack(np.meshgrid(x, y)).reshape(-1, 2)
-
     def generate_supergathers(self, size=(3, 3), step=(20, 20), modulo=(0, 0), reindex=True):
         index_cols = self.headers.index.names
         headers = self.headers.reset_index()
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]
+        super_line_cols = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
 
         if any(col not in headers for col in line_cols):
             raise KeyError("INLINE_3D and CROSSLINE_3D headers are not loaded")
@@ -145,21 +142,12 @@ class Survey:
                                     (headers["CROSSLINE_3D"] % step[1] == modulo[1]))
         supergather_centers = headers.loc[supergather_centers_mask, line_cols]
         supergather_centers = supergather_centers.drop_duplicates().sort_values(by=line_cols)
-
-        shifts_i = np.arange(size[0]) - size[0] // 2
-        shifts_x = np.arange(size[1]) - size[1] // 2
-        supergather_lines = []
-        for (_, (i, x)) in supergather_centers.iterrows():
-            product = self.cartessian_product(i + shifts_i, x + shifts_x)
-            product_df = pd.DataFrame(data=product, columns=line_cols)
-            product_df["SUPERGATHER_INLINE_3D"] = i
-            product_df["SUPERGATHER_CROSSLINE_3D"] = x
-            supergather_lines.append(product_df)
-        supergather_lines = pd.concat(supergather_lines)
+        supergather_lines = pd.DataFrame(create_supergather_index(supergather_centers.values, size),
+                                         columns=super_line_cols+line_cols)
         self.headers = pd.merge(supergather_lines, headers, on=line_cols)
 
         if reindex:
-            index_cols = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
+            index_cols = super_line_cols
         self.headers.set_index(index_cols, inplace=True)
         self.headers.sort_index(inplace=True)
         return self

@@ -20,3 +20,18 @@ def find_stats(array):
         tr_sum += array[i]
         tr_sq_sum += array[i]**2
     return min_value, max_value, tr_sum, tr_sq_sum
+
+
+@njit
+def create_supergather_index(lines, size):
+    area_size = size[0] * size[1]
+    shifts_i = np.arange(size[0]) - size[0] // 2
+    shifts_x = np.arange(size[1]) - size[1] // 2
+    supergather_lines = np.empty((len(lines) * area_size, 4), dtype=lines.dtype)
+    for ix in range(len(lines)):
+        i, x = lines[ix]
+        for ix_i in range(size[0]):
+            for ix_x in range(size[1]):
+                row = np.array([i, x, i + shifts_i[ix_i], x + shifts_x[ix_x]])
+                supergather_lines[ix * area_size + ix_i * size[1] + ix_x] = row
+    return supergather_lines
