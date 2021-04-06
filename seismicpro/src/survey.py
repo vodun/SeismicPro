@@ -1,5 +1,5 @@
 import os
-from copy import copy
+from copy import copy, deepcopy
 
 import segyio
 import numpy as np
@@ -69,6 +69,9 @@ class Survey:
         self.segy_handler = segyio.open(self.path, ignore_geometry=True)
         self.segy_handler.mmap()
 
+    def copy(self):
+        return deepcopy(self)
+
     def get_gather(self, index=None, limits=None, copy_headers=True, combined=False):
         if not isinstance(limits, slice):
             limits = slice(*to_list(limits))
@@ -130,9 +133,10 @@ class Survey:
         self.headers.sort_index(inplace=True)
         return self
 
-    def generate_supergathers(self, size=(3, 3), step=(20, 20), modulo=(0, 0), reindex=True):
-        index_cols = self.headers.index.names
-        headers = self.headers.reset_index()
+    def generate_supergathers(self, size=(3, 3), step=(20, 20), modulo=(0, 0), reindex=True, inplace=False):
+        obj = self if inplace else self.copy()
+        index_cols = obj.headers.index.names
+        headers = obj.headers.reset_index()
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]
         super_line_cols = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
 
@@ -144,13 +148,13 @@ class Survey:
         supergather_centers = supergather_centers.drop_duplicates().sort_values(by=line_cols)
         supergather_lines = pd.DataFrame(create_supergather_index(supergather_centers.values, size),
                                          columns=super_line_cols+line_cols)
-        self.headers = pd.merge(supergather_lines, headers, on=line_cols)
+        obj.headers = pd.merge(supergather_lines, headers, on=line_cols)
 
         if reindex:
             index_cols = super_line_cols
-        self.headers.set_index(index_cols, inplace=True)
-        self.headers.sort_index(inplace=True)
-        return self
+        obj.headers.set_index(index_cols, inplace=True)
+        obj.headers.sort_index(inplace=True)
+        return obj
 
     def calculate_stats(self, dataset=None, n_samples=100000, quantiles=(0.01, 0.99)):
         headers = self.headers if dataset is None else dataset.index.headers
