@@ -23,6 +23,8 @@ class SeismicIndex(DatasetIndex):
         return _index
 
     def build_from_index(self, index, survey_dict, headers):
+        if isinstance(index, SeismicIndex):
+            index = index.index
         self.surveys_dict = survey_dict
         self.headers = headers.loc[index]
         return index

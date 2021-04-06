@@ -8,3 +8,10 @@ class SeismicDataset(Dataset):
         if index is None:
             index = SeismicIndex(**kwargs)
         super().__init__(index, batch_class=batch_class, preloaded=preloaded, copy=copy, **kwargs)
+
+    def create_subset(self, index):
+        if isinstance(index, SeismicIndex) and isinstance(self.index, SeismicIndex):
+            if not index.indices.isin(self.indices).all():
+                raise IndexError
+            return type(self).from_dataset(self, self.index.create_subset(index))
+        return super().create_subset(index)
