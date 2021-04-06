@@ -2,11 +2,8 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, '..')
-
-from seismicpro.batchflow import NamedExpression
-from seismicpro.batchflow.batchflow.named_expr import _DummyBatch
-
+from ..batchflow import NamedExpression
+from ..batchflow.batchflow.named_expr import _DummyBatch
 
 
 class Component:
