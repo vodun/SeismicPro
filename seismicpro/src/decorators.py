@@ -12,6 +12,30 @@ def add_inplace_arg(method):
     return decorated_method
 
 
+def validate_gather(required_header_cols=None, required_sorting=None):
+    def decorator(method):
+        def _validate_header_cols(gather, required_header_cols):
+            headers = gather.headers.reset_index()
+            required_header_cols = to_list(required_header_cols)
+            if any(col not in headers for col in required_header_cols):
+                err_msg = "The following headers must be preloaded: {}"
+                raise ValueError(err_msg.format(", ".join(required_header_cols)))
+
+        def _validate_sorting(gather, required_sorting):
+            if gather.sort_by != required_sorting:
+                raise ValueError(f"Gather should be sorted by {required_sorting} not {gather.sort_by}")
+
+        @wraps(method)
+        def decorated_method(self, *args, **kwargs):
+            if required_header_cols is not None:
+                _validate_header_cols(self, required_header_cols)
+            if required_sorting is not None:
+                _validate_sorting(self, required_sorting)
+            return method(self, *args, **kwargs)
+        return decorated_method
+    return decorator
+
+
 def batch_method(*args, target="for", force=False, copy=True):
     batch_method_params = {"target": target, "force": force, "copy": copy}
 

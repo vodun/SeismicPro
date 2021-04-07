@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from numba import njit
 
 from .utils import to_list
-from .decorators import batch_method
+from .decorators import batch_method, validate_gather
 from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import VelocityLaw, VelocityCube
 
@@ -183,27 +183,24 @@ class Gather:
         return self
 
     @batch_method(target="threads")
+    @validate_gather(required_sorting="offset")
     def calculate_semblance(self, velocities, win_size=25):
-        if self.sort_by != 'offset':
-            raise ValueError(f'Gather should be sorted by `offset` not {self.sort_by}.')
         return Semblance(gather=self.data, times=self.samples, offsets=self.offsets,
                          velocities=velocities, win_size=win_size,
                          inline=self.supergather_inline, crossline=self.supergather_crossline)
 
     @batch_method(target='for')
+    @validate_gather(required_sorting="offset")
     def calculate_residual_semblance(self, stacking_velocities, num_vels=140, win_size=25, relative_margin=0.2):
-        if self.sort_by != 'offset':
-            raise ValueError(f'Gather should be sorted by `offset` not {self.sort_by}.')
         return ResidualSemblance(gather=self.data, times=self.samples, offsets=self.offsets,
                                  stacking_velocities=stacking_velocities, num_vels=num_vels, win_size=win_size,
                                  relative_margin=relative_margin)
 
     @batch_method(target="for")
+    @validate_gather(required_header_cols=["INLINE_3D", "SUPERGATHER_INLINE_3D",
+                                           "CROSSLINE_3D", "SUPERGATHER_CROSSLINE_3D"])
     def get_central_cdp(self):
         headers = self.headers.reset_index()
-        line_cols = ["INLINE_3D", "SUPERGATHER_INLINE_3D", "CROSSLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
-        if any(col not in headers for col in line_cols):
-            raise ValueError("The method can be applied only for supergathers")
         mask = ((headers["SUPERGATHER_INLINE_3D"] == headers["INLINE_3D"]) &
                 (headers["SUPERGATHER_CROSSLINE_3D"] == headers["CROSSLINE_3D"])).values
         self.headers = self.headers.loc[mask]
@@ -224,12 +221,10 @@ class Gather:
         return self
 
     @batch_method(target="for")
+    @validate_gather(required_header_cols=["INLINE_3D", "CROSSLINE_3D"])
     def stack_gather(self):
-        headers = self.headers.reset_index()
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]
-        if any(col not in headers for col in line_cols):
-            raise ValueError("The method can be applied only for CDP gathers")
-        headers = headers[line_cols].drop_duplicates()
+        headers = self.headers.reset_index()[line_cols].drop_duplicates()
         if len(headers) != 1:
             raise ValueError("Only a single CDP gather can be stacked")
         self.headers = headers.set_index(line_cols)
