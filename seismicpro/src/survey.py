@@ -8,6 +8,7 @@ from tqdm.notebook import tqdm
 
 from .gather import Gather
 from .utils import to_list, find_stats, create_supergather_index
+from .decorators import add_inplace_arg
 
 
 class Survey:
@@ -71,6 +72,7 @@ class Survey:
     def copy(self):
         return deepcopy(self)
 
+    @add_inplace_arg
     def filter(self, header_cols, cond, axis=None, *args, **kwargs):
         headers = self.headers[to_list(header_cols)]
         if axis is None:
@@ -135,16 +137,17 @@ class Survey:
         headers.set_index(self.headers.index.name, inplace=True)
         self.headers = headers.sort_index()
 
+    @add_inplace_arg
     def reindex(self, new_index):
         self.headers.reset_index(inplace=True)
         self.headers.set_index(new_index, inplace=True)
         self.headers.sort_index(inplace=True)
         return self
 
-    def generate_supergathers(self, size=(3, 3), step=(20, 20), modulo=(0, 0), reindex=True, inplace=False):
-        obj = self if inplace else self.copy()
-        index_cols = obj.headers.index.names
-        headers = obj.headers.reset_index()
+    @add_inplace_arg
+    def generate_supergathers(self, size=(3, 3), step=(20, 20), modulo=(0, 0), reindex=True):
+        index_cols = self.headers.index.names
+        headers = self.headers.reset_index()
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]
         super_line_cols = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
 
@@ -156,13 +159,13 @@ class Survey:
         supergather_centers = supergather_centers.drop_duplicates().sort_values(by=line_cols)
         supergather_lines = pd.DataFrame(create_supergather_index(supergather_centers.values, size),
                                          columns=super_line_cols+line_cols)
-        obj.headers = pd.merge(supergather_lines, headers, on=line_cols)
+        self.headers = pd.merge(supergather_lines, headers, on=line_cols)
 
         if reindex:
             index_cols = super_line_cols
-        obj.headers.set_index(index_cols, inplace=True)
-        obj.headers.sort_index(inplace=True)
-        return obj
+        self.headers.set_index(index_cols, inplace=True)
+        self.headers.sort_index(inplace=True)
+        return self
 
     def calculate_stats(self, dataset=None, n_samples=100000, quantiles=(0.01, 0.99)):
         headers = self.headers if dataset is None else dataset.index.headers
