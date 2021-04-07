@@ -71,6 +71,15 @@ class Survey:
     def copy(self):
         return deepcopy(self)
 
+    def filter(self, header_cols, cond, axis=None, *args, **kwargs):
+        headers = self.headers[to_list(header_cols)]
+        if axis is None:
+            mask = cond(headers, *args, **kwargs)
+        else:
+            mask = headers.apply(cond, axis=axis, raw=True, args=args, **kwargs)
+        self.headers = self.headers.loc[mask.values]
+        return self
+
     def get_gather(self, index=None, limits=None, copy_headers=True, combined=False):
         if not isinstance(limits, slice):
             limits = slice(*to_list(limits))
