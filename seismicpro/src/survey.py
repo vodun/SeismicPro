@@ -82,7 +82,7 @@ class Survey:
         self.headers = self.headers.loc[mask.values]
         return self
 
-    def get_gather(self, index=None, limits=None, copy_headers=True, combined=False):
+    def get_gather(self, index=None, limits=None, copy_headers=True):
         if not isinstance(limits, slice):
             limits = slice(*to_list(limits))
         limits = limits.indices(self.samples_length)
@@ -90,11 +90,7 @@ class Survey:
         if trace_length == 0:
             raise ValueError('Trace length must be positive.')
 
-        if combined:
-            gather_headers = self.headers.loc[index]
-        else:
-            gather_headers = self.headers.loc[index:index]
-
+        gather_headers = self.headers.loc[index]
         trace_indices = gather_headers.reset_index()[self.TRACE_ID_HEADER].values - 1
         if copy_headers:
             gather_headers = gather_headers.copy()

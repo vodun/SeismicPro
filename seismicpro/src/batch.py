@@ -26,32 +26,29 @@ class SeismicBatch(Batch):
         return self.wrapped_indices
 
     @action
-    def load(self, src=None, fmt=None, components=None, combine=False, **kwargs):
-        if fmt.lower() in ["sgy", "segy"]:
-            if combine:
-                if components is None:
-                    components = src
-                return self._load_combined_gather(src=src, dst=components, **kwargs)
-            return self._load_gather(src=src, dst=components, **kwargs)
+    def load(self, src=None, fmt="sgy", components=None, combined=False, **kwargs):
+        if isinstance(fmt, str) and fmt.lower() in {"sgy", "segy"}:
+            if not combined:
+                return self._load_gather(src=src, dst=components, **kwargs)
+            unique_files = self.indices.unique(level=0)
+            combined_batch = type(self)(DatasetIndex(unique_files), dataset=self.dataset, pipeline=self.pipeline)
+            return combined_batch._load_combined_gather(src=src, dst=components, parent_index=self.index, **kwargs)
         return super().load(src=src, fmt=fmt, components=components, **kwargs)
+
+    @apply_to_each_component(target="for", fetch_method_target=False)
+    def _load_combined_gather(self, index, src, dst, parent_index, **kwargs):
+        pos = self.index.get_pos(index)
+        survey_index = parent_index.indices.to_frame().loc[index].index
+        getattr(self, dst)[pos] = parent_index.get_gather(survey_name=src, concat_id=index,
+                                                          survey_index=survey_index, **kwargs)
 
     @apply_to_each_component(target="for", fetch_method_target=False)
     def _load_gather(self, index, src, dst, **kwargs):
         pos = self.index.get_pos(index)
-        getattr(self, dst)[pos] = self.index.get_gather(survey_name=src, index=index, **kwargs)
-
-    def _load_combined_gather(self, src, dst, **kwargs):
-        list_src, list_dst = to_list(src), to_list(dst)
-        index_len = len(np.unique(np.array(self.indices.tolist())[:, 0]))
-        new_batch = type(self)(DatasetIndex(np.arange(index_len)))
-        if self.components is not None:
-            for component in self.components:
-                new_batch.add_components(component, getattr(self, component))
-
-        for src, dst in zip(list_src, list_dst):
-            gather = self.index.get_combined_gather(survey_name=src, indices=self.indices, **kwargs)
-            new_batch.add_components(dst, init=np.array(gather + [None])[:-1])
-        return new_batch
+        concat_id, *survey_index = index
+        survey_index = survey_index[0] if len(survey_index) == 1 else tuple(survey_index)
+        getattr(self, dst)[pos] = self.index.get_gather(survey_name=src, concat_id=concat_id,
+                                                        survey_index=survey_index, **kwargs)
 
     @action
     def update_cube(self, cube, src):
