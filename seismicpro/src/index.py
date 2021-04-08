@@ -1,7 +1,9 @@
+from copy import deepcopy
 from functools import reduce
 
 import pandas as pd
 
+from .decorators import add_inplace_arg
 from ..batchflow import DatasetIndex
 
 
@@ -10,6 +12,9 @@ class SeismicIndex(DatasetIndex):
         self.surveys_dict = None
         self.headers = None
         super().__init__(*args, **kwargs)
+
+    def copy(self):
+        return deepcopy(self)
 
     def build_index(self, index=None, surveys=None, *args, **kwargs):
         if index is None and surveys is None:  # Create empty index
@@ -143,6 +148,7 @@ class SeismicIndex(DatasetIndex):
                                                                                 **kwargs))
         return gathers
 
+    @add_inplace_arg
     def reindex(self, new_index):
         # We always keep 'CONCAT_ID' column in the index.
         self.headers.reset_index(level=self.headers.index.names[1:], inplace=True)
@@ -150,7 +156,7 @@ class SeismicIndex(DatasetIndex):
 
         for surveys in self.surveys_dict.values():
             for survey in surveys:
-                survey.reindex(new_index)
+                survey.reindex(new_index, inplace=True)
 
         self._index = self.headers.index.unique()
         self._pos = self.build_pos()  # Build _pos dict explicitly if concat was called outside __init__
