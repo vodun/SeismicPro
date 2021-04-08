@@ -47,6 +47,8 @@ class SeismicBatch(Batch):
         pos = self.index.get_pos(index)
         concat_id, *survey_index = index
         survey_index = survey_index[0] if len(survey_index) == 1 else tuple(survey_index)
+        # Guarantee, that a DataFrame is always returned, regardless of pandas behaviour.
+        survey_index = slice(survey_index, survey_index)
         getattr(self, dst)[pos] = self.index.get_gather(survey_name=src, concat_id=concat_id,
                                                         survey_index=survey_index, **kwargs)
 
