@@ -4,10 +4,10 @@ from copy import copy, deepcopy
 import segyio
 import numpy as np
 import pandas as pd
-from tqdm.notebook import tqdm
+from tqdm.auto import tqdm
 
 from .gather import Gather
-from .utils import to_list, find_stats, create_supergather_index
+from .utils import to_list, calculate_stats, create_supergather_index
 from .decorators import add_inplace_arg
 
 
@@ -16,11 +16,10 @@ class Survey:
     TRACE_ID_HEADER = 'TRACE_SEQUENCE_FILE'
     DEFAULT_HEADERS = {'offset', }
 
-    def __init__(self, path, header_index, header_cols=None, name=None):
+    def __init__(self, path, header_index, header_cols=None, name=None, collect_stats=False, **kwargs):
         self.path = path
         basename = os.path.splitext(os.path.basename(self.path))[0]
         self.name = name if name is not None else basename
-        self.quantiles = dict()
 
         if header_cols is None:
             header_cols = set()
@@ -55,6 +54,15 @@ class Survey:
         headers.set_index(header_index, inplace=True)
         # To optimize futher sampling from mulitiindex.
         self.headers = headers.sort_index()
+
+        # Precalculate survey statistics
+        self.min = None
+        self.max = None
+        self.mean = None
+        self.std = None
+        self.quantiles = {}
+        if collect_stats:
+            self.collect_stats(**kwargs)
 
     def __del__(self):
         self.segy_handler.close()
@@ -163,42 +171,42 @@ class Survey:
         self.headers.sort_index(inplace=True)
         return self
 
-    def calculate_stats(self, dataset=None, n_samples=100000, quantiles=(0.01, 0.99)):
+    def collect_stats(self, dataset=None, n_samples=100000, quantiles=(0.01, 0.99)):
         headers = self.headers if dataset is None else dataset.index.headers
         traces_pos = headers.reset_index()['TRACE_SEQUENCE_FILE'].values
         np.random.shuffle(traces_pos)
-        traces = []
 
-        global_min, global_max = 0, 0
+        global_min, global_max = np.inf, -np.inf
         global_sum, global_sq_sum = 0, 0
         traces_length = 0
-        # Accumulation of min/max, mean and std values for choosen subset.
-        for i, pos in tqdm(enumerate(traces_pos), desc='Calculating statistics.', total=len(traces_pos)):
+        traces_list = []
+
+        # Accumulate min, max, mean and std values of survey traces
+        for i, pos in tqdm(enumerate(traces_pos), desc="Calculating statistics", total=len(traces_pos)):
             trace = self.load_trace(pos-1, (0, self.samples_length, 1), self.samples_length)
-            trace_min, trace_max, tr_sum, tr_sq_sum = find_stats(trace)
-            global_min = trace_min if global_min > trace_min else global_min
-            global_max = trace_max if global_max < trace_max else global_max
-            #TODO: can we change huge sum with smth more stable?
-            global_sum += tr_sum
-            global_sq_sum += tr_sq_sum
+            trace_min, trace_max, trace_sum, trace_sq_sum = calculate_stats(trace)
+            global_min = min(trace_min, global_min)
+            global_max = max(trace_max, global_max)
+            global_sum += trace_sum
+            global_sq_sum += trace_sq_sum
             traces_length += len(trace)
 
-            if quantiles is not None:
-                # Sampling random traces to calculate approximate quantiles. If trace is constant we won't use it
-                # for quantiles calculation.
-                if i < n_samples and trace_min != trace_max:
-                    traces.extend(trace.tolist())
+            # Sample random traces to calculate approximate quantiles. Traces with constant value are ignored.
+            if (quantiles is not None) and (i < n_samples) and (trace_min != trace_max):
+                traces_list.append(trace)
 
         self.min = global_min
         self.max = global_max
         self.mean = global_sum / traces_length
         self.std = np.sqrt((global_sq_sum / traces_length) - (global_sum / traces_length)**2)
 
-        self.quantiles.update({0: global_max, 1: global_min})
+        self.quantiles.update({0: global_min, 1: global_max})
         if quantiles is not None:
+            traces = np.concatenate(traces_list)
             self.quantiles.update({q: np.quantile(traces, q) for q in quantiles})
+        return self
 
     def get_quantile(self, q):
-        if q in self.quantiles.keys():
-            return self.quantiles.get(q)
-        raise ValueError(f'{q}-th quantile was not calculated. Use survey.calculate_stats() to calculate it.')
+        if q in self.quantiles:
+            return self.quantiles[q]
+        raise ValueError(f'{q}-th quantile was not calculated, call `Survey.collect_stats` first.')

@@ -11,15 +11,15 @@ def to_list(obj):
 
 
 @njit
-def find_stats(array):
-    min_value = max_value = array[0]
-    tr_sum = tr_sq_sum = 0
-    for i in range(1, len(array)):
-        min_value = min(array[i], min_value)
-        max_value = max(array[i], max_value)
-        tr_sum += array[i]
-        tr_sq_sum += array[i]**2
-    return min_value, max_value, tr_sum, tr_sq_sum
+def calculate_stats(trace):
+    trace_min, trace_max = np.inf, -np.inf
+    trace_sum, trace_sq_sum = 0, 0
+    for i in range(len(trace)):
+        trace_min = min(trace[i], trace_min)
+        trace_max = max(trace[i], trace_max)
+        trace_sum += trace[i]
+        trace_sq_sum += trace[i]**2
+    return trace_min, trace_max, trace_sum, trace_sq_sum
 
 
 @njit

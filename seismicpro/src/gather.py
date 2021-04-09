@@ -238,38 +238,49 @@ class Gather:
         self.data = np.nan_to_num(self.data)
         return self
 
-    def _apply_agg_func(self, func, func_kwargs=None, agg=False):
-        func_kwargs = dict() if func_kwargs is None else func_kwargs
-        func_kwargs.update(axis=None, keepdims=False)
-        if agg:
-            func_kwargs.update(axis=1, keepdims=True)
-        return func(self.data, **func_kwargs)
+    def _apply_agg_func(self, func, tracewise, **kwargs):
+        axis = 1 if tracewise else None
+        return func(self.data, axis=axis, keepdims=True, **kwargs)
 
     @batch_method(target='for')
-    def normalize_std(self, agg=False, use_global=False, eps=1e-10):
+    def scale_standard(self, tracewise=True, use_global=False, eps=1e-10):
         if use_global:
             if self.survey.mean is None or self.survey.std is None:
-                # TODO: Change error message if function name will be changed in Survey.
-                err_msg = "The global statistics is not calculated yet,\
-                           use `use_global`=False or caluclate statistics use `Survey.calculate_stats()`"
+                err_msg = "Global statistics were not calculated, set `use_global` to `False` " \
+                          "or call `Survey.collect_stats` first."
                 raise ValueError(err_msg)
             mean = self.survey.mean
             std = self.survey.std
         else:
-            mean = self._apply_agg_func(func=np.mean, agg=agg)
-            std = self._apply_agg_func(func=np.std, agg=agg)
+            mean = self._apply_agg_func(func=np.mean, tracewise=tracewise)
+            std = self._apply_agg_func(func=np.std, tracewise=tracewise)
 
         self.data = (self.data - mean) / (std + eps)
         return self
 
     @batch_method(target='for')
-    def normalize_minmax(self, q_min=0, q_max=1, agg=False, use_global=False, clip=False, eps=1e-10):
+    def scale_maxabs(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
         if use_global:
             min_value = self.survey.get_quantile(q_min)
             max_value = self.survey.get_quantile(q_max)
         else:
-            min_value = self._apply_agg_func(func=np.quantile, func_kwargs=dict(q=q_min), agg=agg)
-            max_value = self._apply_agg_func(func=np.quantile, func_kwargs=dict(q=q_max), agg=agg)
+            min_value = self._apply_agg_func(func=np.quantile, tracewise=tracewise, q=q_min)
+            max_value = self._apply_agg_func(func=np.quantile, tracewise=tracewise, q=q_max)
+
+        max_abs = np.maximum(np.abs(min_value), np.abs(max_value))
+        self.data /= max_abs + eps
+        if clip:
+            self.data = np.clip(self.data, 0, 1)
+        return self
+
+    @batch_method(target='for')
+    def scale_minmax(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
+        if use_global:
+            min_value = self.survey.get_quantile(q_min)
+            max_value = self.survey.get_quantile(q_max)
+        else:
+            min_value = self._apply_agg_func(func=np.quantile, tracewise=tracewise, q=q_min)
+            max_value = self._apply_agg_func(func=np.quantile, tracewise=tracewise, q=q_max)
 
         self.data = (self.data - min_value) / (max_value - min_value + eps)
         if clip:
