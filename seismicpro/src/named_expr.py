@@ -4,7 +4,7 @@ import numpy as np
 
 from .utils import to_list
 
-from ..batchflow import NamedExpression
+from ..batchflow import NamedExpression, W
 from ..batchflow.batchflow.named_expr import _DummyBatch
 
 
@@ -41,6 +41,18 @@ class Component:
 
 class SU(NamedExpression):
     """ !! """
+    def __init__(self, name=None, mode='w', wrap=False):
+        super().__init__(name=name, mode=mode)
+        self.wrap = wrap
+
+    def __getattr__(self, name):
+        call = super().__getattr__(name=name)
+        return W(call) if self.wrap else call
+
+    def __getitem__(self, key):
+        call = super().__getitem__(key=key)
+        return W(call) if self.wrap else call
+
     def get(self, batch=None, pipeline=None, model=None):
         """ !! """
         if self.params:
