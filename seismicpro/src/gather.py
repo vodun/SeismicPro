@@ -7,7 +7,7 @@ import segyio
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from numba import njit
+from numba import njit, prange
 
 from .utils import to_list
 from .decorators import batch_method, validate_gather
@@ -158,23 +158,18 @@ class Gather:
         return self
 
     @staticmethod
-    @njit
+    @njit(parallel=True)
     def _mask_to_pick(mask):
-        picking = []
-        for i in range(mask.shape[0]):
-            max_len, curr_len, start_ix = 0, 0, 0
-            for j in range(mask.shape[1]):
-                if mask[i][j] == 1:
-                    curr_len += 1
-                else:
-                    if curr_len > max_len:
-                        max_len = curr_len
-                        start_ix = j-curr_len
-                    curr_len = 0
-            if curr_len > max_len:
-                start_ix = mask.shape[1] - curr_len
-            picking.append(start_ix)
-        return picking
+        picking_list = np.empty(len(mask), dtype=np.int32)
+        for i in prange(len(mask)):
+            trace = mask[i]
+            padded_trace = np.zeros(len(trace)+2, dtype=np.int8)
+            padded_trace[1:-1] = trace
+            diff = np.diff(padded_trace)
+            ix_pos = np.where(diff == 1)[0]
+            ix_neg = np.where(diff == -1)[0]
+            picking_list[i] = ix_pos[np.argmax(ix_neg - ix_pos)]
+        return picking_list
 
     @batch_method(target="threads")
     def mute(self, muting):
