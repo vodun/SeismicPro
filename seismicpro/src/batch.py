@@ -4,7 +4,7 @@ from .gather import Gather
 from .semblance import Semblance, ResidualSemblance
 from .decorators import create_batch_methods, apply_to_each_component
 from .utils import to_list
-from ..batchflow import Batch, action, DatasetIndex
+from ..batchflow import Batch, action, DatasetIndex, NamedExpression
 
 
 @create_batch_methods(Gather, Semblance, ResidualSemblance)
@@ -56,4 +56,36 @@ class SeismicBatch(Batch):
     def update_cube(self, cube, src):
         for model in getattr(self, src):
             cube.update(model)
+        return self
+
+    @action
+    def make_data(self, src, dst, concat_axis=None, stack_axis=None, expand_dims_axis=None):
+        if isinstance(src, str):
+            data = getattr(self, src)
+        else:
+            # what about copy here?
+            data = src
+
+        if concat_axis is not None:
+            data = np.concatenate(data, axis=concat_axis)
+        elif stack_axis is not None:
+            data = np.stack(data, axis=stack_axis)
+
+        if expand_dims_axis is not None:
+            data = np.expand_dims(data, axis=expand_dims_axis)
+        setattr(self, dst, data)
+        return self
+
+    @action
+    def split_results(self, src, dst, shapes):
+        data = getattr(self, src)
+        shapes = np.cumsum(shapes)[:-1]
+        splitted_data = np.split(data, shapes)
+
+        if isinstance(dst, str):
+            setattr(self, dst, splitted_data)
+        elif isinstance(dst, NamedExpression):
+            dst.set(value=splitted_data)
+        else:
+            ValueError(f'dst must be `str` or `SU named expression`, not {type(dst)}.')
         return self
