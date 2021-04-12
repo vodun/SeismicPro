@@ -7,9 +7,8 @@ import segyio
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from numba import njit, prange
 
-from .utils import to_list
+from .utils import to_list, convert_mask_to_pick
 from .decorators import batch_method, validate_gather
 from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import VelocityLaw, VelocityCube
@@ -140,36 +139,20 @@ class Gather:
         return self
 
     @batch_method(target="for")
-    def pick_to_mask(self, col_name='Picking'):
-        # TODO: check does it work for picking pipeline
-        if col_name not in self.headers.columns:
-            raise ValueError('Load picking first.')
-        picking_ixs = np.around(self[col_name] / self.sample_rate).astype(np.int32) - 1
+    def pick_to_mask(self, picking_col='Picking'):
+        if picking_col not in self.headers:
+            raise ValueError('Picking is not loaded.')
+        picking_ixs = np.around(self[picking_col] / self.sample_rate).astype(np.int32) - 1
         mask = (np.arange(self.shape[1]) - picking_ixs.reshape(-1, 1)) > 0
-        self.mask = np.int32(mask)
+        self.mask = mask.astype(np.int32)
         return self
 
     @batch_method(target='for')
-    def mask_to_pick(self, col_name='Picking'):
+    def mask_to_pick(self, threshold=0.5, picking_col='Picking'):
         if self.mask is None:
             raise ValueError('Save mask to self.mask component.')
-        picking = np.array(self._mask_to_pick(self.mask))
-        self[col_name] = picking.astype(np.float32) * self.sample_rate
+        self[picking_col] = convert_mask_to_pick(self.mask, threshold) * self.sample_rate
         return self
-
-    @staticmethod
-    @njit(parallel=True)
-    def _mask_to_pick(mask):
-        picking_list = np.empty(len(mask), dtype=np.int32)
-        for i in prange(len(mask)):
-            trace = mask[i]
-            padded_trace = np.zeros(len(trace)+2, dtype=np.int8)
-            padded_trace[1:-1] = trace
-            diff = np.diff(padded_trace)
-            ix_pos = np.where(diff == 1)[0]
-            ix_neg = np.where(diff == -1)[0]
-            picking_list[i] = ix_pos[np.argmax(ix_neg - ix_pos)]
-        return picking_list
 
     @batch_method(target="threads")
     def mute(self, muting):

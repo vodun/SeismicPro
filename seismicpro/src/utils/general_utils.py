@@ -1,5 +1,5 @@
 import numpy as np
-from numba import njit
+from numba import njit, prange
 
 
 def to_list(obj):
@@ -35,3 +35,24 @@ def create_supergather_index(lines, size):
                 row = np.array([i, x, i + shifts_i[ix_i], x + shifts_x[ix_x]])
                 supergather_lines[ix * area_size + ix_i * size[1] + ix_x] = row
     return supergather_lines
+
+
+@njit(parallel=True)
+def convert_mask_to_pick(mask, threshold):
+    mask = mask > threshold
+    picking_list = np.empty(len(mask), dtype=np.int32)
+    for i in prange(len(mask)):
+        trace = mask[i]
+        max_len, curr_len, picking_ix = 0, 0, 0
+        for j in range(len(trace)):
+            if trace[j] == 1:
+                curr_len += 1
+            else:
+                if curr_len > max_len:
+                    max_len = curr_len
+                    picking_ix = j
+                curr_len = 0
+        if curr_len > max_len:
+            picking_ix = len(trace)
+        picking_list[i] = picking_ix - curr_len
+    return picking_list

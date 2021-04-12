@@ -127,19 +127,22 @@ class Survey:
         res = self.segy_handler.xfd.gettr(buf, index, 1, 1, *limits, trace_length)
         return res
 
-    def load_picking(self, path):
+    def load_picking(self, path, picking_col='Picking'):
         segy_columns = ['FieldRecord', 'TraceNumber']
-        picking_columns = segy_columns + ['Picking']
+        picking_columns = segy_columns + [picking_col]
         picking_df = pd.read_csv(path, names=picking_columns, delim_whitespace=True, decimal=',')
 
         headers = self.headers.reset_index()
-        if len(set(segy_columns) & set(headers)) < len(segy_columns):
-            missed_cols = set(segy_columns) - set(headers)
-            raise ValueError(f'Missing {missed_cols} column(s). This columns are required for picking loading.')
+        missing_cols = set(segy_columns) - set(headers)
+        if missing_cols:
+            raise ValueError(f'Missing {missing_cols} column(s) required for picking loading.')
 
         headers = headers.merge(picking_df, on=segy_columns)
-        headers.set_index(self.headers.index.name, inplace=True)
+        if headers.empty:
+            raise ValueError('Empty headers after picking loading.')
+        headers.set_index(self.headers.index.names, inplace=True)
         self.headers = headers.sort_index()
+        return self
 
     @add_inplace_arg
     def reindex(self, new_index):
