@@ -5,6 +5,7 @@ import segyio
 import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
+from scipy.interpolate import interp1d
 
 from .gather import Gather
 from .utils import to_list, calculate_stats, create_supergather_index
@@ -60,7 +61,7 @@ class Survey:
         self.max = None
         self.mean = None
         self.std = None
-        self.quantiles = {}
+        self.quantiles = None
         if collect_stats:
             self.collect_stats(**kwargs)
 
@@ -174,7 +175,8 @@ class Survey:
         self.headers.sort_index(inplace=True)
         return self
 
-    def collect_stats(self, dataset=None, n_samples=100000, quantiles=(0.01, 0.99)):
+    def collect_stats(self, dataset=None, n_samples=100000, quantile_precision=2):
+        #TODO: Check that self.quantiles is pickling.
         headers = self.headers if dataset is None else dataset.index.headers
         traces_pos = headers.reset_index()['TRACE_SEQUENCE_FILE'].values
         np.random.shuffle(traces_pos)
@@ -195,7 +197,7 @@ class Survey:
             traces_length += len(trace)
 
             # Sample random traces to calculate approximate quantiles. Traces with constant value are ignored.
-            if (quantiles is not None) and (i < n_samples) and (trace_min != trace_max):
+            if (quantile_precision is not None) and (i < n_samples) and (trace_min != trace_max):
                 traces_list.append(trace)
 
         self.min = global_min
@@ -203,13 +205,13 @@ class Survey:
         self.mean = global_sum / traces_length
         self.std = np.sqrt((global_sq_sum / traces_length) - (global_sum / traces_length)**2)
 
-        self.quantiles.update({0: global_min, 1: global_max})
-        if quantiles is not None:
+        # Calculate quantiles for sampled traces.
+        if quantile_precision is not None and n_samples > 0:
             traces = np.concatenate(traces_list)
-            self.quantiles.update({q: np.quantile(traces, q) for q in quantiles})
+            # We calculate quantiles for range from 0 to 1 with step 1 / 10**quantile_precision.
+            quantiles = np.round(np.linspace(0, 1, num=10**quantile_precision), decimals=quantile_precision)
+            quantiles_values = np.quantile(traces, q=quantiles)
+            # 0 and 1 quantiles are replaced with actual minmax values.
+            quantiles_values[0], quantiles_values[-1] = global_min, global_max
+            self.quantiles = interp1d(quantiles, quantiles_values)
         return self
-
-    def get_quantile(self, q):
-        if q in self.quantiles:
-            return self.quantiles[q]
-        raise ValueError(f'{q}-th quantile was not calculated, call `Survey.collect_stats` first.')
