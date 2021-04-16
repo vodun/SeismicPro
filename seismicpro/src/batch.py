@@ -10,7 +10,7 @@ from ..batchflow import Batch, action, DatasetIndex, NamedExpression
 @create_batch_methods(Gather, Semblance, ResidualSemblance)
 class SeismicBatch(Batch):
     @property
-    def wrapped_indices(self):
+    def nested_indices(self):
         if isinstance(self.indices, np.ndarray):
             return self.indices.tolist()
         return [[index] for index in self.indices.values.tolist()]
@@ -23,7 +23,7 @@ class SeismicBatch(Batch):
         for comp in dst:
             if self.components is None or comp not in self.components:
                 self.add_components(comp, init=self.array_of_nones)
-        return self.wrapped_indices
+        return self.nested_indices
 
     @action
     def load(self, src=None, fmt="sgy", components=None, combined=False, **kwargs):
@@ -36,13 +36,6 @@ class SeismicBatch(Batch):
         return super().load(src=src, fmt=fmt, components=components, **kwargs)
 
     @apply_to_each_component(target="for", fetch_method_target=False)
-    def _load_combined_gather(self, index, src, dst, parent_index, **kwargs):
-        pos = self.index.get_pos(index)
-        survey_index = parent_index.indices.to_frame().loc[index].index
-        getattr(self, dst)[pos] = parent_index.get_gather(survey_name=src, concat_id=index,
-                                                          survey_index=survey_index, **kwargs)
-
-    @apply_to_each_component(target="for", fetch_method_target=False)
     def _load_gather(self, index, src, dst, **kwargs):
         pos = self.index.get_pos(index)
         concat_id, *survey_index = index
@@ -51,6 +44,13 @@ class SeismicBatch(Batch):
         survey_index = slice(survey_index, survey_index)
         getattr(self, dst)[pos] = self.index.get_gather(survey_name=src, concat_id=concat_id,
                                                         survey_index=survey_index, **kwargs)
+
+    @apply_to_each_component(target="for", fetch_method_target=False)
+    def _load_combined_gather(self, index, src, dst, parent_index, **kwargs):
+        pos = self.index.get_pos(index)
+        survey_index = parent_index.indices.to_frame().loc[index].index
+        getattr(self, dst)[pos] = parent_index.get_gather(survey_name=src, concat_id=index,
+                                                          survey_index=survey_index, **kwargs)
 
     @action
     def update_cube(self, cube, src):
