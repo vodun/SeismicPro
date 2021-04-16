@@ -103,6 +103,7 @@ class Survey:
         trace_indices = gather_headers.reset_index()[self.TRACE_ID_HEADER].values - 1
         if copy_headers:
             gather_headers = gather_headers.copy()
+        # TODO: try to use np empty here instead of np.stack
         data = np.stack([self.load_trace(i, limits, trace_length) for i in trace_indices])
         gather = Gather(headers=gather_headers, data=data, survey=self)
         return gather
@@ -215,3 +216,7 @@ class Survey:
             quantiles_values[0], quantiles_values[-1] = global_min, global_max
             self.quantiles = interp1d(quantiles, quantiles_values)
         return self
+
+    def get_quantile(self, q):
+        quantiles_list = self.quantiles[q]
+        return quantiles_list[0] if len(quantiles_list) == 1 else quantiles_list

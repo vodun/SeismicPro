@@ -239,7 +239,7 @@ class Gather:
     @batch_method(target='for')
     def scale_maxabs(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
         if use_global:
-            min_value, max_value = self.survey.quantiles([q_min, q_max])
+            min_value, max_value = self.survey.get_quantiles([q_min, q_max])
         else:
             min_value = self._apply_agg_func(func=np.quantile, tracewise=tracewise, q=q_min)
             max_value = self._apply_agg_func(func=np.quantile, tracewise=tracewise, q=q_max)
@@ -253,7 +253,7 @@ class Gather:
     @batch_method(target='for')
     def scale_minmax(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
         if use_global:
-            min_value, max_value = self.survey.quantiles([q_min, q_max])
+            min_value, max_value = self.survey.get_quantiles([q_min, q_max])
         else:
             min_value = self._apply_agg_func(func=np.quantile, tracewise=tracewise, q=q_min)
             max_value = self._apply_agg_func(func=np.quantile, tracewise=tracewise, q=q_max)
