@@ -3,6 +3,8 @@ import cv2
 from scipy.interpolate import interp1d, LinearNDInterpolator
 from sklearn.neighbors import NearestNeighbors
 
+from .utils import to_list
+
 
 class VelocityInterpolator:
     def __init__(self, laws):
@@ -62,8 +64,12 @@ class VelocityCube:
         self.laws = {}
         self.velocity_interpolator = None
 
-    def update(self, law):
-        self.laws[(law.inline, law.crossline)] = law
+    def update(self, laws):
+        laws = to_list(laws)
+        if any(not isinstance(law, VelocityLaw) for law in laws):
+            raise ValueError("The cube can be updated only with `VelocityLaw` instances")
+        for law in laws:
+            self.laws[(law.inline, law.crossline)] = law
         return self
 
     def create_velocity_interpolator(self):
