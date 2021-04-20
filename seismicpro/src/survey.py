@@ -57,11 +57,12 @@ class Survey:
         self.headers = headers.sort_index()
 
         # Precalculate survey statistics
+        self.has_stats = False
         self.min = None
         self.max = None
         self.mean = None
         self.std = None
-        self.quantiles = None
+        self.quantile_interpolator = None
         if collect_stats:
             self.collect_stats(**kwargs)
 
@@ -105,6 +106,7 @@ class Survey:
             gather_headers = gather_headers.copy()
         # TODO: try to use np empty here instead of np.stack
         data = np.stack([self.load_trace(i, limits, trace_length) for i in trace_indices])
+        # TODO: slice samples in gather by limits
         gather = Gather(headers=gather_headers, data=data, survey=self)
         return gather
 
@@ -176,8 +178,7 @@ class Survey:
         self.headers.sort_index(inplace=True)
         return self
 
-    def collect_stats(self, dataset=None, n_samples=100000, quantile_precision=2):
-        #TODO: Check that self.quantiles is pickling.
+    def collect_stats(self, dataset=None, n_samples=100000, quantile_precision=2, bar=True):
         headers = self.headers if dataset is None else dataset.index.headers
         traces_pos = headers.reset_index()['TRACE_SEQUENCE_FILE'].values
         np.random.shuffle(traces_pos)
@@ -188,7 +189,8 @@ class Survey:
         traces_list = []
 
         # Accumulate min, max, mean and std values of survey traces
-        for i, pos in tqdm(enumerate(traces_pos), desc="Calculating statistics", total=len(traces_pos)):
+        for i, pos in tqdm(enumerate(traces_pos), desc="Calculating statistics",
+                           total=len(traces_pos), disable=not bar):
             trace = self.load_trace(pos-1, (0, self.samples_length, 1), self.samples_length)
             trace_min, trace_max, trace_sum, trace_sq_sum = calculate_stats(trace)
             global_min = min(trace_min, global_min)
@@ -197,8 +199,8 @@ class Survey:
             global_sq_sum += trace_sq_sum
             traces_length += len(trace)
 
-            # Sample random traces to calculate approximate quantiles. Traces with constant value are ignored.
-            if (quantile_precision is not None) and (i < n_samples) and (trace_min != trace_max):
+            # Sample random traces to calculate approximate quantiles
+            if i < n_samples:
                 traces_list.append(trace)
 
         self.min = global_min
@@ -206,17 +208,19 @@ class Survey:
         self.mean = global_sum / traces_length
         self.std = np.sqrt((global_sq_sum / traces_length) - (global_sum / traces_length)**2)
 
-        # Calculate quantiles for sampled traces.
-        if quantile_precision is not None and n_samples > 0:
-            traces = np.concatenate(traces_list)
-            # We calculate quantiles for range from 0 to 1 with step 1 / 10**quantile_precision.
-            quantiles = np.round(np.linspace(0, 1, num=10**quantile_precision), decimals=quantile_precision)
-            quantiles_values = np.quantile(traces, q=quantiles)
-            # 0 and 1 quantiles are replaced with actual minmax values.
-            quantiles_values[0], quantiles_values[-1] = global_min, global_max
-            self.quantiles = interp1d(quantiles, quantiles_values)
+        # Calculate all q-quantiles from 0 to 1 with step 1 / 10**quantile_precision
+        traces = np.concatenate(traces_list)
+        q = np.round(np.linspace(0, 1, num=10**quantile_precision), decimals=quantile_precision)
+        quantiles = np.quantile(traces, q=q)
+        # 0 and 1 quantiles are replaced with actual min and max values respectively
+        quantiles[0], quantiles[-1] = global_min, global_max
+        self.quantile_interpolator = interp1d(q, quantiles)
+
+        self.has_stats = True
         return self
 
     def get_quantile(self, q):
-        quantiles_list = self.quantiles[q]
-        return quantiles_list[0] if len(quantiles_list) == 1 else quantiles_list
+        if not self.has_stats:
+            raise ValueError('Global statistics were not calculated, call `Survey.collect_stats` first.')
+        quantiles = self.quantile_interpolator(q).ravel()
+        return quantiles.item() if len(quantiles) == 1 else quantiles
