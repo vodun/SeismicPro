@@ -5,7 +5,6 @@ import shutil
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
-from tqdm.auto import tqdm
 
 from seismicpro.src.utils import to_list
 from seismicpro.batchflow import Pipeline, Notifier, C
@@ -15,7 +14,7 @@ from seismicpro.batchflow.research import Option, Research, Results, RC
 sns.set_theme(style="darkgrid")
 class Benchmark:
     def __init__(self, method_name, method_kwargs, targets, batch_sizes, dataset, dataset_name='raw', n_iters=10,
-                 root_pipeline=None, benchmark_cpu=False, figsize=(15, 7)):
+                 root_pipeline=None, benchmark_cpu=False):
         self.method_name = method_name
         self.targets = to_list(targets)
         self.batch_sizes = to_list(batch_sizes)
@@ -27,7 +26,6 @@ class Benchmark:
         self.results = None
 
         self.benchmark_cpu = 'cpu' if benchmark_cpu else None
-        self.figsize = figsize
 
         self.root_pipeline = Pipeline()
         if root_pipeline is not None:
@@ -46,15 +44,16 @@ class Benchmark:
             .add_callable(self.run_single_pipeline, config=RC().config(), returns=self.benchmark_names,
                           **method_kwargs)
         )
-        research.run(n_iters=1, name=self.research_name, bar=tqdm)
+        research.run(n_iters=1, name=self.research_name, bar=True, workers=1)
 
         # Load benchmark's results.
         results_df = Results(self.research_name).df
-        # Processing dataframe for a more convenient view.
+        # Processing dataframe to a more convenient view.
         results_df = results_df.astype({'batch_size': 'int32'})
         results_df.sort_values(by='batch_size', inplace=True)
         results_df.set_index(['target', 'batch_size'], inplace=True)
         self.results = results_df[self.benchmark_names]
+        return self
 
     def run_single_pipeline(self, config, **method_kwargs):
         pipeline = self.template_pipeline << config
@@ -62,7 +61,6 @@ class Benchmark:
                      profile=True, notifier=Notifier(monitors=self.benchmark_cpu))
 
         # Processing the results for time costs.
-        # TODO: Rewrite it without relying on the profiled method being the last one.
         action_name = self.method_name + f' #{pipeline.num_actions-1}'
         time_df = pipeline.show_profile_info(per_iter=True, detailed=False)
         time_vals = time_df['total_time'].loc[:, action_name].values
@@ -75,6 +73,8 @@ class Benchmark:
 
     def plot(self, figsize=(15, 7)):
         for col_name, column in self.results.iteritems():
+            if column.isna().sum() > 0:
+                continue
             plt.figure(figsize=figsize)
             sub_df = column.reset_index()
             for target, df in sub_df.groupby('target'):
@@ -82,13 +82,14 @@ class Benchmark:
                 x_axis = np.concatenate([[ix] * len(time) for ix, time in enumerate(items)])
                 sns.lineplot(x=x_axis, y=np.concatenate(items), label=target, ci='sd')
 
-            plt.title(col_name)
+            plt.title(f"{col_name} for {self.method_name} method")
             plt.xticks(ticks=np.arange(len(self.batch_sizes)), labels=self.batch_sizes)
 
             plt.xlabel('Batch size')
             ylabel = 'Time (s)' if col_name == 'Time' else '%'
             plt.ylabel(ylabel)
             plt.show()
+        return self
 
     def _clear_previous_results(self):
         if os.path.exists(self.research_name):
