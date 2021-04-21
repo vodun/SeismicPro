@@ -104,8 +104,7 @@ class Survey:
         trace_indices = gather_headers.reset_index()[self.TRACE_ID_HEADER].values - 1
         if copy_headers:
             gather_headers = gather_headers.copy()
-        # TODO: try to use np empty here instead of np.stack
-        data = np.stack([self.load_trace(i, limits, trace_length) for i in trace_indices])
+        data = self.load_traces(indices=trace_indices, limits=limits, trace_length=trace_length)
         # TODO: slice samples in gather by limits
         gather = Gather(headers=gather_headers, data=data, survey=self)
         return gather
@@ -116,20 +115,21 @@ class Survey:
         gather = self.get_gather(index=index, limits=limits, copy_headers=copy_headers)
         return gather
 
-    def load_trace(self, index, limits, trace_length):
-        """limits is an array [from, to]"""
-        buf = np.empty(trace_length, dtype=np.float32)
-        # Args for segy loader are following:
-        #   * Buffer to write trace ampltudes
-        #   * Index of loading trace
-        #   * Unknown arg (always 1)
-        #   * Unknown arg (always 1)
-        #   * Position from which to start loading the trace
-        #   * Position where to end loading
-        #   * Step
-        #   * Number of overall samples.
-        res = self.segy_handler.xfd.gettr(buf, index, 1, 1, *limits, trace_length)
-        return res
+    def load_traces(self, indices, limits, trace_length):
+        indices = to_list(indices)
+        data = np.empty((len(indices), trace_length), dtype=np.float32)
+        for ix, index in enumerate(indices):
+            # Args for segy loader are following:
+            #   * Buffer to write trace ampltudes
+            #   * Index of loading trace
+            #   * Unknown arg (always 1)
+            #   * Unknown arg (always 1)
+            #   * Position from which to start loading the trace
+            #   * Position where to end loading
+            #   * Step
+            #   * Number of overall samples.
+            self.segy_handler.xfd.gettr(data[ix], index, 1, 1, *limits, trace_length)
+        return data
 
     def load_picking(self, path, picking_col='Picking'):
         segy_columns = ['FieldRecord', 'TraceNumber']
@@ -191,7 +191,7 @@ class Survey:
         # Accumulate min, max, mean and std values of survey traces
         for i, pos in tqdm(enumerate(traces_pos), desc="Calculating statistics",
                            total=len(traces_pos), disable=not bar):
-            trace = self.load_trace(pos-1, (0, self.samples_length, 1), self.samples_length)
+            trace = self.load_traces(pos-1, (0, self.samples_length, 1), self.samples_length)[0]
             trace_min, trace_max, trace_sum, trace_sq_sum = calculate_stats(trace)
             global_min = min(trace_min, global_min)
             global_max = max(trace_max, global_max)
