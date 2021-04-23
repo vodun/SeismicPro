@@ -222,5 +222,6 @@ class Survey:
     def get_quantile(self, q):
         if not self.has_stats:
             raise ValueError('Global statistics were not calculated, call `Survey.collect_stats` first.')
-        quantiles = self.quantile_interpolator(q).ravel()
-        return quantiles.item() if len(quantiles) == 1 else quantiles
+        quantiles = self.quantile_interpolator(q)
+        # return the same type as q: either single float or array-like
+        return quantiles.item() if quantiles.ndim == 0 else quantiles
