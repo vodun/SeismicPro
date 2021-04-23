@@ -22,7 +22,8 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=True, keep_exts=("
         raise ValueError("Source files contain inconsistent samples")
 
     if mmap:
-        _ = [source_handler.mmap() for source_handler in source_handlers]
+        for source_handler in source_handlers:
+            source_handler.mmap()
 
     # Create segyio spec for the new file
     spec = segyio.spec()
