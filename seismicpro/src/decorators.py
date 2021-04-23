@@ -79,7 +79,7 @@ def apply_to_each_component(*args, target="for", fetch_method_target=True):
     return partial_apply
 
 
-def get_class_methods(cls):
+def _get_class_methods(cls):
     return {func for func in dir(cls) if callable(getattr(cls, func))}
 
 
@@ -88,13 +88,13 @@ def create_batch_methods(*component_classes):
         decorated_methods = set()
         force_methods = set()
         for component_class in component_classes:
-            for method_name in get_class_methods(component_class):
+            for method_name in _get_class_methods(component_class):
                 method = getattr(component_class, method_name)
                 if hasattr(method, "batch_method_params"):
                     decorated_methods.add(method_name)
                     if getattr(method, "batch_method_params")["force"]:
                         force_methods.add(method_name)
-        methods_to_add = (decorated_methods - get_class_methods(cls)) | force_methods
+        methods_to_add = (decorated_methods - _get_class_methods(cls)) | force_methods
 
         # TODO: dynamically generate docstring
         def create_method(method_name):
