@@ -38,8 +38,10 @@ class SeismicBatch(Batch):
     @apply_to_each_component(target="for", fetch_method_target=False)
     def _load_gather(self, index, src, dst, **kwargs):
         pos = self.index.get_pos(index)
-        concat_id, *survey_index = index
-        survey_index = survey_index[0] if len(survey_index) == 1 else tuple(survey_index)
+        concat_id, survey_index = index[0], index[1:]
+        # Unpack tuple in case of non-multiindex survey
+        if len(survey_index) == 1:
+            survey_index = survey_index[0]
         # Guarantee, that a DataFrame is always returned, regardless of pandas behaviour.
         survey_index = slice(survey_index, survey_index)
         getattr(self, dst)[pos] = self.index.get_gather(survey_name=src, concat_id=concat_id,
