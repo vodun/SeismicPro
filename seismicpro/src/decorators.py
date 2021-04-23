@@ -39,17 +39,14 @@ def validate_gather(required_header_cols=None, required_sorting=None):
 def batch_method(*args, target="for", force=False, copy=True):
     batch_method_params = {"target": target, "force": force, "copy": copy}
 
-    if len(args) == 1 and callable(args[0]):
-        method = args[0]
-        method.batch_method_params = batch_method_params
-        return method
-
-    if len(args) > 0:
-        raise ValueError("batch_method decorator does not accept positional arguments")
-
     def decorator(method):
         method.batch_method_params = batch_method_params
         return method
+
+    if len(args) == 1 and callable(args[0]):
+        return decorator(args[0])
+    if len(args) > 0:
+        raise ValueError("batch_method decorator does not accept positional arguments")
     return decorator
 
 
