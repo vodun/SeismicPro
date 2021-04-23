@@ -179,6 +179,9 @@ class Survey:
         return self
 
     def collect_stats(self, dataset=None, n_samples=100000, quantile_precision=2, bar=True):
+        if n_samples <= 0:
+            raise ValueError("n_samples must be positive")
+
         headers = self.headers if dataset is None else dataset.index.headers
         traces_pos = headers.reset_index()['TRACE_SEQUENCE_FILE'].values
         np.random.shuffle(traces_pos)
