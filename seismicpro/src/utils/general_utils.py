@@ -52,5 +52,5 @@ def convert_mask_to_pick(mask, threshold):
                 curr_len = 0
         if curr_len > max_len:
             picking_ix = len(trace)
-        picking_array[i] = picking_ix - curr_len
+        picking_array[i] = picking_ix - max_len
     return picking_array
