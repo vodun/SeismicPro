@@ -57,16 +57,14 @@ def _apply_to_each_component(method, target, fetch_method_target):
         dst_list = to_list(dst) if dst is not None else src_list
 
         for src, dst in zip(src_list, dst_list):
-            src_target = target  # set default target
+            src_method_target = kwargs.pop("target", target)  # fetch target from passed kwargs or use default
             if fetch_method_target:  # dynamically fetch target from method attribute
                 src_type_set = {type(elem) for elem in getattr(self, src)}
                 if len(src_type_set) != 1:
                     err_msg = "Component elements must have the same type, but {} found"
                     raise ValueError(err_msg.format(", ".join([str(t) for t in src_type_set])))
-                src_target = getattr(src_type_set.pop(), method.__name__).batch_method_params["target"]
-            if "target" in kwargs:  # fetch target from passed kwargs
-                src_target = kwargs.pop("target")
-            parallel_method = inbatch_parallel(init="_init_component", target=src_target)(method)
+                src_method_target = getattr(src_type_set.pop(), method.__name__).batch_method_params["target"]
+            parallel_method = inbatch_parallel(init="_init_component", target=src_method_target)(method)
             parallel_method(self, *args, src=src, dst=dst, **kwargs)
         return self
     return decorated_method
