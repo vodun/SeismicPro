@@ -259,13 +259,14 @@ class Gather:
         return self
 
     @batch_method(target="for")
-    def plot(self):
-        kwargs = {
+    def plot(self, figsize=(10, 7), **kwargs):
+        default_kwargs = {
             'cmap': 'gray',
             'vmin': np.quantile(self.data, 0.1),
             'vmax': np.quantile(self.data, 0.9),
             'aspect': 'auto',
         }
-        plt.figure(figsize=(10, 7))
-        plt.imshow(self.data.T, **kwargs)
+        default_kwargs.update(kwargs)
+        plt.figure(figsize=figsize)
+        plt.imshow(self.data.T, **default_kwargs)
         return self
