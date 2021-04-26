@@ -104,7 +104,9 @@ class Survey:
         trace_indices = gather_headers.reset_index()[self.TRACE_ID_HEADER].values - 1
         if copy_headers:
             gather_headers = gather_headers.copy()
-        data = self.load_traces(indices=trace_indices, limits=limits, trace_length=trace_length)
+        data = np.empty((len(trace_indices), trace_length), dtype=np.float32)
+        for i, ix in enumerate(trace_indices):
+            self.load_trace(index=ix, limits=limits, trace_length=trace_length, buf=data[i])
         # TODO: slice samples in gather by limits
         gather = Gather(headers=gather_headers, data=data, survey=self)
         return gather
@@ -115,22 +117,18 @@ class Survey:
         gather = self.get_gather(index=index, limits=limits, copy_headers=copy_headers)
         return gather
 
-    def load_traces(self, indices, limits, trace_length):
-        indices = to_list(indices)
-        data = np.empty((len(indices), trace_length), dtype=np.float32)
-        for ix, index in enumerate(indices):
-            # Args for segy loader are following:
-            #   * Buffer to write trace ampltudes
-            #   * Index of loading trace
-            #   * Unknown arg (always 1)
-            #   * Unknown arg (always 1)
-            #   * Position from which to start loading the trace
-            #   * Position where to end loading
-            #   * Step
-            #   * Number of overall samples.
-            self.segy_handler.xfd.gettr(data[ix], index, 1, 1, *limits, trace_length)
-        return data
-
+    def load_trace(self, index, limits, trace_length, buf):
+        # Args for segy loader are following:
+        #   * Buffer to write trace ampltudes
+        #   * Index of loading trace
+        #   * Unknown arg (always 1)
+        #   * Unknown arg (always 1)
+        #   * Position from which to start loading the trace
+        #   * Position where to end loading
+        #   * Step
+        #   * Number of overall samples.
+        buf = self.segy_handler.xfd.gettr(buf, index, 1, 1, *limits, trace_length)
+        return buf
     def load_picking(self, path, picking_col='Picking'):
         segy_columns = ['FieldRecord', 'TraceNumber']
         picking_columns = segy_columns + [picking_col]
@@ -189,12 +187,14 @@ class Survey:
         global_min, global_max = np.inf, -np.inf
         global_sum, global_sq_sum = 0, 0
         traces_length = 0
-        traces_list = []
+        traces_buf = np.empty((n_samples, self.samples_length), dtype=np.float32)
+        trace = np.empty(self.samples_length, dtype=np.float32)
 
         # Accumulate min, max, mean and std values of survey traces
         for i, pos in tqdm(enumerate(traces_pos), desc="Calculating statistics",
                            total=len(traces_pos), disable=not bar):
-            trace = self.load_traces(pos-1, (0, self.samples_length, 1), self.samples_length)[0]
+            self.load_trace(index=pos-1, limits=(0, self.samples_length, 1),
+                            trace_length=self.samples_length, buf=trace)
             trace_min, trace_max, trace_sum, trace_sq_sum = calculate_stats(trace)
             global_min = min(trace_min, global_min)
             global_max = max(trace_max, global_max)
@@ -204,7 +204,7 @@ class Survey:
 
             # Sample random traces to calculate approximate quantiles
             if i < n_samples:
-                traces_list.append(trace)
+                traces_buf[i] = trace
 
         self.min = global_min
         self.max = global_max
@@ -212,9 +212,8 @@ class Survey:
         self.std = np.sqrt((global_sq_sum / traces_length) - (global_sum / traces_length)**2)
 
         # Calculate all q-quantiles from 0 to 1 with step 1 / 10**quantile_precision
-        traces = np.concatenate(traces_list)
         q = np.round(np.linspace(0, 1, num=10**quantile_precision), decimals=quantile_precision)
-        quantiles = np.quantile(traces, q=q)
+        quantiles = np.quantile(traces_buf.ravel(), q=q)
         # 0 and 1 quantiles are replaced with actual min and max values respectively
         quantiles[0], quantiles[-1] = global_min, global_max
         self.quantile_interpolator = interp1d(q, quantiles)
