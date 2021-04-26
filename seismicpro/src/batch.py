@@ -55,8 +55,8 @@ class SeismicBatch(Batch):
                                                           survey_index=survey_index, **kwargs)
 
     @action
-    def update_velocity_cube(self, cube, src):
-        cube.update(getattr(self, src))
+    def update_velocity_cube(self, velocity_cube, src):
+        velocity_cube.update(getattr(self, src))
         return self
 
     @action
