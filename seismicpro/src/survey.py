@@ -17,7 +17,7 @@ class Survey:
     TRACE_ID_HEADER = 'TRACE_SEQUENCE_FILE'
     DEFAULT_HEADERS = {'offset', }
 
-    def __init__(self, path, header_index, header_cols=None, name=None, collect_stats=False, **kwargs):
+    def __init__(self, path, header_index, header_cols=None, name=None, stats_limits=None, collect_stats=False, **kwargs):
         self.path = path
         basename = os.path.splitext(os.path.basename(self.path))[0]
         self.name = name if name is not None else basename
@@ -41,8 +41,13 @@ class Survey:
 
         # Get attributes from segy.
         self.sample_rate = segyio.dt(self.segy_handler) / 1000
-        self.samples = self.segy_handler.samples
-        self.samples_length = len(self.samples)
+        self.file_samples = self.segy_handler.samples
+
+        # Define samples and samples length that belongs to particular `stats_limits`.
+        self.stats_limits = None
+        self.samples = None
+        self.samples_length = None
+        self.set_limits(stats_limits)
 
         headers = {}
         for column in load_headers:
@@ -92,23 +97,33 @@ class Survey:
         self.headers = self.headers.loc[mask.values]
         return self
 
-    def get_gather(self, index=None, limits=None, copy_headers=True):
-        if not isinstance(limits, slice):
-            limits = slice(*to_list(limits))
-        limits = limits.indices(self.samples_length)
-        trace_length = len(range(*limits))
-        if trace_length == 0:
+    def set_limits(self, limits):
+        self.stats_limits = self._process_limits(limits)
+        self.samples = self.file_samples[slice(*self.stats_limits)]
+        self.samples_length = len(self.samples)
+        if self.samples_length == 0:
             raise ValueError('Trace length must be positive.')
 
+    def _process_limits(self, limits):
+        if not isinstance(limits, slice):
+            limits = slice(*to_list(limits))
+        return limits.indices(len(self.file_samples))
+
+    def get_gather(self, index=None, limits=None, copy_headers=True):
+        limits = self.stats_limits if limits is None else self._process_limits(limits)
+        samples = self.file_samples[slice(*limits)]
+        trace_length = len(samples)
+
         gather_headers = self.headers.loc[index]
-        trace_indices = gather_headers.reset_index()[self.TRACE_ID_HEADER].values - 1
         if copy_headers:
             gather_headers = gather_headers.copy()
+        trace_indices = gather_headers.reset_index()[self.TRACE_ID_HEADER].values - 1
+
         data = np.empty((len(trace_indices), trace_length), dtype=np.float32)
         for i, ix in enumerate(trace_indices):
-            self.load_trace(index=ix, limits=limits, trace_length=trace_length, buf=data[i])
+            self.load_trace(buf=data[i], index=ix, limits=limits, trace_length=trace_length)
         # TODO: slice samples in gather by limits
-        gather = Gather(headers=gather_headers, data=data, survey=self)
+        gather = Gather(headers=gather_headers, data=data, samples=samples, survey=self)
         return gather
 
     def sample_gather(self, limits=None, copy_headers=True):
@@ -117,7 +132,7 @@ class Survey:
         gather = self.get_gather(index=index, limits=limits, copy_headers=copy_headers)
         return gather
 
-    def load_trace(self, index, limits, trace_length, buf):
+    def load_trace(self, buf, index, limits, trace_length):
         # Args for segy loader are following:
         #   * Buffer to write trace ampltudes
         #   * Index of loading trace
@@ -127,8 +142,8 @@ class Survey:
         #   * Position where to end loading
         #   * Step
         #   * Number of overall samples.
-        buf = self.segy_handler.xfd.gettr(buf, index, 1, 1, *limits, trace_length)
-        return buf
+        return self.segy_handler.xfd.gettr(buf, index, 1, 1, *limits, trace_length)
+
     def load_picking(self, path, picking_col='Picking'):
         segy_columns = ['FieldRecord', 'TraceNumber']
         picking_columns = segy_columns + [picking_col]
@@ -193,7 +208,7 @@ class Survey:
         # Accumulate min, max, mean and std values of survey traces
         for i, pos in tqdm(enumerate(traces_pos), desc="Calculating statistics",
                            total=len(traces_pos), disable=not bar):
-            self.load_trace(index=pos-1, limits=(0, self.samples_length, 1),
+            self.load_trace(index=pos-1, limits=self.stats_limits,
                             trace_length=self.samples_length, buf=trace)
             trace_min, trace_max, trace_sum, trace_sq_sum = calculate_stats(trace)
             global_min = min(trace_min, global_min)

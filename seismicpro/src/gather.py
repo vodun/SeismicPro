@@ -16,11 +16,11 @@ from .velocity_cube import VelocityLaw, VelocityCube
 
 class Gather:
     """ !! """
-    def __init__(self, headers, data, survey):
+    def __init__(self, headers, data, samples, survey):
         self.headers = headers
         self.data = data
         self.survey = survey
-        self.samples = survey.samples
+        self.samples = samples
         self.sample_rate = survey.sample_rate
         self.sort_by = None
         self.mask = None
