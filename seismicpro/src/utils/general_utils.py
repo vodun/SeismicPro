@@ -43,14 +43,18 @@ def convert_mask_to_pick(mask, threshold):
         trace = mask[i]
         max_len, curr_len, picking_ix = 0, 0, 0
         for j, sample in enumerate(trace):
+            # Count length of current sequence of ones
             if sample >= threshold:
                 curr_len += 1
             else:
+                # If the new longest sequence found
                 if curr_len > max_len:
                     max_len = curr_len
                     picking_ix = j
                 curr_len = 0
+        # If the longest sequence found in the end of the trace
         if curr_len > max_len:
             picking_ix = len(trace)
+            max_len = curr_len
         picking_array[i] = picking_ix - max_len
     return picking_array
