@@ -81,7 +81,6 @@ class Gather:
 
     @batch_method(force=True)
     def dump(self, path, name=None, copy_header=False):
-        # TODO: Check does file.bin header matters?
         parent_handler = self.survey.segy_handler
 
         if name is None:
@@ -98,30 +97,32 @@ class Gather:
         spec.tracecount = len(self.data)
 
         trace_headers = self.headers.reset_index()
-        # We need to save start index in segy file in order to save correct header.
+
+        # Remember ordinal numbers of traces in parent segy to further copy their headers
+        # and reset them to start from 1 in the resulting file to match segy standard.
         trace_ids = trace_headers[self.survey.TRACE_ID_HEADER].values
-        # Select only the loaded headers from dataframe.
+        trace_headers[self.survey.TRACE_ID_HEADER] = np.arange(len(trace_headers)) + 1
+
+        # Keep only headers, relevant to segy file.
         used_header_names = set(trace_headers.columns) & set(segyio.tracefield.keys.keys())
         trace_headers = trace_headers[used_header_names]
-
-        # We need to fill this column because the trace order minght be changed during the processing.
-        trace_headers[self.survey.TRACE_ID_HEADER] = np.arange(len(trace_headers)) + 1
 
         # Now we change column name's into byte number based on the segy standard.
         trace_headers.rename(columns=lambda col_name: segyio.tracefield.keys[col_name], inplace=True)
         trace_headers_dict = trace_headers.to_dict('index')
 
         with segyio.create(full_path, spec) as dump_handler:
-            # Copy binary headers from parent segy.
+            # Copy binary headers from parent segy. This is possibly incorrect and needs to be checked
+            # if the number of traces or sample ratio changes.
+            # TODO: Check if bin headers matter
+            dump_handler.bin = parent_handler.bin
+
+            # Copy textual headers from parent segy.
             for i in range(spec.ext_headers + 1):
                 dump_handler.text[i] = parent_handler.text[i]
 
-            # This is possibly incorrect and needs to be checked when number of traces or samples ratio changes.
-            dump_handler.bin = parent_handler.bin
-
-            # Save traces and trace headers.
+            # Dump traces and their headers. Optionally copy headers from parent segy.
             dump_handler.trace = self.data
-            # Update trace headers from self.headers.
             for i, dump_h in trace_headers_dict.items():
                 if copy_header:
                     dump_handler.header[i].update(parent_handler.header[trace_ids[i]])
@@ -206,7 +207,7 @@ class Gather:
         if len(headers) != 1:
             raise ValueError("Only a single CDP gather can be stacked")
         self.headers = headers.set_index(line_cols)
-        self.headers[self.survey.TRACE_ID_HEADER] = 0
+        self.headers[self.survey.TRACE_ID_HEADER] = 1
 
         # TODO: avoid zeros in semblance calculation
         self.data[self.data == 0] = np.nan
