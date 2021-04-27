@@ -192,7 +192,7 @@ class Gather:
             velocity_model = velocity_model.get_law(self.inline, self.crossline)
         if not isinstance(velocity_model, VelocityLaw):
             raise ValueError("Only VelocityCube or VelocityLaw instances can be passed as a velocity_model")
-        velocities = velocity_model(self.samples) / 1000
+        velocities = velocity_model(self.samples) / 1000  # from m/s to m/ms
         res = []
         for time, velocity in zip(self.samples, velocities):
             res.append(Semblance.base_calc_nmo(self.data.T, time, self.offsets, velocity, self.sample_rate))
