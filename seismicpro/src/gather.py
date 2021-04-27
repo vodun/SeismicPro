@@ -219,7 +219,14 @@ class Gather:
 
     def _apply_agg_func(self, func, tracewise, **kwargs):
         axis = 1 if tracewise else None
-        return func(self.data, axis=axis, keepdims=True, **kwargs)
+        return func(self.data, axis=axis, **kwargs)
+
+    def get_quantile(self, q, tracewise=False, use_global=False):
+        if use_global:
+            return self.survey.get_quantile(q)
+        quantiles = self._apply_agg_func(func=np.quantile, tracewise=tracewise, q=q)
+        # return the same type as q in case of global calculation: either single float or array-like
+        return quantiles.item() if not tracewise and quantiles.ndim == 0 else quantiles
 
     @batch_method(target='for')
     def scale_standard(self, tracewise=True, use_global=False, eps=1e-10):
@@ -229,31 +236,30 @@ class Gather:
             mean = self.survey.mean
             std = self.survey.std
         else:
-            mean = self._apply_agg_func(func=np.mean, tracewise=tracewise)
-            std = self._apply_agg_func(func=np.std, tracewise=tracewise)
+            mean = self._apply_agg_func(func=np.mean, tracewise=tracewise, keepdims=True)
+            std = self._apply_agg_func(func=np.std, tracewise=tracewise, keepdims=True)
 
         self.data = (self.data - mean) / (std + eps)
         return self
 
-    def _get_min_max(self, q_min, q_max, tracewise, use_global):
-        if use_global:
-            min_value, max_value = self.survey.get_quantiles([q_min, q_max])
-        else:
-            min_value, max_value = self._apply_agg_func(func=np.quantile, tracewise=tracewise, q=[q_min, q_max])
-        return min_value, max_value
-
     @batch_method(target='for')
-    def scale_maxabs(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
-        min_value, max_value = self._get_min_max(q_min=q_min, q_max=q_max, tracewise=tracewise, use_global=use_global)
+    def scale_maxabs(self, q_min=0, q_max=1, tracewise=False, use_global=False, clip=False, eps=1e-10):
+        min_value, max_value = self.get_quantile([q_min, q_max], tracewise=tracewise, use_global=use_global)
         max_abs = np.maximum(np.abs(min_value), np.abs(max_value))
-        self.data /= max_abs + eps
+        # Use np.atleast_2d(array).T to make the array 2-dimentional by adding dummy trailing axes
+        # for further broadcasting to work tracewise
+        self.data /= np.atleast_2d(max_abs).T + eps
         if clip:
             self.data = np.clip(self.data, 0, 1)
         return self
 
     @batch_method(target='for')
-    def scale_minmax(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
-        min_value, max_value = self._get_min_max(q_min=q_min, q_max=q_max, tracewise=tracewise, use_global=use_global)
+    def scale_minmax(self, q_min=0, q_max=1, tracewise=False, use_global=False, clip=False, eps=1e-10):
+        min_value, max_value = self.get_quantile([q_min, q_max], tracewise=tracewise, use_global=use_global)
+        # Use np.atleast_2d(array).T to make the array 2-dimentional by adding dummy trailing axes
+        # for further broadcasting to work tracewise
+        min_value = np.atleast_2d(min_value).T
+        max_value = np.atleast_2d(max_value).T
         self.data = (self.data - min_value) / (max_value - min_value + eps)
         if clip:
             self.data = np.clip(self.data, 0, 1)
