@@ -192,12 +192,14 @@ class Survey:
         return self
 
     def collect_stats(self, dataset=None, n_samples=100000, quantile_precision=2, bar=True):
+        headers = self.headers if dataset is None else dataset.index.headers
+        traces_pos = headers.reset_index()[self.TRACE_ID_HEADER].values
+        np.random.shuffle(traces_pos)
+
         if n_samples <= 0:
             raise ValueError("n_samples must be positive")
-
-        headers = self.headers if dataset is None else dataset.index.headers
-        traces_pos = headers.reset_index()['TRACE_SEQUENCE_FILE'].values
-        np.random.shuffle(traces_pos)
+        # Clip n_samples if it's greater than the number of traces
+        n_samples = min(n_samples, len(traces_pos))
 
         global_min, global_max = np.inf, -np.inf
         global_sum, global_sq_sum = 0, 0
