@@ -1,5 +1,6 @@
 import os
 from copy import copy, deepcopy
+from textwrap import dedent
 
 import segyio
 import numpy as np
@@ -68,11 +69,42 @@ class Survey:
         self.mean = None
         self.std = None
         self.quantile_interpolator = None
+        self.n_dead_traces = None
         if collect_stats:
             self.collect_stats(**kwargs)
 
     def __del__(self):
         self.segy_handler.close()
+
+    def __str__(self):
+        offsets = self.headers.get('offset')
+        min_offset, max_offset = np.min(offsets), np.max(offsets)
+        msg = f"""
+        File name:                 {os.path.basename(self.path)}
+        Survey name:               {self.name}
+        Survey size:               {os.path.getsize(self.path) / (1024**3):4.3f} GB
+        Number of traces:          {self.headers.shape[0]}
+        Traces length:             {self.samples_length} samples
+        Sample rate:               {self.sample_rate} ms
+        Offsets range:             [{min_offset} m, {max_offset} m]
+
+        Index name(s):             {', '.join(self.headers.index.names)}
+        Number of unique indices:  {len(np.unique(self.headers.index))}
+        """
+
+        if self.has_stats:
+            msg += f"""
+        Survey statistics:
+        Number of dead traces:     {self.n_dead_traces}
+        Trace limits:              {self.stats_limits.start}:{self.stats_limits.stop}:{self.stats_limits.step} samples
+        mean | std:                {self.mean:>10.2f} | {self.std:<10.2f}
+         min | max:                {self.min:>10.2f} | {self.max:<10.2f}
+         q01 | q99:                {self.get_quantile(0.01):>10.2f} | {self.get_quantile(0.99):<10.2f}
+        """
+        return dedent(msg)
+
+    def info(self):
+        print(self)
 
     def __getstate__(self):
         state = copy(self.__dict__)
@@ -99,7 +131,7 @@ class Survey:
 
     def set_limits(self, limits):
         self.stats_limits = self._process_limits(limits)
-        self.samples = self.file_samples[slice(*self.stats_limits)]
+        self.samples = self.file_samples[self.stats_limits]
         self.samples_length = len(self.samples)
         if self.samples_length == 0:
             raise ValueError('Trace length must be positive.')
@@ -107,11 +139,12 @@ class Survey:
     def _process_limits(self, limits):
         if not isinstance(limits, slice):
             limits = slice(*to_list(limits))
-        return limits.indices(len(self.file_samples))
+        limits = limits.indices(len(self.file_samples))
+        return slice(*limits)
 
     def get_gather(self, index=None, limits=None, copy_headers=True):
         limits = self.stats_limits if limits is None else self._process_limits(limits)
-        samples = self.file_samples[slice(*limits)]
+        samples = self.file_samples[limits]
         trace_length = len(samples)
 
         gather_headers = self.headers.loc[index]
@@ -122,8 +155,7 @@ class Survey:
         data = np.empty((len(trace_indices), trace_length), dtype=np.float32)
         for i, ix in enumerate(trace_indices):
             self.load_trace(buf=data[i], index=ix, limits=limits, trace_length=trace_length)
-        # TODO: slice samples in gather by limits
-        gather = Gather(headers=gather_headers, data=data, samples=samples, survey=self)
+        gather = Gather(headers=gather_headers, data=data, limits=limits, survey=self)
         return gather
 
     def sample_gather(self, limits=None, copy_headers=True):
@@ -142,7 +174,7 @@ class Survey:
         #   * Position where to end loading
         #   * Step
         #   * Number of overall samples.
-        return self.segy_handler.xfd.gettr(buf, index, 1, 1, *limits, trace_length)
+        return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
 
     def load_picking(self, path, picking_col='Picking'):
         segy_columns = ['FieldRecord', 'TraceNumber']
@@ -204,20 +236,24 @@ class Survey:
         global_min, global_max = np.inf, -np.inf
         global_sum, global_sq_sum = 0, 0
         traces_length = 0
+        self.n_dead_traces = 0
+
         traces_buf = np.empty((n_samples, self.samples_length), dtype=np.float32)
         trace = np.empty(self.samples_length, dtype=np.float32)
 
         # Accumulate min, max, mean and std values of survey traces
         for i, pos in tqdm(enumerate(traces_pos), desc="Calculating statistics",
                            total=len(traces_pos), disable=not bar):
-            self.load_trace(index=pos-1, limits=self.stats_limits,
-                            trace_length=self.samples_length, buf=trace)
+            # Note that stats calculating only in limits defined in `self.stats_limits`
+            self.load_trace(buf=trace, index=pos-1, limits=self.stats_limits,
+                            trace_length=self.samples_length)
             trace_min, trace_max, trace_sum, trace_sq_sum = calculate_stats(trace)
             global_min = min(trace_min, global_min)
             global_max = max(trace_max, global_max)
             global_sum += trace_sum
             global_sq_sum += trace_sq_sum
             traces_length += len(trace)
+            self.n_dead_traces += np.isclose(trace_min, trace_max)
 
             # Sample random traces to calculate approximate quantiles
             if i < n_samples:

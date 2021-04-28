@@ -2,6 +2,7 @@
 import os
 import copy
 import warnings
+from textwrap import dedent
 
 import segyio
 import numpy as np
@@ -16,12 +17,12 @@ from .velocity_cube import VelocityLaw, VelocityCube
 
 class Gather:
     """ !! """
-    def __init__(self, headers, data, samples, survey):
+    def __init__(self, headers, data, limits, survey):
         self.headers = headers
         self.data = data
         self.survey = survey
-        self.samples = samples
-        self.sample_rate = survey.sample_rate
+        self.samples = survey.file_samples[limits]
+        self.sample_rate = survey.sample_rate * limits.step
         self.sort_by = None
         self.mask = None
 
@@ -32,6 +33,37 @@ class Gather:
         key = to_list(key)
         val = pd.DataFrame(value, columns=key, index=self.headers.index)
         self.headers[key] = val
+
+    def __str__(self):
+        offsets = self.headers.get('offset')
+        min_offset, max_offset = np.min(offsets), np.max(offsets)
+        index = np.unique(self.headers.index)
+        index = 'combined' if len(index) > 1 else index.item()
+        n_dead_traces = sum(np.max(self.data, axis=1) - np.min(self.data, axis=1) <= 1e-8)
+        msg = f"""
+        Gather received from Survey `{self.survey.name}`
+
+        Number of traces:            {self.data.shape[0]}
+        Trace length:                {len(self.samples)} samples
+        Sample rate:                 {self.sample_rate} ms
+        Gather range:                [{min(self.samples)} ms, {max(self.samples)} ms]
+        Offsets range:               [{min_offset} m, {max_offset} m]
+
+        Index name(s):               {', '.join(self.headers.index.names)}
+        Index:                       {index}
+
+        Gather sorting:              {self.sort_by}
+
+        Gather statistics:
+        Number of dead traces:       {n_dead_traces}
+        mean | std:                  {np.mean(self.data):>10.2f} | {np.std(self.data):<10.2f}
+         min | max:                  {np.min(self.data):>10.2f} | {np.max(self.data):<10.2f}
+         q01 | q99:                  {self.get_quantile(0.01):>10.2f} | {self.get_quantile(0.99):<10.2f}
+        """
+        return dedent(msg)
+
+    def info(self):
+        print(self)
 
     @property
     def offsets(self):
