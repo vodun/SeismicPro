@@ -1,6 +1,9 @@
+import os
 from copy import deepcopy
 from functools import reduce
+from textwrap import dedent
 
+import numpy as np
 import pandas as pd
 
 from .decorators import add_inplace_arg
@@ -12,6 +15,20 @@ class SeismicIndex(DatasetIndex):
         self.surveys_dict = None
         self.headers = None
         super().__init__(*args, **kwargs)
+
+    def __str__(self):
+        quantity_name = 'Traces quantity'
+
+        survey_names = self.surveys_dict.keys()
+        column_names = [quantity_name] + ['Survey ' + name for name in survey_names]
+        index = np.arange(max([len(values) for values in self.surveys_dict.values()]))
+        df = pd.DataFrame(columns=column_names, index=pd.Index(index, name='CONCAT_ID'))
+        df[quantity_name] = [len(self.headers.loc[i:i]) for i in index]
+
+        for col_name, sur_name in zip(column_names[1:], survey_names):
+            for ix, sur in enumerate(self.surveys_dict[sur_name]):
+                df.loc[ix, col_name] = os.path.basename(sur.path)
+        return df.to_string()
 
     def copy(self):
         return deepcopy(self)
