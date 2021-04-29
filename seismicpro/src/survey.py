@@ -80,7 +80,7 @@ class Survey:
         offsets = self.headers.get('offset')
         min_offset, max_offset = np.min(offsets), np.max(offsets)
         msg = f"""
-        File name:                 {os.path.basename(self.path)}
+        Survey path:               {self.path}
         Survey name:               {self.name}
         Survey size:               {os.path.getsize(self.path) / (1024**3):4.3f} GB
         Number of traces:          {self.headers.shape[0]}
@@ -139,7 +139,10 @@ class Survey:
     def _process_limits(self, limits):
         if not isinstance(limits, slice):
             limits = slice(*to_list(limits))
+        # Use .indices to avoid negative slicing range
         limits = limits.indices(len(self.file_samples))
+        if limits[-1] < 0:
+            raise ValueError('Negative step is not allowed.')
         return slice(*limits)
 
     def get_gather(self, index=None, limits=None, copy_headers=True):
@@ -155,11 +158,13 @@ class Survey:
         data = np.empty((len(trace_indices), trace_length), dtype=np.float32)
         for i, ix in enumerate(trace_indices):
             self.load_trace(buf=data[i], index=ix, limits=limits, trace_length=trace_length)
-        gather = Gather(headers=gather_headers, data=data, limits=limits, survey=self)
+
+        samples = self.file_samples[limits]
+        sample_rate = self.sample_rate * limits.step
+        gather = Gather(headers=gather_headers, data=data, samples=samples, sample_rate=sample_rate, survey=self)
         return gather
 
     def sample_gather(self, limits=None, copy_headers=True):
-        # TODO: write normal sampler here
         index = np.random.choice(self.headers.index)
         gather = self.get_gather(index=index, limits=limits, copy_headers=copy_headers)
         return gather

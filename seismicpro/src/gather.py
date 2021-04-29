@@ -17,12 +17,12 @@ from .velocity_cube import VelocityLaw, VelocityCube
 
 class Gather:
     """ !! """
-    def __init__(self, headers, data, limits, survey):
+    def __init__(self, headers, data, samples, sample_rate, survey):
         self.headers = headers
         self.data = data
+        self.samples = samples
+        self.sample_rate = sample_rate
         self.survey = survey
-        self.samples = survey.file_samples[limits]
-        self.sample_rate = survey.sample_rate * limits.step
         self.sort_by = None
         self.mask = None
 
@@ -35,23 +35,29 @@ class Gather:
         self.headers[key] = val
 
     def __str__(self):
+        # Calculating offset range
         offsets = self.headers.get('offset')
         min_offset, max_offset = np.min(offsets), np.max(offsets)
+
+        # Determining index value
         index = np.unique(self.headers.index)
         index = 'combined' if len(index) > 1 else index.item()
-        n_dead_traces = sum(np.max(self.data, axis=1) - np.min(self.data, axis=1) <= 1e-8)
+
+        # Counting the number of zero/constant traces
+        n_dead_traces = np.isclose(np.max(self.data, axis=1), np.min(self.data, axis=1)).sum()
+
         msg = f"""
-        Gather received from Survey `{self.survey.name}`
+        Parent survey path:          {self.survey.path}
+        Parent survey name:          {self.survey.name}
 
         Number of traces:            {self.data.shape[0]}
         Trace length:                {len(self.samples)} samples
         Sample rate:                 {self.sample_rate} ms
-        Gather range:                [{min(self.samples)} ms, {max(self.samples)} ms]
+        Times range:                 [{min(self.samples)} ms, {max(self.samples)} ms]
         Offsets range:               [{min_offset} m, {max_offset} m]
 
         Index name(s):               {', '.join(self.headers.index.names)}
-        Index:                       {index}
-
+        Index value:                 {index}
         Gather sorting:              {self.sort_by}
 
         Gather statistics:
