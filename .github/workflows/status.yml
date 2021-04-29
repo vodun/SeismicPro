@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
 
     container:
-      image: analysiscenter1/ds-py3:lastest
+      image: analysiscenter1/ds-py3:latest
 
     steps:
     - uses: actions/checkout@v1
