@@ -123,10 +123,11 @@ class Gather:
 
         if name is None:
             name = "_".join(map(str, [self.survey.name] + to_list(self.index)))
-        if os.path.splitext(name)[1] == "":
+        if not os.path.splitext(name)[1]:
             name += '.sgy'
         full_path = os.path.join(path, name)
 
+        os.makedirs(path, exist_ok=True)
         # Create segyio spec. We choose only specs that relate to unstructured data.
         spec = segyio.spec()
         spec.samples = self.samples
