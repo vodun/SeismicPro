@@ -1,7 +1,7 @@
 """ File with gather class. """
 import os
-import copy
 import warnings
+from copy import deepcopy
 from textwrap import dedent
 
 import segyio
@@ -112,7 +112,7 @@ class Gather:
     def copy(self):
         survey = self.survey
         self.survey = None
-        self_copy = copy.deepcopy(self)
+        self_copy = deepcopy(self)
         self_copy.survey = survey
         self.survey = survey
         return self_copy
