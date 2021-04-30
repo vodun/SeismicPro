@@ -6,8 +6,8 @@ import os
 import warnings
 import argparse
 
-from .decon import DeconQC #calc_acf, calc_ac_params, calc_fx_corr
-from .utils import parse_tuple#, plot_metrics, calc_range,
+from seismicpro.qc.decon import DeconQC #calc_acf, calc_ac_params, calc_fx_corr
+from seismicpro.qc.utils import parse_tuple#, plot_metrics, calc_range,
 
 if __name__ == "__main__":
     warnings.simplefilter(action='ignore', category=FutureWarning)

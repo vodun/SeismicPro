@@ -3,9 +3,11 @@
 import numpy as np
 from numba import njit, float32
 
-from .utils import plot_metrics, calc_range
+from .utils import calc_range, plot_metrics, plot_slice
 from .base import BaseQC
 
+# pylint: disable=wrong-import-order
+# sys.path.append('..')
 from seismiqb import SeismicGeometry, GeometryMetrics
 
 
@@ -19,16 +21,10 @@ class DeconQC(BaseQC):
         self._gma = None
         self._acf_data = None
         self._fx_data = None
-        self._fig = None
+        self._acf_fig = None
+        self._fx_fig = None
         self._sr = None
         self._plot_dict = None
-
-    @property
-    def data(self):
-        """ .!! """
-        if self._acf_data is not None and self._fx_data is not None:
-            return np.concatenate((self._acf_data, self._fx_data), axis=-1)
-        return None
 
     def load(self, path_before, path_after):
         """ .!! """
@@ -48,37 +44,37 @@ class DeconQC(BaseQC):
         """ .!! """
         self.load(path_before, path_after)
         self.calc_data(heights, fwindows, **kwargs)
-        self._fig = plot_metrics(self.data, **self._plot_dict, xlabel='', ylabel='')
+        self._acf_fig = plot_metrics(**self._acf_data, xlabel='', ylabel='')
+        self._fx_fig = plot_metrics(**self._fx_data, xlabel='', ylabel='')
 
     def calc_data(self, heights, fwindows, **kwargs):
         """ .!! """
-        self._acf_data, acf_plot_params = self.run_acf(heights)
-        self._fx_data, fx_plot_params = self.run_fx(heights, fwindows, **kwargs)
-        names = ['titles', 'cmaps', 'vmins', 'vmaxs']
-        vals = [np.concatenate((p1, p2)) for p1, p2 in zip(acf_plot_params, fx_plot_params)]
-        self._plot_dict = dict(zip(names, vals))
+        self._acf_data = self.run_acf(heights)
+        self._fx_data = self.run_fx(heights, fwindows, **kwargs)
 
     def save_plot(self, path):
         """ .!! """
-        self._fig.savefig(path, bbox_inches='tight', pad_inches=0)
+        path, ext = os.path.splitext(path)
+        self._acf_fig.savefig(path+'_acf'+ext, bbox_inches='tight', pad_inches=0)
+        self._fx_fig.savefig(path+'_fx'+ext, bbox_inches='tight', pad_inches=0)
 
     def run_acf(self, heights):
-        """ Plot a map of ACF deconvolution QC and save it. """
+        """ .!! """
 
-        metric_b = self._gmb.evaluate('tracewise', func=calc_ac_params, l=4, agg=lambda x: x,
+        metric_b = self._gmb.evaluate('tracewise', func=calc_ac_params, l=4,
                                       num_shifts=100, heights=heights, plot=False)
-        metric_a = self._gma.evaluate('tracewise', func=calc_ac_params, l=4, agg=lambda x: x,
+        metric_a = self._gma.evaluate('tracewise', func=calc_ac_params, l=4,
                                       num_shifts=100, heights=heights, plot=False)
         diff = metric_a - metric_b
 
         titles = ['Width', 'Minima', 'Maxima', 'Energy']
-        cmaps = ['seismic', 'seismic_r', 'seismic', 'seismic']
+        cmaps = ['RdYlGn_r', 'RdYlGn', 'RdYlGn_r', 'RdYlGn_r']
         vmins, vmaxs = calc_range(diff)
-        plot_dict = (titles, cmaps, vmins, vmaxs)
-        return diff, plot_dict
+        acf_data = dict(imgs=diff, titles=titles, cmaps=cmaps, vmins=vmins, vmaxs=vmaxs)
+        return acf_data
 
     def run_fx(self, heights, fwindows, kernel=(5, 5), block_size=(1000, 1000)):
-        """  Plot a map of FX deconvolution QC and save it. """
+        """ .!! """
 
         fwindows = tuple(zip(fwindows[::2], fwindows[1::2]))
         freqs = np.fft.rfftfreq(heights[1] - heights[0], d=self._sr / 1000)
@@ -90,19 +86,19 @@ class DeconQC(BaseQC):
         def prep_func(arr):
             return np.abs(np.fft.rfft(arr, axis=-1))
 
-        fx_b = self._gmb.evaluate('blockwise', func=calc_fx_corr, l=4, agg=lambda x: x, kernel=kernel,
+        fx_b = self._gmb.evaluate('blockwise', func=calc_fx_corr, l=4, kernel=kernel,
                                   block_size=block_size, heights=heights, freq_windows=freq_windows,
                                   prep_func=prep_func, plot=False)
-        fx_a = self._gma.evaluate('blockwise', func=calc_fx_corr, l=4, agg=lambda x: x, kernel=kernel,
+        fx_a = self._gma.evaluate('blockwise', func=calc_fx_corr, l=4, kernel=kernel,
                                   block_size=block_size, heights=heights, freq_windows=freq_windows,
                                   prep_func=prep_func, plot=False)
         diff = fx_a - fx_b
 
         titles = ['{}-{} Hz'.format(*fw) for fw in fwindows]
-        cmaps = ['seismic_r'] * n_plots
+        cmaps = ['RdYlGn'] * n_plots
         vmins, vmaxs = calc_range(diff)
-        plot_dict = (titles, cmaps, vmins, vmaxs)
-        return diff, plot_dict
+        fx_data = dict(imgs=diff, titles=titles, cmaps=cmaps, vmins=vmins, vmaxs=vmaxs)
+        return fx_data
 
 
 class SliceDeconQC(BaseQC):
@@ -114,16 +110,9 @@ class SliceDeconQC(BaseQC):
         self._geometries = None
         self._acf_data = None
         self._fx_data = None
-        self._fig = None
+        self._acf_fig = None
+        self._fx_fig = None
         self._sr = None
-        self._plot_dict = None
-
-    @property
-    def data(self):
-        """ .!! """
-        if self._acf_data is not None and self._fx_data is not None:
-            return np.concatenate((self._acf_data, self._fx_data), axis=-1)
-        return None
 
     def load(self, path_before, path_after):
         """ .!! """
@@ -132,41 +121,61 @@ class SliceDeconQC(BaseQC):
             geom_b = SeismicGeometry(path_before, index=SeismicGeometry.INDEX_POST, collect_stats=False, spatial=False,
                                      headers=SeismicGeometry.HEADERS_PRE_FULL + SeismicGeometry.HEADERS_POST_FULL)
             self._sr = geom_b.sample_rate
+        else:
+            geom_b = self._geometries[0]
+
         if path_after != self._path_after:
             self._path_after = path_after
             geom_a = SeismicGeometry(path_after, index=SeismicGeometry.INDEX_POST, collect_stats=False, spatial=False,
                                      headers=SeismicGeometry.HEADERS_PRE_FULL + SeismicGeometry.HEADERS_POST_FULL)
+        else:
+            geom_a = self._geometries[1]
         self._geometries = [geom_b, geom_a]
 
-    def plot(self, path_before, path_after, heights, fwindows, **kwargs):
+    def plot(self, path_before, path_after, heights, **kwargs):
         """ .!! """
         self.load(path_before, path_after)
-        self.calc_data(heights, fwindows, **kwargs)
-        self._fig = plot_metrics(self.data, **self._plot_dict)
+        self.calc_data(heights, **kwargs)
+        self._acf_fig = plot_slice(**self._acf_data)
+        self._fx_fig = plot_slice(**self._fx_data)
 
     def calc_data(self, heights, axis, loc, max_freq):
         """ .!! """
         traces = np.stack([g.load_slide(loc=loc, axis=axis)[:, slice(*heights)].T for g in self._geometries], axis=-1)
         traces = np.asfortranarray(traces)
-
         # FX calculations
         freq = np.fft.rfftfreq(traces.shape[0], d=self._sr / 1000)
         fxs = np.abs(np.fft.rfft(traces, axis=0))[freq < max_freq, ...]
         _, vmaxs = calc_range(fxs)
-        self._fx_data = fxs / vmaxs
-        # extent = [0, self._fx_data.shape[1], max_freq, 0]
-
+        fx_data = fxs / vmaxs
+        fx_extent = [0, fx_data.shape[1], max_freq, 0]
         # ACF calculations
-        self._acf_data = np.apply_along_axis(calc_acf, 0, traces)
+        acf_data = np.apply_along_axis(calc_acf, 0, traces)
 
         # Plotting params
-        self._plot_dict = dict(
-            titles = ['ACF before', 'ACF after', 'FX before', 'FX after'],
-            cmaps = ['seismic']*4,
-            vmins = [-1e-10]*2 + [-1]*2,
-            vmaxs = [1]*4,
-            ylabel = ['Shift, samples']*2 + ['Frequency, Hz']*2,
-            xlabel = ['']*4)
+        _acf_plot_dict = dict(
+            titles = ['ACF before', 'ACF after'],
+            cmaps = ['seismic']*2,
+            vmins = [-1]*2,
+            vmaxs = [1]*2,
+            ylabel = 'Shift, samples',
+            xlabel = '',
+            aspect = 'auto',
+            )
+
+        _fx_plot_dict = dict(
+            titles = ['FX before', 'FX after'],
+            cmaps = ['seismic']*2,
+            vmins = [-1e-10]*2,
+            vmaxs = [1]*2,
+            ylabel = 'Frequency, Hz',
+            xlabel = '',
+            extent = fx_extent,
+            aspect = 'auto',
+            )
+
+        self._acf_data = dict(imgs=acf_data, **_acf_plot_dict)
+        self._fx_data = dict(imgs=fx_data, **_fx_plot_dict)
 
 ######################## Support functions ########################
 

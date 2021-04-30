@@ -1,7 +1,10 @@
 """File contains seismic dataset."""
 import numpy as np
 from scipy.optimize import minimize
-from tdigest import TDigest
+try:
+    from tdigest import TDigest
+except ImportError:
+    pass
 
 from ..batchflow import Dataset
 from .seismic_index import FieldIndex
