@@ -228,8 +228,10 @@ class Survey:
         self.headers.sort_index(inplace=True)
         return self
 
-    def collect_stats(self, dataset=None, n_samples=100000, quantile_precision=2, bar=True):
-        headers = self.headers if dataset is None else dataset.index.headers
+    def collect_stats(self, indices=None, n_samples=100000, quantile_precision=2, bar=True):
+        headers = self.headers
+        if indices is not None:
+            headers = headers.loc[indices]
         traces_pos = headers.reset_index()[self.TRACE_ID_HEADER].values
         np.random.shuffle(traces_pos)
 
