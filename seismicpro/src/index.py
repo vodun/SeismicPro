@@ -12,10 +12,10 @@ from ..batchflow import DatasetIndex
 
 
 class SeismicIndex(DatasetIndex):
-    def __init__(self, **kwargs):
+    def __init__(self, index=None, surveys=None, mode=None, **kwargs):
         self.headers = None
         self.surveys_dict = None
-        super().__init__(**kwargs)
+        super().__init__(index=index, surveys=surveys, mode=mode, **kwargs)
 
     @property
     def next_concat_id(self):

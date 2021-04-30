@@ -6,10 +6,10 @@ from ..batchflow import Dataset
 
 
 class SeismicDataset(Dataset):
-    def __init__(self, index=None, batch_class=SeismicBatch, preloaded=None, copy=True, **kwargs):
+    def __init__(self, index=None, surveys=None, mode=None, batch_class=SeismicBatch, **kwargs):
         if index is None:
-            index = SeismicIndex(**kwargs)
-        super().__init__(index, batch_class=batch_class, preloaded=preloaded, copy=copy, **kwargs)
+            index = SeismicIndex(surveys=surveys, mode=mode, **kwargs)
+        super().__init__(index, batch_class=batch_class, **kwargs)
 
     def create_subset(self, index):
         if isinstance(index, SeismicIndex) and isinstance(self.index, SeismicIndex):
