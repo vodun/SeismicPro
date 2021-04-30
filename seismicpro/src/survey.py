@@ -151,6 +151,10 @@ class Survey:
         trace_length = len(samples)
 
         gather_headers = self.headers.loc[index]
+        # pd.loc returns pd.Series if index is unique, we use slice to receive DataFrame.
+        if isinstance(gather_headers, pd.Series):
+            gather_headers = self.headers.loc[index:index]
+
         if copy_headers:
             gather_headers = gather_headers.copy()
         trace_indices = gather_headers.reset_index()[self.TRACE_ID_HEADER].values - 1
@@ -195,7 +199,7 @@ class Survey:
         if headers.empty:
             raise ValueError('Empty headers after picking loading.')
         headers.set_index(self.headers.index.names, inplace=True)
-        self.headers = headers.sort_index()
+_index()
         return self
 
     @add_inplace_arg
