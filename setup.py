@@ -29,6 +29,7 @@ setup(
         'scipy>=1.5.2',
         'segyio>=1.9.5',
         'tdigest>=0.5.2.2',
+        'opencv_python>=4.5.1'
         'tqdm>=4.56.0',
         'batchflow @ git+https://github.com/analysiscenter/batchflow.git@9823f369#egg=batchflow',
     ],
