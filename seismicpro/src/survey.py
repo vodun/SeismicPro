@@ -249,7 +249,7 @@ class Survey:
         trace = np.empty(self.samples_length, dtype=np.float32)
 
         # Accumulate min, max, mean and std values of survey traces
-        for i, pos in tqdm(enumerate(traces_pos), desc="Calculating statistics",
+        for i, pos in tqdm(enumerate(traces_pos), desc=f"Calculating statistics for survey {self.name}",
                            total=len(traces_pos), disable=not bar):
             # Note that stats calculating only in limits defined in `self.stats_limits`
             self.load_trace(buf=trace, index=pos-1, limits=self.stats_limits,
