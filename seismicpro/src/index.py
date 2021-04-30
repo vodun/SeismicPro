@@ -22,18 +22,38 @@ class SeismicIndex(DatasetIndex):
         return max(len(surveys) for surveys in self.surveys_dict.values())
 
     def __str__(self):
-        quantity_name = 'Traces quantity'
+        headers_groupby = self.headers.groupby(level=0)
+        df = headers_groupby.size().to_frame(name='Number of Traces')
+        df['Unique Index'] = headers_groupby.apply(lambda grouped_df:len(grouped_df.groupby(level=1)))
 
-        survey_names = self.surveys_dict.keys()
-        column_names = [quantity_name] + ['Survey ' + name for name in survey_names]
-        index = np.arange(max([len(values) for values in self.surveys_dict.values()]))
-        df = pd.DataFrame(columns=column_names, index=pd.Index(index, name='CONCAT_ID'))
-        df[quantity_name] = [len(self.headers.loc[i:i]) for i in index]
-
-        for col_name, sur_name in zip(column_names[1:], survey_names):
+        for sur_name in self.surveys_dict.keys():
             for ix, sur in enumerate(self.surveys_dict[sur_name]):
-                df.loc[ix, col_name] = os.path.basename(sur.path)
-        return df.to_string()
+                val = os.path.basename(sur.path) if sur is not None else None
+                df.loc[ix, 'Survey '+sur_name] = val
+
+        split_names = ['train', 'test', 'validation']
+        split_indices = [(getattr(self, name), name) for name in split_names if getattr(self, name) is not None]
+        msg = f"""
+        Index name(s):             {', '.join(self.headers.index.names)}
+
+        Number of traces:          {np.nansum(df['Number of Traces'])}
+        Number of unique indices:  {np.nansum(df['Unique Index'])}
+
+        Is split:                  {any(split_indices)}
+
+        The table describes surveys contained in the index:
+        """
+        sub_msg = ""
+        for index, name in split_indices:
+            sub_msg += dedent(f"""\n\n
+            {'_'*79}
+            Index for {name} dataset.
+            """) + str(getattr(self, name))
+
+        return dedent(msg) + df.to_string() + sub_msg
+
+    def info(self):
+        print(self)
 
     #------------------------------------------------------------------------#
     #                         Index creation methods                         #
