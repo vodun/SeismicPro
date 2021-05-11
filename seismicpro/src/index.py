@@ -1,7 +1,7 @@
 import os
 from copy import deepcopy
 from functools import reduce
-from textwrap import dedent
+from textwrap import dedent, indent
 
 import numpy as np
 import pandas as pd
@@ -21,36 +21,42 @@ class SeismicIndex(DatasetIndex):
     def next_concat_id(self):
         return max(len(surveys) for surveys in self.surveys_dict.values())
 
-    def __str__(self):
-        headers_groupby = self.headers.groupby(level=0)
-        df = headers_groupby.size().to_frame(name='Number of Traces')
-        df['Unique Index'] = headers_groupby.apply(lambda grouped_df:len(grouped_df.groupby(level=1)))
+    def _get_index_info(self, indents, prefix):
+        groupped_headers = self.headers.index.to_frame(index=False).groupby(by="CONCAT_ID")
+        data = [[name, len(group), len(group.drop_duplicates())] for name, group in groupped_headers]
+        info_df = pd.DataFrame.from_records(data, columns=["CONCAT_ID", "Num Traces", "Num Gathers"],
+                                            index='CONCAT_ID')
 
         for sur_name in self.surveys_dict.keys():
             for ix, sur in enumerate(self.surveys_dict[sur_name]):
-                val = os.path.basename(sur.path) if sur is not None else None
-                df.loc[ix, 'Survey '+sur_name] = val
+                file_name = os.path.basename(sur.path) if sur is not None else None
+                info_df.loc[ix, 'Survey ' + sur_name] = file_name
 
         split_names = ['train', 'test', 'validation']
         split_indices = [(getattr(self, name), name) for name in split_names if getattr(self, name) is not None]
+
         msg = f"""
+        {prefix} info:
+
+
         Index name(s):             {', '.join(self.headers.index.names)}
-
-        Number of traces:          {np.nansum(df['Number of Traces'])}
-        Number of unique indices:  {np.nansum(df['Unique Index'])}
-
+        Number of traces:          {np.nansum(info_df["Num Traces"])}
+        Number of gathers:         {np.nansum(info_df["Num Gathers"])}
         Is split:                  {any(split_indices)}
+
 
         The table describes surveys contained in the index:
         """
-        sub_msg = ""
-        for index, name in split_indices:
-            sub_msg += dedent(f"""\n\n
-            {'_'*79}
-            Index for {name} dataset.
-            """) + str(getattr(self, name))
+        msg = dedent(msg) + info_df.to_string()
 
-        return dedent(msg) + df.to_string() + sub_msg
+        nested_indices_msg = ""
+        for index, name in split_indices:
+            index_msg = index._get_index_info(indents=indents + '    ', prefix=prefix + '.' + name)
+            nested_indices_msg += f"\n\n{'_'*79}\n" + index_msg
+        return indent(msg, indents) + nested_indices_msg
+
+    def __str__(self):
+        return self._get_index_info(indents='', prefix="index")
 
     def info(self):
         print(self)
