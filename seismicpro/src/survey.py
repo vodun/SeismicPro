@@ -199,7 +199,7 @@ class Survey:
         if headers.empty:
             raise ValueError('Empty headers after picking loading.')
         headers.set_index(self.headers.index.names, inplace=True)
-_index()
+        self.headers = headers.sort_index()
         return self
 
     @add_inplace_arg
