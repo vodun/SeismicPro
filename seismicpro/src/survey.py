@@ -151,7 +151,7 @@ class Survey:
         trace_length = len(samples)
 
         gather_headers = self.headers.loc[index]
-        # pd.loc returns pd.Series if index is unique, we use slice to receive DataFrame.
+        # loc may sometimes return Series. In such cases slicing is used to guarantee, that DataFrame is returned
         if isinstance(gather_headers, pd.Series):
             gather_headers = self.headers.loc[index:index]
 
