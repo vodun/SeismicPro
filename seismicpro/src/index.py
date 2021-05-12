@@ -48,12 +48,12 @@ class SeismicIndex(DatasetIndex):
 
         The table describes surveys contained in the index:
         """
-        msg = dedent(msg) + info_df.to_string()
+        msg = dedent(msg) + info_df.to_string() + '\n'
 
         nested_indices_msg = ""
         for index, name in split_indices:
             index_msg = index._get_index_info(indents=indents + '    ', prefix=prefix + '.' + name)
-            nested_indices_msg += f"\n\n{'_'*79}\n" + index_msg
+            nested_indices_msg += f"\n{'_'*79}" + index_msg
         return indent(msg, indents) + nested_indices_msg
 
     def __str__(self):
