@@ -31,6 +31,7 @@ class SeismicIndex(DatasetIndex):
             for ix, sur in enumerate(self.surveys_dict[sur_name]):
                 file_name = os.path.basename(sur.path) if sur is not None else None
                 info_df.loc[ix, 'Survey ' + sur_name] = file_name
+        info_df.sort_index(inplace=True)
 
         split_names = ['train', 'test', 'validation']
         split_indices = [(getattr(self, name), name) for name in split_names if getattr(self, name) is not None]
