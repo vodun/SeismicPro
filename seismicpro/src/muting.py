@@ -3,7 +3,7 @@ from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
 
 
-class BaseMuting:
+class BaseMuter:
     def create_mask(self, trace_len, offsets, sample_rate):
         time_ixs = (self.get_time(offsets) / sample_rate).astype(np.int32) # from ms to samples
         time_ixs = np.clip(time_ixs, 0, trace_len)
@@ -13,21 +13,21 @@ class BaseMuting:
         raise NotImplementedError
 
 
-class PickingMuting(BaseMuting):
-    def __init__(self, times, offsets, add_velocity=0):
+class FirstBreakMuter(BaseMuter):
+    def __init__(self, times, offsets, velocity_shift=0):
         times = np.array(times, dtype=np.int32)
-        add_velocity = add_velocity / 1000 # from m/s to m/ms
+        velocity_shift = velocity_shift / 1000 # from m/s to m/ms
         lin_reg = LinearRegression(fit_intercept=True)
         lin_reg.fit(times.reshape(-1, 1), offsets)
         # If one wants to mute below given points, the found velocity reduces by given indent.
         self.intercept = lin_reg.intercept_
-        self.velocity = lin_reg.coef_ - add_velocity
+        self.velocity = lin_reg.coef_ - velocity_shift
 
     def get_time(self, offsets):
         return (offsets - self.intercept) / self.velocity # ms
 
 
-class Muting(BaseMuting):
+class InterpolationMuter(BaseMuter):
     def __init__(self, path=None, points=None, fill_value='extrapolate'):
         if path is not None:
             points = self.load_muting(path)
