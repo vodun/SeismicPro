@@ -28,7 +28,7 @@ class PickingMuting(BaseMuting):
 
 
 class Muting(BaseMuting):
-    def __init__(self, path=None, points=None, bias=None, fill_value='extrapolate'):
+    def __init__(self, path=None, points=None, fill_value='extrapolate'):
         if path is not None:
             points = self.load_muting(path)
         if points is None:
@@ -40,6 +40,7 @@ class Muting(BaseMuting):
         return self.interp_func(offsets) # ms
 
     def load_muting(self, path):
-        muting = path
-        # some loading process
-        return muting
+        with open(path) as p:
+            lines = p.readlines()[1:]
+            coords = np.array(''.join(lines).split(), dtype=np.int32)
+        return np.array([coords[1::2], coords[::2]]).T
