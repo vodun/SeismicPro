@@ -3,22 +3,21 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from numba import njit, prange
-from scipy.interpolate import interp1d
 from matplotlib import colors as mcolors
 
 from .utils import set_ticks
 from .decorators import batch_method
-from .velocity_model import calc_velocity_model
-from .velocity_cube import VelocityLaw
+from .velocity_model import calculate_stacking_velocity
+from .velocity_cube import StackingVelocity
 
 
-def use_docs_from(method_from):
-    """ Decorator that adds the documentation from a `method_from` to `method_to`.
+def append_docs_from(method_from):
+    """Append the docstring of `method_from` to `method_to`.
 
     Parameters
     ----------
     method_from : function or Class
-    An instance to get documentation from.
+        An instance to get documentation from.
 
     Returns
     -------
@@ -27,8 +26,7 @@ def use_docs_from(method_from):
     """
     def decorator(method_to):
         """ Returned decorator. """
-        from_name = method_from.__qualname__
-        message = '|  For clarity, the docstrings of the `{}` are shown below.  |'.format(from_name)
+        message = f'|  For clarity, the docstrings of the `{method_from.__qualname__}` are shown below.  |'
         line = '\n' + '-' * len(message) + '\n'
         support_string = line + message + line
         method_to.__doc__ += support_string + method_from.__doc__
@@ -57,22 +55,35 @@ class BaseSemblance:
         Window size for smoothing the semblance.
         Measured in samples.
     """
-    def __init__(self, gather, times, offsets, win_size):
-        self._gather = np.ascontiguousarray(gather.T)
-        self._times = times # ms
-        self._offsets = offsets # m
-        self._sample_rate = self._times[1] - self._times[0]
-        self._win_size = win_size
+    def __init__(self, gather, win_size):
+        self.gather = gather
+        self.gather_data = np.ascontiguousarray(gather.data.T)
+        self.win_size = win_size
+
+    @property
+    def times(self):
+        return self.gather.times  # ms
+
+    @property
+    def sample_rate(self):
+        return self.gather.sample_rate  # ms
+
+    @property
+    def offsets(self):
+        return self.gather.offsets  # m
+
+    def get_coords(self, coords_columns="index"):
+        return self.gather.get_coords(coords_columns)
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def base_calc_semblance(calc_nmo_func, gather, times, offsets, velocity, sample_rate, # pylint: disable=too-many-arguments
-                            win_size, t_min, t_max):
+    def calc_single_velocity_semblance(nmo_func, gather_data, times, offsets, velocity, sample_rate, win_size,
+                                       t_min_ix, t_max_ix):  # pylint: disable=too-many-arguments
         """ Calculate semblance for specified velocity in the preset time window from `t_min` to `t_max`.
 
         Parameters
         ----------
-        calc_nmo_func : njitted callable
+        nmo_func : njitted callable
             Callable that calculates normal moveout corrected gather for specified time and velocity values
             and range of offsets.
         gather : np.ndarray
@@ -100,28 +111,27 @@ class BaseSemblance:
         slice_semblance : 1d array
             Semblance values for a specified `veloicty` in time range from `t_min` to `t_max`.
         """
-        t_win_size_min = max(0, t_min - win_size)
-        t_win_size_max = min(len(times) - 1, t_max + win_size)
+        t_win_size_min_ix = max(0, t_min_ix - win_size)
+        t_win_size_max_ix = min(len(times) - 1, t_max_ix + win_size)
 
-        nmo = np.empty((t_win_size_max - t_win_size_min + 1, gather.shape[1]))
-        for i in prange(t_win_size_min, t_win_size_max):
-            nmo[i - t_win_size_min] = calc_nmo_func(gather, times[i], offsets, velocity, sample_rate)
+        corrected_gather = np.empty((t_win_size_max_ix - t_win_size_min_ix + 1, gather_data.shape[1]))
+        for i in prange(t_win_size_min_ix, t_win_size_max_ix):
+            corrected_gather[i - t_win_size_min_ix] = nmo_func(gather_data, times[i], offsets, velocity, sample_rate)
 
-        numerator = np.sum(nmo, axis=1)**2
-        denominator = np.sum(nmo**2, axis=1)
-        slice_semblance = np.zeros(t_max-t_min)
-        for t in prange(t_min, t_max):
-            t_rel = t - t_win_size_min
+        numerator = np.sum(corrected_gather, axis=1)**2
+        denominator = np.sum(corrected_gather**2, axis=1)
+        semblance_slice = np.zeros(t_max_ix - t_min_ix)
+        for t in prange(t_min_ix, t_max_ix):
+            t_rel = t - t_win_size_min_ix
             ix_from = max(0, t_rel - win_size)
-            ix_to = min(len(nmo) - 1, t_rel + win_size)
-            slice_semblance[t-t_min] = (np.sum(numerator[ix_from : ix_to]) /
-                                        (len(offsets) * np.sum(denominator[ix_from : ix_to])
-                                         + 1e-6))
-        return slice_semblance
+            ix_to = min(len(corrected_gather) - 1, t_rel + win_size)
+            semblance_slice[t - t_min_ix] = (np.sum(numerator[ix_from : ix_to]) /
+                                             (len(offsets) * np.sum(denominator[ix_from : ix_to]) + 1e-6))
+        return semblance_slice
 
     @staticmethod
     @njit(nogil=True, fastmath=True)
-    def base_calc_nmo(gather, time, offsets, velocity, sample_rate):
+    def apply_nmo(gather_data, time, offsets, velocity, sample_rate):
         r""" Default approach for normal moveout computation for single hodograph. Corrected gather calculates
         as following:
         :math:`t_c = \sqrt{t^2 + \frac{l^2}{v^2}}`, where
@@ -152,12 +162,14 @@ class BaseSemblance:
         corrected_times = (np.sqrt(time**2 + offsets**2/velocity**2) / sample_rate).astype(np.int32)
         for i in range(len(offsets)):
             corrected_time = corrected_times[i]
-            if corrected_time < len(gather):
-                corrected_gather[i] = gather[corrected_time, i]
+            if corrected_time < len(gather_data):
+                corrected_gather[i] = gather_data[corrected_time, i]
         return corrected_gather
 
-    def plot(self, semblance, ticks_range_x, ticks_range_y, xlabel='', title='', figsize=(15, 12), # pylint: disable=too-many-arguments
-             fontsize=11, grid=None, x_points=None, y_points=None, save_to=None, dpi=300, **kwargs):
+    @staticmethod
+    def plot(semblance, ticks_range_x, ticks_range_y, xlabel, title=None,  # pylint: disable=too-many-arguments
+             figsize=(15, 12), fontsize=11, grid=None, stacking_times_ix=None, stacking_velocities_ix=None,
+             save_to=None, dpi=300, **kwargs):
         """ Base plotter for vertical velocity semblance. The plotter adds level lines, colors the graph, signs axes
         and values, also draw a stacking velocity, if specified (via `x_points` and `y_points`).
 
@@ -192,18 +204,16 @@ class BaseSemblance:
         ----
         1. Kwargs passed into the :func:`.set_ticks`.
         """
-        # Split range of semblance amplitudes on 16 discrete levels. Arguable approach, but
-        # we find the result based on these levels the most attractive.
+        # Split the range of semblance amplitudes into 16 levels on a log scale,
+        # that will further be used as colormap bins
         max_val = np.max(semblance)
-        levels = (np.logspace(0, 1, num=16, base=500)/500) * max_val
+        levels = (np.logspace(0, 1, num=16, base=500) / 500) * max_val
         levels[0] = 0
-        xlist = np.arange(0, semblance.shape[1])
-        ylist = np.arange(0, semblance.shape[0])
-        x_grid, y_grid = np.meshgrid(xlist, ylist)
 
-        # Add the level lines and colorize the graph.
+        # Add level lines and colorize the graph
         fig, ax = plt.subplots(figsize=figsize)
         norm = mcolors.BoundaryNorm(boundaries=levels, ncolors=256)
+        x_grid, y_grid = np.meshgrid(np.arange(0, semblance.shape[1]), np.arange(0, semblance.shape[0]))
         ax.contour(x_grid, y_grid, semblance, levels, colors='k', linewidths=.5, alpha=.5)
         img = ax.imshow(semblance, norm=norm, aspect='auto', cmap='seismic')
         fig.colorbar(img, ticks=levels[1::2])
@@ -211,17 +221,15 @@ class BaseSemblance:
         ax.set_xlabel(xlabel)
         ax.set_ylabel('Time')
 
-        if title:
+        if title is not None:
             ax.set_title(title, fontsize=fontsize)
 
-        # Change marker of velocity points if they are set at distance from each other.
-        # It avoids dots in every point if velocity law is set for every time.
-        if x_points is not None and y_points is not None:
-            marker = 'o' if np.min(np.diff(np.sort(y_points))) > 50 else ''
-            plt.plot(x_points, y_points, c='#fafcc2', linewidth=2.5, marker=marker)
+        # Change markers of stacking velocity points if they are far enough apart
+        if stacking_velocities_ix is not None and stacking_times_ix is not None:
+            marker = 'o' if np.min(np.diff(np.sort(stacking_times_ix))) > 50 else ''
+            plt.plot(stacking_velocities_ix, stacking_times_ix, c='#fafcc2', linewidth=2.5, marker=marker)
 
-        set_ticks(ax, img_shape=semblance.T.shape, ticks_range_x=ticks_range_x,
-                  ticks_range_y=ticks_range_y, **kwargs)
+        set_ticks(ax, img_shape=semblance.T.shape, ticks_range_x=ticks_range_x, ticks_range_y=ticks_range_y, **kwargs)
         ax.set_ylim(semblance.shape[0], 0)
         if grid:
             ax.grid(c='k')
@@ -230,7 +238,7 @@ class BaseSemblance:
         plt.show()
 
 
-@use_docs_from(BaseSemblance)
+@append_docs_from(BaseSemblance)
 class Semblance(BaseSemblance):
     r""" Semblance is a normalized output-input energy ratio for CDP gather.
 
@@ -270,18 +278,11 @@ class Semblance(BaseSemblance):
     1. Detailed description of the vertical velocity semblance computation is presented
        in the method :func:`~Semblance._calc_semblance`.
     """
-    def __init__(self, gather, times, offsets, velocities, win_size=25, inline=None, crossline=None):
-        super().__init__(gather=gather, times=times, offsets=offsets, win_size=win_size)
-        self._semblance = None
-        self._velocities = velocities # m/s
-        self.inline = inline
-        self.crossline = crossline
+    def __init__(self, gather, velocities, win_size=25):
+        super().__init__(gather, win_size=win_size)
+        self.semblance = None
+        self.velocities = velocities  # m/s
         self._calc_semblance()
-
-    @property
-    def semblance(self):
-        """ Property returns the copy of `_semblance` attribute to save semblance from occasional changes. """
-        return self._semblance.copy()
 
     def _calc_semblance(self):
         """ Calculation of vertical velocity semblance starts with computing normal moveout for the entire gather
@@ -294,24 +295,24 @@ class Semblance(BaseSemblance):
         ----
         1. To maintain the correct units, the velocities are converted to the meter/millisecond.
         """
-        velocities_ms = self._velocities / 1000 # from m/s to m/ms
-        self._semblance = self._calc_semblance_numba(base_func=self.base_calc_semblance,
-                                                     calc_nmo_func=self.base_calc_nmo,
-                                                     gather=self._gather, times=self._times,
-                                                     offsets=self._offsets, velocities=velocities_ms,
-                                                     sample_rate=self._sample_rate, win_size=self._win_size)
+        velocities_ms = self.velocities / 1000  # from m/s to m/ms
+        self.semblance = self._calc_semblance_numba(semblance_func=self.calc_single_velocity_semblance,
+                                                    nmo_func=self.apply_nmo, gather_data=self.gather_data,
+                                                    times=self.times, offsets=self.offsets, velocities=velocities_ms,
+                                                    sample_rate=self.sample_rate, win_size=self.win_size)
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def _calc_semblance_numba(base_func, calc_nmo_func, gather, times, offsets, velocities, sample_rate, win_size):
+    def _calc_semblance_numba(semblance_func, nmo_func, gather_data, times, offsets, velocities, sample_rate,
+                              win_size):
         """ Parallelized method for calculating vertical velocity semblance. Most of this method uses the class
         attributes already described in the init method, so unique parameters will be described here.
 
         Parameters
         ----------
-        base_func : callable with njit decorator
+        semblance_func : callable with njit decorator
             Base function for semblance computation.
-        calc_nmo_func : callable with njit decorator
+        nmo_func : callable with njit decorator
             Callable that calculates normal moveout for given gather, time, velocity, and offset.
 
         Returns
@@ -319,16 +320,16 @@ class Semblance(BaseSemblance):
         semblance : 2d np.ndarray
             Array with vertical velocity semblance.
         """
-        semblance = np.empty((len(gather), len(velocities)))
+        semblance = np.empty((len(gather_data), len(velocities)))
         for j in prange(len(velocities)):
-            semblance[:, j] = base_func(calc_nmo_func=calc_nmo_func, gather=gather, times=times,
-                                        offsets=offsets, velocity=velocities[j], sample_rate=sample_rate,
-                                        win_size=win_size, t_min=0, t_max=len(gather))
+            semblance[:, j] = semblance_func(nmo_func=nmo_func, gather_data=gather_data, times=times, offsets=offsets,
+                                             velocity=velocities[j], sample_rate=sample_rate, win_size=win_size,
+                                             t_min_ix=0, t_max_ix=len(gather_data))
         return semblance
 
     @batch_method(target="for")
-    @use_docs_from(BaseSemblance.plot)
-    def plot(self, stacking_velocities=None, **kwargs):
+    @append_docs_from(BaseSemblance.plot)
+    def plot(self, stacking_velocity=None, **kwargs):
         """ Plot vertical velocity semblance.
 
         Parameters
@@ -340,18 +341,20 @@ class Semblance(BaseSemblance):
         kwargs : dict, optional
             Arguments for :func:`~BaseSemblance.plot` and for :func:`.set_ticks`.
         """
-        x_points, y_points = None, None
-        # Add a velocity line on semblance.
-        if stacking_velocities is not None:
-            # Find the coordinates on the graph that correspond to a certain velocity.
-            stacking_velocities = np.asarray(stacking_velocities)
-            x_points = ((stacking_velocities[:, 1] - self._velocities[0]) /
-                        (self._velocities[-1] - self._velocities[0]) * self.semblance.shape[1])
-            y_points = stacking_velocities[:, 0] / self._sample_rate
-        ticks_range_y = [0, self.semblance.shape[0] * self._sample_rate]
-        ticks_range_x = [self._velocities[0], self._velocities[-1]]
-        super().plot(self.semblance, ticks_range_x, ticks_range_y, x_points=x_points,
-                     y_points=y_points, xlabel='Velocity (m/s)', **kwargs)
+        ticks_range_x = [self.velocities[0], self.velocities[-1]]
+        ticks_range_y = [self.times[0], self.times[-1]]
+
+        stacking_times_ix, stacking_velocities_ix = None, None
+        # Add a stacking velocity line on the plot
+        if stacking_velocity is not None:
+            stacking_times = stacking_velocity.times if stacking_velocity.times is not None else self.times
+            stacking_velocities = stacking_velocity(stacking_times)
+            stacking_times_ix = stacking_times / self.sample_rate
+            stacking_velocities_ix = ((stacking_velocities - self.velocities[0]) /
+                                      (self.velocities[-1] - self.velocities[0]) * self.semblance.shape[1])
+
+        super().plot(self.semblance, ticks_range_x, ticks_range_y, stacking_times_ix=stacking_times_ix,
+                     stacking_velocities_ix=stacking_velocities_ix, xlabel='Velocity (m/s)', **kwargs)
         return self
 
     def calc_na_metrics(self, other):
@@ -376,12 +379,16 @@ class Semblance(BaseSemblance):
         return np.max(minmax_self / (minmax_other + 1e-11))
 
     @batch_method(target="for", copy=False)
-    def calc_velocity_model(self, v0_range=(1400, 1800), vn_range=(2500, 5000), n_times=25, n_vels=25, max_acc=None):
-        model = calc_velocity_model(self._semblance, self._times, self._velocities, v0_range=v0_range,
-                                    vn_range=vn_range, n_times=n_times, n_vels=n_vels, max_acc=max_acc)[0]
-        return VelocityLaw(self.inline, self.crossline, model=model)
+    def calculate_stacking_velocity(self, start_velocity_range=(1400, 1800), end_velocity_range=(2500, 5000),
+                                    max_acceleration=None, n_times=25, n_velocities=25, coords_columns="index"):
+        inline, crossline = self.get_coords(coords_columns)
+        times, velocities, _ = calculate_stacking_velocity(self.semblance, self.times, self.velocities,
+                                                           start_velocity_range, end_velocity_range, max_acceleration,
+                                                           n_times, n_velocities)
+        return StackingVelocity(times=times, velocities=velocities, inline=inline, crossline=crossline)
 
-@use_docs_from(BaseSemblance)
+
+@append_docs_from(BaseSemblance)
 class ResidualSemblance(BaseSemblance):
     """ Residual Semblance is a normalized output-input energy ratio for CDP gather along picked stacking velocity.
 
@@ -421,36 +428,28 @@ class ResidualSemblance(BaseSemblance):
 
     Other attributes described in :class:`~BaseSemblance`.
     """
-    def __init__(self, gather, times, offsets, stacking_velocities, num_vels=140, win_size=25, relative_margin=0.2):
-        super().__init__(gather, times, offsets, win_size)
-        self._residual_semblance = None
-        self._stacking_velocities = stacking_velocities
-        self._relative_margin = relative_margin
-        self._velocities = np.linspace(np.min(self._stacking_velocities[:, 1]) * (1 - self._relative_margin),
-                                       np.max(self._stacking_velocities[:, 1]) * (1 + self._relative_margin),
-                                       num_vels)
-
+    def __init__(self, gather, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2):
+        super().__init__(gather, win_size)
+        self.residual_semblance = None
+        self.stacking_velocity = stacking_velocity
+        self.relative_margin = relative_margin
+        interpolated_velocities = stacking_velocity(self.times)
+        self.velocities = np.linspace(np.min(interpolated_velocities) * (1 - relative_margin),
+                                      np.max(interpolated_velocities) * (1 + relative_margin),
+                                      n_velocities)
         self._calc_residual_semblance()
-
-    @property
-    def residual_semblance(self):
-        """ Property returns the copy of `_residual_semblance` attribute to save semblance from occasional changes. """
-        return self._residual_semblance.copy()
 
     def _calc_residual_semblance(self):
         """ Obtaining boundaries based on a given stacking velocity and calculating residual semblance. """
-        velocities_ms = self._velocities / 1000 # from m/s to m/ms
-        stacking_velocities_ms = self._stacking_velocities.copy()
-        stacking_velocities_ms[:, 1] /= 1000 # from m/s to m/ms
-
-        left_bounds, right_bounds = self._calc_velocity_bounds()
-        self._residual_semblance = self._calc_res_semblance_numba(base_func=self.base_calc_semblance,
-                                                                  calc_nmo_func=self.base_calc_nmo,
-                                                                  gather=self._gather, times=self._times,
-                                                                  offsets=self._offsets, velocities=velocities_ms,
-                                                                  left_bounds=left_bounds, right_bounds=right_bounds,
-                                                                  sample_rate=self._sample_rate,
-                                                                  win_size=self._win_size)
+        velocities_ms = self.velocities / 1000  # from m/s to m/ms
+        left_bound_ix, right_bound_ix = self._calc_velocity_bounds()
+        self.residual_semblance = self._calc_res_semblance_numba(semblance_func=self.calc_single_velocity_semblance,
+                                                                 nmo_func=self.apply_nmo,
+                                                                 gather_data=self.gather_data, times=self.times,
+                                                                 offsets=self.offsets, velocities=velocities_ms,
+                                                                 left_bound_ix=left_bound_ix,
+                                                                 right_bound_ix=right_bound_ix,
+                                                                 sample_rate=self.sample_rate, win_size=self.win_size)
 
     def _calc_velocity_bounds(self):
         """ Calculates the boundaries within which the residual semblance will be considered. To obtain a continuous
@@ -463,31 +462,25 @@ class ResidualSemblance(BaseSemblance):
         right_bounds : 1d array
             Indices of corresponding velocities on right bounds for each time.
         """
-        # Interpolate velocity because it is necessary to know the boundary for each time while the stacking velocity
-        # might be set for arbitrary times.
-        stacking_times, stacking_vel = zip(*self._stacking_velocities)
-        f = interp1d(stacking_times, stacking_vel, fill_value="extrapolate")
-        interpolated_velocity = np.clip(f(self._times), self._velocities[0], self._velocities[-1])
-
-        # Define indices of velocities that correspond to velocities on found boundaries.
-        left_bounds = (interpolated_velocity * (1 - self._relative_margin)).reshape(-1, 1)
-        left_bounds = np.argmin(np.abs(left_bounds - self._velocities), axis=1)
-        right_bounds = (interpolated_velocity * (1 + self._relative_margin)).reshape(-1, 1)
-        right_bounds = np.argmin(np.abs(right_bounds - self._velocities), axis=1)
-        return left_bounds, right_bounds
+        interpolated_velocities = np.clip(self.stacking_velocity(self.times), self.velocities[0], self.velocities[-1])
+        left_bound_values = (interpolated_velocities * (1 - self.relative_margin)).reshape(-1, 1)
+        left_bound_ix = np.argmin(np.abs(left_bound_values - self.velocities), axis=1)
+        right_bound_values = (interpolated_velocities * (1 + self.relative_margin)).reshape(-1, 1)
+        right_bound_ix = np.argmin(np.abs(right_bound_values - self.velocities), axis=1)
+        return left_bound_ix, right_bound_ix
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def _calc_res_semblance_numba(base_func, calc_nmo_func, gather, times, offsets, velocities, left_bounds,
-                                  right_bounds, sample_rate, win_size):
+    def _calc_res_semblance_numba(semblance_func, nmo_func, gather_data, times, offsets, velocities, left_bound_ix,
+                                  right_bound_ix, sample_rate, win_size):
         """ Parallelized method for calculating residual semblance. Most of this method uses the class attributes
         already described in the init method, so unique parameters will be described here.
 
         Parameters
         ----------
-        base_func : callable with njit decorator
+        semblance_func : callable with njit decorator
             Base function for semblance computation.
-        calc_nmo_func : callable with njit decorator
+        nmo_func : callable with njit decorator
             Callable that calculates normal moveout for given gather, time, velocity, and offset.
         left_bounds : 1d array
             Indices of corresponding velocities on left bounds for each time.
@@ -499,32 +492,32 @@ class ResidualSemblance(BaseSemblance):
         semblance : 2d np.ndarray
             Array with residual semblance.
         """
-        semblance = np.zeros((len(gather), len(velocities)))
-        for i in prange(left_bounds.min(), right_bounds.max() + 1):
-            t_min = np.where(right_bounds == i)[0]
-            t_min = 0 if len(t_min) == 0 else t_min[0]
+        semblance = np.zeros((len(gather_data), len(velocities)))
+        for i in prange(left_bound_ix.min(), right_bound_ix.max() + 1):
+            t_min_ix = np.where(right_bound_ix == i)[0]
+            t_min_ix = 0 if len(t_min_ix) == 0 else t_min_ix[0]
 
-            t_max = np.where(left_bounds == i)[0]
-            t_max = len(times) - 1 if len(t_max) == 0 else t_max[-1]
+            t_max_ix = np.where(left_bound_ix == i)[0]
+            t_max_ix = len(times) - 1 if len(t_max_ix) == 0 else t_max_ix[-1]
 
-            semblance[:, i][t_min: t_max+1] = base_func(calc_nmo_func=calc_nmo_func, gather=gather,
-                                                        times=times, offsets=offsets, velocity=velocities[i],
-                                                        sample_rate=sample_rate, win_size=win_size, t_min=t_min,
-                                                        t_max=t_max+1)
+            semblance[:, i][t_min_ix : t_max_ix+1] = semblance_func(nmo_func=nmo_func, gather_data=gather_data,
+                                                                    times=times, offsets=offsets,
+                                                                    velocity=velocities[i], sample_rate=sample_rate,
+                                                                    win_size=win_size, t_min_ix=t_min_ix,
+                                                                    t_max_ix=t_max_ix+1)
 
-        semblance_len = (right_bounds - left_bounds).max()
+        # Interpolate semblance to get a rectangular image
+        semblance_len = (right_bound_ix - left_bound_ix).max()
         residual_semblance = np.empty((len(times), semblance_len))
-        # # Interpolate semblance to get a rectangular image.
         for i in prange(len(semblance)):
-            left_bound, right_bound = left_bounds[i], right_bounds[i]
-            cropped_smb = semblance[i][left_bound: right_bound+1]
-            residual_semblance[i] = np.interp(np.linspace(0, len(cropped_smb)-1, semblance_len),
-                                              np.arange(len(cropped_smb)),
-                                              cropped_smb)
+            cropped_semblance = semblance[i][left_bound_ix[i] : right_bound_ix[i] + 1]
+            residual_semblance[i] = np.interp(np.linspace(0, len(cropped_semblance) - 1, semblance_len),
+                                              np.arange(len(cropped_semblance)),
+                                              cropped_semblance)
         return residual_semblance
 
     @batch_method(target="for")
-    @use_docs_from(BaseSemblance.plot)
+    @append_docs_from(BaseSemblance.plot)
     def plot(self, **kwargs):
         """ Plot vertical residual semblance. The graph always has a vertical line in the middle, but if the delay
         between velocities in `self._stacking_velocities` is greater 50 ms, every given point will be highlighted with
@@ -535,12 +528,14 @@ class ResidualSemblance(BaseSemblance):
         kwargs : dict, optional
             Arguments for :func:`~BaseSemblance.plot` and for :func:`.set_ticks`.
         """
-        y_points = self._stacking_velocities[:, 0] / self._sample_rate # from ms to ix
-        x_points = np.zeros(len(y_points)) + self.residual_semblance.shape[1]/2
+        ticks_range_x = [-self.relative_margin * 100, self.relative_margin * 100]
+        ticks_range_y = [self.times[0], self.times[-1]]  # from ix to ms
 
-        ticks_range_y = [0, self.residual_semblance.shape[0] * self._sample_rate] # from ix to ms
-        ticks_range_x = [-self._relative_margin*100, self._relative_margin*100]
+        stacking_times = self.stacking_velocity.times if self.stacking_velocity.times is not None else self.times
+        stacking_times_ix = stacking_times / self.sample_rate
+        stacking_velocities_ix = np.full_like(stacking_times_ix, self.residual_semblance.shape[1] / 2)
 
         super().plot(self.residual_semblance, ticks_range_x=ticks_range_x, ticks_range_y=ticks_range_y,
-                     x_points=x_points, y_points=y_points, xlabel='Relative velocity margin (%)', **kwargs)
+                     stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
+                     xlabel='Relative velocity margin (%)', **kwargs)
         return self

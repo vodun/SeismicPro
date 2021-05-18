@@ -16,7 +16,6 @@ from .decorators import add_inplace_arg
 class Survey:
     """ !! """
     TRACE_ID_HEADER = 'TRACE_SEQUENCE_FILE'
-    DEFAULT_HEADERS = {'offset', }
 
     def __init__(self, path, header_index, header_cols=None, name=None, stats_limits=None, collect_stats=False, **kwargs):
         self.path = path
@@ -31,7 +30,7 @@ class Survey:
             header_cols = set(to_list(header_cols))
 
         header_index = to_list(header_index)
-        load_headers = set(header_index) | header_cols | self.DEFAULT_HEADERS
+        load_headers = set(header_index) | header_cols
 
         # We always reconstruct this column, so there is no need to load it.
         if self.TRACE_ID_HEADER in load_headers:
@@ -105,6 +104,10 @@ class Survey:
 
     def info(self):
         print(self)
+
+    @property
+    def times(self):
+        return self.samples
 
     def __getstate__(self):
         state = copy(self.__dict__)

@@ -4,7 +4,7 @@ from numba import njit
 
 
 @njit(nogil=True)
-def get_index_by_val(val, array):
+def get_closest_index_by_val(val, array):
     return np.array([np.argmin(np.abs(v - array)) for v in val])
 
 
@@ -14,67 +14,87 @@ def interpolate_indices(x0, y0, x1, y1, x):
 
 
 @njit(nogil=True)
-def create_edges(semblance, times, velocities, v0_range, vn_range, n_times, n_vels, gap):
+def create_edges(semblance, times, velocities, start_velocity_range, end_velocity_range, max_vel_step,
+                 n_times, n_velocities):
     start_nodes = []
     end_nodes = []
     weights = []
 
+    # Switch from time and velocity values to their indices in semblance
+    # to further use them as node identifiers in the graph
     times_ix = np.linspace(0, len(times) - 1, n_times).astype(np.int64)
-    v0_min_ix, v0_max_ix = get_index_by_val(v0_range, velocities)
-    vn_min_ix, vn_max_ix = get_index_by_val(vn_range, velocities)
-    v_start_ix = interpolate_indices(times_ix[0], v0_min_ix, times_ix[-1], vn_min_ix, times_ix)
-    v_end_ix = interpolate_indices(times_ix[0], v0_max_ix, times_ix[-1], vn_max_ix, times_ix)
+    start_vel_min_ix, start_vel_max_ix = get_closest_index_by_val(start_velocity_range, velocities)
+    end_vel_min_ix, end_vel_max_ix = get_closest_index_by_val(end_velocity_range, velocities)
+    start_vels_ix = interpolate_indices(times_ix[0], start_vel_min_ix, times_ix[-1], end_vel_min_ix, times_ix)
+    end_vels_ix = interpolate_indices(times_ix[0], start_vel_max_ix, times_ix[-1], end_vel_max_ix, times_ix)
 
+    # Instead of running the path search for each of starting nodes iteratively, create an auxiliary node,
+    # connected to all of them, and run the search from it
     start_node = (-1, 0)
     prev_nodes = [start_node]
-    for t, v_start, v_end in zip(times_ix, v_start_ix, v_end_ix):
-        curr_nodes = [(t, v) for v in np.unique(np.linspace(v_start, v_end, n_vels).astype(np.int64))]
+    for time_ix, start_vel_ix, end_vel_ix in zip(times_ix, start_vels_ix, end_vels_ix):
+        curr_vels_ix = np.unique(np.linspace(start_vel_ix, end_vel_ix, n_velocities).astype(np.int64))
+        curr_nodes = [(time_ix, vel_ix) for vel_ix in curr_vels_ix]
         for prev_time_ix, prev_vel_ix in prev_nodes:
             for curr_time_ix, curr_vel_ix in curr_nodes:
-                if prev_time_ix == -1:
-                    start_nodes.append((prev_time_ix, prev_vel_ix))
-                    end_nodes.append((curr_time_ix, curr_vel_ix))
-                    weights.append(-semblance[curr_time_ix, curr_vel_ix])
-                elif (curr_vel_ix >= prev_vel_ix) and (curr_vel_ix <= prev_vel_ix + gap):
-                    times_indices = np.arange(prev_time_ix + 1, curr_time_ix + 1)
-                    velocity_indices = interpolate_indices(prev_time_ix, prev_vel_ix, curr_time_ix, curr_vel_ix, times_indices)
-                    weight = 0
-                    for ti, vi in zip(times_indices, velocity_indices):
-                        weight -= semblance[ti, vi]
-                    start_nodes.append((prev_time_ix, prev_vel_ix))
-                    end_nodes.append((curr_time_ix, curr_vel_ix))
-                    weights.append(weight)
+                # Connect two nodes only if:
+                # 1. they are a starting node and an auxilliary one
+                # 2. current velocity is no less then the previous one, but also does not exceed it by more than
+                #    max_vel_step, determined by max_acceleration provided
+                if not ((prev_time_ix == -1) or (prev_vel_ix <= curr_vel_ix <= prev_vel_ix + max_vel_step)):
+                    continue
+
+                # Calculate the edge weight: sum of (1 - semblance_value) for each value along the path between nodes
+                times_indices = np.arange(prev_time_ix + 1, curr_time_ix + 1)
+                velocity_indices = interpolate_indices(prev_time_ix, prev_vel_ix, curr_time_ix, curr_vel_ix,
+                                                       times_indices)
+                weight = len(times_indices)
+                for ti, vi in zip(times_indices, velocity_indices):
+                    weight -= semblance[ti, vi]
+
+                start_nodes.append((prev_time_ix, prev_vel_ix))
+                end_nodes.append((curr_time_ix, curr_vel_ix))
+                weights.append(weight)
         prev_nodes = curr_nodes
-    weights = np.array(weights, dtype=np.float64)
-    min_weight = weights.min() - 1
-    weights -= min_weight
-    return start_nodes, end_nodes, weights, min_weight, start_node, curr_nodes
+
+    edges = (start_nodes, end_nodes, weights)
+    return edges, start_node, curr_nodes
 
 
-def create_graph(semblance, times, velocities, v0_range, vn_range, n_times, n_vels, gap):
-    res = create_edges(semblance, times, velocities, np.array(v0_range), np.array(vn_range), n_times, n_vels, gap)
-    *edges, min_weight, start_node, end_nodes = res
+def create_graph(semblance, times, velocities, start_velocity_range, end_velocity_range, max_vel_step,
+                 n_times, n_velocities):
+    edges, start_node, end_nodes = create_edges(semblance, times, velocities, start_velocity_range,
+                                                end_velocity_range, max_vel_step, n_times, n_velocities)
     graph = nx.DiGraph()
     graph.add_weighted_edges_from(zip(*edges))
-    return graph, min_weight, start_node, end_nodes
+    return graph, start_node, end_nodes
 
 
-def calc_velocity_model(semblance, times, velocities, v0_range=(1400, 1800),
-                        vn_range=(2500, 5000), n_times=25, n_vels=25, max_acc=None):
-    total_time = (times[-1] - times[0]) / 1000
-    if max_acc is None:
-        max_acc = 2 * (np.mean(vn_range) - np.mean(v0_range)) / total_time
-    gap = np.ceil((max_acc * total_time / n_times) / np.mean(velocities[1:] - velocities[:-1]))
-    graph, min_weight, start_node, end_nodes = create_graph(semblance, times, velocities, v0_range,
-                                                            vn_range, n_times, n_vels, gap)
+def calculate_stacking_velocity(semblance, times, velocities, start_velocity_range, end_velocity_range,
+                                max_acceleration=None, n_times=25, n_velocities=25):
+    start_velocity_range = np.array(start_velocity_range)
+    end_velocity_range = np.array(end_velocity_range)
+
+    # Calculate maximal velocity growth (in samples) between two adjacent timestamps,
+    # for which graph nodes are created
+    total_time = (times[-1] - times[0]) / 1000  # from ms to s
+    if max_acceleration is None:
+        max_acceleration = 2 * (np.mean(end_velocity_range) - np.mean(start_velocity_range)) / total_time
+    max_vel_step = np.ceil((max_acceleration * total_time / n_times) / np.mean(velocities[1:] - velocities[:-1]))
+
+    # Create a graph and find paths with maximal semblance sum along them to all reachable nodes
+    graph, start_node, end_nodes = create_graph(semblance, times, velocities, start_velocity_range,
+                                                end_velocity_range, max_vel_step, n_times, n_velocities)
     paths = nx.shortest_path(graph, source=start_node, weight="weight")
 
+    # Select only paths to the nodes at the last timestamp and choose the optimal one
     path_weights = [(paths[end_node], nx.path_weight(graph, paths[end_node], weight="weight"))
                     for end_node in end_nodes if end_node in paths]
     if not path_weights:
         raise ValueError("No path was found for given parameters")
     path, metric = min(path_weights, key=lambda x: x[1])
+
+    # Remove the first auxiliary node from the path and calculate mean semblance value along it
     path = np.array(path)[1:]
-    path = np.column_stack([times[path[:, 0]], velocities[path[:, 1]]]).tolist()
-    metric = -(metric + n_times * min_weight) / (len(times) - 1)
-    return path, metric
+    metric = 1 - metric / len(times)
+    return times[path[:, 0]], velocities[path[:, 1]], metric

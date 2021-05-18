@@ -5,8 +5,8 @@ import inspect
 import numpy as np
 from numba import njit, prange
 
-from ..batchflow.models.metrics import Metrics
 from .utils import plot_metrics_map
+from ..batchflow.models.metrics import Metrics
 
 
 class MetricsMap(Metrics):

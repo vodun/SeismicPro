@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 from .utils import to_list, convert_mask_to_pick
 from .decorators import batch_method, validate_gather
 from .semblance import Semblance, ResidualSemblance
-from .velocity_cube import VelocityLaw, VelocityCube
+from .velocity_cube import StackingVelocity, VelocityCube
 
 
 class Gather:
@@ -72,41 +72,28 @@ class Gather:
         print(self)
 
     @property
-    def offsets(self):
-        return self.headers['offset'].values
+    def times(self):
+        return self.samples
 
     @property
-    def index(self):
-        return self.headers.index.values[0]
+    def offsets(self):
+        return self.headers['offset'].values
 
     @property
     def shape(self):
         return self.data.shape
 
-    def _get_unique_header_val(self, header):
-        headers = self.headers.reset_index()
-        if header not in headers:
-            return None
-        unique_vals = np.unique(headers[header])
-        if len(unique_vals) > 1:
-            return None
-        return unique_vals.item()
-
-    @property
-    def inline(self):
-        return self._get_unique_header_val("INLINE_3D")
-
-    @property
-    def crossline(self):
-        return self._get_unique_header_val("CROSSLINE_3D")
-
-    @property
-    def supergather_inline(self):
-        return self._get_unique_header_val("SUPERGATHER_INLINE_3D")
-
-    @property
-    def supergather_crossline(self):
-        return self._get_unique_header_val("SUPERGATHER_CROSSLINE_3D")
+    def get_coords(self, coords_columns="index"):
+        if coords_columns is None:
+            return (None, None)
+        if coords_columns == "index":
+            coords_columns = self.headers.index.names
+        coords = np.unique(self.headers.reset_index()[coords_columns].values, axis=0)
+        if coords.shape[0] != 1:
+            raise ValueError("Gather coordinates are non-unique")
+        if coords.shape[1] != 2:
+            raise ValueError(f"Gather position must be defined by exactly two coordinates, not {coords.shape[1]}")
+        return tuple(coords[0].tolist())
 
     @batch_method
     def copy(self):
@@ -122,7 +109,7 @@ class Gather:
         parent_handler = self.survey.segy_handler
 
         if name is None:
-            name = "_".join(map(str, [self.survey.name] + to_list(self.index)))
+            name = "_".join(map(str, [self.survey.name] + to_list(self.headers.index.values[0])))
         if not os.path.splitext(name)[1]:
             name += '.sgy'
         full_path = os.path.join(path, name)
@@ -203,16 +190,13 @@ class Gather:
     @batch_method(target="threads")
     @validate_gather(required_sorting="offset")
     def calculate_semblance(self, velocities, win_size=25):
-        return Semblance(gather=self.data, times=self.samples, offsets=self.offsets,
-                         velocities=velocities, win_size=win_size,
-                         inline=self.supergather_inline, crossline=self.supergather_crossline)
+        return Semblance(gather=self, velocities=velocities, win_size=win_size)
 
     @batch_method(target='for')
     @validate_gather(required_sorting="offset")
-    def calculate_residual_semblance(self, stacking_velocities, num_vels=140, win_size=25, relative_margin=0.2):
-        return ResidualSemblance(gather=self.data, times=self.samples, offsets=self.offsets,
-                                 stacking_velocities=stacking_velocities, num_vels=num_vels, win_size=win_size,
-                                 relative_margin=relative_margin)
+    def calculate_residual_semblance(self, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2):
+        return ResidualSemblance(gather=self, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
+                                 win_size=win_size, relative_margin=relative_margin)
 
     @batch_method(target="for")
     @validate_gather(required_header_cols=["INLINE_3D", "SUPERGATHER_INLINE_3D",
@@ -226,15 +210,15 @@ class Gather:
         return self
 
     @batch_method(target="for")
-    def correct_gather(self, velocity_model):
-        if isinstance(velocity_model, VelocityCube):
-            velocity_model = velocity_model.get_law(self.inline, self.crossline)
-        if not isinstance(velocity_model, VelocityLaw):
-            raise ValueError("Only VelocityCube or VelocityLaw instances can be passed as a velocity_model")
-        velocities = velocity_model(self.samples) / 1000  # from m/s to m/ms
+    def apply_nmo(self, stacking_velocity, coords_columns="index"):
+        if isinstance(stacking_velocity, VelocityCube):
+            stacking_velocity = stacking_velocity.get_stacking_velocity(*self.get_coords(coords_columns))
+        if not isinstance(stacking_velocity, StackingVelocity):
+            raise ValueError("Only VelocityCube or StackingVelocity instances can be passed as a stacking_velocity")
+        velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
         res = []
-        for time, velocity in zip(self.samples, velocities):
-            res.append(Semblance.base_calc_nmo(self.data.T, time, self.offsets, velocity, self.sample_rate))
+        for time, velocity in zip(self.times, velocities_ms):
+            res.append(Semblance.apply_nmo(self.data.T, time, self.offsets, velocity, self.sample_rate))
         self.data = np.stack(res).T.astype(np.float32)
         return self
 
