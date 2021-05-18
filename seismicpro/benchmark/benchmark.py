@@ -1,6 +1,7 @@
 import os
 import sys
 import shutil
+from hashlib import sha1
 
 import numpy as np
 import seaborn as sns
@@ -14,16 +15,19 @@ from seismicpro.batchflow.research import Option, Research, Results, RC
 sns.set_theme(style="darkgrid")
 class Benchmark:
     def __init__(self, method_name, method_kwargs, targets, batch_sizes, dataset, dataset_name='raw', n_iters=10,
-                 root_pipeline=None, benchmark_cpu=False):
+                 root_pipeline=None, benchmark_cpu=False, detele_research=False):
         self.method_name = method_name
         self.targets = to_list(targets)
         self.batch_sizes = to_list(batch_sizes)
-        self.research_name = '_'.join([self.method_name, *self.targets, *list(map(str, self.batch_sizes))])
         self.dataset = dataset
         self.dataset_name = dataset_name
         self.n_iters = n_iters
         self.benchmark_names = ['Time', 'CPUMonitor']
         self.results = None
+        research_name = '_'.join([self.method_name, *self.targets, *list(map(str, self.batch_sizes))])
+        name_hash = sha1()
+        name_hash.update(research_name.encode('utf-8'))
+        self.research_name = 'research_' + str(name_hash.hexdigest())
 
         self.benchmark_cpu = 'cpu' if benchmark_cpu else None
 
@@ -33,6 +37,7 @@ class Benchmark:
 
         method_pipeline = getattr(Pipeline(), self.method_name)(target=C('target'), **method_kwargs)
         self.template_pipeline = (self.root_pipeline + method_pipeline) << self.dataset
+        self.detele_research = detele_research
 
     def run(self, **method_kwargs):
         domain = Option('target', self.targets) * Option('batch_size', self.batch_sizes)
@@ -53,6 +58,8 @@ class Benchmark:
         results_df.sort_values(by='batch_size', inplace=True)
         results_df.set_index(['target', 'batch_size'], inplace=True)
         self.results = results_df[self.benchmark_names]
+        if self.detele_research:
+            self._clear_previous_results()
         return self
 
     def run_single_pipeline(self, config, **method_kwargs):
