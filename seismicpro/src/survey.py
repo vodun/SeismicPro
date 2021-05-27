@@ -17,7 +17,8 @@ class Survey:
     """ !! """
     TRACE_ID_HEADER = 'TRACE_SEQUENCE_FILE'
 
-    def __init__(self, path, header_index, header_cols=None, name=None, stats_limits=None, collect_stats=False, **kwargs):
+    def __init__(self, path, header_index, header_cols=None, name=None,
+                 stats_limits=None, collect_stats=False, **kwargs):
         self.path = path
         basename = os.path.splitext(os.path.basename(self.path))[0]
         self.name = name if name is not None else basename
@@ -123,24 +124,24 @@ class Survey:
     #                     Statistics computation methods                     #
     #------------------------------------------------------------------------#
 
-    def collect_stats(self, indices=None, n_samples=100000, quantile_precision=2, bar=True):
+    def collect_stats(self, indices=None, n_quantile_traces=100000, quantile_precision=2, bar=True):
         headers = self.headers
         if indices is not None:
             headers = headers.loc[indices]
         traces_pos = headers.reset_index()[self.TRACE_ID_HEADER].values
         np.random.shuffle(traces_pos)
 
-        if n_samples <= 0:
-            raise ValueError("n_samples must be positive")
-        # Clip n_samples if it's greater than the number of traces
-        n_samples = min(n_samples, len(traces_pos))
+        if n_quantile_traces <= 0:
+            raise ValueError("n_quantile_traces must be positive")
+        # Clip n_quantile_traces if it's greater than the total number of traces
+        n_quantile_traces = min(n_quantile_traces, len(traces_pos))
 
         global_min, global_max = np.inf, -np.inf
         global_sum, global_sq_sum = 0, 0
         traces_length = 0
         self.n_dead_traces = 0
 
-        traces_buf = np.empty((n_samples, self.samples_length), dtype=np.float32)
+        traces_buf = np.empty((n_quantile_traces, self.samples_length), dtype=np.float32)
         trace = np.empty(self.samples_length, dtype=np.float32)
 
         # Accumulate min, max, mean and std values of survey traces
@@ -158,7 +159,7 @@ class Survey:
             self.n_dead_traces += np.isclose(trace_min, trace_max)
 
             # Sample random traces to calculate approximate quantiles
-            if i < n_samples:
+            if i < n_quantile_traces:
                 traces_buf[i] = trace
 
         self.min = global_min
