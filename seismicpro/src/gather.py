@@ -26,6 +26,18 @@ class Gather:
         self.sort_by = None
         self.mask = None
 
+    @property
+    def times(self):
+        return self.samples
+
+    @property
+    def offsets(self):
+        return self.headers['offset'].values
+
+    @property
+    def shape(self):
+        return self.data.shape
+
     def __getitem__(self, key):
         return self.headers[key].values
 
@@ -71,18 +83,6 @@ class Gather:
     def info(self):
         print(self)
 
-    @property
-    def times(self):
-        return self.samples
-
-    @property
-    def offsets(self):
-        return self.headers['offset'].values
-
-    @property
-    def shape(self):
-        return self.data.shape
-
     def get_coords(self, coords_columns="index"):
         if coords_columns is None:
             return (None, None)
@@ -103,6 +103,10 @@ class Gather:
         self_copy.survey = survey
         self.survey = survey
         return self_copy
+
+    #------------------------------------------------------------------------#
+    #                              Dump methods                              #
+    #------------------------------------------------------------------------#
 
     @batch_method(force=True)
     def dump(self, path, name=None, copy_header=False):
@@ -155,90 +159,9 @@ class Gather:
                 dump_handler.header[i].update(dump_h)
         return self
 
-    @batch_method(target="threads")
-    def sort(self, by):
-        if not isinstance(by, str):
-            raise TypeError('`by` should be str, not {}'.format(type(by)))
-        order = np.argsort(self.headers[by].values, kind='stable')
-        self.sort_by = by
-        self.data = self.data[order]
-        self.headers = self.headers.iloc[order]
-        return self
-
-    @batch_method(target="for")
-    def pick_to_mask(self, picking_col='Picking'):
-        if picking_col not in self.headers:
-            raise ValueError('Picking is not loaded.')
-        picking_ixs = np.around(self[picking_col] / self.sample_rate).astype(np.int32) - 1
-        mask = (np.arange(self.shape[1]) - picking_ixs.reshape(-1, 1)) > 0
-        self.mask = mask.astype(np.int32)
-        return self
-
-    @batch_method(target='for')
-    def mask_to_pick(self, threshold=0.5, picking_col='Picking'):
-        if self.mask is None:
-            raise ValueError('Save mask to self.mask component.')
-        self[picking_col] = convert_mask_to_pick(self.mask, threshold) * self.sample_rate
-        return self
-
-    @batch_method(target="threads")
-    def mute(self, muting):
-        self.data = self.data * muting.create_mask(trace_len=self.shape[1], offsets=self.offsets,
-                                                   sample_rate=self.sample_rate)
-        return self
-
-    @batch_method(target="threads")
-    @validate_gather(required_sorting="offset")
-    def calculate_semblance(self, velocities, win_size=25):
-        return Semblance(gather=self, velocities=velocities, win_size=win_size)
-
-    @batch_method(target='for')
-    @validate_gather(required_sorting="offset")
-    def calculate_residual_semblance(self, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2):
-        return ResidualSemblance(gather=self, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
-                                 win_size=win_size, relative_margin=relative_margin)
-
-    @batch_method(target="for")
-    @validate_gather(required_header_cols=["INLINE_3D", "SUPERGATHER_INLINE_3D",
-                                           "CROSSLINE_3D", "SUPERGATHER_CROSSLINE_3D"])
-    def get_central_cdp(self):
-        headers = self.headers.reset_index()
-        mask = ((headers["SUPERGATHER_INLINE_3D"] == headers["INLINE_3D"]) &
-                (headers["SUPERGATHER_CROSSLINE_3D"] == headers["CROSSLINE_3D"])).values
-        self.headers = self.headers.loc[mask]
-        self.data = self.data[mask]
-        return self
-
-    @batch_method(target="for")
-    def apply_nmo(self, stacking_velocity, coords_columns="index"):
-        if isinstance(stacking_velocity, VelocityCube):
-            stacking_velocity = stacking_velocity.get_stacking_velocity(*self.get_coords(coords_columns))
-        if not isinstance(stacking_velocity, StackingVelocity):
-            raise ValueError("Only VelocityCube or StackingVelocity instances can be passed as a stacking_velocity")
-        velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
-        res = []
-        for time, velocity in zip(self.times, velocities_ms):
-            res.append(Semblance.apply_nmo(self.data.T, time, self.offsets, velocity, self.sample_rate))
-        self.data = np.stack(res).T.astype(np.float32)
-        return self
-
-    @batch_method(target="for")
-    @validate_gather(required_header_cols=["INLINE_3D", "CROSSLINE_3D"])
-    def stack_gather(self):
-        line_cols = ["INLINE_3D", "CROSSLINE_3D"]
-        headers = self.headers.reset_index()[line_cols].drop_duplicates()
-        if len(headers) != 1:
-            raise ValueError("Only a single CDP gather can be stacked")
-        self.headers = headers.set_index(line_cols)
-        self.headers[self.survey.TRACE_ID_HEADER] = 1
-
-        # TODO: avoid zeros in semblance calculation
-        self.data[self.data == 0] = np.nan
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=RuntimeWarning)
-            self.data = np.nanmean(self.data, axis=0, keepdims=True)
-        self.data = np.nan_to_num(self.data)
-        return self
+    #------------------------------------------------------------------------#
+    #                         Normalization methods                          #
+    #------------------------------------------------------------------------#
 
     def _apply_agg_func(self, func, tracewise, **kwargs):
         axis = 1 if tracewise else None
@@ -287,6 +210,107 @@ class Gather:
         if clip:
             self.data = np.clip(self.data, 0, 1)
         return self
+
+    #------------------------------------------------------------------------#
+    #                    First-breaks processing methods                     #
+    #------------------------------------------------------------------------#
+
+    @batch_method(target="for")
+    def pick_to_mask(self, first_breaks_col='FirstBreak'):
+        if first_breaks_col not in self.headers:
+            raise ValueError('First-breaks are not loaded.')
+        first_breaks_ixs = np.around(self[first_breaks_col] / self.sample_rate).astype(np.int32) - 1
+        mask = (np.arange(self.shape[1]) - first_breaks_ixs.reshape(-1, 1)) > 0
+        self.mask = mask.astype(np.int32)
+        return self
+
+    @batch_method(target='for')
+    def mask_to_pick(self, threshold=0.5, first_breaks_col='FirstBreak'):
+        if self.mask is None:
+            raise ValueError('Save mask to self.mask component.')
+        self[first_breaks_col] = convert_mask_to_pick(self.mask, threshold) * self.sample_rate
+        return self
+
+    #------------------------------------------------------------------------#
+    #                     Semblance calculation methods                      #
+    #------------------------------------------------------------------------#
+
+    @batch_method(target="threads")
+    @validate_gather(required_sorting="offset")
+    def calculate_semblance(self, velocities, win_size=25):
+        return Semblance(gather=self, velocities=velocities, win_size=win_size)
+
+    @batch_method(target='for')
+    @validate_gather(required_sorting="offset")
+    def calculate_residual_semblance(self, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2):
+        return ResidualSemblance(gather=self, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
+                                 win_size=win_size, relative_margin=relative_margin)
+
+    #------------------------------------------------------------------------#
+    #                       Gather processing methods                        #
+    #------------------------------------------------------------------------#
+
+    @batch_method(target="threads")
+    def sort(self, by):
+        if not isinstance(by, str):
+            raise TypeError('`by` should be str, not {}'.format(type(by)))
+        order = np.argsort(self.headers[by].values, kind='stable')
+        self.sort_by = by
+        self.data = self.data[order]
+        self.headers = self.headers.iloc[order]
+        return self
+
+    @batch_method(target="threads")
+    def mute(self, muting):
+        self.data = self.data * muting.create_mask(trace_len=self.shape[1], offsets=self.offsets,
+                                                   sample_rate=self.sample_rate)
+        return self
+
+    @batch_method(target="for")
+    @validate_gather(required_header_cols=["INLINE_3D", "SUPERGATHER_INLINE_3D",
+                                           "CROSSLINE_3D", "SUPERGATHER_CROSSLINE_3D"])
+    def get_central_cdp(self):
+        headers = self.headers.reset_index()
+        mask = ((headers["SUPERGATHER_INLINE_3D"] == headers["INLINE_3D"]) &
+                (headers["SUPERGATHER_CROSSLINE_3D"] == headers["CROSSLINE_3D"])).values
+        self.headers = self.headers.loc[mask]
+        self.data = self.data[mask]
+        return self
+
+    @batch_method(target="for")
+    def apply_nmo(self, stacking_velocity, coords_columns="index"):
+        if isinstance(stacking_velocity, VelocityCube):
+            stacking_velocity = stacking_velocity.get_stacking_velocity(*self.get_coords(coords_columns))
+        if not isinstance(stacking_velocity, StackingVelocity):
+            raise ValueError("Only VelocityCube or StackingVelocity instances can be passed as a stacking_velocity")
+        velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
+        res = []
+        for time, velocity in zip(self.times, velocities_ms):
+            res.append(Semblance.apply_nmo(self.data.T, time, self.offsets, velocity, self.sample_rate))
+        self.data = np.stack(res).T.astype(np.float32)
+        return self
+
+    @batch_method(target="for")
+    @validate_gather(required_header_cols=["INLINE_3D", "CROSSLINE_3D"])
+    def stack_gather(self):
+        line_cols = ["INLINE_3D", "CROSSLINE_3D"]
+        headers = self.headers.reset_index()[line_cols].drop_duplicates()
+        if len(headers) != 1:
+            raise ValueError("Only a single CDP gather can be stacked")
+        self.headers = headers.set_index(line_cols)
+        self.headers[self.survey.TRACE_ID_HEADER] = 1
+
+        # TODO: avoid zeros in semblance calculation
+        self.data[self.data == 0] = np.nan
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            self.data = np.nanmean(self.data, axis=0, keepdims=True)
+        self.data = np.nan_to_num(self.data)
+        return self
+
+    #------------------------------------------------------------------------#
+    #                         Visualization methods                          #
+    #------------------------------------------------------------------------#
 
     @batch_method(target="for")
     def plot(self, figsize=(10, 7), **kwargs):

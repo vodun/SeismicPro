@@ -10,24 +10,6 @@ def to_list(obj):
     return np.array(obj).ravel().tolist()
 
 
-def to_str(obj, sep=' '):
-    return sep.join(map(str, to_list(obj)))
-
-def create_separator(indent, block_name, print_sep=True):
-    full_length = 78 - indent * 4
-    n_spaces = full_length - len(block_name)
-
-    sep = f"#{'-'*(full_length-2)}#"
-    left_side = '#' + ' ' * (n_spaces // 2 - 1)
-    right_side = ' '*(np.ceil(n_spaces/2).astype(int) - 1)+'#'
-    msg = left_side+block_name+right_side
-    if print_sep:
-        print(sep)
-        print(msg)
-        print(sep)
-
-    return sep + '\n' + msg + '\n' + sep
-
 @njit
 def calculate_stats(trace):
     trace_min, trace_max = np.inf, -np.inf

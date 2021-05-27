@@ -72,8 +72,22 @@ class Survey:
         if collect_stats:
             self.collect_stats(**kwargs)
 
+    @property
+    def times(self):
+        return self.samples
+
     def __del__(self):
         self.segy_handler.close()
+
+    def __getstate__(self):
+        state = copy(self.__dict__)
+        state["segy_handler"] = None
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__ = state
+        self.segy_handler = segyio.open(self.path, ignore_geometry=True)
+        self.segy_handler.mmap()
 
     def __str__(self):
         offsets = self.headers.get('offset')
@@ -105,135 +119,9 @@ class Survey:
     def info(self):
         print(self)
 
-    @property
-    def times(self):
-        return self.samples
-
-    def __getstate__(self):
-        state = copy(self.__dict__)
-        state["segy_handler"] = None
-        return state
-
-    def __setstate__(self, state):
-        self.__dict__ = state
-        self.segy_handler = segyio.open(self.path, ignore_geometry=True)
-        self.segy_handler.mmap()
-
-    def copy(self):
-        return deepcopy(self)
-
-    @add_inplace_arg
-    def filter(self, header_cols, cond, axis=None, *args, **kwargs):
-        headers = self.headers[to_list(header_cols)]
-        if axis is None:
-            mask = cond(headers, *args, **kwargs)
-        else:
-            mask = headers.apply(cond, axis=axis, raw=True, args=args, **kwargs)
-        self.headers = self.headers.loc[mask.values]
-        return self
-
-    def set_limits(self, limits):
-        self.stats_limits = self._process_limits(limits)
-        self.samples = self.file_samples[self.stats_limits]
-        self.samples_length = len(self.samples)
-        if self.samples_length == 0:
-            raise ValueError('Trace length must be positive.')
-
-    def _process_limits(self, limits):
-        if not isinstance(limits, slice):
-            limits = slice(*to_list(limits))
-        # Use .indices to avoid negative slicing range
-        limits = limits.indices(len(self.file_samples))
-        if limits[-1] < 0:
-            raise ValueError('Negative step is not allowed.')
-        return slice(*limits)
-
-    def get_gather(self, index=None, limits=None, copy_headers=True):
-        limits = self.stats_limits if limits is None else self._process_limits(limits)
-        samples = self.file_samples[limits]
-        trace_length = len(samples)
-
-        gather_headers = self.headers.loc[index]
-        # loc may sometimes return Series. In such cases slicing is used to guarantee, that DataFrame is returned
-        if isinstance(gather_headers, pd.Series):
-            gather_headers = self.headers.loc[index:index]
-
-        if copy_headers:
-            gather_headers = gather_headers.copy()
-        trace_indices = gather_headers.reset_index()[self.TRACE_ID_HEADER].values - 1
-
-        data = np.empty((len(trace_indices), trace_length), dtype=np.float32)
-        for i, ix in enumerate(trace_indices):
-            self.load_trace(buf=data[i], index=ix, limits=limits, trace_length=trace_length)
-
-        samples = self.file_samples[limits]
-        sample_rate = self.sample_rate * limits.step
-        gather = Gather(headers=gather_headers, data=data, samples=samples, sample_rate=sample_rate, survey=self)
-        return gather
-
-    def sample_gather(self, limits=None, copy_headers=True):
-        index = np.random.choice(self.headers.index)
-        gather = self.get_gather(index=index, limits=limits, copy_headers=copy_headers)
-        return gather
-
-    def load_trace(self, buf, index, limits, trace_length):
-        # Args for segy loader are following:
-        #   * Buffer to write trace ampltudes
-        #   * Index of loading trace
-        #   * Unknown arg (always 1)
-        #   * Unknown arg (always 1)
-        #   * Position from which to start loading the trace
-        #   * Position where to end loading
-        #   * Step
-        #   * Number of overall samples.
-        return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
-
-    def load_picking(self, path, picking_col='Picking'):
-        segy_columns = ['FieldRecord', 'TraceNumber']
-        picking_columns = segy_columns + [picking_col]
-        picking_df = pd.read_csv(path, names=picking_columns, delim_whitespace=True, decimal=',')
-
-        headers = self.headers.reset_index()
-        missing_cols = set(segy_columns) - set(headers)
-        if missing_cols:
-            raise ValueError(f'Missing {missing_cols} column(s) required for picking loading.')
-
-        headers = headers.merge(picking_df, on=segy_columns)
-        if headers.empty:
-            raise ValueError('Empty headers after picking loading.')
-        headers.set_index(self.headers.index.names, inplace=True)
-        self.headers = headers.sort_index()
-        return self
-
-    @add_inplace_arg
-    def reindex(self, new_index):
-        self.headers.reset_index(inplace=True)
-        self.headers.set_index(new_index, inplace=True)
-        self.headers.sort_index(inplace=True)
-        return self
-
-    @add_inplace_arg
-    def generate_supergathers(self, size=(3, 3), step=(20, 20), modulo=(0, 0), reindex=True):
-        index_cols = self.headers.index.names
-        headers = self.headers.reset_index()
-        line_cols = ["INLINE_3D", "CROSSLINE_3D"]
-        super_line_cols = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
-
-        if any(col not in headers for col in line_cols):
-            raise KeyError("INLINE_3D and CROSSLINE_3D headers are not loaded")
-        supergather_centers_mask = ((headers["INLINE_3D"] % step[0] == modulo[0]) &
-                                    (headers["CROSSLINE_3D"] % step[1] == modulo[1]))
-        supergather_centers = headers.loc[supergather_centers_mask, line_cols]
-        supergather_centers = supergather_centers.drop_duplicates().sort_values(by=line_cols)
-        supergather_lines = pd.DataFrame(create_supergather_index(supergather_centers.values, size),
-                                         columns=super_line_cols+line_cols)
-        self.headers = pd.merge(supergather_lines, headers, on=line_cols)
-
-        if reindex:
-            index_cols = super_line_cols
-        self.headers.set_index(index_cols, inplace=True)
-        self.headers.sort_index(inplace=True)
-        return self
+    #------------------------------------------------------------------------#
+    #                     Statistics computation methods                     #
+    #------------------------------------------------------------------------#
 
     def collect_stats(self, indices=None, n_samples=100000, quantile_precision=2, bar=True):
         headers = self.headers
@@ -294,3 +182,131 @@ class Survey:
         quantiles = self.quantile_interpolator(q)
         # return the same type as q: either single float or array-like
         return quantiles.item() if quantiles.ndim == 0 else quantiles
+
+    #------------------------------------------------------------------------#
+    #                            Loading methods                             #
+    #------------------------------------------------------------------------#
+
+    def get_gather(self, index=None, limits=None, copy_headers=True):
+        limits = self.stats_limits if limits is None else self._process_limits(limits)
+        samples = self.file_samples[limits]
+        trace_length = len(samples)
+
+        gather_headers = self.headers.loc[index]
+        # loc may sometimes return Series. In such cases slicing is used to guarantee, that DataFrame is returned
+        if isinstance(gather_headers, pd.Series):
+            gather_headers = self.headers.loc[index:index]
+
+        if copy_headers:
+            gather_headers = gather_headers.copy()
+        trace_indices = gather_headers.reset_index()[self.TRACE_ID_HEADER].values - 1
+
+        data = np.empty((len(trace_indices), trace_length), dtype=np.float32)
+        for i, ix in enumerate(trace_indices):
+            self.load_trace(buf=data[i], index=ix, limits=limits, trace_length=trace_length)
+
+        samples = self.file_samples[limits]
+        sample_rate = self.sample_rate * limits.step
+        gather = Gather(headers=gather_headers, data=data, samples=samples, sample_rate=sample_rate, survey=self)
+        return gather
+
+    def sample_gather(self, limits=None, copy_headers=True):
+        index = np.random.choice(self.headers.index)
+        gather = self.get_gather(index=index, limits=limits, copy_headers=copy_headers)
+        return gather
+
+    def load_trace(self, buf, index, limits, trace_length):
+        # Args for segy loader are following:
+        #   * Buffer to write trace ampltudes
+        #   * Index of loading trace
+        #   * Unknown arg (always 1)
+        #   * Unknown arg (always 1)
+        #   * Position from which to start loading the trace
+        #   * Position where to end loading
+        #   * Step
+        #   * Number of overall samples.
+        return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
+
+    def load_first_breaks(self, path, first_breaks_col='FirstBreak'):
+        segy_columns = ['FieldRecord', 'TraceNumber']
+        first_breaks_columns = segy_columns + [first_breaks_col]
+        first_breaks_df = pd.read_csv(path, names=first_breaks_columns, delim_whitespace=True, decimal=',')
+
+        headers = self.headers.reset_index()
+        missing_cols = set(segy_columns) - set(headers)
+        if missing_cols:
+            raise ValueError(f'Missing {missing_cols} column(s) required for first break loading.')
+
+        headers = headers.merge(first_breaks_df, on=segy_columns)
+        if headers.empty:
+            raise ValueError('Empty headers after first breaks loading.')
+        headers.set_index(self.headers.index.names, inplace=True)
+        self.headers = headers.sort_index()
+        return self
+
+    #------------------------------------------------------------------------#
+    #                       Survey processing methods                        #
+    #------------------------------------------------------------------------#
+
+    def copy(self):
+        return deepcopy(self)
+
+    @add_inplace_arg
+    def filter(self, header_cols, cond, axis=None, *args, **kwargs):
+        headers = self.headers[to_list(header_cols)]
+        if axis is None:
+            mask = cond(headers, *args, **kwargs)
+        else:
+            mask = headers.apply(cond, axis=axis, raw=True, args=args, **kwargs)
+        self.headers = self.headers.loc[mask.values]
+        return self
+
+    @add_inplace_arg
+    def reindex(self, new_index):
+        self.headers.reset_index(inplace=True)
+        self.headers.set_index(new_index, inplace=True)
+        self.headers.sort_index(inplace=True)
+        return self
+
+    def set_limits(self, limits):
+        self.stats_limits = self._process_limits(limits)
+        self.samples = self.file_samples[self.stats_limits]
+        self.samples_length = len(self.samples)
+        if self.samples_length == 0:
+            raise ValueError('Trace length must be positive.')
+
+    def _process_limits(self, limits):
+        if not isinstance(limits, slice):
+            limits = slice(*to_list(limits))
+        # Use .indices to avoid negative slicing range
+        limits = limits.indices(len(self.file_samples))
+        if limits[-1] < 0:
+            raise ValueError('Negative step is not allowed.')
+        return slice(*limits)
+
+    #------------------------------------------------------------------------#
+    #                         Task specific methods                          #
+    #------------------------------------------------------------------------#
+
+    @add_inplace_arg
+    def generate_supergathers(self, size=(3, 3), step=(20, 20), modulo=(0, 0), reindex=True):
+        index_cols = self.headers.index.names
+        headers = self.headers.reset_index()
+        line_cols = ["INLINE_3D", "CROSSLINE_3D"]
+        super_line_cols = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
+
+        if any(col not in headers for col in line_cols):
+            raise KeyError("INLINE_3D and CROSSLINE_3D headers are not loaded")
+        supergather_centers_mask = ((headers["INLINE_3D"] % step[0] == modulo[0]) &
+                                    (headers["CROSSLINE_3D"] % step[1] == modulo[1]))
+        supergather_centers = headers.loc[supergather_centers_mask, line_cols]
+        supergather_centers = supergather_centers.drop_duplicates().sort_values(by=line_cols)
+        supergather_lines = pd.DataFrame(create_supergather_index(supergather_centers.values, size),
+                                         columns=super_line_cols+line_cols)
+        self.headers = pd.merge(supergather_lines, headers, on=line_cols)
+
+        if reindex:
+            index_cols = super_line_cols
+        self.headers.set_index(index_cols, inplace=True)
+        self.headers.sort_index(inplace=True)
+        return self
