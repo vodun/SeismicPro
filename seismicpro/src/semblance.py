@@ -327,7 +327,7 @@ class Semblance(BaseSemblance):
                                              t_min_ix=0, t_max_ix=len(gather_data))
         return semblance
 
-    @batch_method(target="for")
+    @batch_method(target="for", args_to_unpack="stacking_velocity")
     @append_docs_from(BaseSemblance.plot)
     def plot(self, stacking_velocity=None, **kwargs):
         """ Plot vertical velocity semblance.

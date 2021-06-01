@@ -9,8 +9,9 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from .utils import to_list, convert_mask_to_pick
+from .utils import to_list, convert_times_to_mask, convert_mask_to_pick
 from .decorators import batch_method, validate_gather
+from .muting import Muter
 from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 
@@ -95,7 +96,7 @@ class Gather:
             raise ValueError(f"Gather position must be defined by exactly two coordinates, not {coords.shape[1]}")
         return tuple(coords[0].tolist())
 
-    @batch_method
+    @batch_method(target='for', copy=False)
     def copy(self):
         survey = self.survey
         self.survey = None
@@ -108,7 +109,7 @@ class Gather:
     #                              Dump methods                              #
     #------------------------------------------------------------------------#
 
-    @batch_method(force=True)
+    @batch_method(target='for', force=True, copy=False)
     def dump(self, path, name=None, copy_header=False):
         parent_handler = self.survey.segy_handler
 
@@ -219,28 +220,44 @@ class Gather:
     def pick_to_mask(self, first_breaks_col='FirstBreak'):
         if first_breaks_col not in self.headers:
             raise ValueError('First-breaks are not loaded.')
-        first_breaks_ixs = np.around(self[first_breaks_col] / self.sample_rate).astype(np.int32) - 1
-        mask = (np.arange(self.shape[1]) - first_breaks_ixs.reshape(-1, 1)) > 0
-        self.mask = mask.astype(np.int32)
+        self.mask = convert_times_to_mask(times=self[first_breaks_col], sample_rate=self.sample_rate,
+                                          mask_length=self.shape[1])
         return self
 
     @batch_method(target='for')
     def mask_to_pick(self, threshold=0.5, first_breaks_col='FirstBreak'):
         if self.mask is None:
             raise ValueError('Save mask to self.mask component.')
-        self[first_breaks_col] = convert_mask_to_pick(self.mask, threshold) * self.sample_rate
+        self[first_breaks_col] = convert_mask_to_pick(self.mask, self.sample_rate, threshold)
+        return self
+
+    #------------------------------------------------------------------------#
+    #                         Gather muting methods                          #
+    #------------------------------------------------------------------------#
+
+    @batch_method(target="for", copy=False)
+    def create_muter(self, mode="first_breaks", **kwargs):
+        if mode == "first_breaks":
+            first_breaks_col = kwargs.pop("first_breaks_col", "FirstBreak")
+            return Muter(mode=mode, offsets=self.offsets, times=self[first_breaks_col], **kwargs)
+        return Muter(mode=mode, **kwargs)
+
+    @batch_method(target="threads", args_to_unpack="muter")
+    def mute(self, muter):
+        self.data *= convert_times_to_mask(times=muter(self.offsets), sample_rate=self.sample_rate,
+                                           mask_length=self.shape[1])
         return self
 
     #------------------------------------------------------------------------#
     #                     Semblance calculation methods                      #
     #------------------------------------------------------------------------#
 
-    @batch_method(target="threads")
+    @batch_method(target="threads", copy=False)
     @validate_gather(required_sorting="offset")
     def calculate_semblance(self, velocities, win_size=25):
         return Semblance(gather=self, velocities=velocities, win_size=win_size)
 
-    @batch_method(target='for')
+    @batch_method(target="for", args_to_unpack="stacking_velocity", copy=False)
     @validate_gather(required_sorting="offset")
     def calculate_residual_semblance(self, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2):
         return ResidualSemblance(gather=self, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
@@ -258,12 +275,6 @@ class Gather:
         self.sort_by = by
         self.data = self.data[order]
         self.headers = self.headers.iloc[order]
-        return self
-
-    @batch_method(target="threads")
-    def mute(self, muting):
-        self.data = self.data * muting.create_mask(trace_len=self.shape[1], offsets=self.offsets,
-                                                   sample_rate=self.sample_rate)
         return self
 
     @batch_method(target="for")
@@ -323,4 +334,5 @@ class Gather:
         default_kwargs.update(kwargs)
         plt.figure(figsize=figsize)
         plt.imshow(self.data.T, **default_kwargs)
+        plt.show()
         return self

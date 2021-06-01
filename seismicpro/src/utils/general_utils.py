@@ -10,7 +10,7 @@ def to_list(obj):
     return np.array(obj).ravel().tolist()
 
 
-@njit
+@njit(nogil=True)
 def calculate_stats(trace):
     trace_min, trace_max = np.inf, -np.inf
     trace_sum, trace_sq_sum = 0, 0
@@ -22,7 +22,7 @@ def calculate_stats(trace):
     return trace_min, trace_max, trace_sum, trace_sq_sum
 
 
-@njit
+@njit(nogil=True)
 def create_supergather_index(lines, size):
     area_size = size[0] * size[1]
     shifts_i = np.arange(size[0]) - size[0] // 2
@@ -36,8 +36,15 @@ def create_supergather_index(lines, size):
     return supergather_lines
 
 
-@njit(parallel=True)
-def convert_mask_to_pick(mask, threshold):
+@njit(nogil=True)
+def convert_times_to_mask(times, sample_rate, mask_length):
+    times_ixs = np.rint(times / sample_rate).astype(np.int32)
+    mask = (np.arange(mask_length) - times_ixs.reshape(-1, 1)) >= 0
+    return mask.astype(np.int32)
+
+
+@njit(nogil=True, parallel=True)
+def convert_mask_to_pick(mask, sample_rate, threshold):
     picking_array = np.empty(len(mask), dtype=np.int32)
     for i in prange(len(mask)):
         trace = mask[i]
@@ -57,4 +64,4 @@ def convert_mask_to_pick(mask, threshold):
             picking_ix = len(trace)
             max_len = curr_len
         picking_array[i] = picking_ix - max_len
-    return picking_array
+    return picking_array * sample_rate

@@ -1,5 +1,6 @@
 import os
 import glob
+from collections import namedtuple
 
 import segyio
 import numpy as np
@@ -46,3 +47,25 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=True, keep_exts=("
     # Close source segy file handlers
     for source_handler in source_handlers:
         source_handler.close()
+
+
+def read_vfunc(path):
+    vfunc_list = []
+    VFUNC = namedtuple("VFUNC", ["inline", "crossline", "x", "y"])
+    with open(path) as file:
+        for data in file.read().split("VFUNC")[1:]:
+            data = data.split()
+            inline, crossline = int(data[0]), int(data[1])
+            data = np.array(data[2:], dtype=np.float64)
+            if len(data) % 2 != 0:
+                raise ValueError("Data length for each VFUNC record must be even")
+            VFUNC(inline, crossline, data[::2], data[1::2])
+            vfunc_list.append(VFUNC(inline, crossline, data[::2], data[1::2]))
+    return vfunc_list
+
+
+def read_single_vfunc(path):
+    file_data = read_vfunc(path)
+    if len(file_data) != 1:
+        raise ValueError(f"Input file must contain a single vfunc, but {len(file_data)} were found in {path}")
+    return file_data[0]

@@ -1,3 +1,4 @@
+import inspect
 from functools import partial, wraps
 
 from .utils import to_list
@@ -36,8 +37,8 @@ def validate_gather(required_header_cols=None, required_sorting=None):
     return decorator
 
 
-def batch_method(*args, target="for", force=False, copy=True):
-    batch_method_params = {"target": target, "force": force, "copy": copy}
+def batch_method(*args, target="for", args_to_unpack=None, force=False, copy=True):
+    batch_method_params = {"target": target, "args_to_unpack": args_to_unpack, "force": force, "copy": copy}
 
     def decorator(method):
         method.batch_method_params = batch_method_params
@@ -97,11 +98,24 @@ def create_batch_methods(*component_classes):
         # TODO: dynamically generate docstring
         def create_method(method_name):
             def method(self, index, *args, src=None, dst=None, **kwargs):
+                # Get an object corresponding to the given index from src component and copy it if needed
                 pos = self.index.get_pos(index)
                 obj = getattr(self, src)[pos]
                 if getattr(obj, method_name).batch_method_params["copy"] and src != dst:
                     obj = obj.copy()
-                getattr(self, dst)[pos] = getattr(obj, method_name)(*args, **kwargs)
+
+
+                # Unpack required method arguments by getting the value of specified component with index pos
+                # and perform the call with updated args and kwargs
+                obj_method = getattr(obj, method_name)
+                obj_arguments = inspect.signature(obj_method).bind(*args, **kwargs)
+                args_to_unpack = obj_method.batch_method_params["args_to_unpack"]
+                if args_to_unpack is not None:
+                    for arg_name in to_list(args_to_unpack):
+                        arg_val = obj_arguments.arguments[arg_name]
+                        if isinstance(arg_val, str):
+                            obj_arguments.arguments[arg_name] = getattr(self, arg_val)[pos]
+                getattr(self, dst)[pos] = obj_method(*obj_arguments.args, **obj_arguments.kwargs)
             method.__name__ = method_name
             return action(apply_to_each_component(method))
 

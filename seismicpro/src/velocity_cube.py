@@ -3,7 +3,7 @@ import cv2
 from scipy.interpolate import interp1d, LinearNDInterpolator
 from sklearn.neighbors import NearestNeighbors
 
-from .utils import to_list
+from .utils import to_list, read_vfunc
 
 
 class VelocityInterpolator:
@@ -76,14 +76,10 @@ class VelocityCube:
             self.load(path)
 
     def load(self, path):
-        with open(path) as file:
-            for data in file.read().split("VFUNC")[1:]:
-                data = data.split()
-                inline, crossline = int(data[0]), int(data[1])
-                data = np.array(data[2:], dtype=np.float64)
-                stacking_velocity = StackingVelocity(times=data[::2], velocities=data[1::2],
-                                                     inline=inline, crossline=crossline)
-                self.stacking_velocities_dict[(inline, crossline)] = stacking_velocity
+        for inline, crossline, times, velocities in read_vfunc(path):
+            stacking_velocity = StackingVelocity(times=times, velocities=velocities,
+                                                 inline=inline, crossline=crossline)
+            self.stacking_velocities_dict[(inline, crossline)] = stacking_velocity
         return self
 
     def update(self, stacking_velocities):

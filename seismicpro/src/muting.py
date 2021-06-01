@@ -2,45 +2,31 @@ import numpy as np
 from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
 
-
-class BaseMuter:
-    def create_mask(self, trace_len, offsets, sample_rate):
-        time_ixs = (self.get_time(offsets) / sample_rate).astype(np.int32) # from ms to samples
-        time_ixs = np.clip(time_ixs, 0, trace_len)
-        return (np.arange(trace_len).reshape(1, -1) - time_ixs.reshape(-1, 1)) > 0
-
-    def get_time(self, offsets, trace_len):
-        raise NotImplementedError
+from .utils import read_single_vfunc
 
 
-class FirstBreakMuter(BaseMuter):
-    def __init__(self, times, offsets, velocity_shift=0):
-        times = np.array(times, dtype=np.int32)
-        velocity_shift = velocity_shift / 1000 # from m/s to m/ms
+class Muter:
+    def __init__(self, mode="file", **kwargs):
+        if not hasattr(self, f"from_{mode}"):
+            raise ValueError(f"Unknown mode {mode}")
+        self.muter = getattr(self, f"from_{mode}")(**kwargs)
+
+    def from_points(self, offsets, times, fill_value="extrapolate"):
+        return interp1d(offsets, times, fill_value=fill_value)
+
+    def from_file(self, path, **kwargs):
+        _, _, offsets, times = read_single_vfunc(path)
+        return self.from_points(offsets, times, **kwargs)
+
+    def from_first_breaks(self, offsets, times, velocity_reduction=0):
+        velocity_reduction = velocity_reduction / 1000  # from m/s to m/ms
         lin_reg = LinearRegression(fit_intercept=True)
-        lin_reg.fit(times.reshape(-1, 1), offsets)
-        # If one wants to mute below given points, the found velocity reduces by given indent.
-        self.intercept = lin_reg.intercept_
-        self.velocity = lin_reg.coef_ - velocity_shift
+        lin_reg.fit(np.array(times).reshape(-1, 1), np.array(offsets))
 
-    def get_time(self, offsets):
-        return (offsets - self.intercept) / self.velocity # ms
+        # The fitted velocity is reduced by velocity_reduction in order to mute amplitudes near first breaks
+        intercept = lin_reg.intercept_
+        velocity = lin_reg.coef_ - velocity_reduction
+        return lambda offsets: (offsets - intercept) / velocity
 
-
-class InterpolationMuter(BaseMuter):
-    def __init__(self, path=None, points=None, fill_value='extrapolate'):
-        if path is not None:
-            points = self.load_muting(path)
-        if points is None:
-            raise ValueError('`Points` or `path` must be given.')
-        self.times, self.offsets = points[:, 0], points[:, 1]
-        self.interp_func = interp1d(self.offsets, self.times, fill_value=fill_value)
-
-    def get_time(self, offsets):
-        return self.interp_func(offsets) # ms
-
-    def load_muting(self, path):
-        with open(path) as p:
-            lines = p.readlines()[1:]
-            coords = np.array(''.join(lines).split(), dtype=np.int32)
-        return np.array([coords[1::2], coords[::2]]).T
+    def __call__(self, offsets):
+        return self.muter(offsets)
