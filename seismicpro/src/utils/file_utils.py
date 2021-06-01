@@ -34,7 +34,7 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=True, keep_exts=("
     spec.tracecount = sum(handler.tracecount for handler in source_handlers)
 
     # Write traces and their headers from source files into the new one
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    os.makedirs(os.path.abspath(os.path.dirname(out_path)), exist_ok=True)
     with segyio.create(out_path, spec) as out_handler:
         trace_pos = 0
         for source_handler in tqdm(source_handlers, disable=not bar):

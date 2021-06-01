@@ -131,7 +131,7 @@ class Gather:
 
         # Remember ordinal numbers of traces in parent segy to further copy their headers
         # and reset them to start from 1 in the resulting file to match segy standard.
-        trace_ids = trace_headers[self.survey.TRACE_ID_HEADER].values
+        trace_ids = trace_headers[self.survey.TRACE_ID_HEADER].values - 1
         trace_headers[self.survey.TRACE_ID_HEADER] = np.arange(len(trace_headers)) + 1
 
         # Keep only headers, relevant to segy file.
