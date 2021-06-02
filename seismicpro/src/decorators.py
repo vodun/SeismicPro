@@ -5,14 +5,6 @@ from .utils import to_list
 from ..batchflow import action, inbatch_parallel
 
 
-def add_inplace_arg(method):
-    @wraps(method)
-    def decorated_method(self, *args, inplace=False, **kwargs):
-        obj = self if inplace else self.copy()
-        return method(obj, *args, **kwargs)
-    return decorated_method
-
-
 def validate_gather(required_header_cols=None, required_sorting=None):
     def decorator(method):
         def _validate_header_cols(gather, required_header_cols):

@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from .survey import Survey
-from .decorators import add_inplace_arg
+from .utils import maybe_copy
 from ..batchflow import DatasetIndex
 
 
@@ -226,8 +226,9 @@ class SeismicIndex(DatasetIndex):
             raise KeyError(err_msg.format(survey_name, ", ".join(self.surveys_dict.keys())))
         return self.surveys_dict[survey_name][concat_id].get_gather(index=survey_index, **kwargs)
 
-    @add_inplace_arg
-    def reindex(self, new_index):
+    def reindex(self, new_index, inplace=False):
+        self = maybe_copy(self, inplace)
+
         # Keep CONCAT_ID column in the index.
         self.headers.reset_index(level=self.headers.index.names[1:], inplace=True)
         self.headers.set_index(new_index, append=True, inplace=True)

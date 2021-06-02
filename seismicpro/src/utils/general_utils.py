@@ -10,6 +10,10 @@ def to_list(obj):
     return np.array(obj).ravel().tolist()
 
 
+def maybe_copy(obj, inplace=False):
+    return obj if inplace else obj.copy()
+
+
 @njit(nogil=True)
 def calculate_stats(trace):
     trace_min, trace_max = np.inf, -np.inf

@@ -9,8 +9,7 @@ from tqdm.auto import tqdm
 from scipy.interpolate import interp1d
 
 from .gather import Gather
-from .utils import to_list, calculate_stats, create_supergather_index
-from .decorators import add_inplace_arg
+from .utils import to_list, maybe_copy, calculate_stats, create_supergather_index
 
 
 class Survey:
@@ -252,8 +251,8 @@ class Survey:
     def copy(self):
         return deepcopy(self)
 
-    @add_inplace_arg
-    def filter(self, header_cols, cond, axis=None, *args, **kwargs):
+    def filter(self, header_cols, cond, axis=None, inplace=False, *args, **kwargs):
+        self = maybe_copy(self, inplace)
         headers = self.headers[to_list(header_cols)]
         if axis is None:
             mask = cond(headers, *args, **kwargs)
@@ -262,8 +261,8 @@ class Survey:
         self.headers = self.headers.loc[mask.values]
         return self
 
-    @add_inplace_arg
-    def reindex(self, new_index):
+    def reindex(self, new_index, inplace=False):
+        self = maybe_copy(self, inplace)
         self.headers.reset_index(inplace=True)
         self.headers.set_index(new_index, inplace=True)
         self.headers.sort_index(inplace=True)
@@ -289,8 +288,8 @@ class Survey:
     #                         Task specific methods                          #
     #------------------------------------------------------------------------#
 
-    @add_inplace_arg
-    def generate_supergathers(self, size=(3, 3), step=(20, 20), modulo=(0, 0), reindex=True):
+    def generate_supergathers(self, size=(3, 3), step=(20, 20), modulo=(0, 0), reindex=True, inplace=False):
+        self = maybe_copy(self, inplace)
         index_cols = self.headers.index.names
         headers = self.headers.reset_index()
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]
