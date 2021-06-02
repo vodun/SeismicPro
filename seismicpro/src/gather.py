@@ -254,10 +254,14 @@ class Gather:
 
     @batch_method(target="for", copy_src=False)
     def create_muter(self, mode="first_breaks", **kwargs):
+        builder = getattr(Muter, f"from_{mode}", None)
+        if builder is None:
+            raise ValueError(f"Unknown mode {mode}")
+
         if mode == "first_breaks":
             first_breaks_col = kwargs.pop("first_breaks_col", "FirstBreak")
-            return Muter(mode=mode, offsets=self.offsets, times=self[first_breaks_col], **kwargs)
-        return Muter(mode=mode, **kwargs)
+            return builder(offsets=self.offsets, times=self[first_breaks_col], **kwargs)
+        return builder(mode=mode, **kwargs)
 
     @batch_method(target="threads", args_to_unpack="muter")
     def mute(self, muter):
