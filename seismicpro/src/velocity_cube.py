@@ -9,18 +9,11 @@ from .utils import to_list, read_vfunc, read_single_vfunc
 
 
 class VelocityInterpolator:
-    def __init__(self, stacking_velocities_dict, tmin=-np.inf, tmax=np.inf):
-        if not stacking_velocities_dict:
-            raise ValueError("No stacking velocities passed")
-
-        # Set the time range of all stacking velocities to [tmin, tmax] in order to ensure that the convex hull of the
-        # point cloud passed to LinearNDInterpolator covers all timestamps from tmin to tmax
-        self.stacking_velocities_dict = {}
-        for coord, stacking_velocity in stacking_velocities_dict.items():
-            self.stacking_velocities_dict[coord] = stacking_velocity.set_time_range(tmin, tmax)
+    def __init__(self, stacking_velocities_dict):
+        self.stacking_velocities_dict = stacking_velocities_dict
 
         # Calculate the convex hull of given stacking velocity coordinates to further select appropriate interpolator
-        self.coords = np.stack(list(stacking_velocities_dict.keys()))
+        self.coords = np.stack(list(self.stacking_velocities_dict.keys()))
         self.coords_hull = cv2.convexHull(self.coords, returnPoints=True)
 
         self.nearest_interpolator = NearestNeighbors(n_neighbors=1)
@@ -32,7 +25,7 @@ class VelocityInterpolator:
         max_i, max_x = np.max(self.coords, axis=0) + 1
         fake_velocities_coords = [(min_i, min_x), (min_i, max_x), (max_i, min_x), (max_i, max_x)]
         fake_velocities = [self._interpolate_nearest(i, x) for i, x in fake_velocities_coords]
-        stacking_velocities = list(stacking_velocities_dict.values()) + fake_velocities
+        stacking_velocities = list(self.stacking_velocities_dict.values()) + fake_velocities
         vel_data = np.concatenate([vel.interpolation_data for vel in stacking_velocities])
         self.linear_interpolator = LinearNDInterpolator(vel_data[:, :-1], vel_data[:, -1])
 
@@ -152,7 +145,16 @@ class VelocityCube:
         return self
 
     def create_interpolator(self):
-        self.interpolator = VelocityInterpolator(self.stacking_velocities_dict, self.tmin, self.tmax)
+        if not self.stacking_velocities_dict:
+            raise ValueError("No stacking velocities passed")
+
+        # Set the time range of all stacking velocities to [tmin, tmax] in order to ensure that the convex hull of the
+        # point cloud passed to LinearNDInterpolator covers all timestamps from tmin to tmax
+        stacking_velocities_dict = {}
+        for coord, stacking_velocity in self.stacking_velocities_dict.items():
+            stacking_velocities_dict[coord] = stacking_velocity.set_time_range(self.tmin, self.tmax)
+
+        self.interpolator = VelocityInterpolator(stacking_velocities_dict)
         self.is_dirty_interpolator = False
         return self
 
