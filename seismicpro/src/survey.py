@@ -13,9 +13,6 @@ from .utils import to_list, maybe_copy, calculate_stats, create_supergather_inde
 
 
 class Survey:
-    """ !! """
-    TRACE_ID_HEADER = 'TRACE_SEQUENCE_FILE'
-
     def __init__(self, path, header_index, header_cols=None, name=None,
                  stats_limits=None, collect_stats=False, **kwargs):
         self.path = path
@@ -24,7 +21,7 @@ class Survey:
 
         if header_cols is None:
             header_cols = set()
-        elif header_cols == 'all':
+        elif header_cols == "all":
             header_cols = set(segyio.tracefield.keys.keys())
         else:
             header_cols = set(to_list(header_cols))
@@ -33,8 +30,8 @@ class Survey:
         load_headers = set(header_index) | header_cols
 
         # We always reconstruct this column, so there is no need to load it.
-        if self.TRACE_ID_HEADER in load_headers:
-            load_headers.remove(self.TRACE_ID_HEADER)
+        if "TRACE_SEQUENCE_FILE" in load_headers:
+            load_headers.remove("TRACE_SEQUENCE_FILE")
 
         self.segy_handler = segyio.open(self.path, ignore_geometry=True)
         self.segy_handler.mmap()
@@ -55,8 +52,8 @@ class Survey:
 
         headers = pd.DataFrame(headers).reset_index()
         # TODO: add why do we use unknown column
-        headers.rename(columns={'index': self.TRACE_ID_HEADER}, inplace=True)
-        headers[self.TRACE_ID_HEADER] += 1
+        headers.rename(columns={"index": "TRACE_SEQUENCE_FILE"}, inplace=True)
+        headers["TRACE_SEQUENCE_FILE"] += 1
         headers.set_index(header_index, inplace=True)
         # To optimize futher sampling from mulitiindex.
         self.headers = headers.sort_index()
@@ -127,7 +124,7 @@ class Survey:
         headers = self.headers
         if indices is not None:
             headers = headers.loc[indices]
-        traces_pos = headers.reset_index()[self.TRACE_ID_HEADER].values
+        traces_pos = headers.reset_index()["TRACE_SEQUENCE_FILE"].values
         np.random.shuffle(traces_pos)
 
         if n_quantile_traces <= 0:
@@ -199,7 +196,7 @@ class Survey:
 
         if copy_headers:
             gather_headers = gather_headers.copy()
-        trace_indices = gather_headers.reset_index()[self.TRACE_ID_HEADER].values - 1
+        trace_indices = gather_headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
 
         data = np.empty((len(trace_indices), trace_length), dtype=np.float32)
         for i, ix in enumerate(trace_indices):
