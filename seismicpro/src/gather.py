@@ -310,7 +310,7 @@ class Gather:
         self.data = self.data[mask]
         return self
 
-    @batch_method(target="for")
+    @batch_method(target="for", args_to_unpack="stacking_velocity")
     def apply_nmo(self, stacking_velocity, coords_columns="index"):
         if isinstance(stacking_velocity, VelocityCube):
             stacking_velocity = stacking_velocity.get_stacking_velocity(*self.get_coords(coords_columns))
