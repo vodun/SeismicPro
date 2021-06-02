@@ -16,7 +16,7 @@ class VelocityInterpolator:
         # Set the time range of all stacking velocities to [tmin, tmax] in order to ensure that the convex hull of the
         # point cloud passed to LinearNDInterpolator covers all timestamps from tmin to tmax
         self.stacking_velocities_dict = {}
-        for coord, stacking_velocity in stacking_velocities_dict:
+        for coord, stacking_velocity in stacking_velocities_dict.items():
             self.stacking_velocities_dict[coord] = stacking_velocity.set_time_range(tmin, tmax)
 
         # Calculate the convex hull of given stacking velocity coordinates to further select appropriate interpolator
