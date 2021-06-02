@@ -30,11 +30,10 @@ class VelocityInterpolator:
         # LinearNDInterpolator to work with a full rank matrix of coordinates
         min_i, min_x = np.min(self.coords, axis=0) - 1
         max_i, max_x = np.max(self.coords, axis=0) + 1
-        fake_velocities = [self._interpolate_nearest(i, x)
-                           for i, x in [(min_i, min_x), (min_i, max_x), (max_i, min_x), (max_i, max_x)]]
-        vel_data = [np.concatenate([[vel.get_coords()] * len(vel.times), vel.times, vel.velocities], axis=1)
-                    for vel in list(stacking_velocities_dict.values()) + fake_velocities]
-        vel_data = np.concatenate(vel_data)
+        fake_velocities_coords = [(min_i, min_x), (min_i, max_x), (max_i, min_x), (max_i, max_x)]
+        fake_velocities = [self._interpolate_nearest(i, x) for i, x in fake_velocities_coords]
+        stacking_velocities = list(stacking_velocities_dict.values()) + fake_velocities
+        vel_data = np.concatenate([vel.interpolation_data for vel in stacking_velocities])
         self.linear_interpolator = LinearNDInterpolator(vel_data[:, :-1], vel_data[:, -1])
 
     def is_in_hull(self, inline, crossline):
@@ -98,6 +97,11 @@ class StackingVelocity:
         times = np.array([tmin, *self.times[valid_time_mask], tmax])
         times = times[~np.isinf(times)]
         return self.from_points(times, self(times), self.inline, self.crossline)
+
+    @property
+    def interpolation_data(self):
+        coords = [self.get_coords()] * len(self.times)
+        return np.concatenate([coords, self.times.reshape(-1, 1), self.velocities.reshape(-1, 1)], axis=1)
 
     @property
     def has_points(self):
