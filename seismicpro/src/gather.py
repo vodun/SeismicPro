@@ -215,7 +215,7 @@ class Gather:
         # for further broadcasting to work tracewise
         self.data /= np.atleast_2d(max_abs).T + eps
         if clip:
-            self.data = np.clip(self.data, 0, 1)
+            self.data = np.clip(self.data, -1, 1)
         return self
 
     @batch_method(target='for')
