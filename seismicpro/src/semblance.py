@@ -378,7 +378,7 @@ class Semblance(BaseSemblance):
         minmax_other = np.max(other.semblance, axis=1) - np.min(other.semblance, axis=1)
         return np.max(minmax_self / (minmax_other + 1e-11))
 
-    @batch_method(target="for", copy=False)
+    @batch_method(target="for", copy_src=False)
     def calculate_stacking_velocity(self, start_velocity_range=(1400, 1800), end_velocity_range=(2500, 5000),
                                     max_acceleration=None, n_times=25, n_velocities=25, coords_columns="index"):
         inline, crossline = self.get_coords(coords_columns)

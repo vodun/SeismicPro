@@ -5,8 +5,8 @@ from .utils import to_list
 from ..batchflow import action, inbatch_parallel
 
 
-def batch_method(*args, target="for", args_to_unpack=None, force=False, copy=True):
-    batch_method_params = {"target": target, "args_to_unpack": args_to_unpack, "force": force, "copy": copy}
+def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src=True):
+    batch_method_params = {"target": target, "args_to_unpack": args_to_unpack, "force": force, "copy_src": copy_src}
 
     def decorator(method):
         method.batch_method_params = batch_method_params
@@ -69,9 +69,8 @@ def create_batch_methods(*component_classes):
                 # Get an object corresponding to the given index from src component and copy it if needed
                 pos = self.index.get_pos(index)
                 obj = getattr(self, src)[pos]
-                if getattr(obj, method_name).batch_method_params["copy"] and src != dst:
+                if getattr(obj, method_name).batch_method_params["copy_src"] and src != dst:
                     obj = obj.copy()
-
 
                 # Unpack required method arguments by getting the value of specified component with index pos
                 # and perform the call with updated args and kwargs
