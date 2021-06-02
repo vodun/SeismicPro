@@ -13,7 +13,7 @@ class SeismicBatch(Batch):
     def nested_indices(self):
         if isinstance(self.indices, np.ndarray):
             return self.indices.tolist()
-        return [[index] for index in self.indices.values.tolist()]
+        return [[index] for index in self.indices]
 
     def _init_component(self, *args, dst, **kwargs):
         """Create and preallocate a new attribute with the name ``dst`` if it
