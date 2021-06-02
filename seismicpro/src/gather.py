@@ -149,8 +149,8 @@ class Gather:
 
         # Remember ordinal numbers of traces in parent segy to further copy their headers
         # and reset them to start from 1 in the resulting file to match segy standard.
-        trace_ids = trace_headers[self.survey.TRACE_ID_HEADER].values - 1
-        trace_headers[self.survey.TRACE_ID_HEADER] = np.arange(len(trace_headers)) + 1
+        trace_ids = trace_headers["TRACE_SEQUENCE_FILE"].values - 1
+        trace_headers["TRACE_SEQUENCE_FILE"] = np.arange(len(trace_headers)) + 1
 
         # Keep only headers, relevant to segy file.
         used_header_names = set(trace_headers.columns) & set(segyio.tracefield.keys.keys())
@@ -331,7 +331,7 @@ class Gather:
         if len(headers) != 1:
             raise ValueError("Only a single CDP gather can be stacked")
         self.headers = headers.set_index(line_cols)
-        self.headers[self.survey.TRACE_ID_HEADER] = 1
+        self.headers["TRACE_SEQUENCE_FILE"] = 1
 
         # TODO: avoid zeros in semblance calculation
         self.data[self.data == 0] = np.nan
