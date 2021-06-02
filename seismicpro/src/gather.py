@@ -292,6 +292,7 @@ class Gather:
     def sort(self, by):
         if not isinstance(by, str):
             raise TypeError('`by` should be str, not {}'.format(type(by)))
+        self.validate(required_header_cols=by)
         order = np.argsort(self.headers[by].values, kind='stable')
         self.sort_by = by
         self.data = self.data[order]
