@@ -261,7 +261,7 @@ class Gather:
         if mode == "first_breaks":
             first_breaks_col = kwargs.pop("first_breaks_col", "FirstBreak")
             return builder(offsets=self.offsets, times=self[first_breaks_col], **kwargs)
-        return builder(mode=mode, **kwargs)
+        return builder(**kwargs)
 
     @batch_method(target="threads", args_to_unpack="muter")
     def mute(self, muter):
