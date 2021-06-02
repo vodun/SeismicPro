@@ -9,11 +9,11 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from .utils import to_list, convert_times_to_mask, convert_mask_to_pick
-from .decorators import batch_method, validate_gather
 from .muting import Muter
 from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
+from .decorators import batch_method
+from .utils import to_list, convert_times_to_mask, convert_mask_to_pick
 
 
 class Gather:
@@ -104,6 +104,24 @@ class Gather:
         self_copy.survey = survey
         self.survey = survey
         return self_copy
+
+    def _validate_header_cols(self, required_header_cols):
+        headers = self.headers.reset_index()
+        required_header_cols = to_list(required_header_cols)
+        if any(col not in headers for col in required_header_cols):
+            err_msg = "The following headers must be preloaded: {}"
+            raise ValueError(err_msg.format(", ".join(required_header_cols)))
+
+    def _validate_sorting(self, required_sorting):
+        if self.sort_by != required_sorting:
+            raise ValueError(f"Gather should be sorted by {required_sorting} not {self.sort_by}")
+
+    def validate(self, required_header_cols=None, required_sorting=None):
+        if required_header_cols is not None:
+            self._validate_header_cols(required_header_cols)
+        if required_sorting is not None:
+            self._validate_sorting(required_sorting)
+        return self
 
     #------------------------------------------------------------------------#
     #                              Dump methods                              #
@@ -218,8 +236,7 @@ class Gather:
 
     @batch_method(target="for")
     def pick_to_mask(self, first_breaks_col='FirstBreak'):
-        if first_breaks_col not in self.headers:
-            raise ValueError('First-breaks are not loaded.')
+        self.validate(required_header_cols=first_breaks_col)
         self.mask = convert_times_to_mask(times=self[first_breaks_col], sample_rate=self.sample_rate,
                                           mask_length=self.shape[1])
         return self
@@ -253,13 +270,13 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", copy=False)
-    @validate_gather(required_sorting="offset")
     def calculate_semblance(self, velocities, win_size=25):
+        self.validate(required_sorting="offset")
         return Semblance(gather=self, velocities=velocities, win_size=win_size)
 
     @batch_method(target="for", args_to_unpack="stacking_velocity", copy=False)
-    @validate_gather(required_sorting="offset")
     def calculate_residual_semblance(self, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2):
+        self.validate(required_sorting="offset")
         return ResidualSemblance(gather=self, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
                                  win_size=win_size, relative_margin=relative_margin)
 
@@ -278,9 +295,9 @@ class Gather:
         return self
 
     @batch_method(target="for")
-    @validate_gather(required_header_cols=["INLINE_3D", "SUPERGATHER_INLINE_3D",
-                                           "CROSSLINE_3D", "SUPERGATHER_CROSSLINE_3D"])
     def get_central_cdp(self):
+        self.validate(required_header_cols=["INLINE_3D", "SUPERGATHER_INLINE_3D",
+                                            "CROSSLINE_3D", "SUPERGATHER_CROSSLINE_3D"])
         headers = self.headers.reset_index()
         mask = ((headers["SUPERGATHER_INLINE_3D"] == headers["INLINE_3D"]) &
                 (headers["SUPERGATHER_CROSSLINE_3D"] == headers["CROSSLINE_3D"])).values
@@ -302,9 +319,9 @@ class Gather:
         return self
 
     @batch_method(target="for")
-    @validate_gather(required_header_cols=["INLINE_3D", "CROSSLINE_3D"])
     def stack_gather(self):
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]
+        self.validate(required_header_cols=line_cols)
         headers = self.headers.reset_index()[line_cols].drop_duplicates()
         if len(headers) != 1:
             raise ValueError("Only a single CDP gather can be stacked")
