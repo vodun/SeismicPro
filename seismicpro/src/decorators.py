@@ -76,6 +76,7 @@ def create_batch_methods(*component_classes):
                 # and perform the call with updated args and kwargs
                 obj_method = getattr(obj, method_name)
                 obj_arguments = inspect.signature(obj_method).bind(*args, **kwargs)
+                obj_arguments.apply_defaults()
                 args_to_unpack = obj_method.batch_method_params["args_to_unpack"]
                 if args_to_unpack is not None:
                     for arg_name in to_list(args_to_unpack):
