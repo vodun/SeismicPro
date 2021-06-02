@@ -7,7 +7,7 @@ from .utils import read_single_vfunc
 
 class Muter:
     def __init__(self):
-        self.muter = None
+        self.muter = lambda offsets: np.zeros_like(offsets)
 
     @classmethod
     def from_points(cls, offsets, times, fill_value="extrapolate"):
