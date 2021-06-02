@@ -385,7 +385,7 @@ class Semblance(BaseSemblance):
         times, velocities, _ = calculate_stacking_velocity(self.semblance, self.times, self.velocities,
                                                            start_velocity_range, end_velocity_range, max_acceleration,
                                                            n_times, n_velocities)
-        return StackingVelocity(times=times, velocities=velocities, inline=inline, crossline=crossline)
+        return StackingVelocity.from_points(times, velocities, inline, crossline)
 
 
 @append_docs_from(BaseSemblance)
