@@ -342,10 +342,11 @@ class Gather:
 
     @batch_method(target="for", copy_src=False)
     def plot(self, figsize=(10, 7), **kwargs):
+        vmin, vmax = self.get_quantile([0.1, 0.9])
         default_kwargs = {
             'cmap': 'gray',
-            'vmin': np.quantile(self.data, 0.1),
-            'vmax': np.quantile(self.data, 0.9),
+            'vmin': vmin,
+            'vmax': vmax,
             'aspect': 'auto',
         }
         default_kwargs.update(kwargs)
