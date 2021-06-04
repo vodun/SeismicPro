@@ -8,14 +8,14 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 from seismicpro.src.utils import to_list
-from seismicpro.batchflow import Pipeline, Notifier, C
+from seismicpro.batchflow import Pipeline, CPUMonitor, C
 from seismicpro.batchflow.research import Option, Research, Results, RC
 
 
 sns.set_theme(style="darkgrid")
 class Benchmark:
     def __init__(self, method_name, method_kwargs, targets, batch_sizes, dataset, dataset_name='raw', n_iters=10,
-                 root_pipeline=None, benchmark_cpu=False, detele_research=False):
+                 root_pipeline=None, benchmark_cpu=False, delete_research=False):
         self.method_name = method_name
         self.targets = to_list(targets)
         self.batch_sizes = to_list(batch_sizes)
@@ -29,7 +29,7 @@ class Benchmark:
         name_hash.update(research_name.encode('utf-8'))
         self.research_name = 'research_' + str(name_hash.hexdigest())
 
-        self.benchmark_cpu = 'cpu' if benchmark_cpu else None
+        self.benchmark_cpu = benchmark_cpu
 
         self.root_pipeline = Pipeline()
         if root_pipeline is not None:
@@ -37,7 +37,7 @@ class Benchmark:
 
         method_pipeline = getattr(Pipeline(), self.method_name)(target=C('target'), **method_kwargs)
         self.template_pipeline = (self.root_pipeline + method_pipeline) << self.dataset
-        self.detele_research = detele_research
+        self.delete_research = delete_research
 
     def run(self, **method_kwargs):
         domain = Option('target', self.targets) * Option('batch_size', self.batch_sizes)
@@ -58,14 +58,14 @@ class Benchmark:
         results_df.sort_values(by='batch_size', inplace=True)
         results_df.set_index(['target', 'batch_size'], inplace=True)
         self.results = results_df[self.benchmark_names]
-        if self.detele_research:
+        if self.delete_research:
             self._clear_previous_results()
         return self
 
     def run_single_pipeline(self, config, **method_kwargs):
         pipeline = self.template_pipeline << config
-        pipeline.run(C('batch_size'), n_iters=self.n_iters, shuffle=42, drop_last=True, bar=False,
-                     profile=True, notifier=Notifier(monitors=self.benchmark_cpu))
+        with CPUMonitor() as cpu_monitor:
+            pipeline.run(C('batch_size'), n_iters=self.n_iters, shuffle=42, drop_last=True, bar=False, profile=True)
 
         # Processing the results for time costs.
         action_name = self.method_name + f' #{pipeline.num_actions-1}'
@@ -73,9 +73,7 @@ class Benchmark:
         time_vals = time_df['total_time'].loc[:, action_name].values
 
         # Processing the results for notifier monitors.
-        cpu_notifier = None
-        if self.benchmark_cpu is not None:
-            cpu_notifier = pipeline.notifier.data_containers[0]['data']
+        cpu_notifier = cpu_monitor.data if self.benchmark_cpu is not None else None
         return time_vals, cpu_notifier
 
     def plot(self, figsize=(15, 7)):
