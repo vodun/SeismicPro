@@ -6,19 +6,22 @@ from .utils import read_single_vfunc
 
 
 class Muter:
-    def __init__(self, mode="file", **kwargs):
-        if not hasattr(self, f"from_{mode}"):
-            raise ValueError(f"Unknown mode {mode}")
-        self.muter = getattr(self, f"from_{mode}")(**kwargs)
+    def __init__(self):
+        self.muter = lambda offsets: np.zeros_like(offsets)
 
-    def from_points(self, offsets, times, fill_value="extrapolate"):
-        return interp1d(offsets, times, fill_value=fill_value)
+    @classmethod
+    def from_points(cls, offsets, times, fill_value="extrapolate"):
+        self = cls()
+        self.muter = interp1d(offsets, times, fill_value=fill_value)
+        return self
 
-    def from_file(self, path, **kwargs):
+    @classmethod
+    def from_file(cls, path, **kwargs):
         _, _, offsets, times = read_single_vfunc(path)
-        return self.from_points(offsets, times, **kwargs)
+        return cls.from_points(offsets, times, **kwargs)
 
-    def from_first_breaks(self, offsets, times, velocity_reduction=0):
+    @classmethod
+    def from_first_breaks(cls, offsets, times, velocity_reduction=0):
         velocity_reduction = velocity_reduction / 1000  # from m/s to m/ms
         lin_reg = LinearRegression(fit_intercept=True)
         lin_reg.fit(np.array(times).reshape(-1, 1), np.array(offsets))
@@ -26,7 +29,10 @@ class Muter:
         # The fitted velocity is reduced by velocity_reduction in order to mute amplitudes near first breaks
         intercept = lin_reg.intercept_
         velocity = lin_reg.coef_ - velocity_reduction
-        return lambda offsets: (offsets - intercept) / velocity
+
+        self = cls()
+        self.muter = lambda offsets: (offsets - intercept) / velocity
+        return self
 
     def __call__(self, offsets):
         return self.muter(offsets)

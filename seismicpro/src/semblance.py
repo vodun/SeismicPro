@@ -357,7 +357,8 @@ class Semblance(BaseSemblance):
                      stacking_velocities_ix=stacking_velocities_ix, xlabel='Velocity (m/s)', **kwargs)
         return self
 
-    def calc_na_metrics(self, other):
+    @batch_method(target="for", args_to_unpack="other")
+    def calculate_signal_leakage(self, other):
         """" The metric is designed to search for signal leakage in the process of ground-roll attenuation.
         It is based on the assumption that a vertical velocity semblance calculated for the difference between a raw
         and processed gather should not have pronounced energy maxima.
@@ -385,7 +386,7 @@ class Semblance(BaseSemblance):
         times, velocities, _ = calculate_stacking_velocity(self.semblance, self.times, self.velocities,
                                                            start_velocity_range, end_velocity_range, max_acceleration,
                                                            n_times, n_velocities)
-        return StackingVelocity(times=times, velocities=velocities, inline=inline, crossline=crossline)
+        return StackingVelocity.from_points(times, velocities, inline, crossline)
 
 
 @append_docs_from(BaseSemblance)

@@ -1,4 +1,5 @@
 import os
+import warnings
 from copy import copy, deepcopy
 from textwrap import dedent
 
@@ -32,6 +33,9 @@ class Survey:
         # We always reconstruct this column, so there is no need to load it.
         if "TRACE_SEQUENCE_FILE" in load_headers:
             load_headers.remove("TRACE_SEQUENCE_FILE")
+            warn_msg = ("An automatically reconstructed TRACE_SEQUENCE_FILE header will be used instead of the one, "
+                        f"contained in {basename}")
+            warnings.warn(warn_msg, RuntimeWarning)
 
         self.segy_handler = segyio.open(self.path, ignore_geometry=True)
         self.segy_handler.mmap()

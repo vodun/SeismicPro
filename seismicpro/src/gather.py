@@ -149,8 +149,8 @@ class Gather:
 
         # Remember ordinal numbers of traces in parent segy to further copy their headers
         # and reset them to start from 1 in the resulting file to match segy standard.
-        trace_ids = trace_headers[self.survey.TRACE_ID_HEADER].values - 1
-        trace_headers[self.survey.TRACE_ID_HEADER] = np.arange(len(trace_headers)) + 1
+        trace_ids = trace_headers["TRACE_SEQUENCE_FILE"].values - 1
+        trace_headers["TRACE_SEQUENCE_FILE"] = np.arange(len(trace_headers)) + 1
 
         # Keep only headers, relevant to segy file.
         used_header_names = set(trace_headers.columns) & set(segyio.tracefield.keys.keys())
@@ -254,10 +254,14 @@ class Gather:
 
     @batch_method(target="for", copy_src=False)
     def create_muter(self, mode="first_breaks", **kwargs):
+        builder = getattr(Muter, f"from_{mode}", None)
+        if builder is None:
+            raise ValueError(f"Unknown mode {mode}")
+
         if mode == "first_breaks":
             first_breaks_col = kwargs.pop("first_breaks_col", "FirstBreak")
-            return Muter(mode=mode, offsets=self.offsets, times=self[first_breaks_col], **kwargs)
-        return Muter(mode=mode, **kwargs)
+            return builder(offsets=self.offsets, times=self[first_breaks_col], **kwargs)
+        return builder(**kwargs)
 
     @batch_method(target="threads", args_to_unpack="muter")
     def mute(self, muter):
@@ -288,6 +292,7 @@ class Gather:
     def sort(self, by):
         if not isinstance(by, str):
             raise TypeError('`by` should be str, not {}'.format(type(by)))
+        self.validate(required_header_cols=by)
         order = np.argsort(self.headers[by].values, kind='stable')
         self.sort_by = by
         self.data = self.data[order]
@@ -305,7 +310,7 @@ class Gather:
         self.data = self.data[mask]
         return self
 
-    @batch_method(target="for")
+    @batch_method(target="for", args_to_unpack="stacking_velocity")
     def apply_nmo(self, stacking_velocity, coords_columns="index"):
         if isinstance(stacking_velocity, VelocityCube):
             stacking_velocity = stacking_velocity.get_stacking_velocity(*self.get_coords(coords_columns))
@@ -326,7 +331,7 @@ class Gather:
         if len(headers) != 1:
             raise ValueError("Only a single CDP gather can be stacked")
         self.headers = headers.set_index(line_cols)
-        self.headers[self.survey.TRACE_ID_HEADER] = 1
+        self.headers["TRACE_SEQUENCE_FILE"] = 1
 
         # TODO: avoid zeros in semblance calculation
         self.data[self.data == 0] = np.nan
