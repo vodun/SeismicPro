@@ -13,8 +13,7 @@ from .muting import Muter
 from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 from .decorators import batch_method
-from .utils import to_list, convert_times_to_mask, convert_mask_to_pick
-from .utils.normalization import scale_standard_numba, scale_maxabs_numba, scale_minmax_numba
+from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, normalization
 
 
 class Gather:
@@ -204,19 +203,19 @@ class Gather:
         else:
             mean = self._apply_agg_func(func=np.mean, tracewise=tracewise, keepdims=True)
             std = self._apply_agg_func(func=np.std, tracewise=tracewise, keepdims=True)
-        self.data = scale_standard_numba(self.data, mean, std, eps)
+        self.data = normalization.scale_standard(self.data, mean, std, eps)
         return self
 
     @batch_method(target='for')
     def scale_maxabs(self, q_min=0, q_max=1, tracewise=False, use_global=False, clip=False, eps=1e-10):
         min_value, max_value = self.get_quantile([q_min, q_max], tracewise=tracewise, use_global=use_global)
-        self.data = scale_maxabs_numba(self.data, min_value, max_value, clip, eps)
+        self.data = normalization.scale_maxabs(self.data, min_value, max_value, clip, eps)
         return self
 
     @batch_method(target='for')
     def scale_minmax(self, q_min=0, q_max=1, tracewise=False, use_global=False, clip=False, eps=1e-10):
         min_value, max_value = self.get_quantile([q_min, q_max], tracewise=tracewise, use_global=use_global)
-        self.data = scale_minmax_numba(self.data, min_value, max_value, clip, eps)
+        self.data = normalization.scale_minmax(self.data, min_value, max_value, clip, eps)
         return self
 
     #------------------------------------------------------------------------#
