@@ -9,6 +9,7 @@ from .utils import set_ticks
 from .decorators import batch_method
 from .velocity_model import calculate_stacking_velocity
 from .velocity_cube import StackingVelocity
+from .utils.correction import get_hodograph
 
 
 def append_docs_from(method_from):
@@ -128,43 +129,6 @@ class BaseSemblance:
             semblance_slice[t - t_min_ix] = (np.sum(numerator[ix_from : ix_to]) /
                                              (len(offsets) * np.sum(denominator[ix_from : ix_to]) + 1e-6))
         return semblance_slice
-
-    @staticmethod
-    @njit(nogil=True, fastmath=True)
-    def apply_nmo(gather_data, time, offsets, velocity, sample_rate):
-        r""" Default approach for normal moveout computation for single hodograph. Corrected gather calculates
-        as following:
-        :math:`t_c = \sqrt{t^2 + \frac{l^2}{v^2}}`, where
-            t_c - corrected time value.
-            t - specified time value.
-            l - distance from the source to receiver.
-            v - velocity.
-
-        Parameters
-        ----------
-        gather : np.ndarray
-            Data for calculating normal moveout.
-        time : int
-            Time value to calculate normal moveout.
-        offsets : array-like
-            The distance from the source to the receiver for each trace.
-        velocity : array-like
-            Velocity value for NMO computation.
-        sample_rate : int
-            Step in milliseconds between signal amplitude measurements during shooting.
-
-        Returns
-        -------
-        corrected_gather : 1d array
-            NMO corrected hodograph.
-        """
-        corrected_gather = np.zeros(len(offsets))
-        corrected_times = (np.sqrt(time**2 + offsets**2/velocity**2) / sample_rate).astype(np.int32)
-        for i in range(len(offsets)):
-            corrected_time = corrected_times[i]
-            if corrected_time < len(gather_data):
-                corrected_gather[i] = gather_data[corrected_time, i]
-        return corrected_gather
 
     @staticmethod
     def plot(semblance, ticks_range_x, ticks_range_y, xlabel, title=None,  # pylint: disable=too-many-arguments
@@ -297,7 +261,7 @@ class Semblance(BaseSemblance):
         """
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
         self.semblance = self._calc_semblance_numba(semblance_func=self.calc_single_velocity_semblance,
-                                                    nmo_func=self.apply_nmo, gather_data=self.gather_data,
+                                                    nmo_func=get_hodograph, gather_data=self.gather_data,
                                                     times=self.times, offsets=self.offsets, velocities=velocities_ms,
                                                     sample_rate=self.sample_rate, win_size=self.win_size)
 
@@ -445,9 +409,9 @@ class ResidualSemblance(BaseSemblance):
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
         left_bound_ix, right_bound_ix = self._calc_velocity_bounds()
         self.residual_semblance = self._calc_res_semblance_numba(semblance_func=self.calc_single_velocity_semblance,
-                                                                 nmo_func=self.apply_nmo,
-                                                                 gather_data=self.gather_data, times=self.times,
-                                                                 offsets=self.offsets, velocities=velocities_ms,
+                                                                 nmo_func=get_hodograph, gather_data=self.gather_data,
+                                                                 times=self.times, offsets=self.offsets,
+                                                                 velocities=velocities_ms,
                                                                  left_bound_ix=left_bound_ix,
                                                                  right_bound_ix=right_bound_ix,
                                                                  sample_rate=self.sample_rate, win_size=self.win_size)

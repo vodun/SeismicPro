@@ -13,7 +13,7 @@ from .muting import Muter
 from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 from .decorators import batch_method
-from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, normalization
+from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, normalization, correction
 
 
 class Gather:
@@ -305,10 +305,7 @@ class Gather:
         if not isinstance(stacking_velocity, StackingVelocity):
             raise ValueError("Only VelocityCube or StackingVelocity instances can be passed as a stacking_velocity")
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
-        res = []
-        for time, velocity in zip(self.times, velocities_ms):
-            res.append(Semblance.apply_nmo(self.data.T, time, self.offsets, velocity, self.sample_rate))
-        self.data = np.stack(res).T.astype(np.float32)
+        self.data = correction.apply_nmo(self.data.T, self.times, self.offsets, velocities_ms, self.sample_rate)
         return self
 
     @batch_method(target="for")
