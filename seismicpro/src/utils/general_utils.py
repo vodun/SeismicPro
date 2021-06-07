@@ -69,3 +69,12 @@ def convert_mask_to_pick(mask, sample_rate, threshold):
             max_len = curr_len
         picking_array[i] = picking_ix - max_len
     return picking_array * sample_rate
+
+
+@njit(nogil=True)
+def clip(data, data_min, data_max):
+    data_shape = data.shape
+    data = data.reshape(-1)
+    for i in range(len(data)):
+        data[i] = min(max(data[i], data_min), data_max)
+    return data.reshape(data_shape)
