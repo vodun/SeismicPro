@@ -92,7 +92,7 @@ class Survey:
 
     def __str__(self):
         offsets = self.headers.get('offset')
-        min_offset, max_offset = np.min(offsets), np.max(offsets)
+        offset_range = f'[{np.min(offsets)} m, {np.max(offsets)} m]' if offsets is not None else None
         msg = f"""
         Survey path:               {self.path}
         Survey name:               {self.name}
@@ -100,7 +100,7 @@ class Survey:
         Number of traces:          {self.headers.shape[0]}
         Traces length:             {self.samples_length} samples
         Sample rate:               {self.sample_rate} ms
-        Offsets range:             [{min_offset} m, {max_offset} m]
+        Offsets range:             {offset_range}
 
         Index name(s):             {', '.join(self.headers.index.names)}
         Number of unique indices:  {len(np.unique(self.headers.index))}

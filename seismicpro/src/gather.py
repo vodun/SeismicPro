@@ -50,7 +50,7 @@ class Gather:
     def __str__(self):
         # Calculating offset range
         offsets = self.headers.get('offset')
-        min_offset, max_offset = np.min(offsets), np.max(offsets)
+        offset_range = f'[{np.min(offsets)} m, {np.max(offsets)} m]' if offsets is not None else None
 
         # Determining index value
         index = np.unique(self.headers.index)
@@ -58,7 +58,6 @@ class Gather:
 
         # Counting the number of zero/constant traces
         n_dead_traces = np.isclose(np.max(self.data, axis=1), np.min(self.data, axis=1)).sum()
-
         msg = f"""
         Parent survey path:          {self.survey.path}
         Parent survey name:          {self.survey.name}
@@ -67,7 +66,7 @@ class Gather:
         Trace length:                {len(self.samples)} samples
         Sample rate:                 {self.sample_rate} ms
         Times range:                 [{min(self.samples)} ms, {max(self.samples)} ms]
-        Offsets range:               [{min_offset} m, {max_offset} m]
+        Offsets range:               {offset_range}
 
         Index name(s):               {', '.join(self.headers.index.names)}
         Index value:                 {index}
