@@ -169,7 +169,7 @@ class Survey:
 
         # Calculate all q-quantiles from 0 to 1 with step 1 / 10**quantile_precision
         q = np.round(np.linspace(0, 1, num=10**quantile_precision), decimals=quantile_precision)
-        quantiles = np.quantile(traces_buf.ravel(), q=q)
+        quantiles = np.nanquantile(traces_buf.ravel(), q=q)
         # 0 and 1 quantiles are replaced with actual min and max values respectively
         quantiles[0], quantiles[-1] = global_min, global_max
         self.quantile_interpolator = interp1d(q, quantiles)

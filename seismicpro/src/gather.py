@@ -189,7 +189,7 @@ class Gather:
     def get_quantile(self, q, tracewise=False, use_global=False):
         if use_global:
             return self.survey.get_quantile(q)
-        quantiles = self._apply_agg_func(func=np.quantile, tracewise=tracewise, q=q)
+        quantiles = self._apply_agg_func(func=np.nanquantile, tracewise=tracewise, q=q)
         # return the same type as q in case of global calculation: either single float or array-like
         return quantiles.item() if not tracewise and quantiles.ndim == 0 else quantiles
 
@@ -309,7 +309,7 @@ class Gather:
         return self
 
     @batch_method(target="for")
-    def stack_gather(self):
+    def stack(self):
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]
         self.validate(required_header_cols=line_cols)
         headers = self.headers.reset_index()[line_cols].drop_duplicates()
@@ -318,8 +318,6 @@ class Gather:
         self.headers = headers.set_index(line_cols)
         self.headers["TRACE_SEQUENCE_FILE"] = 1
 
-        # TODO: avoid zeros in semblance calculation
-        self.data[self.data == 0] = np.nan
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
             self.data = np.nanmean(self.data, axis=0, keepdims=True)

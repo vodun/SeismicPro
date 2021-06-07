@@ -3,7 +3,7 @@ from numba import njit
 
 
 @njit(nogil=True, fastmath=True)
-def get_hodograph(gather_data, time, offsets, velocity, sample_rate):
+def get_hodograph(gather_data, time, offsets, velocity, sample_rate, fill_value=0):
     r""" Default approach for normal moveout computation for single hodograph. Corrected gather calculates
     as following:
     :math:`t_c = \sqrt{t^2 + \frac{l^2}{v^2}}`, where
@@ -30,7 +30,7 @@ def get_hodograph(gather_data, time, offsets, velocity, sample_rate):
     hodograph : 1d array
         NMO corrected hodograph.
     """
-    hodograph = np.zeros(len(offsets))
+    hodograph = np.full(len(offsets), fill_value, dtype=gather_data.dtype)
     hodograph_times = (np.sqrt(time**2 + offsets**2/velocity**2) / sample_rate).astype(np.int32)
     for i in range(len(offsets)):
         hodograph_time = hodograph_times[i]
@@ -43,5 +43,6 @@ def get_hodograph(gather_data, time, offsets, velocity, sample_rate):
 def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate):
     corrected_gather_data = np.empty_like(gather_data)
     for i, (time, stacking_velocity) in enumerate(zip(times, stacking_velocities)):
-        corrected_gather_data[i] = get_hodograph(gather_data, time, offsets, stacking_velocity, sample_rate)
+        corrected_gather_data[i] = get_hodograph(gather_data, time, offsets, stacking_velocity, sample_rate,
+                                                 fill_value=np.nan)
     return np.ascontiguousarray(corrected_gather_data.T)
