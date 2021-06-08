@@ -44,7 +44,7 @@ def create_supergather_index(lines, size):
 def convert_times_to_mask(times, sample_rate, mask_length):
     times_ixs = np.rint(times / sample_rate).astype(np.int32)
     mask = (np.arange(mask_length) - times_ixs.reshape(-1, 1)) >= 0
-    return mask.astype(np.int32)
+    return mask
 
 
 @njit(nogil=True, parallel=True)
@@ -69,6 +69,13 @@ def convert_mask_to_pick(mask, sample_rate, threshold):
             max_len = curr_len
         picking_array[i] = picking_ix - max_len
     return picking_array * sample_rate
+
+
+@njit(nogil=True)
+def mute_gather(gather_data, muting_times, sample_rate, fill_value):
+    mask = convert_times_to_mask(times=muting_times, sample_rate=sample_rate, mask_length=gather_data.shape[1])
+    gather_data[~mask] = fill_value
+    return gather_data
 
 
 @njit(nogil=True)

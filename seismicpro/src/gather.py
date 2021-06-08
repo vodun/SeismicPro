@@ -13,7 +13,7 @@ from .muting import Muter
 from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 from .decorators import batch_method
-from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, normalization, correction
+from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, normalization, correction
 
 
 class Gather:
@@ -225,7 +225,7 @@ class Gather:
     def pick_to_mask(self, first_breaks_col='FirstBreak'):
         self.validate(required_header_cols=first_breaks_col)
         self.mask = convert_times_to_mask(times=self[first_breaks_col], sample_rate=self.sample_rate,
-                                          mask_length=self.shape[1])
+                                          mask_length=self.shape[1]).astype(np.int32)
         return self
 
     @batch_method(target='for')
@@ -251,9 +251,9 @@ class Gather:
         return builder(**kwargs)
 
     @batch_method(target="threads", args_to_unpack="muter")
-    def mute(self, muter):
-        self.data *= convert_times_to_mask(times=muter(self.offsets), sample_rate=self.sample_rate,
-                                           mask_length=self.shape[1])
+    def mute(self, muter, fill_value=0):
+        self.data = mute_gather(gather_data=self.data, muting_times=muter(self.offsets),
+                                sample_rate=self.sample_rate, fill_value=fill_value)
         return self
 
     #------------------------------------------------------------------------#
