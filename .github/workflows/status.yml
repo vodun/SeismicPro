@@ -15,7 +15,7 @@ jobs:
     - uses: actions/checkout@v1
       with:
         submodules: true
-        lfs: true
+        lfs: false
 
 
     - name: Update pylint
@@ -24,9 +24,9 @@ jobs:
     - name: Check pylint
       run: pylint -rn --rcfile pylintrc seismicpro
 
-    - name: Run tests
-      if: always()
-      run: pytest -m "not slow" --disable-pytest-warnings -v seismicpro/src/tests
+    # - name: Run tests
+    #   if: always()
+    #   run: pytest -m "not slow" --disable-pytest-warnings -v seismicpro/src/tests
 
     - name: Slack notification
       if: success()

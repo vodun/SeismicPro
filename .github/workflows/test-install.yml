@@ -42,10 +42,11 @@ jobs:
     - name: Run 'import seismicpro'
       run: python -c 'import seismicpro'
 
-    - name: Run basic tests
-      run: |
-        pip install -U pytest
-        pytest  -m "not slow" --disable-pytest-warnings -v seismicpro/src/tests/dump_merge_test.py
+    # TODO: write new tests that gonna check simple objects creation
+    # - name: Run basic tests
+    #   run: |
+    #     pip install -U pytest
+    #     pytest  -m "not slow" --disable-pytest-warnings -v seismicpro/src/tests/dump_merge_test.py
 
 
 # -----------------------------------------
@@ -76,10 +77,10 @@ jobs:
     - name: Run 'import seismicpro'
       run: python -c 'import seismicpro'
 
-    - name: Run basic tests
-      run: |
-        pip install -U pytest
-        pytest -m "not slow" --disable-pytest-warnings -v --pyargs seismicpro.src.tests.dump_merge_test
+    # - name: Run basic tests
+    #   run: |
+    #     pip install -U pytest
+    #     pytest -m "not slow" --disable-pytest-warnings -v --pyargs seismicpro.src.tests.dump_merge_test
 
 
 # -----------------------------------------
@@ -111,7 +112,7 @@ jobs:
     - name: Run 'import seismicpro' in installed environment
       run: pipenv run python -c 'import seismicpro'
 
-    - name: Run basic tests
-      run: |
-        pipenv install pytest
-        pipenv run python -m pytest -m "not slow" --disable-pytest-warnings -v --pyargs seismicpro.src.tests.dump_merge_test
+    # - name: Run basic tests
+    #   run: |
+    #     pipenv install pytest
+    #     pipenv run python -m pytest -m "not slow" --disable-pytest-warnings -v --pyargs seismicpro.src.tests.dump_merge_test
