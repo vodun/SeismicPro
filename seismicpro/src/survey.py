@@ -252,14 +252,34 @@ class Survey:
     def copy(self):
         return deepcopy(self)
 
-    def filter(self, header_cols, cond, axis=None, inplace=False, *args, **kwargs):
-        self = maybe_copy(self, inplace)
-        headers = self.headers[to_list(header_cols)]
+    @staticmethod
+    def _apply(func, df, axis, unpack_args, **kwargs):
         if axis is None:
-            mask = cond(headers, *args, **kwargs)
+            res = func(df, **kwargs)
         else:
-            mask = headers.apply(cond, axis=axis, raw=True, args=args, **kwargs)
-        self.headers = self.headers.loc[mask.values]
+            apply_func = lambda args: func(*args) if unpack_args else func
+            res = df.apply(apply_func, axis=axis, raw=True, **kwargs)
+        if isinstance(res, pd.Series):
+            res = res.to_frame()
+        return res
+
+    def filter(self, cond, cols, axis=None, unpack_args=False, inplace=False, **kwargs):
+        self = maybe_copy(self, inplace)
+        headers = self.headers.reset_index()[to_list(cols)]
+        mask = self._apply(cond, headers, axis=axis, unpack_args=unpack_args, **kwargs)
+        if len(mask.columns) != 1:
+            raise ValueError("cond must return a single bool value for each header row")
+        mask = mask.iloc[:, 0].values
+        self.headers = self.headers.loc[mask]
+        return self
+
+    def apply(self, func, cols, res_cols=None, axis=None, unpack_args=False, inplace=False, **kwargs):
+        self = maybe_copy(self, inplace)
+        cols = to_list(cols)
+        res_cols = cols if res_cols is None else to_list(res_cols)
+        headers = self.headers.reset_index()[cols]
+        res = self._apply(func, headers, axis=axis, unpack_args=unpack_args, **kwargs)
+        self.headers[res_cols] = res
         return self
 
     def reindex(self, new_index, inplace=False):
