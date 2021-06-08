@@ -206,13 +206,13 @@ class Gather:
         return self
 
     @batch_method(target='threads')
-    def scale_maxabs(self, q_min=0, q_max=1, tracewise=False, use_global=False, clip=False, eps=1e-10):
+    def scale_maxabs(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
         min_value, max_value = self.get_quantile([q_min, q_max], tracewise=tracewise, use_global=use_global)
         self.data = normalization.scale_maxabs(self.data, min_value, max_value, clip, eps)
         return self
 
     @batch_method(target='threads')
-    def scale_minmax(self, q_min=0, q_max=1, tracewise=False, use_global=False, clip=False, eps=1e-10):
+    def scale_minmax(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
         min_value, max_value = self.get_quantile([q_min, q_max], tracewise=tracewise, use_global=use_global)
         self.data = normalization.scale_minmax(self.data, min_value, max_value, clip, eps)
         return self
