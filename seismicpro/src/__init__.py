@@ -8,5 +8,4 @@ from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 from .muting import Muter
 from .metrics import MetricsMap
-from .named_expr import SU
 from .utils import aggregate_segys
