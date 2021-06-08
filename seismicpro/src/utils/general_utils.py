@@ -74,8 +74,11 @@ def convert_mask_to_pick(mask, sample_rate, threshold):
 @njit(nogil=True)
 def mute_gather(gather_data, muting_times, sample_rate, fill_value):
     mask = convert_times_to_mask(times=muting_times, sample_rate=sample_rate, mask_length=gather_data.shape[1])
+    data_shape = gather_data.shape
+    gather_data = gather_data.reshape(-1)
+    mask = mask.reshape(-1)
     gather_data[~mask] = fill_value
-    return gather_data
+    return gather_data.reshape(data_shape)
 
 
 @njit(nogil=True)
