@@ -95,7 +95,7 @@ class Gather:
             raise ValueError(f"Gather position must be defined by exactly two coordinates, not {coords.shape[1]}")
         return tuple(coords[0].tolist())
 
-    @batch_method(target='for', copy_src=False)
+    @batch_method(target='threads', copy_src=False)
     def copy(self):
         survey = self.survey
         self.survey = None
@@ -192,7 +192,7 @@ class Gather:
         # return the same type as q in case of global calculation: either single float or array-like
         return quantiles.item() if not tracewise and quantiles.ndim == 0 else quantiles
 
-    @batch_method(target='for')
+    @batch_method(target='threads')
     def scale_standard(self, tracewise=True, use_global=False, eps=1e-10):
         if use_global:
             if not self.survey.has_stats:
@@ -205,13 +205,13 @@ class Gather:
         self.data = normalization.scale_standard(self.data, mean, std, eps)
         return self
 
-    @batch_method(target='for')
+    @batch_method(target='threads')
     def scale_maxabs(self, q_min=0, q_max=1, tracewise=False, use_global=False, clip=False, eps=1e-10):
         min_value, max_value = self.get_quantile([q_min, q_max], tracewise=tracewise, use_global=use_global)
         self.data = normalization.scale_maxabs(self.data, min_value, max_value, clip, eps)
         return self
 
-    @batch_method(target='for')
+    @batch_method(target='threads')
     def scale_minmax(self, q_min=0, q_max=1, tracewise=False, use_global=False, clip=False, eps=1e-10):
         min_value, max_value = self.get_quantile([q_min, q_max], tracewise=tracewise, use_global=use_global)
         self.data = normalization.scale_minmax(self.data, min_value, max_value, clip, eps)
@@ -221,7 +221,7 @@ class Gather:
     #                    First-breaks processing methods                     #
     #------------------------------------------------------------------------#
 
-    @batch_method(target="for")
+    @batch_method(target="threads")
     def pick_to_mask(self, first_breaks_col='FirstBreak'):
         self.validate(required_header_cols=first_breaks_col)
         self.mask = convert_times_to_mask(times=self[first_breaks_col], sample_rate=self.sample_rate,
@@ -265,7 +265,7 @@ class Gather:
         self.validate(required_sorting="offset")
         return Semblance(gather=self, velocities=velocities, win_size=win_size)
 
-    @batch_method(target="for", args_to_unpack="stacking_velocity", copy_src=False)
+    @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
     def calculate_residual_semblance(self, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2):
         self.validate(required_sorting="offset")
         return ResidualSemblance(gather=self, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
@@ -275,7 +275,7 @@ class Gather:
     #                       Gather processing methods                        #
     #------------------------------------------------------------------------#
 
-    @batch_method(target="threads")
+    @batch_method(target="for")
     def sort(self, by):
         if not isinstance(by, str):
             raise TypeError('`by` should be str, not {}'.format(type(by)))
@@ -297,7 +297,7 @@ class Gather:
         self.data = self.data[mask]
         return self
 
-    @batch_method(target="for", args_to_unpack="stacking_velocity")
+    @batch_method(target="threads", args_to_unpack="stacking_velocity")
     def apply_nmo(self, stacking_velocity, coords_columns="index"):
         if isinstance(stacking_velocity, VelocityCube):
             stacking_velocity = stacking_velocity.get_stacking_velocity(*self.get_coords(coords_columns))
