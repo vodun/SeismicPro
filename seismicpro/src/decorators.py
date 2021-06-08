@@ -26,16 +26,24 @@ def _apply_to_each_component(method, target, fetch_method_target):
         dst_list = to_list(dst) if dst is not None else src_list
 
         for src, dst in zip(src_list, dst_list):
-            src_method_target = target  # set src_method_target default
+            # Set src_method_target default
+            src_method_target = target
 
-            if fetch_method_target:  # dynamically fetch target from method attribute
+            # Dynamically fetch target from method attribute
+            if fetch_method_target:
                 src_types = {type(elem) for elem in getattr(self, src)}
                 if len(src_types) != 1:
                     err_msg = "All elements in {src} component must have the same type, but {src_types} found"
                     raise ValueError(err_msg.format(src=src, src_types=", ".join(map(str, src_types))))
                 src_method_target = getattr(src_types.pop(), method.__name__).batch_method_params["target"]
 
-            src_method_target = kwargs.pop("target", src_method_target)  # fetch target from passed kwargs
+            # Fetch target from passed kwargs
+            src_method_target = kwargs.pop("target", src_method_target)
+
+            # Set method target to for if the batch contains only one element
+            if len(self) == 1:
+                src_method_target = "for"
+
             parallel_method = inbatch_parallel(init="_init_component", target=src_method_target)(method)
             parallel_method(self, *args, src=src, dst=dst, **kwargs)
         return self
