@@ -102,7 +102,7 @@ class SeismicIndex(DatasetIndex):
         if index is not None:
             new_index._index = index
         else:
-            new_index._index = headers.index.unique()
+            new_index._index = headers.index.drop_duplicates()
         new_index._pos = new_index.build_pos()
         return new_index
 
