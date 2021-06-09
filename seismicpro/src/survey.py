@@ -128,7 +128,7 @@ class Survey:
         headers = self.headers
         if indices is not None:
             headers = headers.loc[indices]
-        traces_pos = headers.reset_index()["TRACE_SEQUENCE_FILE"].values
+        traces_pos = headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
         np.random.shuffle(traces_pos)
 
         if n_quantile_traces <= 0:
@@ -148,8 +148,7 @@ class Survey:
         for i, pos in tqdm(enumerate(traces_pos), desc=f"Calculating statistics for survey {self.name}",
                            total=len(traces_pos), disable=not bar):
             # Note that stats calculating only in limits defined in `self.stats_limits`
-            self.load_trace(buf=trace, index=pos-1, limits=self.stats_limits,
-                            trace_length=self.samples_length)
+            self.load_trace(buf=trace, index=pos, limits=self.stats_limits, trace_length=self.samples_length)
             trace_min, trace_max, trace_sum, trace_sq_sum = calculate_stats(trace)
             global_min = min(trace_min, global_min)
             global_max = max(trace_max, global_max)
