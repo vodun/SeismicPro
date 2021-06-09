@@ -94,17 +94,17 @@ class SeismicIndex(DatasetIndex):
     @classmethod
     def from_attributes(cls, index=None, headers=None, surveys_dict=None):
         # Create empty SeismicIndex to fill with given headers and surveys_dict
-        index = cls()
-        index.headers = headers
-        index.surveys_dict = surveys_dict
+        new_index = cls()
+        new_index.headers = headers
+        new_index.surveys_dict = surveys_dict
 
         # Set _index and _pos explicitly since already created index is modified
         if index is not None:
-            index._index = index
+            new_index._index = index
         else:
-            index._index = index.headers.index.unique()
-        index._pos = index.build_pos()
-        return index
+            new_index._index = headers.index.unique()
+        new_index._pos = new_index.build_pos()
+        return new_index
 
     @classmethod
     def from_survey(cls, survey):
