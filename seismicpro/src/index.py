@@ -113,11 +113,7 @@ class SeismicIndex(DatasetIndex):
                               "Probably you forgot to specify mode")
 
         # Copy headers from survey and create zero CONCAT_ID column as the first index level
-        headers = survey.headers.copy()
-        old_index = headers.index.names
-        headers.reset_index(inplace=True)
-        headers["CONCAT_ID"] = 0
-        headers.set_index(["CONCAT_ID"] + old_index, inplace=True)
+        headers = pd.concat([survey.headers.copy()], keys=[0], names=["CONCAT_ID"])
 
         surveys_dict = {survey.name: [survey]}
         return cls.from_attributes(headers=headers, surveys_dict=surveys_dict)
