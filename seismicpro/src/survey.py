@@ -259,17 +259,16 @@ class Survey:
         else:
             apply_func = lambda args: func(*args) if unpack_args else func
             res = df.apply(apply_func, axis=axis, raw=True, **kwargs)
-        if isinstance(res, pd.Series):
-            res = res.to_frame()
-        return res
+        return res.values
 
     def filter(self, cond, cols, axis=None, unpack_args=False, inplace=False, **kwargs):
         self = maybe_copy(self, inplace)
         headers = self.headers.reset_index()[to_list(cols)]
         mask = self._apply(cond, headers, axis=axis, unpack_args=unpack_args, **kwargs)
-        if len(mask.columns) != 1:
+        if (mask.ndim == 2) and (mask.shape[1] == 1):
+            mask = mask[:, 0]
+        if mask.ndim != 1:
             raise ValueError("cond must return a single bool value for each header row")
-        mask = mask.iloc[:, 0].values
         self.headers = self.headers.loc[mask]
         return self
 
