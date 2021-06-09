@@ -92,14 +92,17 @@ class SeismicIndex(DatasetIndex):
         return index.index
 
     @classmethod
-    def from_attributes(cls, headers, surveys_dict):
+    def from_attributes(cls, index=None, headers=None, surveys_dict=None):
         # Create empty SeismicIndex to fill with given headers and surveys_dict
         index = cls()
         index.headers = headers
         index.surveys_dict = surveys_dict
 
         # Set _index and _pos explicitly since already created index is modified
-        index._index = index.headers.index.unique()
+        if index is not None:
+            index._index = index
+        else:
+            index._index = index.headers.index.unique()
         index._pos = index.build_pos()
         return index
 
@@ -117,7 +120,7 @@ class SeismicIndex(DatasetIndex):
         headers.set_index(["CONCAT_ID"] + old_index, inplace=True)
 
         surveys_dict = {survey.name: [survey]}
-        return cls.from_attributes(headers, surveys_dict)
+        return cls.from_attributes(headers=headers, surveys_dict=surveys_dict)
 
     @staticmethod
     def _surveys_to_indices(surveys):
@@ -157,7 +160,7 @@ class SeismicIndex(DatasetIndex):
             for concat_id in dropped_ids:
                 surveys_dict[survey][concat_id] = None
 
-        return cls.from_attributes(headers.set_index(x_index_columns), surveys_dict)
+        return cls.from_attributes(headers=headers.set_index(x_index_columns), surveys_dict=surveys_dict)
 
     @classmethod
     def merge(cls, surveys, **kwargs):
@@ -190,7 +193,7 @@ class SeismicIndex(DatasetIndex):
         headers = pd.concat(headers_list, **kwargs)
         surveys_dict = {survey_name: sum([index.surveys_dict[survey_name] for index in indices], [])
                         for survey_name in survey_names}
-        return cls.from_attributes(headers, surveys_dict)
+        return cls.from_attributes(headers=headers, surveys_dict=surveys_dict)
 
     #------------------------------------------------------------------------#
     #                 DatasetIndex interface implementation                  #
@@ -200,11 +203,11 @@ class SeismicIndex(DatasetIndex):
         # TODO: Mention in docs that only single index is allowed!
         return self._pos[index]
 
-    def create_subset(self, index):
-        subset = self.copy(copy_surveys=False)
+    def create_subset(self, index, loc_headers=False):
         if isinstance(index, SeismicIndex):
             index = index.index
-        return subset.from_attributes(headers=subset.headers.loc[index], surveys_dict=subset.surveys_dict)
+        headers = self.headers.loc[index] if loc_headers else self.headers
+        return self.from_attributes(index=index, headers=headers, surveys_dict=self.surveys_dict)
 
     #------------------------------------------------------------------------#
     #                       Index manipulation methods                       #

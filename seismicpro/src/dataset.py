@@ -35,7 +35,7 @@ class SeismicDataset(Dataset):
         if isinstance(index, SeismicIndex) and isinstance(self.index, SeismicIndex):
             if not index.indices.isin(self.indices).all():
                 raise IndexError("Some indices from given index are not present in current SeismicIndex")
-            return type(self).from_dataset(self, self.index.create_subset(index))
+            return type(self).from_dataset(self, self.index.create_subset(index, loc_headers=True))
         return super().create_subset(index)
 
     def collect_stats(self, n_samples=100000, quantile_precision=2, bar=True):
