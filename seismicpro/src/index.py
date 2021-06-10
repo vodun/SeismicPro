@@ -102,7 +102,8 @@ class SeismicIndex(DatasetIndex):
         if index is not None:
             new_index._index = index
         else:
-            new_index._index = headers.index.drop_duplicates()
+            _, uniques_indices = np.unique(headers.index.to_frame().values, return_index=True, axis=0)
+            new_index._index = headers.index[uniques_indices]
         new_index._pos = new_index.build_pos()
         return new_index
 
@@ -113,7 +114,11 @@ class SeismicIndex(DatasetIndex):
                               "Probably you forgot to specify mode")
 
         # Copy headers from survey and create zero CONCAT_ID column as the first index level
-        headers = pd.concat([survey.headers.copy()], keys=[0], names=["CONCAT_ID"])
+        headers = survey.headers.copy()
+        old_index = headers.index.names
+        headers.reset_index(inplace=True)
+        headers["CONCAT_ID"] = 0
+        headers.set_index(["CONCAT_ID"] + old_index, inplace=True)
 
         surveys_dict = {survey.name: [survey]}
         return cls.from_attributes(headers=headers, surveys_dict=surveys_dict)
