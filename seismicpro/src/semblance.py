@@ -1,4 +1,5 @@
-""" The file contains classes for velocity analysis. """
+"""Implements Semblance and ResidualSemblance classes"""
+
 # pylint: disable=not-an-iterable
 import numpy as np
 import matplotlib.pyplot as plt
@@ -12,105 +13,102 @@ from .velocity_cube import StackingVelocity
 from .utils.correction import get_hodograph
 
 
-def append_docs_from(method_from):
-    """Append the docstring of `method_from` to `method_to`.
+class BaseSemblance:
+    """Base class for vertical velocity semblance calculation.
+
+    Implements general computation logic and visualisation method.
 
     Parameters
     ----------
-    method_from : function or Class
-        An instance to get documentation from.
-
-    Returns
-    -------
-    decorator : callable
-        Class decorator.
-    """
-    def decorator(method_to):
-        """ Returned decorator. """
-        message = f'|  For clarity, the docstrings of the `{method_from.__qualname__}` are shown below.  |'
-        line = '\n' + '-' * len(message) + '\n'
-        support_string = line + message + line
-        method_to.__doc__ += support_string + method_from.__doc__
-        return method_to
-    return decorator
-
-
-class BaseSemblance:
-    """ Base class for velocity analysis.
+    gather : Gather
+        Seismic gather to calculate semblance for.
+    win_size : int
+        Window size used for semblance calculation. The higher the `win_size` is, the smoother the resulting semblance
+        will be but to the detriment of small details. Measured in samples.
 
     Attributes
     ----------
-    _gather : array-like
-        Data for calculating semblance. The attribute is stored in a transposed form due to performance reasons,
-        so that `_gather.shape` is (num_traces, trace_lenght).
-    _times : array-like
-        An array containing the recording time for each trace value.
-        Measured in milliseconds.
-    _offsets : array-like
-        The distance from the source to the receiver for each trace.
-        Measured in meters.
-    _sample_rate : int or float
-        Step in milliseconds between signal amplitude measurements during shooting.
-        Measured in milliseconds.
-    _win_size : int
-        Window size for smoothing the semblance.
-        Measured in samples.
+    gather : Gather
+        Seismic gather for which semblance calculation was called.
+    gather_data : np.ndarray
+        Gather data for semblance calculation. The data is stored in a transposed form, compared to `Gather.data` due
+        to performance reasons, so that `gather_data.shape` is (trace_lenght, num_traces).
+    win_size : int
+        Window size for smoothing the semblance. Measured in samples.
     """
     def __init__(self, gather, win_size):
         self.gather = gather
         self.gather_data = np.ascontiguousarray(gather.data.T)
-        self.win_size = win_size
+        self.win_size = win_size  # samples
 
     @property
     def times(self):
+        """np.ndarray of floats: Recording time for each trace value. Measured in milliseconds."""
         return self.gather.times  # ms
 
     @property
     def sample_rate(self):
+        """float: sample rate of seismic traces. Measured in milliseconds."""
         return self.gather.sample_rate  # ms
 
     @property
     def offsets(self):
+        """np.ndarray of floats: The distance between source and receiver for each trace. Measured in meters."""
         return self.gather.offsets  # m
 
     def get_coords(self, coords_columns="index"):
+        """Get spatial coordinates of the semblance.
+
+        The call is redirected to the underlying gather.
+
+        Parameters
+        ----------
+        coords_columns : None, "index" or 2 element array-like, default "index"
+            - If `None`, (`None`, `None`) tuple is returned.
+            - If "index", unique underlying gather index value is used to define semblance coordinates
+            - If 2 element array-like, `coords_columns` define gather headers to get x and y coordinates from.
+            In the last two cases index or column values are supposed to be unique for all traces in the underlying
+            gather.
+
+        Returns
+        -------
+        coords : tuple with 2 elements
+            Semblance spatial coordinates.
+        """
         return self.gather.get_coords(coords_columns)
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def calc_single_velocity_semblance(nmo_func, gather_data, times, offsets, velocity, sample_rate, win_size,
                                        t_min_ix, t_max_ix):  # pylint: disable=too-many-arguments
-        """ Calculate semblance for specified velocity in the preset time window from `t_min` to `t_max`.
+        """Calculate semblance for given velocity and time range.
 
         Parameters
         ----------
         nmo_func : njitted callable
-            Callable that calculates normal moveout corrected gather for specified time and velocity values
-            and range of offsets.
-        gather : np.ndarray
-            Data for calculating semblance.
-        times : array-like
-            An array containing the recording time for each trace value.
+            A callable that calculates normal moveout corrected gather for given time and velocity values and a range
+            of offsets.
+        gather_data : 2d np.ndarray
+            Gather data for semblance calculation with (trace_lenght, num_traces) layout.
+        times : 1d np.ndarray
+            Recording time for each trace value. Measured in milliseconds.
         offsets : array-like
-            The distance from the source to the receiver for each trace.
+            The distance between source and receiver for each trace. Measured in meters.
         velocity : array-like
-            Velocity value for semblance computation.
-        sample_rate : int
-            Step in milliseconds between signal amplitude measurements during shooting.
-        _win_size : int
-            Window size for smoothing the semblance.
-            Measured in samples.
-        t_min : int
-            Time value to start compute semblance from.
-            Measured in samples.
-        t_max : int
-            The last time value for semblance computation.
-            Measured in samples.
+            Seismic wave velocity for semblance computation. Measured in meters/milliseconds.
+        sample_rate : float
+            Sample rate of seismic traces. Measured in milliseconds.
+        win_size : int
+            Window size for smoothing the semblance. Measured in samples.
+        t_min_ix : int
+            Time index in `times` array to start calculating semblance from. Measured in samples.
+        t_max_ix : int
+            Time index in `times` array to stop calculating semblance at. Measured in samples.
 
         Returns
         -------
-        slice_semblance : 1d array
-            Semblance values for a specified `veloicty` in time range from `t_min` to `t_max`.
+        semblance_slice : 1d np.ndarray
+            Calculated semblance values for a specified `velocity` in time range from `t_min_ix` to `t_max_ix`.
         """
         t_win_size_min_ix = max(0, t_min_ix - win_size)
         t_win_size_max_ix = min(len(times) - 1, t_max_ix + win_size)
@@ -132,41 +130,38 @@ class BaseSemblance:
 
     @staticmethod
     def plot(semblance, ticks_range_x, ticks_range_y, xlabel, title=None,  # pylint: disable=too-many-arguments
-             figsize=(15, 12), fontsize=11, grid=None, stacking_times_ix=None, stacking_velocities_ix=None,
+             figsize=(15, 12), fontsize=11, grid=False, stacking_times_ix=None, stacking_velocities_ix=None,
              save_to=None, dpi=300, **kwargs):
-        """ Base plotter for vertical velocity semblance. The plotter adds level lines, colors the graph, signs axes
-        and values, also draw a stacking velocity, if specified (via `x_points` and `y_points`).
+        """Plot vertical velocity semblance and, optionally, stacking velocity.
 
         Parameters
         ----------
-        semblance : 2-d np.ndarray
-            Array with vertical velocity or residual semblance.
-        ticks_range_x : array-like with length 2, optional
+        semblance : 2d np.ndarray
+            An array with vertical velocity or residual semblance.
+        ticks_range_x : array-like with length 2
             Min and max value of labels on the x-axis.
-        ticks_range_y : array-like with length 2, optional
+        ticks_range_y : array-like with length 2
             Min and max value of labels on the y-axis.
-        xlabel : str, optional, by default ''
-            The label of the x-axis.
-        title : str, optional, by default ''
+        xlabel : str
+            The title of the x-axis.
+        title : str, optional, default None
             Plot title.
-        figsize : tuple, optional, by default (15, 12)
+        figsize : array-like with length 2, optional, default (15, 12)
             Output plot size.
+        fontsize : int, optional, default 11
+            The size of the text on the plot.
         grid : bool, optional, by default False
-            If given, add a gird to the graph.
-        x_points : array-like, optional
-            Points of stacking velocity by the x-axis. The point is an index in semblance that corresponds to the
-            current velocity.
-        y_points : array-like, optional
-            Points of stacking velocity by the y-axis. The point is an index in semblance that corresponds to the
-            current time.
-        save_to : str, optional
+            Specifies whether to draw a grid on the plot.
+        stacking_times_ix : 1d np.ndarray, optional
+            Time indices of calculated stacking velocities to show on a plot.
+        stacking_velocities_ix : 1d np.ndarray, optional
+            Velocity indices of calculated stacking velocities to show on a plot.
+        save_to : str, optional, default None
             If given, save the plot to the path specified.
-        dpi : int, optional, by default 300
+        dpi : int, optional, default 300
             Resolution for the saved figure.
-
-        Note
-        ----
-        1. Kwargs passed into the :func:`.set_ticks`.
+        kwargs : misc, optional
+            Additional keyword arguments to :func:`.set_ticks`.
         """
         # Split the range of semblance amplitudes into 16 levels on a log scale,
         # that will further be used as colormap bins
@@ -202,63 +197,70 @@ class BaseSemblance:
         plt.show()
 
 
-@append_docs_from(BaseSemblance)
 class Semblance(BaseSemblance):
-    r""" Semblance is a normalized output-input energy ratio for CDP gather.
+    r"""A class for vertical velocity semblance calculation and processing.
 
-    The higher the values of semblance are, the more coherent the signal is along a hyperbolic trajectory over the
-    entire spread length of the CDP gather.
+    Semblance is a normalized output-input energy ratio for a CDP gather. The higher the values of semblance are, the
+    more coherent the signal is along a hyperbolic trajectory over the entire spread length of the gather.
+
+    Semblance instance can be created either directly by passing source gather, velocity range and window size to its
+    init or by calling :func:`~Gather.calculate_semblance` method (recommended way).
 
     The semblance is computed by:
     :math:`S(k, v) = \frac{\sum^{k+N/2}_{i=k-N/2}(\sum^{M-1}_{j=0} f_{j}(i, v))^2}
-                          {M \sum^{k+N/2}_{i=k-N/2}\sum^{M-1}_{j=0} f_{j}(i, v)^2}`, where
-    S - semblance value for starting time point `k` and velocity `v`,
-    M - number of traces in gather,
-    N - Window size,
-    f_{j}(i, v) - the amplitude value on the i-th trace at NMO corrected time j.
+                          {M \sum^{k+N/2}_{i=k-N/2}\sum^{M-1}_{j=0} f_{j}(i, v)^2}`,
+    where:
 
-    Vector f(i, v) represents a normal moveout correction with velocity `v` for i-th trace.
-    :math:`f_{j}(i, v) = \sqrt{t_0^2 + \frac{l_i^2}{v^2}}`, where
-    :math:`t_0` - start time of hyperbola assosicated with velocity v,
-    :math:`l_i` - distance from the gather to the i-th trace (offset),
+    S - semblance value for starting time index `k` and velocity `v`,
+    M - number of traces in the gather,
+    N - window size,
+    f_{j}(i, v) - the amplitude value on the `j`-th trace being NMO-corrected for time index `i` and velocity `v`:
+    :math:`f_{j}(i, v) = \sqrt{t_0^2 + \frac{l_i^2}{v^2}}`,
+    where:
+
+    :math:`t_0` - start time of the hyperbola assosicated with time index `i`,
+    :math:`l_j` - offset of the `j`-th trace,
     :math:`v` - velocity value.
 
-    The resulted matrix contains vertical velocity semblance values based on hyperbolas with each combination of the
-    started point :math:`k` and velocity :math:`v`.
-    This matrix has a shape (time_length, velocity_length).
+    The resulting matrix :math:`S(k, v)` contains vertical velocity semblance values based on hyperbolas with each
+    combination of the starting point :math:`k` and velocity :math:`v`. This matrix has shape
+    (trace_lenght, n_velocities).
+
+    The algorithm for semblance calculation looks as follows:
+    For each velocity from given velocity range:
+        1. Calcluate NMO-corrected gather
+        2. Calcluate squared sum of amplitudes of the corrected gather along the offset axis
+        3. Calcluate sum of squared amplitudes of the corrected gather along the offset axis
+        4. For each time calculate sum of values from step 2 and 3 in the window with given `win_size` and divide the
+           first obtained value by the second one to get semblance value for given time and velocity
+
+    Parameters
+    ----------
+    gather : Gather
+        Seismic gather to calculate semblance for.
+    velocities : 1d np.ndarray
+        Range of velocity values for which semblance is calculated. Measured in meters/seconds.
+    win_size : int, optional, default 25
+        Window size used for semblance calculation. The higher the `win_size` is, the smoother the resulting semblance
+        will be but to the detriment of small details. Measured in samples.
 
     Attributes
     ----------
+    gather : Gather
+        Seismic gather for which semblance calculation was called.
+    gather_data : np.ndarray
+        Gather data for semblance calculation. The data is stored in a transposed form, compared to `Gather.data` due
+        to performance reasons, so that `gather_data.shape` is (trace_lenght, num_traces).
+    velocities : 1d np.ndarray
+        Range of velocity values for which semblance is calculated. Measured in meters/seconds.
+    win_size : int
+        Window size for smoothing the semblance. Measured in samples.
     semblance : 2d np.ndarray
-         Array with vertical velocity semblance.
-    _velocities : array-like
-        Array of velocity values defined the limits for semblance computation.
-        Measured in meters/seconds.
-
-    See other attributes described in :class:`~BaseSemblance`.
-
-    Note
-    ----
-    1. Detailed description of the vertical velocity semblance computation is presented
-       in the method :func:`~Semblance._calc_semblance`.
+         Array with calculated vertical velocity semblance values.
     """
     def __init__(self, gather, velocities, win_size=25):
         super().__init__(gather, win_size=win_size)
-        self.semblance = None
         self.velocities = velocities  # m/s
-        self._calc_semblance()
-
-    def _calc_semblance(self):
-        """ Calculation of vertical velocity semblance starts with computing normal moveout for the entire gather
-        with specified velocity. NMO corrected gather stacked along the offset axis in two ways. The first stack is a
-        squared sum of amplitudes named `numerator` while the second one was a sum of squared amplitudes named
-        `denominator`. Thus, the resulted semblance values for particular velocity are received as a ratio of these
-        stacks in the specified `win_size`. The same algorithm repeats for every velocity point.
-
-        Note
-        ----
-        1. To maintain the correct units, the velocities are converted to the meter/millisecond.
-        """
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
         self.semblance = self._calc_semblance_numba(semblance_func=self.calc_single_velocity_semblance,
                                                     nmo_func=get_hodograph, gather_data=self.gather_data,
@@ -269,20 +271,21 @@ class Semblance(BaseSemblance):
     @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_semblance_numba(semblance_func, nmo_func, gather_data, times, offsets, velocities, sample_rate,
                               win_size):
-        """ Parallelized method for calculating vertical velocity semblance. Most of this method uses the class
-        attributes already described in the init method, so unique parameters will be described here.
+        """Parallelized and njitted method for vertical velocity semblance calculation.
 
         Parameters
         ----------
-        semblance_func : callable with njit decorator
-            Base function for semblance computation.
-        nmo_func : callable with njit decorator
-            Callable that calculates normal moveout for given gather, time, velocity, and offset.
+        semblance_func : njitted callable
+            Base function for semblance calculation for single velocity and a time range.
+        nmo_func : njitted callable
+            Base function for gather normal moveout correction for given time and velocity.
+        other parameters : misc
+            Passed directly from class attributes (except for velocities which are converted from m/s to m/ms)
 
         Returns
         -------
         semblance : 2d np.ndarray
-            Array with vertical velocity semblance.
+            Array with vertical velocity semblance values.
         """
         semblance = np.empty((len(gather_data), len(velocities)))
         for j in prange(len(velocities)):
@@ -292,18 +295,21 @@ class Semblance(BaseSemblance):
         return semblance
 
     @batch_method(target="for", args_to_unpack="stacking_velocity")
-    @append_docs_from(BaseSemblance.plot)
     def plot(self, stacking_velocity=None, **kwargs):
-        """ Plot vertical velocity semblance.
+        """Plot vertical velocity semblance.
 
         Parameters
         ----------
-        stacking_velocities : array-like, optional
-            Array with elements in format [[time, velocity], ...]. If given, the law will be plot as a thin light brown
-            line above the semblance. Also, if the delay between velocities more than 50 ms, every given point will be
-            highlighted with a circle.
-        kwargs : dict, optional
-            Arguments for :func:`~BaseSemblance.plot` and for :func:`.set_ticks`.
+        stacking_velocity : StackingVelocity, optional
+            Stacking velocity to plot if given. If its sample rate is more than 50 ms, every point will be highlighted
+            with a circle.
+        kwargs : misc, optional
+            Additional named arguments for :func:`~BaseSemblance.plot`.
+
+        Returns
+        -------
+        semblance : Semblance
+            Self unchanged.
         """
         ticks_range_x = [self.velocities[0], self.velocities[-1]]
         ticks_range_y = [self.times[0], self.times[-1]]
@@ -323,21 +329,22 @@ class Semblance(BaseSemblance):
 
     @batch_method(target="for", args_to_unpack="other")
     def calculate_signal_leakage(self, other):
-        """" The metric is designed to search for signal leakage in the process of ground-roll attenuation.
-        It is based on the assumption that a vertical velocity semblance calculated for the difference between a raw
-        and processed gather should not have pronounced energy maxima.
+        """Calculate signal leakage during ground-roll attenuation.
+
+        The metric is based on the assumption that a vertical velocity semblance calculated for the difference between
+        raw and processed gathers should not have pronounced energy maxima.
 
         Parameters
         ----------
         self : Semblance
-            Class containing semblance for difference gather.
+            Semblance calculated for gather difference.
         other : Semblance
-            Class containing semblance for raw gather.
+            Semblance for raw gather.
 
         Returns
         -------
-        metrics : float
-            Metrics value represented how much signal leaked out during the gather processing.
+        metric : float
+            Signal leakage during gather processing.
         """
         minmax_self = np.max(self.semblance, axis=1) - np.min(self.semblance, axis=1)
         minmax_other = np.max(other.semblance, axis=1) - np.min(other.semblance, axis=1)
@@ -353,60 +360,67 @@ class Semblance(BaseSemblance):
         return StackingVelocity.from_points(times, velocities, inline, crossline)
 
 
-@append_docs_from(BaseSemblance)
 class ResidualSemblance(BaseSemblance):
-    """ Residual Semblance is a normalized output-input energy ratio for CDP gather along picked stacking velocity.
+    """A class for residual vertical velocity semblance calculation and processing.
 
-    The method of computation at a single point completely coincides with the calculation of the :class:`~Semblance`,
-    however, the residual semblance is computed in a specified area around the velocity, which allows finding errors
-    and update the initially picked stacking velocity. The boundaries in which the calculation is performed for a given
-    i-th stacking velocity are determined as `stacking_velocities[i]`*(1 +- `relative_margin`).
+    Residual semblance is a normalized output-input energy ratio for a CDP gather along picked stacking velocity. The
+    method of its computation for given time and velocity completely coincides with the calculation of
+    :class:`~Semblance`, however, residual semblance is computed in a small area around stacking velocity, thus
+    allowing for additional optimizations.
 
-    Since the boundaries will be different for each stacking velocity, the residual semblance values are interpolated
-    to obtain a rectangular matrix of size (time_length, max(right_boundary - left_boundary)), where
-    `left_boundary` and `right_boundary` are the left and the right boundaries for each timestamp respectively.
+    The boundaries in which calculation is performed for given time `t` are determined as:
+    `stacking_velocity(t)` * (1 +- `relative_margin`).
+    Since the velocity range length differs for each timestamp, the residual semblance values are interpolated to
+    obtain a rectangular matrix of size (trace_lenght, max(right_boundary - left_boundary)), where `left_boundary` and
+    `right_boundary` are arrays of left and right boundaries for all timestamps respectively.
 
-    Thus, the final semblance is a rectangular matrix, the central values of which indicate the energy ratio at the
-    points corresponding to the current stacking velocity. The centerline should contain the maximum energy values for
-    every velocity points. If this condition is not met, then it is necessary to correct the stacking velocity.
+    The central vertical line on the residual semblance corresponds to the given stacking velocity and generally should
+    pass through local semblance maximas.
 
     Parameters
     ----------
-    num_vels : int
+    gather : Gather
+        Seismic gather to calculate semblance for.
+    stacking_velocity : StackingVelocity
+        Stacking velocity around which residual semblance is calculated.
+    n_velocities : int, optional, default 140
         The number of velocities to compute semblance for.
+    win_size : int, optional, default 25
+        Window size used for semblance calculation. The higher the `win_size` is, the smoother the resulting semblance
+        will be but to the detriment of small details. Measured in samples.
+    relative_margin : float, optional, default 0.2
+        Relative velocity margin, that determines the velocity range for semblance calculation for each time `t` as
+        `stacking_velocity(t)` * (1 +- `relative_margin`).
 
     Attributes
     ----------
-    _residual_semblance : 2d np.ndarray
-        Array with vertical residual semblance.
-    _stacking_velocities : array-like, optional
-        Array with elements in format [[time, velocity], ...]. Non-decreasing
-        function passing through the maximum energy values on the semblance graph.
-    _relative_margin : float, optional, default 0.2
-        The relative velocity margin determines the border for a particular stacking velocity value. The boundaries for
-        every stacking velocity are `stacking_velocities[i]`*(1 +- `relative_margin`).
-    _velocities : array-like
-        Arrange of velocity values with the limits for vertical residual semblance computation defined as a
-        `numpy.linspace` from `min(stacking_velocities) * (1-relative_margin)` to
-        `max(stacking_velocities) * (1+relative_margin)` with `num_vels` elements.
-        Measured in meters/seconds.
-
-    Other attributes described in :class:`~BaseSemblance`.
+    gather : Gather
+        Seismic gather for which semblance calculation was called.
+    gather_data : np.ndarray
+        Gather data for semblance calculation. The data is stored in a transposed form, compared to `Gather.data` due
+        to performance reasons, so that `gather_data.shape` is (trace_lenght, num_traces).
+    velocities : 1d np.ndarray
+        Range of velocity values for which residual semblance is calculated. Measured in meters/seconds.
+    win_size : int
+        Window size for smoothing the semblance. Measured in samples.
+    stacking_velocity : StackingVelocity
+        Stacking velocity around which residual semblance is calculated.
+    relative_margin : float, optional, default 0.2
+         Relative velocity margin, that determines the velocity range for semblance calculation for each timestamp.
+    residual_semblance : 2d np.ndarray
+         Array with calculated residual vertical velocity semblance values.
     """
     def __init__(self, gather, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2):
         super().__init__(gather, win_size)
-        self.residual_semblance = None
         self.stacking_velocity = stacking_velocity
         self.relative_margin = relative_margin
+
         interpolated_velocities = stacking_velocity(self.times)
         self.velocities = np.linspace(np.min(interpolated_velocities) * (1 - relative_margin),
                                       np.max(interpolated_velocities) * (1 + relative_margin),
                                       n_velocities)
-        self._calc_residual_semblance()
-
-    def _calc_residual_semblance(self):
-        """ Obtaining boundaries based on a given stacking velocity and calculating residual semblance. """
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
+
         left_bound_ix, right_bound_ix = self._calc_velocity_bounds()
         self.residual_semblance = self._calc_res_semblance_numba(semblance_func=self.calc_single_velocity_semblance,
                                                                  nmo_func=get_hodograph, gather_data=self.gather_data,
@@ -417,15 +431,14 @@ class ResidualSemblance(BaseSemblance):
                                                                  sample_rate=self.sample_rate, win_size=self.win_size)
 
     def _calc_velocity_bounds(self):
-        """ Calculates the boundaries within which the residual semblance will be considered. To obtain a continuous
-        boundary, the stacking velocity values are interpolated.
+        """Calculate velocity boundaries within which residual semblance will be calculated.
 
         Returns
         -------
-        left_bounds : 1d array
-            Indices of corresponding velocities on left bounds for each time.
-        right_bounds : 1d array
-            Indices of corresponding velocities on right bounds for each time.
+        left_bound_ix : 1d array
+            Indices of corresponding velocities of left bounds for each time.
+        right_bound_ix : 1d array
+            Indices of corresponding velocities of right bounds for each time.
         """
         interpolated_velocities = np.clip(self.stacking_velocity(self.times), self.velocities[0], self.velocities[-1])
         left_bound_values = (interpolated_velocities * (1 - self.relative_margin)).reshape(-1, 1)
@@ -438,24 +451,25 @@ class ResidualSemblance(BaseSemblance):
     @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_res_semblance_numba(semblance_func, nmo_func, gather_data, times, offsets, velocities, left_bound_ix,
                                   right_bound_ix, sample_rate, win_size):
-        """ Parallelized method for calculating residual semblance. Most of this method uses the class attributes
-        already described in the init method, so unique parameters will be described here.
+        """Parallelized and njitted method for residual vertical velocity semblance calculation.
 
         Parameters
         ----------
-        semblance_func : callable with njit decorator
-            Base function for semblance computation.
-        nmo_func : callable with njit decorator
-            Callable that calculates normal moveout for given gather, time, velocity, and offset.
-        left_bounds : 1d array
-            Indices of corresponding velocities on left bounds for each time.
-        right_bounds : 1d array
-            Indices of corresponding velocities on right bounds for each time.
+        semblance_func : njitted callable
+            Base function for semblance calculation for single velocity and a time range.
+        nmo_func : njitted callable
+            Base function for gather normal moveout correction for given time and velocity.
+        left_bound_ix : 1d array
+            Indices of corresponding velocities of left bounds for each time.
+        right_bound_ix : 1d array
+            Indices of corresponding velocities of right bounds for each time.
+        other parameters : misc
+            Passed directly from class attributes (except for velocities which are converted from m/s to m/ms)
 
         Returns
         -------
         semblance : 2d np.ndarray
-            Array with residual semblance.
+            Array with residual vertical velocity semblance values.
         """
         semblance = np.zeros((len(gather_data), len(velocities)))
         for i in prange(left_bound_ix.min(), right_bound_ix.max() + 1):
@@ -482,16 +496,19 @@ class ResidualSemblance(BaseSemblance):
         return residual_semblance
 
     @batch_method(target="for")
-    @append_docs_from(BaseSemblance.plot)
     def plot(self, **kwargs):
-        """ Plot vertical residual semblance. The graph always has a vertical line in the middle, but if the delay
-        between velocities in `self._stacking_velocities` is greater 50 ms, every given point will be highlighted with
-        a circle.
+        """Plot residual vertical velocity semblance. The plot always has a vertical line in the middle, representing
+        given stacking velocity.
 
         Parameters
         ----------
-        kwargs : dict, optional
-            Arguments for :func:`~BaseSemblance.plot` and for :func:`.set_ticks`.
+        kwargs : misc, optional
+            Additional named arguments for :func:`~BaseSemblance.plot`.
+
+        Returns
+        -------
+        semblance : ResidualSemblance
+            Self unchanged.
         """
         ticks_range_x = [-self.relative_margin * 100, self.relative_margin * 100]
         ticks_range_y = [self.times[0], self.times[-1]]  # from ix to ms
