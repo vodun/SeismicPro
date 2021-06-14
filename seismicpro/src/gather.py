@@ -1,4 +1,5 @@
-""" File with gather class. """
+"""Implements Gather class"""
+
 import os
 import warnings
 from copy import deepcopy
@@ -17,7 +18,6 @@ from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, mute_ga
 
 
 class Gather:
-    """ !! """
     def __init__(self, headers, data, samples, sample_rate, survey):
         self.headers = headers
         self.data = data
@@ -29,34 +29,60 @@ class Gather:
 
     @property
     def times(self):
+        """np.ndarray of floats: Recording time for each trace value. Measured in milliseconds."""
         return self.samples
 
     @property
     def offsets(self):
+        """np.ndarray of floats: The distance between source and receiver for each trace. Measured in meters."""
         return self.headers['offset'].values
 
     @property
     def shape(self):
+        """tuple with 2 elements: The number of traces in the gather and trace length in samples."""
         return self.data.shape
 
     def __getitem__(self, key):
+        """Select gather headers by their names.
+
+        Parameters
+        ----------
+        key : str or list of str
+            Gather headers to get.
+
+        Returns
+        -------
+        headers : np.ndarray
+            Headers values.
+        """
         return self.headers[key].values
 
     def __setitem__(self, key, value):
+        """Set given values to selected gather headers.
+
+        Parameters
+        ----------
+        key : str or list of str
+            Gather headers to set values for.
+        value : np.ndarray
+            Headers values to set
+        """
         key = to_list(key)
         val = pd.DataFrame(value, columns=key, index=self.headers.index)
         self.headers[key] = val
 
     def __str__(self):
-        # Calculating offset range
+        """Print gather metadata including information about its survey, headers and traces."""
+
+        # Calculate offset range
         offsets = self.headers.get('offset')
         offset_range = f'[{np.min(offsets)} m, {np.max(offsets)} m]' if offsets is not None else None
 
-        # Determining index value
+        # Determine index value
         index = np.unique(self.headers.index)
         index = 'combined' if len(index) > 1 else index.item()
 
-        # Counting the number of zero/constant traces
+        # Count the number of zero/constant traces
         n_dead_traces = np.isclose(np.max(self.data, axis=1), np.min(self.data, axis=1)).sum()
         msg = f"""
         Parent survey path:          {self.survey.path}
@@ -81,9 +107,30 @@ class Gather:
         return dedent(msg)
 
     def info(self):
+        """Print gather metadata including information about its survey, headers and traces."""
         print(self)
 
     def get_coords(self, coords_columns="index"):
+        """Get spatial coordinates of the gather.
+
+        Parameters
+        ----------
+        coords_columns : None, "index" or 2 element array-like, default "index"
+            - If `None`, (`None`, `None`) tuple is returned.
+            - If "index", unique index value is used to define gather coordinates
+            - If 2 element array-like, `coords_columns` define gather headers to get x and y coordinates from.
+            In the last two cases index or column values are supposed to be unique for all traces in the gather.
+
+        Returns
+        -------
+        coords : tuple with 2 elements
+            Gather spatial coordinates.
+
+        Raises
+        ------
+        ValueError
+            If gather coordinates are non-unique or more than 2 columns were passed.
+        """
         if coords_columns is None:
             return (None, None)
         if coords_columns == "index":
@@ -97,6 +144,13 @@ class Gather:
 
     @batch_method(target='threads', copy_src=False)
     def copy(self):
+        """Perform a deepcopy of all gather attributes except for `survey`, which is kept unchanged.
+
+        Returns
+        -------
+        copy : Gather
+            Copy of the gather.
+        """
         survey = self.survey
         self.survey = None
         self_copy = deepcopy(self)
@@ -105,6 +159,7 @@ class Gather:
         return self_copy
 
     def _validate_header_cols(self, required_header_cols):
+        """Check if the gather headers contain all columns from `required_header_cols`"""
         headers = self.headers.reset_index()
         required_header_cols = to_list(required_header_cols)
         if any(col not in headers for col in required_header_cols):
@@ -112,10 +167,25 @@ class Gather:
             raise ValueError(err_msg.format(", ".join(required_header_cols)))
 
     def _validate_sorting(self, required_sorting):
+        """Check if the gather is sorted by `required_sorting` header"""
         if self.sort_by != required_sorting:
             raise ValueError(f"Gather should be sorted by {required_sorting} not {self.sort_by}")
 
     def validate(self, required_header_cols=None, required_sorting=None):
+        """Perform the following checks for a gather:
+            1. Its header contains all columns from `required_header_cols`
+            2. It is sorted by `required_sorting` header
+
+        Returns
+        -------
+        self : Gather
+            Self unchanged.
+
+        Raises
+        ------
+        ValueError
+            If any of checks above failed.
+        """
         if required_header_cols is not None:
             self._validate_header_cols(required_header_cols)
         if required_sorting is not None:
