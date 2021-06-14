@@ -1,29 +1,30 @@
-""" Utilily functions for visualization """
+"""Utilily functions for visualization"""
+
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import colors as mcolors
 
 
-def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7), # pylint: disable= too-many-arguments
+def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7),  # pylint: disable=too-many-arguments
                      pad=False, fontsize=11, ticks_range_x=None, ticks_range_y=None,
                      x_ticks=15, y_ticks=15, save_to=None, dpi=300, **kwargs):
-    """ Plot map with metrics values.
+    """Plot a map with metric values.
 
     Parameters
     ----------
     metrics_map : array-like
         Array with aggregated metrics values.
     cmap : str or `~matplotlib.colors.Colormap`, optional
-        Passed directly to `~matplotlib.imshow`
+        `~matplotlib.imshow` colormap.
     title : str, optional
         The title of the plot.
     figsize : array-like with length 2, optional, default (10, 7)
         Output figure size.
-    pad : bool, optional
-        If true, edges of the figure will be padded with a thin white line.
-        otherwise, the figure will not change.
+    pad : bool, optional, default False
+        If `True`, edges of the figure will be padded with a thin white line. Otherwise, the figure will remain
+        unchanged.
     fontsize : int, optional, default 11
-        The size of text.
+        The size of the text on the plot.
     ticks_range_x : array-like with length 2, optional
         Min and max value of labels on the x-axis.
     ticks_range_y : array-like with length 2, optional
@@ -36,8 +37,8 @@ def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7), # pyli
         If given, save plot to the path specified.
     dpi : int, optional, default 300
         Resolution for saved figure.
-    kwargs : dict, optional
-        Named arguments for :func:`matplotlib.pyplot.imshow`.
+    kwargs : misc, optional
+        Additional named arguments for :func:`matplotlib.pyplot.imshow`.
 
     Note
     ----
@@ -45,16 +46,14 @@ def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7), # pyli
     """
     if cmap is None:
         colors = ((0.0, 0.6, 0.0), (.66, 1, 0), (0.9, 0.0, 0.0))
-        cmap = mcolors.LinearSegmentedColormap.from_list(
-            'cmap', colors)
+        cmap = mcolors.LinearSegmentedColormap.from_list('cmap', colors)
         cmap.set_under('black')
         cmap.set_over('red')
 
     origin = kwargs.pop('origin', 'lower')
     aspect = kwargs.pop('aspect', 'auto')
     fig, ax = plt.subplots(figsize=figsize)
-    img = ax.imshow(metrics_map, origin=origin, cmap=cmap,
-                     aspect=aspect, **kwargs)
+    img = ax.imshow(metrics_map, origin=origin, cmap=cmap, aspect=aspect, **kwargs)
 
     if pad:
         ax.use_sticky_edges = False
@@ -64,23 +63,22 @@ def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7), # pyli
     cbar = fig.colorbar(img, extend='both', ax=ax)
     cbar.ax.tick_params(labelsize=fontsize)
 
-    set_ticks(ax=ax, img_shape=metrics_map.T.shape, ticks_range_x=ticks_range_x,
-              ticks_range_y=ticks_range_y, x_ticks=x_ticks, y_ticks=y_ticks,
-              fontsize=fontsize)
+    set_ticks(ax=ax, img_shape=metrics_map.T.shape, ticks_range_x=ticks_range_x, ticks_range_y=ticks_range_y,
+              x_ticks=x_ticks, y_ticks=y_ticks, fontsize=fontsize)
 
     if save_to:
         plt.savefig(save_to, dpi=dpi, bbox_inches='tight', pad_inches=0.1)
     plt.show()
 
 
-def set_ticks(ax, img_shape, ticks_range_x=None, ticks_range_y=None, x_ticks=15,
-              y_ticks=15, fontsize=None, rotation=45):
-    """ Set x and y ticks.
+def set_ticks(ax, img_shape, ticks_range_x=None, ticks_range_y=None, x_ticks=15, y_ticks=15, fontsize=None,
+              rotation=45):
+    """Set tick labels for x and y axes.
 
     Parameters
     ----------
     ax : matplotlib axes
-        Axes to which coordinates are added.
+        Axis to which ticks are set.
     img_shape : array with length 2
         Shape of the image to add ticks to.
     ticks_range_x : array-like with length 2, optional
@@ -106,5 +104,4 @@ def set_ticks(ax, img_shape, ticks_range_x=None, ticks_range_y=None, x_ticks=15,
         ticks_labels_y = np.linspace(*ticks_range_y, y_ticks).astype(np.int32)
         ax.set_yticklabels(ticks_labels_y, size=fontsize)
 
-    plt.setp(ax.get_xticklabels(), rotation=rotation, ha="right",
-             rotation_mode="anchor")
+    plt.setp(ax.get_xticklabels(), rotation=rotation, ha="right", rotation_mode="anchor")
