@@ -29,12 +29,12 @@ class Gather:
 
     @property
     def times(self):
-        """np.ndarray of floats: Recording time for each trace value. Measured in milliseconds."""
+        """1d np.ndarray of floats: Recording time for each trace value. Measured in milliseconds."""
         return self.samples
 
     @property
     def offsets(self):
-        """np.ndarray of floats: The distance between source and receiver for each trace. Measured in meters."""
+        """1d np.ndarray of floats: The distance between source and receiver for each trace. Measured in meters."""
         return self.headers['offset'].values
 
     @property
@@ -115,7 +115,7 @@ class Gather:
 
         Parameters
         ----------
-        coords_columns : None, "index" or 2 element array-like, default "index"
+        coords_columns : None, "index" or 2 element array-like, defaults to "index"
             - If `None`, (`None`, `None`) tuple is returned.
             - If "index", unique index value is used to define gather coordinates
             - If 2 element array-like, `coords_columns` define gather headers to get x and y coordinates from.
@@ -369,12 +369,38 @@ class Gather:
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
     def apply_nmo(self, stacking_velocity, coords_columns="index"):
+        """Perform gather normal moveout correction using given stacking velocity.
+
+        Notes
+        -----
+        1. Detailed description of NMO correction can be found in :func:`~correction.apply_nmo` docs.
+
+        Parameters
+        ----------
+        stacking_velocity : StackingVelocity or VelocityCube
+            Stacking velocities to perform NMO correction with. `StackingVelocity` instance is used directly. If
+            `VelocityCube` instance is passed, a `StackingVelocity` corresponding to gather coordinates is fetched
+            from it.
+        coords_columns : None, "index" or 2 element array-like, defaults to "index"
+            Header columns to get spatial coordinates of the gather from to fetch `StackingVelocity` from
+            `VelocityCube`. See :func:`~Gather.get_coords` for more details.
+
+        Returns
+        -------
+        self : Gather
+            NMO corrected gather.
+
+        Raises
+        ------
+        ValueError
+            If `stacking_velocity` is not a `StackingVelocity` or `VelocityCube` instance.
+        """
         if isinstance(stacking_velocity, VelocityCube):
             stacking_velocity = stacking_velocity.get_stacking_velocity(*self.get_coords(coords_columns))
         if not isinstance(stacking_velocity, StackingVelocity):
             raise ValueError("Only VelocityCube or StackingVelocity instances can be passed as a stacking_velocity")
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
-        self.data = correction.apply_nmo(self.data.T, self.times, self.offsets, velocities_ms, self.sample_rate)
+        self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms, self.sample_rate)
         return self
 
     @batch_method(target="for")
