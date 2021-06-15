@@ -4,7 +4,7 @@ from .gather import Gather
 from .semblance import Semblance, ResidualSemblance
 from .decorators import create_batch_methods, apply_to_each_component
 from .utils import to_list
-from ..batchflow import Batch, action, DatasetIndex, NamedExpression
+from ..batchflow import Batch, action, DatasetIndex, BA
 
 
 @create_batch_methods(Gather, Semblance, ResidualSemblance)
@@ -85,8 +85,8 @@ class SeismicBatch(Batch):
 
         if isinstance(dst, str):
             setattr(self, dst, splitted_data)
-        elif isinstance(dst, NamedExpression):
+        elif isinstance(dst, BA):
             dst.set(value=splitted_data)
         else:
-            ValueError(f'dst must be `str` or `SU named expression`, not {type(dst)}.')
+            ValueError(f'dst must be `str` or `BA named expression`, not {type(dst)}.')
         return self
