@@ -59,7 +59,6 @@ def read_vfunc(path):
             data = np.array(data[2:], dtype=np.float64)
             if len(data) % 2 != 0:
                 raise ValueError("Data length for each VFUNC record must be even")
-            VFUNC(inline, crossline, data[::2], data[1::2])
             vfunc_list.append(VFUNC(inline, crossline, data[::2], data[1::2]))
     return vfunc_list
 
