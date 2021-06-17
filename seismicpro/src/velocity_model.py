@@ -1,3 +1,5 @@
+"""Implements an algorithm for stacking velocity computation"""
+
 import numpy as np
 import networkx as nx
 from numba import njit
@@ -5,17 +7,55 @@ from numba import njit
 
 @njit(nogil=True)
 def get_closest_index_by_val(val, array):
+    """Return indices of the array elements, closest to the values from `val`."""
     return np.array([np.argmin(np.abs(v - array)) for v in val])
 
 
 @njit(nogil=True)
 def interpolate_indices(x0, y0, x1, y1, x):
+    """Linearly interpolate an int-valued function between points (`x0`, `y0`) and (`x1`, `y1`) and calculate its
+    values at `x`."""
     return (y1 * (x - x0) + y0 * (x1 - x)) // (x1 - x0)
 
 
 @njit(nogil=True)
 def create_edges(semblance, times, velocities, start_velocity_range, end_velocity_range, max_vel_step,
                  n_times, n_velocities):
+    """Return edges of the graph for stacking velocity computation with their weights.
+
+    Parameters
+    ----------
+    semblance : 2d np.ndarray
+        An array with calculated vertical velocity semblance values.
+    times : 1d np.ndarray
+        Recording time for each seismic trace value for which semblance was calculated. Measured in milliseconds.
+    velocities : 1d np.ndarray
+        Range of velocity values for which semblance was calculated. Measured in meters/seconds.
+    start_velocity_range : 1d np.ndarray with 2 elements
+        Valid range for stacking velocity for the first timestamp. Both velocities are measured in meters/seconds.
+    end_velocity_range : 1d np.ndarray with 2 elements
+        Valid range for stacking velocity for the last timestamp. Both velocities are measured in meters/seconds.
+    max_vel_step : int
+        Maximal allowed velocity increase for nodes with adjacent times. Measured in samples.
+    n_times : int
+        The number of evenly spaced points to split time range into to generate graph vertices.
+    n_velocities : int
+        The number of evenly spaced points to split velocity range into for each time to generate graph vertices.
+
+    Returns
+    -------
+    edges : tuple with 3 elements: start_nodes, end_nodes, weights
+        start_nodes : list of tuples with 2 elements
+            Identifiers of start nodes of the edges.
+        end_nodes : list of tuples with 2 elements
+            Identifiers of end nodes of the edges, corresponding to `start_nodes`. Matches `start_nodes` length.
+        weights : list of floats
+            Weights of corresponding edges. Matches `start_nodes` length.
+    start_node : tuple with 2 elements
+        An identifier of an auxiliary node, connected to all of the actual starting nodes to run the path search from.
+    end_nodes : list of tuples with 2 elements
+        Identifiers of possible end nodes of the path.
+    """
     start_nodes = []
     end_nodes = []
     weights = []
@@ -61,17 +101,68 @@ def create_edges(semblance, times, velocities, start_velocity_range, end_velocit
     return edges, start_node, curr_nodes
 
 
-def create_graph(semblance, times, velocities, start_velocity_range, end_velocity_range, max_vel_step,
-                 n_times, n_velocities):
-    edges, start_node, end_nodes = create_edges(semblance, times, velocities, start_velocity_range,
-                                                end_velocity_range, max_vel_step, n_times, n_velocities)
-    graph = nx.DiGraph()
-    graph.add_weighted_edges_from(zip(*edges))
-    return graph, start_node, end_nodes
-
-
 def calculate_stacking_velocity(semblance, times, velocities, start_velocity_range, end_velocity_range,
                                 max_acceleration=None, n_times=25, n_velocities=25):
+    """Calculate stacking velocity by given semblance.
+
+    Stacking velocity is the value of the seismic velocity obtained from the best fit of the traveltime curve by a
+    hyperbola for each timestamp. It is used to correct the arrival times of reflection events in the traces for their
+    varying offsets prior to stacking.
+
+    If calculated by semblance, stacking velocity must meet the following conditions:
+    1. It should be monotonically increasing
+    2. Its gradient should be bounded above to avoid gather stretching after NMO correction
+    3. It should pass through local energy maxima on the semblance
+
+    In order for these conditions to be satisfied, the following algorithm is proposed:
+    1. Stacking velocity is being found inside a trapezoid whose vertices at first and last time are defined by
+       `start_velocity_range` and `end_velocity_range` respectively.
+    2. An auxiliary directed graph is constructed so that:
+        1. `n_times` evenly spaced points are generated to cover the whole semblance time range. For each of these
+           points `n_velocities` evenly spaced points are generated to cover the whole range of velocities inside the
+           trapezoid from its left to right border. All these points form a set of vertices of the graph.
+        2. An edge from a vertex A to a vertex B exists only if:
+            1. Vertex B is located at the very next timestamp after vertex A,
+            2. Velocity at vertex B is no less than at A,
+            3. Velocity at vertex B does not exceed that of A by a value determined by `max_acceleration` provided.
+        3. Edge weight is defined as sum of semblance values along its path.
+    3. A path with maximal semblance sum along it between any of starting and ending nodes is found using Dijkstra
+       algorithm and is considered to be the required stacking velocity.
+
+    Parameters
+    ----------
+    semblance : 2d np.ndarray
+        An array with calculated vertical velocity semblance values.
+    times : 1d np.ndarray
+        Recording time for each seismic trace value for which semblance was calculated. Measured in milliseconds.
+    velocities : 1d np.ndarray
+        Range of velocity values for which semblance was calculated. Measured in meters/seconds.
+    start_velocity_range : tuple with 2 elements
+        Valid range for stacking velocity for the first timestamp. Both velocities are measured in meters/seconds.
+    end_velocity_range : tuple with 2 elements
+        Valid range for stacking velocity for the last timestamp. Both velocities are measured in meters/seconds.
+    max_acceleration : None or float, defaults to None
+        Maximal acceleration allowed for the stacking velocity function. If `None`, equals to
+        2 * (mean(end_velocity_range) - mean(start_velocity_range)) / total_time. Measured in meters/seconds^2.
+    n_times : int, defaults to 25
+        The number of evenly spaced points to split time range into to generate graph vertices.
+    n_velocities : int, defaults to 25
+        The number of evenly spaced points to split velocity range into for each time to generate graph vertices.
+
+    Returns
+    -------
+    stacking_times : 1d np.ndarray
+        Times for which stacking velocities were picked. Measured in milliseconds.
+    stacking_velocities : 1d np.ndarray
+        Picked stacking velocities. Matches the length of `stacking_times`. Measured in meters/seconds.
+    metric : float
+        Sum of semblance values along the stacking velocity path.
+
+    Raises
+    ------
+    ValueError
+        If no path was found for given parameters.
+    """
     start_velocity_range = np.array(start_velocity_range)
     end_velocity_range = np.array(end_velocity_range)
 
@@ -83,8 +174,10 @@ def calculate_stacking_velocity(semblance, times, velocities, start_velocity_ran
     max_vel_step = np.ceil((max_acceleration * total_time / n_times) / np.mean(velocities[1:] - velocities[:-1]))
 
     # Create a graph and find paths with maximal semblance sum along them to all reachable nodes
-    graph, start_node, end_nodes = create_graph(semblance, times, velocities, start_velocity_range,
+    edges, start_node, end_nodes = create_edges(semblance, times, velocities, start_velocity_range,
                                                 end_velocity_range, max_vel_step, n_times, n_velocities)
+    graph = nx.DiGraph()
+    graph.add_weighted_edges_from(zip(*edges))
     paths = nx.shortest_path(graph, source=start_node, weight="weight")
 
     # Select only paths to the nodes at the last timestamp and choose the optimal one
