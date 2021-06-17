@@ -83,6 +83,24 @@ def mute_gather(gather_data, muting_times, sample_rate, fill_value):
 
 @njit(nogil=True)
 def clip(data, data_min, data_max):
+    """Limit the `data` values.
+
+    Given an interval [`data_min`, `data_max`], values outside the interval are clipped to the interval edges.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Data to clip.
+    data_min : int, float
+        Minimum value of interval.
+    data_max : int, float
+        Maximum value of interval.
+
+    Returns
+    -------
+    data : np.ndarray
+        Clipped data with the same shape.
+    """
     data_shape = data.shape
     data = data.reshape(-1)
     for i in range(len(data)):

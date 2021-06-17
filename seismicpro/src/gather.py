@@ -65,7 +65,7 @@ class Gather:
         key : str or list of str
             Gather headers to set values for.
         value : np.ndarray
-            Headers values to set
+            Headers values to set.
         """
         key = to_list(key)
         val = pd.DataFrame(value, columns=key, index=self.headers.index)
@@ -252,10 +252,50 @@ class Gather:
     #------------------------------------------------------------------------#
 
     def _apply_agg_func(self, func, tracewise, **kwargs):
+        """Apply `func` to gather's data optionally along the axis.
+
+        Notes
+        -----
+        `func` must have an `axis` argument.
+
+        Parameters
+        ----------
+        func : callable
+            Function applied to the gather's data.
+        tracewise : bool
+            If `True`, `func` is applied to each trace independently, otherwise to the entire gather's data.
+        kwargs : misc, optional
+            Additional keyword arguments to `func`.
+
+        Returns
+        -------
+        result : misc
+            The result of applying the `func` to the gather's data.
+        """
         axis = 1 if tracewise else None
         return func(self.data, axis=axis, **kwargs)
 
-    def get_quantile(self, q, tracewise=False, use_global=False):
+    def get_quantile(self, q, tracewise=True, use_global=False):
+        """Calculate the q-th quantile of the gather or fetch the global quantile from the parent survey.
+
+        Note
+        ----
+        1. The `tracewise` mode is only available when `use_global` is False.
+
+        Parameters
+        ----------
+        q : float or array-like of floats
+            Quantile or sequence of quantiles to compute, which must be between 0 and 1 inclusive.
+        tracewise : bool, optional, default True
+            If `True`, the quantiles are computed for each trace independently, otherwise for the entire gather.
+        use_global : bool, optional, default False
+            If `True`, the survey's quantiles are used, otherwise the quantiles are computed based on the gather.
+
+        Returns
+        -------
+        q : float or array-like of floats
+            The `q`-th quantile values.
+        """
         if use_global:
             return self.survey.get_quantile(q)
         quantiles = self._apply_agg_func(func=np.nanquantile, tracewise=tracewise, q=q)
@@ -264,6 +304,41 @@ class Gather:
 
     @batch_method(target='threads')
     def scale_standard(self, tracewise=True, use_global=False, eps=1e-10):
+        r"""Standardize the gather by removing the mean and scaling to unit variance.
+
+        The standard score of a gather `g` is calculated as:
+
+        :math:`G = \frac{g - u}{s + eps}`,
+
+        where `u` is the mean of the gather or global average if `use_global=True`, and `s` is the standard deviation
+        of the gather or global standard deviation if `use_global=True`. The `eps` is the constant that is added to the
+        denominator to avoid division by zero.
+
+        Notes
+        -----
+        1. The presence of NaN values in the gather will lead to incorrect behavior of the scaler.
+        2. Standardization is performed inplace.
+
+        Parameters
+        ----------
+        tracewise : bool, optional, default True
+            If `True`, each trace is standardized independently, otherwise the standardization is applied to the entire
+            gather.
+        use_global : bool, optional, default False
+            If `True`, the survey's mean and std are used, otherwise statistics are computed based on the gather.
+        eps : float, optional, default 1e-10
+            A constant to be added to the denominator to avoid division by zero.
+
+        Returns
+        -------
+        self : Gather
+            Standardized gather.
+
+        Raises
+        ------
+        ValueError
+            If `use_global` is `True` but the global statistics haven't yet been calculated.
+        """
         if use_global:
             if not self.survey.has_stats:
                 raise ValueError('Global statistics were not calculated, call `Survey.collect_stats` first.')
@@ -277,12 +352,83 @@ class Gather:
 
     @batch_method(target='threads')
     def scale_maxabs(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
+        r"""Scale the gather by its maximum absolute value.
+
+        Maxabs scale of the gather `g` is calculated as:
+
+        :math: `G = \frac{g}{m + eps}`,
+
+        where `m` is the maximum between absolute values of `q_min`-th and `q_max`-th quantiles. The `eps` is the
+        constant that is added to the denominator to avoid division by zero.
+
+        We use quantiles to avoid the outliers when calculating the scale parameters. By default, 0 and 1 quantiles are
+        used to simulate the minimum and maximum values of the gather, respectively.
+
+        Notes
+        -----
+        1. The presence of NaN values in the gather will lead to incorrect behavior of the scaler.
+        2. Maxabs scale is performed inplace.
+
+        Parameters
+        ----------
+        q_min : float, optional, default 0
+            The quantile value is used as a minimum during the scaling.
+        q_max : float, optional, default 1
+            The quantile value is used as a maximum during the scaling.
+        tracewise : bool, optional, default True
+            If `True`, each trace is scaled independently, otherwise the scale is applied to the entire gather.
+        use_global : bool, optional, default False
+            If `True`, the survey's quantiles are used, otherwise quantiles are computed based on the gather.
+        clip : bool, optional, default False
+            Whether to clip scaled gather to the range from -1 to 1.
+        eps : float, optional, default 1e-10
+            A constant to be added to the denominator to avoid division by zero.
+
+        Returns
+        -------
+        self : Gather
+            Scaled gather.
+        """
         min_value, max_value = self.get_quantile([q_min, q_max], tracewise=tracewise, use_global=use_global)
         self.data = normalization.scale_maxabs(self.data, min_value, max_value, clip, eps)
         return self
 
     @batch_method(target='threads')
     def scale_minmax(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
+        r"""Transform the gather by scaling to a given range.
+
+        The transformation of the gather `g` is given by:
+
+        :math:`G=\frac{g - min}{max - min + eps}`
+
+        where `min` and `max` are `q_min`-th and `q_max`-th quantiles, respectively. The `eps` is the constant that is
+        added to the denominator to avoid division by zero.
+
+        Notes
+        -----
+        1. The presence of NaN values in the gather will lead to incorrect behavior of the scaler.
+        2. Minmax scale is performed inplace.
+
+        Parameters
+        ----------
+        q_min : int, optional, default 0
+            The quantile value is used as a minimum during the scaling.
+        q_max : int, optional, default 1
+            The quantile value is used as a maximum during the scaling.
+        tracewise : bool, optional, default True
+            If `True`, each trace is scaled independently, otherwise the scale is applied to the entire gather.
+        use_global : bool, optional, default False
+            If `True`, the survey's quantiles are used, otherwise quantiles are computed based on the gather.
+        clip : bool, optional, default False
+            Whether to clip scaled gather to the range from 0 to 1.
+        eps : float, optional, default 1e-10
+            The constant aimed to stabilize computations.
+
+        Returns
+        -------
+        self : Gather
+            Scaled gather.
+        """
         min_value, max_value = self.get_quantile([q_min, q_max], tracewise=tracewise, use_global=use_global)
         self.data = normalization.scale_minmax(self.data, min_value, max_value, clip, eps)
         return self
@@ -301,7 +447,7 @@ class Gather:
     @batch_method(target='for')
     def mask_to_pick(self, threshold=0.5, first_breaks_col='FirstBreak'):
         if self.mask is None:
-            raise ValueError('Save mask to self.mask component.')
+            raise ValueError('Save mask to the self.mask component.')
         self[first_breaks_col] = convert_mask_to_pick(self.mask, self.sample_rate, threshold)
         return self
 
