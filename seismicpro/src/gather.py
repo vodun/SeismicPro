@@ -198,6 +198,26 @@ class Gather:
 
     @batch_method(target='for', force=True, copy_src=False)
     def dump(self, path, name=None, copy_header=False):
+        """Save the gather to a `sgy` file.
+
+        Note
+        ----
+        1. All binary and textual headers are copied from the parent segy unchanged.
+
+        Parameters
+        ----------
+        path : str
+            The directory to dump gather in.
+        name : str, optional, default None
+            The file name. If None, the concatenation of the survey name and the value of gather index will be used.
+        copy_header : bool, optional, by default False
+            Whether to copy the headers from the parent segy that weren't loaded during Survey creation.
+
+        Returns
+        -------
+        self : Gather
+            Unchanged gather.
+        """
         parent_handler = self.survey.segy_handler
 
         if name is None:
