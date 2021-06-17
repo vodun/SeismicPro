@@ -18,24 +18,24 @@ def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7),  # pyl
         `~matplotlib.imshow` colormap.
     title : str, optional
         The title of the plot.
-    figsize : array-like with length 2, optional, default (10, 7)
+    figsize : array-like with length 2, optional, defaults to (10, 7)
         Output figure size.
-    pad : bool, optional, default False
+    pad : bool, optional, defaults to False
         If `True`, edges of the figure will be padded with a thin white line. Otherwise, the figure will remain
         unchanged.
-    fontsize : int, optional, default 11
+    fontsize : int, optional, defaults to 11
         The size of the text on the plot.
     ticks_range_x : array-like with length 2, optional
         Min and max value of labels on the x-axis.
     ticks_range_y : array-like with length 2, optional
         Min and max value of labels on the y-axis.
-    x_ticks : int, optional, default 15
+    x_ticks : int, optional, defaults to 15
         The number of coordinates on the x-axis.
-    y_ticks : int, optional, default 15
+    y_ticks : int, optional, defaults to 15
         The number of coordinates on the y-axis.
     save_to : str, optional
         If given, save plot to the path specified.
-    dpi : int, optional, default 300
+    dpi : int, optional, defaults to 300
         Resolution for saved figure.
     kwargs : misc, optional
         Additional named arguments for :func:`matplotlib.pyplot.imshow`.
@@ -85,9 +85,9 @@ def set_ticks(ax, img_shape, ticks_range_x=None, ticks_range_y=None, x_ticks=15,
         Min and max value of labels on the x-axis.
     ticks_range_y : array-like with length 2, optional
         Min and max value of labels on the y-axis.
-    x_ticks : int, optional, default 15
+    x_ticks : int, optional, defaults to 15
         The number of coordinates on the x-axis.
-    y_ticks : int, optional, default 15
+    y_ticks : int, optional, defaults to 15
         The number of coordinates on the y-axis.
     fontsize : int, optional
         The size of text.
