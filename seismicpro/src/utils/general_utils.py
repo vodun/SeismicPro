@@ -42,6 +42,28 @@ def create_supergather_index(lines, size):
 
 @njit(nogil=True)
 def convert_times_to_mask(times, sample_rate, mask_length):
+    """Construct the bool mask based on `times` with shape (mask_length, len(times)).
+
+    The mask contains False above time indices and True below. Time indices are calculated as:
+
+    :math: `ix = round(t/s)`,
+
+    where `t` is a `times` and `s` is a `sample_rate`. The `round` operation is round result to the nearest integer.
+
+    Parameters
+    ----------
+    times : 1d np.ndarray
+        Time values. Measured in milliseconds.
+    sample_rate : int, float
+        Sample rate of seismic traces. Measured in milliseconds.
+    mask_length : int
+        Length of resulted mask.
+
+    Returns
+    -------
+    mask : np.ndarray of bool
+        Bool mask with shape (mask_length, len(times)).
+    """
     times_ixs = np.rint(times / sample_rate).astype(np.int32)
     mask = (np.arange(mask_length) - times_ixs.reshape(-1, 1)) >= 0
     return mask
@@ -49,6 +71,32 @@ def convert_times_to_mask(times, sample_rate, mask_length):
 
 @njit(nogil=True, parallel=True)
 def convert_mask_to_pick(mask, sample_rate, threshold):
+    """Convert `mask` into an array of times.
+
+    Every time in the resulted array represents the start time of the longest sequence of numbers that is greater than
+    the `threshold` in the `mask` by the first axis.
+
+    The conversion procedure consists of the following steps:
+    1. Binarize the mask at the specified `threshold`
+    2. Find the longest sequence of ones in `mask` and save an index of the first element of the found sequence
+    3. Convert the index to the time as index * `sample_rate`.
+
+    The times found are measured in milliseconds.
+
+    Parameters
+    ----------
+    mask : 2d np.npdarray
+        Array with
+    sample_rate : int
+        Sample rate of seismic traces. Measured in milliseconds.
+    threshold : int, float
+        The boundary value above which the presence of a signal is considered.
+
+    Returns
+    -------
+    times : np.ndarray with length len(mask)
+        The start time of the longest sequence that is greater than the threshold in the `mask` by the first axis.
+    """
     picking_array = np.empty(len(mask), dtype=np.int32)
     for i in prange(len(mask)):
         trace = mask[i]

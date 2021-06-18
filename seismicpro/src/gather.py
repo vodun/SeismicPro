@@ -459,6 +459,19 @@ class Gather:
 
     @batch_method(target="threads")
     def pick_to_mask(self, first_breaks_col='FirstBreak'):
+        """Convert first break picks to binary mask that contains zeros above the first break picks and ones below.
+        The binary mask has the same shape as `gather.data` and is stored in the `mask` attribute.
+
+        Parameters
+        ----------
+        first_breaks_col : str, optional, by default 'FirstBreak'
+            Column in `self.headers` that contains first break picks, measured in milliseconds.
+
+        Returns
+        -------
+        self : Gather
+            Gather with first breaks mask in `mask` attribute.
+        """
         self.validate(required_header_cols=first_breaks_col)
         self.mask = convert_times_to_mask(times=self[first_breaks_col], sample_rate=self.sample_rate,
                                           mask_length=self.shape[1]).astype(np.int32)
@@ -466,6 +479,33 @@ class Gather:
 
     @batch_method(target='for')
     def mask_to_pick(self, threshold=0.5, first_breaks_col='FirstBreak'):
+        """Convert mask stored in the `mask` attribute into first break picks.
+
+        The conversion procedure consists of the following steps:
+        1. Binarize the mask at the specified `threshold`
+        2. Find the longest sequence of ones by the first axis and return an index of the first element of the found
+           sequence.
+        3. Convert index to time and save the result to the headers' column with the name `first_breaks_col`.
+
+        The points found are measured in milliseconds.
+
+        Parameters
+        ----------
+        threshold : float, optional, by default 0.5
+            The boundary value above which the presence of a first break picks is considered.
+        first_breaks_col : str, optional, by default 'FirstBreak'
+            Headers column to save first breaks in.
+
+        Returns
+        -------
+        self : Gather
+            Gather with first break points in headers' column named `first_breaks_col`.
+
+        Raises
+        ------
+        ValueError
+            If the `mask` attribute does not exist.
+        """
         if self.mask is None:
             raise ValueError('Save mask to the self.mask component.')
         self[first_breaks_col] = convert_mask_to_pick(self.mask, self.sample_rate, threshold)
