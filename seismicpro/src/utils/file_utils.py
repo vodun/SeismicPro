@@ -1,3 +1,5 @@
+"""Implements functions to load and dump data in various formats"""
+
 import os
 import glob
 from collections import namedtuple
@@ -10,11 +12,34 @@ from .general_utils import to_list
 
 
 def aggregate_segys(in_paths, out_path, recursive=False, mmap=True, keep_exts=("sgy", "segy"), bar=True):
+    """Merge several segy files into a single one.
+
+    Parameters
+    ----------
+    in_paths : str or list of str
+        Glob mask or masks to search for source files to merge.
+    out_path : str
+        A path to the resulting merged file.
+    recursive : bool, optional, defaults to False
+        Whether to treat '**' pattern as zero or more directories to perfrom a recursive file search.
+    mmap : bool, optional, defaults to True
+        Whether to perform memory mapping of input files. Setting this flag to `True` may result in faster reads.
+    keep_exts : None, array-like, optional, defaults to ("sgy", "segy")
+        Extensions of files to use for merging. If `None`, no filtering is performed.
+    bar : bool, optional, defaults to True
+        Whether to show the progres bar.
+
+    Raises
+    ------
+    ValueError
+        If no files match the given pattern.
+        If source files contain inconsistent samples.
+    """
     in_paths = sum([glob.glob(path, recursive=recursive) for path in to_list(in_paths)], [])
     if keep_exts is not None:
         in_paths = [path for path in in_paths if os.path.splitext(path)[1][1:] in keep_exts]
     if not in_paths:
-        raise ValueError("No files match given pattern")
+        raise ValueError("No files match the given pattern")
 
     # Check whether all files have the same trace length and sample rate
     source_handlers = [segyio.open(path, ignore_geometry=True) for path in in_paths]
@@ -50,6 +75,24 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=True, keep_exts=("
 
 
 def read_vfunc(path):
+    """Read a file with vertical functions.
+
+    Parameters
+    ----------
+    path : str
+        A path to the file.
+
+    Returns
+    -------
+    vfunc_list : list of namedtuples
+        List of loaded vertical functions. Each vfunc is a `namedtuple` with the following fields: `inline`,
+        `crossline`, `x` and `y`, where `x` and `y` are 1d np.ndarrays with the same length.
+
+    Raises
+    ------
+    ValueError
+        If data length for any VFUNC record is odd.
+    """
     vfunc_list = []
     VFUNC = namedtuple("VFUNC", ["inline", "crossline", "x", "y"])
     with open(path) as file:
@@ -64,6 +107,25 @@ def read_vfunc(path):
 
 
 def read_single_vfunc(path):
+    """Read a single vertical function from a file.
+
+    Parameters
+    ----------
+    path : str
+        A path to the file.
+
+    Returns
+    -------
+    vfunc : namedtuple
+        Vertical function with the following fields: `inline`, `crossline`, `x` and `y`, where `x` and `y` are 1d
+        np.ndarrays with the same length.
+
+    Raises
+    ------
+    ValueError
+        If data length for any VFUNC record is odd.
+        If the file does not contain a single vfunc.
+    """
     file_data = read_vfunc(path)
     if len(file_data) != 1:
         raise ValueError(f"Input file must contain a single vfunc, but {len(file_data)} were found in {path}")
