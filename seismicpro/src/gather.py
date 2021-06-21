@@ -295,7 +295,7 @@ class Gather:
         axis = 1 if tracewise else None
         return func(self.data, axis=axis, **kwargs)
 
-    def get_quantile(self, q, tracewise=True, use_global=False):
+    def get_quantile(self, q, tracewise=False, use_global=False):
         """Calculate the q-th quantile of the gather or fetch the global quantile from the parent survey.
 
         Note
@@ -306,7 +306,7 @@ class Gather:
         ----------
         q : float or array-like of floats
             Quantile or sequence of quantiles to compute, which must be between 0 and 1 inclusive.
-        tracewise : bool, optional, default True
+        tracewise : bool, optional, default False
             If `True`, the quantiles are computed for each trace independently, otherwise for the entire gather.
         use_global : bool, optional, default False
             If `True`, the survey's quantiles are used, otherwise the quantiles are computed based on the gather.
