@@ -517,6 +517,28 @@ class Gather:
 
     @batch_method(target="for", copy_src=False)
     def create_muter(self, mode="first_breaks", **kwargs):
+        """Create instance of :class:`~.Muter` class.
+
+        The created Muter object is intended to determine the muting time based on the offset. Detailed description of
+        `Muter` instance can be found in :class:`~muting.Muter` docs.
+
+        Parameters
+        ----------
+        mode :{"from_points", "from_file", "first_breaks"}, optional, default "first_breaks"
+            Type of Muter.
+        kwargs : misc, optional
+             Additional keyword arguments to Muter constructor.
+
+        Returns
+        -------
+        self : Muter
+            Muter instance.
+
+        Raises
+        ------
+        ValueError
+            If given `mode` does not exist.
+        """
         builder = getattr(Muter, f"from_{mode}", None)
         if builder is None:
             raise ValueError(f"Unknown mode {mode}")
@@ -528,6 +550,22 @@ class Gather:
 
     @batch_method(target="threads", args_to_unpack="muter")
     def mute(self, muter, fill_value=0):
+        """Mute gather use given `muter`.
+
+        The muting operation consists in filling the area above the specified by `muter` times with `fill_value`.
+
+        Parameters
+        ----------
+        muter : Muter
+            An object that determines the time to mute based on given offset.
+        fill_value : int, optional, default
+            The values to fill muted part of gather with.
+
+        Returns
+        -------
+        self : Gather
+            Muted gather.
+        """
         self.data = mute_gather(gather_data=self.data, muting_times=muter(self.offsets),
                                 sample_rate=self.sample_rate, fill_value=fill_value)
         return self
