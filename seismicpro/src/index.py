@@ -7,15 +7,23 @@ import numpy as np
 import pandas as pd
 
 from .survey import Survey
-from .utils import maybe_copy
+from .utils import maybe_copy, unique_sorted
 from ..batchflow import DatasetIndex
 
 
 class SeismicIndex(DatasetIndex):
     def __init__(self, index=None, surveys=None, mode=None, **kwargs):
-        self.headers = None
+        self._headers = None
+        self.is_dirty_headers = False
         self.surveys_dict = None
         super().__init__(index=index, surveys=surveys, mode=mode, **kwargs)
+
+    @property
+    def headers(self):
+        if self.is_dirty_headers:
+            self._headers = self._headers.loc[self.indices]
+            self.is_dirty_headers = False
+        return self._headers
 
     @property
     def next_concat_id(self):
@@ -84,27 +92,34 @@ class SeismicIndex(DatasetIndex):
                 raise ValueError("Unknown mode {}".format(mode))
             index = builders_dict[mode](surveys, **kwargs)
 
-        # Copy internal attributes from passed or created index into self
+        # Check that passed or created index has SeismicIndex type
         if not isinstance(index, SeismicIndex):
             raise ValueError(f"SeismicIndex instance is expected as an index, but {type(index)} was given")
+
+        # Copy internal attributes from passed or created index into self
+        self._headers = index.headers
+        self.is_dirty_headers = index.is_dirty_headers
         self.surveys_dict = index.surveys_dict
-        self.headers = index.headers
         return index.index
 
     @classmethod
-    def from_attributes(cls, index=None, headers=None, surveys_dict=None):
+    def from_attributes(cls, index=None, headers=None, is_dirty_headers=False, surveys_dict=None):
         # Create empty SeismicIndex to fill with given headers and surveys_dict
         new_index = cls()
-        new_index.headers = headers
+        new_index._headers = headers
+        new_index.is_dirty_headers = is_dirty_headers
         new_index.surveys_dict = surveys_dict
 
-        # Set _index and _pos explicitly since already created index is modified
+        # Set _index explicitly since already created index is modified
         if index is not None:
             new_index._index = index
         else:
-            _, uniques_indices = np.unique(headers.index.to_frame().values, return_index=True, axis=0)
-            new_index._index = headers.index[uniques_indices]
-        new_index._pos = new_index.build_pos()
+            # Calculate unique header indices. This approach is way faster, than pd.unique or np.unique since we
+            # guarantee that the index of the header is monotonic
+            if not headers.index.is_monotonic_increasing:
+                raise ValueError("Headers index must be monotonically increasing")
+            unique_header_indices = unique_sorted(headers.index.to_frame().values)
+            new_index._index = headers.index[unique_header_indices]
         return new_index
 
     @classmethod
@@ -200,15 +215,22 @@ class SeismicIndex(DatasetIndex):
     #                 DatasetIndex interface implementation                  #
     #------------------------------------------------------------------------#
 
+    def build_pos(self):
+        return None
+
     def get_pos(self, index):
         # TODO: Mention in docs that only single index is allowed!
-        return self._pos[index]
+        return self.index.get_loc(index)
 
-    def create_subset(self, index, loc_headers=False):
+    def create_subset(self, index):
         if isinstance(index, SeismicIndex):
             index = index.index
-        headers = self.headers.loc[index] if loc_headers else self.headers
-        return self.from_attributes(index=index, headers=headers, surveys_dict=self.surveys_dict)
+
+        # Full headers with is_dirty_headers flag set to True are passed to the index subset creation to avoid
+        # expensive index.headers.loc since it's almost always unnecessary e.g. during next_batch call.
+        subset = self.from_attributes(index=index, headers=self.headers, is_dirty_headers=True,
+                                      surveys_dict=self.surveys_dict)
+        return subset
 
     #------------------------------------------------------------------------#
     #                       Index manipulation methods                       #
@@ -233,17 +255,20 @@ class SeismicIndex(DatasetIndex):
     def reindex(self, new_index, inplace=False):
         self = maybe_copy(self, inplace)
 
-        # Keep CONCAT_ID column in the index.
+        # Reindex headers, keeping CONCAT_ID column in it
         self.headers.reset_index(level=self.headers.index.names[1:], inplace=True)
         self.headers.set_index(new_index, append=True, inplace=True)
+        self.headers.sort_index(inplace=True)
 
+        # Set _index explicitly since already created index is modified
+        # unique_sorted is used since headers index is guaranteed to be sorted
+        uniques_indices = unique_sorted(headers.index.to_frame().values)
+        self._index = headers.index[uniques_indices]
+
+        # Reindex all the underlying surveys
         for surveys in self.surveys_dict.values():
             for survey in surveys:
                 # None survey values can be created by _merge_two_indices
                 if survey is not None:
                     survey.reindex(new_index, inplace=True)
-
-        # Set _index and _pos explicitly since already created index is modified
-        self._index = self.headers.index.unique()
-        self._pos = self.build_pos()
         return self
