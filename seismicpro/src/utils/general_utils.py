@@ -14,6 +14,13 @@ def maybe_copy(obj, inplace=False):
     return obj if inplace else obj.copy()
 
 
+def unique_sorted(index):
+    mask = np.empty(len(index), dtype=np.bool_)
+    mask[:1] = True
+    mask[1:] = (index[1:] != index[:-1]).any(axis=1)
+    return np.where(mask)[0]
+
+
 @njit(nogil=True)
 def calculate_stats(trace):
     trace_min, trace_max = np.inf, -np.inf
