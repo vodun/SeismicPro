@@ -54,10 +54,9 @@ class Survey:
         for column in load_headers:
             headers[column] = self.segy_handler.attributes(segyio.tracefield.keys[column])[:]
 
-        headers = pd.DataFrame(headers).reset_index()
+        headers = pd.DataFrame(headers).reset_index(drop=True)
         # TODO: add why do we use unknown column
-        headers.rename(columns={"index": "TRACE_SEQUENCE_FILE"}, inplace=True)
-        headers["TRACE_SEQUENCE_FILE"] += 1
+        headers["TRACE_SEQUENCE_FILE"] = np.arange(1, self.segy_handler.tracecount+1)
         headers.set_index(header_index, inplace=True)
         # To optimize futher sampling from mulitiindex.
         self.headers = headers.sort_index()
