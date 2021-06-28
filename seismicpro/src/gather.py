@@ -229,8 +229,10 @@ class Gather:
 
         if name is None:
             name = "_".join(map(str, [self.survey.name] + to_list(self.headers.index.values[0])))
+        if name == "":
+            raise ValueError("Argument `name` can not be empty.")
         if not os.path.splitext(name)[1]:
-            name += '.sgy'
+            name += ".sgy"
         full_path = os.path.join(path, name)
 
         os.makedirs(path, exist_ok=True)
@@ -254,7 +256,7 @@ class Gather:
 
         # Now we change column name's into byte number based on the segy standard.
         trace_headers.rename(columns=lambda col_name: segyio.tracefield.keys[col_name], inplace=True)
-        trace_headers_dict = trace_headers.to_dict('index')
+        trace_headers_dict = trace_headers.to_dict("index")
 
         with segyio.create(full_path, spec) as dump_handler:
             # Copy binary headers from parent segy. This is possibly incorrect and needs to be checked
