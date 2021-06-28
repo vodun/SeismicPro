@@ -62,7 +62,7 @@ def create_edges(semblance, times, velocities, start_velocity_range, end_velocit
 
     # Switch from time and velocity values to their indices in semblance
     # to further use them as node identifiers in the graph
-    times_ix = np.linspace(0, len(times) - 1, n_times).astype(np.int64)
+    times_ix = np.linspace(0, len(times) - 1, n_times).astype(np.int32)
     start_vel_min_ix, start_vel_max_ix = get_closest_index_by_val(start_velocity_range, velocities)
     end_vel_min_ix, end_vel_max_ix = get_closest_index_by_val(end_velocity_range, velocities)
     start_vels_ix = interpolate_indices(times_ix[0], start_vel_min_ix, times_ix[-1], end_vel_min_ix, times_ix)
@@ -70,10 +70,10 @@ def create_edges(semblance, times, velocities, start_velocity_range, end_velocit
 
     # Instead of running the path search for each of starting nodes iteratively, create an auxiliary node,
     # connected to all of them, and run the search from it
-    start_node = (-1, 0)
+    start_node = (np.int32(-1), np.int32(0))
     prev_nodes = [start_node]
     for time_ix, start_vel_ix, end_vel_ix in zip(times_ix, start_vels_ix, end_vels_ix):
-        curr_vels_ix = np.unique(np.linspace(start_vel_ix, end_vel_ix, n_velocities).astype(np.int64))
+        curr_vels_ix = np.unique(np.linspace(start_vel_ix, end_vel_ix, n_velocities).astype(np.int32))
         curr_nodes = [(time_ix, vel_ix) for vel_ix in curr_vels_ix]
         for prev_time_ix, prev_vel_ix in prev_nodes:
             for curr_time_ix, curr_vel_ix in curr_nodes:
@@ -85,7 +85,7 @@ def create_edges(semblance, times, velocities, start_velocity_range, end_velocit
                     continue
 
                 # Calculate the edge weight: sum of (1 - semblance_value) for each value along the path between nodes
-                times_indices = np.arange(prev_time_ix + 1, curr_time_ix + 1)
+                times_indices = np.arange(prev_time_ix + 1, curr_time_ix + 1, dtype=np.int32)
                 velocity_indices = interpolate_indices(prev_time_ix, prev_vel_ix, curr_time_ix, curr_vel_ix,
                                                        times_indices)
                 weight = len(times_indices)
@@ -163,8 +163,11 @@ def calculate_stacking_velocity(semblance, times, velocities, start_velocity_ran
     ValueError
         If no path was found for given parameters.
     """
-    start_velocity_range = np.array(start_velocity_range)
-    end_velocity_range = np.array(end_velocity_range)
+    times = np.asarray(times, dtype=np.float32)
+    velocities = np.asarray(velocities, dtype=np.float32)
+
+    start_velocity_range = np.array(start_velocity_range, dtype=np.float32)
+    end_velocity_range = np.array(end_velocity_range, dtype=np.float32)
 
     # Calculate maximal velocity growth (in samples) between two adjacent timestamps,
     # for which graph nodes are created
@@ -172,6 +175,7 @@ def calculate_stacking_velocity(semblance, times, velocities, start_velocity_ran
     if max_acceleration is None:
         max_acceleration = 2 * (np.mean(end_velocity_range) - np.mean(start_velocity_range)) / total_time
     max_vel_step = np.ceil((max_acceleration * total_time / n_times) / np.mean(velocities[1:] - velocities[:-1]))
+    max_vel_step = np.int32(max_vel_step)
 
     # Create a graph and find paths with maximal semblance sum along them to all reachable nodes
     edges, start_node, end_nodes = create_edges(semblance, times, velocities, start_velocity_range,

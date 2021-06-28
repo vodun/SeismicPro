@@ -71,7 +71,7 @@ def convert_times_to_mask(times, sample_rate, mask_length):
     mask : np.ndarray of bool
         Bool mask with shape (mask_length, len(times)).
     """
-    times_ixs = np.rint(times / sample_rate).astype(np.int32)
+    times_ixs = np.rint(times / sample_rate)
     mask = (np.arange(mask_length) - times_ixs.reshape(-1, 1)) >= 0
     return mask
 

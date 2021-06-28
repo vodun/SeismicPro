@@ -29,6 +29,10 @@ class VelocityInterpolator:
         vel_data = np.concatenate([vel.interpolation_data for vel in stacking_velocities])
         self.linear_interpolator = LinearNDInterpolator(vel_data[:, :-1], vel_data[:, -1])
 
+        # Perform the first auxilliary call of the linear_interpolator for it to work properly in different processes.
+        # Otherwise VelocityCube.get_stacking_velocity may fail if called in a pipeline with prefetch with mpc target.
+        _ = self.linear_interpolator(0, 0, 0)
+
     def is_in_hull(self, inline, crossline):
         return cv2.pointPolygonTest(self.coords_hull, (inline, crossline), measureDist=True) >= 0
 

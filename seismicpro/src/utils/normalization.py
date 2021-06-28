@@ -66,9 +66,9 @@ def scale_maxabs(data, min_value, max_value, clip, eps):
     max_abs = np.maximum(np.abs(min_value), np.abs(max_value))
     # Use np.atleast_2d(array).T to make the array 2-dimentional by adding dummy trailing axes
     # for further broadcasting to work tracewise
-    data /= np.atleast_2d(np.array(max_abs)).T + eps
+    data /= np.atleast_2d(np.asarray(max_abs)).T + eps
     if clip:
-        data = general_utils.clip(data, -1, 1)
+        data = general_utils.clip(data, np.float32(-1), np.float32(1))
     return data
 
 
@@ -98,9 +98,9 @@ def scale_minmax(data, min_value, max_value, clip, eps):
     """
     # Use np.atleast_2d(array).T to make the array 2-dimentional by adding dummy trailing axes
     # for further broadcasting to work tracewise
-    min_value = np.atleast_2d(np.array(min_value)).T
-    max_value = np.atleast_2d(np.array(max_value)).T
+    min_value = np.atleast_2d(np.asarray(min_value)).T
+    max_value = np.atleast_2d(np.asarray(max_value)).T
     data = (data - min_value) / (max_value - min_value + eps)
     if clip:
-        data = general_utils.clip(data, 0, 1)
+        data = general_utils.clip(data, np.float32(0), np.float32(1))
     return data

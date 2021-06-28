@@ -41,8 +41,8 @@ class Survey:
         self.segy_handler.mmap()
 
         # Get attributes from segy.
-        self.sample_rate = segyio.dt(self.segy_handler) / 1000
-        self.file_samples = self.segy_handler.samples
+        self.sample_rate = np.float32(segyio.dt(self.segy_handler) / 1000)
+        self.file_samples = self.segy_handler.samples.astype(np.float32)
 
         # Define samples and samples length that belongs to particular `stats_limits`.
         self.stats_limits = None
@@ -161,10 +161,10 @@ class Survey:
             if i < n_quantile_traces:
                 traces_buf[i] = trace
 
-        self.min = global_min
-        self.max = global_max
-        self.mean = global_sum / traces_length
-        self.std = np.sqrt((global_sq_sum / traces_length) - (global_sum / traces_length)**2)
+        self.min = np.float32(global_min)
+        self.max = np.float32(global_max)
+        self.mean = np.float32(global_sum / traces_length)
+        self.std = np.float32(np.sqrt((global_sq_sum / traces_length) - (global_sum / traces_length)**2))
 
         # Calculate all q-quantiles from 0 to 1 with step 1 / 10**quantile_precision
         q = np.round(np.linspace(0, 1, num=10**quantile_precision), decimals=quantile_precision)
@@ -179,7 +179,7 @@ class Survey:
     def get_quantile(self, q):
         if not self.has_stats:
             raise ValueError('Global statistics were not calculated, call `Survey.collect_stats` first.')
-        quantiles = self.quantile_interpolator(q)
+        quantiles = self.quantile_interpolator(q).astype(np.float32)
         # return the same type as q: either single float or array-like
         return quantiles.item() if quantiles.ndim == 0 else quantiles
 
@@ -206,7 +206,7 @@ class Survey:
             self.load_trace(buf=data[i], index=ix, limits=limits, trace_length=trace_length)
 
         samples = self.file_samples[limits]
-        sample_rate = self.sample_rate * limits.step
+        sample_rate = np.float32(self.sample_rate * limits.step)
         gather = Gather(headers=gather_headers, data=data, samples=samples, sample_rate=sample_rate, survey=self)
         return gather
 

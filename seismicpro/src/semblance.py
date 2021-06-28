@@ -113,13 +113,14 @@ class BaseSemblance:
         t_win_size_min_ix = max(0, t_min_ix - win_size)
         t_win_size_max_ix = min(len(times) - 1, t_max_ix + win_size)
 
-        corrected_gather = np.empty((t_win_size_max_ix - t_win_size_min_ix + 1, gather_data.shape[1]))
+        corrected_gather = np.empty((t_win_size_max_ix - t_win_size_min_ix + 1, gather_data.shape[1]),
+                                    dtype=np.float32)
         for i in prange(t_win_size_min_ix, t_win_size_max_ix):
             corrected_gather[i - t_win_size_min_ix] = nmo_func(gather_data, times[i], offsets, velocity, sample_rate)
 
         numerator = np.sum(corrected_gather, axis=1)**2
         denominator = np.sum(corrected_gather**2, axis=1)
-        semblance_slice = np.zeros(t_max_ix - t_min_ix)
+        semblance_slice = np.zeros(t_max_ix - t_min_ix, dtype=np.float32)
         for t in prange(t_min_ix, t_max_ix):
             t_rel = t - t_win_size_min_ix
             ix_from = max(0, t_rel - win_size)
@@ -288,7 +289,7 @@ class Semblance(BaseSemblance):
         semblance : 2d np.ndarray
             Array with vertical velocity semblance values.
         """
-        semblance = np.empty((len(gather_data), len(velocities)))
+        semblance = np.empty((len(gather_data), len(velocities)), dtype=np.float32)
         for j in prange(len(velocities)):
             semblance[:, j] = semblance_func(nmo_func=nmo_func, gather_data=gather_data, times=times, offsets=offsets,
                                              velocity=velocities[j], sample_rate=sample_rate, win_size=win_size,
@@ -457,7 +458,7 @@ class ResidualSemblance(BaseSemblance):
         interpolated_velocities = stacking_velocity(self.times)
         self.velocities = np.linspace(np.min(interpolated_velocities) * (1 - relative_margin),
                                       np.max(interpolated_velocities) * (1 + relative_margin),
-                                      n_velocities)
+                                      n_velocities, dtype=np.float32)
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
 
         left_bound_ix, right_bound_ix = self._calc_velocity_bounds()
@@ -510,7 +511,7 @@ class ResidualSemblance(BaseSemblance):
         semblance : 2d np.ndarray
             Array with residual vertical velocity semblance values.
         """
-        semblance = np.zeros((len(gather_data), len(velocities)))
+        semblance = np.zeros((len(gather_data), len(velocities)), dtype=np.float32)
         for i in prange(left_bound_ix.min(), right_bound_ix.max() + 1):
             t_min_ix = np.where(right_bound_ix == i)[0]
             t_min_ix = 0 if len(t_min_ix) == 0 else t_min_ix[0]
@@ -526,7 +527,7 @@ class ResidualSemblance(BaseSemblance):
 
         # Interpolate semblance to get a rectangular image
         semblance_len = (right_bound_ix - left_bound_ix).max()
-        residual_semblance = np.empty((len(times), semblance_len))
+        residual_semblance = np.empty((len(times), semblance_len), dtype=np.float32)
         for i in prange(len(semblance)):
             cropped_semblance = semblance[i][left_bound_ix[i] : right_bound_ix[i] + 1]
             residual_semblance[i] = np.interp(np.linspace(0, len(cropped_semblance) - 1, semblance_len),

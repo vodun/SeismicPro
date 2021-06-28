@@ -173,8 +173,15 @@ class Gather:
 
     def validate(self, required_header_cols=None, required_sorting=None):
         """Perform the following checks for a gather:
-            1. Its header contains all columns from `required_header_cols`
-            2. It is sorted by `required_sorting` header
+            1. Its header contains all columns from `required_header_cols`,
+            2. It is sorted by `required_sorting` header.
+
+        Parameters
+        ----------
+        required_header_cols : None or str or array-like of str, defaults to None
+            Required gather header columns. If `None`, no check is performed.
+        required_sorting : None or str, defaults to None
+            Required gather sorting. If `None`, no check is performed.
 
         Returns
         -------
@@ -318,7 +325,7 @@ class Gather:
         """
         if use_global:
             return self.survey.get_quantile(q)
-        quantiles = self._apply_agg_func(func=np.nanquantile, tracewise=tracewise, q=q)
+        quantiles = self._apply_agg_func(func=np.nanquantile, tracewise=tracewise, q=q).astype(np.float32)
         # return the same type as q in case of global calculation: either single float or array-like
         return quantiles.item() if not tracewise and quantiles.ndim == 0 else quantiles
 
@@ -367,7 +374,7 @@ class Gather:
         else:
             mean = self._apply_agg_func(func=np.mean, tracewise=tracewise, keepdims=True)
             std = self._apply_agg_func(func=np.std, tracewise=tracewise, keepdims=True)
-        self.data = normalization.scale_standard(self.data, mean, std, eps)
+        self.data = normalization.scale_standard(self.data, mean, std, np.float32(eps))
         return self
 
     @batch_method(target='threads')
@@ -410,7 +417,7 @@ class Gather:
             Scaled gather.
         """
         min_value, max_value = self.get_quantile([q_min, q_max], tracewise=tracewise, use_global=use_global)
-        self.data = normalization.scale_maxabs(self.data, min_value, max_value, clip, eps)
+        self.data = normalization.scale_maxabs(self.data, min_value, max_value, clip, np.float32(eps))
         return self
 
     @batch_method(target='threads')
@@ -450,7 +457,7 @@ class Gather:
             Scaled gather.
         """
         min_value, max_value = self.get_quantile([q_min, q_max], tracewise=tracewise, use_global=use_global)
-        self.data = normalization.scale_minmax(self.data, min_value, max_value, clip, eps)
+        self.data = normalization.scale_minmax(self.data, min_value, max_value, clip, np.float32(eps))
         return self
 
     #------------------------------------------------------------------------#
@@ -617,7 +624,7 @@ class Gather:
 
         Notes
         -----
-        1. Detailed description of NMO correction can be found in :func:`~correction.apply_nmo` docs.
+        Detailed description of NMO correction can be found in :func:`~correction.apply_nmo` docs.
 
         Parameters
         ----------
@@ -640,7 +647,8 @@ class Gather:
             If `stacking_velocity` is not a `StackingVelocity` or `VelocityCube` instance.
         """
         if isinstance(stacking_velocity, VelocityCube):
-            stacking_velocity = stacking_velocity.get_stacking_velocity(*self.get_coords(coords_columns))
+            stacking_velocity = stacking_velocity.get_stacking_velocity(*self.get_coords(coords_columns),
+                                                                        create_interpolator=False)
         if not isinstance(stacking_velocity, StackingVelocity):
             raise ValueError("Only VelocityCube or StackingVelocity instances can be passed as a stacking_velocity")
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
