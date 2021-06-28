@@ -526,15 +526,17 @@ class Gather:
     def create_muter(self, mode="first_breaks", **kwargs):
         """Create instance of :class:`~.Muter` class.
 
+        This method redirects the call into classmethod with the name `Muter.from_{mode}`.
+
         The created Muter object is intended to determine the muting time based on the offset. Detailed description of
         `Muter` instance can be found in :class:`~muting.Muter` docs.
 
         Parameters
         ----------
-        mode :{"from_points", "from_file", "first_breaks"}, optional, default "first_breaks"
+        mode :{"points", "file", "first_breaks"}, optional, default "first_breaks"
             Type of Muter.
         kwargs : misc, optional
-             Additional keyword arguments to Muter constructor.
+             Additional keyword arguments to Muter.from_{mode}.
 
         Returns
         -------
