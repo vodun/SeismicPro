@@ -15,7 +15,6 @@ jobs:
     - uses: actions/checkout@v1
       with:
         submodules: true
-        lfs: false
 
 
     - name: Update pylint
