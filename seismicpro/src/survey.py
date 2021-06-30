@@ -16,6 +16,7 @@ from .utils import to_list, maybe_copy, calculate_stats, create_supergather_inde
 class Survey:
     def __init__(self, path, header_index, header_cols=None, name=None,
                  stats_limits=None, collect_stats=False, **kwargs):
+        print(1)
         self.path = path
         basename = os.path.splitext(os.path.basename(self.path))[0]
         self.name = name if name is not None else basename
