@@ -16,7 +16,7 @@ from .. import Survey
                              dist_source_lines=200, dist_sources=50, dist_reciever_lines=100, dist_recievers=25),
                         dict(sources_size=100, activation_dist=100, bin_size=100, samples=1000,
                              dist_source_lines=300, dist_sources=50, dist_reciever_lines=200, dist_recievers=50)])
-def files_setup(request):
+def segy_path(request):
     """ Fixture that creates segy file """
     folder = 'test_tmp'
 
@@ -32,8 +32,8 @@ def files_setup(request):
 
 @pytest.mark.parametrize('header_index',
                          ('FieldRecord', ['INLINE_3D', 'CROSSLINE_3D'], ['GroupX', 'GroupY'], ['SourceX', 'SourceY']))
-def test_generated_segy_loading(files_setup, header_index):
-    s = Survey(files_setup, header_index=header_index, header_cols=['FieldRecord', 'TraceNumber', 'SourceX', 'SourceY',
+def test_generated_segy_loading(segy_path, header_index):
+    s = Survey(segy_path, header_index=header_index, header_cols=['FieldRecord', 'TraceNumber', 'SourceX', 'SourceY',
                                                                     'GroupX', 'GroupY', 'offset', 'CDP_X',
                                                                     'CDP_Y', 'INLINE_3D', 'CROSSLINE_3D'])
     assert s.sample_gather()
