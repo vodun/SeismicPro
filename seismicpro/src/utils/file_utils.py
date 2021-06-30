@@ -130,3 +130,131 @@ def read_single_vfunc(path):
     if len(file_data) != 1:
         raise ValueError(f"Input file must contain a single vfunc, but {len(file_data)} were found in {path}")
     return file_data[0]
+
+def make_prestack_segy(path_segy, sources_size=500, activation_dist=500, bin_size=50, samples=1500, trace_gen=None,
+                       dist_source_lines=300, dist_sources=50, dist_reciever_lines=100, dist_recievers=25, **kwargs):
+    # pylint: disable=invalid-name
+    """ Makes a prestack segy with square geometry. Segy headers are filled with calculated values.
+
+    Parameters
+    ----------
+    path_segy : str
+        Path to store new segy.
+    trace_gen : callable or None
+        ...
+    survey_size : int
+        ...
+    activation_dist : int
+        ...
+    bin_size : int
+        ...
+    samples : int
+        ...
+    dist_source_lines : int
+        ...
+    dist_sources : int
+        ...
+    dist_reciever_lines : int
+        ...
+    dist_recievers : int
+        ...
+    kwargs : dict
+        format : int
+            floating-point mode. 5 stands for IEEE-floating point, which is the standard -
+            it is set as the default.
+        sample_rate : int
+            sampling frequency of the seismic in microseconds. Most commonly is equal to 2000
+            microseconds for on-land seismic.
+        delay : int
+            delay time of the seismic in microseconds. The default is 0.
+    """
+    # By default traces are filled with random noise
+    if trace_gen is None:
+        def trace_gen(**kwargs):
+            samples = kwargs.get('samples')
+            return np.random.normal(size=samples).astype(np.float32)
+
+    def generate_coordinates(start, stop, dist, dist_lines, lines_axis=0):
+        """ Support function to create coordinates of sources / recievers """
+        dist_x, dist_y = (dist_lines, dist) if lines_axis==0 else (dist, dist_lines)
+        x, y = np.mgrid[start:stop+dist_x:dist_x, start:stop+dist_y:dist_y,]
+        return np.vstack([x.ravel(), y.ravel()]).T
+
+    def calc_active_recievers_mask(sx, sy, reciever_coords, activation_dist):
+        """ Support function to get mask of recievers activated by source in position `sx, sy` """
+        return np.logical_and(*(np.abs(reciever_coords - (sx, sy)) <= activation_dist).T)
+
+    # Create points for sources and recievers
+    source_coords = generate_coordinates(dist_sources//2, sources_size, dist_sources, dist_source_lines, 1)
+    reciever_coords = generate_coordinates(-2*activation_dist, sources_size+2*activation_dist,
+                                           dist_recievers, dist_reciever_lines)
+
+    # Create and fill up segy spec
+    spec = segyio.spec()
+    spec.format = kwargs.get('format', 5)
+    spec.samples = np.arange(samples)
+
+    # Unstructured mode of SEGY requires to specify number of traces in file - tracecount,
+    # which is calculated as number of sources multiplied by number of active reciervers per source
+    # and multiplied by a factor of two for a safe margin since it does not affect segy's size on disk
+    sx, sy = source_coords[0]
+    num_active_recievers = np.sum(calc_active_recievers_mask(sx, sy, reciever_coords, activation_dist))
+    tracecount = source_coords.shape[0] * num_active_recievers
+    spec.tracecount = tracecount
+
+    # Parse headers' kwargs
+    sample_rate = int(kwargs.get('sample_rate', 2000))
+    delay = int(kwargs.get('delay', 0))
+
+    with segyio.create(path_segy, spec) as dst_file:
+        # Loop over the array and put all the data into new segy file
+        TRACE_SEQUENCE_FILE = 0
+
+        with tqdm(total=source_coords.shape[0]) as prog_bar:
+            for FieldRecord, (sx, sy) in enumerate(source_coords):
+                mask = calc_active_recievers_mask(sx, sy, reciever_coords, activation_dist)
+                active_recievers = reciever_coords[mask, :]
+
+                # TODO: maybe add trace with zero offset
+                for TraceNumber, (rx, ry) in enumerate(active_recievers):
+                    TRACE_SEQUENCE_FILE += 1
+                    # Create header
+                    header = dst_file.header[TRACE_SEQUENCE_FILE-1]
+
+                    # Fill header
+                    header[segyio.TraceField.FieldRecord] = FieldRecord
+                    header[segyio.TraceField.TraceNumber] = TraceNumber
+                    header[segyio.TraceField.SourceX] = sx
+                    header[segyio.TraceField.SourceY] = sy
+                    header[segyio.TraceField.GroupX] = rx
+                    header[segyio.TraceField.GroupY] = ry
+
+                    offset = int(((sx-rx)**2 + (sy-ry)**2)**0.5) # `int` is faster
+                    header[segyio.TraceField.offset] = offset
+
+                    CDP_X = int(sx + rx / 2)
+                    CDP_Y = int(sy + ry / 2)
+                    header[segyio.TraceField.CDP_X] = CDP_X
+                    header[segyio.TraceField.CDP_Y] = CDP_Y
+
+                    INLINE_3D = CDP_X // bin_size
+                    CROSSLINE_3D = CDP_Y // bin_size
+                    header[segyio.TraceField.INLINE_3D] = INLINE_3D
+                    header[segyio.TraceField.CROSSLINE_3D] = CROSSLINE_3D
+
+                    # Fill depth-related fields in header
+                    header[segyio.TraceField.TRACE_SAMPLE_COUNT] = samples
+                    header[segyio.TraceField.TRACE_SAMPLE_INTERVAL] = sample_rate
+                    header[segyio.TraceField.DelayRecordingTime] = delay
+
+                    # Generate trace and write it to file
+                    trace = trace_gen(FieldRecord=FieldRecord, TraceNumber=TraceNumber, SourceX=sx, SourceY=sy,
+                                           GroupX=rx, GroupY=ry, offset=offset, CDP_X=CDP_X, CDP_Y=CDP_Y,
+                                           INLINE_3D=INLINE_3D, CROSSLINE_3D=CROSSLINE_3D, samples=samples,
+                                           sample_rate=sample_rate)
+                    dst_file.trace[TRACE_SEQUENCE_FILE-1] = trace
+                    prog_bar.update(1)
+
+        dst_file.bin = {segyio.BinField.Traces: TRACE_SEQUENCE_FILE,
+                        segyio.BinField.Samples: samples,
+                        segyio.BinField.Interval: sample_rate}
