@@ -1,12 +1,10 @@
 """ Tests for segy generator function """
 # pylint: disable=missing-docstring
-# pylint: disable=protected-access
 # pylint: disable=redefined-outer-name
 
 import os
 import shutil
 
-import numpy as np
 import pytest
 from ..utils import make_prestack_segy
 from .. import Survey
