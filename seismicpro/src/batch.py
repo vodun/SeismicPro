@@ -42,7 +42,7 @@ class SeismicBatch(Batch):
         # Unpack tuple in case of non-multiindex survey
         if len(survey_index) == 1:
             survey_index = survey_index[0]
-        # Guarantee, that a DataFrame is always returned, regardless of pandas behaviour.
+        # Guarantee, that a DataFrame is always returned after .loc, regardless of pandas behaviour
         survey_index = slice(survey_index, survey_index)
         getattr(self, dst)[pos] = self.index.get_gather(survey_name=src, concat_id=concat_id,
                                                         survey_index=survey_index, **kwargs)

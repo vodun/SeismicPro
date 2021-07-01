@@ -186,19 +186,14 @@ class Survey:
     #                            Loading methods                             #
     #------------------------------------------------------------------------#
 
-    def get_gather(self, index=None, limits=None, copy_headers=True):
+    def load_gather(self, headers, limits=None, copy_headers=True):
+        if copy_headers:
+            headers = headers.copy()
+        trace_indices = headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
+
         limits = self.stats_limits if limits is None else self._process_limits(limits)
         samples = self.file_samples[limits]
         trace_length = len(samples)
-
-        gather_headers = self.headers.loc[index]
-        # loc may sometimes return Series. In such cases slicing is used to guarantee, that DataFrame is returned
-        if isinstance(gather_headers, pd.Series):
-            gather_headers = self.headers.loc[index:index]
-
-        if copy_headers:
-            gather_headers = gather_headers.copy()
-        trace_indices = gather_headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
 
         data = np.empty((len(trace_indices), trace_length), dtype=np.float32)
         for i, ix in enumerate(trace_indices):
@@ -206,8 +201,15 @@ class Survey:
 
         samples = self.file_samples[limits]
         sample_rate = np.float32(self.sample_rate * limits.step)
-        gather = Gather(headers=gather_headers, data=data, samples=samples, sample_rate=sample_rate, survey=self)
+        gather = Gather(headers=headers, data=data, samples=samples, sample_rate=sample_rate, survey=self)
         return gather
+
+    def get_gather(self, index=None, limits=None, copy_headers=True):
+        gather_headers = self.headers.loc[index]
+        # loc may sometimes return Series. In such cases slicing is used to guarantee, that DataFrame is returned
+        if isinstance(gather_headers, pd.Series):
+            gather_headers = self.headers.loc[index:index]
+        return self.load_gather(gather_headers, limits, copy_headers)
 
     def sample_gather(self, limits=None, copy_headers=True):
         index = np.random.choice(self.headers.index)
