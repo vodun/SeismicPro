@@ -2,8 +2,6 @@
 
 **SeismicPro**
 
-Pre-stack Processing Tool
-
 <p align="center">
   <a href="">Docs</a> •
   <a href="#installation">Installation</a> •
@@ -21,12 +19,12 @@ Pre-stack Processing Tool
 
 ---
 
-`SeismicPro` aimed for accelerating research and processing of pre-stack seismic data with deep learning models.
+`SeismicPro` is aimed for accelerating research and processing of pre-stack seismic data with deep learning models.
 
 Main features:
 
-* Process a pre-stack data in `SEG-Y` format and provide a high speed of seismic traces loading
-* Reading auxiliary data in various formats from geological frameworks such as vertical velocities, first break points and others
+* Process pre-stack data in `SEG-Y` format and provide high speed of seismic traces loading
+* Read auxiliary data in various formats (such as vertical velocities, first break points, and others) from multiple geological frameworks
 * Handle seismic data by numerous processing methods that work in parallel
 * Combine processing functions in concise and readable pipelines
 * Define sophisticated neural networks like `EfficientNet` with simple and intuitive configurations in just a few lines of code
@@ -68,9 +66,9 @@ Use `Survey` to describe your field headers:
 ```python
 survey = seismicpro.Survey(path_to_file, header_index='FieldRecord', header_cols='offset')
 ```
-`header_index` and `header_cols` corresponds to headers name in [segyio](https://segyio.readthedocs.io/en/latest/segyio.html#constants).
+`header_index` and `header_cols` correspond to header names in [segyio](https://segyio.readthedocs.io/en/latest/segyio.html#constants).
 
-All loaded headers are stored in a `headers` attribute as a pd.DataFrame:
+All loaded headers are stored in `headers` attribute as a `pd.DataFrame`:
 
 ```python
 survey.headers
@@ -98,7 +96,7 @@ gather.sort(by='offset').plot()
 
 ![gather](https://i.imgur.com/qv0SsEE.png)
 
-Moreover, processing methods can be combined in a compact pipelines. For example here is a simplified pipeline for stacking velocity calculation:
+Moreover, processing methods can be combined in compact pipelines. For example here is a simplified pipeline for stacking velocity calculation:
 
 ```python
 stacking_pipeline = (dataset
@@ -119,7 +117,7 @@ stacking_pipeline = (dataset
     .dump(src="raw", path=STACK_TRACE_PATH, copy_header=False)
 )
 
-stacking_pipeline.run(1, shuffle=True)
+stacking_pipeline.run(BATCH_SIZE, n_epochs=1)
 ```
 
 You can get more familiar with the framework and its functionality by reading [SeismicPro tutorials](tutorials).
