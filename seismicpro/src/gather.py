@@ -252,7 +252,7 @@ class Gather:
 
         # Keep only headers, relevant to segy file.
         used_header_names = set(trace_headers.columns) & set(segyio.tracefield.keys.keys())
-        trace_headers = trace_headers[list(used_header_names)]
+        trace_headers = trace_headers[used_header_names]
 
         # Now we change column name's into byte number based on the segy standard.
         trace_headers.rename(columns=lambda col_name: segyio.tracefield.keys[col_name], inplace=True)

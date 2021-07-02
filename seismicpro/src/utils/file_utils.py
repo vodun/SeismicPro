@@ -131,129 +131,99 @@ def read_single_vfunc(path):
         raise ValueError(f"Input file must contain a single vfunc, but {len(file_data)} were found in {path}")
     return file_data[0]
 
-def make_prestack_segy(path_segy, sources_size=500, activation_dist=500, bin_size=50, samples=1500, trace_gen=None,
-                       dist_source_lines=300, dist_sources=50, dist_reciever_lines=100, dist_recievers=25, **kwargs):
+
+def make_prestack_segy(path, survey_size=(1000,1000), origin=(0,0), sources_step=(50,300), recievers_step=(100,25),
+                       bin_size=(50,50), activation_dist=(500,500), samples=1500, sample_rate=2000, delay=0,
+                       trace_gen=None, **kwargs): # pylint: disable=too-many-arguments
     # pylint: disable=invalid-name
     """ Makes a prestack segy with square geometry. Segy headers are filled with calculated values.
 
     Parameters
     ----------
-    path_segy : str
+    path : str
         Path to store new segy.
-    trace_gen : callable or None
-        ...
-    survey_size : int
-        ...
-    activation_dist : int
-        ...
-    bin_size : int
-        ...
+    survey_size : tuple of ints
+        ... Default is (1000,1000).
+    origin : tuple of ints
+        ... Default is (0,0).
+    sources_step : tuple of ints
+        ... Default is (50,300).
+    recievers_step : tuple of ints
+        ... Default is (100,25).
+    bin_size : tuple of ints
+        ... Default is (50,50).
+    activation_dist : tuple of ints
+        ... Default is (500,500).
     samples : int
-        ...
-    dist_source_lines : int
-        ...
-    dist_sources : int
-        ...
-    dist_reciever_lines : int
-        ...
-    dist_recievers : int
-        ...
-    kwargs : dict
-        format : int
-            floating-point mode. 5 stands for IEEE-floating point, which is the standard -
-            it is set as the default.
-        sample_rate : int
-            sampling frequency of the seismic in microseconds. Most commonly is equal to 2000
-            microseconds for on-land seismic.
-        delay : int
-            delay time of the seismic in microseconds. The default is 0.
+        Number of samples in traces. Default is 1500.
+    sample_rate : int
+        Sampling interval in microseconds. Default is 2000.
+    delay : int
+        Delay time of the seismic in microseconds. Default is 0.
+    trace_gen : callable
+        ...  Default is None, in which case trace are filled with random noise.
     """
     # By default traces are filled with random noise
     if trace_gen is None:
-        def trace_gen(**kwargs):
-            samples = kwargs.get('samples')
-            return np.random.normal(size=samples).astype(np.float32)
+        def trace_gen(TRACE_SAMPLE_COUNT, **kwargs):
+            _ = kwargs
+            return np.random.normal(size=TRACE_SAMPLE_COUNT).astype(np.float32)
 
-    def generate_coordinates(start, stop, dist, dist_lines, lines_axis=0):
+    def generate_coordinates(origin, survey_size, step):
         """ Support function to create coordinates of sources / recievers """
-        dist_x, dist_y = (dist_lines, dist) if lines_axis==0 else (dist, dist_lines)
-        x, y = np.mgrid[start:stop+dist_x:dist_x, start:stop+dist_y:dist_y,]
+        x, y = np.mgrid[[slice(start, end, step) for start, end, step in zip(origin, survey_size, step)]]
         return np.vstack([x.ravel(), y.ravel()]).T
 
-    def calc_active_recievers_mask(sx, sy, reciever_coords, activation_dist):
-        """ Support function to get mask of recievers activated by source in position `sx, sy` """
-        return np.logical_and(*(np.abs(reciever_coords - (sx, sy)) <= activation_dist).T)
-
-    # Create points for sources and recievers
-    source_coords = generate_coordinates(dist_sources//2, sources_size, dist_sources, dist_source_lines, 1)
-    reciever_coords = generate_coordinates(-2*activation_dist, sources_size+2*activation_dist,
-                                           dist_recievers, dist_reciever_lines)
+    # Create coordinate points for sources and recievers
+    source_coords = generate_coordinates(origin, survey_size, sources_step)
+    reciever_coords = generate_coordinates(origin, survey_size, recievers_step)
 
     # Create and fill up segy spec
     spec = segyio.spec()
-    spec.format = kwargs.get('format', 5)
-    spec.samples = np.arange(samples)
+    spec.format = 5 # 5 stands for IEEE-floating point, which is the standard -
+    spec.samples = np.arange(samples) * sample_rate / 1000
 
-    # Unstructured mode of SEGY requires to specify number of traces in file - tracecount,
-    # which is calculated as number of sources multiplied by number of active reciervers per source
-    # and multiplied by a factor of two for a safe margin since it does not affect segy's size on disk
-    sx, sy = source_coords[0]
-    num_active_recievers = np.sum(calc_active_recievers_mask(sx, sy, reciever_coords, activation_dist))
-    tracecount = source_coords.shape[0] * num_active_recievers
-    spec.tracecount = tracecount
+    # Calculate matrix of active recievers for each source and get overall number of traces
+    activation_dist = np.array(activation_dist)[None,:,None]
+    active_recievers_mask = np.all(np.abs((source_coords[:,:,None] - reciever_coords.T)) <= activation_dist, axis=1)
+    spec.tracecount = np.sum(active_recievers_mask)
 
-    # Parse headers' kwargs
-    sample_rate = int(kwargs.get('sample_rate', 2000))
-    delay = int(kwargs.get('delay', 0))
-
-    with segyio.create(path_segy, spec) as dst_file:
-        # Loop over the array and put all the data into new segy file
+    with segyio.create(path, spec) as dst_file:
+        # Loop over the survey and put all the data into new segy file
         TRACE_SEQUENCE_FILE = 0
 
-        with tqdm(total=source_coords.shape[0]) as prog_bar:
-            for FieldRecord, (sx, sy) in enumerate(source_coords):
-                mask = calc_active_recievers_mask(sx, sy, reciever_coords, activation_dist)
-                active_recievers = reciever_coords[mask, :]
+        for FieldRecord, source_location in enumerate(tqdm(source_coords)):
+            active_recievers_coords = reciever_coords[active_recievers_mask[FieldRecord]]
 
-                # TODO: maybe add trace with zero offset
-                for TraceNumber, (rx, ry) in enumerate(active_recievers):
-                    TRACE_SEQUENCE_FILE += 1
-                    # Create header
-                    header = dst_file.header[TRACE_SEQUENCE_FILE-1]
+            # TODO: maybe add trace with zero offset
+            for TraceNumber, reciever_location in enumerate(active_recievers_coords):
+                TRACE_SEQUENCE_FILE += 1
+                # Create header
+                header = dst_file.header[TRACE_SEQUENCE_FILE-1]
+                # Fill headers dict
+                trace_header_dict = {}
+                trace_header_dict['FieldRecord'] = FieldRecord
+                trace_header_dict['TraceNumber'] = TraceNumber
+                trace_header_dict['SourceX'], trace_header_dict['SourceY'] = source_location
+                trace_header_dict['GroupX'], trace_header_dict['GroupY'] = reciever_location
+                trace_header_dict['offset'] = int(np.sum((source_location - reciever_location)**2)**0.5)
 
-                    # Fill header
-                    header[segyio.TraceField.FieldRecord] = FieldRecord
-                    header[segyio.TraceField.TraceNumber] = TraceNumber
-                    header[segyio.TraceField.SourceX] = sx
-                    header[segyio.TraceField.SourceY] = sy
-                    header[segyio.TraceField.GroupX] = rx
-                    header[segyio.TraceField.GroupY] = ry
+                CDP = ((source_location + reciever_location)).astype(int)
+                trace_header_dict['CDP_X'], trace_header_dict['CDP_Y'] = CDP
+                trace_header_dict['INLINE_3D'], trace_header_dict['CROSSLINE_3D'] = CDP // bin_size
 
-                    offset = int(((sx-rx)**2 + (sy-ry)**2)**0.5) # `int` is faster
-                    header[segyio.TraceField.offset] = offset
+                # Fill depth-related fields in header
+                trace_header_dict['TRACE_SAMPLE_COUNT'] = samples
+                trace_header_dict['TRACE_SAMPLE_INTERVAL'] = sample_rate
+                trace_header_dict['DelayRecordingTime'] = delay
 
-                    CDP_X = int(sx + rx / 2)
-                    CDP_Y = int(sy + ry / 2)
-                    header[segyio.TraceField.CDP_X] = CDP_X
-                    header[segyio.TraceField.CDP_Y] = CDP_Y
+                # Generate trace and write it to file
+                trace = trace_gen(**trace_header_dict, **kwargs)
+                dst_file.trace[TRACE_SEQUENCE_FILE-1] = trace
 
-                    INLINE_3D = CDP_X // bin_size
-                    CROSSLINE_3D = CDP_Y // bin_size
-                    header[segyio.TraceField.INLINE_3D] = INLINE_3D
-                    header[segyio.TraceField.CROSSLINE_3D] = CROSSLINE_3D
-
-                    # Fill depth-related fields in header
-                    header[segyio.TraceField.TRACE_SAMPLE_COUNT] = samples
-                    header[segyio.TraceField.TRACE_SAMPLE_INTERVAL] = sample_rate
-                    header[segyio.TraceField.DelayRecordingTime] = delay
-
-                    # Generate trace and write it to file
-                    trace = trace_gen(FieldRecord=FieldRecord, TraceNumber=TraceNumber, SourceX=sx, SourceY=sy,
-                                           GroupX=rx, GroupY=ry, offset=offset, CDP_X=CDP_X, CDP_Y=CDP_Y,
-                                           INLINE_3D=INLINE_3D, CROSSLINE_3D=CROSSLINE_3D, samples=samples,
-                                           sample_rate=sample_rate)
-                    dst_file.trace[TRACE_SEQUENCE_FILE-1] = trace
-                    prog_bar.update(1)
+                # Rename keys in trace_header_dict and update segy files' header
+                trace_header_dict = dict((segyio.tracefield.keys[k], v) for k, v in trace_header_dict.items())
+                header.update(trace_header_dict)
 
         dst_file.bin = {segyio.BinField.Traces: TRACE_SEQUENCE_FILE,
                         segyio.BinField.Samples: samples,
