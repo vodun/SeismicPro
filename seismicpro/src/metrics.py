@@ -158,7 +158,7 @@ class MetricsMap(Metrics):
             If `agg_func` is `str` and is not in DEFAULT_METRICS.
             If `agg_func` is not wrapped with `njit` decorator.
         """
-        metrics = getattr(self, metrics_name)
+        metrics = getattr(self, metric_name)
 
         # Handle the case when metric is an array of arrays by flattening the metrics array and duplicating the coords
         coords_repeats = [len(metrics_array) for metrics_array in metrics]
