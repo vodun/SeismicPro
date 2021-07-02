@@ -261,7 +261,9 @@ class SeismicIndex(DatasetIndex):
         if survey_name not in self.surveys_dict:
             err_msg = "Unknown survey name {}, the index contains only {}"
             raise KeyError(err_msg.format(survey_name, ", ".join(self.surveys_dict.keys())))
-        return self.surveys_dict[survey_name][concat_id].get_gather(index=survey_index, **kwargs)
+        survey = self.surveys_dict[survey_name][concat_id]
+        gather_headers = self.headers.loc[concat_id].loc[survey_index]
+        return survey.load_gather(headers=gather_headers, **kwargs)
 
     def reindex(self, new_index, inplace=False):
         self = maybe_copy(self, inplace)

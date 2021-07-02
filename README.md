@@ -2,8 +2,6 @@
 
 **SeismicPro**
 
-`SeismicPro` is a framework for accelerating research and processing of pre-stack seismic data with deep learning models.
-
 <p align="center">
   <a href="">Docs</a> •
   <a href="#installation">Installation</a> •
@@ -13,28 +11,28 @@
 </p>
 
 [![License](https://img.shields.io/github/license/analysiscenter/batchflow.svg)](https://www.apache.org/licenses/LICENSE-2.0)
-[![Python](https://img.shields.io/badge/python-3.6-blue.svg)](https://python.org)
-[![PyTorch](https://img.shields.io/badge/PyTorch-1.7-orange.svg)](https://pytorch.org)
+[![Python](https://img.shields.io/badge/python-3.7-blue.svg)](https://python.org)
+[![PyTorch](https://img.shields.io/badge/PyTorch-1.8-orange.svg)](https://pytorch.org)
 [![Status](https://github.com/gazprom-neft/SeismicPro/workflows/status/badge.svg)](https://github.com/gazprom-neft/SeismicPro/actions?query=workflow%3Astatus)
 
 </div>
 
 ---
 
-`SeismicPro` is a framework for seismic processing that works with pre-stack data and allows for accelerating geological reseach using deep learning models in a massively parallel way.
+`SeismicPro` is aimed for accelerating research and processing of pre-stack seismic data with deep learning models.
 
 Main features:
 
-* Process a pre-stack data in `SEG-Y` format and provide an incredible speed of loading seismic traces
-* Allows reading various data formats from geological frameworks such as vertical velocities, first break points and others
-* Contains massive amount of processing functions that works in parallel
-* Combine processing functions in compact pipelines
-* Define sophisticated neural networks like `EfficientNet` with simple and intuitive configurations in a few lines of code
+* Process pre-stack data in `SEG-Y` format and provide high speed of seismic traces loading
+* Read auxiliary data in various formats (such as vertical velocities, first break points, and others) from multiple geological frameworks
+* Handle seismic data by numerous processing methods that work in parallel
+* Combine processing functions in concise and readable pipelines
+* Define sophisticated neural networks like `EfficientNet` with simple and intuitive configurations in just a few lines of code
 
 
 ## Installation
 
-> `SeismicPro` module is in the beta stage. Your suggestions and improvements are very welcome via [issues](https://github.com/gazprom-neft/SeismicPro/issues).
+> `SeismicPro` module is in the beta stage. Your suggestions and improvements via [issues](https://github.com/gazprom-neft/SeismicPro/issues) are very welcome.
 
 ### Installation as a python package
 
@@ -46,14 +44,9 @@ With [pipenv](https://docs.pipenv.org/):
 
     pipenv install git+https://github.com/gazprom-neft/SeismicPro.git#egg=SeismicPro
 
-After that just import `seismicpro`:
-```python
-import seismicpro
-```
-
 ### Installation as a project repository
 
-When cloning repo from GitHub use flag ``--recursive`` to make sure that ``batchflow`` submodule is also cloned.
+When cloning a repo from GitHub use ``--recursive`` flag to make sure that ``batchflow`` submodule is also cloned.
 
     git clone --recursive https://github.com/gazprom-neft/SeismicPro.git
 
@@ -62,7 +55,7 @@ When cloning repo from GitHub use flag ``--recursive`` to make sure that ``batch
 
 `SeismicPro` provides a simple interface to process pre-stack data.
 
-To start use framework just write:
+To get started with `seismicpro`, just import it:
 
 ```python
 import seismicpro
@@ -71,11 +64,11 @@ import seismicpro
 Use `Survey` to describe your field headers:
 
 ```python
-survey = Survey(path_to_file, header_index='FieldRecord', header_cols='offset')
+survey = seismicpro.Survey(path_to_file, header_index='FieldRecord', header_cols='offset')
 ```
-`header_index` and `header_cols` corresponds to headers name in [segyio](https://segyio.readthedocs.io/en/latest/segyio.html#constants).
+`header_index` and `header_cols` correspond to header names in [segyio](https://segyio.readthedocs.io/en/latest/segyio.html#constants).
 
-All loaded headers are saved as pd.DataFrame and stored in attribute `headers`:
+All loaded headers are stored in `headers` attribute as a `pd.DataFrame`:
 
 ```python
 survey.headers
@@ -89,25 +82,45 @@ survey.headers
 |           175 |     6805 |                     4 |
 |           175 |     6932 |                     5 |
 
-Sample single seismogram use `sample_gather` function.
+A randomly selected gather can be obtained by calling `sample_gather` method:
 
 ```python
 gather = survey.sample_gather()
 ```
-Apply sorting action to sampled gather and plot result.
+
+Let's take a look at it being sorted by offset:
 
 ```python
 gather.sort(by='offset').plot()
 ```
+
 ![gather](https://i.imgur.com/qv0SsEE.png)
 
-Moreover, one can construct any preprocessing pipeline, for example here is a pipeline for calculating stacking velocity:
+Moreover, processing methods can be combined in compact pipelines. For example here is a simplified pipeline for stacking velocity calculation:
 
 ```python
-VELOCITY PIPELINE
+stacking_pipeline = (dataset
+    .pipeline()
+    .load(src="raw")
+    .sort(src="raw", by="offset")
+    .mute(src="raw", dst="muted_raw", muter=muter)
+    .calculate_semblance(src="muted_raw", dst="raw_semb",
+                         velocities=SEMBLANCE_VELOCITY_RANGE, win_size=8)
+    .calculate_stacking_velocity(src="raw_semb", dst="velocity",
+                                 start_velocity_range=START_VELOCITY_RANGE,
+                                 end_velocity_range=END_VELOCITY_RANGE,
+                                 n_times=N_TIMES, n_velocities=N_VELOCITIES)
+    .get_central_cdp(src="raw")
+    .apply_nmo(src="raw", stacking_velocity="velocity")
+    .mute(src="raw", muter=muter, fill_value=np.nan)
+    .stack(src="raw")
+    .dump(src="raw", path=STACK_TRACE_PATH, copy_header=False)
+)
+
+stacking_pipeline.run(BATCH_SIZE, n_epochs=1)
 ```
 
-For more examples, see the [SeismicPro tutorials](tutorials).
+You can get more familiar with the framework and its functionality by reading [SeismicPro tutorials](tutorials).
 
 
 ## Citing SeismicPro
