@@ -44,7 +44,7 @@ class Survey:
         self.sample_rate = np.float32(segyio.dt(self.segy_handler) / 1000)
         self.file_samples = self.segy_handler.samples.astype(np.float32)
 
-        # Define samples and samples length that belongs to particular `stats_limits`.
+        # Set samples and samples_length according to passed `stats_limits`.
         self.stats_limits = None
         self.samples = None
         self.samples_length = None
@@ -54,11 +54,12 @@ class Survey:
         for column in load_headers:
             headers[column] = self.segy_handler.attributes(segyio.tracefield.keys[column])[:]
 
-        headers = pd.DataFrame(headers).reset_index(drop=True)
-        # TODO: add why do we use unknown column
+        headers = pd.DataFrame(headers)
+        # TRACE_SEQUENCE_FILE is reconstructed manually since it can be omitted according to segy standard
+        # but we rely on it during gather loading.
         headers["TRACE_SEQUENCE_FILE"] = np.arange(1, self.segy_handler.tracecount+1)
         headers.set_index(header_index, inplace=True)
-        # To optimize futher sampling from mulitiindex.
+        # Sort headers by index to optimize further headers subsampling and merging.
         self.headers = headers.sort_index()
 
         # Precalculate survey statistics
