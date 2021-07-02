@@ -75,7 +75,11 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=True, keep_exts=("
 
 
 def read_vfunc(path):
-    """Read a file with vertical functions.
+    """Read a file with vertical functions in Paradigm Echos VFUNC format.
+
+    The file may have one or more records with the following structure:
+    VFUNC [inline] [crossline]
+    [x1] [y1] [x2] [y2] ... [xn] [yn]
 
     Parameters
     ----------
@@ -107,7 +111,11 @@ def read_vfunc(path):
 
 
 def read_single_vfunc(path):
-    """Read a single vertical function from a file.
+    """Read a single vertical function from a file in Paradigm Echos VFUNC format.
+
+    The file must have exactly one record with the following structure:
+    VFUNC [inline] [crossline]
+    [x1] [y1] [x2] [y2] ... [xn] [yn]
 
     Parameters
     ----------
@@ -130,7 +138,6 @@ def read_single_vfunc(path):
     if len(file_data) != 1:
         raise ValueError(f"Input file must contain a single vfunc, but {len(file_data)} were found in {path}")
     return file_data[0]
-
 
 def make_prestack_segy(path, survey_size=(1000,1000), origin=(0,0), sources_step=(50,300), recievers_step=(100,25),
                        bin_size=(50,50), activation_dist=(500,500), samples=1500, sample_rate=2000, delay=0,

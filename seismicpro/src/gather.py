@@ -538,7 +538,7 @@ class Gather:
         mode :{"points", "file", "first_breaks"}, optional, default "first_breaks"
             Type of Muter.
         kwargs : misc, optional
-             Additional keyword arguments to Muter.from_{mode}.
+            Additional keyword arguments to Muter.from_{mode}.
 
         Returns
         -------

@@ -1,5 +1,6 @@
 import os
 from copy import deepcopy
+from itertools import chain
 from functools import reduce
 from textwrap import dedent, indent
 
@@ -13,17 +14,10 @@ from ..batchflow import DatasetIndex
 
 class SeismicIndex(DatasetIndex):
     def __init__(self, index=None, surveys=None, mode=None, **kwargs):
-        self._headers = None
-        self.is_dirty_headers = False
+        self.headers = None
         self.surveys_dict = None
+        self.index_to_headers_pos = None
         super().__init__(index=index, surveys=surveys, mode=mode, **kwargs)
-
-    @property
-    def headers(self):
-        if self.is_dirty_headers:
-            self._headers = self._headers.loc[self.indices]
-            self.is_dirty_headers = False
-        return self._headers
 
     @property
     def next_concat_id(self):
@@ -97,29 +91,36 @@ class SeismicIndex(DatasetIndex):
             raise ValueError(f"SeismicIndex instance is expected as an index, but {type(index)} was given")
 
         # Copy internal attributes from passed or created index into self
-        self._headers = index.headers
-        self.is_dirty_headers = index.is_dirty_headers
+        self.headers = index.headers
         self.surveys_dict = index.surveys_dict
+        self.index_to_headers_pos = index.index_to_headers_pos
         return index.index
 
     @classmethod
-    def from_attributes(cls, index=None, headers=None, is_dirty_headers=False, surveys_dict=None):
+    def from_attributes(cls, index=None, index_to_headers_pos=None, headers=None, surveys_dict=None):
         # Create empty SeismicIndex to fill with given headers and surveys_dict
         new_index = cls()
-        new_index._headers = headers
-        new_index.is_dirty_headers = is_dirty_headers
+        new_index.headers = headers
         new_index.surveys_dict = surveys_dict
 
-        # Set _index explicitly since already created index is modified
-        if index is not None:
-            new_index._index = index
-        else:
+        if index is None:
             # Calculate unique header indices. This approach is way faster, than pd.unique or np.unique since we
             # guarantee that the index of the header is monotonic
             if not headers.index.is_monotonic_increasing:
                 raise ValueError("Headers index must be monotonically increasing")
             unique_header_indices = unique_sorted(headers.index.to_frame().values)
-            new_index._index = headers.index[unique_header_indices]
+            index = headers.index[unique_header_indices]
+
+            # Calculate a mapping from index value to its position in headers to further speed up create_subset
+            index_to_headers_pos = {}
+            start_pos = unique_header_indices
+            end_pos = chain(unique_header_indices[1:], [len(headers)])
+            for ix, start, end in zip(index, start_pos, end_pos):
+                index_to_headers_pos[ix] = range(start, end)
+
+        # Set _index explicitly since already created index is modified
+        new_index._index = index
+        new_index.index_to_headers_pos = index_to_headers_pos
         return new_index
 
     @classmethod
@@ -226,10 +227,20 @@ class SeismicIndex(DatasetIndex):
         if isinstance(index, SeismicIndex):
             index = index.index
 
-        # Full headers with is_dirty_headers flag set to True are passed to the index subset creation to avoid
-        # expensive index.headers.loc since it's almost always unnecessary e.g. during next_batch call.
-        subset = self.from_attributes(index=index, headers=self.headers, is_dirty_headers=True,
-                                      surveys_dict=self.surveys_dict)
+        # Calculate positions of indices in header to perform .iloc instead of .loc, which is orders of magnitude
+        # faster, and update index_to_headers_pos dict for further create_subset to work correctly
+        headers_indices = []
+        index_to_headers_pos = {}
+        curr_index = 0
+        for item in index:
+            item_indices = self.index_to_headers_pos[item]
+            headers_indices.append(item_indices)
+            index_to_headers_pos[item] = range(curr_index, curr_index + len(item_indices))
+            curr_index += len(item_indices)
+
+        headers = self.headers.iloc[list(chain.from_iterable(headers_indices))]
+        subset = self.from_attributes(index=index, index_to_headers_pos=index_to_headers_pos,
+                                      headers=headers, surveys_dict=self.surveys_dict)
         return subset
 
     #------------------------------------------------------------------------#
@@ -250,7 +261,9 @@ class SeismicIndex(DatasetIndex):
         if survey_name not in self.surveys_dict:
             err_msg = "Unknown survey name {}, the index contains only {}"
             raise KeyError(err_msg.format(survey_name, ", ".join(self.surveys_dict.keys())))
-        return self.surveys_dict[survey_name][concat_id].get_gather(index=survey_index, **kwargs)
+        survey = self.surveys_dict[survey_name][concat_id]
+        gather_headers = self.headers.loc[concat_id].loc[survey_index]
+        return survey.load_gather(headers=gather_headers, **kwargs)
 
     def reindex(self, new_index, inplace=False):
         self = maybe_copy(self, inplace)

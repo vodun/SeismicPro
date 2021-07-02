@@ -44,7 +44,7 @@ class Survey:
         self.sample_rate = np.float32(segyio.dt(self.segy_handler) / 1000)
         self.file_samples = self.segy_handler.samples.astype(np.float32)
 
-        # Define samples and samples length that belongs to particular `stats_limits`.
+        # Set samples and samples_length according to passed `stats_limits`.
         self.stats_limits = None
         self.samples = None
         self.samples_length = None
@@ -54,11 +54,12 @@ class Survey:
         for column in load_headers:
             headers[column] = self.segy_handler.attributes(segyio.tracefield.keys[column])[:]
 
-        headers = pd.DataFrame(headers).reset_index(drop=True)
-        # TODO: add why do we use unknown column
+        headers = pd.DataFrame(headers)
+        # TRACE_SEQUENCE_FILE is reconstructed manually since it can be omitted according to segy standard
+        # but we rely on it during gather loading.
         headers["TRACE_SEQUENCE_FILE"] = np.arange(1, self.segy_handler.tracecount+1)
         headers.set_index(header_index, inplace=True)
-        # To optimize futher sampling from mulitiindex.
+        # Sort headers by index to optimize further headers subsampling and merging.
         self.headers = headers.sort_index()
 
         # Precalculate survey statistics
@@ -186,19 +187,14 @@ class Survey:
     #                            Loading methods                             #
     #------------------------------------------------------------------------#
 
-    def get_gather(self, index=None, limits=None, copy_headers=True):
+    def load_gather(self, headers, limits=None, copy_headers=True):
+        if copy_headers:
+            headers = headers.copy()
+        trace_indices = headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
+
         limits = self.stats_limits if limits is None else self._process_limits(limits)
         samples = self.file_samples[limits]
         trace_length = len(samples)
-
-        gather_headers = self.headers.loc[index]
-        # loc may sometimes return Series. In such cases slicing is used to guarantee, that DataFrame is returned
-        if isinstance(gather_headers, pd.Series):
-            gather_headers = self.headers.loc[index:index]
-
-        if copy_headers:
-            gather_headers = gather_headers.copy()
-        trace_indices = gather_headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
 
         data = np.empty((len(trace_indices), trace_length), dtype=np.float32)
         for i, ix in enumerate(trace_indices):
@@ -206,8 +202,15 @@ class Survey:
 
         samples = self.file_samples[limits]
         sample_rate = np.float32(self.sample_rate * limits.step)
-        gather = Gather(headers=gather_headers, data=data, samples=samples, sample_rate=sample_rate, survey=self)
+        gather = Gather(headers=headers, data=data, samples=samples, sample_rate=sample_rate, survey=self)
         return gather
+
+    def get_gather(self, index=None, limits=None, copy_headers=True):
+        gather_headers = self.headers.loc[index]
+        # loc may sometimes return Series. In such cases slicing is used to guarantee, that DataFrame is returned
+        if isinstance(gather_headers, pd.Series):
+            gather_headers = self.headers.loc[index:index]
+        return self.load_gather(gather_headers, limits, copy_headers)
 
     def sample_gather(self, limits=None, copy_headers=True):
         index = np.random.choice(self.headers.index)
