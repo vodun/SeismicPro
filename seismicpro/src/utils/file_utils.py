@@ -140,8 +140,8 @@ def read_single_vfunc(path):
     return file_data[0]
 
 # pylint: disable=too-many-arguments
-def make_prestack_segy(path, survey_size=(1000,1000), origin=(0,0), sources_step=(50,300), recievers_step=(100,25),
-                       bin_size=(50,50), activation_dist=(500,500), samples=1500, sample_rate=2000, delay=0,
+def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_step=(50, 300), recievers_step=(100, 25),
+                       bin_size=(50, 50), activation_dist=(500, 500), n_samples=1500, sample_rate=2000, delay=0,
                        trace_gen=None, **kwargs):
     # pylint: disable=invalid-name
     """ Makes a prestack segy with square geometry. Segy headers are filled with calculated values.
@@ -151,23 +151,23 @@ def make_prestack_segy(path, survey_size=(1000,1000), origin=(0,0), sources_step
     path : str
         Path to store new segy.
     survey_size : tuple of ints
-        ... Default is (1000,1000).
+        ... Defaults to (1000,1000).
     origin : tuple of ints
-        ... Default is (0,0).
+        ... Defaults to (0,0).
     sources_step : tuple of ints
-        ... Default is (50,300).
+        ... Defaults to (50,300).
     recievers_step : tuple of ints
-        ... Default is (100,25).
+        ... Defaults to (100,25).
     bin_size : tuple of ints
-        ... Default is (50,50).
+        ... Defaults to (50,50).
     activation_dist : tuple of ints
-        ... Default is (500,500).
+        ... Defaults to (500,500).
     samples : int
-        Number of samples in traces. Default is 1500.
+        Number of samples in traces. Defaults to 1500.
     sample_rate : int
-        Sampling interval in microseconds. Default is 2000.
+        Sampling interval in microseconds. Defaults to 2000.
     delay : int
-        Delay time of the seismic in microseconds. Default is 0.
+        Delay time of the seismic in microseconds. Defaults to 0.
     trace_gen : callable
         ...  Default is None, in which case trace are filled with random noise.
     """
@@ -179,7 +179,7 @@ def make_prestack_segy(path, survey_size=(1000,1000), origin=(0,0), sources_step
 
     def generate_coordinates(origin, survey_size, step):
         """ Support function to create coordinates of sources / recievers """
-        x, y = np.mgrid[[slice(start, end, step) for start, end, step in zip(origin, survey_size, step)]]
+        x, y = np.mgrid[[slice(start, end+start, step) for start, end, step in zip(origin, survey_size, step)]]
         return np.vstack([x.ravel(), y.ravel()]).T
 
     # Create coordinate points for sources and recievers
@@ -189,7 +189,7 @@ def make_prestack_segy(path, survey_size=(1000,1000), origin=(0,0), sources_step
     # Create and fill up segy spec
     spec = segyio.spec()
     spec.format = 5 # 5 stands for IEEE-floating point, which is the standard -
-    spec.samples = np.arange(samples) * sample_rate / 1000
+    spec.samples = np.arange(n_samples) * sample_rate / 1000
 
     # Calculate matrix of active recievers for each source and get overall number of traces
     activation_dist = np.array(activation_dist)[None,:,None]
@@ -216,12 +216,12 @@ def make_prestack_segy(path, survey_size=(1000,1000), origin=(0,0), sources_step
                 trace_header_dict['GroupX'], trace_header_dict['GroupY'] = reciever_location
                 trace_header_dict['offset'] = int(np.sum((source_location - reciever_location)**2)**0.5)
 
-                CDP = ((source_location + reciever_location)).astype(int)
+                CDP = ((source_location + reciever_location)/2).astype(int)
                 trace_header_dict['CDP_X'], trace_header_dict['CDP_Y'] = CDP
                 trace_header_dict['INLINE_3D'], trace_header_dict['CROSSLINE_3D'] = CDP // bin_size
 
                 # Fill depth-related fields in header
-                trace_header_dict['TRACE_SAMPLE_COUNT'] = samples
+                trace_header_dict['TRACE_SAMPLE_COUNT'] = n_samples
                 trace_header_dict['TRACE_SAMPLE_INTERVAL'] = sample_rate
                 trace_header_dict['DelayRecordingTime'] = delay
 
@@ -230,9 +230,9 @@ def make_prestack_segy(path, survey_size=(1000,1000), origin=(0,0), sources_step
                 dst_file.trace[TRACE_SEQUENCE_FILE-1] = trace
 
                 # Rename keys in trace_header_dict and update segy files' header
-                trace_header_dict = dict((segyio.tracefield.keys[k], v) for k, v in trace_header_dict.items())
+                trace_header_dict = {segyio.tracefield.keys[k]: v for k, v in trace_header_dict.items()}
                 header.update(trace_header_dict)
 
         dst_file.bin = {segyio.BinField.Traces: TRACE_SEQUENCE_FILE,
-                        segyio.BinField.Samples: samples,
+                        segyio.BinField.Samples: n_samples,
                         segyio.BinField.Interval: sample_rate}
