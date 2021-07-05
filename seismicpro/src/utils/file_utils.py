@@ -192,8 +192,8 @@ def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_st
     spec.samples = np.arange(n_samples) * sample_rate / 1000
 
     # Calculate matrix of active recievers for each source and get overall number of traces
-    activation_dist = np.array(activation_dist)[None,:,None]
-    active_recievers_mask = np.all(np.abs((source_coords[:,:,None] - reciever_coords.T)) <= activation_dist, axis=1)
+    activation_dist = np.array(activation_dist)
+    active_recievers_mask = np.all(np.abs(source_coords[:, None, :] - reciever_coords) <= activation_dist, axis=-1)
     spec.tracecount = np.sum(active_recievers_mask)
 
     with segyio.create(path, spec) as dst_file:
