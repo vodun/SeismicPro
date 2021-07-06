@@ -146,30 +146,39 @@ def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_st
     # pylint: disable=invalid-name
     """ Makes a prestack segy with square geometry. Segy headers are filled with calculated values.
 
+    All tuples indicate either coordinate in (`x`, `y`) or distance in (`x_dist`, `y_dist`) format.
+
     Parameters
     ----------
     path : str
-        Path to store new segy.
-    survey_size : tuple of ints
-        ... Defaults to (1000,1000).
-    origin : tuple of ints
-        ... Defaults to (0,0).
-    sources_step : tuple of ints
-        ... Defaults to (50,300).
-    recievers_step : tuple of ints
-        ... Defaults to (100,25).
-    bin_size : tuple of ints
-        ... Defaults to (50,50).
-    activation_dist : tuple of ints
-        ... Defaults to (500,500).
-    samples : int
-        Number of samples in traces. Defaults to 1500.
-    sample_rate : int
-        Sampling interval in microseconds. Defaults to 2000.
-    delay : int
-        Delay time of the seismic in microseconds. Defaults to 0.
-    trace_gen : callable
-        ...  Default is None, in which case trace are filled with random noise.
+        Path to store generated segy.
+    survey_size : tuple of ints, defaults to (1000,1000)
+        Survey dimensions measured in meters.
+    origin : tuple of ints, defaults to (0,0)
+        Coordinates of bottom left corner of the survey.
+    sources_step : tuple of ints, defaults to (50,300)
+        Dinstances between sources. (50,300) are standard values indicating that source lines are positioned along `y`
+        axis with 300 meter step, while sources in each line located every 50 meters along `x` axis.
+    recievers_step : tuple of ints, defaults to (100,25)
+        Dinstances between recievers. It is supposed that reciever lines span along `x` axis. By default dinstance
+        between reciever lines is 100 meters along `x` axis, and distance between recievers in lines is 25 meters along
+        `x` axis.
+    bin_size : tuple of ints, defaults to (50,50)
+        Size of CDP bin.
+    activation_dist : tuple of ints, defaults to (500,500)
+        Maximum distance from source to active reciever along each axis. Each source activates a rectanglar field of
+        recievers with source at the center and shape (2 * activation_dist[0], 2 * activation_dist[1])
+    samples : int, defaults to 1500
+        Number of samples in traces.
+    sample_rate : int, defaults to 2000
+        Sampling interval in microseconds.
+    delay : int, defaults to 0
+        Delay time of the seismic trace in microseconds.
+    trace_gen : callable, default to None.
+        Callable to generate trace data. It recieves a dict of trace headers along with everything passed in kwargs.
+        If None, traces are filled with random noise.
+        Passed headers: FieldRecord, TraceNumber, SourceX, SourceY, Group_X, Group_Y, offset, CDP_X, CDP_Y,
+                        INLINE_3D, CROSSLINE_3D, TRACE_SAMPLE_COUNT, TRACE_SAMPLE_INTERVAL, DelayRecordingTime
     """
     # By default traces are filled with random noise
     if trace_gen is None:
@@ -179,7 +188,7 @@ def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_st
 
     def generate_coordinates(origin, survey_size, step):
         """ Support function to create coordinates of sources / recievers """
-        x, y = np.mgrid[[slice(start, end+start, step) for start, end, step in zip(origin, survey_size, step)]]
+        x, y = np.mgrid[[slice(start, start+size, step) for start, size, step in zip(origin, survey_size, step)]]
         return np.vstack([x.ravel(), y.ravel()]).T
 
     # Create coordinate points for sources and recievers
