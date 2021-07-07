@@ -18,6 +18,44 @@ from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, mute_ga
 
 
 class Gather:
+    """A class representing a single seismic gather.
+
+    A gather is a collection of seismic traces that share some common acquisition parameter (same index value of the
+    generating survey header in our case). Unlike `Survey`, `Gather` instance stores loaded seismic traces along with
+    a corresponding subset of its parent survey header.
+
+    `Gather` instance can be created in two main ways:
+    1. Either by calling `Survey.get_gather` to get a particular gather by its index value,
+    2. Or by calling `Survey.sample_gather` to get a randomly selected gather.
+
+    Parameters
+    ----------
+    headers : pd.DataFrame
+        A subset of parent survey header with common index value defining the gather.
+    data : 2d np.ndarray
+        Trace data of the gather with (num_traces, trace_lenght) layout.
+    samples : 1d np.ndarray of floats
+        Recording time for each trace value. Measured in milliseconds.
+    sample_rate : float
+        Sample rate of seismic traces. Measured in milliseconds.
+    survey : Survey
+        A survey that generated the gather.
+
+    Attributes
+    ----------
+    headers : pd.DataFrame
+        A subset of parent survey header with common index value defining the gather.
+    data : 2d np.ndarray
+        Trace data of the gather with (num_traces, trace_lenght) layout.
+    samples : 1d np.ndarray of floats
+        Recording time for each trace value. Measured in milliseconds.
+    sample_rate : float
+        Sample rate of seismic traces. Measured in milliseconds.
+    survey : Survey
+        A survey that generated the gather.
+    sort_by : None or str
+        Headers column that was used for gather sorting. If `None`, no sorting was performed.
+    """
     def __init__(self, headers, data, samples, sample_rate, survey):
         self.headers = headers
         self.data = data
@@ -25,7 +63,6 @@ class Gather:
         self.sample_rate = sample_rate
         self.survey = survey
         self.sort_by = None
-        self.mask = None
 
     @property
     def times(self):
@@ -159,7 +196,7 @@ class Gather:
         return self_copy
 
     def _validate_header_cols(self, required_header_cols):
-        """Check if the gather headers contain all columns from `required_header_cols`"""
+        """Check if the gather headers contain all columns from `required_header_cols`."""
         headers = self.headers.reset_index()
         required_header_cols = to_list(required_header_cols)
         if any(col not in headers for col in required_header_cols):
@@ -167,7 +204,7 @@ class Gather:
             raise ValueError(err_msg.format(", ".join(required_header_cols)))
 
     def _validate_sorting(self, required_sorting):
-        """Check if the gather is sorted by `required_sorting` header"""
+        """Check if the gather is sorted by `required_sorting` header."""
         if self.sort_by != required_sorting:
             raise ValueError(f"Gather should be sorted by {required_sorting} not {self.sort_by}")
 
@@ -205,25 +242,26 @@ class Gather:
 
     @batch_method(target='for', force=True, copy_src=False)
     def dump(self, path, name=None, copy_header=False):
-        """Save the gather to a `sgy` file.
+        """Save the gather to a `.sgy` file.
 
-        Note
-        ----
-        1. All binary and textual headers are copied from the parent segy unchanged.
+        Notes
+        -----
+        All binary and textual headers are copied from the parent segy unchanged.
 
         Parameters
         ----------
         path : str
-            The directory to dump gather in.
-        name : str, optional, default None
-            The file name. If None, the concatenation of the survey name and the value of gather index will be used.
-        copy_header : bool, optional, by default False
-            Whether to copy the headers from the parent segy that weren't loaded during Survey creation.
+            The directory to dump the gather in.
+        name : str, optional, defaults to None
+            The name of the file. If `None`, the concatenation of the survey name and the value of gather index will
+            be used.
+        copy_header : bool, optional, defaults to False
+            Whether to copy the headers that weren't loaded during Survey creation from the parent segy.
 
         Returns
         -------
         self : Gather
-            Unchanged gather.
+            Gather unchanged.
         """
         parent_handler = self.survey.segy_handler
 
@@ -252,7 +290,7 @@ class Gather:
 
         # Keep only headers, relevant to segy file.
         used_header_names = set(trace_headers.columns) & set(segyio.tracefield.keys.keys())
-        trace_headers = trace_headers[list(used_header_names)]
+        trace_headers = trace_headers[used_header_names]
 
         # Now we change column name's into byte number based on the segy standard.
         trace_headers.rename(columns=lambda col_name: segyio.tracefield.keys[col_name], inplace=True)
@@ -467,7 +505,7 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads")
-    def pick_to_mask(self, first_breaks_col='FirstBreak'):
+    def pick_to_mask(self, first_breaks_col="FirstBreak", mask_attr="mask"):
         """Convert first break picks to binary mask that contains zeros above the first break picks and ones below.
         The binary mask has the same shape as `gather.data` and is stored in the `mask` attribute.
 
@@ -482,12 +520,13 @@ class Gather:
             Gather with first breaks mask in `mask` attribute.
         """
         self.validate(required_header_cols=first_breaks_col)
-        self.mask = convert_times_to_mask(times=self[first_breaks_col], sample_rate=self.sample_rate,
-                                          mask_length=self.shape[1]).astype(np.int32)
+        mask = convert_times_to_mask(times=self[first_breaks_col], sample_rate=self.sample_rate,
+                                     mask_length=self.shape[1]).astype(np.int32)
+        setattr(self, mask_attr, mask)
         return self
 
     @batch_method(target='for')
-    def mask_to_pick(self, threshold=0.5, first_breaks_col='FirstBreak'):
+    def mask_to_pick(self, threshold=0.5, first_breaks_col="FirstBreak", mask_attr="mask"):
         """Convert mask stored in the `mask` attribute into first break picks.
 
         The conversion procedure consists of the following steps:
@@ -515,9 +554,10 @@ class Gather:
         ValueError
             If the `mask` attribute does not exist.
         """
-        if self.mask is None:
-            raise ValueError('Save mask to the self.mask component.')
-        self[first_breaks_col] = convert_mask_to_pick(self.mask, self.sample_rate, threshold)
+        mask = getattr(self, mask_attr, None)
+        if mask is None:
+            raise ValueError("Empty mask attribute")
+        self[first_breaks_col] = convert_mask_to_pick(mask, self.sample_rate, threshold)
         return self
 
     #------------------------------------------------------------------------#

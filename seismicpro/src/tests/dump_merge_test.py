@@ -16,11 +16,12 @@ from seismicpro.src import Survey, aggregate_segys, make_prestack_segy
 def segy_path(request):
     """ Fixture that creates segy file """
     folder = 'test_tmp'
-
     os.mkdir(folder)
+
     path = os.path.join(folder, 'test_prestack.sgy')
-    make_prestack_segy(path, sources_size=500, activation_dist=500, bin_size=50, samples=1500,
-                       dist_source_lines=300, dist_sources=50, dist_reciever_lines=100, dist_recievers=25)
+    make_prestack_segy(path, survey_size=(1000,1000), origin=(0,0), sources_step=(50,300), recievers_step=(100,25),
+                       bin_size=(50,50), activation_dist=(500,500), samples=1500, sample_rate=2000, delay=0,
+                       trace_gen=None,)
 
     def fin():
         shutil.rmtree(folder)

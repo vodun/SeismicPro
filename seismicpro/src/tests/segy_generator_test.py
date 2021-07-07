@@ -10,12 +10,12 @@ from ..utils import make_prestack_segy
 from .. import Survey
 
 @pytest.fixture(scope='module',
-                params=[dict(sources_size=500, activation_dist=500, bin_size=50, samples=1500,
-                             dist_source_lines=300, dist_sources=50, dist_reciever_lines=100, dist_recievers=25),
-                        dict(sources_size=1200, activation_dist=300, bin_size=30, samples=100,
-                             dist_source_lines=200, dist_sources=50, dist_reciever_lines=100, dist_recievers=25),
-                        dict(sources_size=100, activation_dist=100, bin_size=100, samples=1000,
-                             dist_source_lines=300, dist_sources=50, dist_reciever_lines=200, dist_recievers=50)])
+                params=[dict(survey_area=(500,500), activation_dist=(500,500), bin_size=(50,50), samples=1500,
+                             sources_step=(300,50), recievers_step=(100,25)),
+                        dict(survey_area=(1200,1200), activation_dist=(300,300), bin_size=(30,30), samples=100,
+                             sources_step=(200,50), recievers_step=(100,25)),
+                        dict(survey_area=(100,100), activation_dist=(100,100), bin_size=(100,100), samples=1000,
+                             sources_step=(300,50), recievers_step=(200,50))])
 def segy_path(request):
     """ Fixture that creates segy file """
     folder = 'test_tmp'
@@ -34,6 +34,6 @@ def segy_path(request):
                          ('FieldRecord', ['INLINE_3D', 'CROSSLINE_3D'], ['GroupX', 'GroupY'], ['SourceX', 'SourceY']))
 def test_generated_segy_loading(segy_path, header_index):
     s = Survey(segy_path, header_index=header_index, header_cols=['FieldRecord', 'TraceNumber', 'SourceX', 'SourceY',
-                                                                    'GroupX', 'GroupY', 'offset', 'CDP_X',
-                                                                    'CDP_Y', 'INLINE_3D', 'CROSSLINE_3D'])
+                                                                  'GroupX', 'GroupY', 'offset', 'CDP_X', 'CDP_Y',
+                                                                  'INLINE_3D', 'CROSSLINE_3D'])
     assert s.sample_gather()
