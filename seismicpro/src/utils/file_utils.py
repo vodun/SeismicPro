@@ -139,6 +139,7 @@ def read_single_vfunc(path):
         raise ValueError(f"Input file must contain a single vfunc, but {len(file_data)} were found in {path}")
     return file_data[0]
 
+
 # pylint: disable=too-many-arguments
 def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_step=(50, 300), recievers_step=(100, 25),
                        bin_size=(50, 50), activation_dist=(500, 500), n_samples=1500, sample_rate=2000, delay=0,
