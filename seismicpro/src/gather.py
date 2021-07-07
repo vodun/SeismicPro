@@ -25,7 +25,6 @@ class Gather:
         self.sample_rate = sample_rate
         self.survey = survey
         self.sort_by = None
-        self.mask = None
 
     @property
     def times(self):
@@ -467,7 +466,7 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads")
-    def pick_to_mask(self, first_breaks_col='FirstBreak'):
+    def pick_to_mask(self, first_breaks_col="FirstBreak", mask_attr="mask"):
         """Convert first break picks to binary mask that contains zeros above the first break picks and ones below.
         The binary mask has the same shape as `gather.data` and is stored in the `mask` attribute.
 
@@ -482,12 +481,13 @@ class Gather:
             Gather with first breaks mask in `mask` attribute.
         """
         self.validate(required_header_cols=first_breaks_col)
-        self.mask = convert_times_to_mask(times=self[first_breaks_col], sample_rate=self.sample_rate,
-                                          mask_length=self.shape[1]).astype(np.int32)
+        mask = convert_times_to_mask(times=self[first_breaks_col], sample_rate=self.sample_rate,
+                                     mask_length=self.shape[1]).astype(np.int32)
+        setattr(self, mask_attr, mask)
         return self
 
     @batch_method(target='for')
-    def mask_to_pick(self, threshold=0.5, first_breaks_col='FirstBreak'):
+    def mask_to_pick(self, threshold=0.5, first_breaks_col="FirstBreak", mask_attr="mask"):
         """Convert mask stored in the `mask` attribute into first break picks.
 
         The conversion procedure consists of the following steps:
@@ -515,9 +515,10 @@ class Gather:
         ValueError
             If the `mask` attribute does not exist.
         """
-        if self.mask is None:
-            raise ValueError('Save mask to the self.mask component.')
-        self[first_breaks_col] = convert_mask_to_pick(self.mask, self.sample_rate, threshold)
+        mask = getattr(self, mask_attr, None)
+        if mask is None:
+            raise ValueError("Empty mask attribute")
+        self[first_breaks_col] = convert_mask_to_pick(mask, self.sample_rate, threshold)
         return self
 
     #------------------------------------------------------------------------#
