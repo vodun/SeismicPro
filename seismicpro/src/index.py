@@ -227,6 +227,10 @@ class SeismicIndex(DatasetIndex):
         if isinstance(index, SeismicIndex):
             index = index.index
 
+        # Sort index of the subset. Otherwise subset.headers may become unsorted in pipelines with shuffle=True
+        # resulting in non-working .loc
+        index, _ = index.sortlevel()
+
         # Calculate positions of indices in header to perform .iloc instead of .loc, which is orders of magnitude
         # faster, and update index_to_headers_pos dict for further create_subset to work correctly
         headers_indices = []
