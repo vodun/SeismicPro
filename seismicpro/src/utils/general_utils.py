@@ -1,23 +1,26 @@
+"""Miscellaneous general utility functions"""
+
 import numpy as np
 from numba import njit, prange
 
 
 def to_list(obj):
-    """Cast an object to a list. Almost identical to `list(obj)` for 1-D
-    objects, except for `str`, which won't be split into separate letters but
-    transformed into a list of a single element.
+    """Cast an object to a list. Almost identical to `list(obj)` for 1-D objects, except for `str`, which won't be
+    split into separate letters but transformed into a list of a single element.
     """
     return np.array(obj).ravel().tolist()
 
 
 def maybe_copy(obj, inplace=False):
+    """Copy an object if `inplace` flag is set to `False`. Otherwise return the object unchanged."""
     return obj if inplace else obj.copy()
 
 
-def unique_sorted(index):
-    mask = np.empty(len(index), dtype=np.bool_)
+def unique_indices_sorted(arr):
+    """Return indices of the first occurrences of the unique values in a sorted array."""
+    mask = np.empty(len(arr), dtype=np.bool_)
     mask[:1] = True
-    mask[1:] = (index[1:] != index[:-1]).any(axis=1)
+    mask[1:] = (arr[1:] != arr[:-1]).any(axis=1)
     return np.where(mask)[0]
 
 
@@ -158,16 +161,16 @@ def mute_gather(gather_data, muting_times, sample_rate, fill_value):
 def clip(data, data_min, data_max):
     """Limit the `data` values.
 
-    Given an interval [`data_min`, `data_max`], values outside the interval are clipped to the interval edges.
+    `data` values outside [`data_min`, `data_max`] interval are clipped to the interval edges.
 
     Parameters
     ----------
     data : np.ndarray
         Data to clip.
     data_min : int, float
-        Minimum value of interval.
+        Minimum value of the interval.
     data_max : int, float
-        Maximum value of interval.
+        Maximum value of the interval.
 
     Returns
     -------

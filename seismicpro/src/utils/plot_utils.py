@@ -10,6 +10,10 @@ def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7),  # pyl
                      x_ticks=15, y_ticks=15, save_to=None, dpi=300, **kwargs):
     """Plot a map with metric values.
 
+    Notes
+    -----
+    The map is drawn with `origin='lower'` by default, keep it in mind when passing ticks data.
+
     Parameters
     ----------
     metrics_map : array-like
@@ -39,10 +43,6 @@ def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7),  # pyl
         Resolution for saved figure.
     kwargs : misc, optional
         Additional named arguments for :func:`matplotlib.pyplot.imshow`.
-
-    Note
-    ----
-    1. The map is drawn with origin = 'lower' by default, keep it in mind when passing ticks_labels.
     """
     if cmap is None:
         colors = ((0.0, 0.6, 0.0), (.66, 1, 0), (0.9, 0.0, 0.0))

@@ -50,7 +50,7 @@ class SeismicDataset(Dataset):
     def info(self):
         print(self)
 
-    def create_subset(self, index, validate_integrity=False):
+    def create_subset(self, index):
         if not isinstance(index, SeismicIndex):
             index = self.index.create_subset(index)
         return type(self).from_dataset(self, index)
