@@ -5,7 +5,7 @@ import cv2
 from scipy.interpolate import interp1d, LinearNDInterpolator
 from sklearn.neighbors import NearestNeighbors
 
-from .utils import to_list, read_vfunc, read_single_vfunc
+from .utils import to_list, read_vfunc, read_single_vfunc, dump_vfunc
 
 
 class VelocityInterpolator:
@@ -95,6 +95,9 @@ class StackingVelocity:
         times = times[~np.isinf(times)]
         return self.from_points(times, self(times), self.inline, self.crossline)
 
+    def dump(self, path):
+        dump_vfunc(path, [(self.inline, self.crossline, self.times, self.velocities)])
+
     @property
     def interpolation_data(self):
         coords = [self.get_coords()] * len(self.times)
@@ -136,6 +139,12 @@ class VelocityCube:
         self.is_dirty_interpolator = True
         return self
 
+    def dump(self, path):
+        vfunc_list = []
+        for (inline, crossline), stacking_velocity in self.stacking_velocities_dict.items():
+            vfunc_list.append((inline, crossline, stacking_velocity.times, stacking_velocity.velocities))
+        dump_vfunc(path, vfunc_list)
+        
     def update(self, stacking_velocities):
         stacking_velocities = to_list(stacking_velocities)
         if not all(isinstance(vel, StackingVelocity) for vel in stacking_velocities):

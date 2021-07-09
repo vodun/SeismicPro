@@ -139,6 +139,20 @@ def read_single_vfunc(path):
         raise ValueError(f"Input file must contain a single vfunc, but {len(file_data)} were found in {path}")
     return file_data[0]
 
+def dump_vfunc(path, vfunc_list):
+    with open(path, 'w') as f:
+        for vfunc in vfunc_list:
+            inline, crossline, times, offsets = vfunc
+            f.write('{:<8}{:<8d}{:<8d} \n'.format('VFUNC', inline, crossline))
+
+            flatten_pairs = np.dstack([times, offsets]).flatten().astype(int)
+            n_rows = int(np.ceil(len(flatten_pairs) / 8))
+            for i in range(n_rows):
+                row = flatten_pairs[i*8:(i+1)*8]
+                #formatted_row = ''.join([repr(i).ljust(8) for i in row] + ['\n'])
+                formatted_row = ''.join(['{:<8d}'.format(i) for i in row] + ['\n'])
+                f.write(formatted_row)
+
 # pylint: disable=too-many-arguments
 def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_step=(50, 300), recievers_step=(100, 25),
                        bin_size=(50, 50), activation_dist=(500, 500), n_samples=1500, sample_rate=2000, delay=0,
