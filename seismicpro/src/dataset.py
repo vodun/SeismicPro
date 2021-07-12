@@ -55,11 +55,12 @@ class SeismicDataset(Dataset):
             index = self.index.create_subset(index)
         return type(self).from_dataset(self, index)
 
-    def collect_stats(self, n_quantile_traces=100000, quantile_precision=2, bar=True):
+    def collect_stats(self, n_quantile_traces=100000, quantile_precision=2, stats_limits=None, bar=True):
         concat_ids = self.indices.get_level_values(0)
         indices = self.indices.droplevel(0)
         for concat_id in np.unique(concat_ids):
             concat_id_indices = indices[concat_ids == concat_id]
             for survey_list in self.index.surveys_dict.values():
                 survey_list[concat_id].collect_stats(indices=concat_id_indices, n_quantile_traces=n_quantile_traces,
-                                                     quantile_precision=quantile_precision, bar=bar)
+                                                     quantile_precision=quantile_precision, stats_limits=stats_limits,
+                                                     bar=bar)
