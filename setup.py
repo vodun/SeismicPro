@@ -27,7 +27,7 @@ setup(
         'matplotlib>=3.3.1',
         'numba>=0.53.1',
         'numpy>=1.19.5',
-        'pandas>=1.2.0',
+        'pandas>=1.1.5',
         'scikit-learn>=0.23.2',
         'scipy>=1.5.2',
         'segyio>=1.9.5',
@@ -35,7 +35,7 @@ setup(
         'tqdm>=4.56.0',
         'pytest>=6.0.1',
         'torch>=1.8',
-        'networkx>=2.5'
+        'networkx>=2.5',
         'batchflow @ git+https://github.com/analysiscenter/batchflow.git@cd56b9e#egg=batchflow',
     ],
     classifiers=[
