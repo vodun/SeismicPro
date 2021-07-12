@@ -1,9 +1,9 @@
 import os
 import sys
-import dill
 import shutil
 from hashlib import sha1
 
+import dill
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
