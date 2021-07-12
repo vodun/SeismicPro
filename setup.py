@@ -34,12 +34,10 @@ setup(
         'opencv_python>=4.5.1'
         'tqdm>=4.56.0',
         'pytest>=6.0.1',
+        'torch>=1.8',
+        'networkx>=2.5'
         'batchflow @ git+https://github.com/analysiscenter/batchflow.git@cd56b9e#egg=batchflow',
     ],
-    extras_require={
-        'torch': ['torch>=1.8',
-                  'networkx>=2.5'],
-    },
     classifiers=[
         'Development Status :: 4 - Beta',
         'Intended Audience :: Developers',
