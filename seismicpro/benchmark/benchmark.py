@@ -1,5 +1,5 @@
+"""Implements Benchmark class"""
 import os
-import sys
 import shutil
 from hashlib import sha1
 
@@ -14,7 +14,64 @@ from seismicpro.batchflow.research import Option, Research, Results, RC
 
 
 sns.set_theme(style="darkgrid")
-class Benchmark:
+class Benchmark: # pylint: disable=too-many-instance-attributes
+    """A class aimed to find an optimal parallelization engine for methods decorated with
+    :func:`~decorators.batch_method`.
+
+   `Benchmark` runs experiments with all combinations of given parallelization engines (`targets`) and batch sizes for
+   the specified method and measure the time for all repetitions. In the result, the graph with relations between
+   elapsed time and batch size are plotted for every `target`.
+
+    Simple usage of `Benchmark` contains three steps:
+    1. Define Benchmark instance.
+    2. Call `benchmark.run()` to run the benchmark.
+    3. Call `benchmark.plot()` to plot the results.
+
+    Parameters
+    ----------
+    method_name : str
+        A name of the method to benchmark.
+    method_kwargs : dict
+        Additional keyword arguments to the benchmarked method.
+    targets : str or array of str
+        A name(s) of target from :func:`~batchflow.batchflow.decorators.inbatch_parallel`.
+    batch_sizes : int or array of int
+        A batch size(s) on which the benchmark is performed.
+    dataset : Dataset
+        A dataset on which the benchmark is conducted.
+    n_iters : int, optional, by default 10
+        The number of iterations for which the method is run with the specified parameters.
+    root_pipeline : Pipeline, optional, by default None
+        A pipeline that contains actions that will be run before benchmarked method.
+    benchmark_cpu : bool, optional, by default True
+        If True, the CPU util and elapsed time are benchmarked, otherwise only the elapsed time is taken into account.
+    save_to : str, optional, by default None
+        The path to save the resulted benchmark.
+
+    Attributes
+    ----------
+    method_name : str
+        A name of the method to benchmark.
+    targets : str or array of str
+        A name(s) of targets from :func:`~batchflow.batchflow.decorators.inbatch_parallel`.
+    batch_sizes : int or array of int
+        A batch size(s) on which the benchmark is performed.
+    n_iters : int
+        The number of iterations for the method with specified parameters.
+    results : None or pd.DataFrame
+        A DataFrame with benchmark results.
+    research_name : str
+        The name of the folder for a benchmark with specified parameters.
+    benchmark_cpu : bool
+        If True, the CPU utilization and elapsed time are benchmarked, otherwise only the elapsed time is taken into
+        account.
+    root_pipeline : Pipeline
+        A pipeline that contains preparatory actions that will be run before benchmarked method.
+    template_pipeline : Pipeline
+        A pipeline that contains `root_pipeline`, benchmarked method, and dataset.
+    save_to : str
+        The path to save the resulted benchmark.
+    """
     def __init__(self, method_name, method_kwargs, targets, batch_sizes, dataset, n_iters=10,
                  root_pipeline=None, benchmark_cpu=True, save_to=None):
         self.method_name = method_name
@@ -42,24 +99,55 @@ class Benchmark:
         self._clear_previous_results()
 
     def save_benchmark(self):
+        """Pickle Benchmark to the file with path `self.save_to`.
+
+        Returns
+        -------
+        self : Benchmark
+            Unchanged Benchmark.
+        """
         with open(self.save_to, 'wb') as file:
             dill.dump(self, file)
         return self
 
     @staticmethod
     def load_benchmark(path):
+        """Unpickle Benchmark from a file.
+
+        Parameters
+        ----------
+        path : str
+            Path to pickled file.
+
+        Returns
+        -------
+        benchmark : Benchmark
+            Unpickled Benchmark.
+        """
         with open(path, 'rb') as file:
             benchmark = dill.load(file)
         return benchmark
 
     def _clear_previous_results(self):
+        """Delete folder with `self.research_name` path."""
         if os.path.exists(self.research_name):
             shutil.rmtree(self.research_name)
 
     def _warmup(self):
+        """Run `self.template_pipeline` once."""
         (self.template_pipeline << {'target': 'for'}).next_batch(1)
 
     def run(self):
+        """Run benchmark.
+
+        The method measures the execution time and CPU utilization of the benchmarked method with all combinations of
+        targets and batch sizes.
+
+        Returns
+        -------
+        self : Benchmark
+            Benchmark with computed reuslts.
+        """
         domain = Option('target', self.targets) * Option('batch_size', self.batch_sizes)
 
         # Run the pipeline once to precompile all numba callables
@@ -68,7 +156,7 @@ class Benchmark:
         # Create research that will run pipeline with different parameters based on given `domain`
         research = (Research()
             .init_domain(domain, n_reps=1)
-            .add_callable(self.run_single_pipeline, config=RC().config(), returns=self.benchmark_names)
+            .add_callable(self._run_single_pipeline, config=RC().config(), returns=self.benchmark_names)
         )
         research.run(n_iters=1, name=self.research_name, bar=True, workers=1)
 
@@ -85,7 +173,8 @@ class Benchmark:
         self._clear_previous_results()
         return self
 
-    def run_single_pipeline(self, config):
+    def _run_single_pipeline(self, config):
+        """Benchmark method with a particular `batch_size` and `target`."""
         pipeline = self.template_pipeline << config
         with CPUMonitor() as cpu_monitor:
             pipeline.run(C('batch_size'), n_iters=self.n_iters, shuffle=42, drop_last=True, bar=False, profile=True)
@@ -100,6 +189,13 @@ class Benchmark:
         return run_time, cpu_util
 
     def plot(self, figsize=(15, 7)):
+        """Plot a graph of time verus `batch_size` for every `targets`.
+
+        Parameters
+        ----------
+        figsize : tuple, optional, by default (15, 7)
+            Output plot size.
+        """
         for col_name, column in self.results.iteritems():
             plt.figure(figsize=figsize)
             sub_df = column.reset_index()
