@@ -704,8 +704,7 @@ class Gather:
             If `stacking_velocity` is not a `StackingVelocity` or `VelocityCube` instance.
         """
         if isinstance(stacking_velocity, VelocityCube):
-            stacking_velocity = stacking_velocity.get_stacking_velocity(*self.get_coords(coords_columns),
-                                                                        create_interpolator=False)
+            stacking_velocity = stacking_velocity(*self.get_coords(coords_columns), create_interpolator=False)
         if not isinstance(stacking_velocity, StackingVelocity):
             raise ValueError("Only VelocityCube or StackingVelocity instances can be passed as a stacking_velocity")
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
