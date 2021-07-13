@@ -144,15 +144,15 @@ def dump_vfunc(path, vfunc_list):
     """Dump vertical functions in Paradigm Echos VFUNC format to the file.
 
     For each vfunc there is corresponding block in the resulted file with the following strcture:
-    The first row contains 3 values: VFUNC [inline] [crossline]. 
-    Other rows represent pairs: [time] [velocity]. One row may contain up to 4 pairs(8 fields), 
-    each field is left aligned with the width 8.
-    
+    The first row contains 3 values: VFUNC [inline] [crossline].
+    All other rows represent pairs: [time] [velocity]. The single row contains 4 pairs(8 fields),
+    except the last one, which may contain less. Each field is left aligned with the width 8.
+
     Block example
     :::
-    VFUNC   22      33     
-    17      1546    150     1530    294     1672    536     1812    
-    760     1933    960     2000    1202    2148    1374    2251    
+    VFUNC   22      33
+    17      1546    150     1530    294     1672    536     1812
+    760     1933    960     2000    1202    2148    1374    2251
     1574    2409    1732    2517    1942    2675
     :::
 
@@ -161,13 +161,13 @@ def dump_vfunc(path, vfunc_list):
     path : str
         A path to the file.
     vfunc_list : iterable of tuples
-        Each tuple corresponds to a vertical function and consists of the following values: `inline`, `crossline`, 
+        Each tuple corresponds to a vertical function and consists of the following values: `inline`, `crossline`,
         `x` and `y`, where `x` and `y` are 1d np.ndarrays with the same length.
     """
     with open(path, 'w') as f:
         for inline, crossline, times, offsets in vfunc_list:
             f.write('{:8}{:<8}{:<8}\n'.format('VFUNC', inline, crossline))
-    
+
             data = np.dstack([times, offsets]).flatten()
             n_rows = int(np.ceil(len(data) / 8))
             for i in range(n_rows):
