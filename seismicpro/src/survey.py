@@ -461,7 +461,6 @@ class Survey:
         else:
             apply_func = lambda args: func(*args) if unpack_args else func
             res = df.apply(apply_func, axis=axis, raw=True, **kwargs)
-        print(res)
         return res.values
 
     def filter(self, cond, cols, axis=None, unpack_args=False, inplace=False, **kwargs):
