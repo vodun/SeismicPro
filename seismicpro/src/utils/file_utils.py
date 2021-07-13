@@ -139,19 +139,28 @@ def read_single_vfunc(path):
         raise ValueError(f"Input file must contain a single vfunc, but {len(file_data)} were found in {path}")
     return file_data[0]
 
-def dump_vfunc(path, vfunc_list):
-    with open(path, 'w') as f:
-        for vfunc in vfunc_list:
-            inline, crossline, times, offsets = vfunc
-            f.write('{:<8}{:<8d}{:<8d} \n'.format('VFUNC', inline, crossline))
 
-            flatten_pairs = np.dstack([times, offsets]).flatten().astype(int)
-            n_rows = int(np.ceil(len(flatten_pairs) / 8))
+def dump_vfunc(path, vfunc_list):
+    """Dump vertical functions in Paradigm Echos VFUNC format to the file.
+
+    Parameters
+    ----------
+    path : str
+        A path to the file.
+    vfunc_list : iterable of tuples
+        Each tuple corresponds to a vertical function and consists of the following values: `inline`, `crossline`, 
+        `x` and `y`, where `x` and `y` are 1d np.ndarrays with the same length.
+    """
+    with open(path, 'w') as f:
+        for inline, crossline, times, offsets in vfunc_list:
+            f.write('{:8}{:<8}{:<8}\n'.format('VFUNC', inline, crossline))
+    
+            data = np.dstack([times, offsets]).flatten()
+            n_rows = int(np.ceil(len(data) / 8))
             for i in range(n_rows):
-                row = flatten_pairs[i*8:(i+1)*8]
-                #formatted_row = ''.join([repr(i).ljust(8) for i in row] + ['\n'])
-                formatted_row = ''.join(['{:<8d}'.format(i) for i in row] + ['\n'])
-                f.write(formatted_row)
+                row = data[i*8:(i+1)*8]
+                f.write(''.join(['{:<8.0f}'.format(i) for i in row] + ['\n']))
+
 
 # pylint: disable=too-many-arguments
 def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_step=(50, 300), recievers_step=(100, 25),
