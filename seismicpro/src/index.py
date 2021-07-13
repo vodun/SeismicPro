@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from .survey import Survey
-from .utils import maybe_copy, unique_sorted
+from .utils import maybe_copy, unique_indices_sorted
 from ..batchflow import DatasetIndex
 
 
@@ -108,7 +108,7 @@ class SeismicIndex(DatasetIndex):
             # guarantee that the index of the header is monotonic
             if not headers.index.is_monotonic_increasing:
                 raise ValueError("Headers index must be monotonically increasing")
-            unique_header_indices = unique_sorted(headers.index.to_frame().values)
+            unique_header_indices = unique_indices_sorted(headers.index.to_frame().values)
             index = headers.index[unique_header_indices]
 
             # Calculate a mapping from index value to its position in headers to further speed up create_subset
@@ -227,6 +227,10 @@ class SeismicIndex(DatasetIndex):
         if isinstance(index, SeismicIndex):
             index = index.index
 
+        # Sort index of the subset. Otherwise subset.headers may become unsorted in pipelines with shuffle=True
+        # resulting in non-working .loc
+        index, _ = index.sortlevel()
+
         # Calculate positions of indices in header to perform .iloc instead of .loc, which is orders of magnitude
         # faster, and update index_to_headers_pos dict for further create_subset to work correctly
         headers_indices = []
@@ -274,8 +278,8 @@ class SeismicIndex(DatasetIndex):
         self.headers.sort_index(inplace=True)
 
         # Set _index explicitly since already created index is modified
-        # unique_sorted is used since headers index is guaranteed to be sorted
-        uniques_indices = unique_sorted(headers.index.to_frame().values)
+        # unique_indices_sorted is used since headers index is guaranteed to be sorted
+        uniques_indices = unique_indices_sorted(headers.index.to_frame().values)
         self._index = headers.index[uniques_indices]
 
         # Reindex all the underlying surveys

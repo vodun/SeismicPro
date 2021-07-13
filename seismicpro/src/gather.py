@@ -18,6 +18,47 @@ from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, mute_ga
 
 
 class Gather:
+    """A class representing a single seismic gather.
+
+    A gather is a collection of seismic traces that share some common acquisition parameter (same index value of the
+    generating survey header in our case). Unlike `Survey`, `Gather` instance stores loaded seismic traces along with
+    a corresponding subset of its parent survey header.
+
+    `Gather` instance can be created in two main ways:
+    1. Either by calling `Survey.get_gather` to get a particular gather by its index value,
+    2. Or by calling `Survey.sample_gather` to get a randomly selected gather.
+
+    Most of the methods change gather data inplace, thus `Gather.copy` may come in handy to keep the original gather
+    available.
+
+    Parameters
+    ----------
+    headers : pd.DataFrame
+        A subset of parent survey header with common index value defining the gather.
+    data : 2d np.ndarray
+        Trace data of the gather with (num_traces, trace_lenght) layout.
+    samples : 1d np.ndarray of floats
+        Recording time for each trace value. Measured in milliseconds.
+    sample_rate : float
+        Sample rate of seismic traces. Measured in milliseconds.
+    survey : Survey
+        A survey that generated the gather.
+
+    Attributes
+    ----------
+    headers : pd.DataFrame
+        A subset of parent survey header with common index value defining the gather.
+    data : 2d np.ndarray
+        Trace data of the gather with (num_traces, trace_lenght) layout.
+    samples : 1d np.ndarray of floats
+        Recording time for each trace value. Measured in milliseconds.
+    sample_rate : float
+        Sample rate of seismic traces. Measured in milliseconds.
+    survey : Survey
+        A survey that generated the gather.
+    sort_by : None or str
+        Headers column that was used for gather sorting. If `None`, no sorting was performed.
+    """
     def __init__(self, headers, data, samples, sample_rate, survey):
         self.headers = headers
         self.data = data
@@ -25,7 +66,6 @@ class Gather:
         self.sample_rate = sample_rate
         self.survey = survey
         self.sort_by = None
-        self.mask = None
 
     @property
     def times(self):
@@ -159,7 +199,7 @@ class Gather:
         return self_copy
 
     def _validate_header_cols(self, required_header_cols):
-        """Check if the gather headers contain all columns from `required_header_cols`"""
+        """Check if the gather headers contain all columns from `required_header_cols`."""
         headers = self.headers.reset_index()
         required_header_cols = to_list(required_header_cols)
         if any(col not in headers for col in required_header_cols):
@@ -167,7 +207,7 @@ class Gather:
             raise ValueError(err_msg.format(", ".join(required_header_cols)))
 
     def _validate_sorting(self, required_sorting):
-        """Check if the gather is sorted by `required_sorting` header"""
+        """Check if the gather is sorted by `required_sorting` header."""
         if self.sort_by != required_sorting:
             raise ValueError(f"Gather should be sorted by {required_sorting} not {self.sort_by}")
 
@@ -205,25 +245,26 @@ class Gather:
 
     @batch_method(target='for', force=True, copy_src=False)
     def dump(self, path, name=None, copy_header=False):
-        """Save the gather to a `sgy` file.
+        """Save the gather to a `.sgy` file.
 
-        Note
-        ----
-        1. All binary and textual headers are copied from the parent segy unchanged.
+        Notes
+        -----
+        All binary and textual headers are copied from the parent segy unchanged.
 
         Parameters
         ----------
         path : str
-            The directory to dump gather in.
-        name : str, optional, default None
-            The file name. If None, the concatenation of the survey name and the value of gather index will be used.
-        copy_header : bool, optional, by default False
-            Whether to copy the headers from the parent segy that weren't loaded during Survey creation.
+            The directory to dump the gather in.
+        name : str, optional, defaults to None
+            The name of the file. If `None`, the concatenation of the survey name and the value of gather index will
+            be used.
+        copy_header : bool, optional, defaults to False
+            Whether to copy the headers that weren't loaded during Survey creation from the parent segy.
 
         Returns
         -------
         self : Gather
-            Unchanged gather.
+            Gather unchanged.
         """
         parent_handler = self.survey.segy_handler
 
@@ -281,35 +322,35 @@ class Gather:
     #------------------------------------------------------------------------#
 
     def _apply_agg_func(self, func, tracewise, **kwargs):
-        """Apply `func` to gather's data optionally along the axis.
+        """Apply a `func` either to entire gather's data or to each trace independently.
 
         Notes
         -----
-        `func` must have an `axis` argument.
+        `func` must accept an `axis` argument.
 
         Parameters
         ----------
         func : callable
-            Function applied to the gather's data.
+            Function to be applied to the gather's data.
         tracewise : bool
-            If `True`, `func` is applied to each trace independently, otherwise to the entire gather's data.
+            If `True`, the `func` is applied to each trace independently, otherwise to the entire gather's data.
         kwargs : misc, optional
             Additional keyword arguments to `func`.
 
         Returns
         -------
         result : misc
-            The result of applying the `func` to the gather's data.
+            The result of the application of the `func` to the gather's data.
         """
         axis = 1 if tracewise else None
         return func(self.data, axis=axis, **kwargs)
 
     def get_quantile(self, q, tracewise=False, use_global=False):
-        """Calculate the q-th quantile of the gather or fetch the global quantile from the parent survey.
+        """Calculate the `q`-th quantile of the gather or fetch the global quantile from the parent survey.
 
-        Note
-        ----
-        1. The `tracewise` mode is only available when `use_global` is False.
+        Notes
+        -----
+        The `tracewise` mode is only available when `use_global` is `False`.
 
         Parameters
         ----------
@@ -318,7 +359,7 @@ class Gather:
         tracewise : bool, optional, default False
             If `True`, the quantiles are computed for each trace independently, otherwise for the entire gather.
         use_global : bool, optional, default False
-            If `True`, the survey's quantiles are used, otherwise the quantiles are computed based on the gather.
+            If `True`, the survey's quantiles are used, otherwise the quantiles are computed for the gather data.
 
         Returns
         -------
@@ -336,12 +377,11 @@ class Gather:
         r"""Standardize the gather by removing the mean and scaling to unit variance.
 
         The standard score of a gather `g` is calculated as:
-
-        :math:`G = \frac{g - u}{s + eps}`,
-
-        where `u` is the mean of the gather or global average if `use_global=True`, and `s` is the standard deviation
-        of the gather or global standard deviation if `use_global=True`. The `eps` is the constant that is added to the
-        denominator to avoid division by zero.
+        :math:`G = \frac{g - m}{s + eps}`,
+        where:
+        `m` - the mean of the gather or global average if `use_global=True`,
+        `s` - the standard deviation of the gather or global standard deviation if `use_global=True`,
+        `eps` - a constant that is added to the denominator to avoid division by zero.
 
         Notes
         -----
@@ -350,12 +390,12 @@ class Gather:
 
         Parameters
         ----------
-        tracewise : bool, optional, default True
-            If `True`, each trace is standardized independently, otherwise the standardization is applied to the entire
-            gather.
-        use_global : bool, optional, default False
-            If `True`, the survey's mean and std are used, otherwise statistics are computed based on the gather.
-        eps : float, optional, default 1e-10
+        tracewise : bool, optional, defaults to True
+            If `True`, mean and standard deviation are calculated for each trace independently. Otherwise they are
+            calculated for the entire gather.
+        use_global : bool, optional, defaults to False
+            If `True`, parent survey's mean and std are used, otherwise gather statistics are computed.
+        eps : float, optional, defaults to 1e-10
             A constant to be added to the denominator to avoid division by zero.
 
         Returns
@@ -366,7 +406,7 @@ class Gather:
         Raises
         ------
         ValueError
-            If `use_global` is `True` but the global statistics haven't yet been calculated.
+            If `use_global` is `True` but global statistics were not calculated.
         """
         if use_global:
             if not self.survey.has_stats:
@@ -384,39 +424,45 @@ class Gather:
         r"""Scale the gather by its maximum absolute value.
 
         Maxabs scale of the gather `g` is calculated as:
-
         :math: `G = \frac{g}{m + eps}`,
+        where:
+        `m` - the maximum of absolute values of `q_min`-th and `q_max`-th quantiles,
+        `eps` - a constant that is added to the denominator to avoid division by zero.
 
-        where `m` is the maximum between absolute values of `q_min`-th and `q_max`-th quantiles. The `eps` is the
-        constant that is added to the denominator to avoid division by zero.
-
-        We use quantiles to avoid the outliers when calculating the scale parameters. By default, 0 and 1 quantiles are
-        used to simulate the minimum and maximum values of the gather, respectively.
+        Quantiles are used to minimize the effect of amplitude outliers on the scaling result. Default 0 and 1
+        quantiles represent the minimum and maximum values of the gather respectively and result in usual max-abs
+        scaler behavior.
 
         Notes
         -----
         1. The presence of NaN values in the gather will lead to incorrect behavior of the scaler.
-        2. Maxabs scale is performed inplace.
+        2. Maxabs scaling is performed inplace.
 
         Parameters
         ----------
-        q_min : float, optional, default 0
-            The quantile value is used as a minimum during the scaling.
-        q_max : float, optional, default 1
-            The quantile value is used as a maximum during the scaling.
-        tracewise : bool, optional, default True
-            If `True`, each trace is scaled independently, otherwise the scale is applied to the entire gather.
-        use_global : bool, optional, default False
-            If `True`, the survey's quantiles are used, otherwise quantiles are computed based on the gather.
-        clip : bool, optional, default False
-            Whether to clip scaled gather to the range from -1 to 1.
-        eps : float, optional, default 1e-10
+        q_min : float, optional, defaults to 0
+            A quantile to be used as a gather minimum during scaling.
+        q_max : float, optional, defaults to 1
+            A quantile to be used as a gather maximum during scaling.
+        tracewise : bool, optional, defaults to True
+            If `True`, quantiles are calculated for each trace independently. Otherwise they are calculated for the
+            entire gather.
+        use_global : bool, optional, defaults to False
+            If `True`, parent survey's quantiles are used, otherwise gather quantiles are computed.
+        clip : bool, optional, defaults to False
+            Whether to clip the scaled gather to the [-1, 1] range.
+        eps : float, optional, defaults to 1e-10
             A constant to be added to the denominator to avoid division by zero.
 
         Returns
         -------
         self : Gather
             Scaled gather.
+
+        Raises
+        ------
+        ValueError
+            If `use_global` is `True` but global statistics were not calculated.
         """
         min_value, max_value = self.get_quantile([q_min, q_max], tracewise=tracewise, use_global=use_global)
         self.data = normalization.scale_maxabs(self.data, min_value, max_value, clip, np.float32(eps))
@@ -424,39 +470,44 @@ class Gather:
 
     @batch_method(target='threads')
     def scale_minmax(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
-        r"""Transform the gather by scaling to a given range.
+        r"""Linearly scale the gather to a [0, 1] range.
 
         The transformation of the gather `g` is given by:
-
         :math:`G=\frac{g - min}{max - min + eps}`
-
-        where `min` and `max` are `q_min`-th and `q_max`-th quantiles, respectively. The `eps` is the constant that is
-        added to the denominator to avoid division by zero.
+        where:
+        `min` and `max` - `q_min`-th and `q_max`-th quantiles respectively,
+        `eps` - a constant that is added to the denominator to avoid division by zero.
 
         Notes
         -----
         1. The presence of NaN values in the gather will lead to incorrect behavior of the scaler.
-        2. Minmax scale is performed inplace.
+        2. Minmax scaling is performed inplace.
 
         Parameters
         ----------
-        q_min : int, optional, default 0
-            The quantile value is used as a minimum during the scaling.
-        q_max : int, optional, default 1
-            The quantile value is used as a maximum during the scaling.
-        tracewise : bool, optional, default True
-            If `True`, each trace is scaled independently, otherwise the scale is applied to the entire gather.
-        use_global : bool, optional, default False
-            If `True`, the survey's quantiles are used, otherwise quantiles are computed based on the gather.
-        clip : bool, optional, default False
-            Whether to clip scaled gather to the range from 0 to 1.
-        eps : float, optional, default 1e-10
-            The constant aimed to stabilize computations.
+        q_min : float, optional, defaults to 0
+            A quantile to be used as a gather minimum during scaling.
+        q_max : float, optional, defaults to 1
+            A quantile to be used as a gather maximum during scaling.
+        tracewise : bool, optional, defaults to True
+            If `True`, quantiles are calculated for each trace independently. Otherwise they are calculated for the
+            entire gather.
+        use_global : bool, optional, defaults to False
+            If `True`, parent survey's quantiles are used, otherwise gather quantiles are computed.
+        clip : bool, optional, defaults to False
+            Whether to clip the scaled gather to the [0, 1] range.
+        eps : float, optional, defaults to 1e-10
+            A constant to be added to the denominator to avoid division by zero.
 
         Returns
         -------
         self : Gather
             Scaled gather.
+
+        Raises
+        ------
+        ValueError
+            If `use_global` is `True` but global statistics were not calculated.
         """
         min_value, max_value = self.get_quantile([q_min, q_max], tracewise=tracewise, use_global=use_global)
         self.data = normalization.scale_minmax(self.data, min_value, max_value, clip, np.float32(eps))
@@ -467,7 +518,7 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads")
-    def pick_to_mask(self, first_breaks_col='FirstBreak'):
+    def pick_to_mask(self, first_breaks_col="FirstBreak", mask_attr="mask"):
         """Convert first break picks to binary mask that contains zeros above the first break picks and ones below.
         The binary mask has the same shape as `gather.data` and is stored in the `mask` attribute.
 
@@ -482,12 +533,13 @@ class Gather:
             Gather with first breaks mask in `mask` attribute.
         """
         self.validate(required_header_cols=first_breaks_col)
-        self.mask = convert_times_to_mask(times=self[first_breaks_col], sample_rate=self.sample_rate,
-                                          mask_length=self.shape[1]).astype(np.int32)
+        mask = convert_times_to_mask(times=self[first_breaks_col], sample_rate=self.sample_rate,
+                                     mask_length=self.shape[1]).astype(np.int32)
+        setattr(self, mask_attr, mask)
         return self
 
     @batch_method(target='for')
-    def mask_to_pick(self, threshold=0.5, first_breaks_col='FirstBreak'):
+    def mask_to_pick(self, threshold=0.5, first_breaks_col="FirstBreak", mask_attr="mask"):
         """Convert mask stored in the `mask` attribute into first break picks.
 
         The conversion procedure consists of the following steps:
@@ -515,9 +567,10 @@ class Gather:
         ValueError
             If the `mask` attribute does not exist.
         """
-        if self.mask is None:
-            raise ValueError('Save mask to the self.mask component.')
-        self[first_breaks_col] = convert_mask_to_pick(self.mask, self.sample_rate, threshold)
+        mask = getattr(self, mask_attr, None)
+        if mask is None:
+            raise ValueError("Empty mask attribute")
+        self[first_breaks_col] = convert_mask_to_pick(mask, self.sample_rate, threshold)
         return self
 
     #------------------------------------------------------------------------#
@@ -651,8 +704,7 @@ class Gather:
             If `stacking_velocity` is not a `StackingVelocity` or `VelocityCube` instance.
         """
         if isinstance(stacking_velocity, VelocityCube):
-            stacking_velocity = stacking_velocity.get_stacking_velocity(*self.get_coords(coords_columns),
-                                                                        create_interpolator=False)
+            stacking_velocity = stacking_velocity(*self.get_coords(coords_columns), create_interpolator=False)
         if not isinstance(stacking_velocity, StackingVelocity):
             raise ValueError("Only VelocityCube or StackingVelocity instances can be passed as a stacking_velocity")
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms

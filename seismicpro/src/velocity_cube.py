@@ -27,10 +27,10 @@ class VelocityInterpolator:
         fake_velocities = [self._interpolate_nearest(i, x) for i, x in fake_velocities_coords]
         stacking_velocities = list(self.stacking_velocities_dict.values()) + fake_velocities
         vel_data = np.concatenate([vel.interpolation_data for vel in stacking_velocities])
-        self.linear_interpolator = LinearNDInterpolator(vel_data[:, :-1], vel_data[:, -1])
+        self.linear_interpolator = LinearNDInterpolator(vel_data[:, :-1], vel_data[:, -1], rescale=True)
 
         # Perform the first auxilliary call of the linear_interpolator for it to work properly in different processes.
-        # Otherwise VelocityCube.get_stacking_velocity may fail if called in a pipeline with prefetch with mpc target.
+        # Otherwise VelocityCube.__call__ may fail if called in a pipeline with prefetch with mpc target.
         _ = self.linear_interpolator(0, 0, 0)
 
     def is_in_hull(self, inline, crossline):
@@ -87,12 +87,9 @@ class StackingVelocity:
         self.crossline = crossline
         return self
 
-    def set_time_range(self, tmin, tmax):
+    def set_times(self, times):
         if not self.has_points:
             raise ValueError("Time range can be set only for StackingVelocity instances, created from points")
-        valid_time_mask = (self.times > tmin) & (self.times < tmax)
-        times = np.array([tmin, *self.times[valid_time_mask], tmax])
-        times = times[~np.isinf(times)]
         return self.from_points(times, self(times), self.inline, self.crossline)
 
     def dump(self, path):
@@ -119,7 +116,7 @@ class StackingVelocity:
 
 
 class VelocityCube:
-    def __init__(self, tmin=-np.inf, tmax=np.inf, path=None):
+    def __init__(self, path=None, tmin=0, tmax=6000):
         self.stacking_velocities_dict = {}
         self.interpolator = None
         self.is_dirty_interpolator = True
@@ -165,13 +162,14 @@ class VelocityCube:
         # point cloud passed to LinearNDInterpolator covers all timestamps from tmin to tmax
         stacking_velocities_dict = {}
         for coord, stacking_velocity in self.stacking_velocities_dict.items():
-            stacking_velocities_dict[coord] = stacking_velocity.set_time_range(self.tmin, self.tmax)
+            times_union = np.union1d(stacking_velocity.times, [self.tmin, self.tmax])
+            stacking_velocities_dict[coord] = stacking_velocity.set_times(times_union)
 
         self.interpolator = VelocityInterpolator(stacking_velocities_dict)
         self.is_dirty_interpolator = False
         return self
 
-    def get_stacking_velocity(self, inline, crossline, create_interpolator=True):
+    def __call__(self, inline, crossline, create_interpolator=True):
         if create_interpolator and (not self.has_interpolator or self.is_dirty_interpolator):
             self.create_interpolator()
         elif not create_interpolator:

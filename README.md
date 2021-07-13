@@ -1,6 +1,7 @@
 <div align="center">
 
-**SeismicPro**
+![SeismicPro](https://user-images.githubusercontent.com/19351782/125063408-1bcdab80-e0b8-11eb-96c2-719bc640da36.png)
+
 
 <p align="center">
   <a href="">Docs</a> •

@@ -1,3 +1,5 @@
+"""Implements Survey class"""
+
 import os
 import warnings
 from copy import copy, deepcopy
@@ -14,8 +16,76 @@ from .utils import to_list, maybe_copy, calculate_stats, create_supergather_inde
 
 
 class Survey:
-    def __init__(self, path, header_index, header_cols=None, name=None,
-                 stats_limits=None, collect_stats=False, **kwargs):
+    """A class representing a single SEG-Y file.
+
+    In order to reduce memory footprint, `Survey` instance does not store trace data, but only a requested subset of
+    trace headers and general file meta such as `samples` and `sample_rate`. Trace data can be obtained by generating
+    an instance of `Gather` class by calling either :func:`~Survey.get_gather` or :func:`~Survey.sample_gather`
+    method.
+
+    The resulting gather type depends on `header_index` argument, passed during `Survey` creation: traces are grouped
+    into gathers by the common value of headers, defined by `header_index`. Some usual values of `header_index`
+    include:
+    - 'TRACE_SEQUENCE_FILE' - to get individual traces,
+    - 'FieldRecord' - to get common source gathers,
+    - ['GroupX', 'GroupY'] - to get common receiver gathers,
+    - ['INLINE_3D', 'CROSSLINE_3D'] - to get common midpoint gathers.
+
+    `header_cols` argument specifies all other trace headers to load to further be available in gather processing
+    pipelines. Note that TRACE_SEQUENCE_FILE header is not loaded from the file but always automatically reconstructed.
+    All loaded headers are stored in a `headers` attribute as a `pd.DataFrame` with `header_index` columns set as its
+    index.
+
+    Parameters
+    ----------
+    path : str
+        A path to the source SEG-Y file.
+    header_index : str or list of str
+        Trace headers to be used to group traces into gathers.
+    header_cols : str or list of str, optional
+        Extra trace headers to load. If not given, only headers from `header_index` are loaded.
+    name : str, optional
+        Survey name. If not given, source file name is used.
+    limits : int or tuple or slice, optional
+        Default time limits to be used during trace loading and survey statistics calculation. `int` or `tuple` are
+        used to construct a `slice` object directly. If not given, whole traces are used. Measured in samples.
+    collect_stats : bool, optional, defaults to False
+        Whether to calculate trace statistics for the survey.
+    kwargs : misc, optional
+        Additional keyword arguments to :func:`~Survey.collect_stats`.
+
+    Attributes
+    ----------
+    path : str
+        A path to the source SEG-Y file.
+    name : str
+        Survey name.
+    headers : pd.DataFrame
+        Loaded trace headers.
+    samples : 1d np.ndarray of floats
+        Recording time for each trace value. Measured in milliseconds.
+    sample_rate : float
+        Sample rate of seismic traces. Measured in milliseconds.
+    limits : slice
+        Default time limits to be used during trace loading and survey statistics calculation. Measured in samples.
+    segy_handler : segyio.segy.SegyFile
+        Source SEG-Y file handler.
+    has_stats : bool
+        Whether the survey has trace statistics calculated.
+    min : np.float32
+        Minimum trace value. Available only if trace statistics were calculated.
+    max : np.float32
+        Maximum trace value. Available only if trace statistics were calculated.
+    mean : np.float32
+        Mean trace value. Available only if trace statistics were calculated.
+    std : np.float32
+        Standard deviation of trace values. Available only if trace statistics were calculated.
+    quantile_interpolator : scipy.interpolate.interp1d
+        Trace values quantile interpolator. Available only if trace statistics were calculated.
+    n_dead_traces : int
+        The number of traces with constant value (dead traces). Available only if trace statistics were calculated.
+    """
+    def __init__(self, path, header_index, header_cols=None, name=None, limits=None, collect_stats=False, **kwargs):
         self.path = path
         basename = os.path.splitext(os.path.basename(self.path))[0]
         self.name = name if name is not None else basename
@@ -40,29 +110,29 @@ class Survey:
         self.segy_handler = segyio.open(self.path, ignore_geometry=True)
         self.segy_handler.mmap()
 
-        # Get attributes from segy.
+        # Get attributes from the source SEG-Y file.
         self.sample_rate = np.float32(segyio.dt(self.segy_handler) / 1000)
         self.file_samples = self.segy_handler.samples.astype(np.float32)
 
-        # Set samples and samples_length according to passed `stats_limits`.
-        self.stats_limits = None
+        # Set samples and samples_length according to passed `limits`.
+        self.limits = None
         self.samples = None
         self.samples_length = None
-        self.set_limits(stats_limits)
+        self.set_limits(limits)
 
         headers = {}
         for column in load_headers:
             headers[column] = self.segy_handler.attributes(segyio.tracefield.keys[column])[:]
 
         headers = pd.DataFrame(headers)
-        # TRACE_SEQUENCE_FILE is reconstructed manually since it can be omitted according to segy standard
+        # TRACE_SEQUENCE_FILE is reconstructed manually since it can be omitted according to the SEG-Y standard
         # but we rely on it during gather loading.
         headers["TRACE_SEQUENCE_FILE"] = np.arange(1, self.segy_handler.tracecount+1)
         headers.set_index(header_index, inplace=True)
         # Sort headers by index to optimize further headers subsampling and merging.
         self.headers = headers.sort_index()
 
-        # Precalculate survey statistics
+        # Precalculate survey statistics if needed
         self.has_stats = False
         self.min = None
         self.max = None
@@ -75,22 +145,28 @@ class Survey:
 
     @property
     def times(self):
+        """1d np.ndarray of floats: Recording time for each trace value. Measured in milliseconds."""
         return self.samples
 
     def __del__(self):
+        """Close SEG-Y file handler on survey destruction."""
         self.segy_handler.close()
 
     def __getstate__(self):
+        """Create a survey's pickling state from its `__dict__` by setting SEG-Y file handler to `None`."""
         state = copy(self.__dict__)
         state["segy_handler"] = None
         return state
 
     def __setstate__(self, state):
+        """Recreate a survey from unpickled state and reopen its source SEG-Y file."""
         self.__dict__ = state
         self.segy_handler = segyio.open(self.path, ignore_geometry=True)
         self.segy_handler.mmap()
 
     def __str__(self):
+        """Print survey metadata including information about source file and trace statistics if they were
+        calculated."""
         offsets = self.headers.get('offset')
         offset_range = f'[{np.min(offsets)} m, {np.max(offsets)} m]' if offsets is not None else None
         msg = f"""
@@ -110,7 +186,7 @@ class Survey:
             msg += f"""
         Survey statistics:
         Number of dead traces:     {self.n_dead_traces}
-        Trace limits:              {self.stats_limits.start}:{self.stats_limits.stop}:{self.stats_limits.step} samples
+        Trace limits:              {self.limits.start}:{self.limits.stop}:{self.limits.step} samples
         mean | std:                {self.mean:>10.2f} | {self.std:<10.2f}
          min | max:                {self.min:>10.2f} | {self.max:<10.2f}
          q01 | q99:                {self.get_quantile(0.01):>10.2f} | {self.get_quantile(0.99):<10.2f}
@@ -118,18 +194,22 @@ class Survey:
         return dedent(msg)
 
     def info(self):
+        """Print survey metadata including information about source file and trace statistics if they were
+        calculated."""
         print(self)
 
     #------------------------------------------------------------------------#
     #                     Statistics computation methods                     #
     #------------------------------------------------------------------------#
 
-    def collect_stats(self, indices=None, n_quantile_traces=100000, quantile_precision=2, bar=True):
+    def collect_stats(self, indices=None, n_quantile_traces=100000, quantile_precision=2, stats_limits=None, bar=True):
         headers = self.headers
         if indices is not None:
             headers = headers.loc[indices]
         traces_pos = headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
         np.random.shuffle(traces_pos)
+
+        limits = self.limits if stats_limits is None else self._process_limits(stats_limits)
 
         if n_quantile_traces <= 0:
             raise ValueError("n_quantile_traces must be positive")
@@ -147,8 +227,7 @@ class Survey:
         # Accumulate min, max, mean and std values of survey traces
         for i, pos in tqdm(enumerate(traces_pos), desc=f"Calculating statistics for survey {self.name}",
                            total=len(traces_pos), disable=not bar):
-            # Note that stats calculating only in limits defined in `self.stats_limits`
-            self.load_trace(buf=trace, index=pos, limits=self.stats_limits, trace_length=self.samples_length)
+            self.load_trace(buf=trace, index=pos, limits=limits, trace_length=self.samples_length)
             trace_min, trace_max, trace_sum, trace_sq_sum = calculate_stats(trace)
             global_min = min(trace_min, global_min)
             global_max = max(trace_max, global_max)
@@ -192,7 +271,7 @@ class Survey:
             headers = headers.copy()
         trace_indices = headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
 
-        limits = self.stats_limits if limits is None else self._process_limits(limits)
+        limits = self.limits if limits is None else self._process_limits(limits)
         samples = self.file_samples[limits]
         trace_length = len(samples)
 
@@ -218,15 +297,15 @@ class Survey:
         return gather
 
     def load_trace(self, buf, index, limits, trace_length):
-        # Args for segy loader are following:
-        #   * Buffer to write trace ampltudes
-        #   * Index of loading trace
-        #   * Unknown arg (always 1)
-        #   * Unknown arg (always 1)
-        #   * Position from which to start loading the trace
-        #   * Position where to end loading
-        #   * Step
-        #   * Number of overall samples.
+        # segy_handler.xfd.gettr args description:
+        #   * A buffer to write the loaded trace to,
+        #   * An index of the trace in a SEG-Y file to load,
+        #   * Unknown arg (always 1),
+        #   * Unknown arg (always 1),
+        #   * An index of the first trace element to load,
+        #   * An index of the last trace element to load,
+        #   * Trace element loading step,
+        #   * The overall number of samples to load.
         return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
 
     def load_first_breaks(self, path, first_breaks_col='FirstBreak'):
@@ -290,8 +369,8 @@ class Survey:
         return self
 
     def set_limits(self, limits):
-        self.stats_limits = self._process_limits(limits)
-        self.samples = self.file_samples[self.stats_limits]
+        self.limits = self._process_limits(limits)
+        self.samples = self.file_samples[self.limits]
         self.samples_length = len(self.samples)
         if self.samples_length == 0:
             raise ValueError('Trace length must be positive.')
