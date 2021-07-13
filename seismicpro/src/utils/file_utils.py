@@ -143,6 +143,19 @@ def read_single_vfunc(path):
 def dump_vfunc(path, vfunc_list):
     """Dump vertical functions in Paradigm Echos VFUNC format to the file.
 
+    For each vfunc there is corresponding block in the resulted file with the following strcture:
+    The first row contains 3 values: VFUNC [inline] [crossline]. 
+    Other rows represent pairs: [time] [velocity]. One row may contain up to 4 pairs(8 fields), 
+    each field is left aligned with the width 8.
+    
+    Block example
+    :::
+    VFUNC   22      33     
+    17      1546    150     1530    294     1672    536     1812    
+    760     1933    960     2000    1202    2148    1374    2251    
+    1574    2409    1732    2517    1942    2675
+    :::
+
     Parameters
     ----------
     path : str

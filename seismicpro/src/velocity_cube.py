@@ -93,6 +93,14 @@ class StackingVelocity:
         return self.from_points(times, self(times), self.inline, self.crossline)
 
     def dump(self, path):
+        """Dump vertical function to the file.
+        See more about the format in :func:`~utils.file_utils.dump_vfunc`
+
+        Parameters
+        ----------
+        path : str
+            A path to the file.
+        """
         dump_vfunc(path, [(self.inline, self.crossline, self.times, self.velocities)])
 
     @property
@@ -137,6 +145,14 @@ class VelocityCube:
         return self
 
     def dump(self, path):
+        """Dump all the vertical functions of the cube to the file.
+        See more about the format in :func:`~utils.file_utils.dump_vfunc`
+
+        Parameters
+        ----------
+        path : str
+            A path to the file.
+        """
         vfunc_list = []
         for (inline, crossline), stacking_velocity in self.stacking_velocities_dict.items():
             vfunc_list.append((inline, crossline, stacking_velocity.times, stacking_velocity.velocities))
