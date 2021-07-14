@@ -88,7 +88,7 @@ class SeismicIndex(DatasetIndex):
         Base index to use as is if no surveys were passed.
     surveys : Survey or list of Survey, optional
         Surveys to use to construct an index.
-    mode : {"c", "concat", "m", "merge", None}
+    mode : {"c", "concat", "m", "merge", None}, optional, defaults to None
         A mode used to combine multiple surveys into an index. If `None`, only a single survey can be passes to a
         `surveys` arg.
     kwargs : misc, optional
@@ -482,8 +482,7 @@ class SeismicIndex(DatasetIndex):
 
         Notes
         -----
-        During the call subset of not only `self.index`, but also `self.headers` is calculated which may take a while
-        for large indices.
+        During the call subset of `self.headers` is calculated which may take a while for large indices.
 
         Parameters
         ----------

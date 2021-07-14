@@ -1,4 +1,4 @@
-"""Implements Survey class"""
+"""Implements Survey class describing a single SEG-Y file"""
 
 import os
 import warnings
@@ -32,9 +32,15 @@ class Survey:
     - ['INLINE_3D', 'CROSSLINE_3D'] - to get common midpoint gathers.
 
     `header_cols` argument specifies all other trace headers to load to further be available in gather processing
-    pipelines. Note that TRACE_SEQUENCE_FILE header is not loaded from the file but always automatically reconstructed.
-    All loaded headers are stored in a `headers` attribute as a `pd.DataFrame` with `header_index` columns set as its
-    index.
+    pipelines. Note that `TRACE_SEQUENCE_FILE` header is not loaded from the file but always automatically
+    reconstructed. All loaded headers are stored in a `headers` attribute as a `pd.DataFrame` with `header_index`
+    columns set as its index.
+
+    Examples
+    --------
+    Create a survey of common source gathers and get a randomly selected gather from it:
+    >>> survey = Survey(path, header_index="FieldRecord", header_cols=["TraceNumber", "offset"])
+    >>> gather = survey.sample_gather()
 
     Parameters
     ----------
@@ -49,7 +55,7 @@ class Survey:
         added to an index, see :class:`~index.SeismicIndex` docs for more info.
     limits : int or tuple or slice, optional
         Default time limits to be used during trace loading and survey statistics calculation. `int` or `tuple` are
-        used to construct a `slice` object directly. If not given, whole traces are used. Measured in samples.
+        used as arguments to init a `slice` object. If not given, whole traces are used. Measured in samples.
     collect_stats : bool, optional, defaults to False
         Whether to calculate trace statistics for the survey.
     kwargs : misc, optional
@@ -204,6 +210,40 @@ class Survey:
     #------------------------------------------------------------------------#
 
     def collect_stats(self, indices=None, n_quantile_traces=100000, quantile_precision=2, stats_limits=None, bar=True):
+        """Collect the following trace data statistics by iterating over the survey:
+        1. Min and max amplitude,
+        2. Mean amplitude and trace standard deviation,
+        3. Approximation of trace data quantiles with given precision,
+        4. The number of dead traces.
+
+        Since fair quantile calculation requires simultaneous loading of all traces from the file we avoid such memory
+        overhead by calculating approximate quantiles for a small subset of `n_quantile_traces` traces selected
+        randomly. Moreover, only a set of quantiles defined by `quantile_precision` is calculated, the rest of them are
+        linearly interpolated by the collected ones.
+
+        After the method is executed `has_stats` flag is set to `True` and all the calculated values can be obtained
+        via corresponding attributes.
+
+        Parameters
+        ----------
+        indices : pd.MultiIndex, optional
+            A subset of survey headers indices to collect stats for. If not given, statistics are calculated for the
+            whole survey.
+        n_quantile_traces : positive int, optional, defaults to 100000
+            The number of traces to use for quantiles estimation.
+        quantile_precision : positive int, optional, defaults to 2
+            Calculate an approximate quantile for each q with `quantile_precision` decimal places.
+        stats_limits : int or tuple or slice, optional
+            Time limits to be used for statistics calculation. `int` or `tuple` are used as arguments to init a `slice`
+            object. If not given, whole traces are used. Measured in samples.
+        bar : bool, optional, defaults to True
+            Whether to show a progress bar.
+
+        Returns
+        -------
+        survey : Survey
+            The survey with collected stats. Sets `has_stats` flag to `True` and updates statistics attributes inplace.
+        """
         headers = self.headers
         if indices is not None:
             headers = headers.loc[indices]
@@ -257,6 +297,27 @@ class Survey:
         return self
 
     def get_quantile(self, q):
+        """Calculate an approximation of the `q`-th quantile of the survey data.
+
+        Notes
+        -----
+        Before calling this method, survey statistics must be calculated using `Survey.collect_stats`.
+
+        Parameters
+        ----------
+        q : float or array-like of floats
+            Quantile or a sequence of quantiles to compute, which must be between 0 and 1 inclusive.
+
+        Returns
+        -------
+        quantile : float or array-like of floats
+            Approximate `q`-th quantile values. Has the same type and shape as `q`.
+
+        Raises
+        ------
+        ValueError
+            If survey statistics were not calculated.
+        """
         if not self.has_stats:
             raise ValueError('Global statistics were not calculated, call `Survey.collect_stats` first.')
         quantiles = self.quantile_interpolator(q).astype(np.float32)

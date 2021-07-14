@@ -24,9 +24,10 @@ class Gather:
     generating survey header in our case). Unlike `Survey`, `Gather` instance stores loaded seismic traces along with
     a corresponding subset of its parent survey header.
 
-    `Gather` instance can be created in two main ways:
-    1. Either by calling `Survey.get_gather` to get a particular gather by its index value,
-    2. Or by calling `Survey.sample_gather` to get a randomly selected gather.
+    `Gather` instance can be created in three main ways:
+    1. Either by calling `Survey.sample_gather` to get a randomly selected gather,
+    2. Or by calling `Survey.get_gather` to get a particular gather by its index value,
+    3. Or by calling `Index.get_gather` to get a particular gather by its index value from a specified survey.
 
     Most of the methods change gather data inplace, thus `Gather.copy` may come in handy to keep the original gather
     available.
