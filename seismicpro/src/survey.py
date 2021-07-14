@@ -267,12 +267,12 @@ class Survey:
     #------------------------------------------------------------------------#
 
     def load_gather(self, headers, limits=None, copy_headers=True):
-        """ Load gather by given headers.
+        """Load gather by given headers.
 
         Parameters
         ----------
         headers : pd.DataFrame
-
+            A dataframe of the traces to be loaded.
         limits : int or tuple or slice or None, optional, by default None
             Time limits for trace loading. `int` or `tuple` are used to construct a `slice` object directly. If not
             given, whole traces will be loaded. Measured in samples.
@@ -348,8 +348,8 @@ class Survey:
     def load_trace(self, buf, index, limits, trace_length):
         """Load single trace with `index` position in SEG-Y file.
 
-        To load trace we use segyio's function `xfd.gettr` to optimize loading process. We could not find a description
-        of the input parameters, so we empirically determined their purpose:
+        To optimize trace loading process we use segyio's function `xfd.gettr`. We could not find a description of the
+        input parameters, so we empirically determined their purpose:
             1. A buffer to write the loaded trace to,
             2. An index of the trace in a SEG-Y file to load,
             3. Unknown arg (always 1),
@@ -381,8 +381,9 @@ class Survey:
         """Load first breaks and save it to `self.headers`.
 
         File with first breaks data has three columns: FieldRecord, TraceNumber, FirstBreaks. The combination of
-        FieldRecord and TraceNumber is a unique trace identifier, thus we use it to match the value of the first breaks
-        with the corresponding trace in `self.headers`.
+        FieldRecord and TraceNumber is a unique trace identifier. Thus we use it to match the value of the first breaks
+        with the corresponding trace in `self.headers` and save the first break time to the column with name
+        `first_breaks_col`.
 
 
         Parameters
@@ -451,6 +452,7 @@ class Survey:
             aruments will passed as this.
         kwargs : misc, optional
             Additional keyword arguments to pass as keywords arguments to `func` or `pd.DataFrame.apply`.
+
         Returns
         -------
         result : np.ndarray
@@ -480,6 +482,8 @@ class Survey:
             aruments will passed as this.
         inplace : bool, optional, by default False
             If True, `self.headers` will be filtered inplace, otherwise copy of the Survey is filtered.
+        kwargs : misc, optional
+            Additional keyword arguments to pass as keywords arguments to `cond` or `pd.DataFrame.apply`.
 
         Returns
         -------
@@ -521,6 +525,8 @@ class Survey:
         inplace : bool, optional, by default False
             If True, the result will be saved into `self.headers` of certain Survey, otherwise copy of the Survey will
             be created before apply operation.
+        kwargs : misc, optional
+            Additional keyword arguments to pass as keywords arguments to `func` or `pd.DataFrame.apply`.
 
         Returns
         -------
@@ -557,6 +563,24 @@ class Survey:
         return self
 
     def set_limits(self, limits):
+        """Convert limits to slice and save it to `self.limits`.
+
+        These limits are default time limits to be used during trace loading and survey statistics calculation.
+
+        Parameters
+        ----------
+        limits : int or tuple or slice, optional
+            Time limits. `int` or `tuple` are used to construct a `slice` object directly. Measured in samples.
+            The resulted slice contains three numbers:
+            * start sample position during trace loading,
+            * end sample position during trace loading,
+            * step.
+
+        Raises
+        ------
+        ValueError
+            If resulted trace's length is zero.
+        """
         self.limits = self._process_limits(limits)
         self.samples = self.file_samples[self.limits]
         self.samples_length = len(self.samples)
@@ -564,6 +588,7 @@ class Survey:
             raise ValueError('Trace length must be positive.')
 
     def _process_limits(self, limits):
+        """Convert limits to slice."""
         if not isinstance(limits, slice):
             limits = slice(*to_list(limits))
         # Use .indices to avoid negative slicing range
