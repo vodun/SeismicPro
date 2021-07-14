@@ -45,7 +45,8 @@ class Survey:
     header_cols : str or list of str, optional
         Extra trace headers to load. If not given, only headers from `header_index` are loaded.
     name : str, optional
-        Survey name. If not given, source file name is used.
+        Survey name. If not given, source file name is used. This name is mainly used to identify the survey when it is
+        added to an index, see :class:`~index.SeismicIndex` docs for more info.
     limits : int or tuple or slice, optional
         Default time limits to be used during trace loading and survey statistics calculation. `int` or `tuple` are
         used to construct a `slice` object directly. If not given, whole traces are used. Measured in samples.
@@ -301,7 +302,7 @@ class Survey:
         gather = Gather(headers=headers, data=data, samples=samples, sample_rate=sample_rate, survey=self)
         return gather
 
-    def get_gather(self, index=None, limits=None, copy_headers=True):
+    def get_gather(self, index, limits=None, copy_headers=True):
         """Load gather by specified `index`.
 
         Parameters

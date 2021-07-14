@@ -1,3 +1,5 @@
+"""Implements SeismicIndex class that allows for iteration over gathers in a survey or a group of surveys"""
+
 import os
 from copy import deepcopy
 from itertools import chain
@@ -13,6 +15,98 @@ from ..batchflow import DatasetIndex
 
 
 class SeismicIndex(DatasetIndex):
+    """A class that enumerates gathers in a survey or a group of surveys and allows iterating over them.
+
+    While `Survey` describes a single SEG-Y file, `SeismicIndex` is primarily used to describe survey concatenation
+    (e.g. when several fields are being processed in the same way one after another) or merging (e.g. when traces from
+    the same field before and after a given processing stage must be matched and compared).
+
+    In order to enumerate seismic gathers from different surveys, an instance of `SeismicIndex` stores combined headers
+    of all the surveys in its `headers` attribute and unique identifiers of all the resulting seismic gathers as a
+    `pd.MultiIndex` in its `index` attribute.
+
+    `SeismicIndex` object can be created either from a single survey or a list of surveys:
+    1. A single survey is handled in a straightforward way: `headers` attribute of the resulting index is a copy of
+       survey headers with an extra `CONCAT_ID` column with zero value added to its index to the left. This column is
+       redundant in case of a single survey but allows for unambiguous survey identification when concatenation is
+       performed.
+    2. If several surveys are passed they must be created with the same `header_index`. First, they are independently
+       converted to `SeismicIndex` as described above and then the `headers` attribute of the resulting index is built
+       depending on the given `mode`:
+        - "c" or "concat":
+          All the surveys must have the same `name`. `CONCAT_ID` column is updated to be the ordinal number of a survey
+          in the list for each of the created indices and then headers concatenation is performed via `pd.concat`. Here
+          `CONCAT_ID` acts as a survey identifier since traces from different SEG-Y files may have the same headers
+          making it impossible to recover a source survey for a trace with given headers.
+        - "m" or "merge":
+          All the surveys must have different `name` specified. In this case, `headers` are obtained by joining survey
+          headers via `pd.merge`. By default, merging is performed by all the headers columns including `CONCAT_ID`
+          allowing for several groups of concatenated surveys to be consequently merged.
+
+    `SeismicIndex` keeps track of all the surveys used during its creation in a `surveys_dict` attribute with the
+    following structure:
+    `{survey_name_1: [survey_1_1, survey_1_2, survey_1_N],
+      ...,
+      survey_name_M: [survey_M_1, survey_M_2, survey_M_N],
+     }`
+    Dict keys here are the names of surveys being merged, while values are lists with the same length equal to the
+    number of concatenated surveys.
+
+    Thus, base survey to get a gather with given headers from is determined by both its name and `CONCAT_ID` and the
+    gather itself can be obtained by calling :func:`~SeismicIndex.get_gather` method. Iteration over gathers is
+    performed via :func:`~SeismicIndex.next_batch`.
+
+    Examples
+    --------
+    Let's consider 4 surveys, describing a single field before and after processing. Note that all of them have the
+    same `header_index`:
+    >>> s1_before = Survey(path, header_index=index_headers, name="before")
+    >>> s2_before = Survey(path, header_index=index_headers, name="before")
+
+    >>> s1_after = Survey(path, header_index=index_headers, name="after")
+    >>> s2_after = Survey(path, header_index=index_headers, name="after")
+
+    An index can be created from a single survey in the following way:
+    >>> index = SeismicIndex(surveys=s1_before)
+
+    If `s1_before` and `s2_before` represent different parts of the same field, they can be concatenated into one index
+    to iterate over the whole field and process it at once. Both surveys must have the same `name`:
+    >>> index = SeismicIndex(surveys=[s1_before, s2_before], mode="c")
+
+    Gathers before and after given processing stage can be matched using merge operation. Both surveys must have
+    different `name`s:
+    >>> index = SeismicIndex(surveys=[s1_before, s1_after], mode="m")
+
+    Merge can follow concat and vice versa. A more complex case, covering both operations is shown below:
+    >>> index_before = SeismicIndex(surveys=[s1_before, s2_before], mode="c")
+    >>> index_after = SeismicIndex(surveys=[s1_after, s2_after], mode="c")
+    >>> index = SeismicIndex(surveys=[index_before, index_after], mode="m")
+
+    Parameters
+    ----------
+    index : SeismicIndex, optional
+        Base index to use as is if no surveys were passed.
+    surveys : Survey or list of Survey, optional
+        Surveys to use to construct an index.
+    mode : {"c", "concat", "m", "merge", None}
+        A mode used to combine multiple surveys into an index. If `None`, only a single survey can be passes to a
+        `surveys` arg.
+    kwargs : misc, optional
+        Additional keyword arguments to index builder method for given `mode` (currently :func:`~SeismicIndex.merge` or
+        :func:`~SeismicIndex.concat`).
+
+    Attributes
+    ----------
+    headers : pd.DataFrame
+        Combined headers of all the surveys used to create the index.
+    surveys_dict : dict
+        A dict, tracking surveys used to create the index. Its keys are the names of surveys being merged, while values
+        are lists with the same length equal to the number of concatenated surveys.
+    index : pd.MultiIndex
+        Unique identifiers of seismic gathers in the constructed index.
+    index_to_headers_pos : dict
+        A mapping from an index value to a range of corresponding `headers` rows.
+    """
     def __init__(self, index=None, surveys=None, mode=None, **kwargs):
         self.headers = None
         self.surveys_dict = None
@@ -21,9 +115,11 @@ class SeismicIndex(DatasetIndex):
 
     @property
     def next_concat_id(self):
+        """int: The number of concatenated surveys in the index."""
         return max(len(surveys) for surveys in self.surveys_dict.values())
 
     def _get_index_info(self, indents, prefix):
+        """Recursively fetch index description string from the index itself and all the nested subindices."""
         groupped_headers = self.headers.index.to_frame(index=False).groupby(by="CONCAT_ID")
         data = [[name, len(group), len(group.drop_duplicates())] for name, group in groupped_headers]
         info_df = pd.DataFrame.from_records(data, columns=["CONCAT_ID", "Num Traces", "Num Gathers"],
@@ -59,9 +155,11 @@ class SeismicIndex(DatasetIndex):
         return indent(msg, indents) + nested_indices_msg
 
     def __str__(self):
+        """Print index metadata including information about its surveys and total number of traces and gathers."""
         return self._get_index_info(indents='', prefix="index")
 
     def info(self):
+        """Print index metadata including information about its surveys and total number of traces and gathers."""
         print(self)
 
     #------------------------------------------------------------------------#
@@ -69,11 +167,41 @@ class SeismicIndex(DatasetIndex):
     #------------------------------------------------------------------------#
 
     def build_index(self, index=None, surveys=None, mode=None, **kwargs):
+        """Build an index from args in the following way:
+        1. If both `index` and `surveys` are `None` an empty index is created.
+        2. If `surveys` is given then index is created according to the `mode` specified.
+        3. Otherwise passed `index` is used as is.
+
+        Parameters
+        ----------
+        index : SeismicIndex, optional
+            Base index to use as is if no surveys were passed.
+        surveys : Survey or list of Survey, optional
+            Surveys to use to construct an index.
+        mode : {"c", "concat", "m", "merge", None}
+            A mode used to combine multiple surveys into an index. If `None`, only a single survey can be passes to a
+            `surveys` arg.
+        kwargs : misc, optional
+            Additional keyword arguments to index builder method for given `mode` (currently
+            :func:`~SeismicIndex.merge` or :func:`~SeismicIndex.concat`).
+
+        Returns
+        -------
+        index : pd.MultiIndex
+            Unique identifiers of seismic gathers in the constructed index.
+
+        Raises
+        ------
+        ValueError
+            If unknown `mode` was passed.
+        TypeError
+            If `index` of a wrong type was passed.
+        """
         # Create an empty index if both index and surveys are not specified
         if index is None and surveys is None:
             return None
 
-        # If survey is passed, choose index builder depending on given mode
+        # If surveys are passed, choose index builder depending on given mode
         if surveys is not None:
             builders_dict = {
                 "m": SeismicIndex.merge,
@@ -88,7 +216,7 @@ class SeismicIndex(DatasetIndex):
 
         # Check that passed or created index has SeismicIndex type
         if not isinstance(index, SeismicIndex):
-            raise ValueError(f"SeismicIndex instance is expected as an index, but {type(index)} was given")
+            raise TypeError(f"SeismicIndex instance is expected as an index, but {type(index)} was given")
 
         # Copy internal attributes from passed or created index into self
         self.headers = index.headers
@@ -97,7 +225,33 @@ class SeismicIndex(DatasetIndex):
         return index.index
 
     @classmethod
-    def from_attributes(cls, index=None, index_to_headers_pos=None, headers=None, surveys_dict=None):
+    def from_attributes(cls, headers, surveys_dict, index=None, index_to_headers_pos=None):
+        """Create a new `SeismicIndex` instance from its attributes.
+
+        Parameters
+        ----------
+        headers : pd.DataFrame
+            Headers of the index being created.
+        surveys_dict : dict
+            A dict of surveys used by the index. Its keys are the names of surveys being merged, while values are lists
+            with the same length equal to the number of concatenated surveys.
+        index : pd.MultiIndex, optional
+            Unique identifiers of seismic gathers in the constructed index. If not given, calculated by passed
+            `headers`.
+        index_to_headers_pos : dict, optional
+            A mapping from an index value to a range of corresponding `headers` rows. If not given, calculated by
+            passed `headers`.
+
+        Returns
+        -------
+        index : SeismicIndex
+            Constructed index.
+
+        Raises
+        ------
+        ValueError
+            If `headers` index is not monotonically increasing.
+        """
         # Create empty SeismicIndex to fill with given headers and surveys_dict
         new_index = cls()
         new_index.headers = headers
@@ -125,9 +279,29 @@ class SeismicIndex(DatasetIndex):
 
     @classmethod
     def from_survey(cls, survey):
+        """Create a new `SeismicIndex` instance from a single survey.
+
+        `headers` attribute of the resulting index is a copy of survey `headers` with an extra `CONCAT_ID` column with
+        zero value added to its index to the left.
+
+        Parameters
+        ----------
+        survey : Survey
+            A survey used to build an index.
+
+        Returns
+        -------
+        index : SeismicIndex
+            Constructed index.
+
+        Raises
+        ------
+        TypeError
+            If `survey` of a wrong type was passed.
+        """
         if not isinstance(survey, Survey):
-            raise ValueError(f"Survey instance is expected, but {type(survey)} was given. "
-                              "Probably you forgot to specify mode")
+            raise TypeError(f"Survey instance is expected, but {type(survey)} was given. "
+                             "Probably you forgot to specify the mode")
 
         # Copy headers from survey and create zero CONCAT_ID column as the first index level
         headers = survey.headers.copy()
@@ -141,6 +315,7 @@ class SeismicIndex(DatasetIndex):
 
     @staticmethod
     def _surveys_to_indices(surveys):
+        """Cast each element of a list of `Survey` or `SeismicIndex` instances to a `SeismicIndex` type."""
         survey_indices = []
         for survey in surveys:
             if not isinstance(survey, SeismicIndex):
@@ -153,6 +328,7 @@ class SeismicIndex(DatasetIndex):
 
     @classmethod
     def _merge_two_indices(cls, x, y, **kwargs):
+        """Merge two `SeismicIndex` instances into one."""
         intersect_keys = x.surveys_dict.keys() & y.surveys_dict.keys()
         if intersect_keys:
             raise ValueError("Only surveys with unique names can be merged, "
@@ -181,12 +357,73 @@ class SeismicIndex(DatasetIndex):
 
     @classmethod
     def merge(cls, surveys, **kwargs):
+        """Merge several surveys into a single index.
+
+        All the surveys being merged must be created with the same `header_index`, but have different `name`s. First,
+        they are independently converted to `SeismicIndex` and then the resulting index `headers` are calculated by
+        joining the obtained headers via `pd.merge`. By default, merging is performed by all the columns including
+        `CONCAT_ID` allowing for several groups of concatenated surveys to be consequently merged.
+
+        Notes
+        -----
+        Detailed description of index merging can be found in :class:`~SeismicIndex` docs.
+
+        Parameters
+        ----------
+        surveys : list of Survey
+            A list of surveys to be merged.
+        kwargs : misc, optional
+            Additional keyword arguments to :func:`~pandas.merge`.
+
+        Returns
+        -------
+        index : SeismicIndex
+            Merged index.
+
+        Raises
+        ------
+        ValueError
+            If surveys with same names were passed.
+            If survey headers are not indexed by the same columns.
+            If an empty index was obtained after merging.
+        """
         indices = cls._surveys_to_indices(surveys)
         index = reduce(lambda x, y: cls._merge_two_indices(x, y, **kwargs), indices)
         return index
 
     @classmethod
     def concat(cls, surveys, **kwargs):
+        """Concatenate several surveys into a single index.
+
+        All the surveys being concatenated must be created with the same `header_index`, and have the same `name`.
+        First, they are independently converted to `SeismicIndex` and then `CONCAT_ID` column is updated to be the
+        ordinal number of a survey in the list for each of the created indices. The resulting index `headers` are
+        calculated by concatenating the obtained headers via `pd.concat`. `CONCAT_ID` acts as a survey identifier since
+        traces from different SEG-Y files may have the same headers making it impossible to recover a source survey for
+        a trace with given headers.
+
+        Notes
+        -----
+        Detailed description of index concatenation can be found in :class:`~SeismicIndex` docs.
+
+        Parameters
+        ----------
+        surveys : list of Survey
+            A list of surveys to be concatenated.
+        kwargs : misc, optional
+            Additional keyword arguments to :func:`~pandas.concat`.
+
+        Returns
+        -------
+        index : SeismicIndex
+            Concatenated index.
+
+        Raises
+        ------
+        ValueError
+            If surveys with different names were passed.
+            If survey headers are not indexed by the same columns.
+        """
         indices = cls._surveys_to_indices(surveys)
         survey_names = indices[0].surveys_dict.keys()
         if any(survey_names != index.surveys_dict.keys() for index in indices):
@@ -217,13 +454,47 @@ class SeismicIndex(DatasetIndex):
     #------------------------------------------------------------------------#
 
     def build_pos(self):
+        """Implement degenerative `get_pos` to decrease computational complexity since `pd.MultiIndex` provides its own
+        interface to get a position of a value in the index."""
         return None
 
     def get_pos(self, index):
-        # TODO: Mention in docs that only single index is allowed!
+        """Return a position of an item in the index.
+
+        Notes
+        -----
+        Unlike `BatchFlow` `DatasetIndex.get_pos`, only a single index value is allowed.
+
+        Parameters
+        ----------
+        index : tuple
+            Multiindex value to return position of.
+
+        Returns
+        -------
+        pos : int
+            Position of the given item.
+        """
         return self.index.get_loc(index)
 
     def create_subset(self, index):
+        """Return a new index object based on the subset of indices given.
+
+        Notes
+        -----
+        During the call subset of not only `self.index`, but also `self.headers` is calculated which may take a while
+        for large indices.
+
+        Parameters
+        ----------
+        index : SeismicIndex or pd.MultiIndex
+            Index values of the subset to create a new `SeismicIndex` object for.
+
+        Returns
+        -------
+        subset : SeismicIndex
+            A subset of the index.
+        """
         if isinstance(index, SeismicIndex):
             index = index.index
 
@@ -243,8 +514,8 @@ class SeismicIndex(DatasetIndex):
             curr_index += len(item_indices)
 
         headers = self.headers.iloc[list(chain.from_iterable(headers_indices))]
-        subset = self.from_attributes(index=index, index_to_headers_pos=index_to_headers_pos,
-                                      headers=headers, surveys_dict=self.surveys_dict)
+        subset = self.from_attributes(headers=headers, surveys_dict=self.surveys_dict, index=index,
+                                      index_to_headers_pos=index_to_headers_pos)
         return subset
 
     #------------------------------------------------------------------------#
@@ -252,6 +523,19 @@ class SeismicIndex(DatasetIndex):
     #------------------------------------------------------------------------#
 
     def copy(self, copy_surveys=True):
+        """Perform a deepcopy of all index attributes except for `surveys_dict`, which will be copied only if
+        `copy_surveys` is `True`.
+
+        Parameters
+        ----------
+        copy_surveys : bool, optional, defaults to True
+            Whether to deepcopy information about surveys in the index.
+
+        Returns
+        -------
+        copy : SeismicIndex
+            A copy of the index.
+        """
         if copy_surveys:
             return deepcopy(self)
         surveys_dict = self.surveys_dict
@@ -261,15 +545,53 @@ class SeismicIndex(DatasetIndex):
         self.surveys_dict = surveys_dict
         return self_copy
 
-    def get_gather(self, survey_name, concat_id, survey_index, **kwargs):
+    def get_gather(self, survey_name, concat_id, gather_index, **kwargs):
+        """Get a gather from a given survey by its index.
+
+        Parameters
+        ----------
+        survey_name : str
+            Survey name to get the gather from.
+        concat_id : int
+            Concatenation index of the source survey.
+        gather_index : pd.MultiIndex
+            Indices of gather traces to get.
+        kwargs : misc, optional
+            Additional keyword arguments to :func:`~Survey.load_gather`.
+
+        Returns
+        -------
+        gather : Gather
+            Loaded gather.
+
+        Raises
+        ------
+        KeyError
+            If unknown survey name was passed.
+        """
         if survey_name not in self.surveys_dict:
             err_msg = "Unknown survey name {}, the index contains only {}"
             raise KeyError(err_msg.format(survey_name, ", ".join(self.surveys_dict.keys())))
         survey = self.surveys_dict[survey_name][concat_id]
-        gather_headers = self.headers.loc[concat_id].loc[survey_index]
+        gather_headers = self.headers.loc[concat_id].loc[gather_index]
         return survey.load_gather(headers=gather_headers, **kwargs)
 
     def reindex(self, new_index, inplace=False):
+        """Reindex `self` with new headers columns. All underlying surveys are reindexed as well.
+
+        Parameters
+        ----------
+        new_index : str or list of str
+            Headers columns to become a new index. Note, that `CONCAT_ID` is always preserved in the index and should
+            not be specified.
+        inplace : bool, optional, defaults to False
+            Whether to perform reindexation inplace or return a new index instance.
+
+        Returns
+        -------
+        index : SeismicIndex
+            Reindexed `self`.
+        """
         self = maybe_copy(self, inplace)
 
         # Reindex headers, keeping CONCAT_ID column in it

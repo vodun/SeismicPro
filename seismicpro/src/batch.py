@@ -38,21 +38,21 @@ class SeismicBatch(Batch):
     @apply_to_each_component(target="for", fetch_method_target=False)
     def _load_gather(self, index, src, dst, **kwargs):
         pos = self.index.get_pos(index)
-        concat_id, survey_index = index[0], index[1:]
+        concat_id, gather_index = index[0], index[1:]
         # Unpack tuple in case of non-multiindex survey
-        if len(survey_index) == 1:
-            survey_index = survey_index[0]
+        if len(gather_index) == 1:
+            gather_index = gather_index[0]
         # Guarantee, that a DataFrame is always returned after .loc, regardless of pandas behaviour
-        survey_index = slice(survey_index, survey_index)
+        gather_index = slice(gather_index, gather_index)
         getattr(self, dst)[pos] = self.index.get_gather(survey_name=src, concat_id=concat_id,
-                                                        survey_index=survey_index, **kwargs)
+                                                        gather_index=gather_index, **kwargs)
 
     @apply_to_each_component(target="for", fetch_method_target=False)
     def _load_combined_gather(self, index, src, dst, parent_index, **kwargs):
         pos = self.index.get_pos(index)
-        survey_index = parent_index.indices.to_frame().loc[index].index
+        gather_index = parent_index.indices.to_frame().loc[index].index
         getattr(self, dst)[pos] = parent_index.get_gather(survey_name=src, concat_id=index,
-                                                          survey_index=survey_index, **kwargs)
+                                                          gather_index=gather_index, **kwargs)
 
     @action
     def update_velocity_cube(self, velocity_cube, src):
