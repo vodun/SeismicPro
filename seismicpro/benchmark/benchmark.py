@@ -1,4 +1,5 @@
 """Implements Benchmark class"""
+# pylint: disable=import-error
 import os
 import shutil
 from hashlib import sha1
