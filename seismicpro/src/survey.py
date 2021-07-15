@@ -664,6 +664,42 @@ class Survey:
     #------------------------------------------------------------------------#
 
     def generate_supergathers(self, size=(3, 3), step=(20, 20), modulo=(0, 0), reindex=True, inplace=False):
+        """Combine several adjacent CDP gathers into ensembles called supergathers.
+
+        Supergather generation is usually performed as a first step of velocity analysis. A substantially larger number
+        of traces processed at once leads to increased signal-to-noise ratio: seismic wave reflections are much more
+        clearly visible than on single CDP gathers and the velocity spectra calculated using
+        :func:`~Gather.calculate_semblance` are more coherent which allow for more accurate stacking velocity picking.
+
+        The method creates two new `headers` columns called `SUPERGATHER_INLINE_3D` and `SUPERGATHER_CROSSLINE_3D`
+        equal to `INLINE_3D` and `CROSSLINE_3D` of the central CDP gather. Note, that some gathers may be assigned to
+        several supergathers at once and their traces will become duplicated.
+
+        Parameters
+        ----------
+        size : tuple of 2 ints, optional, defaults to (3, 3)
+            Supergather size along inline and crossline axes. Measured in lines.
+        step : tuple of 2 ints, optional, defaults to (20, 20)
+            Supergather step along inline and crossline axes. Measured in lines.
+        modulo : tuple of 2 ints, optional, defaults to (0, 0)
+            The remainder of the division of gather coordinates by given `step` for it to become a supergather center.
+            Used to shift the grid of supergathers from the field origin. Measured in lines.
+        reindex : bool, optional, defaults to True
+            Whether to reindex a survey with the created `SUPERGATHER_INLINE_3D` and `SUPERGATHER_CROSSLINE_3D` headers
+            columns.
+        inplace : bool, optional, defaults to False
+            Whether to transform the survey inplace or return a new one.
+
+        Returns
+        -------
+        survey : Survey
+            A survey with generated supergathers.
+
+        Raises
+        ------
+        KeyError
+            If `INLINE_3D` and `CROSSLINE_3D` headers were not loaded.
+        """
         self = maybe_copy(self, inplace)
         index_cols = self.headers.index.names
         headers = self.headers.reset_index()
