@@ -1,4 +1,4 @@
-""" Test for dumping data to sgy files and merging them """
+"""Implementation of tests functions for dump and aggregate segy files."""
 # pylint: disable=missing-docstring
 # pylint: disable=redefined-outer-name
 
@@ -9,37 +9,7 @@ import shutil
 import pytest
 import numpy as np
 
-
-from seismicpro.src import Survey, aggregate_segys, make_prestack_segy
-
-@pytest.fixture(scope='module')
-def segy_path(request):
-    """ Fixture that creates segy file """
-    folder = 'test_tmp'
-    os.mkdir(folder)
-
-    path = os.path.join(folder, 'test_prestack.sgy')
-    make_prestack_segy(path, survey_size=(1000,1000), origin=(0,0), sources_step=(50,300), recievers_step=(100,25),
-                       bin_size=(50,50), activation_dist=(500,500), samples=1500, sample_rate=2000, delay=0,
-                       trace_gen=None,)
-
-    def fin():
-        shutil.rmtree(folder)
-    request.addfinalizer(fin)
-
-    return path
-
-@pytest.fixture(scope='function')
-def tmp_folder(request):
-    """ Make temporary folder """
-    path = 'dump_tmp'
-    os.mkdir(path)
-
-    def fin():
-        shutil.rmtree(path)
-    request.addfinalizer(fin)
-
-    return path
+from seismicpro.src import Survey, aggregate_segys
 
 
 def compare_gathers(expected_gather, suspected_gather):
@@ -61,12 +31,12 @@ def compare_gathers(expected_gather, suspected_gather):
 @pytest.mark.parametrize('header_index', ['FieldRecord', 'TRACE_SEQUENCE_FILE'])
 @pytest.mark.parametrize('header_cols', [None, 'TraceNumber', 'all'])
 @pytest.mark.parametrize('dump_index', [1, 10])
-def test_dump_single_gather(segy_path, tmp_folder, name, copy_header, header_index, header_cols, dump_index):
+def test_dump_single_gather(segy_path, tmp_path, name, copy_header, header_index, header_cols, dump_index):
     survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name)
     expected_gather = survey.get_gather(dump_index)
-    expected_gather.dump(path=tmp_folder, name=name, copy_header=copy_header)
+    expected_gather.dump(path=tmp_path, name=name, copy_header=copy_header)
 
-    files = glob.glob(os.path.join(tmp_folder, '*'))
+    files = glob.glob(os.path.join(tmp_path, '*'))
     assert len(files) == 1, "Dump creates more than one file"
 
     dumped_survey = Survey(files[0], header_index=header_index, header_cols=header_cols)
@@ -86,17 +56,17 @@ def test_dump_single_gather(segy_path, tmp_folder, name, copy_header, header_ind
 
 @pytest.mark.parametrize('dump_kwargs,error',
                          ((dict(path=''), FileNotFoundError),
-                          (dict(path=tmp_folder, name=''), ValueError)))
+                          (dict(path='somepath', name=''), ValueError)))
 def test_dump_single_gather_with_invalid_kwargs(segy_path, dump_kwargs, error):
     survey = Survey(segy_path, header_index='FieldRecord')
-    gather = survey.get_gather(1, )
+    gather = survey.get_gather(1)
     with pytest.raises(error):
         gather.dump(**dump_kwargs)
 
 
 @pytest.mark.parametrize('mode', ['one_folder', 'split'])
 @pytest.mark.parametrize('indices', [[1], [1, 10], 'all'])
-def test_aggregate_segys(segy_path, tmp_folder, mode, indices):
+def test_aggregate_segys(segy_path, tmp_path, mode, indices):
     expected_survey = Survey(segy_path, header_index='FieldRecord', header_cols='all', name='raw')
     indices = expected_survey.headers.index.drop_duplicates() if indices == 'all' else indices
 
@@ -106,11 +76,11 @@ def test_aggregate_segys(segy_path, tmp_folder, mode, indices):
         paths = [''] * len(indices)
     for num, (ix, path) in enumerate(zip(indices, paths)):
         g = expected_survey.get_gather(ix)
-        g.dump(os.path.join(tmp_folder, path), name=f'{num}_{ix}', copy_header=True)
+        g.dump(os.path.join(tmp_path, path), name=f'{num}_{ix}', copy_header=True)
 
-    aggregate_segys(os.path.join(tmp_folder, './**/*.sgy'), os.path.join(tmp_folder, 'aggr.sgy'), recursive=True)
+    aggregate_segys(os.path.join(tmp_path, './**/*.sgy'), os.path.join(tmp_path, 'aggr.sgy'), recursive=True)
 
-    dumped_survey = Survey(os.path.join(tmp_folder, 'aggr.sgy'), header_index='FieldRecord', header_cols='all')
+    dumped_survey = Survey(os.path.join(tmp_path, 'aggr.sgy'), header_index='FieldRecord', header_cols='all')
     assert np.allclose(expected_survey.samples, dumped_survey.samples),"Samples don't match"
     assert np.allclose(expected_survey.sample_rate, dumped_survey.sample_rate), "Sample rate doesn't match"
     assert np.allclose(expected_survey.samples_length, dumped_survey.samples_length), "length of samples doesn't match"
