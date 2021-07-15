@@ -486,37 +486,40 @@ class Survey:
     #------------------------------------------------------------------------#
 
     def copy(self):
-        """Create a deepcopy of Survey instance.
+        """Create a deepcopy of a `Survey` instance.
 
         Returns
         -------
         survey : Survey
-            Copy of Survey instance.
+            Survey copy.
         """
         return deepcopy(self)
 
     @staticmethod
     def _apply(func, df, axis, unpack_args, **kwargs):
-        """Apply function to `pd.DataFrame` along the specified axis.
+        """Apply a function to a `pd.DataFrame` along the specified axis.
 
         Parameters
         ----------
         func : callable
-            Function that will be applied to `df`.
+            A function to be applied to `df`.
         df : pd.DataFrame
-            DataFrame to which the function is applied.
-        axis : int or None
-            A dimension by which the function is applied.
+            A `DataFrame` to which the function will be applied.
+        axis : {0 or "index", 1 or "columns", None}
+            An axis along which the function is applied:
+            - 0 or "index": apply a function to each column,
+            - 1 or "columns": apply a function to each row,
+            - `None`: apply a function to the `DataFrame` as a whole.
         unpack_args : bool
-            If True, given aruments will be unpacked before passing to the `pd.DataFrame.apply` function, otherwise
-            aruments will passed as this.
+            If `True`, row or column values are passed to `func` as individual arguments, otherwise the whole array is
+            passed as a single arg. Has no effect if `axis` is `None`.
         kwargs : misc, optional
-            Additional keyword arguments to pass as keywords arguments to `func` or `pd.DataFrame.apply`.
+            Additional keyword arguments to pass to `func` or `pd.DataFrame.apply`.
 
         Returns
         -------
         result : np.ndarray
-            The result of applying `func` to `df` by specified axis.
+            The result of applying `func` to `df`.
         """
         if axis is None:
             res = func(df, **kwargs)
@@ -526,34 +529,43 @@ class Survey:
         return res.values
 
     def filter(self, cond, cols, axis=None, unpack_args=False, inplace=False, **kwargs):
-        """Filter `self.headers` by certain condition along the specified axis.
+        """Keep only those rows of `headers` where `cond` is `True`.
+
+        Examples
+        --------
+        Keep only traces whose offset is less than 1500 meters:
+        >>> survey = Survey(path, header_index="FieldRecord", header_cols=["TraceNumber", "offset"], name="survey")
+        >>> survey.filter(lambda offset: offset < 1500, cols="offset", inplace=True)
 
         Parameters
         ----------
         cond : callable
-            Function that will be applied to `self.headers` and must return boolean mask with `True` for elements that
-            match the condition, and `False` for elements that don't.
+            A function to be applied to `self.headers` to get a filtering mask. Must return a boolean array whose
+            length equals to length of `headers` and `True` values correspond to traces to keep.
         cols : str or list of str
-            Columns to which condition is applied.
-        axis : int or None, optional, by default None
-            A dimension by which the condition is applied.
-        unpack_args : bool, optional, by default False
-            If True, given aruments will be unpacked before passing to the `pd.DataFrame.apply` function, otherwise
-            aruments will passed as this.
-        inplace : bool, optional, by default False
-            If True, `self.headers` will be filtered inplace, otherwise copy of the Survey is filtered.
+            `self.headers` columns for which condition is checked.
+        axis : {0 or "index", 1 or "columns", None}, optional, defaults to None
+            An axis along which `cond` is applied:
+            - 0 or "index": apply `cond` to each column,
+            - 1 or "columns": apply `cond` to each row,
+            - `None`: apply `cond` to the `DataFrame` as a whole.
+        unpack_args : bool, optional, defaults to False
+            If `True`, row or column values are passed to `cond` as individual arguments, otherwise the whole array is
+            passed as a single arg. Has no effect if `axis` is `None`.
+        inplace : bool, optional, defaults to False
+            Whether to perform filtering inplace or process a survey copy.
         kwargs : misc, optional
-            Additional keyword arguments to pass as keywords arguments to `cond` or `pd.DataFrame.apply`.
+            Additional keyword arguments to pass to `cond` or `pd.DataFrame.apply`.
 
         Returns
         -------
         self : Survey
-            Fileterd Survey.
+            Filtered survey.
 
         Raises
         ------
         ValueError
-            If `cond` is returns more than one bool value for each header row.
+            If `cond` returns more than one bool value for each row of `headers`.
         """
         self = maybe_copy(self, inplace)
         headers = self.headers.reset_index()[to_list(cols)]
@@ -566,32 +578,39 @@ class Survey:
         return self
 
     def apply(self, func, cols, res_cols=None, axis=None, unpack_args=False, inplace=False, **kwargs):
-        """Apply function to `self.headers` along the specified axis.
+        """Apply a function to `self.headers` along the specified axis.
+
+        Examples
+        --------
+        Convert signed offsets to their absolute values:
+        >>> survey = Survey(path, header_index="FieldRecord", header_cols=["TraceNumber", "offset"], name="survey")
+        >>> survey.apply(lambda offset: np.abs(offset), cols="offset", inplace=True)
 
         Parameters
         ----------
         func : callable
-            Function that will be applied to `self.headers` and must return boolean mask with `True` for elements that
-            match the condition, and `False` for elements that don't.
+            A function to be applied to `self.headers`.
         cols : str or list of str
-            Columns to which condition is applied.
-        res_cols : str or list of str, optional, by default None
-            Columns to which result is saved.
-        axis : int or None, optional, by default None
-            A dimension by which the condition is applied.
-        unpack_args : bool, optional, by default False
-            If True, given aruments will be unpacked before passing to the `pd.DataFrame.apply` function, otherwise
-            aruments will passed as this.
-        inplace : bool, optional, by default False
-            If True, the result will be saved into `self.headers` of certain Survey, otherwise copy of the Survey will
-            be created before apply operation.
+            `self.headers` columns for which the function is applied.
+        res_cols : str or list of str, optional, defaults to None
+            `self.headers` columns in which the result is saved. If not given, equals to `cols`.
+        axis : {0 or "index", 1 or "columns", None}, optional, defaults to None
+            An axis along which the function is applied:
+            - 0 or "index": apply a function to each column,
+            - 1 or "columns": apply a function to each row,
+            - `None`: apply a function to the `DataFrame` as a whole.
+        unpack_args : bool, optional, defaults to False
+            If `True`, row or column values are passed to `func` as individual arguments, otherwise the whole array is
+            passed as a single arg. Has no effect if `axis` is `None`.
+        inplace : bool, optional, defaults to False
+            Whether to apply the function inplace or to a survey copy.
         kwargs : misc, optional
-            Additional keyword arguments to pass as keywords arguments to `func` or `pd.DataFrame.apply`.
+            Additional keyword arguments to pass to `func` or `pd.DataFrame.apply`.
 
         Returns
         -------
         self : Survey
-            Survey with new column(s) `res_cols`.
+            A survey with the function applied.
         """
         self = maybe_copy(self, inplace)
         cols = to_list(cols)
@@ -602,19 +621,19 @@ class Survey:
         return self
 
     def reindex(self, new_index, inplace=False):
-        """Change the index in `self.headers` to `new_index`.
+        """Change the index of `self.headers` to `new_index`.
 
         Parameters
         ----------
         new_index : str or list of str
-            Column(s) name that will be the new index.
-        inplace : bool, optional, by default False
-            If True, `self.headers` will be filtered inplace, otherwise copy of the Survey is filtered.
+            Headers columns to become a new index.
+        inplace : bool, optional, defaults to False
+            Whether to perform reindexation inplace or return a new survey instance.
 
         Returns
         -------
         self : Survey
-            Survey with new index.
+            Reindexed survey.
         """
         self = maybe_copy(self, inplace)
         self.headers.reset_index(inplace=True)
@@ -623,23 +642,19 @@ class Survey:
         return self
 
     def set_limits(self, limits):
-        """Convert limits to slice and save it to `self.limits`.
-
-        These limits are default time limits to be used during trace loading and survey statistics calculation.
+        """Update default survey time limits that are used during trace loading and statistics calculation.
 
         Parameters
         ----------
-        limits : int or tuple or slice, optional
-            Time limits. `int` or `tuple` are used to construct a `slice` object directly. Measured in samples.
-            The resulted slice contains three numbers:
-            * start sample position during trace loading,
-            * end sample position during trace loading,
-            * step.
+        limits : int or tuple or slice
+            Default time limits to be used during trace loading and survey statistics calculation. `int` or `tuple` are
+            used as arguments to init a `slice`. The resulting object is stored in `self.limits` attribute. Measured in
+            samples.
 
         Raises
         ------
         ValueError
-            If resulted trace's length is zero.
+            If the resulting samples length is zero.
         """
         self.limits = self._process_limits(limits)
         self.samples = self.file_samples[self.limits]
@@ -648,7 +663,7 @@ class Survey:
             raise ValueError('Trace length must be positive.')
 
     def _process_limits(self, limits):
-        """Convert limits to slice."""
+        """Convert given `limits` to a `slice`."""
         if not isinstance(limits, slice):
             limits = slice(*to_list(limits))
         # Use .indices to avoid negative slicing range
@@ -686,7 +701,7 @@ class Survey:
             Whether to reindex a survey with the created `SUPERGATHER_INLINE_3D` and `SUPERGATHER_CROSSLINE_3D` headers
             columns.
         inplace : bool, optional, defaults to False
-            Whether to transform the survey inplace or return a new one.
+            Whether to transform the survey inplace or process its copy.
 
         Returns
         -------
