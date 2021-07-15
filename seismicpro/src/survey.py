@@ -329,22 +329,22 @@ class Survey:
     #------------------------------------------------------------------------#
 
     def load_gather(self, headers, limits=None, copy_headers=True):
-        """Load gather by given headers.
+        """Load a gather with given `headers`.
 
         Parameters
         ----------
         headers : pd.DataFrame
-            A dataframe of the traces to be loaded.
-        limits : int or tuple or slice or None, optional, by default None
-            Time limits for trace loading. `int` or `tuple` are used to construct a `slice` object directly. If not
-            given, whole traces will be loaded. Measured in samples.
-        copy_headers : bool, optional, by default True
-            If True, the headers will be copied before passing into Gather, overwise headers passing as this.
+            Headers of traces to load. Must be a subset of `self.headers`.
+        limits : int or tuple or slice or None, optional, defaults to None
+            Time range for trace loading. `int` or `tuple` are used as arguments to init a `slice` object. If not
+            given, whole traces are loaded. Measured in samples.
+        copy_headers : bool, optional, defaults to True
+            Whether to copy the passed `headers` when instantiating the gather.
 
         Returns
         -------
         gather : Gather
-            Gather instance.
+            Loaded gather instance.
         """
         if copy_headers:
             headers = headers.copy()
@@ -364,22 +364,22 @@ class Survey:
         return gather
 
     def get_gather(self, index, limits=None, copy_headers=True):
-        """Load gather by specified `index`.
+        """Load a gather with given `index`.
 
         Parameters
         ----------
         index : int or 1d array-like
-            One of indices from `self.headers`.
-        limits : int or tuple or slice or None, optional, by default None
-            Time limits for trace loading. `int` or `tuple` are used to construct a `slice` object directly. If not
-            given, whole traces will be loaded. Measured in samples.
-        copy_headers : bool, optional, by default True
-            If True, the headers will be copied before passing into Gather, overwise headers passing as this.
+            An index of the gather to load. Must be one of `self.headers.index`.
+        limits : int or tuple or slice or None, optional, defaults to None
+            Time range for trace loading. `int` or `tuple` are used as arguments to init a `slice` object. If not
+            given, whole traces are loaded. Measured in samples.
+        copy_headers : bool, optional, defaults to True
+            Whether to copy the subset of survey `headers` describing the gather.
 
         Returns
         -------
         gather : Gather
-            Gather instance.
+            Loaded gather instance.
         """
         gather_headers = self.headers.loc[index]
         # loc may sometimes return Series. In such cases slicing is used to guarantee, that DataFrame is returned
@@ -388,30 +388,30 @@ class Survey:
         return self.load_gather(gather_headers, limits, copy_headers)
 
     def sample_gather(self, limits=None, copy_headers=True):
-        """Load gather with random index.
+        """Load a gather with random index.
 
         Parameters
         ----------
-        limits : int or tuple or slice or None, optional, by default None
-            Time limits for trace loading. `int` or `tuple` are used to construct a `slice` object directly. If not
-            given, whole traces will be loaded. Measured in samples.
-        copy_headers : bool, optional, by default True
-            If True, the headers will be copied before passing into Gather, overwise headers passing as this.
+        limits : int or tuple or slice or None, optional, defaults to None
+            Time range for trace loading. `int` or `tuple` are used as arguments to init a `slice` object. If not
+            given, whole traces are loaded. Measured in samples.
+        copy_headers : bool, optional, defaults to True
+            Whether to copy the subset of survey `headers` describing the sampled gather.
 
         Returns
         -------
         gather : Gather
-            Gather instance.
+            Loaded gather instance.
         """
         index = np.random.choice(self.headers.index)
         gather = self.get_gather(index=index, limits=limits, copy_headers=copy_headers)
         return gather
 
     def load_trace(self, buf, index, limits, trace_length):
-        """Load single trace with `index` position in SEG-Y file.
+        """Load a single trace from a SEG-Y file by its position.
 
-        To optimize trace loading process we use segyio's function `xfd.gettr`. We could not find a description of the
-        input parameters, so we empirically determined their purpose:
+        In order to optimize trace loading process, we use `segyio`'s low-level function `xfd.gettr`. Description of
+        its arguments is given below:
             1. A buffer to write the loaded trace to,
             2. An index of the trace in a SEG-Y file to load,
             3. Unknown arg (always 1),
@@ -426,46 +426,44 @@ class Survey:
         buf : 1d np.ndarray of float32
             An empty array to save the loaded trace.
         index : int
-            The position of the essential trace in the file.
+            Trace position in the file.
         limits : slice
-            Time slice for trace loading. Measured in samples.
+            Trace time range to load. Measured in samples.
         trace_length : int
-            The length of loading trace
+            Total number of samples to load.
 
         Returns
         -------
         trace : 1d np.ndarray of float32
-            Amplitudes of trace with `index` position.
+            Loaded trace.
         """
         return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
 
     def load_first_breaks(self, path, first_breaks_col='FirstBreak'):
-        """Load first breaks and save it to `self.headers`.
+        """Load times of first breaks and save them to `headers`.
 
-        File with first breaks data has three columns: FieldRecord, TraceNumber, FirstBreaks. The combination of
-        FieldRecord and TraceNumber is a unique trace identifier. Thus we use it to match the value of the first breaks
-        with the corresponding trace in `self.headers` and save the first break time to the column with name
-        `first_breaks_col`.
-
+        A file with first breaks data must have three columns: `FieldRecord`, `TraceNumber` and times of first
+        arrivals in milliseconds. The combination of `FieldRecord` and `TraceNumber` acts as a unique trace identifier
+        and is used to match the times of first breaks with the corresponding traces in `self.headers` and save them
+        into the column specified by `first_breaks_col`.
 
         Parameters
         ----------
         path : str
-            A path to the file with first breaks
-        first_breaks_col : str, optional, by default 'FirstBreak'
-            Column name in `self.headers` where the first breaks will be stored.
+            A path to the file with first break times in milliseconds.
+        first_breaks_col : str, optional, defaults to 'FirstBreak'
+            Column name in `self.headers` where loaded first break times will be stored.
 
         Returns
         -------
         self : Survey
-            Survey instance with first breaks column in headers.
+            A survey with loaded first break times. Changes `self.headers` inplace.
 
         Raises
         ------
         ValueError
-            If FieldRecord or TraceNumber are missed in `self.headers`.
-            If there are no matches between columns ('FieldRecord', 'TraceNumber') in file with first breaks and in
-            survey's headers.
+            If `FieldRecord` or `TraceNumber` headers were not loaded.
+            If ('FieldRecord', 'TraceNumber') pairs from the file do not match those in `self.headers`.
         """
         segy_columns = ['FieldRecord', 'TraceNumber']
         first_breaks_columns = segy_columns + [first_breaks_col]
