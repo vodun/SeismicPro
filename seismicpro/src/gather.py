@@ -537,18 +537,20 @@ class Gather:
 
     @batch_method(target="threads")
     def pick_to_mask(self, first_breaks_col="FirstBreak", mask_attr="mask"):
-        """Convert first break picks to binary mask that contains zeros above the first break picks and ones below.
-        The binary mask has the same shape as `gather.data` and is stored in the `mask` attribute.
+        """Convert first break times to a binary mask with the same shape as `gather.data` containing zeros before the
+        first arrivals and ones after for each trace.
 
         Parameters
         ----------
-        first_breaks_col : str, optional, by default 'FirstBreak'
-            Column in `self.headers` that contains first break picks, measured in milliseconds.
+        first_breaks_col : str, optional, defaults to 'FirstBreak'
+            A column of `self.headers` that contains first arrival times, measured in milliseconds.
+        mask_attr : str, optional, defaults to 'mask'
+            Gather attribute to store the mask in.
 
         Returns
         -------
         self : Gather
-            Gather with first breaks mask in `mask` attribute.
+            Gather with calculated first breaks mask. Overwrites `mask_attr` attribute if it exists.
         """
         self.validate(required_header_cols=first_breaks_col)
         mask = convert_times_to_mask(times=self[first_breaks_col], sample_rate=self.sample_rate,
@@ -558,36 +560,38 @@ class Gather:
 
     @batch_method(target='for')
     def mask_to_pick(self, threshold=0.5, first_breaks_col="FirstBreak", mask_attr="mask"):
-        """Convert mask stored in the `mask` attribute into first break picks.
+        """Convert a first break mask into times of first arrivals.
 
-        The conversion procedure consists of the following steps:
-        1. Binarize the mask at the specified `threshold`
-        2. Find the longest sequence of ones by the first axis and return an index of the first element of the found
-           sequence.
-        3. Convert index to time and save the result to the headers' column with the name `first_breaks_col`.
+        The mask shape should match the shape of `gather.data`, each its value should represent a probability of
+        corresponding index along the trace to follow the first break.
 
-        The points found are measured in milliseconds.
+        Notes
+        -----
+        A detailed description of conversion heuristic used can be found in :func:`~general_utils.convert_mask_to_pick`
+        docs.
 
         Parameters
         ----------
-        threshold : float, optional, by default 0.5
-            The boundary value above which the presence of a first break picks is considered.
-        first_breaks_col : str, optional, by default 'FirstBreak'
-            Headers column to save first breaks in.
+        threshold : float, optional, defaults to 0.5
+            A threshold for trace mask value to refer its index to be either pre- or post-first break.
+        first_breaks_col : str, optional, defaults to 'FirstBreak'
+            Headers column to save first break times to.
+        mask_attr : str, optional, defaults to 'mask'
+            Gather attribute to get the mask from.
 
         Returns
         -------
         self : Gather
-            Gather with first break points in headers' column named `first_breaks_col`.
+            A gather with first break times in headers column defined by `first_breaks_col`.
 
         Raises
         ------
         ValueError
-            If the `mask` attribute does not exist.
+            If an attribute defined by `mask_attr` does not exist.
         """
         mask = getattr(self, mask_attr, None)
         if mask is None:
-            raise ValueError("Empty mask attribute")
+            raise ValueError(f"Mask attribute given by '{mask_attr}' does not exist")
         self[first_breaks_col] = convert_mask_to_pick(mask, self.sample_rate, threshold)
         return self
 

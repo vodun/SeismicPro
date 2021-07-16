@@ -91,27 +91,33 @@ def create_supergather_index(centers, size):
 
 @njit(nogil=True)
 def convert_times_to_mask(times, sample_rate, mask_length):
-    """Construct the bool mask based on `times` with shape (mask_length, len(times)).
+    """Convert `times` to indices by dividing them by `sample_rate` and rounding to the nearest integer and construct a
+    binary mask with shape (len(times), mask_length) with `False` values before calculated time index for each row and
+    `True` after.
 
-    The mask contains False above time indices and True below. Time indices are calculated as:
-
-    :math: `ix = round(t/s)`,
-
-    where `t` is a `times` and `s` is a `sample_rate`. The `round` operation is round result to the nearest integer.
+    Examples
+    --------
+    >>> times = np.array([0, 4, 6])
+    >>> sample_rate = 2
+    >>> mask_length = 5
+    >>> convert_times_to_mask(times, sample_rate, mask_length)
+    array([[ True,  True,  True,  True,  True],
+           [False, False,  True,  True,  True],
+           [False, False, False,  True,  True]])
 
     Parameters
     ----------
     times : 1d np.ndarray
-        Time values. Measured in milliseconds.
-    sample_rate : int, float
+        Time values to construct the mask. Measured in milliseconds.
+    sample_rate : float
         Sample rate of seismic traces. Measured in milliseconds.
     mask_length : int
-        Length of resulted mask.
+        Length of resulted mask for each time.
 
     Returns
     -------
     mask : np.ndarray of bool
-        Bool mask with shape (mask_length, len(times)).
+        Bool mask with shape (len(times), mask_length).
     """
     times_ixs = np.rint(times / sample_rate)
     mask = (np.arange(mask_length) - times_ixs.reshape(-1, 1)) >= 0
@@ -120,31 +126,42 @@ def convert_times_to_mask(times, sample_rate, mask_length):
 
 @njit(nogil=True, parallel=True)
 def convert_mask_to_pick(mask, sample_rate, threshold):
-    """Convert `mask` into an array of times.
+    """Convert a first breaks `mask` into an array of arrival times.
 
-    Every time in the resulted array represents the start time of the longest sequence of numbers that is greater than
-    the `threshold` in the `mask` by the first axis.
+    The mask has shape (n_traces, trace_length), each its value represents a probability of corresponding index along
+    the trace to follow the first break. A naive approach is to define the first break time index as the location of
+    the first trace value exceeding the `threshold`. Unfortunately, it results in noisy predictions, so the following
+    conversion procedure is proposed as it appears to be more stable:
+    1. Binarize the mask according to the specified `threshold`,
+    2. Find the longest sequence of ones in the `mask` for each trace and save indices of the first elements of the
+       found sequences,
+    3. Convert the found indices to times by multiplying them by `sample_rate`.
 
-    The conversion procedure consists of the following steps:
-    1. Binarize the mask at the specified `threshold`
-    2. Find the longest sequence of ones in `mask` and save an index of the first element of the found sequence
-    3. Convert the index to the time as index * `sample_rate`.
-
-    The times found are measured in milliseconds.
+    Examples
+    --------
+    >>> mask = np.array([[  1, 1, 1, 1, 1],
+    >>>                  [  0, 0, 1, 1, 1],
+    >>>                  [0.6, 0, 0, 1, 1]])
+    >>> sample_rate = 2
+    >>> threshold = 0.5
+    >>> convert_mask_to_pick(mask, sample_rate, threshold)
+    array([0, 4, 6])
 
     Parameters
     ----------
-    mask : 2d np.npdarray
-        Array with
+    mask : 2d np.ndarray
+        An array with shape (n_traces, trace_length), with each value representing a probability of corresponding index
+        along the trace to follow the first break.
     sample_rate : int
         Sample rate of seismic traces. Measured in milliseconds.
-    threshold : int, float
-        The boundary value above which the presence of a signal is considered.
+    threshold : float
+        A threshold for trace mask value to refer its index to be either pre- or post-first break.
 
     Returns
     -------
     times : np.ndarray with length len(mask)
-        The start time of the longest sequence that is greater than the threshold in the `mask` by the first axis.
+        Start time of the longest sequence with `mask` values greater than the `threshold` for each trace. Measured in
+        milliseconds.
     """
     picking_array = np.empty(len(mask), dtype=np.int32)
     for i in prange(len(mask)):
