@@ -366,7 +366,7 @@ class SeismicIndex(DatasetIndex):
 
         Notes
         -----
-        Detailed description of index merging can be found in :class:`~SeismicIndex` docs.
+        A detailed description of index merging can be found in :class:`~SeismicIndex` docs.
 
         Parameters
         ----------
@@ -404,7 +404,7 @@ class SeismicIndex(DatasetIndex):
 
         Notes
         -----
-        Detailed description of index concatenation can be found in :class:`~SeismicIndex` docs.
+        A detailed description of index concatenation can be found in :class:`~SeismicIndex` docs.
 
         Parameters
         ----------

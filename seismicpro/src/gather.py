@@ -1,4 +1,4 @@
-"""Implements Gather class"""
+"""Implements Gather class that represents a group of seismic traces that share some common acquisition parameter"""
 
 import os
 import warnings
@@ -31,6 +31,13 @@ class Gather:
 
     Most of the methods change gather data inplace, thus `Gather.copy` may come in handy to keep the original gather
     available.
+
+    Examples
+    --------
+    Let's load a randomly selected common source gather, sort it by offset and plot:
+    >>> survey = Survey(path, header_index="FieldRecord", header_cols=["TraceNumber", "offset"], name="survey")
+    >>> gather = survey.sample_gather().sort(by="offset")
+    >>> gather.plot()
 
     Parameters
     ----------
@@ -583,7 +590,7 @@ class Gather:
         """Create an instance of :class:`~.Muter` class.
 
         This method redirects the call into a corresponding `Muter.from_{mode}` classmethod. The created object is
-        callable and returns times up to which muting should be performed for given offsets. Detailed description of
+        callable and returns times up to which muting should be performed for given offsets. A detailed description of
         `Muter` instance can be found in :class:`~muting.Muter` docs.
 
         Parameters
@@ -641,11 +648,79 @@ class Gather:
 
     @batch_method(target="threads", copy_src=False)
     def calculate_semblance(self, velocities, win_size=25):
+        """Calculate vertical velocity semblance for the gather.
+
+        Notes
+        -----
+        The gather should be sorted by offset. A detailed description of vertical velocity semblance and its
+        computation algorithm can be found in :func:`~semblance.Semblance` docs.
+
+        Examples
+        --------
+        Calculate semblance for 200 velocities from 2000 to 6000 m/s and a temporal window size of 8 samples:
+        >>> gather = gather.sort(by="offset")
+        >>> semblance = gather.calculate_semblance(velocities=np.linspace(2000, 6000, 200), win_size=8)
+
+        Parameters
+        ----------
+        velocities : 1d np.ndarray
+            Range of velocity values for which semblance is calculated. Measured in meters/seconds.
+        win_size : int, optional, defaults to 25
+            Temporal window size used for semblance calculation. The higher the `win_size` is, the smoother the
+            resulting semblance will be but to the detriment of small details. Measured in samples.
+
+        Returns
+        -------
+        semblance : Semblance
+            Calculated vertical velocity semblance.
+
+        Raises
+        ------
+        ValueError
+            If the gather is not sorted by offset.
+        """
         self.validate(required_sorting="offset")
         return Semblance(gather=self, velocities=velocities, win_size=win_size)
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
     def calculate_residual_semblance(self, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2):
+        """Calculate residual vertical velocity semblance for the gather and a chosen stacking velocity.
+
+        Notes
+        -----
+        The gather should be sorted by offset. A detailed description of residual vertical velocity semblance and its
+        computation algorithm can be found in :func:`~semblance.ResidualSemblance` docs.
+
+        Examples
+        --------
+        Calculate residual semblance for a gather and a stacking velocity, loaded from a file:
+        >>> gather = gather.sort(by="offset")
+        >>> velocity = StackingVelocity.from_file(velocity_path)
+        >>> residual = gather.calculate_residual_semblance(velocity, n_velocities=100, win_size=8)
+
+        Parameters
+        ----------
+        stacking_velocity : StackingVelocity
+            Stacking velocity around which residual semblance is calculated.
+        n_velocities : int, optional, defaults to 140
+            The number of velocities to compute residual semblance for.
+        win_size : int, optional, defaults to 25
+            Temporal window size used for semblance calculation. The higher the `win_size` is, the smoother the
+            resulting semblance will be but to the detriment of small details. Measured in samples.
+        relative_margin : float, optional, defaults to 0.2
+            Relative velocity margin, that determines the velocity range for semblance calculation for each time `t` as
+            `stacking_velocity(t)` * (1 +- `relative_margin`).
+
+        Returns
+        -------
+        semblance : ResidualSemblance
+            Calculated residual vertical velocity semblance.
+
+        Raises
+        ------
+        ValueError
+            If the gather is not sorted by offset.
+        """
         self.validate(required_sorting="offset")
         return ResidualSemblance(gather=self, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
                                  win_size=win_size, relative_margin=relative_margin)
@@ -682,7 +757,7 @@ class Gather:
 
         Notes
         -----
-        Detailed description of NMO correction can be found in :func:`~correction.apply_nmo` docs.
+        A detailed description of NMO correction can be found in :func:`~correction.apply_nmo` docs.
 
         Parameters
         ----------
