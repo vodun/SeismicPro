@@ -5,7 +5,6 @@
 import os
 
 import glob
-import shutil
 import pytest
 import numpy as np
 
