@@ -16,6 +16,9 @@ jobs:
       with:
         submodules: true
 
+    - name: Update git
+      run: apt install git -y
+
     - name: Update pylint
       run: pip3 install -U pylint
 
