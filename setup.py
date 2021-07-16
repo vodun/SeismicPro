@@ -38,6 +38,7 @@ setup(
         'matplotlib>=3.3.1',
         'seaborn>=0.11.1',
         'dill>=0.3.3',
+        'multiprocess>=0.70.11',
         'batchflow @ git+https://github.com/analysiscenter/batchflow.git@cd56b9e#egg=batchflow',
     ],
     classifiers=[
