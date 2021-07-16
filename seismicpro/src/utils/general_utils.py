@@ -170,18 +170,19 @@ def convert_mask_to_pick(mask, sample_rate, threshold):
 
 @njit(nogil=True)
 def mute_gather(gather_data, muting_times, sample_rate, fill_value):
-    """Fill area above `muting_times` with `fill_value`.
+    """Fill area before `muting_times` with `fill_value`.
 
     Parameters
     ----------
     gather_data : 2d np.ndarray
         Gather data to mute.
-    muting_times : array-like
-        Time values. Measured in milliseconds.
-    sample_rate : int
+    muting_times : 1d np.ndarray
+        Time values up to which muting is performed. Its length must match `gather_data.shape[0]`. Measured in
+        milliseconds.
+    sample_rate : float
         Sample rate of seismic traces. Measured in milliseconds.
-    fill_value : int, float, None
-         The values to fill muted part of gather with.
+    fill_value : float
+         A value to fill the muted part of the gather with.
 
     Returns
     -------

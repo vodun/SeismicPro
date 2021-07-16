@@ -580,24 +580,23 @@ class Gather:
 
     @batch_method(target="for", copy_src=False)
     def create_muter(self, mode="first_breaks", **kwargs):
-        """Create instance of :class:`~.Muter` class.
+        """Create an instance of :class:`~.Muter` class.
 
-        This method redirects the call into classmethod with the name `Muter.from_{mode}`.
-
-        The created Muter object is intended to determine the muting time based on the offset. Detailed description of
+        This method redirects the call into a corresponding `Muter.from_{mode}` classmethod. The created object is
+        callable and returns times up to which muting should be performed for given offsets. Detailed description of
         `Muter` instance can be found in :class:`~muting.Muter` docs.
 
         Parameters
         ----------
-        mode :{"points", "file", "first_breaks"}, optional, default "first_breaks"
-            Type of Muter.
+        mode : {"points", "file", "first_breaks"}, optional, defaults to "first_breaks"
+            Type of `Muter` to create.
         kwargs : misc, optional
-            Additional keyword arguments to Muter.from_{mode}.
+            Additional keyword arguments to `Muter.from_{mode}`.
 
         Returns
         -------
-        self : Muter
-            Muter instance.
+        muter : Muter
+            Created muter.
 
         Raises
         ------
@@ -615,16 +614,17 @@ class Gather:
 
     @batch_method(target="threads", args_to_unpack="muter")
     def mute(self, muter, fill_value=0):
-        """Mute gather use given `muter`.
+        """Mute the gather using given `muter`.
 
-        The muting operation consists in filling the area above the specified by `muter` times with `fill_value`.
+        The muting operation is performed by setting gather values above an offset-time boundary defined by `muter` to
+        `fill_value`.
 
         Parameters
         ----------
         muter : Muter
-            An object that determines the time to mute based on given offset.
-        fill_value : int, optional, default
-            The values to fill muted part of gather with.
+            A object that defines muting times by gather offsets.
+        fill_value : float, defaults to 0
+            A value to fill the muted part of the gather with.
 
         Returns
         -------
