@@ -167,11 +167,10 @@ def dump_vfunc(path, vfunc_list):
     with open(path, 'w') as f:
         for inline, crossline, times, offsets in vfunc_list:
             f.write('{:8}{:<8}{:<8}\n'.format('VFUNC', inline, crossline))
-
-            data = np.dstack([times, offsets]).flatten()
-            n_rows = int(np.ceil(len(data) / 8))
-            for i in range(n_rows):
-                row = data[i*8:(i+1)*8]
+    
+            data = np.dstack([times, offsets])
+            rows = np.split(data.flatten(), np.arange(8, data.size, 8))
+            for row in rows:
                 f.write(''.join(['{:<8.0f}'.format(i) for i in row] + ['\n']))
 
 
