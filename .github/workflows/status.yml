@@ -13,7 +13,10 @@ jobs:
 
     steps:
     - name: Update git
-      run: apt install git -y
+      run: |
+        add-apt-repository -y ppa:git-core/ppa
+        apt update
+        apt install git -y
 
     - name: Checkout SeismicPro
       uses: actions/checkout@v2
