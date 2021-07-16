@@ -12,12 +12,13 @@ jobs:
       image: analysiscenter1/ds-py3:latest
 
     steps:
-    - uses: actions/checkout@v2
-      with:
-        submodules: true
-
     - name: Update git
       run: apt install git -y
+
+    - name: Checkout SeismicPro
+      uses: actions/checkout@v2
+      with:
+        submodules: true
 
     - name: Update pylint
       run: pip3 install -U pylint
