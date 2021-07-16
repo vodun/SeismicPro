@@ -60,17 +60,59 @@ class SeismicBatch(Batch):
         return self
 
     @action
-    def make_data(self, src, dst, concat_axis=None, stack_axis=None, expand_dims_axis=None):
-        if isinstance(src, str):
-            data = getattr(self, src)
-        else:
-            # what about copy here?
-            data = src
+    def make_model_inputs(self, src, dst, mode='c', axis=0, expand_dims_axis=None):
+        """Prepare an array of input values for the neural network model.
 
-        if concat_axis is not None:
-            data = np.concatenate(data, axis=concat_axis)
-        elif stack_axis is not None:
-            data = np.stack(data, axis=stack_axis)
+        The method produces two-stage data processing:
+        1. Using the `mode` parameter, choose whether to `concatenate` or `stack` the input array.
+        2. Expand dims of the resulted array along the `expand_dims_axis` axis.
+
+        There are two approaches to how the data can be stored and passed to this method:
+        1. Batch component that contains a np.ndarray with dtype `object`. Every element of this array contains the
+         data that goes into the model. Here, just pass the component's name to `src` for data conversion.
+        2. Batch component that contains a np.ndarray of instances of some class. In this case, every element of this
+        array has data for the model in one of the class attribute/item. Named expression `BA` allows to extract the
+        data from a certain attribute of the class and pass it directly to the `src` parameter as a np.ndarray.
+
+        Examples
+        --------
+        Load gathers, exctract them from `Gather` using `BA` named expression, concat them into the array with one
+        dummy axis and save the result to the `inputs` component:
+        >>> pipeline = (Pipeline()
+                        .load(src='raw')
+                        .make_model_inputs(src=BA('raw').data, dst='inputs', mode='c', axis=0, expand_dims_axis=1)
+                        )
+        >>> batch = pipeline.next_batch(3)
+        >>> batch.inputs.shape
+        (3, 1000, 1500)
+
+        Parameters
+        ----------
+        src : src or np.ndarray
+            A component's name or a np.ndarray with dtype `object` that needs to be processed.
+        dst : src
+            A component's name to store the result in.
+        mode : {'c' or 's'}, optional, default to 'c'
+            A mode that determines how to join a sequence of arrays:
+            - 'c' apply `np.concatenate` to the data from `src` by specified `axis`.
+            - 's' apply `np.stack` to the data from `src` by specified `axis`.
+        axis : int or None, optional, default to 0
+            The axis along which the arrays will be joined or stacked. There are two outcomes when the `axis` is None:
+            - if `mode` is `c` arrays are flattened before use.
+            - if `mode` is `s`, the axis cannot be None.
+            The maximal `axis` value equal to `data.ndim` - 1.
+        expand_dims_axis : int or None, optional, default to None
+            Insert a new axis that will appear at the `expand_dims_axis` position in the expanded array shape. The
+            maximal axis value equal to `data.ndim` - 1. If `None`, the expansion does not occur.
+
+        Returns
+        -------
+        self : Batch
+            Batch with resulted `np.ndarray` in the `dst` component.
+        """
+        data = getattr(self, src) if isinstance(src, str) else src
+        func = np.concatenate if mode == 'c' else np.stack
+        data = func(data, axis=axis)
 
         if expand_dims_axis is not None:
             data = np.expand_dims(data, axis=expand_dims_axis)
@@ -78,7 +120,46 @@ class SeismicBatch(Batch):
         return self
 
     @action
-    def split_results(self, src, dst, shapes):
+    def split_model_outputs(self, src, dst, shapes):
+        """Split an array from `src` component into multiple sub-arrays and save it to a `dst` component.
+
+        Usually, this method is called after the :func:`~.make_model_inputs` method and performs the opposite
+        operation. It is intended for disassembling the model's output into batches with sizes specified in a `shape`
+        parameter.
+
+        Examples
+        --------
+        Split data from an `input` component and save it into an `outputs` component:
+        >>> pipeline = (Pipeline()
+                        .load(src='raw')
+                        .make_model_inputs(src=BA('raw').data, dst='inputs', mode='c', axis=0, expand_dims_axis=1)
+                        .split_model_outputs(src='inputs', dst='outputs', shapes=[1000, 1000, 1000])
+                        )
+        >>> batch = pipeline.next_batch(3)
+        >>> batch.outputs[0].shape
+        (1, 1000, 1500)
+
+        Parameters
+        ----------
+        src : str
+            A component's name with model outputs.
+        dst : str or BA
+            - if `stc`, save resulted sub-arrays into a `dst` component.
+            - if `BA`, save resulted sub-arrays into a class attribute described in `BA` named expression.
+        shapes : 1d array-like
+            An array with sizes of every sub-array. The length of this array must be equal to the current batch size.
+            If the size of the last group is less than the number of remaining elements in `src`, these elements will
+            still be written to this group. For example, ``[2, 3, 2]`` would result in
+
+                - src[:2]
+                - src[2:5]
+                - src[5:]
+
+        Returns
+        -------
+        self : Batch
+            Batch with split data.
+        """
         data = getattr(self, src)
         shapes = np.cumsum(shapes)[:-1]
         splitted_data = np.split(data, shapes)
