@@ -731,6 +731,29 @@ class Gather:
 
     @batch_method(target="for")
     def sort(self, by):
+        """Sort `headers` and gather's data by specified header column.
+
+        Notes
+        -----
+        The column `by` stores in `sort_by` attribute.
+
+        Parameters
+        ----------
+        by : str
+            Column name to sort `headers` by.
+
+        Returns
+        -------
+        self : Gather
+            Gather sorted by `by` column.
+
+        Raises
+        ------
+        TypeError
+            If `by` is not str.
+        ValueError
+            If `by` column is missed in `headers.columns`.
+        """
         if not isinstance(by, str):
             raise TypeError('`by` should be str, not {}'.format(type(by)))
         self.validate(required_header_cols=by)
@@ -809,6 +832,20 @@ class Gather:
 
     @batch_method(target="for", copy_src=False)
     def plot(self, figsize=(10, 7), **kwargs):
+        """Plot gather.
+
+        Parameters
+        ----------
+        figsize : tuple, optional, by default (10, 7)
+            Output plot size.
+        kwargs : misc, optional
+            Additional keyword arguments to `matplotlib.pyplot.imshow`.
+
+        Returns
+        -------
+        self : Gather
+            Unchanged gather.
+        """
         vmin, vmax = self.get_quantile([0.1, 0.9])
         default_kwargs = {
             'cmap': 'gray',
