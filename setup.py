@@ -40,6 +40,7 @@ setup(
         'dill>=0.3.3',
         'multiprocess>=0.70.11',
         'requests>=2.24',
+        'psutil>=5.7.2',
         'batchflow @ git+https://github.com/analysiscenter/batchflow.git@cd56b9e#egg=batchflow',
     ],
     classifiers=[
