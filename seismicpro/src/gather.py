@@ -257,7 +257,7 @@ class Gather:
 
         Notes
         -----
-        All binary and textual headers are copied from the parent segy unchanged.
+        All binary and textual headers are copied from the parent SEG-Y file unchanged.
 
         Parameters
         ----------
@@ -267,12 +267,17 @@ class Gather:
             The name of the file. If `None`, the concatenation of the survey name and the value of gather index will
             be used.
         copy_header : bool, optional, defaults to False
-            Whether to copy the headers that weren't loaded during Survey creation from the parent segy.
+            Whether to copy the headers that weren't loaded during Survey creation from the parent SEG-Y file.
 
         Returns
         -------
         self : Gather
             Gather unchanged.
+
+        Raises
+        ------
+        ValueError
+            If empty `name` was specified.
         """
         parent_handler = self.survey.segy_handler
 
@@ -294,30 +299,30 @@ class Gather:
 
         trace_headers = self.headers.reset_index()
 
-        # Remember ordinal numbers of traces in parent segy to further copy their headers
-        # and reset them to start from 1 in the resulting file to match segy standard.
+        # Remember ordinal numbers of traces in the parent SEG-Y file to further copy their headers
+        # and reset them to start from 1 in the resulting file to match SEG-Y standard.
         trace_ids = trace_headers["TRACE_SEQUENCE_FILE"].values - 1
         trace_headers["TRACE_SEQUENCE_FILE"] = np.arange(len(trace_headers)) + 1
 
-        # Keep only headers, relevant to segy file.
+        # Keep only headers, defined by SEG-Y standard.
         used_header_names = set(trace_headers.columns) & set(segyio.tracefield.keys.keys())
         trace_headers = trace_headers[used_header_names]
 
-        # Now we change column name's into byte number based on the segy standard.
+        # Now we change column name's into byte number based on the SEG-Y standard.
         trace_headers.rename(columns=lambda col_name: segyio.tracefield.keys[col_name], inplace=True)
         trace_headers_dict = trace_headers.to_dict("index")
 
         with segyio.create(full_path, spec) as dump_handler:
-            # Copy binary headers from parent segy. This is possibly incorrect and needs to be checked
+            # Copy binary headers from the parent SEG-Y file. This is possibly incorrect and needs to be checked
             # if the number of traces or sample ratio changes.
             # TODO: Check if bin headers matter
             dump_handler.bin = parent_handler.bin
 
-            # Copy textual headers from parent segy.
+            # Copy textual headers from the parent SEG-Y file.
             for i in range(spec.ext_headers + 1):
                 dump_handler.text[i] = parent_handler.text[i]
 
-            # Dump traces and their headers. Optionally copy headers from parent segy.
+            # Dump traces and their headers. Optionally copy headers from the parent SEG-Y file.
             dump_handler.trace = self.data
             for i, dump_h in trace_headers_dict.items():
                 if copy_header:
@@ -363,7 +368,7 @@ class Gather:
         Parameters
         ----------
         q : float or array-like of floats
-            Quantile or sequence of quantiles to compute, which must be between 0 and 1 inclusive.
+            Quantile or a sequence of quantiles to compute, which must be between 0 and 1 inclusive.
         tracewise : bool, optional, default False
             If `True`, the quantiles are computed for each trace independently, otherwise for the entire gather.
         use_global : bool, optional, default False
@@ -373,6 +378,11 @@ class Gather:
         -------
         q : float or array-like of floats
             The `q`-th quantile values.
+
+        Raises
+        ------
+        ValueError
+            If `use_global` is `True` but global statistics were not calculated.
         """
         if use_global:
             return self.survey.get_quantile(q)
@@ -629,7 +639,7 @@ class Gather:
         Parameters
         ----------
         muter : Muter
-            A object that defines muting times by gather offsets.
+            An object that defines muting times by gather offsets.
         fill_value : float, defaults to 0
             A value to fill the muted part of the gather with.
 
@@ -726,53 +736,8 @@ class Gather:
                                  win_size=win_size, relative_margin=relative_margin)
 
     #------------------------------------------------------------------------#
-    #                       Gather processing methods                        #
+    #                           Gather corrections                           #
     #------------------------------------------------------------------------#
-
-    @batch_method(target="for")
-    def sort(self, by):
-        """Sort `headers` and gather's data by specified header column.
-
-        Notes
-        -----
-        The column `by` stores in `sort_by` attribute.
-
-        Parameters
-        ----------
-        by : str
-            Column name to sort `headers` by.
-
-        Returns
-        -------
-        self : Gather
-            Gather sorted by `by` column.
-
-        Raises
-        ------
-        TypeError
-            If `by` is not str.
-        ValueError
-            If `by` column is missed in `headers.columns`.
-        """
-        if not isinstance(by, str):
-            raise TypeError('`by` should be str, not {}'.format(type(by)))
-        self.validate(required_header_cols=by)
-        order = np.argsort(self.headers[by].values, kind='stable')
-        self.sort_by = by
-        self.data = self.data[order]
-        self.headers = self.headers.iloc[order]
-        return self
-
-    @batch_method(target="for")
-    def get_central_cdp(self):
-        self.validate(required_header_cols=["INLINE_3D", "SUPERGATHER_INLINE_3D",
-                                            "CROSSLINE_3D", "SUPERGATHER_CROSSLINE_3D"])
-        headers = self.headers.reset_index()
-        mask = ((headers["SUPERGATHER_INLINE_3D"] == headers["INLINE_3D"]) &
-                (headers["SUPERGATHER_CROSSLINE_3D"] == headers["CROSSLINE_3D"])).values
-        self.headers = self.headers.loc[mask]
-        self.data = self.data[mask]
-        return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
     def apply_nmo(self, stacking_velocity, coords_columns="index"):
@@ -810,8 +775,85 @@ class Gather:
         self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms, self.sample_rate)
         return self
 
+    #------------------------------------------------------------------------#
+    #                       General processing methods                       #
+    #------------------------------------------------------------------------#
+
+    @batch_method(target="for")
+    def sort(self, by):
+        """Sort gather `headers` and traces by specified header column.
+
+        Parameters
+        ----------
+        by : str
+            `headers` column name to sort the gather by.
+
+        Returns
+        -------
+        self : Gather
+            Gather sorted by `by` column. Sets `sort_by` attribute to `by`.
+
+        Raises
+        ------
+        TypeError
+            If `by` is not str.
+        ValueError
+            If `by` column was not loaded in `headers`.
+        """
+        if not isinstance(by, str):
+            raise TypeError('`by` should be str, not {}'.format(type(by)))
+        self.validate(required_header_cols=by)
+        order = np.argsort(self.headers[by].values, kind='stable')
+        self.sort_by = by
+        self.data = self.data[order]
+        self.headers = self.headers.iloc[order]
+        return self
+
+    @batch_method(target="for")
+    def get_central_cdp(self):
+        """Get a central CDP gather from a supergather.
+
+        A supergather has `SUPERGATHER_INLINE_3D` and `SUPERGATHER_CROSSLINE_3D` headers columns, whose values are
+        equal to values in `INLINE_3D` and `CROSSLINE_3D` only for traces from the central CDP gather. Read more about
+        supergather generation in :func:`~Survey.generate_supergathers` docs.
+
+        Returns
+        -------
+        self : Gather
+            `self` with only traces from the central CDP gather kept. Updates `self.headers` and `self.data` inplace.
+
+        Raises
+        ------
+        ValueError
+            If any of the `INLINE_3D`, `CROSSLINE_3D`, `SUPERGATHER_INLINE_3D` or `SUPERGATHER_CROSSLINE_3D` columns
+            are not in `headers`.
+        """
+        self.validate(required_header_cols=["INLINE_3D", "SUPERGATHER_INLINE_3D",
+                                            "CROSSLINE_3D", "SUPERGATHER_CROSSLINE_3D"])
+        headers = self.headers.reset_index()
+        mask = ((headers["SUPERGATHER_INLINE_3D"] == headers["INLINE_3D"]) &
+                (headers["SUPERGATHER_CROSSLINE_3D"] == headers["CROSSLINE_3D"])).values
+        self.headers = self.headers.loc[mask]
+        self.data = self.data[mask]
+        return self
+
     @batch_method(target="for")
     def stack(self):
+        """Stack a gather by calculating mean value of all non-nan amplitudes for each time over the offset axis.
+
+        The gather after stacking contains only one trace. Its `headers` is indexed by `INLINE_3D` and `CROSSLINE_3D`
+        and has a single `TRACE_SEQUENCE_FILE` header with a value of 1.
+
+        Notes
+        -----
+        Only a CDP gather indexed by `INLINE_3D` and `CROSSLINE_3D` can be stacked.
+
+        Raises
+        ------
+        ValueError
+            If the gather is not indexed by `INLINE_3D` and `CROSSLINE_3D` or traces from multiple CDP gathers are
+            being stacked
+        """
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]
         self.validate(required_header_cols=line_cols)
         headers = self.headers.reset_index()[line_cols].drop_duplicates()
@@ -832,11 +874,11 @@ class Gather:
 
     @batch_method(target="for", copy_src=False)
     def plot(self, figsize=(10, 7), **kwargs):
-        """Plot gather.
+        """Plot gather traces.
 
         Parameters
         ----------
-        figsize : tuple, optional, by default (10, 7)
+        figsize : tuple, optional, defaults to (10, 7)
             Output plot size.
         kwargs : misc, optional
             Additional keyword arguments to `matplotlib.pyplot.imshow`.
@@ -844,7 +886,7 @@ class Gather:
         Returns
         -------
         self : Gather
-            Unchanged gather.
+            Gather unchanged.
         """
         vmin, vmax = self.get_quantile([0.1, 0.9])
         default_kwargs = {
