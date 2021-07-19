@@ -164,7 +164,7 @@ def convert_mask_to_pick(mask, sample_rate, threshold):
         milliseconds.
     """
     picking_array = np.empty(len(mask), dtype=np.int32)
-    for i in prange(len(mask)):
+    for i in prange(len(mask)):  # pylint: disable=not-an-iterable
         trace = mask[i]
         max_len, curr_len, picking_ix = 0, 0, 0
         for j, sample in enumerate(trace):
@@ -236,6 +236,6 @@ def clip(data, data_min, data_max):
     """
     data_shape = data.shape
     data = data.reshape(-1)
-    for i in range(len(data)):
+    for i in range(len(data)):  # pylint: disable=consider-using-enumerate
         data[i] = min(max(data[i], data_min), data_max)
     return data.reshape(data_shape)
