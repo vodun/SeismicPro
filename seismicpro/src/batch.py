@@ -1,3 +1,5 @@
+"""Implements SeismicBatch class for processing a small subset of seismic gathers"""
+
 import numpy as np
 
 from .gather import Gather
@@ -9,15 +11,63 @@ from ..batchflow import Batch, action, DatasetIndex, BA
 
 @create_batch_methods(Gather, Semblance, ResidualSemblance)
 class SeismicBatch(Batch):
+    """A batch class for seismic data that allows for joint and simultaneous processing of small subsets of seismic
+    gathers in a parallel way.
+
+    Initially, a batch contains unique identifiers of seismic gathers as its `index` and allows for their loading and
+    processing. All the results are stored in batch attributes called `components` whose names are passed as `dst`
+    argument of the called method.
+
+    `SeismicBatch` implements almost no processing logic itself and usually just redirects method calls to objects in
+    components specified in `src` argument. In order for a component method to be available in the batch, it should be
+    decorated with :func:`~decorators.batch_method` in its class and the class itself should be listed in
+    :func:`~decorators.create_batch_methods` decorator arguments of `SeismicBatch`.
+
+    Examples
+    --------
+    Usually a batch is created from a `SeismicDataset` instance by calling :func:`~SeismicDataset.next_batch` method:
+    >>> survey = Survey(path, header_index="FieldRecord", header_cols=["TraceNumber", "offset"], name="survey")
+    >>> dataset = SeismicDataset(surveys=survey)
+    >>> batch = dataset.next_batch(10)
+
+    Here a batch of 10 gathers was created and can now be processed using the methods defined in
+    :class:`~batch.SeismicBatch`. The batch does not contain any data yet and gather loading is usually the first
+    method you want to apply:
+    >>> batch.load(src="survey")
+
+    We've loaded gathers from a survey called `survey` in the component with the same name. Now the data can be
+    accessed as a usual attribute:
+    >>> batch.survey
+
+    Almost all methods return a transformed batch allowing for method chaining:
+    >>> batch.sort(src="survey", by="offset").plot(src="survey")
+    Note that if `dst` attribute is omitted data processing is performed inplace.
+
+    Parameters
+    ----------
+    index : DatasetIndex
+        Unique identifiers of seismic gathers in the batch. Usually has :class:`~index.SeismicIndex` type.
+
+    Attributes
+    ----------
+    index : DatasetIndex
+        Unique identifiers of seismic gathers in the batch. Usually has :class:`~index.SeismicIndex` type.
+    components : tuple
+        Names of the created components. Each of them can be accessed as a usual attribute.
+    """
     @property
     def nested_indices(self):
+        """list: indices of the batch each additionally wrapped into a list. If used as an `init` function in
+        `inbatch_parallel` decorator, each index will be passed to its parallelly executed callable as a tuple, not
+        individual level values."""
         if isinstance(self.indices, np.ndarray):
             return self.indices.tolist()
         return [[index] for index in self.indices]
 
     def _init_component(self, *args, dst, **kwargs):
-        """Create and preallocate a new attribute with the name ``dst`` if it
-        does not exist and return batch indices."""
+        """Create and preallocate new attributes with names listed in `dst` if they don't exist and return
+        `self.nested_indices`. This method is typically used as a default `init` function in `inbatch_parallel`
+        decorator."""
         _ = args, kwargs
         dst = to_list(dst)
         for comp in dst:
@@ -32,7 +82,9 @@ class SeismicBatch(Batch):
                 return self._load_gather(src=src, dst=components, **kwargs)
             unique_files = self.indices.unique(level=0)
             combined_batch = type(self)(DatasetIndex(unique_files), dataset=self.dataset, pipeline=self.pipeline)
+            # pylint: disable=protected-access
             return combined_batch._load_combined_gather(src=src, dst=components, parent_index=self.index, **kwargs)
+            # pylint: enable=protected-access
         return super().load(src=src, fmt=fmt, components=components, **kwargs)
 
     @apply_to_each_component(target="for", fetch_method_target=False)
@@ -56,6 +108,31 @@ class SeismicBatch(Batch):
 
     @action
     def update_velocity_cube(self, velocity_cube, src):
+        """Update a velocity cube with stacking velocities from `src` component.
+
+        Notes
+        -----
+        All passed `StackingVelocity` instances must have not-None coordinates.
+
+        Parameters
+        ----------
+        velocity_cube : VelocityCube
+            A cube to update.
+        src : str
+            A component with stacking velocities to update the cube with.
+
+        Returns
+        -------
+        self : SeismicBatch
+            The batch unchanged.
+
+        Raises
+        ------
+        TypeError
+            If wrong type of stacking velocities was passed.
+        ValueError
+            If any of the passed stacking velocities has `None` coordinates.
+        """
         velocity_cube.update(getattr(self, src))
         return self
 
