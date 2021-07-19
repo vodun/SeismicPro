@@ -1,11 +1,13 @@
 """Implementation of tests for survey"""
+
 import pytest
 import numpy as np
 
 from seismicpro import Survey
 
 # TODO:
-# 1. add first break file for test
+# 1. Add first break file for test
+# 2. Add raises for cases that not covers with `if`
 @pytest.mark.parametrize('header_cols', [None, 'offset', 'all'])
 @pytest.mark.parametrize('name', [None, 'raw'])
 @pytest.mark.parametrize('limits', [None, (0, 1000)])

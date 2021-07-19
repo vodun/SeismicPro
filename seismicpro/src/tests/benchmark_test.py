@@ -1,4 +1,5 @@
 """Implementation of tests for benchmarks"""
+
 import pytest
 
 from seismicpro.benchmark import Benchmark
