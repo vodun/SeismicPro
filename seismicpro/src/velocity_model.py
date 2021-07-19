@@ -182,7 +182,7 @@ def calculate_stacking_velocity(semblance, times, velocities, start_velocity_ran
                                                 end_velocity_range, max_vel_step, n_times, n_velocities)
     graph = nx.DiGraph()
     graph.add_weighted_edges_from(zip(*edges))
-    paths = nx.shortest_path(graph, source=start_node, weight="weight")
+    paths = nx.shortest_path(graph, source=start_node, weight="weight")  # pylint: disable=unexpected-keyword-arg
 
     # Select only paths to the nodes at the last timestamp and choose the optimal one
     path_weights = [(paths[end_node], nx.path_weight(graph, paths[end_node], weight="weight"))
