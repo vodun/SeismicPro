@@ -77,6 +77,32 @@ class SeismicBatch(Batch):
 
     @action
     def load(self, src=None, fmt="sgy", components=None, combined=False, **kwargs):
+        """Load seismic gathers into batch components.
+
+        Parameters
+        ----------
+        src : str or list of str, optional
+            Survey names to load gathers from.
+        fmt : str, optional, defaults to "sgy"
+            Data format to load gathers from.
+        components : str or list of str, optional
+            Batch components to store the result in. Equals to `src` if not given.
+        combined : bool, optional, defaults to False
+            If `False`, load gathers by corresponding index value. If `True`, group all batch traces from a particular
+            survey into a single gather increasing loading speed by reducing the number of `.loc`s performed.
+        kwargs : misc, optional
+            Additional keyword arguments to :func:`~Survey.load_gather`.
+
+        Returns
+        -------
+        batch : SeismicBatch
+            A batch with loaded gathers. Creates or updates `src` components inplace.
+
+        Raises
+        ------
+        KeyError
+            If unknown survey name was passed in `src`.
+        """
         if isinstance(fmt, str) and fmt.lower() in {"sgy", "segy"}:
             if not combined:
                 return self._load_gather(src=src, dst=components, **kwargs)
@@ -89,6 +115,7 @@ class SeismicBatch(Batch):
 
     @apply_to_each_component(target="for", fetch_method_target=False)
     def _load_gather(self, index, src, dst, **kwargs):
+        """Load a gather with given `index` from a survey called `src`."""
         pos = self.index.get_pos(index)
         concat_id, gather_index = index[0], index[1:]
         # Unpack tuple in case of non-multiindex survey
@@ -101,6 +128,7 @@ class SeismicBatch(Batch):
 
     @apply_to_each_component(target="for", fetch_method_target=False)
     def _load_combined_gather(self, index, src, dst, parent_index, **kwargs):
+        """Load all batch traces from a survey called `src` with `CONCAT_ID` equal to `index` into a single gather."""
         pos = self.index.get_pos(index)
         gather_index = parent_index.indices.to_frame().loc[index].index
         getattr(self, dst)[pos] = parent_index.get_gather(survey_name=src, concat_id=index,
