@@ -61,30 +61,32 @@ class SeismicBatch(Batch):
 
     @action
     def make_model_inputs(self, src, dst, mode='c', axis=0, expand_dims_axis=None):
-        """Prepare an array of input values for the neural network model.
+        """Transform data for training model.
 
         The method produces two-stage data processing:
-        1. Using the `mode` parameter, choose whether to `concatenate` or `stack` the input array.
+        1. Using the `mode` parameter, choose whether to `concatenate` or `stack` the input data along the specified
+        `axis`.
         2. Expand dims of the resulted array along the `expand_dims_axis` axis.
 
         There are two approaches to how the data can be stored and passed to this method:
         1. Batch component that contains a np.ndarray with dtype `object`. Every element of this array contains the
-         data that goes into the model. Here, just pass the component's name to `src` for data conversion.
+        data that goes into the model. Here, just pass the component's name to `src` for data conversion.
         2. Batch component that contains a np.ndarray of instances of some class. In this case, every element of this
-        array has data for the model in one of the class attribute/item. Named expression `BA` allows to extract the
+        array sotre data for the model in one of the class attribute/item. Named expression `BA` allows to extract the
         data from a certain attribute of the class and pass it directly to the `src` parameter as a np.ndarray.
 
         Examples
         --------
-        Load gathers, exctract them from `Gather` using `BA` named expression, concat them into the array with one
-        dummy axis and save the result to the `inputs` component:
+        Load gathers with `FieldRecord` index, every `FieldRecord` contains 1000 traces. Then exctract items from
+        `Gather` using `BA` named expression, concat them into an array with one dummy axis and save the result to the
+        `inputs` component:
         >>> pipeline = (Pipeline()
                         .load(src='raw')
                         .make_model_inputs(src=BA('raw').data, dst='inputs', mode='c', axis=0, expand_dims_axis=1)
                         )
         >>> batch = pipeline.next_batch(3)
         >>> batch.inputs.shape
-        (3, 1000, 1500)
+        (3000, 1, 1500)
 
         Parameters
         ----------
@@ -97,21 +99,28 @@ class SeismicBatch(Batch):
             - 'c' apply `np.concatenate` to the data from `src` by specified `axis`.
             - 's' apply `np.stack` to the data from `src` by specified `axis`.
         axis : int or None, optional, default to 0
-            The axis along which the arrays will be joined or stacked. There are two outcomes when the `axis` is None:
-            - if `mode` is `c` arrays are flattened before use.
-            - if `mode` is `s`, the axis cannot be None.
+            An axis along which the arrays will be joined or stacked. There are two outcomes when the `axis` is None:
+            - if `mode` is `c`, arrays are flattened before use.
+            - if `mode` is `s`, the `axis` cannot be None.
             The maximal `axis` value equal to `data.ndim` - 1.
         expand_dims_axis : int or None, optional, default to None
-            Insert a new axis that will appear at the `expand_dims_axis` position in the expanded array shape. The
-            maximal axis value equal to `data.ndim` - 1. If `None`, the expansion does not occur.
+            Insert a new axis at the `expand_dims_axis` position in the expanded array shape. The maximal axis value
+            equal to `data.ndim` - 1. If `None`, the expansion does not occur.
 
         Returns
         -------
         self : Batch
             Batch with resulted `np.ndarray` in the `dst` component.
+
+        Raises
+        ------
+        ValueError
+            If given `mode` does not exist.
         """
         data = getattr(self, src) if isinstance(src, str) else src
-        func = np.concatenate if mode == 'c' else np.stack
+        func = {'c': np.concatenate, 's': np.stack}.get(mode)
+        if func is None:
+            raise ValueError(f"Unknown mode '{mode}', must be 'c' or 's'")
         data = func(data, axis=axis)
 
         if expand_dims_axis is not None:
@@ -121,30 +130,32 @@ class SeismicBatch(Batch):
 
     @action
     def split_model_outputs(self, src, dst, shapes):
-        """Split an array from `src` component into multiple sub-arrays and save it to a `dst` component.
+        """Split data into multiple sub-arrays with shapes described in `shape`.
 
-        Usually, this method is called after the :func:`~.make_model_inputs` method and performs the opposite
-        operation. It is intended for disassembling the model's output into batches with sizes specified in a `shape`
-        parameter.
+        Usually, this method is called after the :func:`~.make_model_inputs` and performs the opposite operation. It is
+        intended for disassembling the model's output into batches with sizes specified in a `shape` parameter.
 
         Examples
         --------
-        Split data from an `input` component and save it into an `outputs` component:
+        Load gathers with `FieldRecord` index, every `FieldRecord` contains 1000 traces. Join gathers using
+        :func:`~.make_model_inputs`, split data from an `input` component and save it into an `outputs` component:
         >>> pipeline = (Pipeline()
                         .load(src='raw')
                         .make_model_inputs(src=BA('raw').data, dst='inputs', mode='c', axis=0, expand_dims_axis=1)
                         .split_model_outputs(src='inputs', dst='outputs', shapes=[1000, 1000, 1000])
                         )
         >>> batch = pipeline.next_batch(3)
+        >>> len(batch.outputs)
+        3
         >>> batch.outputs[0].shape
-        (1, 1000, 1500)
+        (1000, 1, 1500)
 
         Parameters
         ----------
         src : str
-            A component's name with model outputs.
+            A component's name with data to split.
         dst : str or BA
-            - if `stc`, save resulted sub-arrays into a `dst` component.
+            - if `stc`, save resulted sub-arrays into a batch component named `dst`.
             - if `BA`, save resulted sub-arrays into a class attribute described in `BA` named expression.
         shapes : 1d array-like
             An array with sizes of every sub-array. The length of this array must be equal to the current batch size.
