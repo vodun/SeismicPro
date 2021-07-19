@@ -15,7 +15,7 @@ from .gather import Gather
 from .utils import to_list, maybe_copy, calculate_stats, create_supergather_index
 
 
-class Survey:
+class Survey:  # pylint: disable=too-many-instance-attributes
     """A class representing a single SEG-Y file.
 
     In order to reduce memory footprint, `Survey` instance does not store trace data, but only a requested subset of
@@ -567,7 +567,7 @@ class Survey:
         ValueError
             If `cond` returns more than one bool value for each row of `headers`.
         """
-        self = maybe_copy(self, inplace)
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         headers = self.headers.reset_index()[to_list(cols)]
         mask = self._apply(cond, headers, axis=axis, unpack_args=unpack_args, **kwargs)
         if (mask.ndim == 2) and (mask.shape[1] == 1):
@@ -612,7 +612,7 @@ class Survey:
         self : Survey
             A survey with the function applied.
         """
-        self = maybe_copy(self, inplace)
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         cols = to_list(cols)
         res_cols = cols if res_cols is None else to_list(res_cols)
         headers = self.headers.reset_index()[cols]
@@ -635,7 +635,7 @@ class Survey:
         self : Survey
             Reindexed survey.
         """
-        self = maybe_copy(self, inplace)
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         self.headers.reset_index(inplace=True)
         self.headers.set_index(new_index, inplace=True)
         self.headers.sort_index(inplace=True)
@@ -713,7 +713,7 @@ class Survey:
         KeyError
             If `INLINE_3D` and `CROSSLINE_3D` headers were not loaded.
         """
-        self = maybe_copy(self, inplace)
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         index_cols = self.headers.index.names
         headers = self.headers.reset_index()
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]

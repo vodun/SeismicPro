@@ -150,7 +150,9 @@ class SeismicIndex(DatasetIndex):
 
         nested_indices_msg = ""
         for index, name in split_indices:
+            # pylint: disable=protected-access
             index_msg = index._get_index_info(indents=indents + '    ', prefix=prefix + '.' + name)
+            # pylint: enable=protected-access
             nested_indices_msg += f"\n{'_'*79}" + index_msg
         return indent(msg, indents) + nested_indices_msg
 
@@ -591,7 +593,7 @@ class SeismicIndex(DatasetIndex):
         index : SeismicIndex
             Reindexed `self`.
         """
-        self = maybe_copy(self, inplace)
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
 
         # Reindex headers, keeping CONCAT_ID column in it
         self.headers.reset_index(level=self.headers.index.names[1:], inplace=True)
@@ -600,8 +602,8 @@ class SeismicIndex(DatasetIndex):
 
         # Set _index explicitly since already created index is modified
         # unique_indices_sorted is used since headers index is guaranteed to be sorted
-        uniques_indices = unique_indices_sorted(headers.index.to_frame().values)
-        self._index = headers.index[uniques_indices]
+        uniques_indices = unique_indices_sorted(self.headers.index.to_frame().values)
+        self._index = self.headers.index[uniques_indices]
 
         # Reindex all the underlying surveys
         for surveys in self.surveys_dict.values():
