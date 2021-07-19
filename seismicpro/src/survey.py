@@ -15,7 +15,7 @@ from .gather import Gather
 from .utils import to_list, maybe_copy, calculate_stats, create_supergather_index
 
 
-class Survey:
+class Survey:  # pylint: disable=too-many-instance-attributes
     """A class representing a single SEG-Y file.
 
     In order to reduce memory footprint, `Survey` instance does not store trace data, but only a requested subset of
@@ -92,7 +92,6 @@ class Survey:
     n_dead_traces : int
         The number of traces with constant value (dead traces). Available only if trace statistics were calculated.
     """
-    # pylint: too-many-instance-attributes
     def __init__(self, path, header_index, header_cols=None, name=None, limits=None, collect_stats=False, **kwargs):
         self.path = path
         basename = os.path.splitext(os.path.basename(self.path))[0]
