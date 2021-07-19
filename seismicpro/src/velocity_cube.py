@@ -25,7 +25,7 @@ class VelocityInterpolator:
     stacking_velocities_dict : dict
         A dict of stacking velocities whose keys are tuples with their spatial coordinates and values are the stacking
         velocities themselves.
-    
+
     Attributes
     ----------
     stacking_velocities_dict : dict
@@ -85,7 +85,7 @@ class VelocityInterpolator:
 
     def __call__(self, inline, crossline):
         """Interpolate stacking velocity at given `inline` and `crossline`.
-        
+
         If `inline` and `crossline` lie within a convex hull of spatial coordinates of known stacking velocities,
         interpolate stacking velocity linearly. Otherwise return stacking velocity closest to coordinates passed.
 
