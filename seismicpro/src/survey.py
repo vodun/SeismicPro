@@ -92,6 +92,7 @@ class Survey:
     n_dead_traces : int
         The number of traces with constant value (dead traces). Available only if trace statistics were calculated.
     """
+    # pylint: too-many-instance-attributes
     def __init__(self, path, header_index, header_cols=None, name=None, limits=None, collect_stats=False, **kwargs):
         self.path = path
         basename = os.path.splitext(os.path.basename(self.path))[0]
@@ -567,7 +568,7 @@ class Survey:
         ValueError
             If `cond` returns more than one bool value for each row of `headers`.
         """
-        self = maybe_copy(self, inplace)
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         headers = self.headers.reset_index()[to_list(cols)]
         mask = self._apply(cond, headers, axis=axis, unpack_args=unpack_args, **kwargs)
         if (mask.ndim == 2) and (mask.shape[1] == 1):
@@ -612,7 +613,7 @@ class Survey:
         self : Survey
             A survey with the function applied.
         """
-        self = maybe_copy(self, inplace)
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         cols = to_list(cols)
         res_cols = cols if res_cols is None else to_list(res_cols)
         headers = self.headers.reset_index()[cols]
@@ -635,7 +636,7 @@ class Survey:
         self : Survey
             Reindexed survey.
         """
-        self = maybe_copy(self, inplace)
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         self.headers.reset_index(inplace=True)
         self.headers.set_index(new_index, inplace=True)
         self.headers.sort_index(inplace=True)
@@ -713,7 +714,7 @@ class Survey:
         KeyError
             If `INLINE_3D` and `CROSSLINE_3D` headers were not loaded.
         """
-        self = maybe_copy(self, inplace)
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         index_cols = self.headers.index.names
         headers = self.headers.reset_index()
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]
