@@ -68,30 +68,32 @@ class SeismicBatch(Batch):
         `axis`.
         2. Expand dims of the resulted array along the `expand_dims_axis` axis.
 
-        There are two approaches to how the data can be stored and passed to this method:
-        1. Batch component that contains a np.ndarray with dtype `object`. Every element of this array contains the
-        data that goes into the model. Here, just pass the component's name to `src` for data conversion.
-        2. Batch component that contains a np.ndarray of instances of some class. In this case, every element of this
-        array sotre data for the model in one of the class attribute/item. Named expression `BA` allows to extract the
-        data from a certain attribute of the class and pass it directly to the `src` parameter as a np.ndarray.
+        # переписать, говоря сначала о том, что может приходить, затем как это передается и обрабатывается
+        There are two approaches to how the data from `src` can be stored and passed to this method:
+        1. `src` as a string, is perceived as a name of the batch component with array-like of np.ndarrays - data
+        that needs to be processed.
+        2. `src` as an array-like of np.ndarrays, is perceived as a data to be stacked. There are many approaches to
+        put the data directly to the `src`, most common is to use `BA` named expression. If a batch component contains
+        array with insatnces of some classes, `BA` allows to extract the data from a certain attribute of the class and
+        pass it directly to the `src` parameter.
 
         Examples
         --------
-        Load gathers with `FieldRecord` index, every `FieldRecord` contains 1000 traces. Then exctract items from
-        `Gather` using `BA` named expression, concat them into an array with one dummy axis and save the result to the
-        `inputs` component:
-        >>> pipeline = (Pipeline()
-                        .load(src='raw')
-                        .make_model_inputs(src=BA('raw').data, dst='inputs', mode='c', axis=0, expand_dims_axis=1)
-                        )
+        Load traces. Then exctract items from `Gather` using `BA` named expression, concat them into an array with one
+        dummy axis and save the result to the `inputs` component:
+        >>> pipeline = (
+                dataset.pipeline
+                       .load(src='raw')
+                       .make_model_inputs(src=BA('raw').data, dst='inputs', mode='c', axis=0, expand_dims_axis=1)
+            )
         >>> batch = pipeline.next_batch(3)
         >>> batch.inputs.shape
-        (3000, 1, 1500)
+        (3, 1, 1500)
 
         Parameters
         ----------
         src : src or np.ndarray
-            A component's name or a np.ndarray with dtype `object` that needs to be processed.
+            A component's name or a array-like of np.ndarrays that needs to be processed.
         dst : src
             A component's name to store the result in.
         mode : {'c' or 's'}, optional, default to 'c'
@@ -132,23 +134,27 @@ class SeismicBatch(Batch):
     def split_model_outputs(self, src, dst, shapes):
         """Split data into multiple sub-arrays with shapes described in `shape`.
 
-        Usually, this method is called after the :func:`~.make_model_inputs` and performs the opposite operation. It is
-        intended for disassembling the model's output into batches with sizes specified in a `shape` parameter.
+        A neural network model has a stacked data as an input and returns a stacked predictions, that needs to be
+        split to the batches with equals shapes as before stack. This method is split the data using an array named
+        `shape` that contains size of every batch.
 
         Examples
         --------
-        Load gathers with `FieldRecord` index, every `FieldRecord` contains 1000 traces. Join gathers using
-        :func:`~.make_model_inputs`, split data from an `input` component and save it into an `outputs` component:
-        >>> pipeline = (Pipeline()
-                        .load(src='raw')
-                        .make_model_inputs(src=BA('raw').data, dst='inputs', mode='c', axis=0, expand_dims_axis=1)
-                        .split_model_outputs(src='inputs', dst='outputs', shapes=[1000, 1000, 1000])
-                        )
+        Load traces, use model to predict a mask, split results and save it to the `output` batch component:
+        >>> pipeline = (
+                dataset.pipeline
+                       .load(src='raw')
+                       .init_variable('preds')
+                       .init_model(mode='dynamic', model_class=UNet, name='model', config=config)
+                       .make_model_inputs(src=BA('raw').data, dst='inputs', mode='c', axis=0, expand_dims_axis=1)
+                       .predict_model('model', B('inputs'), fetches='predictions', save_to=B('preds'))
+                       .split_model_outputs(src='preds', dst='outputs', shapes=BA('raw').shape[:, 0])
+            )
         >>> batch = pipeline.next_batch(3)
         >>> len(batch.outputs)
         3
         >>> batch.outputs[0].shape
-        (1000, 1, 1500)
+        (1, 1, 1500)
 
         Parameters
         ----------
