@@ -166,68 +166,60 @@ class SeismicBatch(Batch):
 
     @action
     def make_model_inputs(self, src, dst, mode='c', axis=0, expand_dims_axis=None):
-        """Transform data for training model.
+        """Transform data to be used for model training.
 
-        The method produces two-stage data processing:
-        1. Using the `mode` parameter, choose whether to `concatenate` or `stack` the input data along the specified
-        `axis`.
-        2. Expand dims of the resulted array along the `expand_dims_axis` axis.
+        The method performes two-stage data processing:
+        1. Stacks or concatenates input data depending on `mode` parameter along the specified `axis`,
+        2. Inserts new axes to the resulting array at positions specified by `expand_dims_axis`.
 
-        # переписать, говоря сначала о том, что может приходить, затем как это передается и обрабатывается
-        There are two approaches to how the data from `src` can be stored and passed to this method:
-        1. `src` as a string, is perceived as a name of the batch component with array-like of np.ndarrays - data
-        that needs to be processed.
-        2. `src` as an array-like of np.ndarrays, is perceived as a data to be stacked. There are many approaches to
-        put the data directly to the `src`, most common is to use `BA` named expression. If a batch component contains
-        array with insatnces of some classes, `BA` allows to extract the data from a certain attribute of the class and
-        pass it directly to the `src` parameter.
+        Source data to be transformed is passed to `src` argument either as an array-like of `np.ndarray`s or as a
+        string, representing a name of batch component to get data from. Since this method is usually called in model
+        training pipelines, `BA` named expression can be used to extract a certain attribute from each element of given
+        component.
 
         Examples
         --------
-        Load traces. Then exctract items from `Gather` using `BA` named expression, concat them into an array with one
-        dummy axis and save the result to the `inputs` component:
-        >>> pipeline = (
-                dataset.pipeline
-                       .load(src='raw')
-                       .make_model_inputs(src=BA('raw').data, dst='inputs', mode='c', axis=0, expand_dims_axis=1)
-            )
-        >>> batch = pipeline.next_batch(3)
+        Given a dataset of individual traces, extract them from a batch of size 3 using `BA` named expression,
+        concatenate into a single array, add a dummy axis and save the result into the `inputs` component:
+        >>> pipeline = (Pipeline()
+        ...     .load(src='survey')
+        ...     .make_model_inputs(src=BA('survey').data, dst='inputs', mode='c', axis=0, expand_dims_axis=1)
+        ... )
+        >>> batch = (dataset >> pipeline).next_batch(3)
         >>> batch.inputs.shape
         (3, 1, 1500)
 
         Parameters
         ----------
-        src : src or np.ndarray
-            A component's name or a array-like of np.ndarrays that needs to be processed.
+        src : src or array-like of np.ndarray
+            Either a data to be processed itself or a component name to get it from.
         dst : src
-            A component's name to store the result in.
-        mode : {'c' or 's'}, optional, default to 'c'
-            A mode that determines how to join a sequence of arrays:
-            - 'c' apply `np.concatenate` to the data from `src` by specified `axis`.
-            - 's' apply `np.stack` to the data from `src` by specified `axis`.
-        axis : int or None, optional, default to 0
-            An axis along which the arrays will be joined or stacked. There are two outcomes when the `axis` is None:
-            - if `mode` is `c`, arrays are flattened before use.
-            - if `mode` is `s`, the `axis` cannot be None.
-            The maximal `axis` value equal to `data.ndim` - 1.
-        expand_dims_axis : int or None, optional, default to None
-            Insert a new axis at the `expand_dims_axis` position in the expanded array shape. The maximal axis value
-            equal to `data.ndim` - 1. If `None`, the expansion does not occur.
+            A component's name to store the combined result in.
+        mode : {'c' or 's'}, optional, defaults to 'c'
+            A mode that determines how to combine a sequence of arrays into a single one: 'c' stands for concatenating
+            and 's' for stacking along the `axis`.
+        axis : int or None, optional, defaults to 0
+            An axis along which the arrays will be concatenated or stacked. If `mode` is `c`, `None` can be passed
+            meaning that the arrays will be flattened before concatenation. Regardless of `mode`, `axis` must be no
+            more than `data.ndim` - 1.
+        expand_dims_axis : int or None, optional, defaults to None
+            Insert new axes at the `expand_dims_axis` position in the expanded array. If `None`, the expansion does not
+            occur.
 
         Returns
         -------
-        self : Batch
-            Batch with resulted `np.ndarray` in the `dst` component.
+        self : SeismicBatch
+            Batch with the resulting `np.ndarray` in the `dst` component.
 
         Raises
         ------
         ValueError
-            If given `mode` does not exist.
+            If unknown `mode` was passed.
         """
         data = getattr(self, src) if isinstance(src, str) else src
         func = {'c': np.concatenate, 's': np.stack}.get(mode)
         if func is None:
-            raise ValueError(f"Unknown mode '{mode}', must be 'c' or 's'")
+            raise ValueError(f"Unknown mode '{mode}', must be either 'c' or 's'")
         data = func(data, axis=axis)
 
         if expand_dims_axis is not None:
@@ -237,25 +229,26 @@ class SeismicBatch(Batch):
 
     @action
     def split_model_outputs(self, src, dst, shapes):
-        """Split data into multiple sub-arrays with shapes described in `shape`.
+        """Split data into multiple sub-arrays whose shapes along zero axis if defined by `shapes`.
 
-        A neural network model has a stacked data as an input and returns a stacked predictions, that needs to be
-        split to the batches with equals shapes as before stack. This method is split the data using an array named
-        `shape` that contains size of every batch.
+        Usually gather data for each batch element is stacked or concatenated along zero axis using
+        :func:`SeismicBatch.make_model_inputs` before being passed to a model. This method performs a reverse operation
+        by splitting the received predictions allowing them to be matched with the corresponding batch elements for
+        which they were obtained.
 
         Examples
         --------
-        Load traces, use model to predict a mask, split results and save it to the `output` batch component:
-        >>> pipeline = (
-                dataset.pipeline
-                       .load(src='raw')
-                       .init_variable('preds')
-                       .init_model(mode='dynamic', model_class=UNet, name='model', config=config)
-                       .make_model_inputs(src=BA('raw').data, dst='inputs', mode='c', axis=0, expand_dims_axis=1)
-                       .predict_model('model', B('inputs'), fetches='predictions', save_to=B('preds'))
-                       .split_model_outputs(src='preds', dst='outputs', shapes=BA('raw').shape[:, 0])
-            )
-        >>> batch = pipeline.next_batch(3)
+        Given a dataset of individual traces, perform a segmentation model inference for a batch of size 3, split
+        predictions and save them to the `outputs` batch component:
+        >>> pipeline = (Pipeline()
+        ...     .init_model(mode='dynamic', model_class=UNet, name='model', config=config)
+        ...     .init_variable('predictions')
+        ...     .load(src='survey')
+        ...     .make_model_inputs(src=BA('survey').data, dst='inputs', mode='c', axis=0, expand_dims_axis=1)
+        ...     .predict_model('model', B('inputs'), fetches='predictions', save_to=B('predictions'))
+        ...     .split_model_outputs(src='predictions', dst='outputs', shapes=BA('survey').shape[:, 0])
+        ... )
+        >>> batch = (dataset >> pipeline).next_batch(3)
         >>> len(batch.outputs)
         3
         >>> batch.outputs[0].shape
@@ -266,30 +259,28 @@ class SeismicBatch(Batch):
         src : str
             A component's name with data to split.
         dst : str or BA
-            - if `stc`, save resulted sub-arrays into a batch component named `dst`.
-            - if `BA`, save resulted sub-arrays into a class attribute described in `BA` named expression.
+            - If `str`, save the resulting sub-arrays into a batch component called `dst`,
+            - If `BA`, save the resulting sub-arrays into the corresponding attribute for each element of a component,
+              defined by the named expression.
         shapes : 1d array-like
-            An array with sizes of every sub-array. The length of this array must be equal to the current batch size.
-            If the size of the last group is less than the number of remaining elements in `src`, these elements will
-            still be written to this group. For example, ``[2, 3, 2]`` would result in
-
-                - src[:2]
-                - src[2:5]
-                - src[5:]
+            An array with sizes of each sub-array along zero axis after the split. Its length should be generally equal
+            to the current batch size and its sum must match the length of data defined by `src`.
 
         Returns
         -------
-        self : Batch
-            Batch with split data.
+        self : SeismicBatch
+            The batch with split data.
         """
         data = getattr(self, src)
-        shapes = np.cumsum(shapes)[:-1]
-        splitted_data = np.split(data, shapes)
+        shapes = np.cumsum(shapes)
+        if shapes[-1] != len(data):
+            raise ValueError("Data length must match the sum of shapes passed")
+        split_data = np.split(data, shapes[:-1])
 
         if isinstance(dst, str):
-            setattr(self, dst, splitted_data)
+            setattr(self, dst, split_data)
         elif isinstance(dst, BA):
-            dst.set(value=splitted_data)
+            dst.set(value=split_data)
         else:
-            ValueError(f'dst must be `str` or `BA named expression`, not {type(dst)}.')
+            ValueError(f'dst must be either `str` or `BA` named expression, not {type(dst)}.')
         return self
