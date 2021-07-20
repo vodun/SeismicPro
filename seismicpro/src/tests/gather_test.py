@@ -1,5 +1,6 @@
 """Implementation of tests for survey"""
- # pylint: disable=redefined-outer-name
+
+# pylint: disable=redefined-outer-name
 import pytest
 import numpy as np
 
