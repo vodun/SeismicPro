@@ -1,3 +1,5 @@
+"""Implements decorators to add new methods to a SeismicBatch class"""
+
 import inspect
 from functools import partial, wraps
 
@@ -6,9 +8,48 @@ from ..batchflow import action, inbatch_parallel
 
 
 def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src=True):
+    """Mark a method as being added to the batch class.
+
+    In order for a decorated method to be available in the batch, the class itself should be listed in
+    :func:`~decorators.create_batch_methods` decorator arguments of `SeismicBatch`. When a method is called from the
+    batch two new arguments must be specified:
+    src : str or list of str
+        Names of components whose elements will be processed by the method.
+    dst : str or list of str, optional
+        Names of components to store the results. Must match the length of `src`. If not given, the processing is
+        performed inplace.
+
+    Parameters
+    ----------
+    target : {"for", "threads"}, optional, defaults to "for"
+        `inbatch_parallel` target to use when processing batch elements with the method.
+    args_to_unpack : str or list of str, optional
+        If given, listed arguments are allowed to accept `str` value which will be treated as a name of a batch
+        component. In this case, when the call is redirected to a particular element, each argument will be substituted
+        by the corresponding value of the specified component.
+    force : bool, optional, defaults to False
+        Whether to redefine an existing batch method with the method decorated.
+    copy_src : bool, optional, defaults to True
+        Whether to copy batch elements before processing if `src` component differs from `dst`. Usually, this flag
+        is set to `True` to keep `src` data intact since most processing methods are done inplace. Sometimes it should
+        be set to `False` to avoid redundant copying e.g. when a new object is returned like in
+        :func:`~Gather.calculate_semblance`.
+
+    Returns
+    -------
+    decorator : callable
+        A decorator, that keeps the method unchanged, but saves all the passed arguments to its `batch_method_params`
+        attribute.
+
+    Raises
+    ------
+    ValueError
+        If positional arguments were passed except for the method being decorated.
+    """
     batch_method_params = {"target": target, "args_to_unpack": args_to_unpack, "force": force, "copy_src": copy_src}
 
     def decorator(method):
+        """Decorate a method by setting passed batch method params to its attributes."""
         method.batch_method_params = batch_method_params
         return method
 
@@ -20,12 +61,14 @@ def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src
 
 
 def _apply_to_each_component(method, target, fetch_method_target):
+    """Decorate a method so that it is parallelly applied to elements of each component in `src` and stores the result
+    in the corresponding components of `dst`."""
     @wraps(method)
     def decorated_method(self, *args, src, dst=None, **kwargs):
         src_list = to_list(src)
         dst_list = to_list(dst) if dst is not None else src_list
 
-        for src, dst in zip(src_list, dst_list):
+        for src, dst in zip(src_list, dst_list):  # pylint: disable=redefined-argument-from-local
             # Set src_method_target default
             src_method_target = target
 
@@ -51,6 +94,22 @@ def _apply_to_each_component(method, target, fetch_method_target):
 
 
 def apply_to_each_component(*args, target="for", fetch_method_target=True):
+    """Decorate a method so that it is parallelly applied to elements of each component in `src` and stores the result
+    in the corresponding components of `dst`.
+
+    Parameters
+    ----------
+    target : {"for", "threads"}, optional, defaults to "for"
+        Default `inbatch_parallel` target to use when processing component elements with the method if it was not
+        decorated by `batch_method` or `target` was not passed in `kwargs` during method call.
+    fetch_method_target : bool, optional, defaults to True
+        Whether to try to fetch `target` from method attributes if it was decorated by `batch_method`.
+
+    Returns
+    -------
+    decorator : callable
+        A decorator, that parallelly applies a method to elements of specified components.
+    """
     partial_apply = partial(_apply_to_each_component, target=target, fetch_method_target=fetch_method_target)
     if len(args) == 1 and callable(args[0]):
         return partial_apply(args[0])
@@ -58,10 +117,27 @@ def apply_to_each_component(*args, target="for", fetch_method_target=True):
 
 
 def _get_class_methods(cls):
+    """Return all methods of the class."""
     return {func for func in dir(cls) if callable(getattr(cls, func))}
 
 
 def create_batch_methods(*component_classes):
+    """Create a new batch mathod for each method, decorated by `batch_method` in classes listed in `component_classes`.
+
+    A method is created only if there is no method with the same name in the decorated class or if `force` flag was set
+    to `True` in the `batch_method` arguments. The created method parallelly redirects calls to objects in components
+    specified in `src` argument during the call.
+
+    Parameters
+    ----------
+    component_classes : tuple of type
+        Classes to search for methods to create in.
+
+    Returns
+    -------
+    decorator : callable
+        A decorator, that adds new methods to the batch class.
+    """
     def decorator(cls):
         decorated_methods = set()
         force_methods = set()

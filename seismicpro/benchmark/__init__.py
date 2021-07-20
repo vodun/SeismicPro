@@ -1,1 +1,3 @@
-from .target_benchmark import benchmark_method
+"""Benchmark core class"""
+
+from .benchmark import Benchmark
