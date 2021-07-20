@@ -49,7 +49,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     header_index : str or list of str
         Trace headers to be used to group traces into gathers.
     header_cols : str or list of str, optional
-        Extra trace headers to load. If not given, only headers from `header_index` are loaded.
+        Extra trace headers to load. If not given, only headers from `header_index` are loaded and a
+        `TRACE_SEQUENCE_FILE` header is created automatically.
     name : str, optional
         Survey name. If not given, source file name is used. This name is mainly used to identify the survey when it is
         added to an index, see :class:`~index.SeismicIndex` docs for more info.
@@ -57,7 +58,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         Default time limits to be used during trace loading and survey statistics calculation. `int` or `tuple` are
         used as arguments to init a `slice` object. If not given, whole traces are used. Measured in samples.
     collect_stats : bool, optional, defaults to False
-        Whether to calculate trace statistics for the survey.
+        Whether to calculate trace statistics for the survey, see :func:`~Survey.collect_stats` docs for more info.
     kwargs : misc, optional
         Additional keyword arguments to :func:`~Survey.collect_stats`.
 
@@ -232,7 +233,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         n_quantile_traces : positive int, optional, defaults to 100000
             The number of traces to use for quantiles estimation.
         quantile_precision : positive int, optional, defaults to 2
-            Calculate an approximate quantile for each q with `quantile_precision` decimal places.
+            Calculate an approximate quantile for each q with `quantile_precision` decimal places. All other quantiles
+            will be linearly interpolated on request.
         stats_limits : int or tuple or slice, optional
             Time limits to be used for statistics calculation. `int` or `tuple` are used as arguments to init a `slice`
             object. If not given, whole traces are used. Measured in samples.
@@ -301,7 +303,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
         Notes
         -----
-        Before calling this method, survey statistics must be calculated using `Survey.collect_stats`.
+        Before calling this method, survey statistics must be calculated using :func:`~Survey.collect_stats`.
 
         Parameters
         ----------
@@ -311,7 +313,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         Returns
         -------
         quantile : float or array-like of floats
-            Approximate `q`-th quantile values. Has the same type and shape as `q`.
+            Approximate `q`-th quantile values. Has the same shape as `q`.
 
         Raises
         ------
@@ -541,7 +543,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         ----------
         cond : callable
             A function to be applied to `self.headers` to get a filtering mask. Must return a boolean array whose
-            length equals to length of `headers` and `True` values correspond to traces to keep.
+            length equals to the length of `headers` and `True` values correspond to traces to keep.
         cols : str or list of str
             `self.headers` columns for which condition is checked.
         axis : {0 or "index", 1 or "columns", None}, optional, defaults to None
@@ -589,7 +591,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         Parameters
         ----------
         func : callable
-            A function to be applied to `self.headers`.
+            A function to be applied to `self.headers`. Must return a 2d object with shape (`len(self.headers)`,
+            `len(res_cols)`).
         cols : str or list of str
             `self.headers` columns for which the function is applied.
         res_cols : str or list of str, optional, defaults to None
@@ -648,8 +651,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         ----------
         limits : int or tuple or slice
             Default time limits to be used during trace loading and survey statistics calculation. `int` or `tuple` are
-            used as arguments to init a `slice`. The resulting object is stored in `self.limits` attribute. Measured in
-            samples.
+            used as arguments to init a `slice`. The resulting object is stored in `self.limits` attribute and used to
+            recalculate `self.samples` and `self.samples_length`. Measured in samples.
 
         Raises
         ------
@@ -682,11 +685,11 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         Supergather generation is usually performed as a first step of velocity analysis. A substantially larger number
         of traces processed at once leads to increased signal-to-noise ratio: seismic wave reflections are much more
         clearly visible than on single CDP gathers and the velocity spectra calculated using
-        :func:`~Gather.calculate_semblance` are more coherent which allow for more accurate stacking velocity picking.
+        :func:`~Gather.calculate_semblance` are more coherent which allows for more accurate stacking velocity picking.
 
         The method creates two new `headers` columns called `SUPERGATHER_INLINE_3D` and `SUPERGATHER_CROSSLINE_3D`
         equal to `INLINE_3D` and `CROSSLINE_3D` of the central CDP gather. Note, that some gathers may be assigned to
-        several supergathers at once and their traces will become duplicated.
+        several supergathers at once and their traces will become duplicated in `headers`.
 
         Parameters
         ----------

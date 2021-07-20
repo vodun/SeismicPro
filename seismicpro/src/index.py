@@ -52,8 +52,8 @@ class SeismicIndex(DatasetIndex):
     Dict keys here are the names of surveys being merged, while values are lists with the same length equal to the
     number of concatenated surveys.
 
-    Thus, base survey to get a gather with given headers from is determined by both its name and `CONCAT_ID` and the
-    gather itself can be obtained by calling :func:`~SeismicIndex.get_gather` method. Iteration over gathers is
+    Thus, base survey to get a gather with given headers from is determined by both its name and `CONCAT_ID`. The
+    gather itself can be obtained by calling :func:`~SeismicIndex.get_gather` method, while iteration over gathers is
     performed via :func:`~SeismicIndex.next_batch`.
 
     Examples

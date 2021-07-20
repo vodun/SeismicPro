@@ -32,7 +32,7 @@ class SeismicBatch(Batch):
 
     Here a batch of 10 gathers was created and can now be processed using the methods defined in
     :class:`~batch.SeismicBatch`. The batch does not contain any data yet and gather loading is usually the first
-    method you want to apply:
+    method you want to call:
     >>> batch.load(src="survey")
 
     We've loaded gathers from a survey called `survey` in the component with the same name. Now the data can be
@@ -41,6 +41,7 @@ class SeismicBatch(Batch):
 
     Almost all methods return a transformed batch allowing for method chaining:
     >>> batch.sort(src="survey", by="offset").plot(src="survey")
+
     Note that if `dst` attribute is omitted data processing is performed inplace.
 
     Parameters
