@@ -182,7 +182,7 @@ class Gather:
         if coords_columns is None:
             return (None, None)
         if coords_columns == "index":
-            coords_columns = self.headers.index.names
+            coords_columns = list(self.headers.index.names)
         coords = np.unique(self.headers.reset_index()[coords_columns].values, axis=0)
         if coords.shape[0] != 1:
             raise ValueError("Gather coordinates are non-unique")
