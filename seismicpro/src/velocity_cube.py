@@ -338,7 +338,7 @@ class VelocityCube:
     Or created empty and updated with instances of `StackingVelocity` class:
     >>> cube = VelocityCube()
     >>> velocity = StackingVelocity.from_points(times=[0, 1000, 2000, 3000], velocities=[1500, 2000, 2800, 3400],
-    >>>                                         inline=20, crossline=40)
+    ...                                         inline=20, crossline=40)
     >>> cube.update(velocity)
 
     Cube creation should be finalized with `create_interpolator` method call:

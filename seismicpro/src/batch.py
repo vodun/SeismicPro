@@ -271,6 +271,12 @@ class SeismicBatch(Batch):
         -------
         self : SeismicBatch
             The batch with split data.
+
+        Raises
+        ------
+        ValueError
+            If data length does not match the sum of shapes passed.
+            If `dst` is not of `str` or `BA` type.
         """
         data = getattr(self, src)
         shapes = np.cumsum(shapes)

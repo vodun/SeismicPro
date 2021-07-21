@@ -8,16 +8,19 @@ from ..batchflow import action, inbatch_parallel
 
 
 def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src=True):
-    """Mark a method as being added to the batch class.
+    """Mark a method as being added to `SeismicBatch` class.
 
-    In order for a decorated method to be available in the batch, the class itself should be listed in
-    :func:`~decorators.create_batch_methods` decorator arguments of `SeismicBatch`. When a method is called from the
-    batch two new arguments must be specified:
+    The new method is added by :func:`~decorators.create_batch_methods` decorator of `SeismicBatch` if the parant class
+    is listed in its arguments and parallelly redirects calls to elements of the batch. A method will be created only
+    if there is no method with the same name in the batch class or if `force` flag was set to `True`.
+
+    Two new arguments are added for each of the created batch methods:
     src : str or list of str
         Names of components whose elements will be processed by the method.
     dst : str or list of str, optional
         Names of components to store the results. Must match the length of `src`. If not given, the processing is
-        performed inplace.
+        performed inplace. If a component with a name specified in `dst` does not exist, it will be created using
+        :func:`~batch.SeismicBatch._init_component` method.
 
     Parameters
     ----------
@@ -97,6 +100,9 @@ def apply_to_each_component(*args, target="for", fetch_method_target=True):
     """Decorate a method so that it is parallelly applied to elements of each component in `src` and stores the result
     in the corresponding components of `dst`.
 
+    If a component with a name specified in `dst` does not exist, it will be created using
+    :func:`~batch.SeismicBatch._init_component` method.
+
     Parameters
     ----------
     target : {"for", "threads"}, optional, defaults to "for"
@@ -122,11 +128,18 @@ def _get_class_methods(cls):
 
 
 def create_batch_methods(*component_classes):
-    """Create a new batch mathod for each method, decorated by `batch_method` in classes listed in `component_classes`.
+    """Create new batch methods from those decorated by `batch_method` in classes listed in `component_classes`.
 
-    A method is created only if there is no method with the same name in the decorated class or if `force` flag was set
-    to `True` in the `batch_method` arguments. The created method parallelly redirects calls to objects in components
-    specified in `src` argument during the call.
+    A new batch method is created for a method decorated by `batch_method` in classes defined by `component_classes`
+    only if there is no method with the same name in the decorated class or if `force` flag was set to `True` in the
+    `batch_method` arguments. Created methods parallelly redirect calls to elements of the batch and each of them has
+    two new arguments added:
+    src : str or list of str
+        Names of components whose elements will be processed by the method.
+    dst : str or list of str, optional
+        Names of components to store the results. Must match the length of `src`. If not given, the processing is
+        performed inplace. If a component with a name specified in `dst` does not exist, it will be created using
+        :func:`~batch.SeismicBatch._init_component` method.
 
     Parameters
     ----------

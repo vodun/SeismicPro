@@ -67,15 +67,15 @@ def create_supergather_index(centers, size):
     Parameters
     ----------
     centers : 2d np.ndarray with 2 columns
-        Supergather centers coordinates.
+        Coordinates of supergather centers.
     size : tuple with 2 elements
         Supergather size along inline and crossline axes. Measured in lines.
 
     Returns
     -------
     mapping : 2d np.ndarray with 4 columns
-        Supergather centers coordinates in the first 2 columns and coordinates of the included gathers in the last two
-        columns.
+        Coordinates of supergather centers in the first 2 columns and coordinates of the included gathers in the last
+        two columns.
     """
     area_size = size[0] * size[1]
     shifts_i = np.arange(size[0]) - size[0] // 2
@@ -112,7 +112,7 @@ def convert_times_to_mask(times, sample_rate, mask_length):
     sample_rate : float
         Sample rate of seismic traces. Measured in milliseconds.
     mask_length : int
-        Length of resulted mask for each time.
+        Length of the resulting mask for each time.
 
     Returns
     -------
@@ -140,8 +140,8 @@ def convert_mask_to_pick(mask, sample_rate, threshold):
     Examples
     --------
     >>> mask = np.array([[  1, 1, 1, 1, 1],
-    >>>                  [  0, 0, 1, 1, 1],
-    >>>                  [0.6, 0, 0, 1, 1]])
+    ...                  [  0, 0, 1, 1, 1],
+    ...                  [0.6, 0, 0, 1, 1]])
     >>> sample_rate = 2
     >>> threshold = 0.5
     >>> convert_mask_to_pick(mask, sample_rate, threshold)

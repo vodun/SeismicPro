@@ -12,7 +12,7 @@ def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7),  # pyl
 
     Notes
     -----
-    The map is drawn with `origin='lower'` by default, keep it in mind when passing ticks data.
+    The map is drawn with `origin='lower'` by default, keep it in mind when passing arguments, related to axes ticks.
 
     Parameters
     ----------
@@ -40,7 +40,7 @@ def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7),  # pyl
     save_to : str, optional
         If given, save plot to the path specified.
     dpi : int, optional, defaults to 300
-        Resolution for saved figure.
+        The resolution of saved figure in dots per inch.
     kwargs : misc, optional
         Additional named arguments for :func:`matplotlib.pyplot.imshow`.
     """
@@ -77,7 +77,7 @@ def set_ticks(ax, img_shape, ticks_range_x=None, ticks_range_y=None, x_ticks=15,
 
     Parameters
     ----------
-    ax : matplotlib axes
+    ax : matplotlib.Axes
         Axis to which ticks are set.
     img_shape : array with length 2
         Shape of the image to add ticks to.
@@ -91,8 +91,8 @@ def set_ticks(ax, img_shape, ticks_range_x=None, ticks_range_y=None, x_ticks=15,
         The number of coordinates on the y-axis.
     fontsize : int, optional
         The size of text.
-    rotation : int, optional
-        Degree of rotation of the labels on the x axis.
+    rotation : int, optional, defaults to 45
+        Rotation angle of the labels on the x axis. Measured in degrees.
     """
     ax.set_xticks(np.linspace(0, img_shape[0]-1, x_ticks))
     ax.set_yticks(np.linspace(0, img_shape[1]-1, y_ticks))

@@ -33,7 +33,7 @@ def get_hodograph(gather_data, time, offsets, velocity, sample_rate, fill_value=
     Returns
     -------
     hodograph : 1d array
-        Gather amplitudes along a hyperbolic traveltime.
+        Gather amplitudes along a hyperbolic traveltime curve.
     """
     hodograph = np.full(len(offsets), fill_value, dtype=gather_data.dtype)
     hodograph_times = (np.sqrt(time**2 + offsets**2/velocity**2) / sample_rate).astype(np.int32)
@@ -49,7 +49,7 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate):
     r"""Perform gather normal moveout correction with given stacking velocities for each timestamp.
 
     The process of NMO correction removes the moveout effect on traveltimes, assuming that reflection traveltimes in a
-    CMP gather follow hyperbolic trajectories as a function of offset:
+    CDP gather follow hyperbolic trajectories as a function of offset:
     :math:`t(l) = \sqrt{t(0)^2 + \frac{l^2}{v^2}}`, where:
         t(l) - travel time at offset `l`,
         t(0) - travel time at zero offset,
