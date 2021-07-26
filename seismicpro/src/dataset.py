@@ -108,6 +108,27 @@ class SeismicDataset(Dataset):
             index = self.index.create_subset(index)
         return type(self).from_dataset(self, index)
 
+    def reindex(self, new_index, reindex_nested=False, reindex_surveys=False):
+        """Reindex the index of `self` with new headers columns.
+
+        Parameters
+        ----------
+        new_index : str or list of str
+            Headers columns to become a new index. Note, that `CONCAT_ID` is always preserved in the index and should
+            not be specified.
+        reindex_nested : bool, optional, defaults to False
+            Whether to reindex `train`, `test` and `validation` parts of the index.
+        reindex_surveys : bool, optional, defaults to False
+            Whether to reindex all underlying surveys.
+
+        Returns
+        -------
+        self : SeismicDataset
+            `self` reindexed inplace.
+        """
+        self.index.reindex(new_index, reindex_nested=reindex_nested, reindex_surveys=reindex_surveys, inplace=True)
+        return self
+
     def collect_stats(self, n_quantile_traces=100000, quantile_precision=2, stats_limits=None, bar=True):
         """Collect the following trace data statistics for each survey in the dataset:
         1. Min and max amplitude,

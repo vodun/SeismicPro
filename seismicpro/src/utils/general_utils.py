@@ -10,9 +10,9 @@ def to_list(obj):
     return np.array(obj).ravel().tolist()
 
 
-def maybe_copy(obj, inplace=False):
+def maybe_copy(obj, inplace=False, **kwargs):
     """Copy an object if `inplace` flag is set to `False`. Otherwise return the object unchanged."""
-    return obj if inplace else obj.copy()
+    return obj if inplace else obj.copy(**kwargs)
 
 
 def unique_indices_sorted(arr):

@@ -1,7 +1,7 @@
 """Implements SeismicIndex class that allows for iteration over gathers in a survey or a group of surveys"""
 
 import os
-from copy import deepcopy
+from copy import copy, deepcopy
 from itertools import chain
 from functools import reduce
 from textwrap import dedent, indent
@@ -226,6 +226,59 @@ class SeismicIndex(DatasetIndex):
         self.index_to_headers_pos = index.index_to_headers_pos
         return index.index
 
+    def update(self, headers, surveys_dict, index=None, index_to_headers_pos=None):
+        """Update an index with attributes passed.
+
+        Parameters
+        ----------
+        headers : pd.DataFrame
+            Headers of the index.
+        surveys_dict : dict
+            A dict of surveys used by the index. Its keys are the names of surveys being merged, while values are lists
+            with the same length equal to the number of concatenated surveys.
+        index : pd.MultiIndex, optional
+            Unique identifiers of seismic gathers in the constructed index. If not given, calculated by passed
+            `headers`.
+        index_to_headers_pos : dict, optional
+            A mapping from an index value to a range of corresponding `headers` rows. If not given, calculated by
+            passed `headers`.
+
+        Returns
+        -------
+        self : SeismicIndex
+            Self with updated attributes.
+
+        Raises
+        ------
+        ValueError
+            If `headers` index is not monotonically increasing.
+        """
+        self.headers = headers
+        self.surveys_dict = surveys_dict
+
+        if index is None:
+            # Calculate unique header indices. This approach is way faster, than pd.unique or np.unique since we
+            # guarantee that the index of the header is monotonic
+            if not headers.index.is_monotonic_increasing:
+                raise ValueError("Headers index must be monotonically increasing")
+            unique_header_indices = unique_indices_sorted(headers.index.to_frame().values)
+            index = headers.index[unique_header_indices]
+
+            # Calculate a mapping from index value to its position in headers to further speed up create_subset
+            index_to_headers_pos = {}
+            start_pos = unique_header_indices
+            end_pos = chain(unique_header_indices[1:], [len(headers)])
+            for ix, start, end in zip(index, start_pos, end_pos):
+                index_to_headers_pos[ix] = range(start, end)
+
+        # Set _index explicitly since already created index is modified
+        self._index = index
+        self.index_to_headers_pos = index_to_headers_pos
+
+        # Reset iter params to ensure that valid iteration over changed indices is performed
+        self.reset("iter")
+        return self
+
     @classmethod
     def from_attributes(cls, headers, surveys_dict, index=None, index_to_headers_pos=None):
         """Create a new `SeismicIndex` instance from its attributes.
@@ -254,30 +307,7 @@ class SeismicIndex(DatasetIndex):
         ValueError
             If `headers` index is not monotonically increasing.
         """
-        # Create empty SeismicIndex to fill with given headers and surveys_dict
-        new_index = cls()
-        new_index.headers = headers
-        new_index.surveys_dict = surveys_dict
-
-        if index is None:
-            # Calculate unique header indices. This approach is way faster, than pd.unique or np.unique since we
-            # guarantee that the index of the header is monotonic
-            if not headers.index.is_monotonic_increasing:
-                raise ValueError("Headers index must be monotonically increasing")
-            unique_header_indices = unique_indices_sorted(headers.index.to_frame().values)
-            index = headers.index[unique_header_indices]
-
-            # Calculate a mapping from index value to its position in headers to further speed up create_subset
-            index_to_headers_pos = {}
-            start_pos = unique_header_indices
-            end_pos = chain(unique_header_indices[1:], [len(headers)])
-            for ix, start, end in zip(index, start_pos, end_pos):
-                index_to_headers_pos[ix] = range(start, end)
-
-        # Set _index explicitly since already created index is modified
-        new_index._index = index
-        new_index.index_to_headers_pos = index_to_headers_pos
-        return new_index
+        return cls().update(headers, surveys_dict, index, index_to_headers_pos)
 
     @classmethod
     def from_survey(cls, survey):
@@ -523,7 +553,28 @@ class SeismicIndex(DatasetIndex):
     #                       Index manipulation methods                       #
     #------------------------------------------------------------------------#
 
-    def copy(self, copy_surveys=True):
+    def __copy__(self):
+        """Perform a deepcopy of all index attributes except for `surveys_dict` which will refer to the original
+        object."""
+        surveys_dict = self.surveys_dict
+        self.surveys_dict = None
+
+        split_names = ["train", "test", "validation"]
+        splits = []
+        for split_name in split_names:
+            splits.append(getattr(self, split_name))
+            setattr(self, split_name, None)
+
+        self_copy = deepcopy(self)
+        self.surveys_dict = surveys_dict
+        self_copy.surveys_dict = surveys_dict
+
+        for split_name, split in zip(split_names, splits):
+            setattr(self, split_name, split)
+            setattr(self_copy, split_name, copy(split))
+        return self_copy
+
+    def copy(self, copy_surveys=False):
         """Perform a deepcopy of all index attributes except for `surveys_dict`, which will be copied only if
         `copy_surveys` is `True`.
 
@@ -539,12 +590,7 @@ class SeismicIndex(DatasetIndex):
         """
         if copy_surveys:
             return deepcopy(self)
-        surveys_dict = self.surveys_dict
-        self.surveys_dict = None
-        self_copy = deepcopy(self)
-        self_copy.surveys_dict = surveys_dict
-        self.surveys_dict = surveys_dict
-        return self_copy
+        return copy(self)
 
     def get_gather(self, survey_name, concat_id, gather_index, **kwargs):
         """Get a gather from a given survey by its index.
@@ -577,38 +623,47 @@ class SeismicIndex(DatasetIndex):
         gather_headers = self.headers.loc[concat_id].loc[gather_index]
         return survey.load_gather(headers=gather_headers, **kwargs)
 
-    def reindex(self, new_index, inplace=False):
-        """Reindex `self` with new headers columns. All underlying surveys are reindexed as well.
+    def reindex(self, new_index, reindex_nested=False, reindex_surveys=False, inplace=False, **kwargs):
+        """Reindex `self` with new headers columns.
 
         Parameters
         ----------
         new_index : str or list of str
             Headers columns to become a new index. Note, that `CONCAT_ID` is always preserved in the index and should
             not be specified.
+        reindex_nested : bool, optional, defaults to False
+            Whether to reindex `train`, `test` and `validation` parts of the index.
+        reindex_surveys : bool, optional, defaults to False
+            Whether to reindex all underlying surveys.
         inplace : bool, optional, defaults to False
             Whether to perform reindexation inplace or return a new index instance.
+        kwargs : misc, optional
+            Additional keyword arguments to :func:`~general_utils.maybe_copy` to copy the index if `inplace` is
+            `False`.
 
         Returns
         -------
         index : SeismicIndex
             Reindexed `self`.
         """
-        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        self = maybe_copy(self, inplace, **kwargs)  # pylint: disable=self-cls-assignment
 
         # Reindex headers, keeping CONCAT_ID column in it
-        self.headers.reset_index(level=self.headers.index.names[1:], inplace=True)
-        self.headers.set_index(new_index, append=True, inplace=True)
-        self.headers.sort_index(inplace=True)
+        headers = self.headers.reset_index(level=self.headers.index.names[1:])
+        headers = headers.set_index(new_index, append=True).sort_index()
+        self.update(headers, self.surveys_dict)
 
-        # Set _index explicitly since already created index is modified
-        # unique_indices_sorted is used since headers index is guaranteed to be sorted
-        uniques_indices = unique_indices_sorted(self.headers.index.to_frame().values)
-        self._index = self.headers.index[uniques_indices]
+        if reindex_nested:
+            for split_name in ["train", "test", "validation"]:
+                split = getattr(self, split_name)
+                if split is not None:
+                    split.reindex(new_index, reindex_nested=True, reindex_surveys=False, inplace=True)
 
-        # Reindex all the underlying surveys
-        for surveys in self.surveys_dict.values():
-            for survey in surveys:
-                # None survey values can be created by _merge_two_indices
-                if survey is not None:
-                    survey.reindex(new_index, inplace=True)
+        # Reindex all the underlying surveys if needed
+        if reindex_surveys:
+            for surveys in self.surveys_dict.values():
+                for survey in surveys:
+                    # None survey values can be created by _merge_two_indices
+                    if survey is not None:
+                        survey.reindex(new_index, inplace=True)
         return self
