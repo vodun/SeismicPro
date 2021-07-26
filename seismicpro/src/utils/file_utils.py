@@ -11,7 +11,8 @@ from tqdm.auto import tqdm
 from .general_utils import to_list
 
 
-def aggregate_segys(in_paths, out_path, recursive=False, mmap=True, keep_exts=("sgy", "segy"), bar=True):
+def aggregate_segys(in_paths, out_path, recursive=False, mmap=False, keep_exts=("sgy", "segy"), delete_in_files=False,
+                    bar=True):
     """Merge several SEG-Y files into a single one.
 
     Parameters
@@ -22,10 +23,12 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=True, keep_exts=("
         A path to the resulting merged file.
     recursive : bool, optional, defaults to False
         Whether to treat '**' pattern in `in_paths` as zero or more directories to perfrom a recursive file search.
-    mmap : bool, optional, defaults to True
+    mmap : bool, optional, defaults to False
         Whether to perform memory mapping of input files. Setting this flag to `True` may result in faster reads.
     keep_exts : None, array-like, optional, defaults to ("sgy", "segy")
         Extensions of files to use for merging. If `None`, no filtering is performed.
+    delete_in_files : bool, optional, defaults to False
+        Whether to delete source files, defined by `in_paths`.
     bar : bool, optional, defaults to True
         Whether to show the progres bar.
 
@@ -41,37 +44,45 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=True, keep_exts=("
     if not in_paths:
         raise ValueError("No files match the given pattern")
 
-    # Check whether all files have the same trace length and sample rate
-    source_handlers = [segyio.open(path, ignore_geometry=True) for path in in_paths]
-    samples = source_handlers[0].samples
-    if not all(np.array_equal(samples, handler.samples) for handler in source_handlers[1:]):
+    # Calculate total tracecount and check whether all files have the same trace length, time delay and sample rate
+    tracecount = 0
+    samples_params = set()
+    for path in in_paths:
+        with segyio.open(path, ignore_geometry=True) as handler:
+            tracecount += handler.tracecount
+            samples = handler.samples
+            samples_params.add((len(samples), samples[0], samples[1] - samples[0]))
+
+    if len(samples_params) != 1:
         raise ValueError("Source files contain inconsistent samples")
 
-    if mmap:
-        for source_handler in source_handlers:
-            source_handler.mmap()
-
-    # Create segyio spec for the new file
+    # Create segyio spec for the new file, which inherits most of its attributes from the first input file
     spec = segyio.spec()
-    spec.samples = samples
-    spec.ext_headers = source_handlers[0].ext_headers
-    spec.format = source_handlers[0].format
-    spec.tracecount = sum(handler.tracecount for handler in source_handlers)
+    spec.tracecount = tracecount
+    with segyio.open(in_paths[0], ignore_geometry=True) as handler:
+        spec.samples = handler.samples
+        spec.ext_headers = handler.ext_headers
+        spec.format = handler.format
 
     # Write traces and their headers from source files into the new one
     os.makedirs(os.path.abspath(os.path.dirname(out_path)), exist_ok=True)
     with segyio.create(out_path, spec) as out_handler:
         trace_pos = 0
-        for source_handler in tqdm(source_handlers, disable=not bar):
-            out_handler.trace[trace_pos : trace_pos + source_handler.tracecount] = source_handler.trace
-            out_handler.header[trace_pos : trace_pos + source_handler.tracecount] = source_handler.header
-            trace_pos += source_handler.tracecount
-        for i in range(out_handler.tracecount):
-            out_handler.header[i].update({segyio.TraceField.TRACE_SEQUENCE_FILE: i + 1})
+        for path in tqdm(in_paths, desc="Aggregating files", disable=not bar):
+            with segyio.open(path, ignore_geometry=True) as in_handler:
+                if mmap:
+                    in_handler.mmap()
+                in_tracecount = in_handler.tracecount
+                out_handler.trace[trace_pos : trace_pos + in_tracecount] = in_handler.trace
+                out_handler.header[trace_pos : trace_pos + in_tracecount] = in_handler.header
+                for i in range(trace_pos, trace_pos + in_tracecount):
+                    out_handler.header[i].update({segyio.TraceField.TRACE_SEQUENCE_FILE: i + 1})
+                trace_pos += in_tracecount
 
-    # Close source SEG-Y file handlers
-    for source_handler in source_handlers:
-        source_handler.close()
+    # Delete input files if needed
+    if delete_in_files:
+        for path in in_paths:
+            os.remove(path)
 
 
 def read_vfunc(path):
