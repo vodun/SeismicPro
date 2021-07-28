@@ -6,7 +6,7 @@ from .gather import Gather
 from .semblance import Semblance, ResidualSemblance
 from .decorators import create_batch_methods, apply_to_each_component
 from .utils import to_list
-from ..batchflow import Batch, action, DatasetIndex, BA
+from ..batchflow import Batch, action, DatasetIndex, NamedExpression
 
 
 @create_batch_methods(Gather, Semblance, ResidualSemblance)
@@ -228,7 +228,7 @@ class SeismicBatch(Batch):
         setattr(self, dst, data)
         return self
 
-    @action
+    @action(no_eval='dst')
     def split_model_outputs(self, src, dst, shapes):
         """Split data into multiple sub-arrays whose shapes along zero axis if defined by `shapes`.
 
@@ -286,8 +286,8 @@ class SeismicBatch(Batch):
 
         if isinstance(dst, str):
             setattr(self, dst, split_data)
-        elif isinstance(dst, BA):
+        elif isinstance(dst, NamedExpression):
             dst.set(value=split_data)
         else:
-            ValueError(f'dst must be either `str` or `BA` named expression, not {type(dst)}.')
+            raise ValueError(f'dst must be either `str` or NamedExpression, not {type(dst)}.')
         return self
