@@ -259,10 +259,10 @@ class SeismicBatch(Batch):
         ----------
         src : str
             A component's name with data to split.
-        dst : str or BA
+        dst : str or NamedExpression
             - If `str`, save the resulting sub-arrays into a batch component called `dst`,
-            - If `BA`, save the resulting sub-arrays into the corresponding attribute for each element of a component,
-              defined by the named expression.
+            - If `NamedExpression`, save the resulting sub-arrays into the corresponding attribute for each element of
+              a component, defined by the named expression.
         shapes : 1d array-like
             An array with sizes of each sub-array along zero axis after the split. Its length should be generally equal
             to the current batch size and its sum must match the length of data defined by `src`.
@@ -276,7 +276,7 @@ class SeismicBatch(Batch):
         ------
         ValueError
             If data length does not match the sum of shapes passed.
-            If `dst` is not of `str` or `BA` type.
+            If `dst` is not of `str` or `NamedExpression` type.
         """
         data = getattr(self, src)
         shapes = np.cumsum(shapes)
@@ -289,5 +289,5 @@ class SeismicBatch(Batch):
         elif isinstance(dst, NamedExpression):
             dst.set(value=split_data)
         else:
-            raise ValueError(f'dst must be either `str` or NamedExpression, not {type(dst)}.')
+            raise ValueError(f'dst must be either `str` or `NamedExpression`, not {type(dst)}.')
         return self
