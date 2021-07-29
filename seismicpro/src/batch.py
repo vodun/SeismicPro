@@ -261,8 +261,7 @@ class SeismicBatch(Batch):
             A component's name with data to split.
         dst : str or NamedExpression
             - If `str`, save the resulting sub-arrays into a batch component called `dst`,
-            - If `NamedExpression`, save the resulting sub-arrays into the corresponding attribute for each element of
-              a component, defined by the named expression.
+            - If `NamedExpression`, save the resulting sub-arrays into the object described by named expression.
         shapes : 1d array-like
             An array with sizes of each sub-array along zero axis after the split. Its length should be generally equal
             to the current batch size and its sum must match the length of data defined by `src`.
@@ -289,5 +288,5 @@ class SeismicBatch(Batch):
         elif isinstance(dst, NamedExpression):
             dst.set(value=split_data)
         else:
-            raise ValueError(f'dst must be either `str` or `NamedExpression`, not {type(dst)}.')
+            raise ValueError(f"dst must be either `str` or `NamedExpression`, not {type(dst)}.")
         return self
