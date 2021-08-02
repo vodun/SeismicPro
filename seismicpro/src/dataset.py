@@ -109,7 +109,7 @@ class SeismicDataset(Dataset):
         return type(self).from_dataset(self, index)
 
     def reindex(self, new_index, reindex_nested=False, reindex_surveys=False):
-        """Reindex the index of `self` with new headers columns.
+        """Perform inplace reindexation of the index of `self` with new headers columns.
 
         Parameters
         ----------
