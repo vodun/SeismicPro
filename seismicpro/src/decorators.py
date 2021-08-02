@@ -10,7 +10,7 @@ from ..batchflow import action, inbatch_parallel
 def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src=True):
     """Mark a method as being added to `SeismicBatch` class.
 
-    The new method is added by :func:`~decorators.create_batch_methods` decorator of `SeismicBatch` if the parant class
+    The new method is added by :func:`~decorators.create_batch_methods` decorator of `SeismicBatch` if the parent class
     is listed in its arguments and parallelly redirects calls to elements of the batch. A method will be created only
     if there is no method with the same name in the batch class or if `force` flag was set to `True`.
 
