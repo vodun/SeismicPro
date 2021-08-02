@@ -1,4 +1,4 @@
-"""Implements Gather class"""
+"""Implements Gather class that represents a group of seismic traces that share some common acquisition parameter"""
 
 import os
 import warnings
@@ -24,12 +24,20 @@ class Gather:
     generating survey header in our case). Unlike `Survey`, `Gather` instance stores loaded seismic traces along with
     a corresponding subset of its parent survey header.
 
-    `Gather` instance can be created in two main ways:
-    1. Either by calling `Survey.get_gather` to get a particular gather by its index value,
-    2. Or by calling `Survey.sample_gather` to get a randomly selected gather.
+    `Gather` instance can be created in three main ways:
+    1. Either by calling `Survey.sample_gather` to get a randomly selected gather,
+    2. Or by calling `Survey.get_gather` to get a particular gather by its index value,
+    3. Or by calling `Index.get_gather` to get a particular gather by its index value from a specified survey.
 
     Most of the methods change gather data inplace, thus `Gather.copy` may come in handy to keep the original gather
     available.
+
+    Examples
+    --------
+    Let's load a randomly selected common source gather, sort it by offset and plot:
+    >>> survey = Survey(path, header_index="FieldRecord", header_cols=["TraceNumber", "offset"], name="survey")
+    >>> gather = survey.sample_gather().sort(by="offset")
+    >>> gather.plot()
 
     Parameters
     ----------
@@ -174,7 +182,7 @@ class Gather:
         if coords_columns is None:
             return (None, None)
         if coords_columns == "index":
-            coords_columns = self.headers.index.names
+            coords_columns = list(self.headers.index.names)
         coords = np.unique(self.headers.reset_index()[coords_columns].values, axis=0)
         if coords.shape[0] != 1:
             raise ValueError("Gather coordinates are non-unique")
@@ -249,7 +257,7 @@ class Gather:
 
         Notes
         -----
-        All binary and textual headers are copied from the parent segy unchanged.
+        All binary and textual headers are copied from the parent SEG-Y file unchanged.
 
         Parameters
         ----------
@@ -259,12 +267,17 @@ class Gather:
             The name of the file. If `None`, the concatenation of the survey name and the value of gather index will
             be used.
         copy_header : bool, optional, defaults to False
-            Whether to copy the headers that weren't loaded during Survey creation from the parent segy.
+            Whether to copy the headers that weren't loaded during Survey creation from the parent SEG-Y file.
 
         Returns
         -------
         self : Gather
             Gather unchanged.
+
+        Raises
+        ------
+        ValueError
+            If empty `name` was specified.
         """
         parent_handler = self.survey.segy_handler
 
@@ -286,30 +299,30 @@ class Gather:
 
         trace_headers = self.headers.reset_index()
 
-        # Remember ordinal numbers of traces in parent segy to further copy their headers
-        # and reset them to start from 1 in the resulting file to match segy standard.
+        # Remember ordinal numbers of traces in the parent SEG-Y file to further copy their headers
+        # and reset them to start from 1 in the resulting file to match SEG-Y standard.
         trace_ids = trace_headers["TRACE_SEQUENCE_FILE"].values - 1
         trace_headers["TRACE_SEQUENCE_FILE"] = np.arange(len(trace_headers)) + 1
 
-        # Keep only headers, relevant to segy file.
+        # Keep only headers, defined by SEG-Y standard.
         used_header_names = set(trace_headers.columns) & set(segyio.tracefield.keys.keys())
         trace_headers = trace_headers[used_header_names]
 
-        # Now we change column name's into byte number based on the segy standard.
+        # Now we change column name's into byte number based on the SEG-Y standard.
         trace_headers.rename(columns=lambda col_name: segyio.tracefield.keys[col_name], inplace=True)
         trace_headers_dict = trace_headers.to_dict("index")
 
         with segyio.create(full_path, spec) as dump_handler:
-            # Copy binary headers from parent segy. This is possibly incorrect and needs to be checked
+            # Copy binary headers from the parent SEG-Y file. This is possibly incorrect and needs to be checked
             # if the number of traces or sample ratio changes.
             # TODO: Check if bin headers matter
             dump_handler.bin = parent_handler.bin
 
-            # Copy textual headers from parent segy.
+            # Copy textual headers from the parent SEG-Y file.
             for i in range(spec.ext_headers + 1):
                 dump_handler.text[i] = parent_handler.text[i]
 
-            # Dump traces and their headers. Optionally copy headers from parent segy.
+            # Dump traces and their headers. Optionally copy headers from the parent SEG-Y file.
             dump_handler.trace = self.data
             for i, dump_h in trace_headers_dict.items():
                 if copy_header:
@@ -355,7 +368,7 @@ class Gather:
         Parameters
         ----------
         q : float or array-like of floats
-            Quantile or sequence of quantiles to compute, which must be between 0 and 1 inclusive.
+            Quantile or a sequence of quantiles to compute, which must be between 0 and 1 inclusive.
         tracewise : bool, optional, default False
             If `True`, the quantiles are computed for each trace independently, otherwise for the entire gather.
         use_global : bool, optional, default False
@@ -365,6 +378,11 @@ class Gather:
         -------
         q : float or array-like of floats
             The `q`-th quantile values.
+
+        Raises
+        ------
+        ValueError
+            If `use_global` is `True` but global statistics were not calculated.
         """
         if use_global:
             return self.survey.get_quantile(q)
@@ -519,18 +537,20 @@ class Gather:
 
     @batch_method(target="threads")
     def pick_to_mask(self, first_breaks_col="FirstBreak", mask_attr="mask"):
-        """Convert first break picks to binary mask that contains zeros above the first break picks and ones below.
-        The binary mask has the same shape as `gather.data` and is stored in the `mask` attribute.
+        """Convert first break times to a binary mask with the same shape as `gather.data` containing zeros before the
+        first arrivals and ones after for each trace.
 
         Parameters
         ----------
-        first_breaks_col : str, optional, by default 'FirstBreak'
-            Column in `self.headers` that contains first break picks, measured in milliseconds.
+        first_breaks_col : str, optional, defaults to 'FirstBreak'
+            A column of `self.headers` that contains first arrival times, measured in milliseconds.
+        mask_attr : str, optional, defaults to 'mask'
+            Gather attribute to store the mask in.
 
         Returns
         -------
         self : Gather
-            Gather with first breaks mask in `mask` attribute.
+            Gather with calculated first breaks mask. Overwrites `mask_attr` attribute if it exists.
         """
         self.validate(required_header_cols=first_breaks_col)
         mask = convert_times_to_mask(times=self[first_breaks_col], sample_rate=self.sample_rate,
@@ -540,36 +560,38 @@ class Gather:
 
     @batch_method(target='for')
     def mask_to_pick(self, threshold=0.5, first_breaks_col="FirstBreak", mask_attr="mask"):
-        """Convert mask stored in the `mask` attribute into first break picks.
+        """Convert a first break mask into times of first arrivals.
 
-        The conversion procedure consists of the following steps:
-        1. Binarize the mask at the specified `threshold`
-        2. Find the longest sequence of ones by the first axis and return an index of the first element of the found
-           sequence.
-        3. Convert index to time and save the result to the headers' column with the name `first_breaks_col`.
+        The mask shape should match the shape of `gather.data`, each its value should represent a probability of
+        corresponding index along the trace to follow the first break.
 
-        The points found are measured in milliseconds.
+        Notes
+        -----
+        A detailed description of conversion heuristic used can be found in :func:`~general_utils.convert_mask_to_pick`
+        docs.
 
         Parameters
         ----------
-        threshold : float, optional, by default 0.5
-            The boundary value above which the presence of a first break picks is considered.
-        first_breaks_col : str, optional, by default 'FirstBreak'
-            Headers column to save first breaks in.
+        threshold : float, optional, defaults to 0.5
+            A threshold for trace mask value to refer its index to be either pre- or post-first break.
+        first_breaks_col : str, optional, defaults to 'FirstBreak'
+            Headers column to save first break times to.
+        mask_attr : str, optional, defaults to 'mask'
+            Gather attribute to get the mask from.
 
         Returns
         -------
         self : Gather
-            Gather with first break points in headers' column named `first_breaks_col`.
+            A gather with first break times in headers column defined by `first_breaks_col`.
 
         Raises
         ------
         ValueError
-            If the `mask` attribute does not exist.
+            If an attribute defined by `mask_attr` does not exist.
         """
         mask = getattr(self, mask_attr, None)
         if mask is None:
-            raise ValueError("Empty mask attribute")
+            raise ValueError(f"Mask attribute given by '{mask_attr}' does not exist")
         self[first_breaks_col] = convert_mask_to_pick(mask, self.sample_rate, threshold)
         return self
 
@@ -579,24 +601,23 @@ class Gather:
 
     @batch_method(target="for", copy_src=False)
     def create_muter(self, mode="first_breaks", **kwargs):
-        """Create instance of :class:`~.Muter` class.
+        """Create an instance of :class:`~.Muter` class.
 
-        This method redirects the call into classmethod with the name `Muter.from_{mode}`.
-
-        The created Muter object is intended to determine the muting time based on the offset. Detailed description of
+        This method redirects the call into a corresponding `Muter.from_{mode}` classmethod. The created object is
+        callable and returns times up to which muting should be performed for given offsets. A detailed description of
         `Muter` instance can be found in :class:`~muting.Muter` docs.
 
         Parameters
         ----------
-        mode :{"points", "file", "first_breaks"}, optional, default "first_breaks"
-            Type of Muter.
+        mode : {"points", "file", "first_breaks"}, optional, defaults to "first_breaks"
+            Type of `Muter` to create.
         kwargs : misc, optional
-            Additional keyword arguments to Muter.from_{mode}.
+            Additional keyword arguments to `Muter.from_{mode}`.
 
         Returns
         -------
-        self : Muter
-            Muter instance.
+        muter : Muter
+            Created muter.
 
         Raises
         ------
@@ -614,16 +635,17 @@ class Gather:
 
     @batch_method(target="threads", args_to_unpack="muter")
     def mute(self, muter, fill_value=0):
-        """Mute gather use given `muter`.
+        """Mute the gather using given `muter`.
 
-        The muting operation consists in filling the area above the specified by `muter` times with `fill_value`.
+        The muting operation is performed by setting gather values above an offset-time boundary defined by `muter` to
+        `fill_value`.
 
         Parameters
         ----------
         muter : Muter
-            An object that determines the time to mute based on given offset.
-        fill_value : int, optional, default
-            The values to fill muted part of gather with.
+            An object that defines muting times by gather offsets.
+        fill_value : float, defaults to 0
+            A value to fill the muted part of the gather with.
 
         Returns
         -------
@@ -640,40 +662,86 @@ class Gather:
 
     @batch_method(target="threads", copy_src=False)
     def calculate_semblance(self, velocities, win_size=25):
+        """Calculate vertical velocity semblance for the gather.
+
+        Notes
+        -----
+        The gather should be sorted by offset. A detailed description of vertical velocity semblance and its
+        computation algorithm can be found in :func:`~semblance.Semblance` docs.
+
+        Examples
+        --------
+        Calculate semblance for 200 velocities from 2000 to 6000 m/s and a temporal window size of 8 samples:
+        >>> gather = gather.sort(by="offset")
+        >>> semblance = gather.calculate_semblance(velocities=np.linspace(2000, 6000, 200), win_size=8)
+
+        Parameters
+        ----------
+        velocities : 1d np.ndarray
+            Range of velocity values for which semblance is calculated. Measured in meters/seconds.
+        win_size : int, optional, defaults to 25
+            Temporal window size used for semblance calculation. The higher the `win_size` is, the smoother the
+            resulting semblance will be but to the detriment of small details. Measured in samples.
+
+        Returns
+        -------
+        semblance : Semblance
+            Calculated vertical velocity semblance.
+
+        Raises
+        ------
+        ValueError
+            If the gather is not sorted by offset.
+        """
         self.validate(required_sorting="offset")
         return Semblance(gather=self, velocities=velocities, win_size=win_size)
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
     def calculate_residual_semblance(self, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2):
+        """Calculate residual vertical velocity semblance for the gather and a chosen stacking velocity.
+
+        Notes
+        -----
+        The gather should be sorted by offset. A detailed description of residual vertical velocity semblance and its
+        computation algorithm can be found in :func:`~semblance.ResidualSemblance` docs.
+
+        Examples
+        --------
+        Calculate residual semblance for a gather and a stacking velocity, loaded from a file:
+        >>> gather = gather.sort(by="offset")
+        >>> velocity = StackingVelocity.from_file(velocity_path)
+        >>> residual = gather.calculate_residual_semblance(velocity, n_velocities=100, win_size=8)
+
+        Parameters
+        ----------
+        stacking_velocity : StackingVelocity
+            Stacking velocity around which residual semblance is calculated.
+        n_velocities : int, optional, defaults to 140
+            The number of velocities to compute residual semblance for.
+        win_size : int, optional, defaults to 25
+            Temporal window size used for semblance calculation. The higher the `win_size` is, the smoother the
+            resulting semblance will be but to the detriment of small details. Measured in samples.
+        relative_margin : float, optional, defaults to 0.2
+            Relative velocity margin, that determines the velocity range for semblance calculation for each time `t` as
+            `stacking_velocity(t)` * (1 +- `relative_margin`).
+
+        Returns
+        -------
+        semblance : ResidualSemblance
+            Calculated residual vertical velocity semblance.
+
+        Raises
+        ------
+        ValueError
+            If the gather is not sorted by offset.
+        """
         self.validate(required_sorting="offset")
         return ResidualSemblance(gather=self, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
                                  win_size=win_size, relative_margin=relative_margin)
 
     #------------------------------------------------------------------------#
-    #                       Gather processing methods                        #
+    #                           Gather corrections                           #
     #------------------------------------------------------------------------#
-
-    @batch_method(target="for")
-    def sort(self, by):
-        if not isinstance(by, str):
-            raise TypeError('`by` should be str, not {}'.format(type(by)))
-        self.validate(required_header_cols=by)
-        order = np.argsort(self.headers[by].values, kind='stable')
-        self.sort_by = by
-        self.data = self.data[order]
-        self.headers = self.headers.iloc[order]
-        return self
-
-    @batch_method(target="for")
-    def get_central_cdp(self):
-        self.validate(required_header_cols=["INLINE_3D", "SUPERGATHER_INLINE_3D",
-                                            "CROSSLINE_3D", "SUPERGATHER_CROSSLINE_3D"])
-        headers = self.headers.reset_index()
-        mask = ((headers["SUPERGATHER_INLINE_3D"] == headers["INLINE_3D"]) &
-                (headers["SUPERGATHER_CROSSLINE_3D"] == headers["CROSSLINE_3D"])).values
-        self.headers = self.headers.loc[mask]
-        self.data = self.data[mask]
-        return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
     def apply_nmo(self, stacking_velocity, coords_columns="index"):
@@ -681,7 +749,7 @@ class Gather:
 
         Notes
         -----
-        Detailed description of NMO correction can be found in :func:`~correction.apply_nmo` docs.
+        A detailed description of NMO correction can be found in :func:`~correction.apply_nmo` docs.
 
         Parameters
         ----------
@@ -711,8 +779,85 @@ class Gather:
         self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms, self.sample_rate)
         return self
 
+    #------------------------------------------------------------------------#
+    #                       General processing methods                       #
+    #------------------------------------------------------------------------#
+
+    @batch_method(target="for")
+    def sort(self, by):
+        """Sort gather `headers` and traces by specified header column.
+
+        Parameters
+        ----------
+        by : str
+            `headers` column name to sort the gather by.
+
+        Returns
+        -------
+        self : Gather
+            Gather sorted by `by` column. Sets `sort_by` attribute to `by`.
+
+        Raises
+        ------
+        TypeError
+            If `by` is not str.
+        ValueError
+            If `by` column was not loaded in `headers`.
+        """
+        if not isinstance(by, str):
+            raise TypeError('`by` should be str, not {}'.format(type(by)))
+        self.validate(required_header_cols=by)
+        order = np.argsort(self.headers[by].values, kind='stable')
+        self.sort_by = by
+        self.data = self.data[order]
+        self.headers = self.headers.iloc[order]
+        return self
+
+    @batch_method(target="for")
+    def get_central_cdp(self):
+        """Get a central CDP gather from a supergather.
+
+        A supergather has `SUPERGATHER_INLINE_3D` and `SUPERGATHER_CROSSLINE_3D` headers columns, whose values are
+        equal to values in `INLINE_3D` and `CROSSLINE_3D` only for traces from the central CDP gather. Read more about
+        supergather generation in :func:`~Survey.generate_supergathers` docs.
+
+        Returns
+        -------
+        self : Gather
+            `self` with only traces from the central CDP gather kept. Updates `self.headers` and `self.data` inplace.
+
+        Raises
+        ------
+        ValueError
+            If any of the `INLINE_3D`, `CROSSLINE_3D`, `SUPERGATHER_INLINE_3D` or `SUPERGATHER_CROSSLINE_3D` columns
+            are not in `headers`.
+        """
+        self.validate(required_header_cols=["INLINE_3D", "SUPERGATHER_INLINE_3D",
+                                            "CROSSLINE_3D", "SUPERGATHER_CROSSLINE_3D"])
+        headers = self.headers.reset_index()
+        mask = ((headers["SUPERGATHER_INLINE_3D"] == headers["INLINE_3D"]) &
+                (headers["SUPERGATHER_CROSSLINE_3D"] == headers["CROSSLINE_3D"])).values
+        self.headers = self.headers.loc[mask]
+        self.data = self.data[mask]
+        return self
+
     @batch_method(target="for")
     def stack(self):
+        """Stack a gather by calculating mean value of all non-nan amplitudes for each time over the offset axis.
+
+        The gather after stacking contains only one trace. Its `headers` is indexed by `INLINE_3D` and `CROSSLINE_3D`
+        and has a single `TRACE_SEQUENCE_FILE` header with a value of 1.
+
+        Notes
+        -----
+        Only a CDP gather indexed by `INLINE_3D` and `CROSSLINE_3D` can be stacked.
+
+        Raises
+        ------
+        ValueError
+            If the gather is not indexed by `INLINE_3D` and `CROSSLINE_3D` or traces from multiple CDP gathers are
+            being stacked
+        """
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]
         self.validate(required_header_cols=line_cols)
         headers = self.headers.reset_index()[line_cols].drop_duplicates()
@@ -733,6 +878,20 @@ class Gather:
 
     @batch_method(target="for", copy_src=False)
     def plot(self, figsize=(10, 7), **kwargs):
+        """Plot gather traces.
+
+        Parameters
+        ----------
+        figsize : tuple, optional, defaults to (10, 7)
+            Output plot size.
+        kwargs : misc, optional
+            Additional keyword arguments to `matplotlib.pyplot.imshow`.
+
+        Returns
+        -------
+        self : Gather
+            Gather unchanged.
+        """
         vmin, vmax = self.get_quantile([0.1, 0.9])
         default_kwargs = {
             'cmap': 'gray',

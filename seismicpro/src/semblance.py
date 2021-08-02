@@ -215,8 +215,8 @@ class Semblance(BaseSemblance):
     S - semblance value for starting time index `k` and velocity `v`,
     M - number of traces in the gather,
     N - temporal window size,
-    f_{j}(i, v) - the amplitude value on the `j`-th trace being NMO-corrected for time index `i` and velocity `v`:
-    :math:`f_{j}(i, v) = \sqrt{t_0^2 + \frac{l_i^2}{v^2}}`,
+    f_{j}(i, v) - the amplitude value on the `j`-th trace being NMO-corrected for time index `i` and velocity `v`. Thus
+    the amplitude is taken for the time defined by :math:`t(i, v) = \sqrt{t_0^2 + \frac{l_j^2}{v^2}}`,
     where:
 
     :math:`t_0` - start time of the hyperbola assosicated with time index `i`,
@@ -235,6 +235,17 @@ class Semblance(BaseSemblance):
            temporal window with given `win_size`.
         4. Divide a value from step 2 by the value from step 3 for each time to get semblance values for selected
            velocity.
+
+    Notes
+    -----
+    The gather should be sorted by offset.
+
+    Examples
+    --------
+    Calculate semblance for 200 velocities from 2000 to 6000 m/s and a temporal window size of 8 samples:
+    >>> survey = Survey(path, header_index=["INLINE_3D", "CROSSLINE_3D"], header_cols="offset")
+    >>> gather = survey.sample_gather().sort(by="offset")
+    >>> semblance = gather.calculate_semblance(velocities=np.linspace(2000, 6000, 200), win_size=8)
 
     Parameters
     ----------
@@ -359,7 +370,7 @@ class Semblance(BaseSemblance):
 
         Notes
         -----
-        Detailed description of the proposed algorithm and its implementation can be found in
+        A detailed description of the proposed algorithm and its implementation can be found in
         :func:`~velocity_model.calculate_stacking_velocity` docs.
 
         Parameters
@@ -416,6 +427,23 @@ class ResidualSemblance(BaseSemblance):
 
     Residual semblance instance can be created either directly by passing source gather, stacking velocity and other
     arguments to its init or by calling :func:`~Gather.calculate_residual_semblance` method (recommended way).
+
+    Notes
+    -----
+    The gather should be sorted by offset.
+
+    Examples
+    --------
+    First let's sample a CDP gather and sort it by offset:
+    >>> survey = Survey(path, header_index=["INLINE_3D", "CROSSLINE_3D"], header_cols="offset")
+    >>> gather = survey.sample_gather().sort(by="offset")
+
+    Now let's automatically calculate stacking velocity by gather semblance:
+    >>> semblance = gather.calculate_semblance(velocities=np.linspace(1400, 5000, 200), win_size=8)
+    >>> velocity = semblance.calculate_stacking_velocity()
+
+    Residual semblance for the gather and calculated stacking velocity can be obtained as follows:
+    >>> residual = gather.calculate_residual_semblance(velocity, n_velocities=100, win_size=8)
 
     Parameters
     ----------

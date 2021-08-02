@@ -1,4 +1,4 @@
-"""Implements Survey class"""
+"""Implements Survey class describing a single SEG-Y file"""
 
 import os
 import warnings
@@ -15,7 +15,7 @@ from .gather import Gather
 from .utils import to_list, maybe_copy, calculate_stats, create_supergather_index
 
 
-class Survey:
+class Survey:  # pylint: disable=too-many-instance-attributes
     """A class representing a single SEG-Y file.
 
     In order to reduce memory footprint, `Survey` instance does not store trace data, but only a requested subset of
@@ -32,9 +32,15 @@ class Survey:
     - ['INLINE_3D', 'CROSSLINE_3D'] - to get common midpoint gathers.
 
     `header_cols` argument specifies all other trace headers to load to further be available in gather processing
-    pipelines. Note that TRACE_SEQUENCE_FILE header is not loaded from the file but always automatically reconstructed.
-    All loaded headers are stored in a `headers` attribute as a `pd.DataFrame` with `header_index` columns set as its
-    index.
+    pipelines. Note that `TRACE_SEQUENCE_FILE` header is not loaded from the file but always automatically
+    reconstructed. All loaded headers are stored in a `headers` attribute as a `pd.DataFrame` with `header_index`
+    columns set as its index.
+
+    Examples
+    --------
+    Create a survey of common source gathers and get a randomly selected gather from it:
+    >>> survey = Survey(path, header_index="FieldRecord", header_cols=["TraceNumber", "offset"])
+    >>> gather = survey.sample_gather()
 
     Parameters
     ----------
@@ -43,14 +49,16 @@ class Survey:
     header_index : str or list of str
         Trace headers to be used to group traces into gathers.
     header_cols : str or list of str, optional
-        Extra trace headers to load. If not given, only headers from `header_index` are loaded.
+        Extra trace headers to load. If not given, only headers from `header_index` are loaded and a
+        `TRACE_SEQUENCE_FILE` header is created automatically.
     name : str, optional
-        Survey name. If not given, source file name is used.
+        Survey name. If not given, source file name is used. This name is mainly used to identify the survey when it is
+        added to an index, see :class:`~index.SeismicIndex` docs for more info.
     limits : int or tuple or slice, optional
         Default time limits to be used during trace loading and survey statistics calculation. `int` or `tuple` are
-        used to construct a `slice` object directly. If not given, whole traces are used. Measured in samples.
+        used as arguments to init a `slice` object. If not given, whole traces are used. Measured in samples.
     collect_stats : bool, optional, defaults to False
-        Whether to calculate trace statistics for the survey.
+        Whether to calculate trace statistics for the survey, see :func:`~Survey.collect_stats` docs for more info.
     kwargs : misc, optional
         Additional keyword arguments to :func:`~Survey.collect_stats`.
 
@@ -203,6 +211,41 @@ class Survey:
     #------------------------------------------------------------------------#
 
     def collect_stats(self, indices=None, n_quantile_traces=100000, quantile_precision=2, stats_limits=None, bar=True):
+        """Collect the following trace data statistics by iterating over the survey:
+        1. Min and max amplitude,
+        2. Mean amplitude and trace standard deviation,
+        3. Approximation of trace data quantiles with given precision,
+        4. The number of dead traces.
+
+        Since fair quantile calculation requires simultaneous loading of all traces from the file we avoid such memory
+        overhead by calculating approximate quantiles for a small subset of `n_quantile_traces` traces selected
+        randomly. Moreover, only a set of quantiles defined by `quantile_precision` is calculated, the rest of them are
+        linearly interpolated by the collected ones.
+
+        After the method is executed `has_stats` flag is set to `True` and all the calculated values can be obtained
+        via corresponding attributes.
+
+        Parameters
+        ----------
+        indices : pd.MultiIndex, optional
+            A subset of survey headers indices to collect stats for. If not given, statistics are calculated for the
+            whole survey.
+        n_quantile_traces : positive int, optional, defaults to 100000
+            The number of traces to use for quantiles estimation.
+        quantile_precision : positive int, optional, defaults to 2
+            Calculate an approximate quantile for each q with `quantile_precision` decimal places. All other quantiles
+            will be linearly interpolated on request.
+        stats_limits : int or tuple or slice, optional
+            Time limits to be used for statistics calculation. `int` or `tuple` are used as arguments to init a `slice`
+            object. If not given, whole traces are used. Measured in samples.
+        bar : bool, optional, defaults to True
+            Whether to show a progress bar.
+
+        Returns
+        -------
+        survey : Survey
+            The survey with collected stats. Sets `has_stats` flag to `True` and updates statistics attributes inplace.
+        """
         headers = self.headers
         if indices is not None:
             headers = headers.loc[indices]
@@ -256,6 +299,27 @@ class Survey:
         return self
 
     def get_quantile(self, q):
+        """Calculate an approximation of the `q`-th quantile of the survey data.
+
+        Notes
+        -----
+        Before calling this method, survey statistics must be calculated using :func:`~Survey.collect_stats`.
+
+        Parameters
+        ----------
+        q : float or array-like of floats
+            Quantile or a sequence of quantiles to compute, which must be between 0 and 1 inclusive.
+
+        Returns
+        -------
+        quantile : float or array-like of floats
+            Approximate `q`-th quantile values. Has the same shape as `q`.
+
+        Raises
+        ------
+        ValueError
+            If survey statistics were not calculated.
+        """
         if not self.has_stats:
             raise ValueError('Global statistics were not calculated, call `Survey.collect_stats` first.')
         quantiles = self.quantile_interpolator(q).astype(np.float32)
@@ -267,6 +331,23 @@ class Survey:
     #------------------------------------------------------------------------#
 
     def load_gather(self, headers, limits=None, copy_headers=True):
+        """Load a gather with given `headers`.
+
+        Parameters
+        ----------
+        headers : pd.DataFrame
+            Headers of traces to load. Must be a subset of `self.headers`.
+        limits : int or tuple or slice or None, optional, defaults to None
+            Time range for trace loading. `int` or `tuple` are used as arguments to init a `slice` object. If not
+            given, whole traces are loaded. Measured in samples.
+        copy_headers : bool, optional, defaults to True
+            Whether to copy the passed `headers` when instantiating the gather.
+
+        Returns
+        -------
+        gather : Gather
+            Loaded gather instance.
+        """
         if copy_headers:
             headers = headers.copy()
         trace_indices = headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
@@ -284,7 +365,24 @@ class Survey:
         gather = Gather(headers=headers, data=data, samples=samples, sample_rate=sample_rate, survey=self)
         return gather
 
-    def get_gather(self, index=None, limits=None, copy_headers=True):
+    def get_gather(self, index, limits=None, copy_headers=True):
+        """Load a gather with given `index`.
+
+        Parameters
+        ----------
+        index : int or 1d array-like
+            An index of the gather to load. Must be one of `self.headers.index`.
+        limits : int or tuple or slice or None, optional, defaults to None
+            Time range for trace loading. `int` or `tuple` are used as arguments to init a `slice` object. If not
+            given, whole traces are loaded. Measured in samples.
+        copy_headers : bool, optional, defaults to True
+            Whether to copy the subset of survey `headers` describing the gather.
+
+        Returns
+        -------
+        gather : Gather
+            Loaded gather instance.
+        """
         gather_headers = self.headers.loc[index]
         # loc may sometimes return Series. In such cases slicing is used to guarantee, that DataFrame is returned
         if isinstance(gather_headers, pd.Series):
@@ -292,23 +390,83 @@ class Survey:
         return self.load_gather(gather_headers, limits, copy_headers)
 
     def sample_gather(self, limits=None, copy_headers=True):
+        """Load a gather with random index.
+
+        Parameters
+        ----------
+        limits : int or tuple or slice or None, optional, defaults to None
+            Time range for trace loading. `int` or `tuple` are used as arguments to init a `slice` object. If not
+            given, whole traces are loaded. Measured in samples.
+        copy_headers : bool, optional, defaults to True
+            Whether to copy the subset of survey `headers` describing the sampled gather.
+
+        Returns
+        -------
+        gather : Gather
+            Loaded gather instance.
+        """
         index = np.random.choice(self.headers.index)
         gather = self.get_gather(index=index, limits=limits, copy_headers=copy_headers)
         return gather
 
     def load_trace(self, buf, index, limits, trace_length):
-        # segy_handler.xfd.gettr args description:
-        #   * A buffer to write the loaded trace to,
-        #   * An index of the trace in a SEG-Y file to load,
-        #   * Unknown arg (always 1),
-        #   * Unknown arg (always 1),
-        #   * An index of the first trace element to load,
-        #   * An index of the last trace element to load,
-        #   * Trace element loading step,
-        #   * The overall number of samples to load.
+        """Load a single trace from a SEG-Y file by its position.
+
+        In order to optimize trace loading process, we use `segyio`'s low-level function `xfd.gettr`. Description of
+        its arguments is given below:
+            1. A buffer to write the loaded trace to,
+            2. An index of the trace in a SEG-Y file to load,
+            3. Unknown arg (always 1),
+            4. Unknown arg (always 1),
+            5. An index of the first trace element to load,
+            6. An index of the last trace element to load,
+            7. Trace element loading step,
+            8. The overall number of samples to load.
+
+        Parameters
+        ----------
+        buf : 1d np.ndarray of float32
+            An empty array to save the loaded trace.
+        index : int
+            Trace position in the file.
+        limits : slice
+            Trace time range to load. Measured in samples.
+        trace_length : int
+            Total number of samples to load.
+
+        Returns
+        -------
+        trace : 1d np.ndarray of float32
+            Loaded trace.
+        """
         return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
 
     def load_first_breaks(self, path, first_breaks_col='FirstBreak'):
+        """Load times of first breaks and save them to `headers`.
+
+        A file with first breaks data must have three columns: `FieldRecord`, `TraceNumber` and times of first
+        arrivals in milliseconds. The combination of `FieldRecord` and `TraceNumber` acts as a unique trace identifier
+        and is used to match the times of first breaks with the corresponding traces in `self.headers` and save them
+        into the column specified by `first_breaks_col`.
+
+        Parameters
+        ----------
+        path : str
+            A path to the file with first break times in milliseconds.
+        first_breaks_col : str, optional, defaults to 'FirstBreak'
+            Column name in `self.headers` where loaded first break times will be stored.
+
+        Returns
+        -------
+        self : Survey
+            A survey with loaded first break times. Changes `self.headers` inplace.
+
+        Raises
+        ------
+        ValueError
+            If `FieldRecord` or `TraceNumber` headers were not loaded.
+            If ('FieldRecord', 'TraceNumber') pairs from the file do not match those in `self.headers`.
+        """
         segy_columns = ['FieldRecord', 'TraceNumber']
         first_breaks_columns = segy_columns + [first_breaks_col]
         first_breaks_df = pd.read_csv(path, names=first_breaks_columns, delim_whitespace=True, decimal=',')
@@ -330,10 +488,41 @@ class Survey:
     #------------------------------------------------------------------------#
 
     def copy(self):
+        """Create a deepcopy of a `Survey` instance.
+
+        Returns
+        -------
+        survey : Survey
+            Survey copy.
+        """
         return deepcopy(self)
 
     @staticmethod
     def _apply(func, df, axis, unpack_args, **kwargs):
+        """Apply a function to a `pd.DataFrame` along the specified axis.
+
+        Parameters
+        ----------
+        func : callable
+            A function to be applied to `df`.
+        df : pd.DataFrame
+            A `DataFrame` to which the function will be applied.
+        axis : {0 or "index", 1 or "columns", None}
+            An axis along which the function is applied:
+            - 0 or "index": apply a function to each column,
+            - 1 or "columns": apply a function to each row,
+            - `None`: apply a function to the `DataFrame` as a whole.
+        unpack_args : bool
+            If `True`, row or column values are passed to `func` as individual arguments, otherwise the whole array is
+            passed as a single arg. Has no effect if `axis` is `None`.
+        kwargs : misc, optional
+            Additional keyword arguments to pass to `func` or `pd.DataFrame.apply`.
+
+        Returns
+        -------
+        result : np.ndarray
+            The result of applying `func` to `df`.
+        """
         if axis is None:
             res = func(df, **kwargs)
         else:
@@ -342,7 +531,45 @@ class Survey:
         return res.values
 
     def filter(self, cond, cols, axis=None, unpack_args=False, inplace=False, **kwargs):
-        self = maybe_copy(self, inplace)
+        """Keep only those rows of `headers` where `cond` is `True`.
+
+        Examples
+        --------
+        Keep only traces whose offset is less than 1500 meters:
+        >>> survey = Survey(path, header_index="FieldRecord", header_cols=["TraceNumber", "offset"], name="survey")
+        >>> survey.filter(lambda offset: offset < 1500, cols="offset", inplace=True)
+
+        Parameters
+        ----------
+        cond : callable
+            A function to be applied to `self.headers` to get a filtering mask. Must return a boolean array whose
+            length equals to the length of `headers` and `True` values correspond to traces to keep.
+        cols : str or list of str
+            `self.headers` columns for which condition is checked.
+        axis : {0 or "index", 1 or "columns", None}, optional, defaults to None
+            An axis along which `cond` is applied:
+            - 0 or "index": apply `cond` to each column,
+            - 1 or "columns": apply `cond` to each row,
+            - `None`: apply `cond` to the `DataFrame` as a whole.
+        unpack_args : bool, optional, defaults to False
+            If `True`, row or column values are passed to `cond` as individual arguments, otherwise the whole array is
+            passed as a single arg. Has no effect if `axis` is `None`.
+        inplace : bool, optional, defaults to False
+            Whether to perform filtering inplace or process a survey copy.
+        kwargs : misc, optional
+            Additional keyword arguments to pass to `cond` or `pd.DataFrame.apply`.
+
+        Returns
+        -------
+        self : Survey
+            Filtered survey.
+
+        Raises
+        ------
+        ValueError
+            If `cond` returns more than one bool value for each row of `headers`.
+        """
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         headers = self.headers.reset_index()[to_list(cols)]
         mask = self._apply(cond, headers, axis=axis, unpack_args=unpack_args, **kwargs)
         if (mask.ndim == 2) and (mask.shape[1] == 1):
@@ -353,7 +580,42 @@ class Survey:
         return self
 
     def apply(self, func, cols, res_cols=None, axis=None, unpack_args=False, inplace=False, **kwargs):
-        self = maybe_copy(self, inplace)
+        """Apply a function to `self.headers` along the specified axis.
+
+        Examples
+        --------
+        Convert signed offsets to their absolute values:
+        >>> survey = Survey(path, header_index="FieldRecord", header_cols=["TraceNumber", "offset"], name="survey")
+        >>> survey.apply(lambda offset: np.abs(offset), cols="offset", inplace=True)
+
+        Parameters
+        ----------
+        func : callable
+            A function to be applied to `self.headers`. Must return a 2d object with shape (`len(self.headers)`,
+            `len(res_cols)`).
+        cols : str or list of str
+            `self.headers` columns for which the function is applied.
+        res_cols : str or list of str, optional, defaults to None
+            `self.headers` columns in which the result is saved. If not given, equals to `cols`.
+        axis : {0 or "index", 1 or "columns", None}, optional, defaults to None
+            An axis along which the function is applied:
+            - 0 or "index": apply a function to each column,
+            - 1 or "columns": apply a function to each row,
+            - `None`: apply a function to the `DataFrame` as a whole.
+        unpack_args : bool, optional, defaults to False
+            If `True`, row or column values are passed to `func` as individual arguments, otherwise the whole array is
+            passed as a single arg. Has no effect if `axis` is `None`.
+        inplace : bool, optional, defaults to False
+            Whether to apply the function inplace or to a survey copy.
+        kwargs : misc, optional
+            Additional keyword arguments to pass to `func` or `pd.DataFrame.apply`.
+
+        Returns
+        -------
+        self : Survey
+            A survey with the function applied.
+        """
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         cols = to_list(cols)
         res_cols = cols if res_cols is None else to_list(res_cols)
         headers = self.headers.reset_index()[cols]
@@ -362,13 +624,41 @@ class Survey:
         return self
 
     def reindex(self, new_index, inplace=False):
-        self = maybe_copy(self, inplace)
+        """Change the index of `self.headers` to `new_index`.
+
+        Parameters
+        ----------
+        new_index : str or list of str
+            Headers columns to become a new index.
+        inplace : bool, optional, defaults to False
+            Whether to perform reindexation inplace or return a new survey instance.
+
+        Returns
+        -------
+        self : Survey
+            Reindexed survey.
+        """
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         self.headers.reset_index(inplace=True)
         self.headers.set_index(new_index, inplace=True)
         self.headers.sort_index(inplace=True)
         return self
 
     def set_limits(self, limits):
+        """Update default survey time limits that are used during trace loading and statistics calculation.
+
+        Parameters
+        ----------
+        limits : int or tuple or slice
+            Default time limits to be used during trace loading and survey statistics calculation. `int` or `tuple` are
+            used as arguments to init a `slice`. The resulting object is stored in `self.limits` attribute and used to
+            recalculate `self.samples` and `self.samples_length`. Measured in samples.
+
+        Raises
+        ------
+        ValueError
+            If the resulting samples length is zero.
+        """
         self.limits = self._process_limits(limits)
         self.samples = self.file_samples[self.limits]
         self.samples_length = len(self.samples)
@@ -376,6 +666,7 @@ class Survey:
             raise ValueError('Trace length must be positive.')
 
     def _process_limits(self, limits):
+        """Convert given `limits` to a `slice`."""
         if not isinstance(limits, slice):
             limits = slice(*to_list(limits))
         # Use .indices to avoid negative slicing range
@@ -389,7 +680,43 @@ class Survey:
     #------------------------------------------------------------------------#
 
     def generate_supergathers(self, size=(3, 3), step=(20, 20), modulo=(0, 0), reindex=True, inplace=False):
-        self = maybe_copy(self, inplace)
+        """Combine several adjacent CDP gathers into ensembles called supergathers.
+
+        Supergather generation is usually performed as a first step of velocity analysis. A substantially larger number
+        of traces processed at once leads to increased signal-to-noise ratio: seismic wave reflections are much more
+        clearly visible than on single CDP gathers and the velocity spectra calculated using
+        :func:`~Gather.calculate_semblance` are more coherent which allows for more accurate stacking velocity picking.
+
+        The method creates two new `headers` columns called `SUPERGATHER_INLINE_3D` and `SUPERGATHER_CROSSLINE_3D`
+        equal to `INLINE_3D` and `CROSSLINE_3D` of the central CDP gather. Note, that some gathers may be assigned to
+        several supergathers at once and their traces will become duplicated in `headers`.
+
+        Parameters
+        ----------
+        size : tuple of 2 ints, optional, defaults to (3, 3)
+            Supergather size along inline and crossline axes. Measured in lines.
+        step : tuple of 2 ints, optional, defaults to (20, 20)
+            Supergather step along inline and crossline axes. Measured in lines.
+        modulo : tuple of 2 ints, optional, defaults to (0, 0)
+            The remainder of the division of gather coordinates by given `step` for it to become a supergather center.
+            Used to shift the grid of supergathers from the field origin. Measured in lines.
+        reindex : bool, optional, defaults to True
+            Whether to reindex a survey with the created `SUPERGATHER_INLINE_3D` and `SUPERGATHER_CROSSLINE_3D` headers
+            columns.
+        inplace : bool, optional, defaults to False
+            Whether to transform the survey inplace or process its copy.
+
+        Returns
+        -------
+        survey : Survey
+            A survey with generated supergathers.
+
+        Raises
+        ------
+        KeyError
+            If `INLINE_3D` and `CROSSLINE_3D` headers were not loaded.
+        """
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         index_cols = self.headers.index.names
         headers = self.headers.reset_index()
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]

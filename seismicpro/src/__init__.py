@@ -1,4 +1,4 @@
-"""Core classes and functions of the package"""
+"""Core classes and functions of SeismicPro"""
 
 from .dataset import SeismicDataset
 from .index import SeismicIndex

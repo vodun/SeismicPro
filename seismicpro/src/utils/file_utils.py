@@ -11,7 +11,8 @@ from tqdm.auto import tqdm
 from .general_utils import to_list
 
 
-def aggregate_segys(in_paths, out_path, recursive=False, mmap=True, keep_exts=("sgy", "segy"), bar=True):
+def aggregate_segys(in_paths, out_path, recursive=False, mmap=False, keep_exts=("sgy", "segy"), delete_in_files=False,
+                    bar=True):
     """Merge several SEG-Y files into a single one.
 
     Parameters
@@ -21,11 +22,13 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=True, keep_exts=("
     out_path : str
         A path to the resulting merged file.
     recursive : bool, optional, defaults to False
-        Whether to treat '**' pattern as zero or more directories to perfrom a recursive file search.
-    mmap : bool, optional, defaults to True
+        Whether to treat '**' pattern in `in_paths` as zero or more directories to perfrom a recursive file search.
+    mmap : bool, optional, defaults to False
         Whether to perform memory mapping of input files. Setting this flag to `True` may result in faster reads.
     keep_exts : None, array-like, optional, defaults to ("sgy", "segy")
         Extensions of files to use for merging. If `None`, no filtering is performed.
+    delete_in_files : bool, optional, defaults to False
+        Whether to delete source files, defined by `in_paths`.
     bar : bool, optional, defaults to True
         Whether to show the progres bar.
 
@@ -41,37 +44,45 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=True, keep_exts=("
     if not in_paths:
         raise ValueError("No files match the given pattern")
 
-    # Check whether all files have the same trace length and sample rate
-    source_handlers = [segyio.open(path, ignore_geometry=True) for path in in_paths]
-    samples = source_handlers[0].samples
-    if not all(np.array_equal(samples, handler.samples) for handler in source_handlers[1:]):
+    # Calculate total tracecount and check whether all files have the same trace length, time delay and sample rate
+    tracecount = 0
+    samples_params = set()
+    for path in in_paths:
+        with segyio.open(path, ignore_geometry=True) as handler:
+            tracecount += handler.tracecount
+            samples = handler.samples
+            samples_params.add((len(samples), samples[0], samples[1] - samples[0]))
+
+    if len(samples_params) != 1:
         raise ValueError("Source files contain inconsistent samples")
 
-    if mmap:
-        for source_handler in source_handlers:
-            source_handler.mmap()
-
-    # Create segyio spec for the new file
+    # Create segyio spec for the new file, which inherits most of its attributes from the first input file
     spec = segyio.spec()
-    spec.samples = samples
-    spec.ext_headers = source_handlers[0].ext_headers
-    spec.format = source_handlers[0].format
-    spec.tracecount = sum(handler.tracecount for handler in source_handlers)
+    spec.tracecount = tracecount
+    with segyio.open(in_paths[0], ignore_geometry=True) as handler:
+        spec.samples = handler.samples
+        spec.ext_headers = handler.ext_headers
+        spec.format = handler.format
 
     # Write traces and their headers from source files into the new one
     os.makedirs(os.path.abspath(os.path.dirname(out_path)), exist_ok=True)
     with segyio.create(out_path, spec) as out_handler:
         trace_pos = 0
-        for source_handler in tqdm(source_handlers, disable=not bar):
-            out_handler.trace[trace_pos : trace_pos + source_handler.tracecount] = source_handler.trace
-            out_handler.header[trace_pos : trace_pos + source_handler.tracecount] = source_handler.header
-            trace_pos += source_handler.tracecount
-        for i in range(out_handler.tracecount):
-            out_handler.header[i].update({segyio.TraceField.TRACE_SEQUENCE_FILE: i + 1})
+        for path in tqdm(in_paths, desc="Aggregating files", disable=not bar):
+            with segyio.open(path, ignore_geometry=True) as in_handler:
+                if mmap:
+                    in_handler.mmap()
+                in_tracecount = in_handler.tracecount
+                out_handler.trace[trace_pos : trace_pos + in_tracecount] = in_handler.trace
+                out_handler.header[trace_pos : trace_pos + in_tracecount] = in_handler.header
+                for i in range(trace_pos, trace_pos + in_tracecount):
+                    out_handler.header[i].update({segyio.TraceField.TRACE_SEQUENCE_FILE: i + 1})
+                trace_pos += in_tracecount
 
-    # Close source SEG-Y file handlers
-    for source_handler in source_handlers:
-        source_handler.close()
+    # Delete input files if needed
+    if delete_in_files:
+        for path in in_paths:
+            os.remove(path)
 
 
 def read_vfunc(path):
@@ -90,7 +101,7 @@ def read_vfunc(path):
     -------
     vfunc_list : list of namedtuples
         List of loaded vertical functions. Each vfunc is a `namedtuple` with the following fields: `inline`,
-        `crossline`, `x` and `y`, where `x` and `y` are 1d np.ndarrays with the same length.
+        `crossline`, `x` and `y`, where `x` and `y` are 1d `np.ndarray`s with the same length.
 
     Raises
     ------
@@ -126,7 +137,7 @@ def read_single_vfunc(path):
     -------
     vfunc : namedtuple
         Vertical function with the following fields: `inline`, `crossline`, `x` and `y`, where `x` and `y` are 1d
-        np.ndarrays with the same length.
+        `np.ndarray`s with the same length.
 
     Raises
     ------
@@ -181,39 +192,41 @@ def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_st
     """Make a prestack SEG-Y file with rectangular geometry. Its headers are filled with values inferred from survey
     geometry parameters, traces are filled with data generated by `trace_gen`.
 
-    All tuples indicate either coordinate in (`x`, `y`) or distance in (`x_dist`, `y_dist`) format.
+    All tuples in method arguments indicate either coordinate in (`x`, `y`) or distance in (`x_dist`, `y_dist`) format.
 
     Parameters
     ----------
     path : str
-        Path to store generated the SEG-Y file.
+        Path to store the generated SEG-Y file.
     survey_size : tuple of ints, defaults to (1000, 1000)
         Survey dimensions measured in meters.
     origin : tuple of ints, defaults to (0, 0)
         Coordinates of bottom left corner of the survey.
     sources_step : tuple of ints, defaults to (50, 300)
-        Dinstances between sources. (50, 300) are standard values indicating that source lines are positioned along `y`
-        axis with 300 meter step, while sources in each line located every 50 meters along `x` axis.
+        Distances between sources. (50, 300) are standard values indicating that source lines are positioned along `y`
+        axis with 300 meters step, while sources in each line are located every 50 meters along `x` axis.
     recievers_step : tuple of ints, defaults to (100, 25)
-        Dinstances between recievers. It is supposed that reciever lines span along `x` axis. By default dinstance
+        Distances between recievers. It is supposed that reciever lines span along `x` axis. By default distance
         between reciever lines is 100 meters along `x` axis, and distance between recievers in lines is 25 meters
         along `y` axis.
     bin_size : tuple of ints, defaults to (50, 50)
-        Size of a CDP bin.
+        Size of a CDP bin in meters.
     activation_dist : tuple of ints, defaults to (500, 500)
         Maximum distance from source to active reciever along each axis. Each source activates a rectanglar field of
-        recievers with source at the center and shape (2 * activation_dist[0], 2 * activation_dist[1])
+        recievers with source at its center and shape (2 * activation_dist[0], 2 * activation_dist[1])
     n_samples : int, defaults to 1500
         Number of samples in traces.
     sample_rate : int, defaults to 2000
         Sampling interval in microseconds.
     delay : int, defaults to 0
         Delay time of the seismic trace in milliseconds.
-    trace_gen : callable, default to None.
-        Callable to generate trace data. It recieves a dict of trace headers along with everything passed in kwargs.
+    trace_gen : callable, defaults to None.
+        Callable to generate trace data. It recieves a dict of trace headers along with everything passed in `kwargs`.
         If `None`, traces are filled with gaussian noise.
         Passed headers: FieldRecord, TraceNumber, SourceX, SourceY, Group_X, Group_Y, offset, CDP_X, CDP_Y,
                         INLINE_3D, CROSSLINE_3D, TRACE_SAMPLE_COUNT, TRACE_SAMPLE_INTERVAL, DelayRecordingTime
+    kwargs : misc, optional
+        Additional keyword arguments to `trace_gen`.
     """
     # By default traces are filled with random noise
     if trace_gen is None:
