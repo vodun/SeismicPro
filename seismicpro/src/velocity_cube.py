@@ -434,7 +434,7 @@ class VelocityCube:
         for (inline, crossline), stacking_velocity in self.stacking_velocities_dict.items():
             vfunc_list.append((inline, crossline, stacking_velocity.times, stacking_velocity.velocities))
         dump_vfunc(path, vfunc_list)
-        
+
     def update(self, stacking_velocities):
         """Update a velocity cube with given stacking velocities.
 
