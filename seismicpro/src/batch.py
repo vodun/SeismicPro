@@ -1,6 +1,7 @@
 """Implements SeismicBatch class for processing a small subset of seismic gathers"""
 
 import numpy as np
+import matplotlib.pyplot as plt
 
 from .gather import Gather
 from .semblance import Semblance, ResidualSemblance
@@ -277,7 +278,10 @@ class SeismicBatch(Batch):
             If data length does not match the sum of shapes passed.
             If `dst` is not of `str` or `NamedExpression` type.
         """
-        data = getattr(self, src)
+        if isinstance(src, str):
+            data = getattr(self, src)
+        else:
+            data = src
         shapes = np.cumsum(shapes)
         if shapes[-1] != len(data):
             raise ValueError("Data length must match the sum of shapes passed")
@@ -289,4 +293,33 @@ class SeismicBatch(Batch):
             dst.set(value=split_data)
         else:
             raise ValueError(f"dst must be either `str` or `NamedExpression`, not {type(dst)}.")
+        return self
+
+    def _rows_cols_calc(self, plots_qty):
+        if plots_qty <= 3:
+            rows, cols = 1, plots_qty
+        elif plots_qty % 3 == 1:
+            cols = 2
+            rows = -(-plots_qty // cols) # round up
+        else:
+            cols = 3
+            rows = -(-plots_qty // cols) #round up
+        return rows, cols
+
+    @action
+    def plot(self, src, **kwargs):
+
+        data = getattr(self, src)
+        batch_size = len(self)
+
+        rows, cols = self._rows_cols_calc(batch_size)
+        fig, axes = plt.subplots(rows, cols, figsize=(10 * cols, 7 * rows))
+
+        axes = np.array([axes]) if batch_size == 1 else axes # need to iter at signle ax
+        if len(axes.ravel()) > batch_size:
+            axes.ravel()[-1].remove() # remove excessive axes
+
+        for item, ax in zip(data, axes.ravel()):
+            item.plot(item, ax, **kwargs)
+
         return self
