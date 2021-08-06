@@ -257,8 +257,8 @@ class SeismicBatch(Batch):
 
         Parameters
         ----------
-        src : str
-            A component's name with data to split.
+        src : str or array-like of np.ndarray
+            Either a data to be processed itself or a component name to get it from.
         dst : str or NamedExpression
             - If `str`, save the resulting sub-arrays into a batch component called `dst`,
             - If `NamedExpression`, save the resulting sub-arrays into the object described by named expression.
@@ -277,7 +277,7 @@ class SeismicBatch(Batch):
             If data length does not match the sum of shapes passed.
             If `dst` is not of `str` or `NamedExpression` type.
         """
-        data = getattr(self, src)
+        data = getattr(self, src) if isinstance(src, str) else src
         shapes = np.cumsum(shapes)
         if shapes[-1] != len(data):
             raise ValueError("Data length must match the sum of shapes passed")
