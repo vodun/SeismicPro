@@ -1,8 +1,6 @@
 """Implements Benchmark class"""
 # pylint: disable=import-error
 import os
-import shutil
-from hashlib import sha1
 
 import dill
 import numpy as np
@@ -11,7 +9,7 @@ import matplotlib.pyplot as plt
 
 from seismicpro.src.utils import to_list
 from seismicpro.batchflow import Pipeline, CPUMonitor, C
-from seismicpro.batchflow.research import Option, Research, Results, RC
+from seismicpro.batchflow.research import Option, Research, ResearchResults, EC
 
 
 sns.set_theme(style="darkgrid")
@@ -82,11 +80,6 @@ class Benchmark: # pylint: disable=too-many-instance-attributes
         self.n_iters = n_iters
         self.benchmark_names = ['Time', 'CPUMonitor']
         self.results = None
-        research_name = '_'.join([self.method_name, *self.targets, *list(map(str, self.batch_sizes))])
-        name_hash = sha1()
-        name_hash.update(research_name.encode('utf-8'))
-        self.research_name = 'research_' + str(name_hash.hexdigest())
-
         self.root_pipeline = Pipeline()
         if root_pipeline is not None:
             self.root_pipeline += root_pipeline
@@ -96,9 +89,6 @@ class Benchmark: # pylint: disable=too-many-instance-attributes
 
         self.benchmark_cpu = benchmark_cpu
         self.save_to = save_to
-
-        # If research goes wrong, delete directory before run the new one
-        self._clear_previous_results()
 
     def save_benchmark(self):
         """Pickle Benchmark to the file with path `self.save_to`.
@@ -130,11 +120,6 @@ class Benchmark: # pylint: disable=too-many-instance-attributes
             benchmark = dill.load(file)
         return benchmark
 
-    def _clear_previous_results(self):
-        """Delete folder with `self.research_name` path."""
-        if os.path.exists(self.research_name):
-            shutil.rmtree(self.research_name)
-
     def _warmup(self):
         """Run `self.template_pipeline` once."""
         (self.template_pipeline << {'target': 'for'}).next_batch(1)
@@ -156,14 +141,13 @@ class Benchmark: # pylint: disable=too-many-instance-attributes
         self._warmup()
 
         # Create research that will run pipeline with different parameters based on given `domain`
-        research = (Research()
-            .init_domain(domain, n_reps=1)
-            .add_callable(self._run_single_pipeline, config=RC().config(), returns=self.benchmark_names)
+        research = (Research(domain=domain, n_reps=1)
+            .add_callable(self._run_single_pipeline, config=EC(), save_to=self.benchmark_names)
         )
-        research.run(n_iters=1, name=self.research_name, bar=True, workers=1)
+        research.run(n_iters=1, dump_results=False, parallel=False, workers=1, bar=True)
 
         # Load benchmark's results.
-        results_df = Results(self.research_name).df
+        results_df = research.results.to_df()
         # Processing dataframe to a more convenient view.
         results_df = results_df.astype({'batch_size': 'int32'})
         results_df.sort_values(by='batch_size', inplace=True)
@@ -172,7 +156,6 @@ class Benchmark: # pylint: disable=too-many-instance-attributes
 
         if self.save_to is not None:
             self.save_benchmark()
-        self._clear_previous_results()
         return self
 
     def _run_single_pipeline(self, config):
