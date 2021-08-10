@@ -250,6 +250,16 @@ class SeismicBatch(Batch):
         ...     .split_model_outputs(src='predictions', dst='outputs', shapes=BA('survey').shape[:, 0])
         ... )
         >>> batch = (dataset >> pipeline).next_batch(3)
+
+        Each gather in the batch has shape (1, 1500), thus the created model inputs have shape (3, 1, 1500). Model
+        predictions have the same shape as inputs:
+        >>> batch.inputs.shape
+        (3, 1, 1500)
+        >>> batch.predictions.shape
+        (3, 1, 1500)
+
+        Predictions are split into 3 subarrays with a signle trace in each of them to match the number of traces in the
+        correponding gathers:
         >>> len(batch.outputs)
         3
         >>> batch.outputs[0].shape
