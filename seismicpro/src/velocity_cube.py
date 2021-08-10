@@ -271,14 +271,20 @@ class StackingVelocity:
         return self.from_points(times, self(times), self.inline, self.crossline)
 
     def dump(self, path):
-        """Dump vertical function to the file.
-        See more about the format in :func:`~utils.file_utils.dump_vfunc`
+        """Dump stacking velocities to a file in VFUNC format.
+
+        Notes
+        -----
+        See more about the format in :func:`~utils.file_utils.dump_vfunc`.
 
         Parameters
         ----------
         path : str
-            A path to the file.
+            A path to the created file.
         """
+        if not self.has_coords or not self.has_points:
+            raise ValueError("StackingVelocity instance can be dumped only if it was created from time and velocity "
+                             "pairs with not-None inline and crossline")
         dump_vfunc(path, [(self.inline, self.crossline, self.times, self.velocities)])
 
     @property
@@ -422,13 +428,16 @@ class VelocityCube:
         return self
 
     def dump(self, path):
-        """Dump all the vertical functions of the cube to the file.
-        See more about the format in :func:`~utils.file_utils.dump_vfunc`
+        """Dump all the vertical functions of the cube to a file in VFUNC format.
+
+        Notes
+        -----
+        See more about the format in :func:`~utils.file_utils.dump_vfunc`.
 
         Parameters
         ----------
         path : str
-            A path to the file.
+            A path to the created file.
         """
         vfunc_list = []
         for (inline, crossline), stacking_velocity in self.stacking_velocities_dict.items():

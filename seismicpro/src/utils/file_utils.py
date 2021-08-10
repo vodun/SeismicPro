@@ -152,37 +152,37 @@ def read_single_vfunc(path):
 
 
 def dump_vfunc(path, vfunc_list):
-    """Dump vertical functions in Paradigm Echos VFUNC format to the file.
+    """Dump vertical functions in Paradigm Echos VFUNC format to a file.
 
-    For each vfunc there is corresponding block in the resulted file with the following strcture:
-    The first row contains 3 values: VFUNC [inline] [crossline].
-    All other rows represent pairs: [time] [velocity]. The single row contains 4 pairs(8 fields),
-    except the last one, which may contain less. Each field is left aligned with the width 8.
+    Each passed VFUNC is a tuple with 4 elements: `inline`, `crossline`, `x` and `y`, where `x` and `y` are 1d
+    `np.ndarray`s with the same length. For each VFUNC a block with the following strcture is created in the resulting
+    file:
+    - The first row contains 3 values: VFUNC [inline] [crossline],
+    - All other rows represent pairs of `x` and corresponding `y` values: [x1] [y1] [x2] [y2] ...
+      Each row contains 4 pairs, except for the last one, which may contain less. Each value is left aligned with the
+      field width of 8.
 
-    Block example
-    :::
+    Block example:
     VFUNC   22      33
     17      1546    150     1530    294     1672    536     1812
     760     1933    960     2000    1202    2148    1374    2251
     1574    2409    1732    2517    1942    2675
-    :::
 
     Parameters
     ----------
     path : str
-        A path to the file.
-    vfunc_list : iterable of tuples
+        A path to the created file.
+    vfunc_list : iterable of tuples with 4 elements
         Each tuple corresponds to a vertical function and consists of the following values: `inline`, `crossline`,
-        `x` and `y`, where `x` and `y` are 1d np.ndarrays with the same length.
+        `x` and `y`, where `x` and `y` are 1d `np.ndarray`s with the same length.
     """
     with open(path, 'w') as f:
-        for inline, crossline, times, offsets in vfunc_list:
+        for inline, crossline, x, y in vfunc_list:
             f.write('{:8}{:<8}{:<8}\n'.format('VFUNC', inline, crossline))
-
-            data = np.dstack([times, offsets])
-            rows = np.split(data.flatten(), np.arange(8, data.size, 8))
+            data = np.column_stack([x, y]).ravel()
+            rows = np.split(data, np.arange(8, len(data), 8))
             for row in rows:
-                f.write(''.join(['{:<8.0f}'.format(i) for i in row] + ['\n']))
+                f.write(''.join('{:<8.0f}'.format(i) for i in row) + '\n')
 
 
 # pylint: disable=too-many-arguments, invalid-name
