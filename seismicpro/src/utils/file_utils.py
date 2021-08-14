@@ -6,6 +6,7 @@ from collections import namedtuple
 
 import segyio
 import numpy as np
+from scipy import signal
 from tqdm.auto import tqdm
 
 from .general_utils import to_list
@@ -248,3 +249,48 @@ def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_st
         dst_file.bin = {segyio.BinField.Traces: TRACE_SEQUENCE_FILE,
                         segyio.BinField.Samples: n_samples,
                         segyio.BinField.Interval: sample_rate}
+
+def trace_generator(times=np.array((10,700,1200)), reflections=np.array((3,-6,4)),
+                    velocities=np.array((1.6,2.,2.4)), points=50, a=5, **kwargs):
+
+    """Generates a seismic trace using reflectivity parameters and traces' headers.
+
+    Parameters
+    ----------
+    time : 1d-darray, defaults to (10, 700, 1200)
+        Times of a reflection events measured in samples.
+    reflectivity : 1d-darray, defaults to (0.5, 4, 1)
+        Amplitudes of reflection events.
+    velocity : 1d-darray, defaults to (1.6, 2., 2.4)
+        Wave propagation velocities at given times, m/ms.
+    points : int, defaults to 50
+        Parameter of `scipy.signal.ricker` function.
+    a : int, defaults to 5
+        Parameter of `scipy.signal.ricker` function.
+    kwargs : dict
+        Dict with trace header values.
+
+    Returns
+    -------
+    trace : 1d-ndarray
+        Generated seismic trace.
+    """
+
+    field_record = kwargs.get('FieldRecord')
+    samples = kwargs.get('TRACE_SAMPLE_COUNT')
+    sample_rate = kwargs.get('TRACE_SAMPLE_INTERVAL')
+    offset = kwargs.get('offset')
+
+    shifted_times = ((times**2 + offset**2 / (velocities * (sample_rate / 1000))**2)**0.5).astype(int)
+    ref_series = np.zeros(max(samples, max(shifted_times)) + 1)
+
+    # add bias for some common shot gathers to shift survey statistics
+    reflections = reflections * (1 + 100 / (100 + field_record))
+
+    ref_series[shifted_times] = reflections
+    ref_series[min(shifted_times):] += np.random.normal(0, 0.05, size=len(ref_series)-min(shifted_times))
+
+    trace = np.zeros(samples, dtype=np.float32)
+    trace += np.convolve(ref_series, signal.ricker(points, a), mode='same')[:samples]
+
+    return trace
