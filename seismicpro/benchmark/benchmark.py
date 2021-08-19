@@ -60,8 +60,6 @@ class Benchmark: # pylint: disable=too-many-instance-attributes
         The number of iterations for the method with specified parameters.
     results : None or pd.DataFrame
         A DataFrame with benchmark results.
-    research_name : str
-        A name of the folder for a benchmark with specified parameters.
     root_pipeline : Pipeline
         Pipeline that contains actions to be performed before the benchmarked method.
     template_pipeline : Pipeline
