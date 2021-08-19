@@ -41,7 +41,7 @@ setup(
         'multiprocess>=0.70.11',
         'requests>=2.24',
         'psutil>=5.7.2',
-        'batchflow @ git+https://github.com/analysiscenter/batchflow.git@cd56b9e#egg=batchflow',
+        'batchflow @ git+https://github.com/analysiscenter/batchflow.git@7853cfb#egg=batchflow',
     ],
     classifiers=[
         'Development Status :: 4 - Beta',
