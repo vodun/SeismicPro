@@ -250,7 +250,7 @@ def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_st
                         segyio.BinField.Samples: n_samples,
                         segyio.BinField.Interval: sample_rate}
 
-def trace_generator(times=np.array((10,700,1200)), reflections=np.array((3,-6,4)),
+def trace_generator(times=np.array((10,700,1200)), reflections=np.array((6,-12,8)),
                     velocities=np.array((1.6,2.,2.4)), points=50, a=5, **kwargs):
 
     """Generates a seismic trace using reflectivity parameters and traces' headers.
@@ -276,19 +276,20 @@ def trace_generator(times=np.array((10,700,1200)), reflections=np.array((3,-6,4)
         Generated seismic trace.
     """
 
-    field_record = kwargs.get('FieldRecord')
+    inline3d = kwargs.get('INLINE_3D')
     samples = kwargs.get('TRACE_SAMPLE_COUNT')
     sample_rate = kwargs.get('TRACE_SAMPLE_INTERVAL')
     offset = kwargs.get('offset')
 
+    # Inversed normal moveout
     shifted_times = ((times**2 + offset**2 / (velocities * (sample_rate / 1000))**2)**0.5).astype(int)
     ref_series = np.zeros(max(samples, max(shifted_times)) + 1)
 
-    # add bias for some common shot gathers to shift survey statistics
-    reflections = reflections * (1 + 100 / (100 + field_record))
+    # Tweak reflectivity of traces based in indline3D header to make Survey and Gathers statistics differ
+    reflections = reflections * (1 + 10 / (10 + inline3d))
 
     ref_series[shifted_times] = reflections
-    ref_series[min(shifted_times):] += np.random.normal(0, 0.05, size=len(ref_series)-min(shifted_times))
+    ref_series[min(shifted_times):] += np.random.normal(0, 0.5, size=len(ref_series)-min(shifted_times))
 
     trace = np.zeros(samples, dtype=np.float32)
     trace += np.convolve(ref_series, signal.ricker(points, a), mode='same')[:samples]
