@@ -62,7 +62,7 @@ class MetricsMap(Metrics):
         'std' : njit(lambda array: np.nanstd(array)),
         'max' : njit(lambda array: np.nanmax(array)),
         'min' : njit(lambda array: np.nanmin(array)),
-        'mean' : njit(lambda array: np.nanmin(array)),
+        'mean' : njit(lambda array: np.nanmean(array)),
         'median' : njit(lambda array: np.nanmedian(array)),
         'quantile' : njit(lambda array, q: np.nanquantile(array, q=q)),
         'absquantile' : njit(lambda array, q: np.nanquantile(np.abs(array - np.nanmean(array)), q))
@@ -186,7 +186,7 @@ class MetricsMap(Metrics):
                              "Please wrap the function with @njit decorator.")
 
         # Convert passed agg_func kwargs to args since numba does not support kwargs unpacking and construct the map
-        agg_func_kwargs = dict() if agg_func_kwargs is None else agg_func_kwargs
+        agg_func_kwargs = {} if agg_func_kwargs is None else agg_func_kwargs
         agg_func_args = self._kwargs_to_args(agg_func.py_func, **agg_func_kwargs)
         metrics_map = self.construct_metrics_map(coords_x=coords_x, coords_y=coords_y, metrics=metrics,
                                                  bin_size=bin_size, agg_func=agg_func, agg_func_args=agg_func_args)

@@ -4,8 +4,8 @@ import warnings
 
 import numpy as np
 import cv2
-from scipy.spatial import Delaunay
 from scipy.interpolate import interp1d
+from scipy.spatial.qhull import Delaunay, QhullError
 from sklearn.neighbors import NearestNeighbors
 
 from .utils import to_list, read_vfunc, read_single_vfunc, dump_vfunc
@@ -54,7 +54,7 @@ class VelocityInterpolator:
 
         try:
             self.tri = Delaunay(self.coords, incremental=False)
-        except:
+        except QhullError:
             # Create artificial stacking velocities in the corners of given coordinate grid in order for Delaunay to
             # work with a full rank matrix of coordinates
             min_i, min_x = np.min(self.coords, axis=0) - 1
