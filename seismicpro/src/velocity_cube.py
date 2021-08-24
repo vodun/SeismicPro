@@ -5,7 +5,7 @@ import warnings
 import numpy as np
 import cv2
 from scipy.interpolate import interp1d
-from scipy.spatial.qhull import Delaunay, QhullError
+from scipy.spatial.qhull import Delaunay, QhullError  #pylint: disable=no-name-in-module
 from sklearn.neighbors import NearestNeighbors
 
 from .utils import to_list, read_vfunc, read_single_vfunc, dump_vfunc
