@@ -6,7 +6,7 @@ from .gather import Gather
 from .semblance import Semblance, ResidualSemblance
 from .decorators import create_batch_methods, apply_to_each_component
 from .utils import to_list
-from ..batchflow import Batch, action, DatasetIndex, BA
+from ..batchflow import Batch, action, DatasetIndex, NamedExpression
 
 
 @create_batch_methods(Gather, Semblance, ResidualSemblance)
@@ -228,7 +228,7 @@ class SeismicBatch(Batch):
         setattr(self, dst, data)
         return self
 
-    @action
+    @action(no_eval='dst')
     def split_model_outputs(self, src, dst, shapes):
         """Split data into multiple sub-arrays whose shapes along zero axis if defined by `shapes`.
 
@@ -250,6 +250,16 @@ class SeismicBatch(Batch):
         ...     .split_model_outputs(src='predictions', dst='outputs', shapes=BA('survey').shape[:, 0])
         ... )
         >>> batch = (dataset >> pipeline).next_batch(3)
+
+        Each gather in the batch has shape (1, 1500), thus the created model inputs have shape (3, 1, 1500). Model
+        predictions have the same shape as inputs:
+        >>> batch.inputs.shape
+        (3, 1, 1500)
+        >>> batch.predictions.shape
+        (3, 1, 1500)
+
+        Predictions are split into 3 subarrays with a signle trace in each of them to match the number of traces in the
+        correponding gathers:
         >>> len(batch.outputs)
         3
         >>> batch.outputs[0].shape
@@ -257,12 +267,11 @@ class SeismicBatch(Batch):
 
         Parameters
         ----------
-        src : str
-            A component's name with data to split.
-        dst : str or BA
+        src : str or array-like of np.ndarray
+            Either a data to be processed itself or a component name to get it from.
+        dst : str or NamedExpression
             - If `str`, save the resulting sub-arrays into a batch component called `dst`,
-            - If `BA`, save the resulting sub-arrays into the corresponding attribute for each element of a component,
-              defined by the named expression.
+            - If `NamedExpression`, save the resulting sub-arrays into the object described by named expression.
         shapes : 1d array-like
             An array with sizes of each sub-array along zero axis after the split. Its length should be generally equal
             to the current batch size and its sum must match the length of data defined by `src`.
@@ -276,9 +285,9 @@ class SeismicBatch(Batch):
         ------
         ValueError
             If data length does not match the sum of shapes passed.
-            If `dst` is not of `str` or `BA` type.
+            If `dst` is not of `str` or `NamedExpression` type.
         """
-        data = getattr(self, src)
+        data = getattr(self, src) if isinstance(src, str) else src
         shapes = np.cumsum(shapes)
         if shapes[-1] != len(data):
             raise ValueError("Data length must match the sum of shapes passed")
@@ -286,8 +295,8 @@ class SeismicBatch(Batch):
 
         if isinstance(dst, str):
             setattr(self, dst, split_data)
-        elif isinstance(dst, BA):
+        elif isinstance(dst, NamedExpression):
             dst.set(value=split_data)
         else:
-            ValueError(f'dst must be either `str` or `BA` named expression, not {type(dst)}.')
+            raise ValueError(f"dst must be either `str` or `NamedExpression`, not {type(dst)}.")
         return self
