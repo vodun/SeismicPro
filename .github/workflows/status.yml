@@ -27,7 +27,7 @@ jobs:
       run: pip3 install -U pylint
 
     - name: Check pylint
-      run: pylint -rn --rcfile pylintrc seismicpro
+      run: pylint -rn --persistent=n --rcfile pylintrc seismicpro
 
     - name: Run tests
       if: always()
