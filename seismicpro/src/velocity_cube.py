@@ -85,7 +85,9 @@ class VelocityInterpolator:
         vertex_velocities = [self.stacking_velocities_dict[tuple(ver)] for ver in vertices]
 
         def velocity_interpolator(times):
-            return (np.array([vel(times) for vel in vertex_velocities]).T * bar_coords).sum(axis=1)
+            times = np.array(times)
+            velocities = (np.column_stack([vel(times) for vel in vertex_velocities]) * bar_coords).sum(axis=1)
+            return velocities.item() if times.ndim == 0 else velocities
 
         return StackingVelocity.from_interpolator(velocity_interpolator, inline, crossline)
 
