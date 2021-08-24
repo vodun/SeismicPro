@@ -85,7 +85,7 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=False, keep_exts=(
             os.remove(path)
 
 
-def read_vfunc(path):
+def read_vfunc(path, encoding="UTF-8"):
     """Read a file with vertical functions in Paradigm Echos VFUNC format.
 
     The file may have one or more records with the following structure:
@@ -96,6 +96,8 @@ def read_vfunc(path):
     ----------
     path : str
         A path to the file.
+    encoding : str, optional, defaults to "UTF-8"
+        File encoding.
 
     Returns
     -------
@@ -110,7 +112,7 @@ def read_vfunc(path):
     """
     vfunc_list = []
     VFUNC = namedtuple("VFUNC", ["inline", "crossline", "x", "y"])
-    with open(path) as file:
+    with open(path, encoding=encoding) as file:
         for data in file.read().split("VFUNC")[1:]:
             data = data.split()
             inline, crossline = int(data[0]), int(data[1])
@@ -151,7 +153,7 @@ def read_single_vfunc(path):
     return file_data[0]
 
 
-def dump_vfunc(path, vfunc_list):
+def dump_vfunc(path, vfunc_list, encoding="UTF-8"):
     """Dump vertical functions in Paradigm Echos VFUNC format to a file.
 
     Each passed VFUNC is a tuple with 4 elements: `inline`, `crossline`, `x` and `y`, where `x` and `y` are 1d
@@ -175,8 +177,10 @@ def dump_vfunc(path, vfunc_list):
     vfunc_list : iterable of tuples with 4 elements
         Each tuple corresponds to a vertical function and consists of the following values: `inline`, `crossline`,
         `x` and `y`, where `x` and `y` are 1d `np.ndarray`s with the same length.
+    encoding : str, optional, defaults to "UTF-8"
+        File encoding.
     """
-    with open(path, 'w') as f:
+    with open(path, 'w', encoding=encoding) as f:
         for inline, crossline, x, y in vfunc_list:
             f.write('{:8}{:<8}{:<8}\n'.format('VFUNC', inline, crossline))
             data = np.column_stack([x, y]).ravel()
