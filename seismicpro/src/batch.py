@@ -251,6 +251,16 @@ class SeismicBatch(Batch):
         ...     .split_model_outputs(src='predictions', dst='outputs', shapes=BA('survey').shape[:, 0])
         ... )
         >>> batch = (dataset >> pipeline).next_batch(3)
+
+        Each gather in the batch has shape (1, 1500), thus the created model inputs have shape (3, 1, 1500). Model
+        predictions have the same shape as inputs:
+        >>> batch.inputs.shape
+        (3, 1, 1500)
+        >>> batch.predictions.shape
+        (3, 1, 1500)
+
+        Predictions are split into 3 subarrays with a signle trace in each of them to match the number of traces in the
+        correponding gathers:
         >>> len(batch.outputs)
         3
         >>> batch.outputs[0].shape
@@ -258,8 +268,8 @@ class SeismicBatch(Batch):
 
         Parameters
         ----------
-        src : str
-            A component's name with data to split.
+        src : str or array-like of np.ndarray
+            Either a data to be processed itself or a component name to get it from.
         dst : str or NamedExpression
             - If `str`, save the resulting sub-arrays into a batch component called `dst`,
             - If `NamedExpression`, save the resulting sub-arrays into the object described by named expression.
@@ -278,10 +288,7 @@ class SeismicBatch(Batch):
             If data length does not match the sum of shapes passed.
             If `dst` is not of `str` or `NamedExpression` type.
         """
-        if isinstance(src, str):
-            data = getattr(self, src)
-        else:
-            data = src
+        data = getattr(self, src) if isinstance(src, str) else src
         shapes = np.cumsum(shapes)
         if shapes[-1] != len(data):
             raise ValueError("Data length must match the sum of shapes passed")
