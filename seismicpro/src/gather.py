@@ -906,7 +906,7 @@ class Gather:
         if points is not None:
             for name in to_list(points):
                 self.add_points(name, ax)
-        ax.set_legend()
+        ax.legend()
         return self
 
     def has_column(self, name):
