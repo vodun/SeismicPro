@@ -302,31 +302,19 @@ class SeismicBatch(Batch):
             raise ValueError(f"dst must be either `str` or `NamedExpression`, not {type(dst)}.")
         return self
 
-    def _rows_cols_calc(self, plots_qty):
-        if plots_qty <= 3:
-            rows, cols = 1, plots_qty
-        elif plots_qty % 3 == 1:
-            cols = 2
-            rows = -(-plots_qty // cols) # round up
-        else:
-            cols = 3
-            rows = -(-plots_qty // cols) #round up
-        return rows, cols
-
     @action
-    def plot(self, src, **kwargs):
-
-        data = getattr(self, src)
-        batch_size = len(self)
-
-        rows, cols = self._rows_cols_calc(batch_size)
-        fig, axes = plt.subplots(rows, cols, figsize=(10 * cols, 7 * rows))
-
-        axes = np.array([axes]) if batch_size == 1 else axes # need to iter at signle ax
-        if len(axes.ravel()) > batch_size:
-            axes.ravel()[-1].remove() # remove excessive axes
-
-        for item, ax in zip(data, axes.ravel()):
-            item.plot(item, ax, **kwargs)
-
+    def plot(self, src, pos=None, ncols=3, figsize=(10, 7), **kwargs):
+        src = to_list(src)
+        data = [getattr(self, name) for name in src]
+        ncols = len(src) if len(src) > 1 else ncols
+        nrows =  np.ceil(sum([i.size for i in data])/ ncols).astype(np.int32)
+        _, ax = plt.subplots(nrows=nrows, ncols=ncols,
+                             figsize=np.multiply((nrows, ncols), figsize),
+                             constrained_layout=True)
+        ax = ax.flat
+        ix = 0
+        for n_batch, components in enumerate(zip(*data)):
+            for name, component in zip(src, components):
+                component.plot(ax=ax[ix], title=f'{name}_{n_batch}', **kwargs)
+                ix += 1
         return self

@@ -875,35 +875,49 @@ class Gather:
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #
     #------------------------------------------------------------------------#
-    def _add_colorbar(self, ax_image, aspect=.1, fraction=0.5):
-        from mpl_toolkits import axes_grid1
-        divider = axes_grid1.make_axes_locatable(ax_image.axes)
-        width = axes_grid1.axes_size.AxesY(ax_image.axes, aspect=aspect)
-        pad = axes_grid1.axes_size.Fraction(fraction, width)
-        cax = divider.append_axes("right", size=width, pad=pad)
-        colorbar = ax_image.axes.figure.colorbar(ax_image, cax=cax)
-        return None
-
     @batch_method(target="for", copy_src=False)
-    def plot(self, gather, ax=None, set_title=None, **kwargs):
-        """Plot gather traces."""
-        vmin, vmax = gather.get_quantile([0.05, 0.95])
+    def plot(self, figsize=(10, 7), ax=None, title=None, points=None, **kwargs):
+        """Plot gather traces.
+
+        Parameters
+        ----------
+        figsize : tuple, optional, defaults to (10, 7)
+            Output plot size.
+        kwargs : misc, optional
+            Additional keyword arguments to `matplotlib.pyplot.imshow`.
+
+        Returns
+        -------
+        self : Gather
+            Gather unchanged.
+        """
+        ax = plt.axis() if ax is None else ax
+        vmin, vmax = self.get_quantile([0.1, 0.9])
         default_kwargs = {
             'cmap': 'gray',
             'vmin': vmin,
             'vmax': vmax,
             'aspect': 'auto',
         }
-
-        if kwargs:
-            default_kwargs.update(kwargs)
-        if ax == None:
-            plt.figure(figsize=figsize)
-            plt.imshow(self.data.T, **default_kwargs)
-            plt.show()
-        else:
-            ax.set_title(set_title if set_title else f'{self.headers.index.name} is {self.headers.index.unique()[0]}')
-            im = ax.imshow(self.data.T, **default_kwargs)
-            self._add_colorbar(im, aspect=.05)
-            self.ax = ax
+        default_kwargs.update(kwargs)
+        if title:
+            ax.set_title(title)
+        ax.imshow(self.data.T, **default_kwargs)
+        if points is not None:
+            for name in to_list(points):
+                self.add_points(name, ax)
+        ax.set_legend()
         return self
+
+    def has_column(self, name):
+        return name in self.headers.reset_index(inplace=False)
+
+    def add_points(self, name, ax):
+        # search for attribute or column with such name
+        data = getattr(self, name, None)
+        if data is None:
+            if self.has_column(name):
+                data = self[name]
+            else:
+                raise ValueError(f'Given wrong name {name}.')
+        ax.scatter(np.arange(0, len(data)), data / self.sample_rate, label=name)
