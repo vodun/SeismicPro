@@ -158,6 +158,9 @@ class Gather:
         """Print gather metadata including information about its survey, headers and traces."""
         print(self)
 
+    def has_column(self, name):
+        return name in self.headers.reset_index(inplace=False)
+
     def get_coords(self, coords_columns="index"):
         """Get spatial coordinates of the gather.
 
@@ -875,8 +878,9 @@ class Gather:
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #
     #------------------------------------------------------------------------#
+
     @batch_method(target="for", copy_src=False)
-    def plot(self, figsize=(10, 7), ax=None, title=None, points=None, **kwargs):
+    def plot(self, ax=None, points=None, title=None, **kwargs):
         """Plot gather traces.
 
         Parameters
@@ -891,33 +895,46 @@ class Gather:
         self : Gather
             Gather unchanged.
         """
-        ax = plt.axis() if ax is None else ax
+        #TODO: add figsize for single gather
+        ax = plt.axes() if ax is None else ax
         vmin, vmax = self.get_quantile([0.1, 0.9])
-        default_kwargs = {
-            'cmap': 'gray',
-            'vmin': vmin,
-            'vmax': vmax,
-            'aspect': 'auto',
-        }
-        default_kwargs.update(kwargs)
-        if title:
+        imshow_kwargs = dict(cmap='gray', vmin=vmin, vmax=vmax, aspect='auto')
+        imshow_kwargs.update(kwargs)
+
+        index = str(self.headers.index[0])
+        if title is not None:
             ax.set_title(title)
-        ax.imshow(self.data.T, **default_kwargs)
+        ax.imshow(self.data.T, **imshow_kwargs)
         if points is not None:
-            for name in to_list(points):
-                self.add_points(name, ax)
-        ax.legend()
+            points_kwargs = self._parse_kwargs(points, base_key='col_name')
+            for single_kwargs in points_kwargs:
+                self.add_points(ax=ax, **single_kwargs)
+        if len(ax.get_legend_handles_labels()[0]) > 0:
+            ax.legend()
         return self
 
-    def has_column(self, name):
-        return name in self.headers.reset_index(inplace=False)
+    def _parse_kwargs(self, kwargs, base_key):
+        if not isinstance(kwargs, dict):
+            return [{base_key: value} for value in to_list(kwargs)]
 
-    def add_points(self, name, ax):
+        if base_key not in kwargs:
+            raise ValueError(f'The base_key: `{base_key}` is missed in kwargs')
+
+        kwargs_list = [{} for _ in to_list(kwargs[base_key])]
+        for key, values in kwargs.items():
+            values = to_list(values)
+            if len(values) == 1:
+                values = values * len(kwargs_list)
+            elif len(values) != len(kwargs_list):
+                raise ValueError('BLABLA')
+            for ix, value in enumerate(values):
+                kwargs_list[ix][key] = value
+        return kwargs_list
+
+    def add_points(self, col_name, ax, **kwargs):
         # search for attribute or column with such name
-        data = getattr(self, name, None)
-        if data is None:
-            if self.has_column(name):
-                data = self[name]
-            else:
-                raise ValueError(f'Given wrong name {name}.')
-        ax.scatter(np.arange(0, len(data)), data / self.sample_rate, label=name)
+        if self.has_column(col_name):
+            data = self[col_name]
+        else:
+            raise ValueError(f'Given wrong column name: {col_name}')
+        ax.scatter(np.arange(0, len(data)), data / self.sample_rate, label=col_name, **kwargs)

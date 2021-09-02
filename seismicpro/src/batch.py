@@ -303,18 +303,36 @@ class SeismicBatch(Batch):
         return self
 
     @action
-    def plot(self, src, pos=None, ncols=3, figsize=(10, 7), **kwargs):
-        src = to_list(src)
-        data = [getattr(self, name) for name in src]
-        ncols = len(src) if len(src) > 1 else ncols
-        nrows =  np.ceil(sum([i.size for i in data])/ ncols).astype(np.int32)
-        _, ax = plt.subplots(nrows=nrows, ncols=ncols,
-                             figsize=np.multiply((nrows, ncols), figsize),
-                             constrained_layout=True)
-        ax = ax.flat
-        ix = 0
-        for n_batch, components in enumerate(zip(*data)):
-            for name, component in zip(src, components):
-                component.plot(ax=ax[ix], title=f'{name}_{n_batch}', **kwargs)
-                ix += 1
+    def plot(self, src, max_ncols=3, figsize=(10, 7), **kwargs):
+        # TODO: add `pos` argument
+        data = [tuple(getattr(self, name)) for name in to_list(src)]
+        batch_size = len(self)
+        n_components = len(data)
+
+        if n_components == 1:
+            ncols = min(max_ncols, batch_size)
+            nrows = int(np.ceil(batch_size / ncols))
+            num_to_pad = int(ncols * nrows - batch_size)
+        else:
+            data = list(zip(*data))
+            ncols = min(max_ncols, n_components)
+            nrows = batch_size * (n_components // ncols + min(1, n_components % ncols))
+            num_to_pad = int((ncols * nrows - n_components * batch_size) / batch_size)
+
+        for i, row in enumerate(data):
+            data[i] = row + tuple([None]*num_to_pad)
+        _, axes_list = plt.subplots(nrows=nrows, ncols=ncols,
+                                    figsize=np.multiply((ncols, nrows), figsize),
+                                    constrained_layout=True,
+                                    squeeze=False)
+        ravel_data = sum(data, ())
+        ravel_axis = np.concatenate(axes_list)
+
+        indices = self.index.indices.to_list() * n_components
+        titles = to_list(src) * batch_size
+        for component, ax, title, index in zip(ravel_data, ravel_axis, titles, indices):
+            if component is None:
+                ax.remove()
+            else:
+                component.plot(ax=ax, title=f'Component `{title}` with index {index}', **kwargs)
         return self
