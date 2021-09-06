@@ -1,4 +1,5 @@
 """Implements SeismicBatch class for processing a small subset of seismic gathers"""
+from itertools import zip_longest
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -309,16 +310,30 @@ class SeismicBatch(Batch):
         batch_size = len(self)
         n_components = len(data)
 
+        # If all data in the batch comes from same file, we won't show first level in the title
+        indices = self.index.indices
+        indices = indices.droplevel(0) if indices.get_level_values(0).nunique() == 1 else indices
+
+        indices = indices.to_list()
+        titles = to_list(src) * batch_size
+
+        # The way of axis construction depends on how namy src has passed. If one,
+        # the data from batches will be plotted line by line.
+        # Otherwise, all components will be plotted column by column. So i-th line
+        # will contain pictures of the components from i-th batch.
         if n_components == 1:
             ncols = min(max_ncols, batch_size)
             nrows = int(np.ceil(batch_size / ncols))
             num_to_pad = int(ncols * nrows - batch_size)
+            indices = indices * n_components
         else:
             data = list(zip(*data))
             ncols = min(max_ncols, n_components)
             nrows = batch_size * (n_components // ncols + min(1, n_components % ncols))
             num_to_pad = int((ncols * nrows - n_components * batch_size) / batch_size)
+            indices = [index for index in indices for _ in range(n_components)]
 
+        # We add Nones to delete extra axes, if necessary.
         for i, row in enumerate(data):
             data[i] = row + tuple([None]*num_to_pad)
         _, axes_list = plt.subplots(nrows=nrows, ncols=ncols,
@@ -327,10 +342,7 @@ class SeismicBatch(Batch):
                                     squeeze=False)
         ravel_data = sum(data, ())
         ravel_axis = np.concatenate(axes_list)
-
-        indices = self.index.indices.to_list() * n_components
-        titles = to_list(src) * batch_size
-        for component, ax, title, index in zip(ravel_data, ravel_axis, titles, indices):
+        for component, ax, title, index in zip_longest(ravel_data, ravel_axis, titles, indices):
             if component is None:
                 ax.remove()
             else:
