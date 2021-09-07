@@ -897,9 +897,9 @@ class Gather:
         ax = plt.gca() if ax is None else ax
 
         # Processing limits and set x_coords
-        slice_xlim = self.survey._process_limits(xlim, max_length=len(self.data))
+        slice_xlim = self.survey._process_limits(xlim, max_length=len(self.data))  # pylint: disable=protected-access
         resulted_xlim = (slice_xlim.start, slice_xlim.stop)
-        slice_ylim = self.survey._process_limits(ylim, max_length=len(self.samples))
+        slice_ylim = self.survey._process_limits(ylim, max_length=len(self.samples))  # pylint: disable=protected-access
         resulted_ylim = (slice_ylim.start, slice_ylim.stop)
 
         #TODO: Will it always be an arange? or should we process it differently?
@@ -911,7 +911,7 @@ class Gather:
             imshow_kwargs.update(kwargs)
             ax.imshow(self.data.T, **imshow_kwargs)
         else:
-            wiggle_kwargs = wiggle if isinstance(wiggle, dict) else dict()
+            wiggle_kwargs = wiggle if isinstance(wiggle, dict) else {}
             self.plot_wiggle(ax=ax, base_x_pos=x_coords, ylim=resulted_ylim, **wiggle_kwargs)
             resulted_xlim = (resulted_xlim[0] - 1, resulted_xlim[1])
 
@@ -926,7 +926,7 @@ class Gather:
             ax.legend()
 
         if title is not None:
-                ax.set_title(title)
+            ax.set_title(title)
 
         ax.set_xlim(*resulted_xlim)
         ax.set_ylim(*resulted_ylim[::-1])
@@ -947,7 +947,7 @@ class Gather:
             raise ValueError('The number of items in `color` must match the number of plotted traces')
 
         y_coords = np.arange(*ylim)
-        for ix, (pos_num, c) in enumerate(zip(base_x_pos, color)):
+        for pos_num, c in zip(base_x_pos, color):
             x_coords = pos_num + std * self.data[pos_num, slice(*ylim)] / np.std(self.data)
             ax.plot(x_coords, y_coords, c=c)
             ax.fill_betweenx(y_coords, pos_num, x_coords, where=(x_coords > pos_num), color=c)

@@ -305,6 +305,7 @@ class SeismicBatch(Batch):
 
     @action
     def plot(self, src, max_ncols=3, figsize=(10, 7), **kwargs):
+        """!!!"""
         # TODO: add `pos` argument
         data = [tuple(getattr(self, name)) for name in to_list(src)]
         batch_size = len(self)
