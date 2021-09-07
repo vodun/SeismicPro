@@ -14,7 +14,8 @@ from .muting import Muter
 from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 from .decorators import batch_method
-from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, normalization, correction
+from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, normalization, correction,
+                    parse_kwargs_using_base_key)
 
 
 class Gather:
@@ -877,7 +878,7 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @batch_method(target="for", copy_src=False)
-    def plot(self, ax=None, points=None, title=None, **kwargs):
+    def plot(self, wiggle=False, points=None, ax=None, xlim=None, ylim=None, title=None, **kwargs):
         """Plot gather traces.
 
         Parameters
@@ -893,50 +894,60 @@ class Gather:
             Gather unchanged.
         """
         #TODO: add figsize for single gather
+        ax = plt.gca() if ax is None else ax
 
-        # plt.imshow reprocessing part
-        ax = plt.axes() if ax is None else ax
-        vmin, vmax = self.get_quantile([0.1, 0.9])
-        imshow_kwargs = dict(cmap='gray', vmin=vmin, vmax=vmax, aspect='auto')
-        imshow_kwargs.update(kwargs)
+        # Processing limits and set x_coords
+        slice_xlim = self.survey._process_limits(xlim, max_length=len(self.data))
+        resulted_xlim = (slice_xlim.start, slice_xlim.stop)
+        slice_ylim = self.survey._process_limits(ylim, max_length=len(self.samples))
+        resulted_ylim = (slice_ylim.start, slice_ylim.stop)
 
-        if title is not None:
-            ax.set_title(title)
+        #TODO: Will it always be an arange? or should we process it differently?
+        x_coords = np.arange(*resulted_xlim)
 
-        ax.imshow(self.data.T, **imshow_kwargs)
+        if not wiggle:
+            vmin, vmax = self.get_quantile([0.1, 0.9])
+            imshow_kwargs = dict(cmap='gray', vmin=vmin, vmax=vmax, aspect='auto')
+            imshow_kwargs.update(kwargs)
+            ax.imshow(self.data.T, **imshow_kwargs)
+        else:
+            wiggle_kwargs = wiggle if isinstance(wiggle, dict) else dict()
+            self.plot_wiggle(ax=ax, base_x_pos=x_coords, ylim=resulted_ylim, **wiggle_kwargs)
+            resulted_xlim = (resulted_xlim[0] - 1, resulted_xlim[1])
 
         # Add points to the plot based on `points` argument
         if points is not None:
-            points_kwargs = self._parse_kwargs(points, base_key='col_name')
+            points_kwargs = parse_kwargs_using_base_key(points, base_key='col_name')
             for single_kwargs in points_kwargs:
-                self.add_points(ax=ax, **single_kwargs)
+                self.add_points(ax=ax, x_coords=x_coords, **single_kwargs)
 
         # Show legend if any provided
         if len(ax.get_legend_handles_labels()[0]) > 0:
             ax.legend()
+
+        if title is not None:
+                ax.set_title(title)
+
+        ax.set_xlim(*resulted_xlim)
+        ax.set_ylim(*resulted_ylim[::-1])
         return self
 
-    def _parse_kwargs(self, kwargs, base_key):
-        if not isinstance(kwargs, dict):
-            return [{base_key: value} for value in to_list(kwargs)]
-
-        if base_key not in kwargs:
-            raise ValueError(f'The base_key: `{base_key}` is missed in kwargs')
-
-        kwargs_list = [{} for _ in to_list(kwargs[base_key])]
-        for key, values in kwargs.items():
-            values = to_list(values)
-            if len(values) == 1:
-                values = values * len(kwargs_list)
-            elif len(values) != len(kwargs_list):
-                raise ValueError(f"Incompatible array size by key `{key}`. "
-                                 f"Expected {len(kwargs_list)} but given {len(values)}.")
-            for ix, value in enumerate(values):
-                kwargs_list[ix][key] = value
-        return kwargs_list
-
-    def add_points(self, col_name, ax,  **kwargs):
+    def add_points(self, ax, col_name, x_coords, **kwargs):
+        """!!!"""
         self.validate(required_header_cols=col_name)
-        y_array = self[col_name] / self.sample_rate
-        x_array = np.arange(0, len(data))
-        ax.scatter(x_array, y_array, label=col_name, **kwargs)
+        y_coords = self[col_name][x_coords] / self.sample_rate
+        ax.scatter(x_coords, y_coords, label=col_name, **kwargs)
+
+    def plot_wiggle(self, ax, base_x_pos, ylim, std=0.5, color=None):
+        """!!!"""
+        color = ['k'] if color is None else to_list(color)
+        if len(color) == 1:
+            color = color * len(self.data)
+        elif len(color) != len(base_x_pos):
+            raise ValueError('The number of items in `color` must match the number of plotted traces')
+
+        y_coords = np.arange(*ylim)
+        for ix, (pos_num, c) in enumerate(zip(base_x_pos, color)):
+            x_coords = pos_num + std * self.data[pos_num, slice(*ylim)] / np.std(self.data)
+            ax.plot(x_coords, y_coords, c=c)
+            ax.fill_betweenx(y_coords, pos_num, x_coords, where=(x_coords > pos_num), color=c)

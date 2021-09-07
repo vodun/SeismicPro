@@ -239,3 +239,23 @@ def clip(data, data_min, data_max):
     for i in range(len(data)):  # pylint: disable=consider-using-enumerate
         data[i] = min(max(data[i], data_min), data_max)
     return data.reshape(data_shape)
+
+
+def parse_kwargs_using_base_key(kwargs, base_key):
+        if not isinstance(kwargs, dict):
+            return [{base_key: value} for value in to_list(kwargs)]
+
+        if base_key not in kwargs:
+            raise ValueError(f'The base_key: `{base_key}` is missed in kwargs')
+
+        kwargs_list = [{} for _ in to_list(kwargs[base_key])]
+        for key, values in kwargs.items():
+            values = to_list(values)
+            if len(values) == 1:
+                values = values * len(kwargs_list)
+            elif len(values) != len(kwargs_list):
+                raise ValueError(f"Incompatible array size by key `{key}`. "
+                                 f"Expected {len(kwargs_list)} but given {len(values)}.")
+            for ix, value in enumerate(values):
+                kwargs_list[ix][key] = value
+        return kwargs_list
