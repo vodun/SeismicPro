@@ -3,6 +3,8 @@
 import inspect
 from functools import partial, wraps
 
+import matplotlib.pyplot as plt
+
 from .utils import to_list
 from ..batchflow import action, inbatch_parallel
 
@@ -191,3 +193,23 @@ def create_batch_methods(*component_classes):
             setattr(cls, method_name, create_method(method_name))
         return cls
     return decorator
+
+
+def plotter(figsize):
+    """!!!!"""
+    def outer_wrapper(method):
+        @wraps(method)
+        def decorator(*args, **kwargs):
+            if 'ax' not in kwargs:
+                # There is only one case when axes are not passed -
+                # a plot function is called directly from a class instance.
+                # In this case we want to plot image with pre-defined `figsize`
+                # and show image immediately after creation.
+                _, ax = plt.subplots(1, 1, figsize=kwargs.pop('figsize', figsize))
+                kwargs.update({'ax': ax})
+                output = method(*args, **kwargs)
+                plt.show()
+                return output
+            return method(*args, **kwargs)
+        return decorator
+    return outer_wrapper

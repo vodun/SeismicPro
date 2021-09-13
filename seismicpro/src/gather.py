@@ -8,12 +8,11 @@ from textwrap import dedent
 import segyio
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 
 from .muting import Muter
 from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
-from .decorators import batch_method
+from .decorators import batch_method, plotter
 from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, normalization, correction,
                     parse_kwargs_using_base_key)
 
@@ -877,6 +876,7 @@ class Gather:
     #                         Visualization methods                          #
     #------------------------------------------------------------------------#
 
+    @plotter(figsize=(10, 7))
     @batch_method(target="for", copy_src=False)
     def plot(self, wiggle=False, points=None, ax=None, xlim=None, ylim=None, title=None, **kwargs):
         """Plot gather traces.
@@ -893,9 +893,6 @@ class Gather:
         self : Gather
             Gather unchanged.
         """
-        #TODO: add figsize for single gather
-        ax = plt.gca() if ax is None else ax
-
         # Processing limits and set x_coords
         slice_xlim = self.survey._process_limits(xlim, max_length=len(self.data))  # pylint: disable=protected-access
         resulted_xlim = (slice_xlim.start, slice_xlim.stop)
@@ -910,6 +907,7 @@ class Gather:
             imshow_kwargs = dict(cmap='gray', vmin=vmin, vmax=vmax, aspect='auto')
             imshow_kwargs.update(kwargs)
             ax.imshow(self.data.T, **imshow_kwargs)
+
         else:
             wiggle_kwargs = wiggle if isinstance(wiggle, dict) else {}
             self.plot_wiggle(ax=ax, base_x_pos=x_coords, ylim=resulted_ylim, **wiggle_kwargs)

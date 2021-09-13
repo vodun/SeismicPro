@@ -7,7 +7,7 @@ from numba import njit, prange
 from matplotlib import colors as mcolors
 
 from .utils import set_ticks
-from .decorators import batch_method
+from .decorators import batch_method, plotter
 from .velocity_model import calculate_stacking_velocity
 from .velocity_cube import StackingVelocity
 from .utils.correction import get_hodograph
@@ -130,8 +130,8 @@ class BaseSemblance:
         return semblance_slice
 
     @staticmethod
-    def plot(semblance, ticks_range_x, ticks_range_y, xlabel, title=None,  # pylint: disable=too-many-arguments
-             figsize=(15, 12), fontsize=11, grid=False, stacking_times_ix=None, stacking_velocities_ix=None,
+    def plot(semblance, ticks_range_x, ticks_range_y, xlabel, ax, title=None,  # pylint: disable=too-many-arguments
+             fontsize=11, grid=False, stacking_times_ix=None, stacking_velocities_ix=None,
              save_to=None, dpi=300, **kwargs):
         """Plot vertical velocity semblance and, optionally, stacking velocity.
 
@@ -145,6 +145,8 @@ class BaseSemblance:
             Min and max values of labels on the y-axis.
         xlabel : str
             The title of the x-axis.
+        ax : plt.Axis or None
+            !!!!!!!!!!!!!!!!!!!!!!
         title : str, optional, defaults to None
             Plot title.
         figsize : array-like with length 2, optional, defaults to (15, 12)
@@ -171,12 +173,12 @@ class BaseSemblance:
         levels[0] = 0
 
         # Add level lines and colorize the graph
-        fig, ax = plt.subplots(figsize=figsize)
         norm = mcolors.BoundaryNorm(boundaries=levels, ncolors=256)
         x_grid, y_grid = np.meshgrid(np.arange(0, semblance.shape[1]), np.arange(0, semblance.shape[0]))
         ax.contour(x_grid, y_grid, semblance, levels, colors='k', linewidths=.5, alpha=.5)
+        ax.set_box_aspect(1)
         img = ax.imshow(semblance, norm=norm, aspect='auto', cmap='seismic')
-        fig.colorbar(img, ticks=levels[1::2])
+        plt.colorbar(img, ticks=levels[1::2], ax=ax)
 
         ax.set_xlabel(xlabel)
         ax.set_ylabel('Time')
@@ -195,7 +197,6 @@ class BaseSemblance:
             ax.grid(c='k')
         if save_to:
             plt.savefig(save_to, bbox_inches='tight', pad_inches=0.1, dpi=dpi)
-        plt.show()
 
 
 class Semblance(BaseSemblance):
@@ -307,6 +308,7 @@ class Semblance(BaseSemblance):
                                              t_min_ix=0, t_max_ix=len(gather_data))
         return semblance
 
+    @plotter(figsize=(15, 12))
     @batch_method(target="for", args_to_unpack="stacking_velocity")
     def plot(self, stacking_velocity=None, **kwargs):
         """Plot vertical velocity semblance.
@@ -563,6 +565,7 @@ class ResidualSemblance(BaseSemblance):
                                               cropped_semblance)
         return residual_semblance
 
+    @plotter(figsize=(15, 12))
     @batch_method(target="for")
     def plot(self, **kwargs):
         """Plot residual vertical velocity semblance. The plot always has a vertical line in the middle, representing
