@@ -5,7 +5,7 @@ from functools import partial, wraps
 
 import matplotlib.pyplot as plt
 
-from .utils import to_list
+from .utils import to_list, save_figure
 from ..batchflow import action, inbatch_parallel
 
 
@@ -207,7 +207,11 @@ def plotter(figsize):
                 # and show image immediately after creation.
                 _, ax = plt.subplots(1, 1, figsize=kwargs.pop('figsize', figsize))
                 kwargs.update({'ax': ax})
+                save_path = kwargs.pop('save_path', None)
+                dpi = kwargs.pop('dpi', 100)
                 output = method(*args, **kwargs)
+                if save_path is not None:
+                    save_figure(path=save_path, dpi=dpi)
                 plt.show()
                 return output
             return method(*args, **kwargs)

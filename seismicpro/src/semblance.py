@@ -131,8 +131,7 @@ class BaseSemblance:
 
     @staticmethod
     def plot(semblance, ticks_range_x, ticks_range_y, xlabel, ax, title=None,  # pylint: disable=too-many-arguments
-             fontsize=11, grid=False, stacking_times_ix=None, stacking_velocities_ix=None,
-             save_to=None, dpi=300, **kwargs):
+             fontsize=11, grid=False, stacking_times_ix=None, stacking_velocities_ix=None, **kwargs):
         """Plot vertical velocity semblance and, optionally, stacking velocity.
 
         Parameters
@@ -159,10 +158,6 @@ class BaseSemblance:
             Time indices of calculated stacking velocities to show on the plot.
         stacking_velocities_ix : 1d np.ndarray, optional
             Velocity indices of calculated stacking velocities to show on the plot.
-        save_to : str, optional, defaults to None
-            If given, save the plot to the path specified.
-        dpi : int, optional, defaults to 300
-            Resolution for the saved figure.
         kwargs : misc, optional
             Additional keyword arguments to :func:`.set_ticks`.
         """
@@ -195,8 +190,6 @@ class BaseSemblance:
         ax.set_ylim(semblance.shape[0], 0)
         if grid:
             ax.grid(c='k')
-        if save_to:
-            plt.savefig(save_to, bbox_inches='tight', pad_inches=0.1, dpi=dpi)
 
 
 class Semblance(BaseSemblance):

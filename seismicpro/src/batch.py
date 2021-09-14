@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from .gather import Gather
 from .semblance import Semblance, ResidualSemblance
 from .decorators import create_batch_methods, apply_to_each_component
-from .utils import to_list
+from .utils import to_list, save_figure
 from ..batchflow import Batch, action, DatasetIndex, NamedExpression
 
 
@@ -304,7 +304,7 @@ class SeismicBatch(Batch):
         return self
 
     @action
-    def plot(self, src, max_ncols=3, figsize=(10, 7), **kwargs):
+    def plot(self, src, max_ncols=3, figsize=(10, 7), save_path=None, dpi=100, **kwargs):
         """!!!"""
         # TODO: add `pos` argument
         data = [tuple(getattr(self, name)) for name in to_list(src)]
@@ -337,6 +337,7 @@ class SeismicBatch(Batch):
         # We add Nones to delete extra axes, if necessary.
         for i, row in enumerate(data):
             data[i] = row + tuple([None]*num_to_pad)
+
         _, axes_list = plt.subplots(nrows=nrows, ncols=ncols,
                                     figsize=np.multiply((ncols, nrows), figsize),
                                     constrained_layout=True,
@@ -348,4 +349,9 @@ class SeismicBatch(Batch):
                 ax.remove()
             else:
                 component.plot(ax=ax, title=f'Component `{title}` with index {index}', **kwargs)
+
+        if save_path is not None:
+            save_figure(path=save_path, dpi=dpi)
+
+        plt.show()
         return self
