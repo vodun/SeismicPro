@@ -116,10 +116,17 @@ class BaseSemblance:
         corrected_gather = np.empty((t_win_size_max_ix - t_win_size_min_ix + 1, gather_data.shape[1]),
                                     dtype=np.float32)
         for i in prange(t_win_size_min_ix, t_win_size_max_ix):
-            corrected_gather[i - t_win_size_min_ix] = nmo_func(gather_data, times[i], offsets, velocity, sample_rate)
+            nmo_func(gather_data, times[i], offsets, velocity, sample_rate,
+                     out=corrected_gather[i - t_win_size_min_ix])
 
-        numerator = np.sum(corrected_gather, axis=1)**2
-        denominator = np.sum(corrected_gather**2, axis=1)
+        numerator = corrected_gather[:, 0]
+        denominator = corrected_gather[:, 0]**2
+        for i in prange(corrected_gather.shape[0]):
+            for j in range(1, corrected_gather.shape[1]):
+                numerator[i] += corrected_gather[i, j]
+                denominator[i] += corrected_gather[i, j]**2
+            numerator[i] **= 2
+
         semblance_slice = np.zeros(t_max_ix - t_min_ix, dtype=np.float32)
         for t in prange(t_min_ix, t_max_ix):
             t_rel = t - t_win_size_min_ix

@@ -1,11 +1,14 @@
 """Implements functions for various gather corrections"""
 
+import math
+
 import numpy as np
 from numba import njit
 
 
 @njit(nogil=True, fastmath=True)
-def get_hodograph(gather_data, time, offsets, velocity, sample_rate, fill_value=0):
+def get_hodograph(gather_data, time, offsets, velocity, sample_rate, interpolate=True, max_stretch_factor=np.inf,
+                  fill_value=0, out=None):
     r"""Return gather amplitudes for a reflection traveltime curve starting from time `time` with velocity `velocity`,
     assuming that it follows hyperbolic trajectory as a function of offset given by:
     :math:`t(l) = \sqrt{t(0)^2 + \frac{l^2}{v^2}}`, where:
@@ -35,13 +38,23 @@ def get_hodograph(gather_data, time, offsets, velocity, sample_rate, fill_value=
     hodograph : 1d array
         Gather amplitudes along a hyperbolic traveltime curve.
     """
-    hodograph = np.full(len(offsets), fill_value, dtype=gather_data.dtype)
-    hodograph_times = (np.sqrt(time**2 + offsets**2/velocity**2) / sample_rate).astype(np.int32)
-    for i in range(len(offsets)):
-        hodograph_time = hodograph_times[i]
-        if hodograph_time < len(gather_data):
-            hodograph[i] = gather_data[hodograph_time, i]
-    return hodograph
+    if out is None:
+        out = np.empty(len(offsets), dtype=gather_data.dtype)
+    max_valid_offset = velocity * time * np.sqrt((1 + max_stretch_factor)**2 - 1)
+    for i, offset in enumerate(offsets):
+        amplitude = fill_value
+        if offset < max_valid_offset:
+            hodograph_time = np.sqrt(time**2 + (offset/velocity)**2) / sample_rate
+            if hodograph_time <= len(gather_data) - 1:
+                if interpolate:
+                    time_prev = math.floor(hodograph_time)
+                    time_next = math.ceil(hodograph_time)
+                    weight = time_next - hodograph_time
+                    amplitude = gather_data[time_prev, i] * weight + gather_data[time_next, i] * (1 - weight)
+                else:
+                    amplitude = gather_data[int(hodograph_time), i]
+        out[i] = amplitude
+    return out
 
 
 @njit(nogil=True)
