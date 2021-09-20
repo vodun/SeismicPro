@@ -878,7 +878,7 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @batch_method(target="for", copy_src=False)
-    def plot(self, figsize=(10, 7), src_preds, src_true, **kwargs):
+    def plot(self, figsize=(10, 7), **kwargs):
         """Plot gather traces.
 
         Parameters
