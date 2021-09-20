@@ -3,7 +3,7 @@
 import numpy as np
 
 from .gather import Gather
-from .coherence import Coherence, ResidualCoherence
+from .coherency import Coherency, ResidualCoherency
 from .decorators import create_batch_methods, apply_to_each_component
 from .utils import to_list
 from ..batchflow import Batch, action, DatasetIndex, NamedExpression
