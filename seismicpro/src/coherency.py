@@ -97,7 +97,7 @@ class BaseCoherency:
         for i in prange(corrected_gather.shape[0]):
             for j in range(0, corrected_gather.shape[1]):
                 numerator[i] += corrected_gather[i, j]
-            numerator[i] = math.abs(numerator[i])
+            numerator[i] = abs(numerator[i])
         return numerator, denominator
 
     @staticmethod
@@ -108,8 +108,8 @@ class BaseCoherency:
         for i in prange(corrected_gather.shape[0]):
             for j in range(0, corrected_gather.shape[1]):
                 numerator[i] += corrected_gather[i, j]
-                denominator[i] += math.abs(corrected_gather[i, j])
-            numerator[i] = math.abs(numerator[i])
+                denominator[i] += abs(corrected_gather[i, j])
+            numerator[i] = abs(numerator[i])
         return numerator, denominator
 
     @staticmethod
