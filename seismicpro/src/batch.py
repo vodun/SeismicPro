@@ -3,13 +3,13 @@
 import numpy as np
 
 from .gather import Gather
-from .semblance import Semblance, ResidualSemblance
+from .coherence import Coherence, ResidualCoherence
 from .decorators import create_batch_methods, apply_to_each_component
 from .utils import to_list
 from ..batchflow import Batch, action, DatasetIndex, NamedExpression
 
 
-@create_batch_methods(Gather, Semblance, ResidualSemblance)
+@create_batch_methods(Gather, Coherence, ResidualCoherence)
 class SeismicBatch(Batch):
     """A batch class for seismic data that allows for joint and simultaneous processing of small subsets of seismic
     gathers in a parallel way.
