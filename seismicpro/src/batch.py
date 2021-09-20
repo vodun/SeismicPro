@@ -9,7 +9,7 @@ from .utils import to_list
 from ..batchflow import Batch, action, DatasetIndex, NamedExpression
 
 
-@create_batch_methods(Gather, Coherence, ResidualCoherence)
+@create_batch_methods(Gather, Coherency, ResidualCoherency)
 class SeismicBatch(Batch):
     """A batch class for seismic data that allows for joint and simultaneous processing of small subsets of seismic
     gathers in a parallel way.
