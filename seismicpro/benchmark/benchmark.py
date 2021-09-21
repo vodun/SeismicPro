@@ -69,6 +69,7 @@ class Benchmark: # pylint: disable=too-many-instance-attributes
     save_to : str
         A path to save the resulted benchmark.
     """
+    # pylint: disable=too-many-arguments
     def __init__(self, method_name, method_kwargs, targets, batch_sizes, dataset, n_iters=10,
                  root_pipeline=None, benchmark_cpu=True, save_to=None, bar=False):
         self.method_name = method_name

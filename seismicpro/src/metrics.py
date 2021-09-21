@@ -83,8 +83,8 @@ class MetricsMap(Metrics):
         if coords.ndim != 2:
             raise ValueError("Coordinates array must be 2-dimensional.")
         if coords.shape[1] != 2:
-            raise ValueError("Coordinates  array must have shape (N, 2), where N is the number of elements"\
-                             " but an array with shape {} was given".format(coords.shape))
+            raise ValueError("Coordinates array must have shape (N, 2), where N is the number of elements"\
+                             f" but an array with shape {coords.shape} was given")
         self.coords = coords
 
         # Create attributes with metric values

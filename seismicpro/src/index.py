@@ -213,7 +213,7 @@ class SeismicIndex(DatasetIndex):
                 None: SeismicIndex.from_survey,
             }
             if mode not in builders_dict:
-                raise ValueError("Unknown mode {}".format(mode))
+                raise ValueError(f"Unknown mode {mode}")
             index = builders_dict[mode](surveys, **kwargs)
 
         # Check that passed or created index has SeismicIndex type
