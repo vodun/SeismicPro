@@ -70,7 +70,7 @@ class Benchmark: # pylint: disable=too-many-instance-attributes
         A path to save the resulted benchmark.
     """
     def __init__(self, method_name, method_kwargs, targets, batch_sizes, dataset, n_iters=10,
-                 root_pipeline=None, benchmark_cpu=True, save_to=None):
+                 root_pipeline=None, benchmark_cpu=True, save_to=None, bar=False):
         self.method_name = method_name
         self.targets = to_list(targets)
         self.batch_sizes = to_list(batch_sizes)
@@ -86,6 +86,7 @@ class Benchmark: # pylint: disable=too-many-instance-attributes
 
         self.benchmark_cpu = benchmark_cpu
         self.save_to = save_to
+        self.bar = bar
 
     def save_benchmark(self):
         """Pickle Benchmark to the file with path `self.save_to`.
@@ -141,7 +142,7 @@ class Benchmark: # pylint: disable=too-many-instance-attributes
         research = (Research(domain=domain, n_reps=1)
             .add_callable(self._run_single_pipeline, config=EC(), save_to=self.benchmark_names)
         )
-        research.run(n_iters=1, dump_results=False, parallel=False, workers=1, bar=True)
+        research.run(n_iters=1, dump_results=False, parallel=False, workers=1, bar=self.bar)
 
         # Load benchmark's results.
         results_df = research.results.to_df()
@@ -159,7 +160,8 @@ class Benchmark: # pylint: disable=too-many-instance-attributes
         """Benchmark method with a particular `batch_size` and `target`."""
         pipeline = self.template_pipeline << config
         with CPUMonitor() as cpu_monitor:
-            pipeline.run(C('batch_size'), n_iters=self.n_iters, shuffle=42, drop_last=True, bar=False, profile=True)
+            pipeline.run(C('batch_size'), n_iters=self.n_iters, shuffle=42, drop_last=True, notifier=False,
+                         profile=True)
 
         # Processing the results for time costs.
         time_df = pipeline.show_profile_info(per_iter=True, detailed=False)
