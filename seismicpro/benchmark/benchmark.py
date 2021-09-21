@@ -46,6 +46,11 @@ class Benchmark: # pylint: disable=too-many-instance-attributes
         If True, the CPU util and elapsed time are benchmarked, otherwise only the elapsed time is taken into account.
     save_to : str, optional, by default None
         A path to save the resulted benchmark.
+    bar : bool
+        Whether to use progress bar or not.
+    env_meta : dict or bool, default False
+        if dict, kwargs for :meth:`~batchflow.batchflow.research.attach_env_meta`
+        if bool, whether to attach environment meta or not.
 
     Attributes
     ----------
@@ -68,10 +73,16 @@ class Benchmark: # pylint: disable=too-many-instance-attributes
         account.
     save_to : str
         A path to save the resulted benchmark.
+    bar : bool
+        Whether to use progress bar or not.
+    env_meta : dict or bool
+        if dict, kwargs for :meth:`~batchflow.batchflow.research.attach_env_meta`
+        if bool, whether to attach environment meta or not.
+
     """
     # pylint: disable=too-many-arguments
     def __init__(self, method_name, method_kwargs, targets, batch_sizes, dataset, n_iters=10,
-                 root_pipeline=None, benchmark_cpu=True, save_to=None, bar=False):
+                 root_pipeline=None, benchmark_cpu=True, save_to=None, bar=False, env_meta=False):
         self.method_name = method_name
         self.targets = to_list(targets)
         self.batch_sizes = to_list(batch_sizes)
@@ -88,6 +99,7 @@ class Benchmark: # pylint: disable=too-many-instance-attributes
         self.benchmark_cpu = benchmark_cpu
         self.save_to = save_to
         self.bar = bar
+        self.env_meta = env_meta
 
     def save_benchmark(self):
         """Pickle Benchmark to the file with path `self.save_to`.
@@ -143,7 +155,7 @@ class Benchmark: # pylint: disable=too-many-instance-attributes
         research = (Research(domain=domain, n_reps=1)
             .add_callable(self._run_single_pipeline, config=EC(), save_to=self.benchmark_names)
         )
-        research.run(n_iters=1, dump_results=False, parallel=False, workers=1, bar=self.bar)
+        research.run(n_iters=1, dump_results=False, parallel=False, workers=1, bar=self.bar, env_meta=self.env_meta)
 
         # Load benchmark's results.
         results_df = research.results.to_df()
