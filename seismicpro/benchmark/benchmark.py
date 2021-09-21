@@ -78,7 +78,6 @@ class Benchmark: # pylint: disable=too-many-instance-attributes
     env_meta : dict or bool
         if dict, kwargs for :meth:`~batchflow.batchflow.research.attach_env_meta`
         if bool, whether to attach environment meta or not.
-
     """
     # pylint: disable=too-many-arguments
     def __init__(self, method_name, method_kwargs, targets, batch_sizes, dataset, n_iters=10,
