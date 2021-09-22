@@ -11,9 +11,8 @@ from scipy.spatial.qhull import Delaunay, QhullError  #pylint: disable=no-name-i
 from sklearn.neighbors import NearestNeighbors
 
 from .metrics import MetricsMap
-from .utils import to_list, read_vfunc, read_single_vfunc, dump_vfunc
+from .utils import to_list, read_vfunc, read_single_vfunc, dump_vfunc, velocity_qc
 from .utils.interpolation import interp1d
-from .utils.velocity_qc import VELOCITY_QC_METRICS
 
 
 class VelocityInterpolator:
@@ -74,6 +73,9 @@ class VelocityInterpolator:
     def _is_in_hull(self, inline, crossline):
         """Check if given `inline` and `crossline` lie within a convex hull of spatial coordinates of stacking
         velocities passed during interpolator creation."""
+        # Cast inline and crossline to pure python types for latest versions of opencv to work correctly
+        inline = np.array(inline).item()
+        crossline = np.array(crossline).item()
         return cv2.pointPolygonTest(self.coords_hull, (inline, crossline), measureDist=True) >= 0
 
     def _get_simplex_info(self, coords):
@@ -570,12 +572,16 @@ class VelocityCube:
 
     def qc(self, win_radius, times, coords=None, metrics_names=None, n_workers=None):
         if metrics_names is None:
-            metrics_names = list(VELOCITY_QC_METRICS.keys())
-        metrics_names = to_list(metrics_names)
-        unknown_metrics = set(metrics_names) - VELOCITY_QC_METRICS.keys()
-        if unknown_metrics:
-            raise ValueError(f"Unknown metrics {unknown_metrics}")
-        metrics_funcs = [VELOCITY_QC_METRICS[metrics_name] for metrics_name in metrics_names]
+            metrics_names = velocity_qc.VELOCITY_QC_METRICS
+        metrics_funcs = []
+        for name in to_list(metrics_names):
+            if name in velocity_qc.VELOCITY_QC_METRICS:
+                func = getattr(velocity_qc, name)
+            elif callable(name):
+                func = name
+            else:
+                raise ValueError(f"Unknown metric {name}")
+            metrics_funcs.append(func)
 
         # Calculate stacking velocities at given times for each of coords
         if coords is None:
