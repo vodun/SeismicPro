@@ -19,16 +19,17 @@ class interp1d:
         y = np.array(y)
 
         if len(x) < 2:
-            raise ValueError
+            raise ValueError("At least two points should be passed to perform interpolation")
 
         ind = np.argsort(x, kind="mergesort")
         self.x = x[ind]
         self.y = y[ind]
 
-        self.left_slope = (y[1] - y[0]) / (x[1] - x[0])
-        self.right_slope = (y[-1] - y[-2]) / (x[-1] - x[-2])
+        self.left_slope = (self.y[1] - self.y[0]) / (self.x[1] - self.x[0])
+        self.right_slope = (self.y[-1] - self.y[-2]) / (self.x[-1] - self.x[-2])
 
     def __call__(self, x):
         x = np.array(x)
-        res = interpolate(x, self.x, self.y, self.left_slope, self.right_slope)
-        return res.item() if x.ndim == 0 else res
+        is_scalar_input = (x.ndim == 0)
+        res = interpolate(x.ravel(), self.x, self.y, self.left_slope, self.right_slope)
+        return res.item() if is_scalar_input else res
