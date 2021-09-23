@@ -563,6 +563,29 @@ class ResidualSemblance(BaseSemblance):
                                               cropped_semblance)
         return residual_semblance
 
+    @batch_method(target="for", copy_src=False)
+    def correct_stacking_velocity(self, kernel_size=1):
+        """ Correct stacking velocity the way it follows the maximum coherency path.
+
+        Parameters
+        ----------
+        kernel_size : int
+            Median filter kernel size. Must be positive odd interger.
+
+        Returns
+        -------
+            : StackingVelocity
+            Corrected stacking velocity.
+        """
+        ind = np.argmax(self.residual_semblance, 1)
+        center_ind = self.residual_semblance.shape[1] / 2
+        delta = (ind - center_ind) / center_ind
+        corrected_velocity = self.stacking_velocity(self.times) * (1 + delta * self.relative_margin)
+        if kernel_size is not 1:
+            corrected_velocities = median_filter(corrected_velocity, kernel_size)
+        return StackingVelocity.from_points(self.times, corrected_velocity,
+                                            self.stacking_velocity.inline, self.stacking_velocity.crossline)
+
     @batch_method(target="for")
     def plot(self, **kwargs):
         """Plot residual vertical velocity semblance. The plot always has a vertical line in the middle, representing
