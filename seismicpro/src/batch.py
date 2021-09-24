@@ -3,13 +3,14 @@
 import numpy as np
 
 from .gather import Gather
+from .cropped_gather import CroppedGazer
 from .semblance import Semblance, ResidualSemblance
 from .decorators import create_batch_methods, apply_to_each_component
 from .utils import to_list
 from ..batchflow import Batch, action, DatasetIndex, NamedExpression
 
 
-@create_batch_methods(Gather, Semblance, ResidualSemblance)
+@create_batch_methods(Gather, CroppedGazer, Semblance, ResidualSemblance)
 class SeismicBatch(Batch):
     """A batch class for seismic data that allows for joint and simultaneous processing of small subsets of seismic
     gathers in a parallel way.
@@ -134,6 +135,15 @@ class SeismicBatch(Batch):
         gather_index = parent_index.indices.to_frame().loc[index].index
         getattr(self, dst)[pos] = parent_index.get_gather(survey_name=src, concat_id=index,
                                                           gather_index=gather_index, **kwargs)
+
+    # @action
+    # def crop(self, src, dst=None, crop_rule):
+    #     """ crop batch data by given rule """
+    #     print(src)
+    #     for c in components:
+
+
+
 
     @action
     def update_velocity_cube(self, velocity_cube, src):

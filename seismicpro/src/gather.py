@@ -872,6 +872,10 @@ class Gather:
         self.data = np.nan_to_num(self.data)
         return self
 
+    @batch_method(target='for')
+    def crop(self, crop_rule, crop_size):
+        return CroppedGazer(self, crop_rule, crop_size)
+
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #
     #------------------------------------------------------------------------#
