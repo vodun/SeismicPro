@@ -303,52 +303,55 @@ class SeismicBatch(Batch):
             raise ValueError(f"dst must be either `str` or `NamedExpression`, not {type(dst)}.")
         return self
 
+
     @action
-    def plot(self, src, max_ncols=3, figsize=(10, 7), save_path=None, dpi=100, **kwargs):
-        """!!!"""
-        # TODO: add `pos` argument
+    def plot(self, src, src_width=10, max_width=20, height=7, save_path=None, dpi=100, **kwargs):
         data = [tuple(getattr(self, name)) for name in to_list(src)]
         batch_size = len(self)
         n_components = len(data)
 
-        # If all data in the batch comes from same file, we won't show first level in the title
-        indices = self.index.indices
-        indices = indices.droplevel(0) if indices.get_level_values(0).nunique() == 1 else indices
+        components_width = to_list(src_width)
+        components_width = components_width * n_components if len(components_width) == 1 else components_width
+        if len(components_width) != n_components:
+            raise ValueError("some error")
 
-        indices = indices.to_list()
-        titles = to_list(src) * batch_size
-
-        # The way of axis construction depends on how namy src has passed. If one,
-        # the data from batches will be plotted line by line.
-        # Otherwise, all components will be plotted column by column. So i-th line
-        # will contain pictures of the components from i-th batch.
         if n_components == 1:
-            ncols = min(max_ncols, batch_size)
-            nrows = int(np.ceil(batch_size / ncols))
-            num_to_pad = int(ncols * nrows - batch_size)
-            indices = indices * n_components
+            components_width = components_width * batch_size
         else:
             data = list(zip(*data))
-            ncols = min(max_ncols, n_components)
-            nrows = batch_size * (n_components // ncols + min(1, n_components % ncols))
-            num_to_pad = int((ncols * nrows - n_components * batch_size) / batch_size)
-            indices = [index for index in indices for _ in range(n_components)]
+        plot_width = min(max_width, sum(components_width))
 
-        # We add Nones to delete extra axes, if necessary.
-        for i, row in enumerate(data):
-            data[i] = row + tuple([None]*num_to_pad)
-
-        _, axes_list = plt.subplots(nrows=nrows, ncols=ncols,
-                                    figsize=np.multiply((ncols, nrows), figsize),
-                                    constrained_layout=True,
-                                    squeeze=False)
-        ravel_data = sum(data, ())
-        ravel_axis = np.concatenate(axes_list)
-        for component, ax, title, index in zip_longest(ravel_data, ravel_axis, titles, indices):
-            if component is None:
-                ax.remove()
+        # Here we infer how many images will be on the particular row
+        pos_width_list = [[components_width[0]]]
+        for comp in components_width[1:]:
+            if sum(pos_width_list[-1], comp) <= plot_width:
+                pos_width_list[-1].append(comp)
             else:
-                component.plot(ax=ax, title=f'Component `{title}` with index {index}', **kwargs)
+                pos_width_list.append([comp])
+
+        if n_components != 1:
+            pos_width_list = pos_width_list * batch_size
+
+        nrows = len(pos_width_list)
+        figsize = (plot_width, height*nrows)
+        figure = plt.figure(figsize=figsize, constrained_layout=True)
+        gridspecs = figure.add_gridspec(nrows, 1)
+
+        ravel_data = sum(data, ())
+        for gridspec, width_ratios in zip(gridspecs, pos_width_list):
+            data_to_plot = ravel_data[:len(width_ratios)]
+            ravel_data = ravel_data[len(width_ratios):]
+            n_axes = len(width_ratios)
+            width_ratios = width_ratios[:] # copy to prevent changing the `pos_width_list`
+
+            if plot_width > sum(width_ratios):
+                width_ratios.append(plot_width - sum(width_ratios))
+                n_axes += 1
+            sub_gridspecs = gridspec.subgridspec(1, n_axes, width_ratios=width_ratios)
+            for sub_gridspec, component in zip(sub_gridspecs, data_to_plot):
+                ax = figure.add_subplot(sub_gridspec)
+                # somehow process kwargs..
+                component.plot(ax=ax, **kwargs)
 
         if save_path is not None:
             save_figure(path=save_path, dpi=dpi)

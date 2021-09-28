@@ -171,7 +171,6 @@ class BaseSemblance:
         norm = mcolors.BoundaryNorm(boundaries=levels, ncolors=256)
         x_grid, y_grid = np.meshgrid(np.arange(0, semblance.shape[1]), np.arange(0, semblance.shape[0]))
         ax.contour(x_grid, y_grid, semblance, levels, colors='k', linewidths=.5, alpha=.5)
-        ax.set_box_aspect(1)
         img = ax.imshow(semblance, norm=norm, aspect='auto', cmap='seismic')
         plt.colorbar(img, ticks=levels[1::2], ax=ax)
 
