@@ -326,6 +326,7 @@ class SeismicBatch(Batch):
             src_dict.update({'figsize': src_dict.get('figsize', getattr(self, key)[0].plot.figsize)})
 
         data = {s: list(getattr(self, s)) for s in src_list}
+        indices = {s: list(self.indices) for s in src_list}
         src_list = ((s, ) * batch_size for s in src_list)
         src_list = list(zip(*src_list)) if n_components != 1 else src_list
         plotter_list = []
@@ -344,6 +345,7 @@ class SeismicBatch(Batch):
                     'width': figsize[0],
                     'kwargs': kwargs
                 }
+
                 if width <= max_width:
                     height = max(height, figsize[1])
                     plotter_list[-1].append(component_dict)
@@ -368,7 +370,23 @@ class SeismicBatch(Batch):
                 width_ratios.append(plot_width - sum(width_ratios))
                 n_axes += 1
             sub_gridspecs = gridspec.subgridspec(1, n_axes, width_ratios=width_ratios)
+            indices = set([comp_dict['index'] for comp_dict in components])
+            if len(indices) == 1:
+                plt.suptitle(indices)
             for sub_gridspec, component_dict in zip(sub_gridspecs, components):
+                import re
+                index = indices[comp_name].pop(0)
+                title = component_dict['kwargs'].pop('title', None)
+                str_to_attr = {
+                    'comp': component_dict['name'],
+                    'index': index
+                }
+                if title is not None:
+                    for item in re.finditer(r"\{[\w:.]+\}+", title): # find {} in title
+                        pass
+                else:
+                    title = f'{comp_name}: {index}'
+
                 ax = figure.add_subplot(sub_gridspec)
                 component = component_dict['data']
                 component.plot(ax=ax, title=component_dict['name'], **component_dict['kwargs'])
