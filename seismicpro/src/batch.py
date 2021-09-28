@@ -305,56 +305,75 @@ class SeismicBatch(Batch):
 
 
     @action
-    def plot(self, src, src_width=10, max_width=20, height=7, save_path=None, dpi=100, **kwargs):
-        data = [tuple(getattr(self, name)) for name in to_list(src)]
+    def plot(self, src, max_width=20, save_path=None, dpi=100, src_kwargs=None, **kwargs):
+        src_list = to_list(src)
+        if len(set(src_list)) < len(src_list):
+            raise ValueError("Components in `src` must be unique")
+
         batch_size = len(self)
-        n_components = len(data)
+        n_components = len(src_list)
+        widths = []
+        heights = []
 
-        components_width = to_list(src_width)
-        components_width = components_width * n_components if len(components_width) == 1 else components_width
-        if len(components_width) != n_components:
-            raise ValueError("some error")
+        # Consturcting dict of kwargs for every src
+        src_kwargs = dict() if src_kwargs is None else src_kwargs
 
-        if n_components == 1:
-            components_width = components_width * batch_size
-        else:
-            data = list(zip(*data))
-        plot_width = min(max_width, sum(components_width))
+        if not isinstance(src_kwargs, dict):
+            raise ValueError('some error')
+        src_kwargs = {key: params for keys, params in src_kwargs.items() for key in to_list(keys)}
+        src_kwargs = {src: {**kwargs, **src_kwargs.get(src, {})} for src in src_list}
+        for key, src_dict in src_kwargs.items():
+            src_dict.update({'figsize': src_dict.get('figsize', getattr(self, key)[0].plot.figsize)})
 
-        # Here we infer how many images will be on the particular row
-        pos_width_list = [[components_width[0]]]
-        for comp in components_width[1:]:
-            if sum(pos_width_list[-1], comp) <= plot_width:
-                pos_width_list[-1].append(comp)
-            else:
-                pos_width_list.append([comp])
+        data = {s: list(getattr(self, s)) for s in src_list}
+        src_list = ((s, ) * batch_size for s in src_list)
+        src_list = list(zip(*src_list)) if n_components != 1 else src_list
+        plotter_list = []
+        for components in src_list:
+            width, height = 0, 0
+            plotter_list.append([])
+            for comp_name in components:
+                figsize = src_kwargs[comp_name].get('figsize')
+                width += figsize[0]
+                kwargs = src_kwargs[comp_name].copy()
+                kwargs.pop('figsize')
 
-        if n_components != 1:
-            pos_width_list = pos_width_list * batch_size
+                component_dict = {
+                    'name': comp_name,
+                    'data': data[comp_name].pop(0),
+                    'width': figsize[0],
+                    'kwargs': kwargs
+                }
+                if width <= max_width:
+                    height = max(height, figsize[1])
+                    plotter_list[-1].append(component_dict)
+                else:
+                    heights.append(height)
+                    width, height = figsize
+                    plotter_list.append([component_dict])
+            if height != 0:
+                heights.append(height)
 
-        nrows = len(pos_width_list)
-        figsize = (plot_width, height*nrows)
+        plot_width = width if len(plotter_list) == 1 else max_width
+
+        nrows = len(plotter_list)
+        figsize = (plot_width, sum(heights))
         figure = plt.figure(figsize=figsize, constrained_layout=True)
-        gridspecs = figure.add_gridspec(nrows, 1)
+        gridspecs = figure.add_gridspec(nrows, 1, height_ratios=heights)
 
-        ravel_data = sum(data, ())
-        for gridspec, width_ratios in zip(gridspecs, pos_width_list):
-            data_to_plot = ravel_data[:len(width_ratios)]
-            ravel_data = ravel_data[len(width_ratios):]
-            n_axes = len(width_ratios)
-            width_ratios = width_ratios[:] # copy to prevent changing the `pos_width_list`
-
+        for gridspec, components in zip(gridspecs, plotter_list):
+            n_axes = len(components)
+            width_ratios = [comp_dict.pop('width') for comp_dict in components]
             if plot_width > sum(width_ratios):
                 width_ratios.append(plot_width - sum(width_ratios))
                 n_axes += 1
             sub_gridspecs = gridspec.subgridspec(1, n_axes, width_ratios=width_ratios)
-            for sub_gridspec, component in zip(sub_gridspecs, data_to_plot):
+            for sub_gridspec, component_dict in zip(sub_gridspecs, components):
                 ax = figure.add_subplot(sub_gridspec)
-                # somehow process kwargs..
-                component.plot(ax=ax, **kwargs)
+                component = component_dict['data']
+                component.plot(ax=ax, title=component_dict['name'], **component_dict['kwargs'])
 
         if save_path is not None:
             save_figure(path=save_path, dpi=dpi)
-
         plt.show()
         return self

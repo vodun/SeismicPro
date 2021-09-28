@@ -198,6 +198,7 @@ def create_batch_methods(*component_classes):
 def plotter(figsize):
     """!!!!"""
     def outer_wrapper(method):
+        method.figsize = figsize
         @wraps(method)
         def decorator(*args, **kwargs):
             if 'ax' not in kwargs:
