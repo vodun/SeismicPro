@@ -533,9 +533,6 @@ class VelocityCube:
         if not self.stacking_velocities_dict:
             raise ValueError("No stacking velocities passed")
         self.interpolator = VelocityInterpolator(self.stacking_velocities_dict)
-        # Precompile numba functions inside interpolator
-        coords_center = self.interpolator.coords.mean(axis=0, keepdims=True)
-        _ = self.interpolator.interpolate(coords=coords_center, times=np.zeros(1))
         self.is_dirty_interpolator = False
         return self
 
@@ -578,6 +575,8 @@ class VelocityCube:
             if name in velocity_qc.VELOCITY_QC_METRICS:
                 func = getattr(velocity_qc, name)
             elif callable(name):
+                if name.__name__ == "<lambda>":
+                    raise ValueError("Lambda expressions are not allowed")
                 func = name
             else:
                 raise ValueError(f"Unknown metric {name}")
@@ -587,6 +586,8 @@ class VelocityCube:
         if coords is None:
             coords = list(self.stacking_velocities_dict.keys())
         coords = np.array(coords)
+        if not self.has_interpolator:
+            self.create_interpolator()
         velocities = self.interpolator.interpolate(coords, np.array(times))
 
         # Select all neighbouring stacking velocities for each of coords
@@ -596,11 +597,11 @@ class VelocityCube:
         # Calculate requested metrics
         def calculate_window_metrics(window_indices):
             window_velocities = velocities[window_indices]
-            return [metric_func(window_velocities) for metric_func in metrics_funcs]
+            return [func(window_velocities) for func in metrics_funcs]
 
         if n_workers is None:
             n_workers = os.cpu_count()
         with ThreadPoolExecutor(max_workers=n_workers) as executor:
             metrics = executor.map(calculate_window_metrics, windows_indices)
-        metrics = {metric_name: np.array(metric_val) for metric_name, metric_val in zip(metrics_names, zip(*metrics))}
+        metrics = {func.__name__: np.array(val) for func, val in zip(metrics_funcs, zip(*metrics))}
         return MetricsMap(coords, **metrics)
