@@ -79,6 +79,7 @@ class VelocityInterpolator:
         return cv2.pointPolygonTest(self.coords_hull, (inline, crossline), measureDist=True) >= 0
 
     def _get_simplex_info(self, coords):
+        """Return indices of simplex vertices and corresponding barycentric coordinates for each of passed `coords`."""
         simplex_ix = self.tri.find_simplex(coords)
         if np.any(simplex_ix < 0):
             raise ValueError("Some passed coords are outside convex hull of known stacking velocities coordinates")
@@ -106,6 +107,7 @@ class VelocityInterpolator:
         return StackingVelocity.from_interpolator(velocity_interpolator, inline, crossline)
 
     def _get_nearest_velocities(self, coords):
+        """Return the closest known stacking velocity to each of passed `coords`."""
         nearest_indices = self.nearest_interpolator.kneighbors(coords, return_distance=False)[:, 0]
         nearest_coords = self.coords[nearest_indices]
         velocities = [self.stacking_velocities_dict[tuple(coord)] for coord in nearest_coords]
@@ -127,6 +129,23 @@ class VelocityInterpolator:
         return res
 
     def interpolate(self, coords, times):
+        """Interpolate stacking velocity at given coords and times.
+
+        Interpolation over a regular grid of times allows for implementing a much more efficient computation strategy
+        than simply iteratively calling the interpolator for each of `coords` and that evaluating it at given `times`.
+
+        Parameters
+        ----------
+        coords : 2d array-like
+            Coordinates to interpolate stacking velocities at. Has shape `(n_coords, 2)`.
+        times : 1d array-like
+            Times to interpolate stacking velocities at.
+
+        Returns
+        -------
+        velocities : 2d np.ndarray
+            Interpolated stacking velocities at given `coords` and `times`. Has shape `(len(coords), len(times))`.
+        """
         coords = np.array(coords)
         times = np.array(times)
         velocities = np.empty((len(coords), len(times)))
