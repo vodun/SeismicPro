@@ -17,6 +17,7 @@ def interpolate(x_new, x, y, left_slope, right_slope):
     return res
 
 
+#pylint: disable=invalid-name
 class interp1d:
     """Return a 1d piecewise linear interpolant to a function defined by pairs of data points `(x, y)`. Function values
     at points outside the `x` range will be linearly extrapolated.

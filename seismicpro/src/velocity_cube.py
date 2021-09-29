@@ -123,7 +123,7 @@ class VelocityInterpolator:
     @njit(nogil=True, parallel=True)
     def _interp(simplices, bar_coords, velocities):
         res = np.zeros((len(simplices), velocities.shape[-1]), dtype=velocities.dtype)
-        for i in prange(len(simplices)):
+        for i in prange(len(simplices)):  #pylint: disable=not-an-iterable
             for vel_ix, bar_coord in zip(simplices[i], bar_coords[i]):
                 res[i] += velocities[vel_ix] * bar_coord
         return res
