@@ -1,5 +1,5 @@
 """Implements SeismicBatch class for processing a small subset of seismic gathers"""
-from itertools import zip_longest
+import re
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -312,24 +312,29 @@ class SeismicBatch(Batch):
 
         batch_size = len(self)
         n_components = len(src_list)
-        widths = []
         heights = []
 
         # Consturcting dict of kwargs for every src
         src_kwargs = dict() if src_kwargs is None else src_kwargs
-
         if not isinstance(src_kwargs, dict):
             raise ValueError('some error')
         src_kwargs = {key: params for keys, params in src_kwargs.items() for key in to_list(keys)}
         src_kwargs = {src: {**kwargs, **src_kwargs.get(src, {})} for src in src_list}
+
+        # Add figsize for all kwargs, this will be used to arrange the plot's positions
         for key, src_dict in src_kwargs.items():
             src_dict.update({'figsize': src_dict.get('figsize', getattr(self, key)[0].plot.figsize)})
 
         data = {s: list(getattr(self, s)) for s in src_list}
-        indices = {s: list(self.indices) for s in src_list}
+        src_to_index = {s: list(self.indices) for s in src_list}
+
         src_list = ((s, ) * batch_size for s in src_list)
         src_list = list(zip(*src_list)) if n_components != 1 else src_list
+
+
         plotter_list = []
+        # Setting plotters grid base on figsizes and max_width. Every element in `plotter_list` is a list of parameters
+        # for plotters on particular line of...
         for components in src_list:
             width, height = 0, 0
             plotter_list.append([])
@@ -358,6 +363,7 @@ class SeismicBatch(Batch):
 
         plot_width = width if len(plotter_list) == 1 else max_width
 
+        # Creating main figure and external gridspec
         nrows = len(plotter_list)
         figsize = (plot_width, sum(heights))
         figure = plt.figure(figsize=figsize, constrained_layout=True)
@@ -367,29 +373,49 @@ class SeismicBatch(Batch):
             n_axes = len(components)
             width_ratios = [comp_dict.pop('width') for comp_dict in components]
             if plot_width > sum(width_ratios):
+                # To avoid stretching the axis when the row is not filled, we create a dummy axis
                 width_ratios.append(plot_width - sum(width_ratios))
                 n_axes += 1
+
+            # Create gridspec for current row
             sub_gridspecs = gridspec.subgridspec(1, n_axes, width_ratios=width_ratios)
-            indices = set([comp_dict['index'] for comp_dict in components])
-            if len(indices) == 1:
-                plt.suptitle(indices)
             for sub_gridspec, component_dict in zip(sub_gridspecs, components):
-                import re
-                index = indices[comp_name].pop(0)
-                title = component_dict['kwargs'].pop('title', None)
                 str_to_attr = {
                     'comp': component_dict['name'],
-                    'index': index
+                    'index': src_to_index[comp_name].pop(0)
                 }
+                title = component_dict['kwargs'].pop('title', None)
+
                 if title is not None:
-                    for item in re.finditer(r"\{[\w:.]+\}+", title): # find {} in title
-                        pass
+                    formatters = []
+                    formatted_title = title
+
+                    # Searching for any curly brackets in the title and replace it with variablue from kwargs or from
+                    # `str_to_attr` dict.
+                    for item in re.finditer(r"\{[\w:.]+\}+", title):
+                        item = item.group(0)[1:-1]
+                        splitted_attr = item.split(':')
+                        if len(splitted_attr) > 2:
+                            raise ValueError('Wrong format')
+                        # Split attribure name and any additions related to string fromatter
+                        attr_name, *add = splitted_attr
+                        add = ':'+add[0] if add else ''
+
+                        formatted_title = formatted_title.replace(f'{{{item}}}', f'{{{add}}}')
+
+                        # Searching for an attribure in component kwargs and in `src_to_attr`
+                        attr = component_dict['kwargs'].pop(attr_name, None) # should be get or pop kwargs here?
+                        attr = str_to_attr.get(attr_name) if attr is None else attr
+                        if attr is None:
+                            raise ValueError(f'No matches found with {attr_name} in kwargs.')
+                        formatters.append(attr)
+                    title = formatted_title.format(*formatters)
                 else:
-                    title = f'{comp_name}: {index}'
+                    title = '{}: {}'.format(comp_name, str_to_attr.get('index'))
 
                 ax = figure.add_subplot(sub_gridspec)
                 component = component_dict['data']
-                component.plot(ax=ax, title=component_dict['name'], **component_dict['kwargs'])
+                component.plot(ax=ax, title=title, **component_dict['kwargs'])
 
         if save_path is not None:
             save_figure(path=save_path, dpi=dpi)
