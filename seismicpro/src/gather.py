@@ -805,7 +805,7 @@ class Gather:
             If `by` column was not loaded in `headers`.
         """
         if not isinstance(by, str):
-            raise TypeError('`by` should be str, not {}'.format(type(by)))
+            raise TypeError(f'`by` should be str, not {type(by)}')
         self.validate(required_header_cols=by)
         order = np.argsort(self.headers[by].values, kind='stable')
         self.sort_by = by

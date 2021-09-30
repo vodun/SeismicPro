@@ -1,14 +1,18 @@
 """Implements classes for velocity analysis: StackingVelocity and VelocityCube"""
 
+import os
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 
-import numpy as np
 import cv2
-from scipy.interpolate import interp1d
+import numpy as np
+from numba import njit, prange
 from scipy.spatial.qhull import Delaunay, QhullError  #pylint: disable=no-name-in-module
 from sklearn.neighbors import NearestNeighbors
 
-from .utils import to_list, read_vfunc, read_single_vfunc, dump_vfunc
+from .metrics import MetricsMap
+from .utils import to_list, read_vfunc, read_single_vfunc, dump_vfunc, velocity_qc
+from .utils.interpolation import interp1d
 
 
 class VelocityInterpolator:
@@ -66,22 +70,33 @@ class VelocityInterpolator:
         # Otherwise VelocityCube.__call__ may fail if called in a pipeline with prefetch with mpc target.
         _ = self.tri.find_simplex((0, 0))
 
-    def is_in_hull(self, inline, crossline):
+    def _is_in_hull(self, inline, crossline):
         """Check if given `inline` and `crossline` lie within a convex hull of spatial coordinates of stacking
         velocities passed during interpolator creation."""
+        # Cast inline and crossline to pure python types for latest versions of opencv to work correctly
+        inline = np.array(inline).item()
+        crossline = np.array(crossline).item()
         return cv2.pointPolygonTest(self.coords_hull, (inline, crossline), measureDist=True) >= 0
+
+    def _get_simplex_info(self, coords):
+        """Return indices of simplex vertices and corresponding barycentric coordinates for each of passed `coords`."""
+        simplex_ix = self.tri.find_simplex(coords)
+        if np.any(simplex_ix < 0):
+            raise ValueError("Some passed coords are outside convex hull of known stacking velocities coordinates")
+        transform = self.tri.transform[simplex_ix]
+        transition = transform[:, :2]
+        bias = transform[:, 2]
+        bar_coords = np.sum(transition * np.expand_dims(coords - bias, axis=1), axis=-1)
+        bar_coords = np.column_stack([bar_coords, 1 - bar_coords.sum(axis=1)])
+        return self.tri.simplices[simplex_ix], bar_coords
 
     def _interpolate_barycentric(self, inline, crossline):
         """Perform linear barycentric interpolation of stacking velocity at given `inline` and `crossline`."""
         coords = [(inline, crossline)]
-        simplex_ix = self.tri.find_simplex(coords).item()
-        bar_coords = self.tri.transform[simplex_ix, :2].dot(np.transpose(coords - self.tri.transform[simplex_ix, 2]))
-        bar_coords = np.c_[np.transpose(bar_coords), 1 - bar_coords.sum(axis=0)][0]
-        vertices = self.tri.points[self.tri.simplices[simplex_ix]].astype(np.int32)
-
+        (simplex,), (bar_coords,) = self._get_simplex_info(coords)
         non_zero_coords = ~np.isclose(bar_coords, 0)
         bar_coords = bar_coords[non_zero_coords]
-        vertices = vertices[non_zero_coords]
+        vertices = self.tri.points[simplex][non_zero_coords].astype(np.int32)
         vertex_velocities = [self.stacking_velocities_dict[tuple(ver)] for ver in vertices]
 
         def velocity_interpolator(times):
@@ -91,13 +106,73 @@ class VelocityInterpolator:
 
         return StackingVelocity.from_interpolator(velocity_interpolator, inline, crossline)
 
+    def _get_nearest_velocities(self, coords):
+        """Return the closest known stacking velocity to each of passed `coords`."""
+        nearest_indices = self.nearest_interpolator.kneighbors(coords, return_distance=False)[:, 0]
+        nearest_coords = self.coords[nearest_indices]
+        velocities = [self.stacking_velocities_dict[tuple(coord)] for coord in nearest_coords]
+        return velocities
+
     def _interpolate_nearest(self, inline, crossline):
         """Return the closest known stacking velocity to given `inline` and `crossline`."""
-        index = self.nearest_interpolator.kneighbors([(inline, crossline),], return_distance=False).item()
-        nearest_inline, nearest_crossline = self.coords[index].tolist()
-        nearest_stacking_velocity = self.stacking_velocities_dict[(nearest_inline, nearest_crossline)]
+        nearest_stacking_velocity = self._get_nearest_velocities([(inline, crossline),])[0]
         return StackingVelocity.from_points(nearest_stacking_velocity.times, nearest_stacking_velocity.velocities,
                                             inline=inline, crossline=crossline)
+
+    @staticmethod
+    @njit(nogil=True, parallel=True)
+    def _interp(simplices, bar_coords, velocities):
+        res = np.zeros((len(simplices), velocities.shape[-1]), dtype=velocities.dtype)
+        for i in prange(len(simplices)):  #pylint: disable=not-an-iterable
+            for vel_ix, bar_coord in zip(simplices[i], bar_coords[i]):
+                res[i] += velocities[vel_ix] * bar_coord
+        return res
+
+    def interpolate(self, coords, times):
+        """Interpolate stacking velocity at given coords and times.
+
+        Interpolation over a regular grid of times allows for implementing a much more efficient computation strategy
+        than simply iteratively calling the interpolator for each of `coords` and that evaluating it at given `times`.
+
+        Parameters
+        ----------
+        coords : 2d array-like
+            Coordinates to interpolate stacking velocities at. Has shape `(n_coords, 2)`.
+        times : 1d array-like
+            Times to interpolate stacking velocities at.
+
+        Returns
+        -------
+        velocities : 2d np.ndarray
+            Interpolated stacking velocities at given `coords` and `times`. Has shape `(len(coords), len(times))`.
+        """
+        coords = np.array(coords)
+        times = np.array(times)
+        velocities = np.empty((len(coords), len(times)))
+
+        knn_mask = np.array([not self._is_in_hull(*coord) for coord in coords])
+        coords_nearest = coords[knn_mask]
+        coords_barycentric = coords[~knn_mask]
+
+        if len(coords_nearest):
+            velocities[knn_mask] = np.array([vel(times) for vel in self._get_nearest_velocities(coords_nearest)])
+
+        if len(coords_barycentric):
+            # Determine a simplex and barycentric coordinates inside it for all the coords
+            simplices, bar_coords = self._get_simplex_info(coords_barycentric)
+
+            # Calculate stacking velocities for all required simplex vertices and given times
+            base_velocities = np.empty((len(self.tri.points), len(times)))
+            vertex_indices = np.unique(simplices)
+            vertex_coords = self.tri.points[vertex_indices].astype(np.int32)
+            for vert_ix, vert_coords in zip(vertex_indices, vertex_coords):
+                vel = self.stacking_velocities_dict.get(tuple(vert_coords))
+                if vel is not None:
+                    base_velocities[vert_ix] = vel(times)
+
+            velocities[~knn_mask] = self._interp(simplices, bar_coords, base_velocities)
+
+        return velocities
 
     def __call__(self, inline, crossline):
         """Interpolate stacking velocity at given `inline` and `crossline`.
@@ -117,7 +192,7 @@ class VelocityInterpolator:
         stacking_velocity : StackingVelocity
             Interpolated stacking velocity at (`inline`, `crossline`).
         """
-        if self.is_in_hull(inline, crossline):
+        if self._is_in_hull(inline, crossline):
             return self._interpolate_barycentric(inline, crossline)
         return self._interpolate_nearest(inline, crossline)
 
@@ -215,7 +290,7 @@ class StackingVelocity:
             raise ValueError("Inconsistent shapes of times and velocities")
         if (velocities < 0).any():
             raise ValueError("Velocity values must be positive")
-        self = cls.from_interpolator(interp1d(times, velocities, fill_value="extrapolate"), inline, crossline)
+        self = cls.from_interpolator(interp1d(times, velocities), inline, crossline)
         self.times = times
         self.velocities = velocities
         return self
@@ -337,6 +412,10 @@ class VelocityCube:
     interpolator creation is useful when the cube should be passed to different proccesses (e.g. in a pipeline with
     prefetch with `mpc` target) since otherwise the interpolator will be independently created in all the processes.
 
+    The cube provides an interface to quality control via its `qc` method, which calculates several
+    spatial-window-based metrics for its stacking velocities evaluated at passed times. The resulting object is an
+    instance of `MetricsMap` class, which allows for metric visualization over the field map.
+
     Examples
     --------
     The cube can either be loaded from a file:
@@ -350,6 +429,10 @@ class VelocityCube:
 
     Cube creation should be finalized with `create_interpolator` method call:
     >>> cube.create_interpolator()
+
+    Quality control can be performed by calling `qc` method and visualizing the resulting maps:
+    >>> cube_metrics = cube.qc(win_radius=40, times=np.arange(0, 3000, 2))
+    >>> cube_metrics.construct_map("max_relative_variation", bin_size=(40, 40))
 
     Parameters
     ----------
@@ -510,3 +593,77 @@ class VelocityCube:
             if self.is_dirty_interpolator:
                 warnings.warn("Dirty interpolator is being used", RuntimeWarning)
         return self.interpolator(inline, crossline)
+
+    def qc(self, win_radius, times, coords=None, metrics_names=None, n_workers=None):  #pylint: disable=invalid-name
+        """Perform quality control of the velocity cube by calculating spatial-window-based metrics for stacking
+        velocities evaluated at given `times`.
+
+        If `coords` are specified, QC will be performed for stacking velocities, interpolated for each of them.
+        Otherwise, stacking velocities stored in the cube are used directly.
+
+        By default, the following metrics are calculated:
+        * Presence of velocity decreasing in time,
+        * Maximal spatial velocity standard deviation in a window over all the times,
+        * Maximal absolute relative difference between central stacking velocity and the average of all remaining
+          velocities in the window over all the times.
+
+        A specific metric can be specified either by its name in `~utils.velocity_qc` module or by a callable,
+        accepting a set of stacking velocities in a window as a stacked 2d `np.ndarray` in a channels-first format and
+        returning a single metric value.
+
+        Parameters
+        ----------
+        win_radius : positive float
+            Spatial window radius (Euclidean distance).
+        times : 1d array-like
+            Times to calculate metrics for. Measured in milliseconds.
+        coords : 2d np.array or None, optional
+            Spatial coordinates of stacking velocities to calculate metrics for. If not given, stacking velocities
+            stored in the cube are used without extra interpolation step.
+        metrics_names : str, callable or list of str or callable, optional
+            Metrics to calculate. Defaults to those defined in `~utils.velocity_qc.VELOCITY_QC_METRICS`.
+        n_workers : int, optional
+            The number of threads to be spawned to calculate metrics. Defaults to the number of cpu cores.
+
+        Returns
+        -------
+        metrics_map : MetricsMap
+           Calculated metrics.
+        """
+        if metrics_names is None:
+            metrics_names = velocity_qc.VELOCITY_QC_METRICS
+        metrics_funcs = []
+        for name in to_list(metrics_names):
+            if name in velocity_qc.VELOCITY_QC_METRICS:
+                func = getattr(velocity_qc, name)
+            elif callable(name):
+                if name.__name__ == "<lambda>":
+                    raise ValueError("Lambda expressions are not allowed")
+                func = name
+            else:
+                raise ValueError(f"Unknown metric {name}")
+            metrics_funcs.append(func)
+
+        # Calculate stacking velocities at given times for each of coords
+        if coords is None:
+            coords = list(self.stacking_velocities_dict.keys())
+        coords = np.array(coords)
+        if not self.has_interpolator:
+            self.create_interpolator()
+        velocities = self.interpolator.interpolate(coords, np.array(times))
+
+        # Select all neighbouring stacking velocities for each of coords
+        coords_knn = NearestNeighbors(radius=win_radius).fit(coords)
+        _, windows_indices = coords_knn.radius_neighbors(coords, return_distance=True, sort_results=True)
+
+        # Calculate requested metrics
+        def calculate_window_metrics(window_indices):
+            window_velocities = velocities[window_indices]
+            return [func(window_velocities) for func in metrics_funcs]
+
+        if n_workers is None:
+            n_workers = os.cpu_count()
+        with ThreadPoolExecutor(max_workers=n_workers) as executor:
+            metrics = executor.map(calculate_window_metrics, windows_indices)
+        metrics = {func.__name__: np.array(val) for func, val in zip(metrics_funcs, zip(*metrics))}
+        return MetricsMap(coords, **metrics)
