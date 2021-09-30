@@ -14,6 +14,7 @@
 [![Python](https://img.shields.io/badge/python-3.6-blue.svg)](https://python.org)
 [![PyTorch](https://img.shields.io/badge/PyTorch-1.8-orange.svg)](https://pytorch.org)
 [![Status](https://github.com/gazprom-neft/SeismicPro/workflows/status/badge.svg)](https://github.com/gazprom-neft/SeismicPro/actions?query=workflow%3Astatus)
+[![Test installation](https://github.com/gazprom-neft/SeismicPro/actions/workflows/test-install.yml/badge.svg)](https://github.com/gazprom-neft/SeismicPro/actions/workflows/test-install.yml)
 
 </div>
 
@@ -33,6 +34,10 @@ Main features:
 
 > `SeismicPro` module is in the beta stage. Your suggestions and improvements via [issues](https://github.com/gazprom-neft/SeismicPro/issues) are very welcome.
 
+The SeismicPro is compatible with Python 3.6+ and tested on Ubuntu 20.04 and Windows Server 2019.
+
+> Note that the [benchmark](./seismicpro/benchmark/) module may not work on Windows due to dependency issues. Use it with caution.
+
 ### Installation as a python package
 
 With [pip](https://pip.pypa.io/en/stable/):
@@ -48,14 +53,6 @@ With [pipenv](https://docs.pipenv.org/):
 When cloning a repo from GitHub use ``--recursive`` flag to make sure that ``batchflow`` submodule is also cloned.
 
     git clone --recursive https://github.com/gazprom-neft/SeismicPro.git
-
-## Tests
-
-The SeismicPro is compatible with Python 3.6+ and tested on Ubuntu 20.04 and Windows Server 2019.
-
-[![Tests](https://github.com/gazprom-neft/SeismicPro/actions/workflows/test-install.yml/badge.svg)](https://github.com/gazprom-neft/SeismicPro/actions/workflows/test-install.yml)
-
-> Note, we do not guarantee the proper operation of the [benchmark](./seismicpro/benchmark/) on Windows-based systems, use it with caution.
 
 ## Getting Started
 
