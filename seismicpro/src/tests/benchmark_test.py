@@ -12,6 +12,7 @@ from seismicpro.batchflow import Pipeline
 # 2. Add check for save_to.
 @pytest.mark.linux_only
 class TestBenchmark:
+    """Benchmark test instance"""
     @pytest.mark.parametrize('method_name,method_kwargs,root_pipeline',
                             (('load', dict(src='raw'), None),
                             ('sort', dict(src='raw', by='offset'), Pipeline().load(src='raw', fmt='sgy'))))
