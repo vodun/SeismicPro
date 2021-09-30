@@ -380,8 +380,9 @@ class SeismicBatch(Batch):
             # Create gridspec for current row
             sub_gridspecs = gridspec.subgridspec(1, n_axes, width_ratios=width_ratios)
             for sub_gridspec, component_dict in zip(sub_gridspecs, components):
+                comp_name = component_dict['name']
                 str_to_attr = {
-                    'comp': component_dict['name'],
+                    'comp': comp_name,
                     'index': src_to_index[comp_name].pop(0)
                 }
                 title = component_dict['kwargs'].pop('title', None)
