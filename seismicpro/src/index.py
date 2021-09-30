@@ -364,7 +364,7 @@ class SeismicIndex(DatasetIndex):
         intersect_keys = x.surveys_dict.keys() & y.surveys_dict.keys()
         if intersect_keys:
             raise ValueError("Only surveys with unique names can be merged, "
-                             "but {} are duplicated".format(", ".join(intersect_keys)))
+                             f"but {', '.join(intersect_keys)} are duplicated")
 
         x_index_columns = x.index.names
         y_index_columns = y.index.names
