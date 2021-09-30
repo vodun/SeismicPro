@@ -2,7 +2,6 @@
 
 ![SeismicPro](https://user-images.githubusercontent.com/19351782/125063408-1bcdab80-e0b8-11eb-96c2-719bc640da36.png)
 
-
 <p align="center">
   <a href="">Docs</a> •
   <a href="#installation">Installation</a> •
@@ -30,7 +29,6 @@ Main features:
 * Combine processing functions into concise and readable pipelines
 * Define a wide range of neural network architectures from vanilla `UNet` to sophisticated `EfficientNet`s with simple and intuitive configurations in just a few lines of code
 
-
 ## Installation
 
 > `SeismicPro` module is in the beta stage. Your suggestions and improvements via [issues](https://github.com/gazprom-neft/SeismicPro/issues) are very welcome.
@@ -51,6 +49,13 @@ When cloning a repo from GitHub use ``--recursive`` flag to make sure that ``bat
 
     git clone --recursive https://github.com/gazprom-neft/SeismicPro.git
 
+## Tests
+
+The SeismicPro is compatible with Python 3.6+ and tested on Ubuntu 20.04 and Windows Server 2019.
+
+[![Tests](https://github.com/gazprom-neft/SeismicPro/actions/workflows/test-install.yml/badge.svg)](https://github.com/gazprom-neft/SeismicPro/actions/workflows/test-install.yml)
+
+> Note, we do not guarantee the proper operation of the [benchmark](./seismicpro/benchmark/) on Windows-based systems, use it with caution.
 
 ## Getting Started
 
@@ -121,7 +126,6 @@ stacking_pipeline.run(BATCH_SIZE, n_epochs=1)
 ```
 
 You can get more familiar with the framework and its functionality by reading [SeismicPro tutorials](tutorials).
-
 
 ## Citing SeismicPro
 
