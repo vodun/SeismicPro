@@ -49,7 +49,7 @@ jobs:
         pytest -m "not slow" --disable-pytest-warnings -v seismicpro/src/tests
     - if: matrix.os == 'windows-latest'
       run: |
-        pytest -m "not slow" --disable-pytest-warnings -v seismicpro/src/tests --ignore=seismicpro/src/tests/benchmark_test.py
+        pytest -m "not slow and not linux_only" --disable-pytest-warnings -v seismicpro/src/tests
 
 # -----------------------------------------
 #    Install with pip
@@ -87,7 +87,7 @@ jobs:
         pytest -m "not slow" --disable-pytest-warnings -v --pyargs seismicpro.src.tests
     - if: matrix.os == 'windows-latest'
       run: |
-        pytest -m "not slow" --disable-pytest-warnings -v --pyargs seismicpro.src.tests --ignore=seismicpro/src/tests/benchmark_test.py
+        pytest -m "not slow and not linux_only" --disable-pytest-warnings -v --pyargs seismicpro.src.tests
 
 # -----------------------------------------
 #    Install with pipenv
@@ -126,4 +126,4 @@ jobs:
         pipenv run python -m pytest -m "not slow" --disable-pytest-warnings -v --pyargs seismicpro.src.tests
     - if: matrix.os == 'windows-latest'
       run: |
-        pipenv run python -m pytest -m "not slow" --disable-pytest-warnings -v --pyargs seismicpro.src.tests --ignore=seismicpro/src/tests/benchmark_test.py
+        pipenv run python -m pytest -m "not slow and not linux_only" --disable-pytest-warnings -v --pyargs seismicpro.src.tests
