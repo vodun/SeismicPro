@@ -598,9 +598,6 @@ class VelocityCube:
         """Perform quality control of the velocity cube by calculating spatial-window-based metrics for stacking
         velocities evaluated at given `times`.
 
-        The QC is performed by calculating spatial-window-based metrics for stacking velocities defined in
-        `metrics_names`. + times, coords, returns metrics map
-
         If `coords` are specified, QC will be performed for stacking velocities, interpolated for each of them.
         Otherwise, stacking velocities stored in the cube are used directly.
 
