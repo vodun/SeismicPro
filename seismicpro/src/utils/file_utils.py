@@ -181,13 +181,13 @@ def dump_vfunc(path, vfunc_list, encoding="UTF-8"):
     encoding : str, optional, defaults to "UTF-8"
         File encoding.
     """
-    with open(path, 'w', encoding=encoding) as f:
+    with open(path, "w", encoding=encoding) as f:
         for inline, crossline, x, y in vfunc_list:
-            f.write('{:8}{:<8}{:<8}\n'.format('VFUNC', inline, crossline))
+            f.write(f"{'VFUNC':8}{inline:<8}{crossline:<8}\n")
             data = np.column_stack([x, y]).ravel()
             rows = np.split(data, np.arange(8, len(data), 8))
             for row in rows:
-                f.write(''.join('{:<8.0f}'.format(i) for i in row) + '\n')
+                f.write("".join(f"{i:<8.0f}" for i in row) + "\n")
 
 
 # pylint: disable=too-many-arguments, invalid-name
