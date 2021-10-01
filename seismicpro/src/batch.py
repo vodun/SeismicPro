@@ -398,6 +398,7 @@ class SeismicBatch(Batch):
                         splitted_attr = item.split(':')
                         if len(splitted_attr) > 2:
                             raise ValueError('Wrong format')
+
                         # Split attribure name and any additions related to string fromatter
                         attr_name, *add = splitted_attr
                         add = ':'+add[0] if add else ''
