@@ -14,9 +14,9 @@ jobs:
     steps:
     - name: Update git
       run: |
+        apt install ca-certificates
         add-apt-repository -y ppa:git-core/ppa
         apt update
-        sudo apt install ca-certificates
         apt install git -y
 
     - name: Checkout SeismicPro
