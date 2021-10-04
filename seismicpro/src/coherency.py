@@ -4,6 +4,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from numba import njit, prange
+from scipy.ndimage import median_filter
 from matplotlib import colors as mcolors
 
 from .utils import set_ticks
@@ -235,7 +236,7 @@ class BaseCoherency:
         # Change markers of stacking velocity points if they are far enough apart
         if stacking_velocities_ix is not None and stacking_times_ix is not None:
             marker = 'o' if np.min(np.diff(np.sort(stacking_times_ix))) > 50 else ''
-            plt.plot(stacking_velocities_ix, stacking_times_ix, c='#fafcc2', linewidth=2.5, marker=marker)
+            plt.plot(stacking_velocities_ix, stacking_times_ix, c='g', linewidth=2.5, marker=marker)
 
         set_ticks(ax, img_shape=semblance.T.shape, ticks_range_x=ticks_range_x, ticks_range_y=ticks_range_y, **kwargs)
         ax.set_ylim(semblance.shape[0], 0)
@@ -243,7 +244,7 @@ class BaseCoherency:
             ax.grid(c='k')
         if save_to:
             plt.savefig(save_to, bbox_inches='tight', pad_inches=0.1, dpi=dpi)
-        plt.show()
+        #plt.show()
 
 
 class Coherency(BaseCoherency):
@@ -635,7 +636,7 @@ class ResidualCoherency(BaseCoherency):
         delta = (ind - center_ind) / center_ind
         corrected_velocity = self.stacking_velocity(self.times) * (1 + delta * self.relative_margin)
         if kernel_size is not 1:
-            corrected_velocities = median_filter(corrected_velocity, kernel_size)
+            corrected_velocity = median_filter(corrected_velocity, kernel_size)
         return StackingVelocity.from_points(self.times, corrected_velocity,
                                             self.stacking_velocity.inline, self.stacking_velocity.crossline)
 

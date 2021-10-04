@@ -72,6 +72,7 @@ def create_edges(semblance, times, velocities, start_velocity_range, end_velocit
     # connected to all of them, and run the search from it
     start_node = (np.int32(-1), np.int32(0))
     prev_nodes = [start_node]
+    semb_max = semblance.max()
     for time_ix, start_vel_ix, end_vel_ix in zip(times_ix, start_vels_ix, end_vels_ix):
         curr_vels_ix = np.unique(np.linspace(start_vel_ix, end_vel_ix, n_velocities).astype(np.int32))
         curr_nodes = [(time_ix, vel_ix) for vel_ix in curr_vels_ix]
@@ -88,7 +89,7 @@ def create_edges(semblance, times, velocities, start_velocity_range, end_velocit
                 times_indices = np.arange(prev_time_ix + 1, curr_time_ix + 1, dtype=np.int32)
                 velocity_indices = interpolate_indices(prev_time_ix, prev_vel_ix, curr_time_ix, curr_vel_ix,
                                                        times_indices)
-                weight = len(times_indices)
+                weight = len(times_indices) * semb_max
                 for ti, vi in zip(times_indices, velocity_indices):
                     weight -= semblance[ti, vi]
 

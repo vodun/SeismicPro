@@ -903,5 +903,5 @@ class Gather:
         default_kwargs.update(kwargs)
         plt.figure(figsize=figsize)
         plt.imshow(self.data.T, **default_kwargs)
-        plt.show()
+        #plt.show()
         return self
