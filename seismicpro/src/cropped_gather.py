@@ -7,9 +7,9 @@ class CroppedGazer:
         parent_gazer,
         crop_rule,
         crop_size,
-        gather_pad=(0, 0),
+        gather_pad=0,
         gather_fill=0,
-        crop_pad=(0, 0),
+        crop_pad=0,
         crop_fill=0,
         cropped_data=[]
     ):
@@ -39,10 +39,11 @@ class CroppedGazer:
 
     def make_crops(self):
         # two ways: save to list or save to numpy array
+        # using list now
         print('start make_crops()')
         crops = []
         data = self.load_data()
-        coords = np.array(self.origin, dtype=int)
+        coords = np.array(self.origin, dtype=int).reshape(-1, 2)
         print('make_crops, origins', coords)
         for i in range(coords.shape[0]):
             crops.append(self.make_single_crop(coords[i], data))
@@ -53,17 +54,12 @@ class CroppedGazer:
         print('start make_single_crop()')
         shapes = self.parent_shape
         crop_size = self.crop_size
-        fill_value = self.crop_fill
+        tuple_crop_pad = self.to_tuple(self.crop_pad)
 
-        if sum(self.crop_pad) == 0:
-            origin_pad = self.get_origin_pad(self.crop_pad)
-        else:
-            origin_pad = [0, 0, 0, 0]
+        print(f'origin: {origin}, padding: {self.crop_pad}, crop_pad: {crop_pad}, crop_size: {crop_size}, shapes: {shapes}')
 
-        print(f'origin: {origin}, padding: {self.crop_pad}, origin_pad: {origin_pad}, crop_size: {crop_size}, shapes: {shapes}')
-
-        start_x, start_y = origin[1] + origin_pad[1], origin[0] + origin_pad[0]
-        dx, dy = crop_size[1] - origin_pad[3], crop_size[0] - origin_pad[2]
+        start_x, start_y = origin[1] + tuple_crop_pad[1][0], origin[0] + tuple_crop_pad[0][0]
+        dx, dy = crop_size[1] - sum(tuple_crop_pad[1]), crop_size[0] - sum(tuple_crop_pad[0])
         print(start_x, dx)
         if start_x + dx > shapes[1]:
             start_x = shapes[1] - dx
@@ -72,13 +68,14 @@ class CroppedGazer:
 
         print('Cutting shape is', (start_y, start_x, start_y+dy, start_x+dx))
         if self.crop_pad:
-            return np.pad(data[start_y:start_y+dy, start_x:start_x+dx], self.crop_pad, constant_values=self.crop_fill)
+            return np.pad(data[start_y:start_y+dy, start_x:start_x+dx], tuple_crop_pad, constant_values=self.crop_fill)
         else:
             return data[start_y:start_y+dy, start_x:start_x+dx]
 
     def assembly_gather(self):
+        # do not support a padding
         result = np.zeros(shape=self.parent_shape)
-        mask = np.ones(shape=self.parent_shape)
+        mask = np.zeros(shape=self.parent_shape) # change to np.zeros !!!
         for origin, crop in zip(self.origin, self.crops):
             # move this logic block to origins_from_str() block
             if origin[0] + self.crop_size[0] > self.parent_shape[0]:
@@ -88,21 +85,15 @@ class CroppedGazer:
             result[origin[0]:origin[0]+self.crop_size[0], origin[1]:origin[1]+self.crop_size[1]] += crop
             mask[origin[0]:origin[0]+self.crop_size[0], origin[1]:origin[1]+self.crop_size[1]] += 1
         result = result / mask
-        gather = self.parent
+        gather = self.parent.copy()
         gather.data = result
         return gather
 
+
     def get_origin_pad(self, crop_pad):
+        # нужна ли вообще эта функция?
         ''' return top-left point cropped data based on padding values'''
-        if isinstance(crop_pad, int):
-            print('int way')
-            origin_pad = [crop_pad, crop_pad, 2*crop_pad, 2*crop_pad]
-        elif isinstance(crop_pad, tuple):
-            print('tuple way')
-            if isinstance(crop_pad[0], tuple):
-                origin_pad = [crop_pad[0][0], crop_pad[1][0], sum(crop_pad[0]), sum(crop_pad[1])]
-            else:
-                origin_pad = [crop_pad[0], crop_pad[1], 2*crop_pad[0], 2*crop_pad[1]]
+        origin_pad = ((crop_pad[0][0], crop_pad[0][1]), (crop_pad[1][0], crop_pad[1][1]))
         return origin_pad
 
 
@@ -142,6 +133,7 @@ class CroppedGazer:
             return np.array(np.meshgrid(origin_x, origin_y)).T.reshape(-1, 2)
         else:
             raise ValueError('Unknown crop_rule value')
+
 
     def to_tuple(self, item):
         if isinstance(item, int):
