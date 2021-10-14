@@ -7,21 +7,22 @@ class CroppedGazer:
         parent_gazer,
         crop_rule,
         crop_size,
-        gather_pad=0,
+        gather_pad=(0, 0),
         gather_fill=0,
-        crop_padding=0,
+        crop_pad=(0, 0),
         crop_fill=0,
         cropped_data=[]
-
     ):
+    
         self.parent = parent_gazer  # настолько ли нам нужен этот газер?
         self.parent_shape = parent_gazer.data.shape
-        self.origin = self.make_origin(crop_rule)
         self.crop_size = crop_size
         self.gather_pad = gather_pad
         self.gather_fill = gather_fill
-        self.crop_padding = crop_padding
+        self.crop_pad = crop_pad
         self.crop_fill = crop_fill
+        self.grid_origins = None
+        self.origin = self.make_origin(crop_rule)
         self.crops = self.make_crops()
 
     def get_croped_data(self):
@@ -41,45 +42,68 @@ class CroppedGazer:
         print('start make_crops()')
         crops = []
         data = self.load_data()
-        for coords in self.origin:
-            crops.append(self.make_single_crop(coords, data))
+        coords = np.array(self.origin, dtype=int)
+        print('make_crops, origins', coords)
+        for i in range(coords.shape[0]):
+            crops.append(self.make_single_crop(coords[i], data))
         return crops
-    
+
 
     def make_single_crop(self, origin, data):
         print('start make_single_crop()')
         shapes = self.parent_shape
         crop_size = self.crop_size
-        # print('crop_padding:', self.crop_padding)
-
-        # move to the separate func
-        if self.crop_padding and isinstance(self.crop_padding, list):
-            print('maybe this way')
-            padding = [self.crop_padding if len(self.crop_padding) >= 2 else [self.crop_padding[0], self.crop_padding[0]]]
-        elif self.crop_padding and isinstance(self.crop_padding, int):
-            print('this way')
-            padding = [self.crop_padding, self.crop_padding]
-        elif self.crop_padding and isinstance(self.crop_padding, tuple):
-            print('tuple way')
-            padding = [tuple(self.crop_padding) if len(self.crop_padding) >= 2 else [self.crop_padding[0], self.crop_padding[0]]][0]
-        else:
-            padding = [self.crop_padding]
         fill_value = self.crop_fill
 
-        print(f'origin: {origin}, padding: {padding}, crop_size: {crop_size}, shapes: {shapes}')
+        if sum(self.crop_pad) == 0:
+            origin_pad = self.get_origin_pad(self.crop_pad)
+        else:
+            origin_pad = [0, 0, 0, 0]
 
-        start_x, start_y = origin[0] + padding[0], origin[1] + padding[-1]
-        dx, dy = crop_size[0] - 2*padding[0], crop_size[1] - 2*padding[-1]
+        print(f'origin: {origin}, padding: {self.crop_pad}, origin_pad: {origin_pad}, crop_size: {crop_size}, shapes: {shapes}')
+
+        start_x, start_y = origin[1] + origin_pad[1], origin[0] + origin_pad[0]
+        dx, dy = crop_size[1] - origin_pad[3], crop_size[0] - origin_pad[2]
+        print(start_x, dx)
         if start_x + dx > shapes[1]:
             start_x = shapes[1] - dx
         if start_y + dy > shapes[0]:
             start_y = shapes[0] - dy
 
         print('Cutting shape is', (start_y, start_x, start_y+dy, start_x+dx))
-        if self.crop_padding:
-            return np.pad(data[start_y:start_y+dy, start_x:start_x+dx], padding, constant_values=self.crop_fill)
+        if self.crop_pad:
+            return np.pad(data[start_y:start_y+dy, start_x:start_x+dx], self.crop_pad, constant_values=self.crop_fill)
         else:
             return data[start_y:start_y+dy, start_x:start_x+dx]
+
+    def assembly_gather(self):
+        result = np.zeros(shape=self.parent_shape)
+        mask = np.ones(shape=self.parent_shape)
+        for origin, crop in zip(self.origin, self.crops):
+            # move this logic block to origins_from_str() block
+            if origin[0] + self.crop_size[0] > self.parent_shape[0]:
+                origin[0] = self.parent_shape[0] - self.crop_size[0]
+            if origin[1] + self.crop_size[1] > self.parent_shape[1]:
+                origin[1] = self.parent_shape[1] - self.crop_size[1]
+            result[origin[0]:origin[0]+self.crop_size[0], origin[1]:origin[1]+self.crop_size[1]] += crop
+            mask[origin[0]:origin[0]+self.crop_size[0], origin[1]:origin[1]+self.crop_size[1]] += 1
+        result = result / mask
+        gather = self.parent
+        gather.data = result
+        return gather
+
+    def get_origin_pad(self, crop_pad):
+        ''' return top-left point cropped data based on padding values'''
+        if isinstance(crop_pad, int):
+            print('int way')
+            origin_pad = [crop_pad, crop_pad, 2*crop_pad, 2*crop_pad]
+        elif isinstance(crop_pad, tuple):
+            print('tuple way')
+            if isinstance(crop_pad[0], tuple):
+                origin_pad = [crop_pad[0][0], crop_pad[1][0], sum(crop_pad[0]), sum(crop_pad[1])]
+            else:
+                origin_pad = [crop_pad[0], crop_pad[1], 2*crop_pad[0], 2*crop_pad[1]]
+        return origin_pad
 
 
     def load_data(self, fill_value=0):
@@ -101,15 +125,35 @@ class CroppedGazer:
         elif isinstance(crop_rule, list):
             origin = crop_rule
         elif isinstance(crop_rule, str):
-            origin = self.origins_from_str(crop_rule)
-        return origin
+            origin.append(self.origins_from_str(crop_rule))
+        return np.array(origin, dtype=int).squeeze()
 
 
     def origins_from_str(self, crop_rule):
-        if crop_rule == 'random':
-            return 
+        print('start origins_from_str()')
+        if crop_rule == 'random':  # from uniform distribution. Return 
+            return (np.random.randint(self.parent_shape[0] + 2 * self.gather_pad[0] - self.crop_size[0]), 
+                    np.random.randint(self.parent_shape[1] + 2 * self.gather_pad[1] - self.crop_size[1]))
+        elif crop_rule == 'grid':
+            print('x_range', 0, self.parent_shape[0], self.crop_size[0])
+            origin_x = np.arange(0, self.parent_shape[0], self.crop_size[0])
+            print('x_range', 0, self.parent_shape[1], self.crop_size[1])
+            origin_y = np.arange(0, self.parent_shape[1], self.crop_size[1])
+            return np.array(np.meshgrid(origin_x, origin_y)).T.reshape(-1, 2)
+        else:
+            raise ValueError('Unknown crop_rule value')
 
+    def to_tuple(self, item):
+        if isinstance(item, int):
+            return ((item, item), (item, item))
+        elif isinstance(item[0], int):
+            return ((item[0], item[0]), (item[1], item[1]))
+        elif isinstance(item[0], tuple) and isinstance(item[1], tuple):
+            return item
+        else:
+            raise ValueError('Unknown padding value')
     
 
-
+            
+            
 
