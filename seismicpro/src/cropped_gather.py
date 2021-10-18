@@ -2,22 +2,22 @@ import numpy as np
 
 from .decorators import batch_method
 
-class CroppedGazer:
+class CroppedGather:
     ''' class contain '''
     def __init__(
         self,
-        parent_gazer,
+        parent_gather,
         crop_rule,
         crop_size,
         gather_pad=0,
         gather_fill=0,
         crop_pad=0,
         crop_fill=0,
-        cropped_data=[]
+        cropped_data=None
     ):
     
-        self.parent = parent_gazer  # настолько ли нам нужен этот газер?
-        self.parent_shape = parent_gazer.data.shape
+        self.parent = parent_gather
+        self.parent_shape = parent_gather.data.shape
         self.crop_size = crop_size
         self.gather_pad = gather_pad
         self.gather_fill = gather_fill
@@ -27,29 +27,20 @@ class CroppedGazer:
         self.origin = self.make_origin(crop_rule)
         self.crops = self.make_crops()
 
-    def get_croped_data(self):
-        print('start get_croped_data()')
-        cropped_data = []
-        data = load_data(self)
-        for item in self.origin:
-            cropped_data.append(self.make_single_crop(item))
-        setattr(self, 'cropped_data', cropped_data)
-        return self
-        # or
-        # return get_croped_data
-    
 
     def make_crops(self):
         # two ways: save to list or save to numpy array
         # using list now
         # make_model_inputs() ?
         print('start make_crops()')
-        crops = []
+
         data = self.load_data()
+        crops = np.full(shape=(len(self.origin), *self.crop_size), fill_value=None)
         coords = np.array(self.origin, dtype=int).reshape(-1, 2)
         # print('make_crops, origins', coords)
         for i in range(coords.shape[0]):
-            crops.append(self.make_single_crop(coords[i], data))
+            crops[i, :, :] = self.make_single_crop(coords[i], data) # np.array way
+            # crops.append(self.make_single_crop(coords[i], data))  # list way
         return crops
 
 
@@ -94,13 +85,6 @@ class CroppedGazer:
         gather = self.parent.copy()
         gather.data = result
         return gather
-
-
-    def get_origin_pad(self, crop_pad):
-        # нужна ли вообще эта функция?
-        ''' return top-left point cropped data based on padding values'''
-        origin_pad = ((crop_pad[0][0], crop_pad[0][1]), (crop_pad[1][0], crop_pad[1][1]))
-        return origin_pad
 
 
     def load_data(self, fill_value=0):
@@ -152,8 +136,3 @@ class CroppedGazer:
             return item
         else:
             raise ValueError('Unknown padding value')
-    
-
-            
-            
-

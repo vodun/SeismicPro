@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from .cropped_gather import CroppedGazer
+from .cropped_gather import CroppedGather
 from .muting import Muter
 from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
@@ -876,7 +876,7 @@ class Gather:
     @batch_method(target='for')
     def crop(self, crop_rule, crop_size, **kwargs):
         """" ! docs """
-        return CroppedGazer(self, crop_rule, crop_size, **kwargs)
+        return CroppedGather(self, crop_rule, crop_size, **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #
