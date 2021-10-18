@@ -7,7 +7,7 @@ from numba import njit
 
 
 @njit(nogil=True, fastmath=True)
-def get_hodograph(gather_data, time, offsets, velocity, sample_rate, interpolate=True, max_stretch_factor=np.inf,
+def get_hodograph(gather_data, time, offsets, velocity, sample_rate, interpolate=True, max_stretch_factor=0.65,
                   fill_value=0, out=None):
     r"""Return gather amplitudes for a reflection traveltime curve starting from time `time` with velocity `velocity`,
     assuming that it follows hyperbolic trajectory as a function of offset given by:

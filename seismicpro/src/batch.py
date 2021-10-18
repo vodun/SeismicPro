@@ -1,11 +1,13 @@
 """Implements SeismicBatch class for processing a small subset of seismic gathers"""
+import re
 
 import numpy as np
+import matplotlib.pyplot as plt
 
 from .gather import Gather
 from .coherency import Coherency, ResidualCoherency
 from .decorators import create_batch_methods, apply_to_each_component
-from .utils import to_list
+from .utils import to_list, save_figure
 from ..batchflow import Batch, action, DatasetIndex, NamedExpression
 
 
@@ -299,4 +301,125 @@ class SeismicBatch(Batch):
             dst.set(value=split_data)
         else:
             raise ValueError(f"dst must be either `str` or `NamedExpression`, not {type(dst)}.")
+        return self
+
+
+    @action
+    def plot(self, src, max_width=20, save_path=None, dpi=100, src_kwargs=None, **kwargs):
+        src_list = to_list(src)
+        if len(set(src_list)) < len(src_list):
+            raise ValueError("Components in `src` must be unique")
+
+        batch_size = len(self)
+        n_components = len(src_list)
+        heights = []
+
+        # Consturcting dict of kwargs for every src
+        src_kwargs = dict() if src_kwargs is None else src_kwargs
+        if not isinstance(src_kwargs, dict):
+            raise ValueError('some error')
+        src_kwargs = {key: params for keys, params in src_kwargs.items() for key in to_list(keys)}
+        src_kwargs = {src: {**kwargs, **src_kwargs.get(src, {})} for src in src_list}
+
+        # Add figsize for all kwargs, this will be used to arrange the plot's positions
+        for key, src_dict in src_kwargs.items():
+            src_dict.update({'figsize': src_dict.get('figsize', getattr(self, key)[0].plot.figsize)})
+
+        data = {s: list(getattr(self, s)) for s in src_list}
+        src_to_index = {s: list(self.indices) for s in src_list}
+
+        src_list = ((s, ) * batch_size for s in src_list)
+        src_list = list(zip(*src_list)) if n_components != 1 else src_list
+
+
+        plotter_list = []
+        # Setting plotters grid base on figsizes and max_width. Every element in `plotter_list` is a list of parameters
+        # for plotters on particular line of...
+        for components in src_list:
+            width, height = 0, 0
+            plotter_list.append([])
+            for comp_name in components:
+                figsize = src_kwargs[comp_name].get('figsize')
+                width += figsize[0]
+                kwargs = src_kwargs[comp_name].copy()
+                kwargs.pop('figsize')
+
+                component_dict = {
+                    'name': comp_name,
+                    'data': data[comp_name].pop(0),
+                    'width': figsize[0],
+                    'kwargs': kwargs
+                }
+
+                if width <= max_width:
+                    height = max(height, figsize[1])
+                    plotter_list[-1].append(component_dict)
+                else:
+                    heights.append(height)
+                    width, height = figsize
+                    plotter_list.append([component_dict])
+            if height != 0:
+                heights.append(height)
+
+        plot_width = width if len(plotter_list) == 1 else max_width
+
+        # Creating main figure and external gridspec
+        nrows = len(plotter_list)
+        figsize = (plot_width, sum(heights))
+        figure = plt.figure(figsize=figsize, constrained_layout=True)
+        gridspecs = figure.add_gridspec(nrows, 1, height_ratios=heights)
+
+        for gridspec, components in zip(gridspecs, plotter_list):
+            n_axes = len(components)
+            width_ratios = [comp_dict.pop('width') for comp_dict in components]
+            if plot_width > sum(width_ratios):
+                # To avoid stretching the axis when the row is not filled, we create a dummy axis
+                width_ratios.append(plot_width - sum(width_ratios))
+                n_axes += 1
+
+            # Create gridspec for current row
+            sub_gridspecs = gridspec.subgridspec(1, n_axes, width_ratios=width_ratios)
+            for sub_gridspec, component_dict in zip(sub_gridspecs, components):
+                comp_name = component_dict['name']
+                str_to_attr = {
+                    'comp': comp_name,
+                    'index': src_to_index[comp_name].pop(0)
+                }
+                title = component_dict['kwargs'].pop('title', None)
+
+                if title is not None:
+                    formatters = []
+                    formatted_title = title
+
+                    # Searching for any curly brackets in the title and replace it with variablue from kwargs or from
+                    # `str_to_attr` dict.
+                    for item in re.finditer(r"\{[\w:.]+\}+", title):
+                        item = item.group(0)[1:-1]
+                        splitted_attr = item.split(':')
+                        if len(splitted_attr) > 2:
+                            raise ValueError('Wrong format')
+
+                        # Split attribure name and any additions related to string fromatter
+                        attr_name, *add = splitted_attr
+                        add = ':'+add[0] if add else ''
+
+                        formatted_title = formatted_title.replace(f'{{{item}}}', f'{{{add}}}')
+
+                        # Searching for an attribure in component kwargs and in `src_to_attr`
+                        attr = component_dict['kwargs'].pop(attr_name, None) # should be get or pop kwargs here?
+                        attr = str_to_attr.get(attr_name) if attr is None else attr
+                        if attr is None:
+                            raise ValueError(f'No matches found with {attr_name} in kwargs.')
+                        formatters.append(attr)
+                    title = formatted_title.format(*formatters)
+                else:
+                    title = '{}: {}'.format(comp_name, str_to_attr.get('index'))
+
+                ax = figure.add_subplot(sub_gridspec)
+                component = component_dict['data']
+                component.plot(ax=ax, title=title, **component_dict['kwargs'])
+
+        if save_path is not None:
+            save_figure(path=save_path, dpi=dpi)
+        plt.show()
         return self

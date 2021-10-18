@@ -8,13 +8,15 @@ from textwrap import dedent
 import segyio
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+from matplotlib.ticker import ScalarFormatter, AutoLocator, IndexFormatter
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .muting import Muter
 from .coherency import Coherency, ResidualCoherency
 from .velocity_cube import StackingVelocity, VelocityCube
-from .decorators import batch_method
-from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, normalization, correction
+from .decorators import batch_method, plotter
+from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, normalization, correction,
+                    parse_kwargs_using_base_key)
 
 
 class Gather:
@@ -95,15 +97,28 @@ class Gather:
 
         Parameters
         ----------
-        key : str or list of str
-            Gather headers to get.
+        key : str, list of str, list of slices/int
+            IF ..... Gather headers to get.
 
         Returns
         -------
         headers : np.ndarray
             Headers values.
+            !!!
         """
+        if isinstance(key, (slice, tuple)):
+            if isinstance(key, slice) or not isinstance(key[0], str):
+                new_self = self.copy()
+                new_self.data = self.data[key]
+                if isinstance(key, slice):
+                    new_self.headers = self.headers.iloc[key]
+                else:
+                    new_self.samples = self.samples[key[1]]
+                    new_self.headers = self.headers.iloc[key[0]]
+                return new_self
+
         return self.headers[key].values
+
 
     def __setitem__(self, key, value):
         """Set given values to selected gather headers.
@@ -661,7 +676,7 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", copy_src=False)
-    def calculate_coherency(self, velocities, win_size=25, mode="semblance"):
+    def calculate_coherency(self, velocities, win_size=25, mode="semblance", split=False):
         """Calculate vertical velocity semblance for the gather.
 
         Notes
@@ -694,11 +709,11 @@ class Gather:
             If the gather is not sorted by offset.
         """
         self.validate(required_sorting="offset")
-        return Coherency(gather=self, velocities=velocities, win_size=win_size, mode=mode)
+        return Coherency(gather=self, velocities=velocities, win_size=win_size, mode=mode, split=split)
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
     def calculate_residual_coherency(self, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2,
-                                     mode="semblance"):
+                                     mode="semblance", split=False):
         """Calculate residual vertical velocity semblance for the gather and a chosen stacking velocity.
 
         Notes
@@ -738,7 +753,7 @@ class Gather:
         """
         self.validate(required_sorting="offset")
         return ResidualCoherency(gather=self, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
-                                 win_size=win_size, relative_margin=relative_margin, mode=mode)
+                                 win_size=win_size, relative_margin=relative_margin, mode=mode, split=split)
 
     #------------------------------------------------------------------------#
     #                           Gather corrections                           #
@@ -877,8 +892,17 @@ class Gather:
     #                         Visualization methods                          #
     #------------------------------------------------------------------------#
 
+
+    @batch_method
+    def slice(self, x=None, y=None):
+        # Processing limits and set x_coords
+        slice_xlim = self.survey._process_limits(x, max_length=len(self.data))  # pylint: disable=protected-access
+        slice_ylim = self.survey._process_limits(y, max_length=len(self.samples))  # pylint: disable=protected-access
+        return self[(slice_xlim, slice_ylim)]
+
+    @plotter(figsize=(10, 7))
     @batch_method(target="for", copy_src=False)
-    def plot(self, figsize=(10, 7), **kwargs):
+    def plot(self, wiggle=False, points=None, ax=None, x_ticker=None, y_ticker="time", title=None, plot_attribute=None, **kwargs):
         """Plot gather traces.
 
         Parameters
@@ -893,15 +917,89 @@ class Gather:
         self : Gather
             Gather unchanged.
         """
-        vmin, vmax = self.get_quantile([0.1, 0.9])
-        default_kwargs = {
-            'cmap': 'gray',
-            'vmin': vmin,
-            'vmax': vmax,
-            'aspect': 'auto',
-        }
-        default_kwargs.update(kwargs)
-        plt.figure(figsize=figsize)
-        plt.imshow(self.data.T, **default_kwargs)
-        #plt.show()
+
+        #TODO: Will it always be an arange? or should we process it differently?
+        x_coords = np.arange(len(self.data))
+
+        if not wiggle:
+            vmin, vmax = self.get_quantile([0.1, 0.9])
+            imshow_kwargs = dict(cmap='gray', vmin=vmin, vmax=vmax, aspect='auto')
+            imshow_kwargs.update(kwargs)
+            ax.imshow(self.data.T, **imshow_kwargs)
+        else:
+            wiggle_kwargs = wiggle if isinstance(wiggle, dict) else {}
+            self._plot_wiggle(ax=ax, base_x_pos=x_coords, **wiggle_kwargs)
+            # BUG: invert_yaxis is not working due to set_tickers!
+            ax.invert_yaxis()
+
+        # Add points to the plot based on `points` argument
+        if points is not None:
+            points_kwargs = parse_kwargs_using_base_key(points, base_key='col_name')
+            for single_kwargs in points_kwargs:
+                self._add_points(ax=ax, x_coords=x_coords, **single_kwargs)
+
+        # Show legend if any provided
+        if len(ax.get_legend_handles_labels()[0]) > 0:
+            ax.legend()
+
+        if plot_attribute is not None:
+            top_ax = self.scatter_on_top(ax=ax, attribute=self[plot_attribute])
+            top_ax.set_title(title)
+        else:
+            ax.set_title(title)
+
+        xlabel = x_ticker if isinstance(x_ticker, str) else ''
+        ylabel = 'Samples' if y_ticker is None else 'Time'
+        self.set_tickers(ax=ax, x_ticker=x_ticker, y_ticker=y_ticker)
+
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+
         return self
+
+    def _plot_wiggle(self, ax, base_x_pos, std=0.5, color=None):
+        """!!!"""
+        color = ['k'] if color is None else to_list(color)
+        if len(color) == 1:
+            color = color * len(self.data)
+        elif len(color) != len(base_x_pos):
+            raise ValueError('The number of items in `color` must match the number of plotted traces')
+
+        y_coords = np.arange(len(self.samples))
+        for pos_num, c in zip(base_x_pos, color):
+            x_coords = pos_num + std * self.data[pos_num] / np.std(self.data)
+            ax.plot(x_coords, y_coords, c=c)
+            ax.fill_betweenx(y_coords, pos_num, x_coords, where=(x_coords > pos_num), color=c)
+
+    def _add_points(self, ax, col_name, x_coords, **kwargs):
+        """!!!"""
+        self.validate(required_header_cols=col_name)
+        y_coords = self[col_name][x_coords] / self.sample_rate
+        ax.scatter(x_coords, y_coords, label=col_name, **kwargs)
+
+    def scatter_on_top(self, ax, attribute):
+        """" Plot additional scatter on top of the 'ax' axes.  """
+        divider = make_axes_locatable(ax)
+        top_ax = divider.append_axes("top", 0.65, pad=0.01,  sharex=ax)
+        top_ax.scatter(range(len(attribute)), attribute, s=5, c='k')
+        top_ax.invert_yaxis()
+        top_ax.set_xticks([])
+        top_ax.yaxis.tick_right()
+        return top_ax
+
+    def set_tickers(self, ax, x_ticker, y_ticker):
+        x_ticks, y_ticks = {}, {}
+        if isinstance(x_ticker, str):
+            x_ticks = {'formatter': IndexFormatter(self[x_ticker])}
+        elif x_ticker is not None:
+            x_ticks = {'formatter': IndexFormatter(x_ticker)}
+
+        if y_ticker == 'time':
+            y_ticks = {'formatter': IndexFormatter(self.samples.astype(np.int32))}
+
+        ax.xaxis.set_major_locator(x_ticks.get('locator', AutoLocator()))
+        ax.yaxis.set_major_locator(y_ticks.get('locator', AutoLocator()))
+
+        ax.xaxis.set_major_formatter(x_ticks.get('formatter', ScalarFormatter()))
+        ax.yaxis.set_major_formatter(y_ticks.get('formatter', ScalarFormatter()))
+        return

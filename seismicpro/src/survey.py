@@ -665,12 +665,13 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         if self.samples_length == 0:
             raise ValueError('Trace length must be positive.')
 
-    def _process_limits(self, limits):
+    def _process_limits(self, limits, max_length=None):
         """Convert given `limits` to a `slice`."""
         if not isinstance(limits, slice):
             limits = slice(*to_list(limits))
         # Use .indices to avoid negative slicing range
-        limits = limits.indices(len(self.file_samples))
+        max_length = len(self.file_samples) if max_length is None else max_length
+        limits = limits.indices(max_length)
         if limits[-1] < 0:
             raise ValueError('Negative step is not allowed.')
         return slice(*limits)

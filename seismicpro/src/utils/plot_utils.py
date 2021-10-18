@@ -105,3 +105,13 @@ def set_ticks(ax, img_shape, ticks_range_x=None, ticks_range_y=None, x_ticks=15,
         ax.set_yticklabels(ticks_labels_y, size=fontsize)
 
     plt.setp(ax.get_xticklabels(), rotation=rotation, ha="right", rotation_mode="anchor")
+
+
+def save_figure(path, dpi, **kwargs):
+    """!!!"""
+    save_kwargs = {
+        'bbox_inches': 'tight',
+        'pad_inches': 0.1
+    }
+    save_kwargs.update(kwargs)
+    plt.savefig(path, dpi=dpi, **save_kwargs)
