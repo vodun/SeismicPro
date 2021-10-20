@@ -8,6 +8,7 @@ from textwrap import dedent
 import segyio
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from matplotlib.ticker import ScalarFormatter, AutoLocator, IndexFormatter
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
@@ -106,19 +107,21 @@ class Gather:
             Headers values.
             !!!
         """
-        if isinstance(key, (slice, tuple)):
-            if isinstance(key, slice) or not isinstance(key[0], str):
-                new_self = self.copy()
-                new_self.data = self.data[key]
-                if isinstance(key, slice):
-                    new_self.headers = self.headers.iloc[key]
-                else:
-                    new_self.samples = self.samples[key[1]]
-                    new_self.headers = self.headers.iloc[key[0]]
-                return new_self
+        if isinstance(key, (str, list)):
+            return self.headers[key].values
 
-        return self.headers[key].values
-
+        new_self = self.copy()
+        new_self.data = self.data[key]
+        # When key is a slice, it applyies to 0 axis. It means that only the number of traces has changed and no need
+        # to change self.samples attribute.
+        if isinstance(key, slice):
+            new_self.headers = self.headers.iloc[key]
+        # In this case, key is a tuple of slices, where first slice describes what traces to choose, while second one
+        # affect traces itself.
+        else:
+            new_self.headers = self.headers.iloc[key[0]]
+            new_self.samples = self.samples[key[1]]
+        return new_self
 
     def __setitem__(self, key, value):
         """Set given values to selected gather headers.
@@ -220,6 +223,13 @@ class Gather:
         self_copy.survey = survey
         self.survey = survey
         return self_copy
+
+    @batch_method
+    def slice(self, x=None, y=None):
+        # Processing limits and set x_coords
+        slice_xlim = self.survey._process_limits(x, max_length=len(self.data))  # pylint: disable=protected-access
+        slice_ylim = self.survey._process_limits(y, max_length=len(self.samples))  # pylint: disable=protected-access
+        return self[(slice_xlim, slice_ylim)]
 
     def _validate_header_cols(self, required_header_cols):
         """Check if the gather headers contain all columns from `required_header_cols`."""
@@ -891,14 +901,6 @@ class Gather:
     #                         Visualization methods                          #
     #------------------------------------------------------------------------#
 
-
-    @batch_method
-    def slice(self, x=None, y=None):
-        # Processing limits and set x_coords
-        slice_xlim = self.survey._process_limits(x, max_length=len(self.data))  # pylint: disable=protected-access
-        slice_ylim = self.survey._process_limits(y, max_length=len(self.samples))  # pylint: disable=protected-access
-        return self[(slice_xlim, slice_ylim)]
-
     @plotter(figsize=(10, 7))
     @batch_method(target="for", copy_src=False)
     def plot(self, wiggle=False, points=None, ax=None, x_ticker=None, y_ticker="time", title=None, plot_attribute=None, **kwargs):
@@ -928,8 +930,6 @@ class Gather:
         else:
             wiggle_kwargs = wiggle if isinstance(wiggle, dict) else {}
             self._plot_wiggle(ax=ax, base_x_pos=x_coords, **wiggle_kwargs)
-            # BUG: invert_yaxis is not working due to set_tickers!
-            ax.invert_yaxis()
 
         # Add points to the plot based on `points` argument
         if points is not None:
@@ -969,6 +969,7 @@ class Gather:
             x_coords = pos_num + std * self.data[pos_num] / np.std(self.data)
             ax.plot(x_coords, y_coords, c=c)
             ax.fill_betweenx(y_coords, pos_num, x_coords, where=(x_coords > pos_num), color=c)
+        ax.invert_yaxis()
 
     def _add_points(self, ax, col_name, x_coords, **kwargs):
         """!!!"""
@@ -982,7 +983,7 @@ class Gather:
         top_ax = divider.append_axes("top", 0.65, pad=0.01,  sharex=ax)
         top_ax.scatter(range(len(attribute)), attribute, s=5, c='k')
         top_ax.invert_yaxis()
-        top_ax.set_xticks([])
+        plt.setp(top_ax.get_xticklabels(), visible=False)
         top_ax.yaxis.tick_right()
         return top_ax
 
