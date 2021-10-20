@@ -34,10 +34,7 @@ class CroppedGather:
 
         data = self.load_data()
         crops = np.full(shape=(len(self.origin), *self.crop_size), fill_value=np.nan, dtype=float)
-        print('origins', self.origin.shape)
-        print('crop shape', crops.shape)
         coords = np.array(self.origin, dtype=int).reshape(-1, 2)  # move to make_origin
-        print('make_crops, origins', coords)
         for i in range(coords.shape[0]):
             crops[i, :, :] = self.make_single_crop(coords[i], data) # np.array way
             # crops.append(self.make_single_crop(coords[i], data))  # list way
@@ -104,7 +101,6 @@ class CroppedGather:
 
     def origins_from_str(self, crop_rule):
         print('start origins_from_str()')
-        print(self.gather_pad, self.parent_shape)
         if crop_rule == 'random':  # from uniform distribution. 
             # issue: return one point only
             return (np.random.randint(self.parent_shape[0] - self.crop_size[0]), 
