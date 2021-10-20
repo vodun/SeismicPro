@@ -35,7 +35,7 @@ class CroppedGather:
         data = self.load_data()
         crops = np.full(shape=(len(self.origin), *self.crop_size), fill_value=0, dtype=float)
         coords = np.array(self.origin, dtype=int).reshape(-1, 2)  # move to make_origin
-        # print('make_crops, origins', coords)
+        print('make_crops, origins', coords)
         for i in range(coords.shape[0]):
             crops[i, :, :] = self.make_single_crop(coords[i], data) # np.array way
             # crops.append(self.make_single_crop(coords[i], data))  # list way
@@ -43,7 +43,7 @@ class CroppedGather:
 
 
     def make_single_crop(self, origin, data):
-        # print('start make_single_crop()')
+        print('start make_single_crop()')
         shapes = self.parent_shape
         crop_size = self.crop_size
 
@@ -54,9 +54,8 @@ class CroppedGather:
         # print(start_x, dx)
         if start_x + dx > shapes[1] or start_y + dy > shapes[0]: # if crop window outs from gather
             result = data[start_y:min(start_y+dy, start_y + self.crop_size[1]), start_x:min(start_x+dx, start_x + self.crop_size[0])]
-            result = np.pad(result, ((0, start_y + dy - shapes[0]), (0, start_x + dx - shapes[1]) ))
-
-
+            result = np.pad(result, ((0, max(0, start_y + dy - self.parent_shape[0])), (0, max(0, start_x + dx - self.parent_shape[1]))) )
+            return result
         return data[start_y:start_y+dy, start_x:start_x+dx]
 
 
