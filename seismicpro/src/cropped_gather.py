@@ -33,7 +33,7 @@ class CroppedGather:
         print('start make_crops()')
 
         data = self.load_data()
-        crops = np.full(shape=(len(self.origin), *self.crop_size), fill_value=0, dtype=float)
+        crops = np.full(shape=(len(self.origin), *self.crop_size), fill_value=np.nan, dtype=float)
         print('origins', self.origin.shape)
         print('crop shape', crops.shape)
         coords = np.array(self.origin, dtype=int).reshape(-1, 2)  # move to make_origin
