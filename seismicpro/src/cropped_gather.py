@@ -34,11 +34,14 @@ class CroppedGather:
 
         data = self.load_data()
         crops = np.full(shape=(len(self.origin), *self.crop_size), fill_value=0, dtype=float)
+        print('origins', self.origin.shape)
+        print('crop shape', crops.shape)
         coords = np.array(self.origin, dtype=int).reshape(-1, 2)  # move to make_origin
         print('make_crops, origins', coords)
         for i in range(coords.shape[0]):
             crops[i, :, :] = self.make_single_crop(coords[i], data) # np.array way
             # crops.append(self.make_single_crop(coords[i], data))  # list way
+            print('iter crops shape', crops.shape)
         return crops
 
 
@@ -54,7 +57,8 @@ class CroppedGather:
         # print(start_x, dx)
         if start_x + dx > shapes[1] or start_y + dy > shapes[0]: # if crop window outs from gather
             result = data[start_y:min(start_y+dy, start_y + self.crop_size[1]), start_x:min(start_x+dx, start_x + self.crop_size[0])]
-            result = np.pad(result, ((0, max(0, start_y + dy - self.parent_shape[0])), (0, max(0, start_x + dx - self.parent_shape[1]))) )
+            result = np.pad(result, ((0, max(0, min(start_y, shapes[0]) + dy - self.parent_shape[0])), 
+                                     (0, max(0, min(start_x, shapes[1]) + dx - self.parent_shape[1]))) )
             return result
         return data[start_y:start_y+dy, start_x:start_x+dx]
 
@@ -78,7 +82,7 @@ class CroppedGather:
     def load_data(self, fill_value=0):
         print('start load_data()')
         if self.gather_pad:
-            gather_data = np.pad(self.parent.data, self.gather_pad, constant_values=self.gather_fill)
+            gather_data = np.pad(self.parent.data, self.to_tuple(self.gather_pad), constant_values=self.gather_fill)
         else: 
             gather_data = self.parent.data
         return gather_data
@@ -95,7 +99,7 @@ class CroppedGather:
             origin = crop_rule
         elif isinstance(crop_rule, str):
             origin.append(self.origins_from_str(crop_rule))
-        return np.array(origin, dtype=int).squeeze()
+        return np.array(origin, dtype=int)
 
 
     def origins_from_str(self, crop_rule):
