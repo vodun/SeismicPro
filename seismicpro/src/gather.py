@@ -9,7 +9,6 @@ import segyio
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.ticker import ScalarFormatter, AutoLocator, IndexFormatter
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .muting import Muter
@@ -17,7 +16,7 @@ from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 from .decorators import batch_method, plotter
 from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, normalization, correction,
-                    parse_kwargs_using_base_key)
+                    parse_kwargs_using_base_key, set_ticks)
 
 
 class Gather:
@@ -918,7 +917,6 @@ class Gather:
         self : Gather
             Gather unchanged.
         """
-
         #TODO: Will it always be an arange? or should we process it differently?
         x_coords = np.arange(len(self.data))
 
@@ -947,12 +945,22 @@ class Gather:
         else:
             ax.set_title(title)
 
-        xlabel = x_ticker if isinstance(x_ticker, str) else ''
-        ylabel = 'Samples' if y_ticker is None else 'Time'
-        self.set_tickers(ax=ax, x_ticker=x_ticker, y_ticker=y_ticker)
+        # Create tickers
+        xlabel = x_ticker.pop('labels', None) if isinstance(x_ticker, dict) else x_ticker
+        xticklabels = self[xlabel] if xlabel is not None else None
 
+        ylabel = y_ticker.pop('labels', None) if isinstance(y_ticker, dict) else y_ticker
+        if ylabel is not None and ylabel not in ['time', 'samples']:
+            raise ValueError(f'y_ticker name must be either `time` or `samples`, not {ylabel}')
+        yticklabels = self.samples if ylabel == 'time' else self.samples / self.sample_rate
+        yticklabels = yticklabels.astype(int)
+
+        set_ticks(ax=ax, shape=self.shape, x_labels=xticklabels, y_labels=yticklabels, x_kwargs=x_ticker,
+                  y_kwargs=y_ticker)
+
+        ## TODO: add ability to change fontsize for tickers and labels simultaneously
         ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabel)
+        ax.set_ylabel(ylabel.capitalize() if isinstance(ylabel, str) else ylabel)
 
         return self
 
@@ -986,20 +994,3 @@ class Gather:
         plt.setp(top_ax.get_xticklabels(), visible=False)
         top_ax.yaxis.tick_right()
         return top_ax
-
-    def set_tickers(self, ax, x_ticker, y_ticker):
-        x_ticks, y_ticks = {}, {}
-        if isinstance(x_ticker, str):
-            x_ticks = {'formatter': IndexFormatter(self[x_ticker])}
-        elif x_ticker is not None:
-            x_ticks = {'formatter': IndexFormatter(x_ticker)}
-
-        if y_ticker == 'time':
-            y_ticks = {'formatter': IndexFormatter(self.samples.astype(np.int32))}
-
-        ax.xaxis.set_major_locator(x_ticks.get('locator', AutoLocator()))
-        ax.yaxis.set_major_locator(y_ticks.get('locator', AutoLocator()))
-
-        ax.xaxis.set_major_formatter(x_ticks.get('formatter', ScalarFormatter()))
-        ax.yaxis.set_major_formatter(y_ticks.get('formatter', ScalarFormatter()))
-        return

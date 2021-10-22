@@ -198,6 +198,7 @@ def create_batch_methods(*component_classes):
 def plotter(figsize):
     """!!!!"""
     def outer_wrapper(method):
+        # Save figsize as an attribute for plot method to use it as a default when plotter is called from batch.
         method.figsize = figsize
         @wraps(method)
         def decorator(*args, **kwargs):

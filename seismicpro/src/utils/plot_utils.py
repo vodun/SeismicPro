@@ -2,6 +2,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 from matplotlib import colors as mcolors
 
 
@@ -105,6 +106,58 @@ def set_ticks(ax, img_shape, ticks_range_x=None, ticks_range_y=None, x_ticks=15,
         ax.set_yticklabels(ticks_labels_y, size=fontsize)
 
     plt.setp(ax.get_xticklabels(), rotation=rotation, ha="right", rotation_mode="anchor")
+
+
+def set_ticks(ax, shape, x_labels, y_labels, x_kwargs=None, y_kwargs=None):
+    x_ticklabels, x_ticks, x_rotation, x_kwargs = _process_ticks(x_labels, shape[0], x_kwargs)
+    ax.set_xticks(x_ticks)
+    if x_ticklabels is not None:
+        ax.set_xticklabels(x_ticklabels, **x_kwargs)
+    if x_rotation:
+        plt.setp(ax.get_xticklabels(), **x_rotation)
+
+    y_ticklabels, y_ticks, y_rotation, y_kwargs = _process_ticks(y_labels, shape[1], y_kwargs)
+    ax.set_yticks(y_ticks)
+    if y_ticklabels is not None:
+        ax.set_yticklabels(y_ticklabels, **y_kwargs)
+    if y_rotation:
+        plt.setp(ax.get_yticklabels(), **y_rotation)
+
+
+def _process_ticks(labels, length, kwargs):
+    rotation = False
+    ticklabels = None
+    kwargs = kwargs if isinstance(kwargs, dict) else {}
+    num = kwargs.pop('num', None)
+    step = kwargs.pop('step', None)
+    round_to = kwargs.pop('round', int)
+    rotation = kwargs.pop('rotation', None)
+    num = 10 if num is None and step is None else num
+    if num is not None:
+        ticks = np.linspace(0, length-1, num=num)
+    else:
+        ticks = np.arange(0, length)[::step]
+    ticks = ticks.astype(int)
+
+    if labels is not None:
+        if len(labels) != length:
+            raise ValueError('!!')
+        ticklabels = labels[ticks]
+
+        if round_to is not None:
+            if isinstance(round_to, int):
+                ticklabels = np.round(ticklabels, round_to)
+            elif isinstance(round_to, type):
+                ticklabels = ticklabels.astype(round_to)
+
+    if rotation is not None:
+        if not isinstance(rotation, dict):
+            rotation = {
+                "rotation": rotation,
+                "ha": "right",
+                "rotation_mode": "anchor"
+            }
+    return ticklabels, ticks, rotation, kwargs
 
 
 def save_figure(path, dpi, **kwargs):
