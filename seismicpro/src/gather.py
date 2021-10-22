@@ -946,6 +946,10 @@ class Gather:
             ax.set_title(title)
 
         # Create tickers
+
+        # Use sorted value by default if x_ticker is not specified
+        x_ticker = self.sort_by if x_ticker is None and self.sort_by is not None else x_ticker
+
         xlabel = x_ticker.pop('labels', None) if isinstance(x_ticker, dict) else x_ticker
         xticklabels = self[xlabel] if xlabel is not None else None
 
