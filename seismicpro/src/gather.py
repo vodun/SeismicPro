@@ -16,7 +16,7 @@ from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 from .decorators import batch_method, plotter
 from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, normalization, correction,
-                    parse_kwargs_using_base_key, set_ticks)
+                    parse_kwargs_using_base_key, set_ticks_and_labels, get_ticklabels)
 
 
 class Gather:
@@ -939,33 +939,30 @@ class Gather:
         if len(ax.get_legend_handles_labels()[0]) > 0:
             ax.legend()
 
+        title = title if isinstance(title, dict) else {'label': title}
         if plot_attribute is not None:
             top_ax = self.scatter_on_top(ax=ax, attribute=self[plot_attribute])
-            top_ax.set_title(title)
+            top_ax.set_title(**title)
         else:
-            ax.set_title(title)
+            ax.set_title(**title)
 
         # Create tickers
 
-        # Use sorted value by default if x_ticker is not specified
+        ## Use sorted value by default if x_ticker is not specified
         x_ticker = self.sort_by if x_ticker is None and self.sort_by is not None else x_ticker
 
-        xlabel = x_ticker.pop('labels', None) if isinstance(x_ticker, dict) else x_ticker
-        xticklabels = self[xlabel] if xlabel is not None else None
+        x_label, y_label = get_ticklabels(x_ticker, y_ticker)
 
-        ylabel = y_ticker.pop('labels', None) if isinstance(y_ticker, dict) else y_ticker
-        if ylabel is not None and ylabel not in ['time', 'samples']:
-            raise ValueError(f'y_ticker name must be either `time` or `samples`, not {ylabel}')
-        yticklabels = self.samples if ylabel == 'time' else self.samples / self.sample_rate
-        yticklabels = yticklabels.astype(int)
+        x_ticklabels = self[x_label] if x_label is not None else None
 
-        set_ticks(ax=ax, shape=self.shape, x_labels=xticklabels, y_labels=yticklabels, x_kwargs=x_ticker,
-                  y_kwargs=y_ticker)
+        if y_label is not None and y_label not in ['time', 'samples']:
+            raise ValueError(f'y_ticker name must be either `time` or `samples`, not {y_label}')
+        y_ticklabels = self.samples if y_label == 'time' else self.samples / self.sample_rate
+        y_ticklabels = y_ticklabels.astype(int)
+        y_label = y_label.capitalize() if isinstance(y_label, str) else y_label
 
-        ## TODO: add ability to change fontsize for tickers and labels simultaneously
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabel.capitalize() if isinstance(ylabel, str) else ylabel)
-
+        set_ticks_and_labels(ax=ax, shape=self.shape, x_ticklabels=x_ticklabels, x_label=x_label, y_ticklabels=y_ticklabels,
+                             y_label=y_label, x_kwargs=x_ticker, y_kwargs=y_ticker)
         return self
 
     def _plot_wiggle(self, ax, base_x_pos, std=0.5, color=None):
