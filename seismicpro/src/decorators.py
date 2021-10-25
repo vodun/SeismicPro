@@ -5,7 +5,7 @@ from functools import partial, wraps
 
 import matplotlib.pyplot as plt
 
-from .utils import to_list, save_figure
+from .utils import to_list, save_figure, fill_text_kwargs
 from ..batchflow import action, inbatch_parallel
 
 
@@ -202,6 +202,7 @@ def plotter(figsize):
         method.figsize = figsize
         @wraps(method)
         def decorator(*args, **kwargs):
+            kwargs = fill_text_kwargs(kwargs)
             if 'ax' not in kwargs:
                 # There is only one case when axes are not passed -
                 # a plot function is called directly from a class instance.

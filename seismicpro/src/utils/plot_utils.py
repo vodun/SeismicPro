@@ -111,7 +111,7 @@ def set_ticks(ax, img_shape, ticks_range_x=None, ticks_range_y=None, x_ticks=15,
 def get_ticklabels(*tickers):
     tickers_list = []
     for ticker in tickers:
-        tickers_list.append(ticker.pop('labels', None) if isinstance(ticker, dict) else ticker)
+        tickers_list.append(ticker.pop('label', None) if isinstance(ticker, dict) else ticker)
     if len(tickers_list) < 2:
         return tickers_list[0]
     return tuple(tickers_list)
@@ -120,16 +120,16 @@ def get_ticklabels(*tickers):
 def set_ticks_and_labels(ax, shape, x_label=None, x_ticklabels=None, y_label=None, y_ticklabels=None, x_kwargs=None,
                          y_kwargs=None):
     x_ticklabels, x_ticks, x_rotation, x_kwargs = _process_ticks(x_ticklabels, shape[0], x_kwargs)
+    x_ticklabels = x_ticks if x_ticklabels is None else x_ticklabels
     ax.set_xticks(x_ticks)
-    if x_ticklabels is not None:
-        ax.set_xticklabels(x_ticklabels, **x_kwargs)
+    ax.set_xticklabels(x_ticklabels, **x_kwargs)
     if x_rotation:
         plt.setp(ax.get_xticklabels(), **x_rotation)
 
     y_ticklabels, y_ticks, y_rotation, y_kwargs = _process_ticks(y_ticklabels, shape[1], y_kwargs)
+    y_ticklabels = y_ticks if y_ticklabels is None else y_ticklabels
     ax.set_yticks(y_ticks)
-    if y_ticklabels is not None:
-        ax.set_yticklabels(y_ticklabels, **y_kwargs)
+    ax.set_yticklabels(y_ticklabels, **y_kwargs)
     if y_rotation:
         plt.setp(ax.get_yticklabels(), **y_rotation)
 
@@ -171,6 +171,19 @@ def _process_ticks(labels, length, kwargs):
                 "rotation_mode": "anchor"
             }
     return ticklabels, ticks, rotation, kwargs
+
+
+def fill_text_kwargs(kwargs):
+    TEXT_KEYS = ['fontsize', 'size', 'fontfamily', 'family', 'fontweight', 'weight']
+    TEXT_ARGS = ['title', 'x_ticker', 'y_ticker']
+    for key in TEXT_KEYS:
+        item = kwargs.pop(key, None)
+        if item is not None:
+            for args in TEXT_ARGS:
+                params = kwargs.get(args, None)
+                if not isinstance(params, dict):
+                    kwargs[args] = {'label': params, key: item}
+    return kwargs
 
 
 def save_figure(path, dpi, **kwargs):
