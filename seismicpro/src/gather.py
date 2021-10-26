@@ -883,7 +883,7 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @batch_method(target="for", copy_src=False)
-    def plot(self, figsize=(10, 7), **kwargs):
+    def plot(self, figsize=(10, 7), mask=False, **kwargs):
         """Plot gather traces.
 
         Parameters
@@ -898,7 +898,7 @@ class Gather:
         self : Gather
             Gather unchanged.
         """
-        vmin, vmax = self.get_quantile([0.1, 0.9])
+        vmin, vmax = self.get_quantile([0.05, 0.95])
         default_kwargs = {
             'cmap': 'gray',
             'vmin': vmin,
@@ -907,6 +907,9 @@ class Gather:
         }
         default_kwargs.update(kwargs)
         plt.figure(figsize=figsize)
-        plt.imshow(self.data.T, **default_kwargs)
+        if mask:
+            plt.imshow(self.mask.T, **default_kwargs)
+        else:
+            plt.imshow(self.data.T, **default_kwargs)
         plt.show()
         return self
