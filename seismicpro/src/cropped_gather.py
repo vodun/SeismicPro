@@ -7,8 +7,8 @@ class CroppedGather:
     def __init__(
         self,
         parent_gather,
-        crop_rule,
-        crop_size,
+        mode,
+        shape,
         gather_pad=0,
         gather_fill=0,
         is_mask=False
@@ -16,12 +16,12 @@ class CroppedGather:
     
         self.parent = parent_gather
         self.parent_shape = parent_gather.data.shape
-        self.crop_size = crop_size
+        self.shape = shape
         self.gather_pad = gather_pad
         self.gather_fill = gather_fill
         self.grid_origins = None
         self.data = self.load_data()
-        self.origin = self.make_origin(crop_rule)  # save origins in np.array only
+        self.origin = self.make_origin(mode)  # save origins in np.array only
         self.crops = self.make_crops(self.data) # self.make_crops()
         self.is_mask = is_mask
 
@@ -37,7 +37,7 @@ class CroppedGather:
         # using numpy array now
         # make_model_inputs() ?
         # print('start make_crops()')
-        crops = np.full(shape=(self.origin.shape[0], *self.crop_size), fill_value=np.nan, dtype=float)
+        crops = np.full(shape=(self.origin.shape[0], *self.shape), fill_value=np.nan, dtype=float)
 
         for i in range(self.origin.shape[0]):
             crops[i, :, :] = self.make_single_crop(self.origin[i], data)
@@ -48,17 +48,16 @@ class CroppedGather:
     def make_single_crop(self, origin, data):
         # print('start make_single_crop()')
         shapes = self.parent_shape
-        crop_size = self.crop_size
 
-        # print(f'origin: {origin}, padding: {self.crop_pad}, crop_pad: {tuple_crop_pad}, crop_size: {crop_size}, shapes: {shapes}')
+        # print(f'origin: {origin}, padding: {self.crop_pad}, crop_pad: {tuple_crop_pad}, shape: {shape}, self.parent_shape: {self.parent_shape}')
 
         start_x, start_y = origin[1], origin[0]
-        dx, dy = crop_size[1], crop_size[0]
+        dx, dy = self.shape[1], self.shape[0]
         # print(start_x, dx)
-        if start_x + dx > shapes[1] or start_y + dy > shapes[0]: # if crop window outs from gather
-            result = data[start_y:min(start_y+dy, start_y + self.crop_size[1]), start_x:min(start_x+dx, start_x + self.crop_size[0])]
-            result = np.pad(result, ((0, max(0, min(start_y, shapes[0]) + dy - self.parent_shape[0])), 
-                                     (0, max(0, min(start_x, shapes[1]) + dx - self.parent_shape[1]))) )
+        if start_x + dx > self.parent_shape[1] or start_y + dy > self.parent_shape[0]: # if crop window outs from gather
+            result = data[start_y:min(start_y+dy, start_y + self.shape[1]), start_x:min(start_x+dx, start_x + self.shape[0])]
+            result = np.pad(result, ((0, max(0, min(start_y, self.parent_shape[0]) + dy - self.parent_shape[0])), 
+                                     (0, max(0, min(start_x, self.parent_shape[1]) + dx - self.parent_shape[1]))) )
             return result
         return data[start_y:start_y+dy, start_x:start_x+dx]
 
@@ -89,8 +88,8 @@ class CroppedGather:
         mask = np.zeros(shape=self.parent_shape, dtype=int)
         # print(data.shape, result.shape, mask.shape)
         for i, origin in enumerate(self.origin):
-            result[origin[0]:origin[0]+self.crop_size[0], origin[1]:origin[1]+self.crop_size[1]] += data[i, :, :]
-            mask[origin[0]:origin[0]+self.crop_size[0], origin[1]:origin[1]+self.crop_size[1]] += 1
+            result[origin[0]:origin[0]+self.shape[0], origin[1]:origin[1]+self.shape[1]] += data[i, :, :]
+            mask[origin[0]:origin[0]+self.shape[0], origin[1]:origin[1]+self.shape[1]] += 1
         result /= mask
         return result
 
@@ -104,43 +103,43 @@ class CroppedGather:
         return gather_data
 
 
-    def make_origin(self, crop_rule):
+    def make_origin(self, mode):
         # print('start make_origin()')
         origin = []
-        if isinstance(crop_rule, tuple):
-            origin.append(crop_rule)
-        elif isinstance(crop_rule, int):
-            origin.append((crop_rule, crop_rule))
-        elif isinstance(crop_rule, list):
-            origin = crop_rule
-        elif isinstance(crop_rule, str):
-            origin.append(self.origins_from_str(crop_rule))
+        if isinstance(mode, tuple):
+            origin.append(mode)
+        elif isinstance(mode, int):
+            origin.append((mode, mode))
+        elif isinstance(mode, list):
+            origin = mode
+        elif isinstance(mode, str):
+            origin.append(self.origins_from_str(mode))
         else:
-            raise ValueError('Unknown crop_rule value or type.')
+            raise ValueError('Unknown mode value or type.')
         # coords = np.array(self.origin, dtype=int).reshape(-1, 2)  # move to make_origin
         return np.array(origin, dtype=int).reshape(-1, 2)
 
 
-    def origins_from_str(self, crop_rule):
+    def origins_from_str(self, mode):
         # print('start origins_from_str()')
-        if crop_rule == 'random':  # from uniform distribution. 
+        if mode == 'random':  # from uniform distribution. 
             # issue: return one point only
-            return (np.random.randint(self.parent_shape[0] - self.crop_size[0]), 
-                    np.random.randint(self.parent_shape[1] - self.crop_size[1]))
-        elif crop_rule == 'grid': # do not support padding
-            # print('x_range', 0, self.parent_shape[0], self.crop_size[0])
-            origin_x = np.arange(0, self.parent_shape[0], self.crop_size[0], dtype=int)
-            # print('y_range', 0, self.parent_shape[1], self.crop_size[1])
-            origin_y = np.arange(0, self.parent_shape[1], self.crop_size[1], dtype=int)
+            return (np.random.randint(self.parent_shape[0] - self.shape[0]), 
+                    np.random.randint(self.parent_shape[1] - self.shape[1]))
+        elif mode == 'grid': # do not support padding
+            # print('x_range', 0, self.parent_shape[0], self.shape[0])
+            origin_x = np.arange(0, self.parent_shape[0], self.shape[0], dtype=int)
+            # print('y_range', 0, self.parent_shape[1], self.shape[1])
+            origin_y = np.arange(0, self.parent_shape[1], self.shape[1], dtype=int)
             # correct origin logic should be confirmed
             # is drop last is needed            
-            if origin_x[-1] + self.crop_size[0] > self.parent_shape[0]:
-                origin_x[-1] = self.parent_shape[0] - self.crop_size[0]
-            if origin_y[-1] + self.crop_size[1] > self.parent_shape[1]:
-                origin_y[-1] = self.parent_shape[1] - self.crop_size[1]
+            if origin_x[-1] + self.shape[0] > self.parent_shape[0]:
+                origin_x[-1] = self.parent_shape[0] - self.shape[0]
+            if origin_y[-1] + self.shape[1] > self.parent_shape[1]:
+                origin_y[-1] = self.parent_shape[1] - self.shape[1]
             return np.array(np.meshgrid(origin_x, origin_y)).T.reshape(-1, 2)
         else:
-            raise ValueError('Unknown crop_rule value')
+            raise ValueError('Unknown mode value')
 
 
     def to_tuple(self, item):  # maybe remove

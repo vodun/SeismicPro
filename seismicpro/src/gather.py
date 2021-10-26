@@ -874,9 +874,9 @@ class Gather:
         return self
 
     @batch_method(target='for')
-    def crop(self, crop_rule, crop_size, **kwargs):
+    def crop(self, mode, shape, **kwargs):
         """" ! docs """
-        return CroppedGather(self, crop_rule, crop_size, **kwargs)
+        return CroppedGather(self, mode, shape, **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #
