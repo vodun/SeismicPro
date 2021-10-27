@@ -18,6 +18,10 @@ from .decorators import batch_method, plotter
 from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, normalization, correction,
                     parse_kwargs_using_base_key, set_ticks_and_labels, get_ticklabels)
 
+UNITS = {
+    'time': ' (s)',
+    'offset': ' (m)',
+}
 
 class Gather:
     """A class representing a single seismic gather.
@@ -902,7 +906,7 @@ class Gather:
 
     @plotter(figsize=(10, 7))
     @batch_method(target="for", copy_src=False)
-    def plot(self, wiggle=False, points=None, ax=None, x_ticker=None, y_ticker="time", title=None, plot_attribute=None, **kwargs):
+    def plot(self, wiggle=False, points=None, ax=None, x_ticker=None, y_ticker="time", title=None, plot_attribute=None, colorbar=None, **kwargs):
         """Plot gather traces.
 
         Parameters
@@ -919,12 +923,17 @@ class Gather:
         """
         #TODO: Will it always be an arange? or should we process it differently?
         x_coords = np.arange(len(self.data))
+        divider = make_axes_locatable(ax)
 
         if not wiggle:
             vmin, vmax = self.get_quantile([0.1, 0.9])
             imshow_kwargs = dict(cmap='gray', vmin=vmin, vmax=vmax, aspect='auto')
             imshow_kwargs.update(kwargs)
-            ax.imshow(self.data.T, **imshow_kwargs)
+            img = ax.imshow(self.data.T, **imshow_kwargs)
+            if colorbar is not None and colorbar:
+                colorbar = colorbar if isinstance(colorbar, dict) else {}
+                cax = divider.append_axes('right', size='5%', pad=0.05)
+                ax.figure.colorbar(img, cax=cax, **colorbar)
         else:
             wiggle_kwargs = wiggle if isinstance(wiggle, dict) else {}
             self._plot_wiggle(ax=ax, base_x_pos=x_coords, **wiggle_kwargs)
@@ -941,28 +950,28 @@ class Gather:
 
         title = title if isinstance(title, dict) else {'label': title}
         if plot_attribute is not None:
-            top_ax = self.scatter_on_top(ax=ax, attribute=self[plot_attribute])
+            top_ax = self._scatter_on_top(ax=ax, attribute=self[plot_attribute], divider=divider)
             top_ax.set_title(**title)
         else:
             ax.set_title(**title)
 
         # Create tickers
-
         ## Use sorted value by default if x_ticker is not specified
         x_ticker = self.sort_by if x_ticker is None and self.sort_by is not None else x_ticker
 
         x_label, y_label = get_ticklabels(x_ticker, y_ticker)
-
         x_ticklabels = self[x_label] if x_label is not None else None
+        x_label = x_label + UNITS.get(x_label, '')
 
         if y_label is not None and y_label not in ['time', 'samples']:
             raise ValueError(f'y_ticker name must be either `time` or `samples`, not {y_label}')
         y_ticklabels = self.samples if y_label == 'time' else self.samples / self.sample_rate
         y_ticklabels = y_ticklabels.astype(int)
+        y_label = y_label + UNITS.get(y_label, '')
         y_label = y_label.capitalize() if isinstance(y_label, str) else y_label
 
-        set_ticks_and_labels(ax=ax, shape=self.shape, x_ticklabels=x_ticklabels, x_label=x_label, y_ticklabels=y_ticklabels,
-                             y_label=y_label, x_kwargs=x_ticker, y_kwargs=y_ticker)
+        set_ticks_and_labels(ax=ax, shape=self.shape, x_ticklabels=x_ticklabels, x_label=x_label,
+                             y_ticklabels=y_ticklabels, y_label=y_label, x_kwargs=x_ticker, y_kwargs=y_ticker)
         return self
 
     def _plot_wiggle(self, ax, base_x_pos, std=0.5, color=None):
@@ -986,9 +995,9 @@ class Gather:
         y_coords = self[col_name][x_coords] / self.sample_rate
         ax.scatter(x_coords, y_coords, label=col_name, **kwargs)
 
-    def scatter_on_top(self, ax, attribute):
-        """" Plot additional scatter on top of the 'ax' axes.  """
-        divider = make_axes_locatable(ax)
+    def _scatter_on_top(self, ax, attribute, divider=None):
+        """" Plot additional scatter on top of the 'ax' axes. """
+        divider = make_axes_locatable(ax) if divider is None else divider
         top_ax = divider.append_axes("top", 0.65, pad=0.01,  sharex=ax)
         top_ax.scatter(range(len(attribute)), attribute, s=5, c='k')
         top_ax.invert_yaxis()
