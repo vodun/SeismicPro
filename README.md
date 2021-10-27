@@ -11,7 +11,7 @@
 </p>
 
 [![License](https://img.shields.io/github/license/analysiscenter/batchflow.svg)](https://www.apache.org/licenses/LICENSE-2.0)
-[![Python](https://img.shields.io/badge/python-3.6-blue.svg)](https://python.org)
+[![Python](https://img.shields.io/badge/python-3.8-blue.svg)](https://python.org)
 [![PyTorch](https://img.shields.io/badge/PyTorch-1.8-orange.svg)](https://pytorch.org)
 [![Status](https://github.com/gazprom-neft/SeismicPro/workflows/status/badge.svg)](https://github.com/gazprom-neft/SeismicPro/actions?query=workflow%3Astatus)
 [![Test installation](https://github.com/gazprom-neft/SeismicPro/actions/workflows/test-install.yml/badge.svg)](https://github.com/gazprom-neft/SeismicPro/actions/workflows/test-install.yml)
@@ -34,9 +34,9 @@ Main features:
 
 > `SeismicPro` module is in the beta stage. Your suggestions and improvements via [issues](https://github.com/gazprom-neft/SeismicPro/issues) are very welcome.
 
-The SeismicPro is compatible with Python 3.6+ and tested on Ubuntu 20.04 and Windows Server 2019.
+`SeismicPro` is compatible with Python 3.8+ and tested on Ubuntu 20.04 and Windows Server 2019.
 
-> Note that the [benchmark](./seismicpro/benchmark/) module may not work on Windows due to dependency issues. Use it with caution.
+> Note that the [Benchmark](./seismicpro/benchmark/) module and [Research](./seismicpro/batchflow/batchflow/research/) may not work on Windows due to dependency issues. Use it with caution.
 
 ### Installation as a python package
 
