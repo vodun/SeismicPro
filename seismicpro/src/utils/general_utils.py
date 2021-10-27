@@ -260,3 +260,8 @@ def parse_kwargs_using_base_key(kwargs, base_key):
         for ix, value in enumerate(values):
             kwargs_list[ix][key] = value
     return kwargs_list
+
+
+def is_monotonic(array):
+    diff = np.diff(array)
+    return np.all(diff<=0) or np.all(diff>=0)

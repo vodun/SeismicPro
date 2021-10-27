@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from matplotlib import colors as mcolors
 
+from .general_utils import is_monotonic
+
 
 def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7),  # pylint: disable=too-many-arguments
                      pad=False, fontsize=11, ticks_range_x=None, ticks_range_y=None,
@@ -118,15 +120,19 @@ def get_ticklabels(*tickers):
 
 
 def set_ticks_and_labels(ax, shape, x_label=None, x_ticklabels=None, y_label=None, y_ticklabels=None, x_kwargs=None,
-                         y_kwargs=None):
-    x_ticklabels, x_ticks, x_rotation, x_kwargs = _process_ticks(x_ticklabels, shape[0], x_kwargs)
+                         y_kwargs=None, **kwargs):
+    x_kwargs = x_kwargs if isinstance(x_kwargs, dict) else {}
+    x_ticklabels, x_ticks, x_rotation, x_kwargs = _process_ticks(labels=x_ticklabels, length=shape[0],
+                                                                 **{**kwargs, **x_kwargs})
     x_ticklabels = x_ticks if x_ticklabels is None else x_ticklabels
     ax.set_xticks(x_ticks)
     ax.set_xticklabels(x_ticklabels, **x_kwargs)
     if x_rotation:
         plt.setp(ax.get_xticklabels(), **x_rotation)
 
-    y_ticklabels, y_ticks, y_rotation, y_kwargs = _process_ticks(y_ticklabels, shape[1], y_kwargs)
+    y_kwargs = y_kwargs if isinstance(y_kwargs, dict) else {}
+    y_ticklabels, y_ticks, y_rotation, y_kwargs = _process_ticks(labels=y_ticklabels, length=shape[1],
+                                                                 **{**kwargs, **y_kwargs})
     y_ticklabels = y_ticks if y_ticklabels is None else y_ticklabels
     ax.set_yticks(y_ticks)
     ax.set_yticklabels(y_ticklabels, **y_kwargs)
@@ -137,31 +143,38 @@ def set_ticks_and_labels(ax, shape, x_label=None, x_ticklabels=None, y_label=Non
     ax.set_ylabel(y_label, **y_kwargs)
 
 
-def _process_ticks(labels, length, kwargs):
-    rotation = False
-    ticklabels = None
-    kwargs = kwargs if isinstance(kwargs, dict) else {}
-    num = kwargs.pop('num', None)
-    step = kwargs.pop('step', None)
-    round_to = kwargs.pop('round', int)
-    rotation = kwargs.pop('rotation', None)
-    num = 10 if num is None and step is None else num
+def _get_labels_by_ticks(ticks, labels):
+    if labels is not None:
+        if len(labels) < max(ticks)+1:
+            raise ValueError(f'Given {len(labels)} `labels` while exepected {max(ticks)}')
+        return labels[ticks.astype(int)]
+    return ticks
+
+
+def _process_ticks(labels, length, num=None, step_ticks=None, step_labels=None, round_to=0, rotation=None,
+                   **kwargs):
+    num = 10 if num is None and step_ticks is None and step_labels is None else num
     if num is not None:
         ticks = np.linspace(0, length-1, num=num)
+        ticklabels = _get_labels_by_ticks(ticks, labels)
+    elif step_ticks is not None:
+        ticks = np.arange(0, length, step_ticks)
+        ticks = np.append(ticks, length-1) if ticks[-1] < length-1 else ticks
+        ticklabels = _get_labels_by_ticks(ticks, labels)
     else:
-        ticks = np.arange(0, length)[::step]
-    ticks = ticks.astype(int)
+        if labels is not None:
+            if is_monotonic(labels):
+                ticklabels = np.arange(labels[0], labels[-1], step_labels)
+                ticklabels = np.append(ticklabels, labels[-1]) if ticklabels[-1] < labels[-1] else ticklabels
+                ticks = np.linspace(0, length-1, len(ticklabels))
+            else:
+                raise ValueError('Unable to setup ticks using `step_labels` basecue `labels` is not monotonic.')
+        else:
+            raise ValueError('Unable to setup ticks using `step_labels` because `labels` is not given.')
 
-    if labels is not None:
-        if len(labels) != length:
-            raise ValueError(f'Given {labels} `labels` while exepected {length}')
-        ticklabels = labels[ticks]
-
-        if round_to is not None:
-            if isinstance(round_to, int):
-                ticklabels = np.round(ticklabels, round_to)
-            elif isinstance(round_to, type):
-                ticklabels = ticklabels.astype(round_to)
+    if round_to is not None:
+        ticklabels = np.round(ticklabels, round_to)
+        ticklabels = ticklabels.astype(int) if round_to == 0 else ticklabels
 
     if rotation is not None:
         if not isinstance(rotation, dict):
@@ -180,17 +193,15 @@ def fill_text_kwargs(kwargs):
         item = kwargs.pop(key, None)
         if item is not None:
             for args in TEXT_ARGS:
-                params = kwargs.get(args, None)
+                params = kwargs.get(args, '')
                 if not isinstance(params, dict):
                     kwargs[args] = {'label': params, key: item}
+                else:
+                    if item not in params:
+                        kwargs[args] = {**{key: item}, **params}
     return kwargs
 
 
-def save_figure(path, dpi, **kwargs):
+def save_figure(path, dpi, bbox_inches='tight', pad_inches=0.1, **kwargs):
     """!!!"""
-    save_kwargs = {
-        'bbox_inches': 'tight',
-        'pad_inches': 0.1
-    }
-    save_kwargs.update(kwargs)
-    plt.savefig(path, dpi=dpi, **save_kwargs)
+    plt.savefig(path, dpi=dpi, bbox_inches=bbox_inches, pad_inches=pad_inches, **kwargs)
