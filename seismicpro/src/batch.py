@@ -3,6 +3,7 @@ import re
 
 import numpy as np
 import matplotlib.pyplot as plt
+from string import Formatter
 
 from .gather import Gather
 from .semblance import Semblance, ResidualSemblance
@@ -382,39 +383,31 @@ class SeismicBatch(Batch):
             for sub_gridspec, component_dict in zip(sub_gridspecs, components):
                 comp_name = component_dict['name']
                 str_to_attr = {
-                    'comp': comp_name,
+                    'src': comp_name,
                     'index': src_to_index[comp_name].pop(0)
                 }
                 title = component_dict['kwargs'].pop('title', None)
 
                 if title is not None:
-                    formatters = []
-                    formatted_title = title
+                    formatters = {}
 
                     # Searching for any curly brackets in the title and replace it with variablue from kwargs or from
                     # `str_to_attr` dict.
-                    for item in re.finditer(r"\{[\w:.]+\}+", title):
-                        item = item.group(0)[1:-1]
-                        splitted_attr = item.split(':')
-                        if len(splitted_attr) > 2:
-                            raise ValueError('Wrong format')
-
-                        # Split attribure name and any additions related to string fromatter
-                        attr_name, *add = splitted_attr
-                        add = ':'+add[0] if add else ''
-
-                        formatted_title = formatted_title.replace(f'{{{item}}}', f'{{{add}}}')
-
-                        # Searching for an attribure in component kwargs and in `src_to_attr`
-                        attr = component_dict['kwargs'].pop(attr_name, None) # should be get or pop kwargs here?
-                        attr = str_to_attr.get(attr_name) if attr is None else attr
+                    title = {'label': title.copy()} if not isinstance(title, dict) else title.copy()
+                    for _, name, *_ in Formatter().parse(title['label']):
+                        if name is None:
+                            continue
+                        attr = title.pop(name, component_dict['kwargs'].pop(name, str_to_attr.get(name)))
                         if attr is None:
-                            raise ValueError(f'No matches found with {attr_name} in kwargs.')
-                        formatters.append(attr)
-                    title = formatted_title.format(*formatters)
+                            raise ValueError(f'No matches found for {name} in kwargs, title or default names.')
+                        # TODO: Split arrays by plot position in batch
+                        formatters[name] = attr
+                    title['label'] = title['label'].format(**formatters)
+
                 else:
                     title = '{}: {}'.format(comp_name, str_to_attr.get('index'))
 
+                # Create axis and call plotter
                 ax = figure.add_subplot(sub_gridspec)
                 component = component_dict['data']
                 component.plot(ax=ax, title=title, **component_dict['kwargs'])
