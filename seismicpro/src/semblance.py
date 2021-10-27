@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from numba import njit, prange
 from matplotlib import colors as mcolors
 
-from .utils import set_ticks
+from .utils import set_ticks_and_labels
 from .decorators import batch_method, plotter
 from .velocity_model import calculate_stacking_velocity
 from .velocity_cube import StackingVelocity
@@ -130,8 +130,8 @@ class BaseSemblance:
         return semblance_slice
 
     @staticmethod
-    def plot(semblance, ticks_range_x, ticks_range_y, xlabel, ax, title=None,  # pylint: disable=too-many-arguments
-             fontsize=11, grid=False, stacking_times_ix=None, stacking_velocities_ix=None, **kwargs):
+    def plot(semblance, x_ticklabels, y_ticklabels, xlabel, ax, title=None,  # pylint: disable=too-many-arguments
+             grid=False, stacking_times_ix=None, stacking_velocities_ix=None, **kwargs):
         """Plot vertical velocity semblance and, optionally, stacking velocity.
 
         Parameters
@@ -174,19 +174,23 @@ class BaseSemblance:
         img = ax.imshow(semblance, norm=norm, aspect='auto', cmap='seismic')
         plt.colorbar(img, ticks=levels[1::2], ax=ax)
 
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel('Time')
-
-        if title is not None:
-            ax.set_title(title, fontsize=fontsize)
+        title = title if isinstance(title, dict) else {'label': title}
+        ax.set_title(**title)
 
         # Change markers of stacking velocity points if they are far enough apart
         if stacking_velocities_ix is not None and stacking_times_ix is not None:
             marker = 'o' if np.min(np.diff(np.sort(stacking_times_ix))) > 50 else ''
             plt.plot(stacking_velocities_ix, stacking_times_ix, c='#fafcc2', linewidth=2.5, marker=marker)
 
-        set_ticks(ax, img_shape=semblance.T.shape, ticks_range_x=ticks_range_x, ticks_range_y=ticks_range_y, **kwargs)
+        x_kwargs = kwargs.pop('x_ticker', {})
+        y_kwargs = kwargs.pop('y_ticker', {})
+        set_ticks_and_labels(ax=ax, shape=semblance.T.shape, x_ticklabels=x_ticklabels, x_label=xlabel,
+                             y_ticklabels=y_ticklabels, y_label='Time (s)', x_kwargs=x_kwargs, y_kwargs=y_kwargs, **kwargs)
         ax.set_ylim(semblance.shape[0], 0)
+
+        ax.tick_params(right=True, labelright=True)
+        ax.tick_params(axis='x', top=True, labeltop=True, labelrotation=45)
+
         if grid:
             ax.grid(c='k')
 
@@ -318,9 +322,6 @@ class Semblance(BaseSemblance):
         semblance : Semblance
             Self unchanged.
         """
-        ticks_range_x = [self.velocities[0], self.velocities[-1]]
-        ticks_range_y = [self.times[0], self.times[-1]]
-
         stacking_times_ix, stacking_velocities_ix = None, None
         # Add a stacking velocity line on the plot
         if stacking_velocity is not None:
@@ -330,8 +331,9 @@ class Semblance(BaseSemblance):
             stacking_velocities_ix = ((stacking_velocities - self.velocities[0]) /
                                       (self.velocities[-1] - self.velocities[0]) * self.semblance.shape[1])
 
-        super().plot(self.semblance, ticks_range_x, ticks_range_y, stacking_times_ix=stacking_times_ix,
-                     stacking_velocities_ix=stacking_velocities_ix, xlabel='Velocity (m/s)', **kwargs)
+        super().plot(self.semblance, x_ticklabels=self.velocities, y_ticklabels=self.times,
+                     stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
+                     xlabel='Velocity (m/s)', **kwargs)
         return self
 
     @batch_method(target="for", args_to_unpack="other")
@@ -573,14 +575,15 @@ class ResidualSemblance(BaseSemblance):
         semblance : ResidualSemblance
             Self unchanged.
         """
-        ticks_range_x = [-self.relative_margin * 100, self.relative_margin * 100]
-        ticks_range_y = [self.times[0], self.times[-1]]  # from ix to ms
+        x_ticklabels = np.linspace(-self.relative_margin, self.relative_margin, self.residual_semblance.shape[1])
 
         stacking_times = self.stacking_velocity.times if self.stacking_velocity.times is not None else self.times
         stacking_times_ix = stacking_times / self.sample_rate
         stacking_velocities_ix = np.full_like(stacking_times_ix, self.residual_semblance.shape[1] / 2)
 
-        super().plot(self.residual_semblance, ticks_range_x=ticks_range_x, ticks_range_y=ticks_range_y,
+        x_ticker = kwargs.get('x_ticker', {})
+        kwargs['x_ticker'] = {**{'round_to': 2}, **x_ticker}
+        super().plot(self.residual_semblance, x_ticklabels=x_ticklabels, y_ticklabels=self.times,
                      stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
                      xlabel='Relative velocity margin (%)', **kwargs)
         return self
