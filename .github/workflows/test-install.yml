@@ -7,8 +7,6 @@ on:
 
 jobs:
 
-  variables:
-    PYTEST_FLAGS: 'not slow'
 # -----------------------------------------
 #    Use a module from local source
 # -----------------------------------------
@@ -44,15 +42,13 @@ jobs:
       run: python -c 'import seismicpro'
 
     - name: Run basic tests
-      run: pip install -U pytest
-
-      rules:
-        - if: matrix.os == 'windows-latest'
-          variables:
-            PYTEST_FLAGS: 'not slow and not linux_only'
       run: |
+        pip install -U pytest
+        PYTEST_FLAGS="not slow"
+        if [ ${{ matrix.os }} == "windows-latest" ]; then PYTEST_FLAGS="now slow and not linux_only"; fi
         echo $PYTEST_FLAGS ${{ matrix.os }}
         pytest -m "$PYTEST_FLAGS" --disable-pytest-warnings -v seismicpro/src/tests
+      shell: bash
 
 
 # # -----------------------------------------
