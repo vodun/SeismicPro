@@ -14,7 +14,6 @@ jobs:
     steps:
     - name: Update git
       run: |
-        apt install ca-certificates
         add-apt-repository -y ppa:git-core/ppa
         apt update
         apt install git -y
