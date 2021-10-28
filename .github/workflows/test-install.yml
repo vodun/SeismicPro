@@ -44,15 +44,16 @@ jobs:
       run: python -c 'import seismicpro'
 
     - name: Run basic tests
-      run: |
-        pip install -U pytest
+      run: pip install -U pytest
 
-    - if: matrix.os == 'windows-latest'
-      variables:
-        PYTEST_FLAGS: 'not slow and not linux_only'
+    rules:
+      - if: matrix.os == 'windows-latest'
+        variables:
+          PYTEST_FLAGS: 'not slow and not linux_only'
+        run: echo $PYTEST_FLAGS
+
     - bash: echo $PYTEST_FLAGS ${{ matrix.os }}
-      run: |
-        pytest -m "$PYTEST_FLAGS" --disable-pytest-warnings -v seismicpro/src/tests
+      run: pytest -m "$PYTEST_FLAGS" --disable-pytest-warnings -v seismicpro/src/tests
 
 # -----------------------------------------
 #    Install with pip
@@ -83,14 +84,15 @@ jobs:
       run: python -c 'import seismicpro'
 
     - name: Run basic tests
-      run: |
-        pip install -U pytest
+      run: pip install -U pytest
+
     - if: matrix.os == 'windows-latest'
       variables:
         PYTEST_FLAGS: 'not slow and not linux_only'
+      run: echo $PYTEST_FLAGS
+
     - bash: echo $PYTEST_FLAGS ${{ matrix.os }}
-      run: |
-        pytest -m "$PYTEST_FLAGS" --disable-pytest-warnings -v --pyargs seismicpro.src.tests
+      run: pytest -m "$PYTEST_FLAGS" --disable-pytest-warnings -v --pyargs seismicpro.src.tests
 
 # -----------------------------------------
 #    Install with pipenv
@@ -122,11 +124,12 @@ jobs:
       run: pipenv run python -c 'import seismicpro'
 
     - name: Run basic tests
-      run: |
-        pipenv install pytest
+      run: pipenv install pytest
+
     - if: matrix.os == 'windows-latest'
       variables:
         PYTEST_FLAGS: 'not slow and not linux_only'
+      run: echo $PYTEST_FLAGS
+
     - bash: echo $PYTEST_FLAGS ${{ matrix.os }}
-      run: |
-        pipenv run python -m pytest -m "$PYTEST_FLAGS" --disable-pytest-warnings -v --pyargs seismicpro.src.tests
+      run: pipenv run python -m pytest -m "$PYTEST_FLAGS" --disable-pytest-warnings -v --pyargs seismicpro.src.tests
