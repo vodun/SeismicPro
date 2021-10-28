@@ -393,7 +393,7 @@ class SeismicBatch(Batch):
 
                     # Searching for any curly brackets in the title and replace it with variablue from kwargs or from
                     # `str_to_attr` dict.
-                    title = {'label': title.copy()} if not isinstance(title, dict) else title.copy()
+                    title = {'label': title} if not isinstance(title, dict) else title.copy()
                     for _, name, *_ in Formatter().parse(title['label']):
                         if name is None:
                             continue

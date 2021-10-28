@@ -19,7 +19,7 @@ from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, mute_g
                     parse_kwargs_using_base_key, set_ticks_and_labels, get_ticklabels)
 
 UNITS = {
-    'time': ' (s)',
+    'time': ' (ms)',
     'offset': ' (m)',
 }
 
@@ -961,13 +961,13 @@ class Gather:
 
         x_label, y_label = get_ticklabels(x_ticker, y_ticker)
         x_ticklabels = self[x_label] if x_label is not None else None
-        x_label = x_label + UNITS.get(x_label, '')
+        x_label = x_label + UNITS.get(x_label, '') if x_label is not None else x_label
 
         if y_label is not None and y_label not in ['time', 'samples']:
             raise ValueError(f'y_ticker name must be either `time` or `samples`, not {y_label}')
         y_ticklabels = self.samples if y_label == 'time' else self.samples / self.sample_rate
         y_ticklabels = y_ticklabels.astype(int)
-        y_label = y_label + UNITS.get(y_label, '')
+        y_label = y_label + UNITS.get(y_label, '') if x_label is not None else x_label
         y_label = y_label.capitalize() if isinstance(y_label, str) else y_label
 
         set_ticks_and_labels(ax=ax, shape=self.shape, x_ticklabels=x_ticklabels, x_label=x_label,
