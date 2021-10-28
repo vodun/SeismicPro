@@ -185,7 +185,7 @@ class BaseSemblance:
         x_kwargs = kwargs.pop('x_ticker', {})
         y_kwargs = kwargs.pop('y_ticker', {})
         set_ticks_and_labels(ax=ax, shape=semblance.T.shape, x_ticklabels=x_ticklabels, x_label=xlabel,
-                             y_ticklabels=y_ticklabels, y_label='Time (s)', x_kwargs=x_kwargs, y_kwargs=y_kwargs, **kwargs)
+                             y_ticklabels=y_ticklabels, y_label='Time (ms)', x_kwargs=x_kwargs, y_kwargs=y_kwargs, **kwargs)
         ax.set_ylim(semblance.shape[0], 0)
 
         ax.tick_params(right=True, labelright=True)
