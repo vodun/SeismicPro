@@ -21,6 +21,5 @@ class TestBenchmark:
         survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'], header_cols='offset', name='raw')
         dataset = SeismicDataset(surveys=survey)
         load_bm = Benchmark(method_name=method_name, method_kwargs=method_kwargs, targets=('for', 'threads'),
-                            batch_sizes=[1, 5, 10], dataset=dataset, n_iters=3, root_pipeline=root_pipeline,
-                            benchmark_cpu=True, save_to=None)
-        load_bm.run()
+                            batch_sizes=[1, 5, 10], dataset=dataset, root_pipeline=root_pipeline)
+        load_bm.run(n_iters=3)

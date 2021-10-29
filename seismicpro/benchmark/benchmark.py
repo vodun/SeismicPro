@@ -59,17 +59,18 @@ class Benchmark: # pylint: disable=too-many-instance-attributes
         self.method_name = method_name
         self.targets = to_list(targets)
         self.batch_sizes = to_list(batch_sizes)
-
         self.results = None
-        root_pipeline = Pipeline()
-        if root_pipeline is not None:
-            root_pipeline += root_pipeline
 
+        root_pipeline = Pipeline() if root_pipeline is None else root_pipeline
         method_pipeline = getattr(Pipeline(), self.method_name)(target=C('target'), **method_kwargs)
         self.template_pipeline = (root_pipeline + method_pipeline) << dataset
 
         # Run the pipeline once to precompile all numba callables
         self._warmup()
+
+    def _warmup(self):
+        """Run `self.template_pipeline` once."""
+        (self.template_pipeline << {'target': 'for'}).next_batch(1)
 
     def save(self, path):
         """Pickle Benchmark to a file.
@@ -105,10 +106,6 @@ class Benchmark: # pylint: disable=too-many-instance-attributes
         with open(path, 'rb') as file:
             benchmark = dill.load(file)
         return benchmark
-
-    def _warmup(self):
-        """Run `self.template_pipeline` once."""
-        (self.template_pipeline << {'target': 'for'}).next_batch(1)
 
     def run(self, n_iters=10, bar=False, env_meta=False):
         """Run benchmark.
