@@ -9,8 +9,8 @@ class CroppedGather:
     def __init__(
             self,
             parent_gather,
-            mode,
             shape,
+            origin,
             gather_pad=0,
             gather_fill=0,
             is_mask=False
@@ -23,7 +23,7 @@ class CroppedGather:
         self.gather_fill = gather_fill
         self.grid_origins = None
         self.data = self.load_data()
-        self.origin = self.make_origin(mode)  # save origins in np.array only
+        self.origin = origin  # save origins in np.array only
         self.crops = self.make_crops(self.data)  # self.make_crops()
         self.is_mask = is_mask
 
@@ -97,42 +97,6 @@ class CroppedGather:
             gather_data = self.parent.data
         return gather_data
 
-    def make_origin(self, mode):
-        # print('start make_origin()')
-        origin = []
-        if isinstance(mode, tuple):
-            origin.append(mode)
-        elif isinstance(mode, int):
-            origin.append((mode, mode))
-        elif isinstance(mode, list):
-            origin = mode
-        elif isinstance(mode, str):
-            origin.append(self.origins_from_str(mode))
-        else:
-            raise ValueError('Unknown mode value or type.')
-        # coords = np.array(self.origin, dtype=int).reshape(-1, 2)  # move to make_origin
-        return np.array(origin, dtype=int).reshape(-1, 2)
-
-    def origins_from_str(self, mode):
-        # print('start origins_from_str()')
-        if mode == 'random':  # from uniform distribution. 
-            # issue: return one point only
-            return (np.random.randint(self.parent_shape[0] - self.shape[0]),
-                    np.random.randint(self.parent_shape[1] - self.shape[1]))
-        elif mode == 'grid':  # do not support padding
-            # print('x_range', 0, self.parent_shape[0], self.shape[0])
-            origin_x = np.arange(0, self.parent_shape[0], self.shape[0], dtype=int)
-            # print('y_range', 0, self.parent_shape[1], self.shape[1])
-            origin_y = np.arange(0, self.parent_shape[1], self.shape[1], dtype=int)
-            # correct origin logic should be confirmed
-            # is drop last is needed            
-            if origin_x[-1] + self.shape[0] > self.parent_shape[0]:
-                origin_x[-1] = self.parent_shape[0] - self.shape[0]
-            if origin_y[-1] + self.shape[1] > self.parent_shape[1]:
-                origin_y[-1] = self.parent_shape[1] - self.shape[1]
-            return np.array(np.meshgrid(origin_x, origin_y)).T.reshape(-1, 2)
-        else:
-            raise ValueError('Unknown mode value')
 
     def to_tuple(self, item):  # maybe remove
         if isinstance(item, int):

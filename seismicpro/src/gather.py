@@ -16,7 +16,7 @@ from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 from .decorators import batch_method
 from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, normalization, correction
-
+from .utils import make_origin  #вылезает за 120 символов
 
 class Gather:
     """A class representing a single seismic gather.
@@ -874,9 +874,13 @@ class Gather:
         return self
 
     @batch_method(target='for')
-    def crop(self, mode, shape, **kwargs):
+    def crop(self, shape, mode=None, origin=None, **kwargs):
         """" ! docs """
-        return CroppedGather(self, mode, shape, **kwargs)
+        if origin is None:  # origins is None when crop call as gather method.
+            if mode is None:
+                raise ValueError('Mode should be defined.')
+            origin = make_origin(mode, gather_shape=self.data.shape, crop_shape=shape)
+        return CroppedGather(self, shape, origin, **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #

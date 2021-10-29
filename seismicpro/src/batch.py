@@ -6,7 +6,7 @@ from .gather import Gather
 from .cropped_gather import CroppedGather
 from .semblance import Semblance, ResidualSemblance
 from .decorators import create_batch_methods, apply_to_each_component
-from .utils import to_list
+from .utils import to_list, make_origin
 from ..batchflow import Batch, action, DatasetIndex, NamedExpression
 
 
@@ -301,3 +301,28 @@ class SeismicBatch(Batch):
         else:
             raise ValueError(f"dst must be either `str` or `NamedExpression`, not {type(dst)}.")
         return self
+
+    @action
+    def b_crop(self, src, dst, mode, shape, **kwargs):
+        list_src = to_list(src)
+        list_dst = to_list(dst)
+
+        if len(list_src) != len(list_dst):  # нужна ли эта проверка?
+            raise ValueError('Quantity of a src and dst component should be same')
+
+        # checking shapes
+        if {len(set(getattr(self[i], item).shape for item in list_src)) for i in range(len(list_src))} != set([1]):
+            raise ValueError("Shapes of the gather's data are not consistent.")
+        # check src
+        for item in list_src:
+            for i in range(len(getattr(self, item))):
+                # возможно имеет смысл проверять только первый элемент батча: getattr(self, item)[0]
+                if not isinstance(getattr(self, item)[i], Gather):
+                    raise TypeError('Crop should be calls for Gather object only.')
+
+        origin = make_origin(mode, gather_shape=getattr(self, item)[0].shape, crop_shape=shape)
+        self.crop(src=src, dst=dst, shape=shape, origin=origin)
+
+
+        return self
+        
