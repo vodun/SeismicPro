@@ -303,15 +303,17 @@ class SeismicBatch(Batch):
         return self
 
     @action
-    def b_crop(self, src, dst, mode, shape, **kwargs):
+    def b_crop(self, src, mode, shape, dst=None, **kwargs):
         list_src = to_list(src)
+        if dst is None:
+            dst = src
         list_dst = to_list(dst)
 
         if len(list_src) != len(list_dst):  # нужна ли эта проверка?
             raise ValueError('Quantity of a src and dst component should be same')
 
         # checking shapes
-        if {len(set(getattr(self[i], item).shape for item in list_src)) for i in range(len(list_src))} != set([1]):
+        if {len(set(getattr(self, item)[i].shape for item in list_src)) for i in range(len(self))} != set([1]):
             raise ValueError("Shapes of the gather's data are not consistent.")
         # check src
         for item in list_src:
