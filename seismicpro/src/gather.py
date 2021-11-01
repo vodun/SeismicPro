@@ -537,63 +537,69 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads")
-    def pick_to_mask(self, first_breaks_col="FirstBreak", mask_attr="mask"):
-        """Convert first break times to a binary mask with the same shape as `gather.data` containing zeros before the
-        first arrivals and ones after for each trace.
+    def pick_to_mask(self, first_breaks_col="FirstBreak"):
+        """ Check docs
+        # Convert first break times to a binary mask with the same shape as `gather.data` containing zeros before the
+        # first arrivals and ones after for each trace.
 
-        Parameters
-        ----------
-        first_breaks_col : str, optional, defaults to 'FirstBreak'
-            A column of `self.headers` that contains first arrival times, measured in milliseconds.
-        mask_attr : str, optional, defaults to 'mask'
-            Gather attribute to store the mask in.
+        # Parameters
+        # ----------
+        # first_breaks_col : str, optional, defaults to 'FirstBreak'
+        #     A column of `self.headers` that contains first arrival times, measured in milliseconds.
+        # mask_attr : str, optional, defaults to 'mask'
+        #     Gather attribute to store the mask in.
 
-        Returns
-        -------
-        self : Gather
-            Gather with calculated first breaks mask. Overwrites `mask_attr` attribute if it exists.
+        # Returns
+        # -------
+        # self : Gather
+        #     Gather with calculated first breaks mask. Overwrites `mask_attr` attribute if it exists.
         """
         self.validate(required_header_cols=first_breaks_col)
         mask = convert_times_to_mask(times=self[first_breaks_col], sample_rate=self.sample_rate,
                                      mask_length=self.shape[1]).astype(np.int32)
-        setattr(self, mask_attr, mask)
-        return self
+        gather = self.copy()
+        gather.data = mask
+        return gather
+        # setattr(self, mask_attr, mask)
+        # return self
 
     @batch_method(target='for')
-    def mask_to_pick(self, threshold=0.5, first_breaks_col="FirstBreak", mask_attr="mask"):
-        """Convert a first break mask into times of first arrivals.
+    def mask_to_pick(self, threshold=0.5, first_breaks_col="FirstBreak"):
+        """ Check docs
+        # Convert a first break mask into times of first arrivals.
 
-        The mask shape should match the shape of `gather.data`, each its value should represent a probability of
-        corresponding index along the trace to follow the first break.
+        # The mask shape should match the shape of `gather.data`, each its value should represent a probability of
+        # corresponding index along the trace to follow the first break.
 
-        Notes
-        -----
-        A detailed description of conversion heuristic used can be found in :func:`~general_utils.convert_mask_to_pick`
-        docs.
+        # Notes
+        # -----
+        # A detailed description of conversion heuristic used can be found in :func:`~general_utils.convert_mask_to_pick`
+        # docs.
 
-        Parameters
-        ----------
-        threshold : float, optional, defaults to 0.5
-            A threshold for trace mask value to refer its index to be either pre- or post-first break.
-        first_breaks_col : str, optional, defaults to 'FirstBreak'
-            Headers column to save first break times to.
-        mask_attr : str, optional, defaults to 'mask'
-            Gather attribute to get the mask from.
+        # Parameters
+        # ----------
+        # threshold : float, optional, defaults to 0.5
+        #     A threshold for trace mask value to refer its index to be either pre- or post-first break.
+        # first_breaks_col : str, optional, defaults to 'FirstBreak'
+        #     Headers column to save first break times to.
+        # mask_attr : str, optional, defaults to 'mask'
+        #     Gather attribute to get the mask from.
 
-        Returns
-        -------
-        self : Gather
-            A gather with first break times in headers column defined by `first_breaks_col`.
+        # Returns
+        # -------
+        # self : Gather
+        #     A gather with first break times in headers column defined by `first_breaks_col`.
 
-        Raises
-        ------
-        ValueError
-            If an attribute defined by `mask_attr` does not exist.
+        # Raises
+        # ------
+        # ValueError
+        #     If an attribute defined by `mask_attr` does not exist.
         """
-        mask = getattr(self, mask_attr, None)
-        if mask is None:
-            raise ValueError(f"Mask attribute given by '{mask_attr}' does not exist")
-        self[first_breaks_col] = convert_mask_to_pick(mask, self.sample_rate, threshold)
+        self[first_breaks_col] = convert_mask_to_pick(self.data, self.sample_rate, threshold)
+        # mask = getattr(self, mask_attr, None)
+        # if mask is None:
+        #     raise ValueError(f"Mask attribute given by '{mask_attr}' does not exist")
+        # self[first_breaks_col] = convert_mask_to_pick(mask, self.sample_rate, threshold)
         return self
 
     #------------------------------------------------------------------------#
