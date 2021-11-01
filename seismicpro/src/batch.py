@@ -1,9 +1,10 @@
 """Implements SeismicBatch class for processing a small subset of seismic gathers"""
 import re
+from string import Formatter
+from functools import partial
 
 import numpy as np
 import matplotlib.pyplot as plt
-from string import Formatter
 
 from .gather import Gather
 from .semblance import Semblance, ResidualSemblance
@@ -306,113 +307,79 @@ class SeismicBatch(Batch):
 
 
     @action
-    def plot(self, src, max_width=20, save_path=None, dpi=100, src_kwargs=None, **kwargs):
+    def plot(self, src, src_kwargs=None, max_width=20, title="{src}: {index}", save_to=None, dpi=100, **kwargs):
+        # Consturct a list of plot kwargs for each component in src
         src_list = to_list(src)
-        if len(set(src_list)) < len(src_list):
-            raise ValueError("Components in `src` must be unique")
+        if src_kwargs is None:
+            src_kwargs = [{} for _ in range(len(src_list))]
+        elif isinstance(src_kwargs, dict):
+            src_kwargs = {src: extra_kwargs for src_lst, extra_kwargs in src_kwargs.items()
+                          for src in to_list(src_lst)}
+            src_kwargs = [src_kwargs.get(src, {}) for src in src_list]
+        else:
+            src_kwargs = to_list(src_kwargs)
+            if len(src_list) != len(src_kwargs):
+                raise ValueError("The length of src_kwargs must match the length of src")
+        src_kwargs = [{"figsize": getattr(self, src)[0].plot.figsize, "title": title, **kwargs, **extra_kwargs}
+                      for src, extra_kwargs in zip(src_list, src_kwargs)]
 
-        batch_size = len(self)
-        n_components = len(src_list)
-        heights = []
+        # Construct a grid of plotters with shape (len(self), len(src_list)) for each of the subplots
+        plotters = [[] for _ in range(len(self))]
+        for src, kwargs in zip(src_list, src_kwargs):
+            width, height = kwargs.pop("figsize")
+            title_template = kwargs.pop("title")
+            for i, index in enumerate(self.indices):
+                if title_template is not None:
+                    title = title_template.copy() if isinstance(title_template, dict) else {"label": title_template}
+                    label = title.pop("label")
+                    format_names = {name for _, name, _, _ in Formatter().parse(label) if name is not None}
+                    format_kwargs = {name: title.pop(name) for name in format_names if name in title}
+                    title["label"] = label.format(src=src, index=index, **format_kwargs)
+                    kwargs["title"] = title
 
-        # Consturcting dict of kwargs for every src
-        src_kwargs = dict() if src_kwargs is None else src_kwargs
-        if not isinstance(src_kwargs, dict):
-            raise ValueError('some error')
-        src_kwargs = {key: params for keys, params in src_kwargs.items() for key in to_list(keys)}
-        src_kwargs = {src: {**kwargs, **src_kwargs.get(src, {})} for src in src_list}
-
-        # Add figsize for all kwargs, this will be used to arrange the plot's positions
-        for key, src_dict in src_kwargs.items():
-            src_dict.update({'figsize': src_dict.get('figsize', getattr(self, key)[0].plot.figsize)})
-
-        data = {s: list(getattr(self, s)) for s in src_list}
-        src_to_index = {s: list(self.indices) for s in src_list}
-
-        src_list = ((s, ) * batch_size for s in src_list)
-        src_list = list(zip(*src_list)) if n_components != 1 else src_list
-
-
-        plotter_list = []
-        # Setting plotters grid base on figsizes and max_width. Every element in `plotter_list` is a list of parameters
-        # for plotters on particular line of...
-        for components in src_list:
-            width, height = 0, 0
-            plotter_list.append([])
-            for comp_name in components:
-                figsize = src_kwargs[comp_name].get('figsize')
-                width += figsize[0]
-                kwargs = src_kwargs[comp_name].copy()
-                kwargs.pop('figsize')
-
-                component_dict = {
-                    'name': comp_name,
-                    'data': data[comp_name].pop(0),
-                    'width': figsize[0],
-                    'kwargs': kwargs
+                subplot_config = {
+                    "plotter": partial(getattr(self, src)[i].plot, **kwargs),
+                    "height": height,
+                    "width": width,
                 }
+                plotters[i].append(subplot_config)
 
-                if width <= max_width:
-                    height = max(height, figsize[1])
-                    plotter_list[-1].append(component_dict)
-                else:
-                    heights.append(height)
-                    width, height = figsize
-                    plotter_list.append([component_dict])
-            if height != 0:
-                heights.append(height)
+        # Flatten all the subplots into a row if a single component was specified
+        if len(src_list) == 1:
+            plotters = [sum(plotters, [])]
 
-        plot_width = width if len(plotter_list) == 1 else max_width
+        # Wrap lines of subplots wider than max_width
+        max_width = max(max_width, max(plotter["width"] for plotter in plotters[0]))
+        split_pos = []
+        curr_width = 0
+        for i, plotter in enumerate(plotters[0]):
+            curr_width += plotter["width"]
+            if curr_width > max_width:
+                split_pos.append(i)
+                curr_width = plotter["width"]
+        plotters = sum([np.split(plotters_row, split_pos) for plotters_row in plotters], [])
 
-        # Creating main figure and external gridspec
-        nrows = len(plotter_list)
-        figsize = (plot_width, sum(heights))
-        figure = plt.figure(figsize=figsize, constrained_layout=True)
-        gridspecs = figure.add_gridspec(nrows, 1, height_ratios=heights)
+        # Define axes layout and perform plotting
+        fig_width = max(sum(plotter["width"] for plotter in plotters_row) for plotters_row in plotters)
+        row_heigths = [max(plotter["height"] for plotter in plotters_row) for plotters_row in plotters]
+        fig = plt.figure(figsize=(fig_width, sum(row_heigths)), constrained_layout=True)
+        gridspecs = fig.add_gridspec(len(plotters), 1, height_ratios=row_heigths)
 
-        for gridspec, components in zip(gridspecs, plotter_list):
-            n_axes = len(components)
-            width_ratios = [comp_dict.pop('width') for comp_dict in components]
-            if plot_width > sum(width_ratios):
-                # To avoid stretching the axis when the row is not filled, we create a dummy axis
-                width_ratios.append(plot_width - sum(width_ratios))
-                n_axes += 1
+        for gridspecs_row, plotters_row in zip(gridspecs, plotters):
+            n_cols = len(plotters_row)
+            col_widths = [plotter["width"] for plotter in plotters_row]
 
-            # Create gridspec for current row
-            sub_gridspecs = gridspec.subgridspec(1, n_axes, width_ratios=width_ratios)
-            for sub_gridspec, component_dict in zip(sub_gridspecs, components):
-                comp_name = component_dict['name']
-                str_to_attr = {
-                    'src': comp_name,
-                    'index': src_to_index[comp_name].pop(0)
-                }
-                title = component_dict['kwargs'].pop('title', None)
+            # Create a dummy axis if row width is less than fig_width in order to avoid row stretching
+            if fig_width > sum(col_widths):
+                col_widths.append(fig_width - sum(col_widths))
+                n_cols += 1
 
-                if title is not None:
-                    formatters = {}
+            # Create a gridspec for the current row
+            gridspecs_col = gridspecs_row.subgridspec(1, n_cols, width_ratios=col_widths)
+            for gridspec, plotter in zip(gridspecs_col, plotters_row):
+                plotter["plotter"](ax=fig.add_subplot(gridspec))
 
-                    # Searching for any curly brackets in the title and replace it with variablue from kwargs or from
-                    # `str_to_attr` dict.
-                    title = {'label': title} if not isinstance(title, dict) else title.copy()
-                    for _, name, *_ in Formatter().parse(title['label']):
-                        if name is None:
-                            continue
-                        attr = title.pop(name, component_dict['kwargs'].pop(name, str_to_attr.get(name)))
-                        if attr is None:
-                            raise ValueError(f'No matches found for {name} in kwargs, title or default names.')
-                        # TODO: Split arrays by plot position in batch
-                        formatters[name] = attr
-                    title['label'] = title['label'].format(**formatters)
-
-                else:
-                    title = '{}: {}'.format(comp_name, str_to_attr.get('index'))
-
-                # Create axis and call plotter
-                ax = figure.add_subplot(sub_gridspec)
-                component = component_dict['data']
-                component.plot(ax=ax, title=title, **component_dict['kwargs'])
-
-        if save_path is not None:
-            save_figure(path=save_path, dpi=dpi)
+        if save_to is not None:
+            save_figure(fig, path=save_to, dpi=dpi)
         plt.show()
         return self

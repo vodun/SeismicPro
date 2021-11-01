@@ -202,6 +202,5 @@ def fill_text_kwargs(kwargs):
     return kwargs
 
 
-def save_figure(path, dpi, bbox_inches='tight', pad_inches=0.1, **kwargs):
-    """!!!"""
-    plt.savefig(path, dpi=dpi, bbox_inches=bbox_inches, pad_inches=pad_inches, **kwargs)
+def save_figure(fig, path, dpi=100, bbox_inches="tight", pad_inches=0.1, **kwargs):
+    fig.savefig(path, dpi=dpi, bbox_inches=bbox_inches, pad_inches=pad_inches, **kwargs)
