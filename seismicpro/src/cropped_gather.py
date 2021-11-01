@@ -61,21 +61,16 @@ class CroppedGather:
         return data[start_y:start_y + dy, start_x:start_x + dx]
 
     @batch_method(target='for')
-    def assemble_gather(self, component='data', input_data=None):
+    def assemble_gather(self, input_data=None):
         # print('start assembly_gather()')
         gather = self.parent.copy()
 
-        if component == 'data':
-            gather.data = self._assembling(self.crops)
-        elif component == 'mask':
-            gather.mask = None
-            if input_data is None:
-                assembling_data = self._assembling(self.crops_mask)
-            else:
-                assembling_data = self._assembling(input_data)
-            setattr(gather, component, assembling_data)
+        if input_data is None:
+            assembling_data = self._assembling(self.crops)
         else:
-            raise ValueError('Unknown component.')
+            assembling_data = self._assembling(input_data)
+
+        gather.data = assembling_data
         return gather
 
     def _assembling(self, data):
