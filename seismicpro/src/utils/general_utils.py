@@ -253,7 +253,6 @@ def make_origin(mode, gather_shape, crop_shape):
         origin.append(_origins_from_str(mode, gather_shape, crop_shape))
     else:
         raise ValueError('Unknown mode value or type.')
-    # coords = np.array(self.origin, dtype=int).reshape(-1, 2)  # move to make_origin
     return np.array(origin, dtype=int).reshape(-1, 2)
 
 def _origins_from_str(mode, gather_shape, crop_shape):
@@ -267,8 +266,8 @@ def _origins_from_str(mode, gather_shape, crop_shape):
         origin_x = np.arange(0, gather_shape[0], crop_shape[0], dtype=int)
         # print('y_range', 0, self.parent_shape[1], self.shape[1])
         origin_y = np.arange(0, gather_shape[1], crop_shape[1], dtype=int)
-        # correct origin logic should be confirmed
-        # is drop last is needed            
+        # The correct origin logic should be confirmed.
+        # is drop last is needed?           
         if origin_x[-1] + crop_shape[0] > gather_shape[0]:
             origin_x[-1] = gather_shape[0] - crop_shape[0]
         if origin_y[-1] + crop_shape[1] > gather_shape[1]:
