@@ -16,7 +16,7 @@ from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 from .decorators import batch_method
 from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, normalization, correction
-from .utils import make_origin  #вылезает за 120 символов
+from .utils import make_origin  # I add a new line because import from utils has more than 120 chars. 
 
 class Gather:
     """A class representing a single seismic gather.
