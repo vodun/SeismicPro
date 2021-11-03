@@ -1,6 +1,6 @@
-name: status
+name: Status
 
-on: [push]
+on: push
 
 jobs:
 
@@ -30,5 +30,4 @@ jobs:
       run: pylint -rn --rcfile pylintrc seismicpro
 
     - name: Run tests
-      if: always()
       run: pytest -m "not slow" --disable-pytest-warnings -v seismicpro/src/tests
