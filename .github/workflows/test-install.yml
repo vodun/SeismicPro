@@ -18,6 +18,9 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         python-version: [3.8, 3.9]
 
+    env:
+      PYTEST_FLAGS: "not slow ${{ matrix.os != 'ubuntu-latest' && 'and not linux_only!' }}"
+
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -44,8 +47,6 @@ jobs:
     - name: Run basic tests
       run: |
         pip install -U pytest
-        PYTEST_FLAGS="not slow"
-        if [ ${{ matrix.os }} == "windows-latest" ]; then PYTEST_FLAGS="now slow and not linux_only"; fi
         echo $PYTEST_FLAGS ${{ matrix.os }}
         pytest -m "$PYTEST_FLAGS" --disable-pytest-warnings -v seismicpro/src/tests
       shell: bash
