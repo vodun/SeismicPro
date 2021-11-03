@@ -46,6 +46,7 @@ jobs:
 
     - name: Run basic tests
       run: pytest -m "$PYTEST_FLAGS" --disable-pytest-warnings -v seismicpro/src/tests
+      shell: bash
 
 
 # -----------------------------------------
@@ -60,7 +61,7 @@ jobs:
         python-version: [3.8, 3.9]
 
     env:
-      PYTEST_FLAGS: "\"not slow ${{ matrix.os != 'ubuntu-latest' && 'and not linux_only' || '' }}\""
+      PYTEST_FLAGS: "not slow ${{ matrix.os != 'ubuntu-latest' && 'and not linux_only' || '' }}"
 
     runs-on: ${{ matrix.os }}
 
@@ -81,6 +82,7 @@ jobs:
 
     - name: Run basic tests
       run: pytest -m "$PYTEST_FLAGS" --disable-pytest-warnings -v --pyargs seismicpro.src.tests
+      shell: bash
 
 
 # -----------------------------------------
@@ -118,3 +120,4 @@ jobs:
 
     - name: Run basic tests
       run: pipenv run python -m pytest -m "$PYTEST_FLAGS" --disable-pytest-warnings -v --pyargs seismicpro.src.tests
+      shell: bash
