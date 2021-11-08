@@ -12,7 +12,7 @@ from seismicpro.batchflow.research import Option, Research, EC
 
 
 sns.set_theme(style="darkgrid")
-class Benchmark: # pylint: disable=too-many-instance-attributes
+class Benchmark:
     """A class aimed to find an optimal parallelization engine for methods decorated with
     :func:`~decorators.batch_method`.
 
@@ -38,6 +38,11 @@ class Benchmark: # pylint: disable=too-many-instance-attributes
         Batch size(s) on which the benchmark is performed.
     dataset : Dataset
         Dataset on which the benchmark is conducted.
+    shuffle : int or bool, by default False
+        Specifies the randomization in the pipeline.
+        If `False`: items go sequentially, one after another as they appear in the index;
+        If `True`: items are shuffled randomly before each epoch;
+        If int: a seed number for a random shuffle;
     root_pipeline : Pipeline, optional, by default None
         Pipeline that contains actions to be performed before the benchmarked method.
 
@@ -51,19 +56,22 @@ class Benchmark: # pylint: disable=too-many-instance-attributes
         Batch size(s) on which the benchmark is performed.
     results : None or pd.DataFrame
         A DataFrame with benchmark results.
+    shuffle : int or bool
+        A parameter for random shuffle in the pipeline.
     template_pipeline : Pipeline
         Pipeline that contains `root_pipeline`, benchmarked method, and dataset.
     """
-    # pylint: disable=too-many-arguments
-    def __init__(self, method_name, method_kwargs, targets, batch_sizes, dataset, root_pipeline=None):
+    def __init__(self, method_name, method_kwargs, targets, batch_sizes, dataset, shuffle=False, root_pipeline=None):
         self.method_name = method_name
         self.targets = to_list(targets)
         self.batch_sizes = to_list(batch_sizes)
         self.results = None
+        self.shuffle = shuffle
 
         root_pipeline = Pipeline() if root_pipeline is None else root_pipeline
-        method_pipeline = getattr(Pipeline(), self.method_name)(target=C('target'), **method_kwargs)
-        self.template_pipeline = (root_pipeline + method_pipeline) << dataset
+        # Add benchmarked method to the `root_pipeline` with `method_kwargs` and `target` from config.
+        root_pipeline = getattr(root_pipeline, self.method_name)(**{**method_kwargs, **{'target': C('target')}})
+        self.template_pipeline = root_pipeline << dataset
 
         # Run the pipeline once to precompile all numba callables
         self._warmup()
@@ -137,19 +145,15 @@ class Benchmark: # pylint: disable=too-many-instance-attributes
         research.run(n_iters=1, dump_results=False, parallel=False, workers=1, bar=bar, env_meta=env_meta)
 
         # Load benchmark's results.
-        results_df = research.results.to_df()
-        # Processing dataframe to a more convenient view.
-        results_df = results_df.astype({'batch_size': 'int32'})
-        results_df.sort_values(by='batch_size', inplace=True)
-        results_df.set_index(['target', 'batch_size'], inplace=True)
-        self.results = results_df[['Time', 'CPUMonitor']]
+        self.results = research.results.to_df().set_index(['target', 'batch_size'])[['Time', 'CPUMonitor']]
         return self
 
     def _run_single_pipeline(self, config, n_iters):
         """Benchmark method with a particular `batch_size` and `target`."""
         pipeline = self.template_pipeline << config
         with CPUMonitor() as cpu_monitor:
-            pipeline.run(C('batch_size'), n_iters=n_iters, shuffle=42, drop_last=True, notifier=False, profile=True)
+            pipeline.run(C('batch_size'), n_iters=n_iters, shuffle=self.shuffle, drop_last=True, notifier=False,
+                         profile=True)
 
         # Processing the results for time costs.
         time_df = pipeline.show_profile_info(per_iter=True, detailed=False)
@@ -159,7 +163,7 @@ class Benchmark: # pylint: disable=too-many-instance-attributes
         return run_time, cpu_monitor.data
 
     def plot(self, figsize=(15, 7), cpu_util=False):
-        """Plot a graph of time verus `batch_size` for every `targets`.
+        """Plot a graph of time verus `batch_size` for every `target`.
 
         Each point on the graph shows the average value and the standard deviation of elapsed time over `n_iters`
         iterations.
@@ -172,17 +176,14 @@ class Benchmark: # pylint: disable=too-many-instance-attributes
             If True, the CPU utilization is plotted after the elapsed time plot.
         """
         results = self.results.drop(columns='CPUMonitor') if not cpu_util else self.results
-        for col_name, column in results.iteritems():
+        for col_name, col_series in results.iteritems():
             plt.figure(figsize=figsize)
-            sub_df = column.reset_index()
-            for target, df in sub_df.groupby('target'):
-                items = df[col_name].values
-                items_batchsize = np.concatenate([[bs] * len(val) for bs, val in zip(df['batch_size'], items)])
-                sns.lineplot(x=items_batchsize, y=np.concatenate(items), label=target, ci='sd', marker='o')
+            sub_df = col_series.explode().reset_index()
+            sns.lineplot(data=sub_df, x='batch_size', y=col_name, hue='target', ci='sd', marker='o')
 
             plt.title(f"{col_name} for {self.method_name} method")
             plt.xticks(ticks=self.batch_sizes, labels=self.batch_sizes)
 
             plt.xlabel('Batch size')
-            plt.ylabel('Time (s)' if col_name == 'Time' else '%')
+            plt.ylabel('Time (s)' if col_name == 'Time' else 'CPU (%)')
         plt.show()
