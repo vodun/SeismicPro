@@ -240,13 +240,11 @@ def clip(data, data_min, data_max):
         data[i] = min(max(data[i], data_min), data_max)
     return data.reshape(data_shape)
 
+
 def make_origin(mode, gather_shape, crop_shape):
-    # print('start make_origin()')
     origin = []
     if isinstance(mode, tuple):
         origin.append(mode)
-    # elif isinstance(mode, int):  # remove or redefine
-    #     origin.append((mode, mode))
     elif isinstance(mode, list):
         origin = mode
     elif isinstance(mode, str):
@@ -255,23 +253,19 @@ def make_origin(mode, gather_shape, crop_shape):
         raise ValueError('Unknown mode value or type.')
     return np.array(origin, dtype=int).reshape(-1, 2)
 
+
 def _origins_from_str(mode, gather_shape, crop_shape):
     # print('start origins_from_str()')
     if mode == 'random':  # from uniform distribution. 
-        # issue: return one point only
+        # TO DO: Support n random points
         return (np.random.randint(gather_shape[0] - crop_shape[0]),
                 np.random.randint(gather_shape[1] - crop_shape[1]))
-    elif mode == 'grid':  # do not support padding
-        # print('x_range', 0, self.parent_shape[0], self.shape[0])
-        origin_x = np.arange(0, gather_shape[0], crop_shape[0], dtype=int)
-        # print('y_range', 0, self.parent_shape[1], self.shape[1])
-        origin_y = np.arange(0, gather_shape[1], crop_shape[1], dtype=int)
-        # The correct origin logic should be confirmed.
-        # is drop last is needed?           
-        if origin_x[-1] + crop_shape[0] > gather_shape[0]:
-            origin_x[-1] = gather_shape[0] - crop_shape[0]
-        if origin_y[-1] + crop_shape[1] > gather_shape[1]:
-            origin_y[-1] = gather_shape[1] - crop_shape[1]
+    elif mode == 'grid':
+        # TO DO: support overlapping
+        origin_x = np.linspace(0, gather_shape[0] - crop_shape[0], 
+                               num=(gather_shape[0] - crop_shape[0]) // crop_shape[0] + 2, dtype=int)
+        origin_y = np.linspace(0, gather_shape[1] - crop_shape[1],
+                               num=(gather_shape[1] - crop_shape[1]) // crop_shape[1] + 2, dtype=int)
         return np.array(np.meshgrid(origin_x, origin_y)).T.reshape(-1, 2)
     else:
         raise ValueError('Unknown mode')

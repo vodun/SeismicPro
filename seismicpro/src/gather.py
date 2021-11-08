@@ -15,8 +15,8 @@ from .muting import Muter
 from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 from .decorators import batch_method
-from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, normalization, correction
-from .utils import make_origin  # I add a new line because import from utils has more than 120 chars. 
+from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, normalization, correction, 
+                    make_origin)
 
 class Gather:
     """A class representing a single seismic gather.
@@ -557,6 +557,7 @@ class Gather:
         self.validate(required_header_cols=first_breaks_col)
         mask = convert_times_to_mask(times=self[first_breaks_col], sample_rate=self.sample_rate,
                                      mask_length=self.shape[1]).astype(np.int32)
+        self.data = None
         gather = self.copy()
         gather.data = mask
         return gather
@@ -908,7 +909,7 @@ class Gather:
         self : Gather
             Gather unchanged.
         """
-        vmin, vmax = self.get_quantile([0.05, 0.95])
+        vmin, vmax = self.get_quantile([0.1, 0.9])
         default_kwargs = {
             'cmap': 'gray',
             'vmin': vmin,
@@ -917,9 +918,6 @@ class Gather:
         }
         default_kwargs.update(kwargs)
         plt.figure(figsize=figsize)
-        if mask:
-            plt.imshow(self.mask.T, **default_kwargs)
-        else:
-            plt.imshow(self.data.T, **default_kwargs)
+        plt.imshow(self.data.T, **default_kwargs)
         plt.show()
         return self

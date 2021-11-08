@@ -304,27 +304,29 @@ class SeismicBatch(Batch):
 
     @action
     def b_crop(self, src, mode, shape, dst=None, **kwargs):
+        ''' TO DO: docs '''
+        # TO DO: benchmark
+        # TO DO: add non-joint cropping of src component
         list_src = to_list(src)
         if dst is None:
             dst = src
         list_dst = to_list(dst)
 
-        if len(list_src) != len(list_dst):  # нужна ли эта проверка?
-            raise ValueError('Quantity of a src and dst component should be same')
+        if len(list_src) != len(list_dst):  # is this needful?
+            raise ValueError('`src` and `dst` should have the same length.')
 
         # checking shapes
+        # TO DO: Simplify
         if {len(set(getattr(self, item)[i].shape for item in list_src)) for i in range(len(self))} != set([1]):
             raise ValueError("Shapes of the gather's data are not consistent.")
         # check src
         for item in list_src:
             for i in range(len(getattr(self, item))):
-                # возможно имеет смысл проверять только первый элемент батча: getattr(self, item)[0]
+                # checking only first batch item : getattr(self, item)[0]
                 if not isinstance(getattr(self, item)[i], Gather):
                     raise TypeError('Crop should be calls for Gather object only.')
 
         origin = make_origin(mode, gather_shape=getattr(self, item)[0].shape, crop_shape=shape)
         self.crop(src=src, dst=dst, shape=shape, origin=origin)
 
-
         return self
-        
