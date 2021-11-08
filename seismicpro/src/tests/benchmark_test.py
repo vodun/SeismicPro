@@ -13,10 +13,10 @@ from seismicpro.batchflow import Pipeline
 @pytest.mark.linux_only
 class TestBenchmark:
     """Benchmark test instance"""
-    @pytest.mark.parametrize('method_name,method_kwargs,root_pipeline',
+    @pytest.mark.parametrize('method_name, method_kwargs, root_pipeline',
                             (('load', dict(src='raw'), None),
-                            ('sort', dict(src='raw', by='offset'), Pipeline().load(src='raw', fmt='sgy'))))
-    def test_that_benchmark_runs_completely(self, segy_path, method_name, method_kwargs, root_pipeline):
+                             ('sort', dict(src='raw', by='offset'), Pipeline().load(src='raw', fmt='sgy'))))
+    def test_benchmark_runs(self, segy_path, method_name, method_kwargs, root_pipeline):
         """Test benchmark"""
         survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'], header_cols='offset', name='raw')
         dataset = SeismicDataset(surveys=survey)
