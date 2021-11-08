@@ -38,11 +38,6 @@ class Benchmark:
         Batch size(s) on which the benchmark is performed.
     dataset : Dataset
         Dataset on which the benchmark is conducted.
-    shuffle : int or bool, by default False
-        Specifies the randomization in the pipeline.
-        If `False`: items go sequentially, one after another as they appear in the index;
-        If `True`: items are shuffled randomly before each epoch;
-        If int: a seed number for a random shuffle;
     root_pipeline : Pipeline, optional, by default None
         Pipeline that contains actions to be performed before the benchmarked method.
 
@@ -56,21 +51,19 @@ class Benchmark:
         Batch size(s) on which the benchmark is performed.
     results : None or pd.DataFrame
         A DataFrame with benchmark results.
-    shuffle : int or bool
-        A parameter for random shuffle in the pipeline.
     template_pipeline : Pipeline
         Pipeline that contains `root_pipeline`, benchmarked method, and dataset.
     """
-    def __init__(self, method_name, method_kwargs, targets, batch_sizes, dataset, shuffle=False, root_pipeline=None):
+    def __init__(self, method_name, method_kwargs, targets, batch_sizes, dataset, root_pipeline=None):
         self.method_name = method_name
         self.targets = to_list(targets)
         self.batch_sizes = to_list(batch_sizes)
         self.results = None
-        self.shuffle = shuffle
 
-        root_pipeline = Pipeline() if root_pipeline is None else root_pipeline
         # Add benchmarked method to the `root_pipeline` with `method_kwargs` and `target` from config.
-        root_pipeline = getattr(root_pipeline, self.method_name)(**{**method_kwargs, **{'target': C('target')}})
+        method_kwargs['target'] = C('target')
+        root_pipeline = Pipeline() if root_pipeline is None else root_pipeline
+        root_pipeline = getattr(root_pipeline, self.method_name)(**method_kwargs)
         self.template_pipeline = root_pipeline << dataset
 
         # Run the pipeline once to precompile all numba callables
@@ -115,7 +108,7 @@ class Benchmark:
             benchmark = dill.load(file)
         return benchmark
 
-    def run(self, n_iters=10, bar=False, env_meta=False):
+    def run(self, n_iters=10, shuffle=False, bar=False, env_meta=False):
         """Run benchmark.
 
         The method measures the execution time and CPU utilization of the benchmarked method with all combinations of
@@ -125,6 +118,11 @@ class Benchmark:
         ----------
         n_iters : int, optional, by default 10
             The number of iterations for the method with specified parameters.
+        shuffle : int or bool, by default False
+            Specifies the randomization in the pipeline.
+            If `False`: items go sequentially, one after another as they appear in the index;
+            If `True`: items are shuffled randomly before each epoch;
+            If int: a seed number for a random shuffle;
         bar : bool, optional, default False
             Whether to use progress bar or not.
         env_meta : dict or bool, optional, default False
@@ -140,19 +138,19 @@ class Benchmark:
 
         # Create research that will run pipeline with different parameters based on given `domain`
         research = (Research(domain=domain, n_reps=1)
-            .add_callable(self._run_single_pipeline, config=EC(), n_iters=n_iters, save_to=['Time', 'CPUMonitor'])
-        )
-        research.run(n_iters=1, dump_results=False, parallel=False, workers=1, bar=bar, env_meta=env_meta)
+            .add_callable(self._run_single_pipeline, config=EC(), n_iters=n_iters, shuffle=shuffle,
+                          save_to=['Time', 'CPUMonitor'])
+        ).run(n_iters=1, dump_results=False, parallel=False, workers=1, bar=bar, env_meta=env_meta)
 
         # Load benchmark's results.
         self.results = research.results.to_df().set_index(['target', 'batch_size'])[['Time', 'CPUMonitor']]
         return self
 
-    def _run_single_pipeline(self, config, n_iters):
+    def _run_single_pipeline(self, config, n_iters, shuffle):
         """Benchmark method with a particular `batch_size` and `target`."""
         pipeline = self.template_pipeline << config
         with CPUMonitor() as cpu_monitor:
-            pipeline.run(C('batch_size'), n_iters=n_iters, shuffle=self.shuffle, drop_last=True, notifier=False,
+            pipeline.run(C('batch_size'), n_iters=n_iters, shuffle=shuffle, drop_last=True, notifier=False,
                          profile=True)
 
         # Processing the results for time costs.
@@ -177,8 +175,9 @@ class Benchmark:
         """
         results = self.results.drop(columns='CPUMonitor') if not cpu_util else self.results
         for col_name, col_series in results.iteritems():
-            plt.figure(figsize=figsize)
             sub_df = col_series.explode().reset_index()
+
+            plt.figure(figsize=figsize)
             sns.lineplot(data=sub_df, x='batch_size', y=col_name, hue='target', ci='sd', marker='o')
 
             plt.title(f"{col_name} for {self.method_name} method")
