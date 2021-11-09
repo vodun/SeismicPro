@@ -303,10 +303,9 @@ class SeismicBatch(Batch):
         return self
 
     @action
-    def b_crop(self, src, mode, shape, dst=None, **kwargs):
+    def b_crop(self, src, mode, shape, dst=None, joint=False, **kwargs):
         ''' TO DO: docs '''
         # TO DO: benchmark
-        # TO DO: add non-joint cropping of src component
         list_src = to_list(src)
         if dst is None:
             dst = src
@@ -315,18 +314,26 @@ class SeismicBatch(Batch):
         if len(list_src) != len(list_dst):  # is this needful?
             raise ValueError('`src` and `dst` should have the same length.')
 
-        # checking shapes
-        # TO DO: Simplify
-        if {len(set(getattr(self, item)[i].shape for item in list_src)) for i in range(len(self))} != set([1]):
-            raise ValueError("Shapes of the gather's data are not consistent.")
-        # check src
+        # checking shapes and parse src shapes
+        src_shapes = np.full(shape=(len(self), 2), fill_value=np.nan, dtype=int)
+        for i in range(len(self)):
+            cur_shape = set([getattr(self, item)[i].shape for item in list_src])
+            if len(cur_shape) > 1 and joint == True:
+                raise ValueError("Shapes of the gather's data are not consistent.")
+            src_shapes[i] = cur_shape.pop()
+        # check src types
         for item in list_src:
             for i in range(len(getattr(self, item))):
                 # checking only first batch item : getattr(self, item)[0]
                 if not isinstance(getattr(self, item)[i], Gather):
                     raise TypeError('Crop should be calls for Gather object only.')
 
-        origin = make_origin(mode, gather_shape=getattr(self, item)[0].shape, crop_shape=shape, **kwargs)
-        self.crop(src=src, dst=dst, shape=shape, origin=origin)
+        if joint == False:
+            origin = make_origin(mode, gather_shape=getattr(self, item)[0].shape, crop_shape=shape, **kwargs)
+            self.crop(src=src, dst=dst, shape=shape, origin=origin)
+        else:
+            for src_item, dst_item in zip(list_src, list_dst):
+                origin = make_origin(mode, gather_shape=getattr(self, item)[0].shape, crop_shape=shape, **kwargs)
+                self.crop(src=src_item, dst=dst_item, shape=shape, origin=origin)
 
         return self

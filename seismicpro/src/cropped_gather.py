@@ -10,7 +10,7 @@ class CroppedGather:
 
         self.gather = gather
         self.gather_shape = gather.shape
-        self.shape = shape
+        self.shape = shape  # rename attributes to crop_shape? self.shape = self.crops.shape
         self.aggregation_mode = aggregation_mode
         self.gather_pad = gather_pad
         self.gather_fill = gather_fill

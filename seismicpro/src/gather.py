@@ -883,11 +883,12 @@ class Gather:
     @batch_method(target='for')
     def crop(self, shape, mode=None, origin=None, **kwargs):
         """" ! docs """
-        if origin is None:  # origins is None when crop call as gather method.
+        if origin is None:  # origins is None when crop called as gather method.
             if mode is None:
                 raise ValueError('Mode should be defined.')
             origin = make_origin(mode, gather_shape=self.data.shape, crop_shape=shape, **kwargs)
-
+            if 'n_items' in kwargs.keys():
+                kwargs.pop('n_items') 
         return CroppedGather(self, shape, origin, **kwargs)  # 'n_items' should be removed from kwargs
 
     #------------------------------------------------------------------------#

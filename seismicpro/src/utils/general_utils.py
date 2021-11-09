@@ -253,7 +253,6 @@ def make_origin(mode, gather_shape, crop_shape, **kwargs):
 
 def _origins_from_str(mode, gather_shape, crop_shape, **kwargs):
     if mode == 'random':  # from uniform distribution. 
-        # TO DO: Support n random points
         size = kwargs['n_items'] if 'n_items' in kwargs.keys() else 1
         return np.array((np.random.randint(gather_shape[0] - crop_shape[0], size=size), 
                          np.random.randint(gather_shape[1] - crop_shape[1], size=size))).T.reshape(-1, 2)
