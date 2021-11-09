@@ -326,7 +326,7 @@ class SeismicBatch(Batch):
                 if not isinstance(getattr(self, item)[i], Gather):
                     raise TypeError('Crop should be calls for Gather object only.')
 
-        origin = make_origin(mode, gather_shape=getattr(self, item)[0].shape, crop_shape=shape)
+        origin = make_origin(mode, gather_shape=getattr(self, item)[0].shape, crop_shape=shape, **kwargs)
         self.crop(src=src, dst=dst, shape=shape, origin=origin)
 
         return self

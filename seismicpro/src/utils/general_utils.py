@@ -241,31 +241,30 @@ def clip(data, data_min, data_max):
     return data.reshape(data_shape)
 
 
-def make_origin(mode, gather_shape, crop_shape):
-    origin = []
-    if isinstance(mode, tuple):
-        origin.append(mode)
-    elif isinstance(mode, list):
-        origin = mode
+def make_origin(mode, gather_shape, crop_shape, **kwargs):
+    if isinstance(mode, tuple) or isinstance(mode, list):
+        origin = np.array(mode).reshape(-1, 2)
     elif isinstance(mode, str):
-        origin.append(_origins_from_str(mode, gather_shape, crop_shape))
+        origin = _origins_from_str(mode, gather_shape, crop_shape, **kwargs)
     else:
         raise ValueError('Unknown mode value or type.')
-    return np.array(origin, dtype=int).reshape(-1, 2)
+    return origin
 
 
-def _origins_from_str(mode, gather_shape, crop_shape):
-    # print('start origins_from_str()')
+def _origins_from_str(mode, gather_shape, crop_shape, **kwargs):
     if mode == 'random':  # from uniform distribution. 
         # TO DO: Support n random points
-        return (np.random.randint(gather_shape[0] - crop_shape[0]),
-                np.random.randint(gather_shape[1] - crop_shape[1]))
+        size = kwargs['n_items'] if 'n_items' in kwargs.keys() else 1
+        return np.array((np.random.randint(gather_shape[0] - crop_shape[0], size=size), 
+                         np.random.randint(gather_shape[1] - crop_shape[1], size=size))).T.reshape(-1, 2)
+
     elif mode == 'grid':
         # TO DO: support overlapping
+        # if gather.shape % crop.shape == 0, will creating 2 unnecessary origin
         origin_x = np.linspace(0, gather_shape[0] - crop_shape[0], 
                                num=(gather_shape[0] - crop_shape[0]) // crop_shape[0] + 2, dtype=int)
         origin_y = np.linspace(0, gather_shape[1] - crop_shape[1],
                                num=(gather_shape[1] - crop_shape[1]) // crop_shape[1] + 2, dtype=int)
         return np.array(np.meshgrid(origin_x, origin_y)).T.reshape(-1, 2)
     else:
-        raise ValueError('Unknown mode')
+        raise NotImplementedError("Using mode don't realized now")
