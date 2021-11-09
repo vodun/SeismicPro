@@ -5,8 +5,43 @@ from functools import partial, wraps
 
 import matplotlib.pyplot as plt
 
-from .utils import to_list, save_figure, fill_text_kwargs
+from .utils import to_list, save_figure, set_text_formatting
 from ..batchflow import action, inbatch_parallel
+
+
+def _update_method_params(method, method_params):
+    """Update a `method_params` dict of the `method` with passed parameters."""
+    if not hasattr(method, "method_params"):
+        method.method_params = {}
+    method.method_params.update(method_params)
+    return method
+
+
+def set_method_params(**kwargs):
+    return partial(_update_method_params, method_params=kwargs)
+
+
+def plotter(figsize, args_to_unpack=None):
+    if args_to_unpack is None:
+        args_to_unpack = []
+    args_to_unpack = to_list(args_to_unpack)
+
+    def decorator(method):
+        @wraps(method)
+        def plot(*args, **kwargs):
+            kwargs = set_text_formatting(kwargs)
+            if "ax" in kwargs:
+                return method(*args, **kwargs)
+            fig, ax = plt.subplots(1, 1, figsize=kwargs.pop("figsize", figsize))
+            save_to = kwargs.pop("save_to", None)
+            dpi = kwargs.pop("dpi", 100)
+            output = method(*args, ax=ax, **kwargs)
+            if save_to is not None:
+                save_figure(fig, path=save_to, dpi=dpi)
+            plt.show()
+            return output
+        return _update_method_params(plot, {"figsize": figsize, "args_to_unpack": args_to_unpack})
+    return decorator
 
 
 def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src=True):
@@ -43,7 +78,7 @@ def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src
     Returns
     -------
     decorator : callable
-        A decorator, that keeps the method unchanged, but saves all the passed arguments to its `batch_method_params`
+        A decorator, that keeps the method unchanged, but saves all the passed arguments to its `method_params`
         attribute.
 
     Raises
@@ -51,12 +86,10 @@ def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src
     ValueError
         If positional arguments were passed except for the method being decorated.
     """
-    batch_method_params = {"target": target, "args_to_unpack": args_to_unpack, "force": force, "copy_src": copy_src}
-
-    def decorator(method):
-        """Decorate a method by setting passed batch method params to its attributes."""
-        method.batch_method_params = batch_method_params
-        return method
+    if args_to_unpack is None:
+        args_to_unpack = []
+    method_params = {"target": target, "args_to_unpack": to_list(args_to_unpack), "force": force, "copy_src": copy_src}
+    decorator = partial(_update_method_params, method_params=method_params)
 
     if len(args) == 1 and callable(args[0]):
         return decorator(args[0])
@@ -81,9 +114,9 @@ def _apply_to_each_component(method, target, fetch_method_target):
             if fetch_method_target:
                 src_types = {type(elem) for elem in getattr(self, src)}
                 if len(src_types) != 1:
-                    err_msg = "All elements in {src} component must have the same type, but {src_types} found"
-                    raise ValueError(err_msg.format(src=src, src_types=", ".join(map(str, src_types))))
-                src_method_target = getattr(src_types.pop(), method.__name__).batch_method_params["target"]
+                    raise ValueError(f"All elements in {src} component must have the same type, "
+                                     f"but {', '.join(map(str, src_types))} found")
+                src_method_target = getattr(src_types.pop(), method.__name__).method_params["target"]
 
             # Fetch target from passed kwargs
             src_method_target = kwargs.pop("target", src_method_target)
@@ -132,10 +165,9 @@ def _get_class_methods(cls):
 def create_batch_methods(*component_classes):
     """Create new batch methods from those decorated by `batch_method` in classes listed in `component_classes`.
 
-    A new batch method is created for a method decorated by `batch_method` in classes defined by `component_classes`
-    only if there is no method with the same name in the decorated class or if `force` flag was set to `True` in the
-    `batch_method` arguments. Created methods parallelly redirect calls to elements of the batch and each of them has
-    two new arguments added:
+    A new batch method is created only if there is no method with the same name in the decorated class or if `force`
+    flag was set to `True` in the `batch_method` arguments. Created methods parallelly redirect calls to elements of
+    the batch and each of them has two new arguments added:
     src : str or list of str
         Names of components whose elements will be processed by the method.
     dst : str or list of str, optional
@@ -159,9 +191,10 @@ def create_batch_methods(*component_classes):
         for component_class in component_classes:
             for method_name in _get_class_methods(component_class):
                 method = getattr(component_class, method_name)
-                if hasattr(method, "batch_method_params"):
+                method_params = getattr(method, "method_params", {})
+                if "target" in method_params:
                     decorated_methods.add(method_name)
-                    if getattr(method, "batch_method_params")["force"]:
+                    if method_params["force"]:
                         force_methods.add(method_name)
         methods_to_add = (decorated_methods - _get_class_methods(cls)) | force_methods
 
@@ -171,20 +204,20 @@ def create_batch_methods(*component_classes):
                 # Get an object corresponding to the given index from src component and copy it if needed
                 pos = self.index.get_pos(index)
                 obj = getattr(self, src)[pos]
-                if getattr(obj, method_name).batch_method_params["copy_src"] and src != dst:
-                    obj = obj.copy()
+                obj_method = getattr(obj, method_name)
+                obj_method_params = obj_method.method_params
+                # Rebind obj_method if copying is required
+                if obj_method_params["copy_src"] and src != dst:
+                    obj_method = getattr(obj.copy(), method_name)
 
                 # Unpack required method arguments by getting the value of specified component with index pos
                 # and perform the call with updated args and kwargs
-                obj_method = getattr(obj, method_name)
                 obj_arguments = inspect.signature(obj_method).bind(*args, **kwargs)
                 obj_arguments.apply_defaults()
-                args_to_unpack = obj_method.batch_method_params["args_to_unpack"]
-                if args_to_unpack is not None:
-                    for arg_name in to_list(args_to_unpack):
-                        arg_val = obj_arguments.arguments[arg_name]
-                        if isinstance(arg_val, str):
-                            obj_arguments.arguments[arg_name] = getattr(self, arg_val)[pos]
+                for arg_name in obj_method_params["args_to_unpack"]:
+                    arg_val = obj_arguments.arguments[arg_name]
+                    if isinstance(arg_val, str):
+                        obj_arguments.arguments[arg_name] = getattr(self, arg_val)[pos]
                 getattr(self, dst)[pos] = obj_method(*obj_arguments.args, **obj_arguments.kwargs)
             method.__name__ = method_name
             return action(apply_to_each_component(method))
@@ -193,30 +226,3 @@ def create_batch_methods(*component_classes):
             setattr(cls, method_name, create_method(method_name))
         return cls
     return decorator
-
-
-def plotter(figsize):
-    """!!!!"""
-    def outer_wrapper(method):
-        # Save figsize as an attribute for plot method to use it as a default when plotter is called from batch.
-        method.figsize = figsize
-        @wraps(method)
-        def decorator(*args, **kwargs):
-            kwargs = fill_text_kwargs(kwargs)
-            if 'ax' not in kwargs:
-                # There is only one case when axes are not passed -
-                # a plot function is called directly from a class instance.
-                # In this case we want to plot image with pre-defined `figsize`
-                # and show image immediately after creation.
-                _, ax = plt.subplots(1, 1, figsize=kwargs.pop('figsize', figsize))
-                kwargs.update({'ax': ax})
-                save_path = kwargs.pop('save_path', None)
-                dpi = kwargs.pop('dpi', 100)
-                output = method(*args, **kwargs)
-                if save_path is not None:
-                    save_figure(path=save_path, dpi=dpi)
-                plt.show()
-                return output
-            return method(*args, **kwargs)
-        return decorator
-    return outer_wrapper

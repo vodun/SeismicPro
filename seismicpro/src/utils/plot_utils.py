@@ -2,7 +2,6 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
 from matplotlib import colors as mcolors
 
 from .general_utils import is_monotonic
@@ -186,20 +185,17 @@ def _process_ticks(labels, length, num=None, step_ticks=None, step_labels=None, 
     return ticklabels, ticks, rotation, kwargs
 
 
-def fill_text_kwargs(kwargs):
-    TEXT_KEYS = ['fontsize', 'size', 'fontfamily', 'family', 'fontweight', 'weight']
-    TEXT_ARGS = ['title', 'x_ticker', 'y_ticker']
-    for key in TEXT_KEYS:
-        item = kwargs.pop(key, None)
-        if item is not None:
-            for args in TEXT_ARGS:
-                params = kwargs.get(args, '')
-                if not isinstance(params, dict):
-                    kwargs[args] = {'label': params, key: item}
-                else:
-                    if item not in params:
-                        kwargs[args] = {**{key: item}, **params}
-    return kwargs
+def text_arg_to_dict(arg):
+    return arg.copy() if isinstance(arg, dict) else {"label": arg}
+
+
+def set_text_formatting(kwargs):
+    FORMAT_ARGS = {'fontsize', 'size', 'fontfamily', 'family', 'fontweight', 'weight'}
+    TEXT_ARGS = {'title', 'x_ticker', 'y_ticker'}
+
+    global_formatting = {arg: kwargs.pop(arg) for arg in FORMAT_ARGS if arg in kwargs}
+    text_args = {arg: {**global_formatting, **text_arg_to_dict(kwargs.pop(arg))} for arg in TEXT_ARGS if arg in kwargs}
+    return {**kwargs, **text_args}
 
 
 def save_figure(fig, path, dpi=100, bbox_inches="tight", pad_inches=0.1, **kwargs):

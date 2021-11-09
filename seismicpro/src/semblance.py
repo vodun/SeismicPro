@@ -304,8 +304,7 @@ class Semblance(BaseSemblance):
                                              t_min_ix=0, t_max_ix=len(gather_data))
         return semblance
 
-    @plotter(figsize=(15, 12))
-    @batch_method(target="for", args_to_unpack="stacking_velocity")
+    @plotter(figsize=(10, 9), args_to_unpack="stacking_velocity")
     def plot(self, stacking_velocity=None, **kwargs):
         """Plot vertical velocity semblance.
 
@@ -559,8 +558,7 @@ class ResidualSemblance(BaseSemblance):
                                               cropped_semblance)
         return residual_semblance
 
-    @plotter(figsize=(15, 12))
-    @batch_method(target="for")
+    @plotter(figsize=(10, 9), args_to_unpack="stacking_velocity")
     def plot(self, **kwargs):
         """Plot residual vertical velocity semblance. The plot always has a vertical line in the middle, representing
         the stacking velocity it was calculated for.
@@ -582,7 +580,7 @@ class ResidualSemblance(BaseSemblance):
         stacking_velocities_ix = np.full_like(stacking_times_ix, self.residual_semblance.shape[1] / 2)
 
         x_ticker = kwargs.get('x_ticker', {})
-        kwargs['x_ticker'] = {**{'round_to': 2}, **x_ticker}
+        kwargs['x_ticker'] = {'round_to': 2, **x_ticker}
         super().plot(self.residual_semblance, x_ticklabels=x_ticklabels, y_ticklabels=self.times,
                      stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
                      xlabel='Relative velocity margin (%)', **kwargs)

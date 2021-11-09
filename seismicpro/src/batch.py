@@ -1,5 +1,5 @@
 """Implements SeismicBatch class for processing a small subset of seismic gathers"""
-import re
+
 from string import Formatter
 from functools import partial
 
@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from .gather import Gather
 from .semblance import Semblance, ResidualSemblance
 from .decorators import create_batch_methods, apply_to_each_component
-from .utils import to_list, save_figure
+from .utils import to_list, text_arg_to_dict, save_figure
 from ..batchflow import Batch, action, DatasetIndex, NamedExpression
 
 
@@ -305,38 +305,48 @@ class SeismicBatch(Batch):
             raise ValueError(f"dst must be either `str` or `NamedExpression`, not {type(dst)}.")
         return self
 
-
     @action
-    def plot(self, src, src_kwargs=None, max_width=20, title="{src}: {index}", save_to=None, dpi=100, **kwargs):
+    def plot(self, src, src_kwargs=None, max_width=20, title="{src}: {index}", save_to=None, dpi=100, **common_kwargs):
         # Consturct a list of plot kwargs for each component in src
         src_list = to_list(src)
         if src_kwargs is None:
             src_kwargs = [{} for _ in range(len(src_list))]
         elif isinstance(src_kwargs, dict):
-            src_kwargs = {src: extra_kwargs for src_lst, extra_kwargs in src_kwargs.items()
-                          for src in to_list(src_lst)}
+            src_kwargs = {src: kwargs for src_l, kwargs in src_kwargs.items() for src in to_list(src_l)}
             src_kwargs = [src_kwargs.get(src, {}) for src in src_list]
         else:
             src_kwargs = to_list(src_kwargs)
             if len(src_list) != len(src_kwargs):
                 raise ValueError("The length of src_kwargs must match the length of src")
-        src_kwargs = [{"figsize": getattr(self, src)[0].plot.figsize, "title": title, **kwargs, **extra_kwargs}
-                      for src, extra_kwargs in zip(src_list, src_kwargs)]
 
         # Construct a grid of plotters with shape (len(self), len(src_list)) for each of the subplots
         plotters = [[] for _ in range(len(self))]
         for src, kwargs in zip(src_list, src_kwargs):
+            # Merge src kwargs with common kwargs and defaults
+            default_figsize = getattr(getattr(self, src)[0].plot, "method_params", {}).get("figsize", (8, 6))
+            kwargs = {"figsize": default_figsize, "title": title, **common_kwargs, **kwargs}
+
             width, height = kwargs.pop("figsize")
             title_template = kwargs.pop("title")
+            args_to_unpack = getattr(getattr(self, src)[0].plot, "method_params", {}).get("args_to_unpack", [])
+
             for i, index in enumerate(self.indices):
+                # Unpack required plotter arguments by getting the value of specified component with given index
+                for arg_name in set(args_to_unpack) & kwargs.keys():
+                    arg_val = kwargs[arg_name]
+                    if isinstance(arg_val, str):
+                        kwargs[arg_name] = getattr(self, arg_val)[i]
+
+                # Format subplot title
                 if title_template is not None:
-                    title = title_template.copy() if isinstance(title_template, dict) else {"label": title_template}
+                    title = text_arg_to_dict(title_template)
                     label = title.pop("label")
                     format_names = {name for _, name, _, _ in Formatter().parse(label) if name is not None}
                     format_kwargs = {name: title.pop(name) for name in format_names if name in title}
                     title["label"] = label.format(src=src, index=index, **format_kwargs)
                     kwargs["title"] = title
 
+                # Create subplotter config
                 subplot_config = {
                     "plotter": partial(getattr(self, src)[i].plot, **kwargs),
                     "height": height,

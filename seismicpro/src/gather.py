@@ -905,8 +905,8 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @plotter(figsize=(10, 7))
-    @batch_method(target="for", copy_src=False)
-    def plot(self, wiggle=False, points=None, ax=None, x_ticker=None, y_ticker="time", title=None, plot_attribute=None, colorbar=None, **kwargs):
+    def plot(self, wiggle=False, points=None, ax=None, x_ticker=None, y_ticker="time", title=None, plot_attribute=None,
+             colorbar=None, **kwargs):
         """Plot gather traces.
 
         Parameters
