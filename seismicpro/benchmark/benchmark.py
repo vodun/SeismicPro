@@ -6,7 +6,6 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-from seismicpro.src.utils import to_list
 from seismicpro.batchflow import Pipeline, CPUMonitor, C
 from seismicpro.batchflow.research import Option, Research, EC
 
