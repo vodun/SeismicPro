@@ -101,30 +101,16 @@ class Gather:
 
         Parameters
         ----------
-        key : str, list of str, list of slices/int
-            IF ..... Gather headers to get.
+        key : str or list of str
+            Gather headers to get.
 
         Returns
         -------
         headers : np.ndarray
             Headers values.
-            !!!
         """
-        if isinstance(key, (str, list)):
-            return self.headers[key].values
-
-        new_self = self.copy()
-        new_self.data = self.data[key]
-        # When key is a slice, it applyies to 0 axis. It means that only the number of traces has changed and no need
-        # to change self.samples attribute.
-        if isinstance(key, slice):
-            new_self.headers = self.headers.iloc[key]
-        # In this case, key is a tuple of slices, where first slice describes what traces to choose, while second one
-        # affect traces itself.
-        else:
-            new_self.headers = self.headers.iloc[key[0]]
-            new_self.samples = self.samples[key[1]]
-        return new_self
+        self.validate(required_header_cols=key)
+        return self.headers[key].values
 
     def __setitem__(self, key, value):
         """Set given values to selected gather headers.
@@ -226,13 +212,6 @@ class Gather:
         self_copy.survey = survey
         self.survey = survey
         return self_copy
-
-    @batch_method
-    def slice(self, x=None, y=None):
-        # Processing limits and set x_coords
-        slice_xlim = self.survey._process_limits(x, max_length=len(self.data))  # pylint: disable=protected-access
-        slice_ylim = self.survey._process_limits(y, max_length=len(self.samples))  # pylint: disable=protected-access
-        return self[(slice_xlim, slice_ylim)]
 
     def _validate_header_cols(self, required_header_cols):
         """Check if the gather headers contain all columns from `required_header_cols`."""
