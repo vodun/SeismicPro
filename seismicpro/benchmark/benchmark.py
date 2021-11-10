@@ -116,7 +116,7 @@ class Benchmark:
             If `False`: items go sequentially, one after another as they appear in the index;
             If `True`: items are shuffled randomly before each epoch;
             If int: a seed number for a random shuffle;
-        bar : bool, optional, default False
+        bar : bool, optional, default True
             Whether to use progress bar or not.
         env_meta : dict or bool, optional, default False
             if dict, kwargs for :meth:`~batchflow.batchflow.research.attach_env_meta`
@@ -165,9 +165,9 @@ class Benchmark:
             If True, the CPU utilization is plotted next to the elapsed time plot.
         """
         results = self.results.drop(columns='CPUMonitor') if not cpu_util else self.results
+        batch_sizes = np.unique(results.reset_index()['batch_size'])
         for col_name, col_series in results.iteritems():
             sub_df = col_series.explode().reset_index()
-            batch_sizes = np.unique(sub_df['batch_size'])
 
             plt.figure(figsize=figsize)
             sns.lineplot(data=sub_df, x='batch_size', y=col_name, hue='target', ci='sd', marker='o')
