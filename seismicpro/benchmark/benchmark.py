@@ -1,7 +1,8 @@
-"""Implements Benchmark class"""
+"""Implements Benchmark class to choose optimal inbatch_parallel target for SeismicBatch methods"""
 # pylint: disable=import-error
 
 import dill
+import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 
@@ -16,9 +17,8 @@ class Benchmark:
     :func:`~decorators.batch_method`.
 
     `Benchmark` runs experiments with all combinations of given parallelization engines (`targets`) and batch sizes for
-    the specified method and measure the time for all repetitions. To get a more accurate time estimation, each
-    experiment is run `n_iters` times. In the result, the graph with relations between elapsed time and batch size are
-    plotted for every `target`.
+    the specified method and measures the execution time. To get a more accurate time estimation, each experiment is
+    repeated `n_iters` times.
 
     Simple usage of `Benchmark` contains three steps:
     1. Define Benchmark instance.
@@ -34,9 +34,9 @@ class Benchmark:
     targets : str or array of str
         Name(s) of target from :func:`~batchflow.batchflow.decorators.inbatch_parallel`.
     batch_sizes : int or array of int
-        Batch size(s) on which the benchmark is performed.
+        Batch size(s) to run the benchmark for.
     dataset : Dataset
-        Dataset on which the benchmark is conducted.
+        Dataset for which the benchmark is conducted.
     root_pipeline : Pipeline, optional, by default None
         Pipeline that contains actions to be performed before the benchmarked method.
 
@@ -44,20 +44,17 @@ class Benchmark:
     ----------
     method_name : str
         A name of the benchmarked method.
-    targets : str or array of str
-        Name(s) of targets from :func:`~batchflow.batchflow.decorators.inbatch_parallel`.
-    batch_sizes : int or array of int
-        Batch size(s) on which the benchmark is performed.
     results : None or pd.DataFrame
         A DataFrame with benchmark results.
+    domain : Domain
+        Grid or parameters to provide the benchmark with.
     template_pipeline : Pipeline
         Pipeline that contains `root_pipeline`, benchmarked method, and dataset.
     """
     def __init__(self, method_name, method_kwargs, targets, batch_sizes, dataset, root_pipeline=None):
         self.method_name = method_name
-        self.targets = to_list(targets)
-        self.batch_sizes = to_list(batch_sizes)
         self.results = None
+        self.domain = Option('target', targets) * Option('batch_size', batch_sizes)
 
         # Add benchmarked method to the `root_pipeline` with `method_kwargs` and `target` from config.
         method_kwargs['target'] = C('target')
@@ -78,7 +75,7 @@ class Benchmark:
         Parameters
         ----------
         path : str
-            A path to save the resulted benchmark.
+            A path to save the benchmark.
 
         Returns
         -------
@@ -96,7 +93,7 @@ class Benchmark:
         Parameters
         ----------
         path : str
-            Path to pickled file.
+            A path to a pickled benchmark.
 
         Returns
         -------
@@ -107,16 +104,14 @@ class Benchmark:
             benchmark = dill.load(file)
         return benchmark
 
-    def run(self, n_iters=10, shuffle=False, bar=False, env_meta=False):
-        """Run benchmark.
-
-        The method measures the execution time and CPU utilization of the benchmarked method with all combinations of
-        targets and batch sizes.
+    def run(self, n_iters=10, shuffle=False, bar=True, env_meta=False):
+        """Measure the execution time and CPU utilization of the benchmarked method for all combinations of targets and
+        batch sizes.
 
         Parameters
         ----------
         n_iters : int, optional, by default 10
-            The number of iterations for the method with specified parameters.
+            The number of method executions to get a more accurate elapsed time estimation.
         shuffle : int or bool, by default False
             Specifies the randomization in the pipeline.
             If `False`: items go sequentially, one after another as they appear in the index;
@@ -133,10 +128,8 @@ class Benchmark:
         self : Benchmark
             Benchmark with computed reuslts.
         """
-        domain = Option('target', self.targets) * Option('batch_size', self.batch_sizes)
-
         # Create research that will run pipeline with different parameters based on given `domain`
-        research = (Research(domain=domain, n_reps=1)
+        research = (Research(domain=self.domain, n_reps=1)
             .add_callable(self._run_single_pipeline, config=EC(), n_iters=n_iters, shuffle=shuffle,
                           save_to=['Time', 'CPUMonitor'])
         ).run(n_iters=1, dump_results=False, parallel=False, workers=1, bar=bar, env_meta=env_meta)
@@ -146,7 +139,7 @@ class Benchmark:
         return self
 
     def _run_single_pipeline(self, config, n_iters, shuffle):
-        """Benchmark method with a particular `batch_size` and `target`."""
+        """Benchmark the method with a particular `batch_size` and `target`."""
         pipeline = self.template_pipeline << config
         with CPUMonitor() as cpu_monitor:
             pipeline.run(C('batch_size'), n_iters=n_iters, shuffle=shuffle, drop_last=True, notifier=False,
@@ -160,28 +153,28 @@ class Benchmark:
         return run_time, cpu_monitor.data
 
     def plot(self, figsize=(15, 7), cpu_util=False):
-        """Plot a graph of time verus `batch_size` for every `target`.
+        """Plot time and, optionally, CPU utilization versus `batch_size` for each `target`.
 
-        Each point on the graph shows the average value and the standard deviation of elapsed time over `n_iters`
-        iterations.
+        The graph represents the average value and the standard deviation of the elapsed time or CPU
+        utilization over `n_iters` iterations.
 
         Parameters
         ----------
         figsize : tuple, optional, by default (15, 7)
             Output plot size.
-        cpu_util : bool
-            If True, the CPU utilization is plotted after the elapsed time plot.
+        cpu_util : bool, by default False
+            If True, the CPU utilization is plotted next to the elapsed time plot.
         """
         results = self.results.drop(columns='CPUMonitor') if not cpu_util else self.results
         for col_name, col_series in results.iteritems():
             sub_df = col_series.explode().reset_index()
+            batch_sizes = np.unique(sub_df['batch_size'])
 
             plt.figure(figsize=figsize)
             sns.lineplot(data=sub_df, x='batch_size', y=col_name, hue='target', ci='sd', marker='o')
 
             plt.title(f"{col_name} for {self.method_name} method")
-            plt.xticks(ticks=self.batch_sizes, labels=self.batch_sizes)
-
+            plt.xticks(ticks=batch_sizes, labels=batch_sizes)
             plt.xlabel('Batch size')
             plt.ylabel('Time (s)' if col_name == 'Time' else 'CPU (%)')
         plt.show()

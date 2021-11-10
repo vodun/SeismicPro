@@ -22,4 +22,4 @@ class TestBenchmark:
         dataset = SeismicDataset(surveys=survey)
         load_bm = Benchmark(method_name=method_name, method_kwargs=method_kwargs, targets=('for', 'threads'),
                             batch_sizes=[1, 5, 10], dataset=dataset, root_pipeline=root_pipeline)
-        load_bm.run(n_iters=3)
+        load_bm.run(n_iters=3, bar=False, shuffle=42)
