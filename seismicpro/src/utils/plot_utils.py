@@ -7,6 +7,23 @@ from matplotlib import colors as mcolors
 from .general_utils import is_monotonic
 
 
+def save_figure(fig, path, dpi=100, bbox_inches="tight", pad_inches=0.1, **kwargs):
+    fig.savefig(path, dpi=dpi, bbox_inches=bbox_inches, pad_inches=pad_inches, **kwargs)
+
+
+def plot_arg_to_dict(arg):
+    return arg.copy() if isinstance(arg, dict) else {"label": arg}
+
+
+def set_text_formatting(kwargs):
+    FORMAT_ARGS = {'fontsize', 'size', 'fontfamily', 'family', 'fontweight', 'weight'}
+    TEXT_ARGS = {'title', 'x_ticker', 'y_ticker'}
+
+    global_formatting = {arg: kwargs.pop(arg) for arg in FORMAT_ARGS if arg in kwargs}
+    text_args = {arg: {**global_formatting, **plot_arg_to_dict(kwargs.pop(arg))} for arg in TEXT_ARGS if arg in kwargs}
+    return {**kwargs, **text_args}
+
+
 def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7),  # pylint: disable=too-many-arguments
                      pad=False, fontsize=11, ticks_range_x=None, ticks_range_y=None,
                      x_ticks=15, y_ticks=15, save_to=None, dpi=300, **kwargs):
@@ -183,20 +200,3 @@ def _process_ticks(labels, length, num=None, step_ticks=None, step_labels=None, 
                 "rotation_mode": "anchor"
             }
     return ticklabels, ticks, rotation, kwargs
-
-
-def text_arg_to_dict(arg):
-    return arg.copy() if isinstance(arg, dict) else {"label": arg}
-
-
-def set_text_formatting(kwargs):
-    FORMAT_ARGS = {'fontsize', 'size', 'fontfamily', 'family', 'fontweight', 'weight'}
-    TEXT_ARGS = {'title', 'x_ticker', 'y_ticker'}
-
-    global_formatting = {arg: kwargs.pop(arg) for arg in FORMAT_ARGS if arg in kwargs}
-    text_args = {arg: {**global_formatting, **text_arg_to_dict(kwargs.pop(arg))} for arg in TEXT_ARGS if arg in kwargs}
-    return {**kwargs, **text_args}
-
-
-def save_figure(fig, path, dpi=100, bbox_inches="tight", pad_inches=0.1, **kwargs):
-    fig.savefig(path, dpi=dpi, bbox_inches=bbox_inches, pad_inches=pad_inches, **kwargs)

@@ -4,6 +4,7 @@ import os
 import warnings
 from copy import deepcopy
 from textwrap import dedent
+from functools import partial
 
 import segyio
 import numpy as np
@@ -16,7 +17,7 @@ from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 from .decorators import batch_method, plotter
 from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, normalization, correction,
-                    parse_kwargs_using_base_key, set_ticks_and_labels, get_ticklabels)
+                    set_ticks_and_labels, get_ticklabels, plot_arg_to_dict)
 
 UNITS = {
     'time': ' (ms)',
@@ -96,6 +97,16 @@ class Gather:
         """tuple with 2 elements: The number of traces in the gather and trace length in samples."""
         return self.data.shape
 
+    @property
+    def n_traces(self):
+        """int: The number of traces in the gather."""
+        return self.shape[0]
+
+    @property
+    def n_samples(self):
+        """int: Trace length in samples."""
+        return self.shape[1]
+
     def __getitem__(self, key):
         """Select gather headers by their names.
 
@@ -143,8 +154,8 @@ class Gather:
         Parent survey path:          {self.survey.path}
         Parent survey name:          {self.survey.name}
 
-        Number of traces:            {self.data.shape[0]}
-        Trace length:                {len(self.samples)} samples
+        Number of traces:            {self.n_traces}
+        Trace length:                {self.n_samples} samples
         Sample rate:                 {self.sample_rate} ms
         Times range:                 [{min(self.samples)} ms, {max(self.samples)} ms]
         Offsets range:               {offset_range}
@@ -302,7 +313,7 @@ class Gather:
         spec.samples = self.samples
         spec.ext_headers = parent_handler.ext_headers
         spec.format = parent_handler.format
-        spec.tracecount = len(self.data)
+        spec.tracecount = self.n_traces
 
         trace_headers = self.headers.reset_index()
 
@@ -884,8 +895,8 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @plotter(figsize=(10, 7))
-    def plot(self, wiggle=False, points=None, ax=None, x_ticker=None, y_ticker="time", title=None, plot_attribute=None,
-             colorbar=None, **kwargs):
+    def plot(self, mode="seismogram", scatter_headers=None, top_subplot_header=None, title=None,
+             x_ticker=None, y_ticker="time", ax=None, **kwargs):
         """Plot gather traces.
 
         Parameters
@@ -900,39 +911,27 @@ class Gather:
         self : Gather
             Gather unchanged.
         """
-        #TODO: Will it always be an arange? or should we process it differently?
-        x_coords = np.arange(len(self.data))
+        # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
 
-        if not wiggle:
-            vmin, vmax = self.get_quantile([0.1, 0.9])
-            imshow_kwargs = dict(cmap='gray', vmin=vmin, vmax=vmax, aspect='auto')
-            imshow_kwargs.update(kwargs)
-            img = ax.imshow(self.data.T, **imshow_kwargs)
-            if colorbar is not None and colorbar:
-                colorbar = colorbar if isinstance(colorbar, dict) else {}
-                cax = divider.append_axes('right', size='5%', pad=0.05)
-                ax.figure.colorbar(img, cax=cax, **colorbar)
-        else:
-            wiggle_kwargs = wiggle if isinstance(wiggle, dict) else {}
-            self._plot_wiggle(ax=ax, base_x_pos=x_coords, **wiggle_kwargs)
+        # Plot the gather depending on the mode passed
+        plotters_dict = {
+            "seismogram": partial(self._plot_seismogram, divider=divider),
+            "wiggle": self._plot_wiggle,
+        }
+        if mode not in plotters_dict:
+            raise ValueError(f"Unknown mode {mode}")
+        plotters_dict[mode](ax, **kwargs)
 
-        # Add points to the plot based on `points` argument
-        if points is not None:
-            points_kwargs = parse_kwargs_using_base_key(points, base_key='col_name')
-            for single_kwargs in points_kwargs:
-                self._add_points(ax=ax, x_coords=x_coords, **single_kwargs)
+        # Add headers scatter plot if needed
+        if scatter_headers is not None:
+            self._plot_headers(ax, scatter_headers)
 
-        # Show legend if any provided
-        if len(ax.get_legend_handles_labels()[0]) > 0:
-            ax.legend()
-
-        title = title if isinstance(title, dict) else {'label': title}
-        if plot_attribute is not None:
-            top_ax = self._scatter_on_top(ax=ax, attribute=self[plot_attribute], divider=divider)
-            top_ax.set_title(**title)
-        else:
-            ax.set_title(**title)
+        # Add a top subplot for given header if needed and set plot title
+        top_ax = ax
+        if top_subplot_header is not None:
+            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_subplot_header])
+        top_ax.set_title(**plot_arg_to_dict(title))
 
         # Create tickers
         ## Use sorted value by default if x_ticker is not specified
@@ -953,33 +952,68 @@ class Gather:
                              y_ticklabels=y_ticklabels, y_label=y_label, x_kwargs=x_ticker, y_kwargs=y_ticker)
         return self
 
-    def _plot_wiggle(self, ax, base_x_pos, std=0.5, color=None):
-        """!!!"""
-        color = ['k'] if color is None else to_list(color)
+    def _plot_seismogram(self, ax, divider, colorbar=False, **kwargs):
+        vmin, vmax = self.get_quantile([0.1, 0.9])
+        kwargs = {"cmap": "gray", "aspect": "auto", "vmin": vmin, "vmax": vmax, **kwargs}
+        img = ax.imshow(self.data.T, **kwargs)
+        if not isinstance(colorbar, (bool, dict)):
+            raise ValueError(f"colorbar must be bool or dict but {type(colorbar)} was passed")
+        if colorbar is not False:
+            colorbar = {} if colorbar is True else colorbar
+            cax = divider.append_axes("right", size="5%", pad=0.05)
+            ax.figure.colorbar(img, cax=cax, **colorbar)
+
+    def _plot_wiggle(self, ax, std=0.5, color=None):
+        color = ["black"] if color is None else to_list(color)
         if len(color) == 1:
-            color = color * len(self.data)
-        elif len(color) != len(base_x_pos):
+            color = color * self.n_traces
+        elif len(color) != self.n_traces:
             raise ValueError('The number of items in `color` must match the number of plotted traces')
 
-        y_coords = np.arange(len(self.samples))
-        for pos_num, c in zip(base_x_pos, color):
-            x_coords = pos_num + std * self.data[pos_num] / np.std(self.data)
-            ax.plot(x_coords, y_coords, c=c)
-            ax.fill_betweenx(y_coords, pos_num, x_coords, where=(x_coords > pos_num), color=c)
+        y_coords = np.arange(self.n_samples)
+        traces = np.arange(self.n_traces).reshape(-1, 1) + std * self.data / np.std(self.data)
+        for i, (trace, col) in enumerate(zip(traces, color)):
+            ax.plot(trace, y_coords, color=col)
+            ax.fill_betweenx(y_coords, i, trace, where=(trace > i), color=col)
         ax.invert_yaxis()
 
-    def _add_points(self, ax, col_name, x_coords, **kwargs):
-        """!!!"""
-        self.validate(required_header_cols=col_name)
-        y_coords = self[col_name][x_coords] / self.sample_rate
-        ax.scatter(x_coords, y_coords, label=col_name, **kwargs)
+    @staticmethod
+    def _parse_headers_kwargs(headers_kwargs, headers_key):
+        if not isinstance(headers_kwargs, dict):
+            return [{headers_key: header} for header in to_list(headers_kwargs)]
 
-    def _scatter_on_top(self, ax, attribute, divider=None):
-        """" Plot additional scatter on top of the 'ax' axes. """
-        divider = make_axes_locatable(ax) if divider is None else divider
-        top_ax = divider.append_axes("top", 0.65, pad=0.01,  sharex=ax)
-        top_ax.scatter(range(len(attribute)), attribute, s=5, c='k')
-        top_ax.invert_yaxis()
-        plt.setp(top_ax.get_xticklabels(), visible=False)
+        if headers_key not in headers_kwargs:
+            raise ValueError(f'{headers_key} key is not defined in scatter_headers')
+
+        n_headers = len(to_list(headers_kwargs[headers_key]))
+        kwargs_list = [{} for _ in range(n_headers)]
+        for key, values in headers_kwargs.items():
+            values = to_list(values)
+            if len(values) == 1:
+                values = values * n_headers
+            elif len(values) != n_headers:
+                raise ValueError(f"Incompatible lenght of {key} array: {n_headers} expected but {len(values)} given.")
+            for ix, value in enumerate(values):
+                kwargs_list[ix][key] = value
+        return kwargs_list
+
+    def _plot_headers(self, ax, headers_kwargs):
+        HEADERS_KEY = "headers"
+        x_coords = np.arange(self.n_traces)
+
+        headers_kwargs = self._parse_headers_kwargs(headers_kwargs, HEADERS_KEY)
+        for kwargs in headers_kwargs:
+            header = kwargs.pop(HEADERS_KEY)
+            y_coords = np.clip(self[header] / self.sample_rate, 0, self.n_samples - 1)
+            ax.scatter(x_coords, y_coords, label=header, **kwargs)
+
+        if headers_kwargs:
+            ax.legend()
+
+    def _plot_top_subplot(self, ax, divider, header_values):
+        top_ax = divider.append_axes("top", size="12%", pad=0.05, sharex=ax)
+        top_ax.scatter(np.arange(self.n_traces), header_values, s=5, color="black")
+        top_ax.xaxis.set_visible(False)
         top_ax.yaxis.tick_right()
+        top_ax.invert_yaxis()
         return top_ax

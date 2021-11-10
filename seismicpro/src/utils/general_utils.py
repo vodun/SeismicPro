@@ -23,6 +23,14 @@ def unique_indices_sorted(arr):
     return np.where(mask)[0]
 
 
+def is_monotonic(arr, strict=False):
+    """Return whether an array is monotonic."""
+    unique_signs = set(np.unique(np.sign(np.diff(arr))).tolist())
+    if not strict:
+        unique_signs.discard(0)
+    return (len(unique_signs) <= 1) and (0 not in unique_signs)
+
+
 @njit(nogil=True)
 def calculate_stats(trace):
     """Calculate min, max, sum and sum of squares of the trace amplitudes."""
@@ -239,29 +247,3 @@ def clip(data, data_min, data_max):
     for i in range(len(data)):  # pylint: disable=consider-using-enumerate
         data[i] = min(max(data[i], data_min), data_max)
     return data.reshape(data_shape)
-
-
-def parse_kwargs_using_base_key(kwargs, base_key):
-    """!!!"""
-    if not isinstance(kwargs, dict):
-        return [{base_key: value} for value in to_list(kwargs)]
-
-    if base_key not in kwargs:
-        raise ValueError(f'The base_key: `{base_key}` is missed in kwargs')
-
-    kwargs_list = [{} for _ in to_list(kwargs[base_key])]
-    for key, values in kwargs.items():
-        values = to_list(values)
-        if len(values) == 1:
-            values = values * len(kwargs_list)
-        elif len(values) != len(kwargs_list):
-            raise ValueError(f"Incompatible array size by key `{key}`. "
-                                f"Expected {len(kwargs_list)} but given {len(values)}.")
-        for ix, value in enumerate(values):
-            kwargs_list[ix][key] = value
-    return kwargs_list
-
-
-def is_monotonic(array):
-    diff = np.diff(array)
-    return np.all(diff<=0) or np.all(diff>=0)
