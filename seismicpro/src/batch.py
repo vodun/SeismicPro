@@ -332,7 +332,7 @@ class SeismicBatch(Batch):
 
             for i, index in enumerate(self.indices):
                 # Unpack required plotter arguments by getting the value of specified component with given index
-                for arg_name in set(args_to_unpack) & kwargs.keys():
+                for arg_name in set(to_list(args_to_unpack)) & kwargs.keys():
                     arg_val = kwargs[arg_name]
                     if isinstance(arg_val, str):
                         kwargs[arg_name] = getattr(self, arg_val)[i]

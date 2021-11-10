@@ -24,7 +24,6 @@ def set_method_params(**kwargs):
 def plotter(figsize, args_to_unpack=None):
     if args_to_unpack is None:
         args_to_unpack = []
-    args_to_unpack = to_list(args_to_unpack)
 
     def decorator(method):
         @wraps(method)
@@ -88,7 +87,7 @@ def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src
     """
     if args_to_unpack is None:
         args_to_unpack = []
-    method_params = {"target": target, "args_to_unpack": to_list(args_to_unpack), "force": force, "copy_src": copy_src}
+    method_params = {"target": target, "args_to_unpack": args_to_unpack, "force": force, "copy_src": copy_src}
     decorator = partial(_update_method_params, method_params=method_params)
 
     if len(args) == 1 and callable(args[0]):
@@ -214,7 +213,7 @@ def create_batch_methods(*component_classes):
                 # and perform the call with updated args and kwargs
                 obj_arguments = inspect.signature(obj_method).bind(*args, **kwargs)
                 obj_arguments.apply_defaults()
-                for arg_name in obj_method_params["args_to_unpack"]:
+                for arg_name in to_list(obj_method_params["args_to_unpack"]):
                     arg_val = obj_arguments.arguments[arg_name]
                     if isinstance(arg_val, str):
                         obj_arguments.arguments[arg_name] = getattr(self, arg_val)[pos]
