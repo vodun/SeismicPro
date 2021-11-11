@@ -998,13 +998,18 @@ class Gather:
         return kwargs_list
 
     def _plot_headers(self, ax, headers_kwargs):
-        HEADERS_KEY = "headers"
         x_coords = np.arange(self.n_traces)
-
-        headers_kwargs = self._parse_headers_kwargs(headers_kwargs, HEADERS_KEY)
+        headers_kwargs = self._parse_headers_kwargs(headers_kwargs, "headers")
         for kwargs in headers_kwargs:
-            header = kwargs.pop(HEADERS_KEY)
-            y_coords = np.clip(self[header] / self.sample_rate, 0, self.n_samples - 1)
+            header = kwargs.pop("headers")
+            process_outliers = kwargs.pop("process_outliers", "none")
+            y_coords = self[header] / self.sample_rate
+            if process_outliers == "clip":
+                y_coords = np.clip(y_coords, 0, self.n_samples - 1)
+            elif process_outliers == "discard":
+                y_coords = np.where((y_coords >= 0) & (y_coords <= self.n_samples - 1), y_coords, np.nan)
+            elif process_outliers != "none":
+                raise ValueError(f"Unknown outlier processing mode {process_outliers}")
             ax.scatter(x_coords, y_coords, label=header, **kwargs)
 
         if headers_kwargs:
