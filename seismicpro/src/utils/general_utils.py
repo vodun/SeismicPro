@@ -254,16 +254,20 @@ def make_origin(mode, gather_shape, crop_shape, **kwargs):
 def _origins_from_str(mode, gather_shape, crop_shape, **kwargs):
     if mode == 'random':  # from uniform distribution. 
         size = kwargs['n_items'] if 'n_items' in kwargs.keys() else 1
+        # check with vstack
         return np.array((np.random.randint(gather_shape[0] - crop_shape[0], size=size), 
-                         np.random.randint(gather_shape[1] - crop_shape[1], size=size))).T.reshape(-1, 2)
+                         np.random.randint(gather_shape[1] - crop_shape[1], size=size))).T.reshape(-1, 2)  
 
     elif mode == 'grid':
         # TO DO: support overlapping
         # if gather.shape % crop.shape == 0, will creating 2 unnecessary origin
+        grid_coverage = kwargs['grid_coverage'] if 'grid_coverage' in kwargs.keys() else 1
         origin_x = np.linspace(0, gather_shape[0] - crop_shape[0], 
-                               num=(gather_shape[0] - crop_shape[0]) // crop_shape[0] + 2, dtype=int)
+                               num=int(((gather_shape[0] - crop_shape[0]) // crop_shape[0] + 2) * grid_coverage),
+                               dtype=int)
         origin_y = np.linspace(0, gather_shape[1] - crop_shape[1],
-                               num=(gather_shape[1] - crop_shape[1]) // crop_shape[1] + 2, dtype=int)
+                               num=int(((gather_shape[1] - crop_shape[1]) // crop_shape[1] + 2) * grid_coverage), 
+                               dtype=int)
         return np.array(np.meshgrid(origin_x, origin_y)).T.reshape(-1, 2)
     else:
         raise NotImplementedError("Using mode don't realized now")

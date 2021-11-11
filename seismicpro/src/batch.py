@@ -7,7 +7,7 @@ from .cropped_gather import CroppedGather
 from .semblance import Semblance, ResidualSemblance
 from .decorators import create_batch_methods, apply_to_each_component
 from .utils import to_list, make_origin
-from ..batchflow import Batch, action, DatasetIndex, NamedExpression
+from ..batchflow import Batch, action, DatasetIndex, NamedExpression, inbatch_parallel
 
 
 @create_batch_methods(Gather, CroppedGather, Semblance, ResidualSemblance)

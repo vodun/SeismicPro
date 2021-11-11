@@ -6,21 +6,18 @@ from .decorators import batch_method
 class CroppedGather:
     ''' cool docstring here '''
 
-    def __init__(self, gather, shape, origin, aggregation_mode='mean', gather_pad=0, gather_fill=0, ):
+    def __init__(self, gather, shape, origin, aggregation_mode='mean'):
 
         self.gather = gather
         self.gather_shape = gather.shape
         self.shape = shape  # rename attributes to crop_shape? self.shape = self.crops.shape
         self.aggregation_mode = aggregation_mode
-        self.gather_pad = gather_pad
-        self.gather_fill = gather_fill
-        self.grid_origins = None
         self.data = self.gather.data
         self.origin = origin  # save origins in np.array
         self.crops = self.make_crops(self.data)
 
-
     def make_crops(self, data):
+        ''' TO DO: docs '''
         crops = np.full(shape=(self.origin.shape[0], *self.shape), fill_value=np.nan, dtype=float)  # may be change to np.empty
 
         for i in range(self.origin.shape[0]):
@@ -28,6 +25,7 @@ class CroppedGather:
         return crops
 
     def make_single_crop(self, origin, data):
+        ''' TO DO: docs '''
         shape_y, shape_x = self.gather_shape
         start_y, start_x = origin
         dy, dx = self.shape
@@ -40,24 +38,42 @@ class CroppedGather:
         return data[start_y:start_y + dy, start_x:start_x + dx]
 
     @batch_method(target='for')
-    def assemble_gather(self, input_data=None):
+    def assemble_gather(self, input_data=None, **kwargs):
+        ''' TO DO: docs '''
+        assembling_data = self._assembling(self.crops if input_data is None else input_data, **kwargs)
+
         self.gather.data = None
         gather = self.gather.copy()
-        assembling_data = self._assembling(self.crops if input_data is None else input_data)
-
         gather.data = assembling_data
         return gather
 
-    def _assembling(self, data):
+    def _assembling(self, data, **kwargs):
+        ''' TO DO: docs '''
         result = np.zeros(shape=self.gather_shape, dtype=float)
         mask = np.zeros(shape=self.gather_shape, dtype=int)
         for i, origin in enumerate(self.origin):
-            result[origin[0]:origin[0] + self.shape[0], origin[1]:origin[1] + self.shape[1]] += data[i]
-            mask[origin[0]:origin[0] + self.shape[0], origin[1]:origin[1] + self.shape[1]] += 1
+            one_crop = data[i]
+            mask_add = 1
+            # edge cutting with zero
+            if ('grid_cut_value' in kwargs.keys()) and ('grid_cut_edge' in kwargs.keys()):
+                cut_value = kwargs['grid_cut_value']
+                cut_edge = kwargs['grid_cut_edge']
+                one_crop = np.pad(one_crop[cut_edge[0]:(self.shape[0] - cut_edge[0]), 
+                                           cut_edge[1]:(self.shape[1] - cut_edge[1])], 
+                                  pad_width=((cut_edge[0], cut_edge[0]), (cut_edge[1], cut_edge[1])),
+                                  constant_values=cut_value)
+                mask_add = np.pad(np.ones(shape=(self.shape[0] - 2 * cut_edge[0], 
+                                                 self.shape[1] - 2 * cut_edge[1]), 
+                                          dtype=int), 
+                                  pad_width=((cut_edge[0], cut_edge[0]), (cut_edge[1], cut_edge[1])),
+                                  constant_values=0)
+            result[origin[0]:origin[0] + self.shape[0], origin[1]:(origin[1] + self.shape[1])] += one_crop
+            mask[origin[0]:origin[0] + self.shape[0], origin[1]:(origin[1] + self.shape[1])] += mask_add
         result = self._aggregate(result, mask, mode=self.aggregation_mode)
         return result
 
     def _aggregate(self, data, mask, mode):
+        ''' TO DO: docs '''
         if mode == 'mean':
             return data / mask
         else:
