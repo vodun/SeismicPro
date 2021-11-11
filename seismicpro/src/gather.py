@@ -945,7 +945,7 @@ class Gather:
             raise ValueError(f'y_ticker name must be either `time` or `samples`, not {y_label}')
         y_ticklabels = self.samples if y_label == 'time' else self.samples / self.sample_rate
         y_ticklabels = y_ticklabels.astype(int)
-        y_label = y_label + UNITS.get(y_label, '') if x_label is not None else x_label
+        y_label = y_label + UNITS.get(y_label, '') if y_label is not None else y_label
         y_label = y_label.capitalize() if isinstance(y_label, str) else y_label
 
         set_ticks_and_labels(ax=ax, shape=self.shape, x_ticklabels=x_ticklabels, x_label=x_label,
