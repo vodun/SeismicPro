@@ -12,14 +12,6 @@ jobs:
       image: analysiscenter1/ds-py3:latest
 
     steps:
-    - name: Update git
-      run: |
-        apt update
-        apt upgrade -y ca-certificates
-        add-apt-repository -y ppa:git-core/ppa
-        apt update
-        apt install git -y
-
     - name: Checkout SeismicPro
       uses: actions/checkout@v2
       with:
