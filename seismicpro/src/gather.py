@@ -887,7 +887,7 @@ class Gather:
             if mode is None:
                 raise ValueError('Mode should be defined.')
             origin = make_origin(mode, gather_shape=self.data.shape, crop_shape=shape, **kwargs)
-            kwargs = self._crop_kwargs_pop(kwargs)
+        kwargs = self._crop_kwargs_pop(kwargs)
         return CroppedGather(self, shape, origin, **kwargs)  # 'n_items' should be removed from kwargs
 
     def _crop_kwargs_pop(self, kwargs):

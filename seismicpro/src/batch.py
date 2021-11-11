@@ -303,9 +303,12 @@ class SeismicBatch(Batch):
         return self
 
     @action
-    def b_crop(self, src, mode, shape, dst=None, joint=False, **kwargs):
+    @inbatch_parallel(init='_init_component', target='for')
+    def b_crop(self, indices, src, mode, shape, dst=None, joint=True, **kwargs):
         ''' TO DO: docs '''
         # TO DO: benchmark
+        # print(indices)
+
         list_src = to_list(src)
         if dst is None:
             dst = src
@@ -328,12 +331,23 @@ class SeismicBatch(Batch):
                 if not isinstance(getattr(self, item)[i], Gather):
                     raise TypeError('Crop should be calls for Gather object only.')
 
-        if joint == False:
-            origin = make_origin(mode, gather_shape=getattr(self, item)[0].shape, crop_shape=shape, **kwargs)
-            self.crop(src=src, dst=dst, shape=shape, origin=origin)
+        if joint:
+            # for cur_idx in indices:  # testing with target='for' in the inbatch_parallel
+            cur_pos = self.index.get_pos(indices)
+            cur_shape = getattr(self, list_src[0])[cur_pos].shape
+            origin = make_origin(mode, gather_shape=cur_shape, crop_shape=shape, **kwargs)
+            for src_item, dst_item in zip(list_src, list_dst):
+                gather = getattr(self, src_item)[cur_pos]
+                cropped = gather.crop(shape=shape, origin=origin, **kwargs)
+                setattr(self[cur_pos], dst_item, cropped)
+
         else:
             for src_item, dst_item in zip(list_src, list_dst):
-                origin = make_origin(mode, gather_shape=getattr(self, item)[0].shape, crop_shape=shape, **kwargs)
-                self.crop(src=src_item, dst=dst_item, shape=shape, origin=origin)
+                # for cur_idx in indices: 
+                cur_pos = self.index.get_pos(indices)
+                gather = getattr(self, src_item)[cur_pos]
+                origin = make_origin(mode, gather_shape=gather.shape, crop_shape=shape, **kwargs)
+                cropped = gather.crop(shape=shape, origin=origin, **kwargs)
+                setattr(self[cur_pos], dst_item, cropped)
 
         return self

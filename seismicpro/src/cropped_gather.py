@@ -54,7 +54,7 @@ class CroppedGather:
         for i, origin in enumerate(self.origin):
             one_crop = data[i]
             mask_add = 1
-            # edge cutting with zero
+            # padding edge with zero. no shapes changes.
             if ('grid_cut_value' in kwargs.keys()) and ('grid_cut_edge' in kwargs.keys()):
                 cut_value = kwargs['grid_cut_value']
                 cut_edge = kwargs['grid_cut_edge']
