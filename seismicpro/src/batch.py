@@ -326,7 +326,12 @@ class SeismicBatch(Batch):
             src_plot_method_params = getattr(getattr(self, src)[0].plot, "method_params", {})
             kwargs = {"figsize": src_plot_method_params["figsize"], "title": title, **common_kwargs, **kwargs}
 
+            # Scale subplot figsize if its width is greater than max_width
             width, height = kwargs.pop("figsize")
+            if width > max_width:
+                height = height * max_width / width
+                width = max_width
+
             title_template = kwargs.pop("title")
             args_to_unpack = src_plot_method_params.get("args_to_unpack", [])
 
@@ -359,7 +364,6 @@ class SeismicBatch(Batch):
             plotters = [sum(plotters, [])]
 
         # Wrap lines of subplots wider than max_width
-        max_width = max(max_width, max(plotter["width"] for plotter in plotters[0]))
         split_pos = []
         curr_width = 0
         for i, plotter in enumerate(plotters[0]):
