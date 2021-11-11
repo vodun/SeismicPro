@@ -70,7 +70,7 @@ def test_aggregate_segys(segy_path, tmp_path, mode, indices):
     indices = expected_survey.headers.index.drop_duplicates() if indices == 'all' else indices
 
     if mode == 'split':
-        paths = ['folder/'*i for i in range(len(indices))]
+        paths = [f'folder/folder_{i}' for i in range(len(indices))]
     else:
         paths = [''] * len(indices)
     for num, (ix, path) in enumerate(zip(indices, paths)):
