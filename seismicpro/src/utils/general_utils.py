@@ -253,20 +253,29 @@ def make_origin(mode, gather_shape, crop_shape, **kwargs):
 
 def _origins_from_str(mode, gather_shape, crop_shape, **kwargs):
     if mode == 'random':  # from uniform distribution. 
-        size = kwargs['n_items'] if 'n_items' in kwargs.keys() else 1
+        # size = kwargs['n_items'] if 'n_items' in kwargs.keys() else 1
+        size = kwargs.get('n_items', 1)
         # check with vstack
-        return np.array((np.random.randint(gather_shape[0] - crop_shape[0], size=size), 
-                         np.random.randint(gather_shape[1] - crop_shape[1], size=size))).T.reshape(-1, 2)  
+        origin = np.array((np.random.randint(max(1, gather_shape[0] - crop_shape[0]), size=size),
+                           np.random.randint(max(1, gather_shape[1] - crop_shape[1]), size=size))).T.reshape(-1, 2)
+        return origin
 
     elif mode == 'grid':
-        # TO DO: support overlapping
+        # TODO: support overlapping
         # if gather.shape % crop.shape == 0, will creating 2 unnecessary origin
-        grid_coverage = kwargs['grid_coverage'] if 'grid_coverage' in kwargs.keys() else 1
-        origin_x = np.linspace(0, gather_shape[0] - crop_shape[0], 
-                               num=int(((gather_shape[0] - crop_shape[0]) // crop_shape[0] + 2) * grid_coverage),
+        # grid_coverage = kwargs['grid_coverage'] if 'grid_coverage' in kwargs.keys() else 1
+        grid_coverage = kwargs.get('grid_coverage', 1)
+
+        working_len_x = gather_shape[0] - crop_shape[0]
+        eps_x = 0 if working_len_x // crop_shape[0] == 0 else 2
+        origin_x = np.linspace(0, working_len_x,
+                               num=int((working_len_x // crop_shape[0] + eps_x) * grid_coverage),
                                dtype=int)
-        origin_y = np.linspace(0, gather_shape[1] - crop_shape[1],
-                               num=int(((gather_shape[1] - crop_shape[1]) // crop_shape[1] + 2) * grid_coverage), 
+
+        working_len_y = gather_shape[1] - crop_shape[1]
+        eps_y = 0 if working_len_y // crop_shape[1] == 0 else 2
+        origin_y = np.linspace(0, working_len_y,
+                               num=int((working_len_y // crop_shape[1] + eps_y) * grid_coverage),
                                dtype=int)
         return np.array(np.meshgrid(origin_x, origin_y)).T.reshape(-1, 2)
     else:
