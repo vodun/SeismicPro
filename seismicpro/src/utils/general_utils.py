@@ -23,14 +23,6 @@ def unique_indices_sorted(arr):
     return np.where(mask)[0]
 
 
-def is_monotonic(arr, strict=False):
-    """Return whether an array is monotonic."""
-    unique_signs = set(np.unique(np.sign(np.diff(arr))).tolist())
-    if not strict:
-        unique_signs.discard(0)
-    return (len(unique_signs) <= 1) and (0 not in unique_signs)
-
-
 @njit(nogil=True)
 def calculate_stats(trace):
     """Calculate min, max, sum and sum of squares of the trace amplitudes."""

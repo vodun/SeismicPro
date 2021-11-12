@@ -9,20 +9,15 @@ from functools import partial
 import segyio
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .muting import Muter
 from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 from .decorators import batch_method, plotter
-from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, normalization, correction,
-                    set_ticks_and_labels, get_ticklabels, plot_arg_to_dict)
+from .utils import normalization, correction
+from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, set_ticks, plot_arg_to_dict
 
-UNITS = {
-    'time': ' (ms)',
-    'offset': ' (m)',
-}
 
 class Gather:
     """A class representing a single seismic gather.
@@ -933,23 +928,11 @@ class Gather:
             top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_subplot_header])
         top_ax.set_title(**plot_arg_to_dict(title))
 
-        # Create tickers
-        ## Use sorted value by default if x_ticker is not specified
-        x_ticker = self.sort_by if x_ticker is None and self.sort_by is not None else x_ticker
-
-        x_label, y_label = get_ticklabels(x_ticker, y_ticker)
-        x_ticklabels = self[x_label] if x_label is not None else None
-        x_label = x_label + UNITS.get(x_label, '') if x_label is not None else x_label
-
-        if y_label is not None and y_label not in ['time', 'samples']:
-            raise ValueError(f'y_ticker name must be either `time` or `samples`, not {y_label}')
-        y_ticklabels = self.samples if y_label == 'time' else self.samples / self.sample_rate
-        y_ticklabels = y_ticklabels.astype(int)
-        y_label = y_label + UNITS.get(y_label, '') if y_label is not None else y_label
-        y_label = y_label.capitalize() if isinstance(y_label, str) else y_label
-
-        set_ticks_and_labels(ax=ax, shape=self.shape, x_ticklabels=x_ticklabels, x_label=x_label,
-                             y_ticklabels=y_ticklabels, y_label=y_label, x_kwargs=x_ticker, y_kwargs=y_ticker)
+        # Set axis ticks
+        if x_ticker is None:
+            x_ticker = self.sort_by if self.sort_by is not None else "index"
+        self._set_ticks(ax, axis="x", ticker=x_ticker)
+        self._set_ticks(ax, axis="y", ticker=y_ticker)
         return self
 
     def _plot_seismogram(self, ax, divider, colorbar=False, **kwargs):
@@ -1022,3 +1005,40 @@ class Gather:
         top_ax.yaxis.tick_right()
         top_ax.invert_yaxis()
         return top_ax
+
+    def _get_x_ticks(self, axis_label):
+        if axis_label in self.headers.columns:
+            return self[axis_label]
+        if axis_label == "index":
+            return np.arange(self.n_traces)
+        raise ValueError(f"Unknown label for x axis {axis_label}")
+
+    def _get_y_ticks(self, axis_label):
+        if axis_label == "time":
+            return self.samples
+        if axis_label == "samples":
+            return np.arange(self.n_samples)
+        raise ValueError(f"y axis label must be either `time` or `samples`, not {axis_label}")
+
+    def _set_ticks(self, ax, axis, ticker):
+        ticker = plot_arg_to_dict(ticker)
+        axis_label = ticker.pop("label")
+        if not isinstance(axis_label, str):
+            raise ValueError(f"{axis} axis ticker must be str, but {type(axis_label)} passed")
+
+        # Get tick_labels depending on axis and its label
+        if axis == "x":
+            tick_labels = self._get_x_ticks(axis_label)
+        elif axis == "y":
+            tick_labels = self._get_y_ticks(axis_label)
+        else:
+            raise ValueError(f"Unknown axis {axis}")
+
+        # Format axis label
+        UNITS = {
+            "time": " (ms)",
+            "offset": " (m)",
+        }
+        axis_label += UNITS.get(axis_label, "")
+        axis_label = axis_label[0].upper() + axis_label[1:]
+        set_ticks(ax, axis, axis_label, tick_labels, **ticker)
