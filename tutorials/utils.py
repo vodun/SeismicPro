@@ -4,7 +4,7 @@ import numpy as np
 from scipy import signal
 import matplotlib.pyplot as plt
 
-def plot_histogram(gathers, bins=41):
+def plot_histogram(gathers, bins=60):
     """Plot data historgams for each gather in `gather_list`.
 
     Parameters
@@ -19,12 +19,12 @@ def plot_histogram(gathers, bins=41):
     """
     n_plots = len(gathers)
     _, ax = plt.subplots(1, n_plots, figsize=(6 * n_plots, 4))
-    for i in enumerate(gathers):
-        ax[i].set_title(gathers[i][1])
+    for i, (gather, title) in enumerate(gathers):
+        ax[i].set_title(title)
         ax[i].set_xlabel('Amplitude')
         ax[i].set_ylabel('Counts')
-        _ = ax[i].hist(gathers[i][0].data.ravel(), bins=bins)
-    plt.imshow()
+        _ = ax[i].hist(gather.data.ravel(), bins=bins)
+    plt.show()
 
 def generate_trace(reflection_event_time=(10,700,1200), reflection_event_amplitude=(6,-12,8),
                     nmo_velocity=(1.6,2.,2.4), wavelet_lenght=50, wavelet_width=5, **kwargs):
@@ -52,7 +52,7 @@ def generate_trace(reflection_event_time=(10,700,1200), reflection_event_amplitu
         Generated seismic trace.
     """
 
-    inline3d = kwargs.get('INLINE_3D')
+    # inline3d = kwargs.get('INLINE_3D')
     n_samples = kwargs.get('TRACE_SAMPLE_COUNT')
     sample_rate = kwargs.get('TRACE_SAMPLE_INTERVAL')
     offset = kwargs.get('offset')
@@ -65,10 +65,11 @@ def generate_trace(reflection_event_time=(10,700,1200), reflection_event_amplitu
     ref_series = np.zeros(max(n_samples, max(shifted_times)) + 1)
 
     # Tweak reflectivity of traces based in indline3D header to make Survey and Gathers statistics differ
-    reflections = reflections * (1 + 10 / (10 + inline3d))
+    # reflections = reflections * (1 + 10 / (10 + inline3d))
+    reflections = np.random.normal(reflections, np.abs(reflections) / 5)
 
     ref_series[shifted_times] = reflections
-    ref_series[min(shifted_times):] += np.random.normal(0, 0.5, size=len(ref_series)-min(shifted_times))
+    ref_series[min(shifted_times):] += np.random.normal(1, 0.5, size=len(ref_series)-min(shifted_times))
 
     trace = np.convolve(ref_series, signal.ricker(wavelet_lenght, wavelet_width), mode='same')[:n_samples]
     trace = trace.astype(np.float32)
