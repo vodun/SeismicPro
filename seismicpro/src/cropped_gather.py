@@ -39,7 +39,7 @@ class CroppedGather:
 
     @batch_method(target='for')
     def assemble_gather(self, input_data=None, **kwargs):
-        ''' TO DO: docs '''
+        ''' TODO: docs '''
         assembling_data = self._assembling(self.crops if input_data is None else input_data, **kwargs)
 
         self.gather.data = None
@@ -48,32 +48,34 @@ class CroppedGather:
         return gather
 
     def _assembling(self, data, **kwargs):
-        ''' TO DO: docs '''
+        ''' TODO: docs '''
         result = np.zeros(shape=self.gather_shape, dtype=float)
         mask = np.zeros(shape=self.gather_shape, dtype=int)
+
+        cut_value = kwargs.get('grid_cut_value', 0)
+        cut_edge = kwargs.get('grid_cut_edge', (0, 0))
+
+        mask_add = np.pad(np.ones(shape=(self.shape[0] - 2 * cut_edge[0], 
+                                         self.shape[1] - 2 * cut_edge[1]), dtype=int), 
+                                  pad_width=((cut_edge[0], cut_edge[0]), (cut_edge[1], cut_edge[1])),
+                                  constant_values=0)
+
         for i, origin in enumerate(self.origin):
             one_crop = data[i]
             mask_add = 1
             # padding edge with zero. no shapes changes.
-            if ('grid_cut_value' in kwargs.keys()) and ('grid_cut_edge' in kwargs.keys()):
-                cut_value = kwargs['grid_cut_value']
-                cut_edge = kwargs['grid_cut_edge']
-                one_crop = np.pad(one_crop[cut_edge[0]:(self.shape[0] - cut_edge[0]), 
-                                           cut_edge[1]:(self.shape[1] - cut_edge[1])], 
-                                  pad_width=((cut_edge[0], cut_edge[0]), (cut_edge[1], cut_edge[1])),
-                                  constant_values=cut_value)
-                mask_add = np.pad(np.ones(shape=(self.shape[0] - 2 * cut_edge[0], 
-                                                 self.shape[1] - 2 * cut_edge[1]), 
-                                          dtype=int), 
-                                  pad_width=((cut_edge[0], cut_edge[0]), (cut_edge[1], cut_edge[1])),
-                                  constant_values=0)
+            one_crop = np.pad(one_crop[cut_edge[0]:(self.shape[0] - cut_edge[0]), 
+                                        cut_edge[1]:(self.shape[1] - cut_edge[1])], 
+                                pad_width=((cut_edge[0], cut_edge[0]), (cut_edge[1], cut_edge[1])),
+                                constant_values=cut_value)
+
             result[origin[0]:origin[0] + self.shape[0], origin[1]:(origin[1] + self.shape[1])] += one_crop
             mask[origin[0]:origin[0] + self.shape[0], origin[1]:(origin[1] + self.shape[1])] += mask_add
         result = self._aggregate(result, mask, mode=self.aggregation_mode)
         return result
 
     def _aggregate(self, data, mask, mode):
-        ''' TO DO: docs '''
+        ''' TODO: docs '''
         if mode == 'mean':
             return data / mask
         else:
