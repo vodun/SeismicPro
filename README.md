@@ -2,7 +2,6 @@
 
 ![SeismicPro](https://user-images.githubusercontent.com/19351782/125063408-1bcdab80-e0b8-11eb-96c2-719bc640da36.png)
 
-
 <p align="center">
   <a href="">Docs</a> •
   <a href="#installation">Installation</a> •
@@ -12,9 +11,10 @@
 </p>
 
 [![License](https://img.shields.io/github/license/analysiscenter/batchflow.svg)](https://www.apache.org/licenses/LICENSE-2.0)
-[![Python](https://img.shields.io/badge/python-3.6-blue.svg)](https://python.org)
+[![Python](https://img.shields.io/badge/python-3.8-blue.svg)](https://python.org)
 [![PyTorch](https://img.shields.io/badge/PyTorch-1.8-orange.svg)](https://pytorch.org)
 [![Status](https://github.com/gazprom-neft/SeismicPro/workflows/status/badge.svg)](https://github.com/gazprom-neft/SeismicPro/actions?query=workflow%3Astatus)
+[![Test installation](https://github.com/gazprom-neft/SeismicPro/actions/workflows/test-install.yml/badge.svg)](https://github.com/gazprom-neft/SeismicPro/actions/workflows/test-install.yml)
 
 </div>
 
@@ -30,10 +30,13 @@ Main features:
 * Combine processing functions into concise and readable pipelines
 * Define a wide range of neural network architectures from vanilla `UNet` to sophisticated `EfficientNet`s with simple and intuitive configurations in just a few lines of code
 
-
 ## Installation
 
 > `SeismicPro` module is in the beta stage. Your suggestions and improvements via [issues](https://github.com/gazprom-neft/SeismicPro/issues) are very welcome.
+
+`SeismicPro` is compatible with Python 3.8+ and tested on Ubuntu 20.04 and Windows Server 2019.
+
+> Note that the [Benchmark](./seismicpro/benchmark/) module and [Research](./seismicpro/batchflow/batchflow/research/) may not work on Windows due to dependency issues. Use it with caution.
 
 ### Installation as a python package
 
@@ -50,7 +53,6 @@ With [pipenv](https://docs.pipenv.org/):
 When cloning a repo from GitHub use ``--recursive`` flag to make sure that ``batchflow`` submodule is also cloned.
 
     git clone --recursive https://github.com/gazprom-neft/SeismicPro.git
-
 
 ## Getting Started
 
@@ -121,7 +123,6 @@ stacking_pipeline.run(BATCH_SIZE, n_epochs=1)
 ```
 
 You can get more familiar with the framework and its functionality by reading [SeismicPro tutorials](tutorials).
-
 
 ## Citing SeismicPro
 
