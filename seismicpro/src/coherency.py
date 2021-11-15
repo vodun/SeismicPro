@@ -112,7 +112,7 @@ class BaseCoherency:
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def normalized_stacked_amplitude(corrected_gather):
+    def normalized_stacked_amplitude(corrected_gather, normalize_mute=True):
         numerator = np.zeros(corrected_gather.shape[0])
         denominator = np.zeros(corrected_gather.shape[0])
         for i in prange(corrected_gather.shape[0]):
@@ -383,7 +383,7 @@ class Coherency(BaseCoherency):
             Array with vertical velocity semblance values.
         """
         semblance = np.empty((len(gather_data), len(velocities)), dtype=np.float32)
-        for j in prange(len(velocities)):
+        for j in range(len(velocities)):
             semblance[:, j] = semblance_func(nmo_func=nmo_func, coherency_func=coherency_func, gather_data=gather_data,
                                              times=times, offsets=offsets, velocity=velocities[j],
                                              sample_rate=sample_rate, win_size=win_size,
@@ -628,7 +628,7 @@ class ResidualCoherency(BaseCoherency):
             Array with residual vertical velocity semblance values.
         """
         semblance = np.zeros((len(gather_data), len(velocities)), dtype=np.float32)
-        for i in prange(left_bound_ix.min(), right_bound_ix.max() + 1):
+        for i in range(left_bound_ix.min(), right_bound_ix.max() + 1):
             t_min_ix = np.where(right_bound_ix == i)[0]
             t_min_ix = 0 if len(t_min_ix) == 0 else t_min_ix[0]
 

@@ -74,6 +74,8 @@ class VelocityInterpolator:
     def _is_in_hull(self, inline, crossline):
         """Check if given `inline` and `crossline` lie within a convex hull of spatial coordinates of stacking
         velocities passed during interpolator creation."""
+        inline = np.array(inline).item()
+        crossline = np.array(crossline).item()
         return cv2.pointPolygonTest(self.coords_hull, (inline, crossline), measureDist=True) >= 0
 
     def _get_simplex_info(self, coords):
