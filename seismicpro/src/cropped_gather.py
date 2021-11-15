@@ -17,7 +17,7 @@ class CroppedGather:
         self.crops = self.make_crops(self.data)
 
     def make_crops(self, data):
-        ''' TO DO: docs '''
+        ''' TODO: docs '''
         crops = np.full(shape=(self.origin.shape[0], *self.shape), fill_value=np.nan, dtype=float)  # may be change to np.empty
 
         for i in range(self.origin.shape[0]):
@@ -25,7 +25,7 @@ class CroppedGather:
         return crops
 
     def make_single_crop(self, origin, data):
-        ''' TO DO: docs '''
+        ''' TODO: docs '''
         shape_y, shape_x = self.gather_shape
         start_y, start_x = origin
         dy, dx = self.shape
@@ -42,13 +42,17 @@ class CroppedGather:
         ''' TODO: docs '''
         assembling_data = self._assembling(self.crops if input_data is None else input_data, **kwargs)
 
+        # avoiding gather data copying 
+        rest_data = self.gather.data
         self.gather.data = None
         gather = self.gather.copy()
+        self.gather.data = rest_data
+
         gather.data = assembling_data
         return gather
 
     def _assembling(self, data, **kwargs):
-        ''' TODO: docs '''
+        ''' TODO: docs ''' 
         result = np.zeros(shape=self.gather_shape, dtype=float)
         mask = np.zeros(shape=self.gather_shape, dtype=int)
 
@@ -62,7 +66,6 @@ class CroppedGather:
 
         for i, origin in enumerate(self.origin):
             one_crop = data[i]
-            mask_add = 1
             # padding edge with zero. no shapes changes.
             one_crop = np.pad(one_crop[cut_edge[0]:(self.shape[0] - cut_edge[0]), 
                                         cut_edge[1]:(self.shape[1] - cut_edge[1])], 
