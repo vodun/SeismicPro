@@ -6,7 +6,7 @@ from .gather import Gather
 from .cropped_gather import CroppedGather
 from .semblance import Semblance, ResidualSemblance
 from .decorators import create_batch_methods, apply_to_each_component
-from .utils import to_list, make_origin
+from .utils import to_list, make_origins
 from ..batchflow import Batch, action, DatasetIndex, NamedExpression, inbatch_parallel
 
 
@@ -304,50 +304,39 @@ class SeismicBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component', target='for')
-    def b_crop(self, indices, src, mode, shape, dst=None, joint=True, **kwargs):
-        ''' TO DO: docs '''
+    def b_crop(self, idx, src, mode, shape, dst=None, joint=True, **kwargs):  # b_crop -> crop
+        ''' TODO: docs '''
         # TO DO: benchmark
-        # print(indices)
+        # print(index)
 
         list_src = to_list(src)
-        if dst is None:
-            dst = src
+        dst = src if dst is None else dst
         list_dst = to_list(dst)
 
-        if len(list_src) != len(list_dst):  # is this needful?
+        if len(list_src) != len(list_dst):
             raise ValueError('`src` and `dst` should have the same length.')
 
+        # check src consistent
+        if joint and len(list_src) > 1:
+            cur_obj_type = type(getattr(self, list_src[0]))
+            for item in list_src[1:]:
+                if not isinstance(getattr(self, item), cur_obj_type):
+                    raise TypeError('`src` should contain same type of objects when `joint` is True.')
+
         # checking shapes and parse src shapes
-        src_shapes = np.full(shape=(len(self), 2), fill_value=np.nan, dtype=int)
-        for i in range(len(self)):
-            cur_shape = set([getattr(self, item)[i].shape for item in list_src])
-            if len(cur_shape) > 1 and joint == True:
-                raise ValueError("Shapes of the gather's data are not consistent.")
-            src_shapes[i] = cur_shape.pop()
-        # check src types
-        for item in list_src:
-            for i in range(len(getattr(self, item))):
-                # checking only first batch item : getattr(self, item)[0]
-                if not isinstance(getattr(self, item)[i], Gather):
-                    raise TypeError('Crop should be calls for Gather object only.')
+        src_shapes = set([getattr(self, item).shape for item in list_src])
+        if len(src_shapes) > 1 and joint == True:
+            raise ValueError("Shapes of the gather's data are not consistent.")
 
+        cur_pos = self.index.get_pos(idx)
+        cur_shape = getattr(self, list_src[0])[cur_pos].shape
         if joint:
-            # for cur_idx in indices:  # testing with target='for' in the inbatch_parallel
-            cur_pos = self.index.get_pos(indices)
-            cur_shape = getattr(self, list_src[0])[cur_pos].shape
-            origin = make_origin(mode, gather_shape=cur_shape, crop_shape=shape, **kwargs)
-            for src_item, dst_item in zip(list_src, list_dst):
-                gather = getattr(self, src_item)[cur_pos]
-                cropped = gather.crop(shape=shape, origin=origin, **kwargs)
-                setattr(self[cur_pos], dst_item, cropped)
-
-        else:
-            for src_item, dst_item in zip(list_src, list_dst):
-                # for cur_idx in indices: 
-                cur_pos = self.index.get_pos(indices)
-                gather = getattr(self, src_item)[cur_pos]
-                origin = make_origin(mode, gather_shape=gather.shape, crop_shape=shape, **kwargs)
-                cropped = gather.crop(shape=shape, origin=origin, **kwargs)
-                setattr(self[cur_pos], dst_item, cropped)
+            origins = make_origins(mode, gather_shape=cur_shape, crop_shape=shape, **kwargs)
+        for src_item, dst_item in zip(list_src, list_dst):
+            gather = getattr(self, src_item)[cur_pos]
+            if not joint:
+                origins = make_origins(mode, gather_shape=gather.shape, crop_shape=shape, **kwargs)
+            cropped = gather.crop(shape=shape, origins=origins, **kwargs)
+            setattr(self[cur_pos], dst_item, cropped)
 
         return self
