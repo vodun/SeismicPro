@@ -6,29 +6,28 @@ from .decorators import batch_method
 class CroppedGather:
     ''' cool docstring here '''
 
-    def __init__(self, gather, shape, origin, aggregation_mode='mean'):
+    def __init__(self, gather, shape, origins, aggregation_mode='mean'):
 
         self.gather = gather
-        self.gather_shape = gather.shape
-        self.shape = shape  # rename attributes to crop_shape? self.shape = self.crops.shape
+        self.crop_shape = shape
         self.aggregation_mode = aggregation_mode
         self.data = self.gather.data
-        self.origin = origin  # save origins in np.array
+        self.origins = origins
         self.crops = self.make_crops(self.data)
 
     def make_crops(self, data):
         ''' TODO: docs '''
-        crops = np.full(shape=(self.origin.shape[0], *self.shape), fill_value=np.nan, dtype=float)  # may be change to np.empty
+        crops = np.full(shape=(self.origins.shape[0], *self.crop_shape), fill_value=np.nan, dtype=float)  # may be change to np.empty
 
-        for i in range(self.origin.shape[0]):
-            crops[i] = self.make_single_crop(self.origin[i], data)
+        for i in range(self.origins.shape[0]):
+            crops[i] = self.make_single_crop(self.origins[i], data)
         return crops
 
     def make_single_crop(self, origin, data):
         ''' TODO: docs '''
-        shape_y, shape_x = self.gather_shape
+        shape_y, shape_x = self.gather.shape
         start_y, start_x = origin
-        dy, dx = self.shape
+        dy, dx = self.crop_shape
         if start_x + dx > shape_x or start_y + dy > shape_y:  # if crop window outs from gather
             result = data[start_y:min(start_y + dy, shape_y),
                           start_x:min(start_x + dx, shape_x)]
@@ -53,27 +52,27 @@ class CroppedGather:
 
     def _assembling(self, data, **kwargs):
         ''' TODO: docs ''' 
-        result = np.zeros(shape=self.gather_shape, dtype=float)
-        mask = np.zeros(shape=self.gather_shape, dtype=int)
+        result = np.zeros(shape=self.gather.shape, dtype=float)
+        mask = np.zeros(shape=self.gather.shape, dtype=int)
 
         cut_value = kwargs.get('grid_cut_value', 0)
         cut_edge = kwargs.get('grid_cut_edge', (0, 0))
 
-        mask_add = np.pad(np.ones(shape=(self.shape[0] - 2 * cut_edge[0], 
-                                         self.shape[1] - 2 * cut_edge[1]), dtype=int), 
+        mask_add = np.pad(np.ones(shape=(self.crop_shape[0] - 2 * cut_edge[0], 
+                                         self.crop_shape[1] - 2 * cut_edge[1]), dtype=int), 
                                   pad_width=((cut_edge[0], cut_edge[0]), (cut_edge[1], cut_edge[1])),
                                   constant_values=0)
 
-        for i, origin in enumerate(self.origin):
+        for i, origin in enumerate(self.origins):
             one_crop = data[i]
             # padding edge with zero. no shapes changes.
-            one_crop = np.pad(one_crop[cut_edge[0]:(self.shape[0] - cut_edge[0]), 
-                                        cut_edge[1]:(self.shape[1] - cut_edge[1])], 
+            one_crop = np.pad(one_crop[cut_edge[0]:(self.crop_shape[0] - cut_edge[0]), 
+                                       cut_edge[1]:(self.crop_shape[1] - cut_edge[1])], 
                                 pad_width=((cut_edge[0], cut_edge[0]), (cut_edge[1], cut_edge[1])),
                                 constant_values=cut_value)
 
-            result[origin[0]:origin[0] + self.shape[0], origin[1]:(origin[1] + self.shape[1])] += one_crop
-            mask[origin[0]:origin[0] + self.shape[0], origin[1]:(origin[1] + self.shape[1])] += mask_add
+            result[origin[0]:origin[0] + self.crop_shape[0], origin[1]:(origin[1] + self.crop_shape[1])] += one_crop
+            mask[origin[0]:origin[0] + self.crop_shape[0], origin[1]:(origin[1] + self.crop_shape[1])] += mask_add
         result = self._aggregate(result, mask, mode=self.aggregation_mode)
         return result
 

@@ -16,7 +16,7 @@ from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 from .decorators import batch_method
 from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, normalization, correction, 
-                    make_origin)
+                    make_origins)
 
 class Gather:
     """A class representing a single seismic gather.
@@ -881,14 +881,14 @@ class Gather:
         return self
 
     @batch_method(target='for')
-    def crop(self, shape, mode=None, origin=None, **kwargs):
+    def crop(self, shape, mode=None, origins=None, **kwargs):
         """" ! docs """
-        if origin is None:  # origins is None when crop called as gather method.
+        if origins is None:  # origins is None when crop called as gather method.
             if mode is None:
                 raise ValueError('Mode should be defined.')
-            origin = make_origin(mode, gather_shape=self.data.shape, crop_shape=shape, **kwargs)
+            origins = make_origins(mode, gather_shape=self.data.shape, crop_shape=shape, **kwargs)
         kwargs = self._crop_kwargs_pop(kwargs)
-        return CroppedGather(self, shape, origin, **kwargs)  # 'n_items' should be removed from kwargs
+        return CroppedGather(self, shape, origins, **kwargs)  # 'n_items' should be removed from kwargs
 
     def _crop_kwargs_pop(self, kwargs):
         if 'n_items' in kwargs.keys():
@@ -902,7 +902,7 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @batch_method(target="for", copy_src=False)
-    def plot(self, figsize=(10, 7), mask=False, **kwargs):
+    def plot(self, figsize=(10, 7), **kwargs):
         """Plot gather traces.
 
         Parameters
