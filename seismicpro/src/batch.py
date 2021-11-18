@@ -307,34 +307,28 @@ class SeismicBatch(Batch):
     def b_crop(self, idx, src, mode, shape, dst=None, joint=True, **kwargs):  # b_crop -> crop
         ''' TODO: docs '''
         # TO DO: benchmark
-        # print(index)
-
-        list_src = to_list(src)
         dst = src if dst is None else dst
+        list_src = to_list(src)
         list_dst = to_list(dst)
 
         if len(list_src) != len(list_dst):
             raise ValueError('`src` and `dst` should have the same length.')
 
-        # check src consistent
         if joint and len(list_src) > 1:
+            # check src consistent
             cur_obj_type = type(getattr(self, list_src[0]))
             for item in list_src[1:]:
                 if not isinstance(getattr(self, item), cur_obj_type):
                     raise TypeError('`src` should contain same type of objects when `joint` is True.')
-
-        # checking shapes and parse src shapes
-        src_shapes = set([getattr(self, item).shape for item in list_src])
-        if len(src_shapes) > 1 and joint == True:
-            raise ValueError("Shapes of the gather's data are not consistent.")
+            # checking src shapes
+            src_shapes = set([getattr(self, item).shape for item in list_src])
+            if len(src_shapes) > 1:
+                raise ValueError("Shapes of the 'src' object are not consistent.")
 
         cur_pos = self.index.get_pos(idx)
-        cur_shape = getattr(self, list_src[0])[cur_pos].shape
-        if joint:
-            origins = make_origins(mode, gather_shape=cur_shape, crop_shape=shape, **kwargs)
-        for src_item, dst_item in zip(list_src, list_dst):
+        for i, (src_item, dst_item) in enumerate(zip(list_src, list_dst)):
             gather = getattr(self, src_item)[cur_pos]
-            if not joint:
+            if i == 0 or not joint:
                 origins = make_origins(mode, gather_shape=gather.shape, crop_shape=shape, **kwargs)
             cropped = gather.crop(shape=shape, origins=origins, **kwargs)
             setattr(self[cur_pos], dst_item, cropped)
