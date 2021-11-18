@@ -1,6 +1,9 @@
 name: Test installation
 
 on:
+  push:
+    branches:
+    - master
   pull_request:
     branches:
     - master
@@ -75,7 +78,7 @@ jobs:
       run: |
         pip install --user -U pip
         pip install --user -U wheel pytest
-        pip install --user git+https://github.com/${{ github.event.pull_request.head.repo.full_name }}.git@${{ github.head_ref }}#egg=SeismicPro
+        pip install --user git+https://github.com/${{ github.event.repository.full_name }}.git@${{ github.sha }}#egg=SeismicPro
 
     - name: Import SeismicPro
       run: python -c 'import seismicpro'
@@ -113,7 +116,7 @@ jobs:
         pip install --user -U wheel pipenv
         pipenv --python ${{ matrix.python-version }}
         pipenv install pytest
-        pipenv install git+https://github.com/${{ github.event.pull_request.head.repo.full_name }}.git@${{ github.head_ref }}#egg=SeismicPro
+        pipenv install git+https://github.com/${{ github.event.repository.full_name }}.git@${{ github.sha }}#egg=SeismicPro
 
     - name: Import SeismicPro
       run: pipenv run python -c 'import seismicpro'
