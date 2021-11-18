@@ -115,7 +115,7 @@ class Gather:
             key = key + [slice(None)] if len(key) == 1 else key
             key = tuple([slice(k, k+1) if isinstance(k, (int, np.integer)) else k for k in key])
 
-            new_self = copy(self)
+            new_self = self.copy(except_attrs=['data', 'headers'])
             new_self.data = self.data[key]
             if new_self.data.size == 0:
                 raise ValueError('!!')
@@ -212,19 +212,36 @@ class Gather:
         return tuple(coords[0].tolist())
 
     @batch_method(target='threads', copy_src=False)
-    def copy(self):
-        """Perform a deepcopy of all gather attributes except for `survey`, which is kept unchanged.
+    def copy(self, except_attrs=None):
+        """Perform a deepcopy of all gather attributes except for `survey` and `except_attrs`, which are kept
+        unchanged.
+
+        Parameters
+        ----------
+        except_attrs : str or array of str, default None
+            Attributes that will be kept unchanged after the copy.
 
         Returns
         -------
         copy : Gather
             Copy of the gather.
         """
-        survey = self.survey
-        self.survey = None
+        # To avoid copying `except_attrs` and `survey`, save thier values in the dict and None them in
+        # the souce object.
+        except_attrs = [] if except_attrs is None else to_list(except_attrs)
+        except_list = except_attrs + ['survey']
+
+        nocopy_dict = {}
+        for attr in except_list:
+            nocopy_dict[attr] = getattr(self, attr)
+            setattr(self, attr, None)
+
+        # Make a deepcopy of self and set back unchanged attributes
         self_copy = deepcopy(self)
-        self_copy.survey = survey
-        self.survey = survey
+        self_copy.__dict__.update(nocopy_dict)
+
+        # Reset all None attrs in self
+        {setattr(self, attr, value) for attr, value in nocopy_dict.items()}
         return self_copy
 
     @batch_method
