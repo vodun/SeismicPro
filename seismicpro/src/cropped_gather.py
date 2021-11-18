@@ -85,6 +85,7 @@ class CroppedGather:
             print('Rand aggregate matrix shape:', result.shape)
 
         # based on origins structure
+        # greed strategy at 3 times faster and aggregate matrix(result) 2 times smaller
         if strategy == 'greed':
             masked_origins = np.ma.array(self.origins, mask=False)
  
