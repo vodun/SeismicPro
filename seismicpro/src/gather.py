@@ -2,7 +2,7 @@
 
 import os
 import warnings
-from copy import copy, deepcopy
+from copy import deepcopy
 from textwrap import dedent
 
 import segyio
@@ -91,40 +91,40 @@ class Gather:
         return self.data.shape
 
     def __getitem__(self, key):
-            """!!Select gather headers by their names.
+        """!!Select gather headers by their names.
 
-            Parameters
-            ----------
-            key : str, list of str, list of slices/int
-                IF ..... Gather headers to get.
+        Parameters
+        ----------
+        key : str, list of str, list of slices/int
+            IF ..... Gather headers to get.
 
-            Returns
-            -------
-            headers : np.ndarray
-                Headers values.
-            """
-            # If key is string or array of str, return header columns with specified names
-            keys_array = np.array(to_list(key))
-            if keys_array.dtype.type == np.str_:
-                self.validate(required_header_cols=keys_array)
-                return self.headers[keys_array].values
+        Returns
+        -------
+        headers : np.ndarray
+            Headers values.
+        """
+        # If key is string or array of str, return header columns with specified names
+        keys_array = np.array(to_list(key))
+        if keys_array.dtype.type == np.str_:
+            self.validate(required_header_cols=keys_array)
+            return self.headers[keys_array].values
 
-            # Other case is to slice gather with given key. Here key can be any type that might be processed by
-            # np.array's getitem.
-            key = to_list(key)
-            key = key + [slice(None)] if len(key) == 1 else key
-            key = tuple([slice(k, k+1) if isinstance(k, (int, np.integer)) else k for k in key])
+        # Other case is to slice gather with given key. Here key can be any type that might be processed by
+        # np.array's getitem.
+        key = to_list(key)
+        key = key + [slice(None)] if len(key) == 1 else key
+        key = tuple(slice(k, k+1) if isinstance(k, (int, np.integer)) else k for k in key)
 
-            new_self = self.copy(except_attrs=['data', 'headers'])
-            new_self.data = self.data[key]
-            if new_self.data.size == 0:
-                raise ValueError('!!')
+        new_self = self.copy(except_attrs=['data', 'headers'])
+        new_self.data = self.data[key]
+        if new_self.data.size == 0:
+            raise ValueError('!!')
 
-            # The first axis is responsible for the number of traces, so we have to process traces headers.
-            # The second axis is responsible for time, we need to process traces time descriptions.
-            new_self.headers = self.headers.iloc[key[0]]
-            new_self.samples = self.samples[key[1]]
-            return new_self
+        # The first axis is responsible for the number of traces, so we have to process traces headers.
+        # The second axis is responsible for time, we need to process traces time descriptions.
+        new_self.headers = self.headers.iloc[key[0]]
+        new_self.samples = self.samples[key[1]]
+        return new_self
 
     def __setitem__(self, key, value):
         """Set given values to selected gather headers.
@@ -241,7 +241,8 @@ class Gather:
         self_copy.__dict__.update(nocopy_dict)
 
         # Reset all None attrs in self
-        {setattr(self, attr, value) for attr, value in nocopy_dict.items()}
+        for attr, value in nocopy_dict.items():
+            setattr(self, attr, value)
         return self_copy
 
     @batch_method
