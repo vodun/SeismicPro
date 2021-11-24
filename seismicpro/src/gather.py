@@ -91,17 +91,23 @@ class Gather:
         return self.data.shape
 
     def __getitem__(self, key):
-        """!!Select gather headers by their names.
+        """Depend on type of `key` either select gather headers by their names or create a new instance of Gather with
+        specified subset of traces.
+
+        Notes
+        -----
+        If the data after getitem is no longer sorted, `sort_by` attribute in resulted Gather will be set to None.
 
         Parameters
         ----------
-        key : str, list of str, list of slices/int
-            IF ..... Gather headers to get.
+        key : str, list of str, int, list, tuple, slice
+            If str or list of str, gather headers to get.
+            Otherwise, indices of traces to get. Here, getitem behaviour coinside with getitem in numpy.array.
 
         Returns
         -------
-        headers : np.ndarray
-            Headers values.
+        result : np.ndarray or Gather
+            Headers values or Gather with specified subset of traces.
         """
         # If key is string or array of str, return header columns with specified names
         keys_array = np.array(to_list(key))
@@ -111,19 +117,24 @@ class Gather:
 
         # Other case is to slice gather with given key. Here key can be any type that might be processed by
         # np.array's getitem.
-        key = to_list(key)
+        key = [key] if not isinstance(key, tuple) else key
         key = key + [slice(None)] if len(key) == 1 else key
         key = tuple(slice(k, k+1) if isinstance(k, (int, np.integer)) else k for k in key)
 
-        new_self = self.copy(except_attrs=['data', 'headers'])
-        new_self.data = self.data[key]
+        new_self = self.copy(ignore=['data', 'headers'])
+
+        new_self.data = np.atleast_2d(self.data[key])
         if new_self.data.size == 0:
-            raise ValueError('!!')
+            raise ValueError('Given key results in empty object')
 
         # The first axis is responsible for the number of traces, so we have to process traces headers.
         # The second axis is responsible for time, we need to process traces time descriptions.
         new_self.headers = self.headers.iloc[key[0]]
         new_self.samples = self.samples[key[1]]
+
+        # Check that `sort_by` is still represent the real trace sorting, since it may be changed during getitem.
+        if new_self.sort_by is not None and not new_self.headers[new_self.sort_by].is_monotonic_increasing:
+            new_self.sort_by = None
         return new_self
 
     def __setitem__(self, key, value):
@@ -212,13 +223,13 @@ class Gather:
         return tuple(coords[0].tolist())
 
     @batch_method(target='threads', copy_src=False)
-    def copy(self, except_attrs=None):
-        """Perform a deepcopy of all gather attributes except for `survey` and `except_attrs`, which are kept
+    def copy(self, ignore=None):
+        """Perform a deepcopy of all gather attributes except for `survey` and `ignore`, which are kept
         unchanged.
 
         Parameters
         ----------
-        except_attrs : str or array of str, default None
+        ignore : str or array of str, default None
             Attributes that will be kept unchanged after the copy.
 
         Returns
@@ -226,30 +237,20 @@ class Gather:
         copy : Gather
             Copy of the gather.
         """
-        # To avoid copying `except_attrs` and `survey`, save thier values in the dict and None them in
+        # To avoid copying `ignore` and `survey`, save thier values in the dict and None them in
         # the souce object.
-        except_attrs = [] if except_attrs is None else to_list(except_attrs)
-        except_list = except_attrs + ['survey']
+        ignore_attrs = set() if ignore is None else set(to_list(ignore))
+        ignore_attrs = [getattr(self, attr) for attr in ignore_attrs | set(['survey'])]
 
-        nocopy_dict = {}
-        for attr in except_list:
-            nocopy_dict[attr] = getattr(self, attr)
-            setattr(self, attr, None)
-
-        # Make a deepcopy of self and set back unchanged attributes
-        self_copy = deepcopy(self)
-        self_copy.__dict__.update(nocopy_dict)
-
-        # Reset all None attrs in self
-        for attr, value in nocopy_dict.items():
-            setattr(self, attr, value)
-        return self_copy
+        # Construct a memo dict with attributes to avoid thier copying during deepcopy.
+        memo = {id(attr): attr for attr in ignore_attrs}
+        return deepcopy(self, memo)
 
     @batch_method
     def getitem(self, *args, copy=False):
         """!!"""
-        new_self = self.copy() if copy else self
-        return new_self[args]
+        new_self = self[args]
+        return new_self.copy() if copy else new_self
 
     def _validate_header_cols(self, required_header_cols):
         """Check if the gather headers contain all columns from `required_header_cols`."""
