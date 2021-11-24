@@ -1,5 +1,7 @@
 """Implements SeismicBatch class for processing a small subset of seismic gathers"""
 
+from itertools import zip_longest
+
 import numpy as np
 
 from .gather import Gather
@@ -304,32 +306,37 @@ class SeismicBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component', target='for')
-    def b_crop(self, idx, src, mode, shape, dst=None, joint=True, **kwargs):  # b_crop -> crop
+    def crop(self, idx, src, mode, shape, dst=None, joint=True, **kwargs):  # b_crop -> crop
         ''' TODO: docs '''
         # TO DO: benchmark
         dst = src if dst is None else dst
-        list_src = to_list(src)
-        list_dst = to_list(dst)
+        src_list = to_list(src)
+        dst_list = to_list(dst)
 
-        if len(list_src) != len(list_dst):
+        if len(src_list) != len(dst_list):
             raise ValueError('`src` and `dst` should have the same length.')
 
-        if joint and len(list_src) > 1:
-            # check src consistent
-            cur_obj_type = type(getattr(self, list_src[0]))
-            for item in list_src[1:]:
-                if not isinstance(getattr(self, item), cur_obj_type):
-                    raise TypeError('`src` should contain same type of objects when `joint` is True.')
-            # checking src shapes
-            src_shapes = set([getattr(self, item).shape for item in list_src])
-            if len(src_shapes) > 1:
-                raise ValueError("Shapes of the 'src' object are not consistent.")
-
         cur_pos = self.index.get_pos(idx)
-        for i, (src_item, dst_item) in enumerate(zip(list_src, list_dst)):
+
+        src_shapes = []
+        src_types = []
+
+        for item in src_list:
+            cur_object = getattr(self, item)[cur_pos]
+            src_types.append(type(cur_object))
+            src_shapes.append(cur_object.shape)
+
+        if joint:
+            if len(set(src_types)) > 1:
+                raise TypeError('`src` should contain same type of objects when `joint` is True.')
+            if len(set(src_shapes)) > 1:
+                raise ValueError("Shapes of the 'src' object are not consistent.")
+            origins_list = [make_origins(mode, gather_shape=src_shapes[0], crop_shape=shape, **kwargs)]
+        else: 
+            origins_list = [make_origins(mode, gather_shape=item_shape, crop_shape=shape, **kwargs) for item_shape in src_shapes]
+
+        for src_item, dst_item, origins in zip_longest(src_list, dst_list, origins_list, fillvalue=origins_list[0]):
             gather = getattr(self, src_item)[cur_pos]
-            if i == 0 or not joint:
-                origins = make_origins(mode, gather_shape=gather.shape, crop_shape=shape, **kwargs)
             cropped = gather.crop(shape=shape, origins=origins, **kwargs)
             setattr(self[cur_pos], dst_item, cropped)
 
