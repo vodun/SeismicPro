@@ -441,13 +441,14 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         """
         return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
 
-    def load_first_breaks(self, path, trace_id_columns = ('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak', 
+    def load_first_breaks(self, path, trace_id_columns = ('FieldRecord', 'TraceNumber'), first_breaks_column='FirstBreak', 
                           delim_whitespace=True, decimal=',', **kwargs):
-        """Load times of first breaks and save them to `headers`.
+        """Load first break picking times and save them to the new `headers` column.
 
-        Each row in the file corresponds to the trace with first break picking time. 
-        FBP time is stored in the last column of the file. The combination of all but the last columns acts as a unique trace identifier
-        and is used to match the trace from the file with the corresponding traces in `self.headers`.
+        Each row in the file should correspond to the first break picking time of the trace. 
+        FBP time should be stored in the last column of the file. 
+        The combination of all but the last columns should act as a unique trace identifier and is used to match 
+        the trace from the file with the corresponding trace in `self.headers`.
 
         Parameters
         ----------
@@ -455,7 +456,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             A path to the file with first break times in milliseconds.
         trace_id_columns : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
             All but the last columns names in the file. 
-        first_breaks_col : str, optional, defaults to 'FirstBreak'
+        first_breaks_column : str, optional, defaults to 'FirstBreak'
             Column name in `self.headers` where loaded first break times will be stored.
         delim_whitespace: bool, defaults to True
             Specifies whether or not whitespace will be used as the sep. See `pd.read_csv` for more details.
@@ -475,8 +476,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             If not all the `trace_id_columns` are loaded in `self.headers`
             If there is not a single match of rows from the file with those in `self.headers`.
         """
-        first_breaks_columns = trace_id_columns + (first_breaks_col, )
-        first_breaks_df = pd.read_csv(path, names=first_breaks_columns, delim_whitespace=delim_whitespace, 
+        file_columns = trace_id_columns + (first_breaks_column, )
+        first_breaks_df = pd.read_csv(path, names=file_columns, delim_whitespace=delim_whitespace, 
                                       decimal=decimal, **kwargs)
 
         headers = self.headers.reset_index()

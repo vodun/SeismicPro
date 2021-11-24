@@ -302,11 +302,38 @@ class SeismicBatch(Batch):
         return self
 
     @action
-    def dump_picking(self, path, src, id_cols=('FieldRecord', 'TraceNumber'), col_space=8, **kwargs):
+    def dump_first_breaks(self, path, src, trace_id_columns=('FieldRecord', 'TraceNumber'), 
+                          header=False, col_space=8, decimal=',', **kwargs):
+        """ Save first break picking times to the file.
+
+        Each row in the resulted file corresponds to the first break picking of the trace. 
+        All but the last columns stores values from `self.headers[trace_id_columns]`. 
+        The last column stores fbp times from batch component.
+
+        Parameters
+        ----------
+        path : str 
+            Path to the file.
+        src : str
+            Component name with first break pickings.
+        trace_id_columns : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
+            Columns names from `self.headers` that act as trace id. These would present in the file.  
+        col_space : int, list or dict of int, defaults to 8
+            The minimum width of each column. See `df.to_string` for more details
+        decimal : str, default to ','
+            Character recognized as decimal separato. See `df.to_string` for more details
+        kwargs : misc, optional
+            Additional keyword arguments to `df.to_string`.
+
+        Returns
+        -------
+        batch : SeismicBatch
+            Batch unchanged 
+        """
         data = getattr(self, src)
-        df = self.index.headers.reset_index()[list(id_cols)]
+        df = self.index.headers.reset_index()[list(trace_id_columns)]
         df['TMP_FBP'] = np.concatenate(data)
 
         with open(path, 'a') as f:
-            f.write(df.to_string(index=False, header=False, col_space=col_space, decimal=',', **kwargs))
+            f.write(df.to_string(index=False, header=False, col_space=col_space, decimal=decimal, **kwargs))
         return self
