@@ -441,7 +441,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         """
         return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
 
-    def load_first_breaks(self, path, first_breaks_col='FirstBreak'):
+    def load_first_breaks(self, path, segy_columns = ('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak', 
+                          delim_whitespace=True, decimal=',', **kwargs):
         """Load times of first breaks and save them to `headers`.
 
         A file with first breaks data must have three columns: `FieldRecord`, `TraceNumber` and times of first
@@ -467,9 +468,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             If `FieldRecord` or `TraceNumber` headers were not loaded.
             If ('FieldRecord', 'TraceNumber') pairs from the file do not match those in `self.headers`.
         """
-        segy_columns = ['FieldRecord', 'TraceNumber']
-        first_breaks_columns = segy_columns + [first_breaks_col]
-        first_breaks_df = pd.read_csv(path, names=first_breaks_columns, delim_whitespace=True, decimal=',')
+        first_breaks_columns = segy_columns + (first_breaks_col, )
+        first_breaks_df = pd.read_csv(path, names=first_breaks_columns, delim_whitespace=delim_whitespace, 
+                                      decimal=decimal, **kwargs)
 
         headers = self.headers.reset_index()
         missing_cols = set(segy_columns) - set(headers)

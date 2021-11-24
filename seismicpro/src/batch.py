@@ -300,3 +300,13 @@ class SeismicBatch(Batch):
         else:
             raise ValueError(f"dst must be either `str` or `NamedExpression`, not {type(dst)}.")
         return self
+
+    @action
+    def dump_picking(self, path, src, id_cols=('FieldRecord', 'TraceNumber'), col_space=8, **kwargs):
+        data = getattr(self, src)
+        df = self.index.headers.reset_index()[list(id_cols)]
+        df['TMP_FBP'] = np.concatenate(data)
+
+        with open(path, 'a') as f:
+            f.write(df.to_string(index=False, header=False, col_space=col_space, decimal=',', **kwargs))
+        return self
