@@ -113,12 +113,14 @@ class Gather:
         keys_array = np.array(to_list(key))
         if keys_array.dtype.type == np.str_:
             self.validate(required_header_cols=keys_array)
-            return self.headers[keys_array].values
+            # We avoid to use pandas indexing with multiple columns due to the performance reasons.
+            return np.column_stack([self.headers[col].values if col in self.headers.columns
+                                    else self.headers.index.get_level_values(col).values for col in keys_array])
 
         # Other case is to slice gather with given key. Here key can be any type that might be processed by
         # np.array's getitem.
         key = [key] if not isinstance(key, tuple) else key
-        key = key + [slice(None)] if len(key) == 1 else key
+        key = list(key) + [slice(None)] if len(key) == 1 else key
         key = tuple(slice(k, k+1) if isinstance(k, (int, np.integer)) else k for k in key)
 
         new_self = self.copy(ignore=['data', 'headers'])
@@ -246,17 +248,16 @@ class Gather:
         memo = {id(attr): attr for attr in ignore_attrs}
         return deepcopy(self, memo)
 
-    @batch_method
-    def getitem(self, *args, copy=False):
-        """!!"""
-        new_self = self[args]
-        return new_self.copy() if copy else new_self
+    @batch_method()
+    def getitem(self, *args):
+        """A public interface for `self.__getitem__` method."""
+        return self[args]
 
     def _validate_header_cols(self, required_header_cols):
         """Check if the gather headers contain all columns from `required_header_cols`."""
-        headers = self.headers.reset_index()
+        header_cols = set(self.headers.columns) | set(self.headers.index.names)
         required_header_cols = to_list(required_header_cols)
-        if any(col not in headers for col in required_header_cols):
+        if any(col not in header_cols for col in required_header_cols):
             err_msg = "The following headers must be preloaded: {}"
             raise ValueError(err_msg.format(", ".join(required_header_cols)))
 
