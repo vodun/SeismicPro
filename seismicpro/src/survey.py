@@ -441,21 +441,28 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         """
         return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
 
-    def load_first_breaks(self, path, segy_columns = ('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak', 
+    def load_first_breaks(self, path, trace_id_columns = ('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak', 
                           delim_whitespace=True, decimal=',', **kwargs):
         """Load times of first breaks and save them to `headers`.
 
-        A file with first breaks data must have three columns: `FieldRecord`, `TraceNumber` and times of first
-        arrivals in milliseconds. The combination of `FieldRecord` and `TraceNumber` acts as a unique trace identifier
-        and is used to match the times of first breaks with the corresponding traces in `self.headers` and save them
-        into the column specified by `first_breaks_col`.
+        Each row in the file corresponds to the trace with first break picking time. 
+        FBP time is stored in the last column of the file. The combination of all but the last columns acts as a unique trace identifier
+        and is used to match the trace from the file with the corresponding traces in `self.headers`.
 
         Parameters
         ----------
         path : str
             A path to the file with first break times in milliseconds.
+        trace_id_columns : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
+            All but the last columns names in the file. 
         first_breaks_col : str, optional, defaults to 'FirstBreak'
             Column name in `self.headers` where loaded first break times will be stored.
+        delim_whitespace: bool, defaults to True
+            Specifies whether or not whitespace will be used as the sep. See `pd.read_csv` for more details.
+        decimal: str, defaults to ','
+            Character to recognize as decimal point. See `pd.read_csv` for more details.
+        kwargs : misc, optional
+            Additional keyword arguments to pass to  `pd.read_csv`.
 
         Returns
         -------
@@ -465,19 +472,19 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         Raises
         ------
         ValueError
-            If `FieldRecord` or `TraceNumber` headers were not loaded.
-            If ('FieldRecord', 'TraceNumber') pairs from the file do not match those in `self.headers`.
+            If not all the `trace_id_columns` are loaded in `self.headers`
+            If there is not a single match of rows from the file with those in `self.headers`.
         """
-        first_breaks_columns = segy_columns + (first_breaks_col, )
+        first_breaks_columns = trace_id_columns + (first_breaks_col, )
         first_breaks_df = pd.read_csv(path, names=first_breaks_columns, delim_whitespace=delim_whitespace, 
                                       decimal=decimal, **kwargs)
 
         headers = self.headers.reset_index()
-        missing_cols = set(segy_columns) - set(headers)
+        missing_cols = set(trace_id_columns) - set(headers)
         if missing_cols:
             raise ValueError(f'Missing {missing_cols} column(s) required for first break loading.')
 
-        headers = headers.merge(first_breaks_df, on=segy_columns)
+        headers = headers.merge(first_breaks_df, on=trace_id_columns)
         if headers.empty:
             raise ValueError('Empty headers after first breaks loading.')
         headers.set_index(self.headers.index.names, inplace=True)
