@@ -538,7 +538,7 @@ class Gather:
 
     @batch_method(target="threads")
     def pick_to_mask(self, first_breaks_col="FirstBreak"):
-        """ Check docs
+        """ TODO: Check docs
         # Convert first break times to a binary mask with the same shape as `gather.data` containing zeros before the
         # first arrivals and ones after for each trace.
 
@@ -557,8 +557,11 @@ class Gather:
         self.validate(required_header_cols=first_breaks_col)
         mask = convert_times_to_mask(times=self[first_breaks_col], sample_rate=self.sample_rate,
                                      mask_length=self.shape[1]).astype(np.int32)
+        # avoiding a gather data copying 
+        temp = self.data
         self.data = None
         gather = self.copy()
+        self.data = temp
         gather.data = mask
         return gather
         # setattr(self, mask_attr, mask)
@@ -566,7 +569,7 @@ class Gather:
 
     @batch_method(target='for')
     def mask_to_pick(self, threshold=0.5, first_breaks_col="FirstBreak"):
-        """ Check docs
+        """ TODO: Check docs
         # Convert a first break mask into times of first arrivals.
 
         # The mask shape should match the shape of `gather.data`, each its value should represent a probability of
@@ -596,6 +599,7 @@ class Gather:
         # ValueError
         #     If an attribute defined by `mask_attr` does not exist.
         """
+        # TODO: test it
         self[first_breaks_col] = convert_mask_to_pick(self.data, self.sample_rate, threshold)
         # mask = getattr(self, mask_attr, None)
         # if mask is None:
@@ -881,21 +885,14 @@ class Gather:
         return self
 
     @batch_method(target='for')
-    def crop(self, shape, mode=None, origins=None, **kwargs):
+    def crop(self, shape, origins, n_items=1, grid_coverage=1, aggregation_mode='mean', pad_mode='constant'):
         """" ! docs """
-        if origins is None:  # origins is None when crop called as gather method.
-            if mode is None:
-                raise ValueError('Mode should be defined.')
-            origins = make_origins(mode, gather_shape=self.data.shape, crop_shape=shape, **kwargs)
-        kwargs = self._crop_kwargs_pop(kwargs)
-        return CroppedGather(self, shape, origins, **kwargs)  # 'n_items' should be removed from kwargs
-
-    def _crop_kwargs_pop(self, kwargs):
-        if 'n_items' in kwargs.keys():
-            kwargs.pop('n_items')
-        if 'grid_coverage' in kwargs.keys():
-            kwargs.pop('grid_coverage')
-        return kwargs
+        origins = make_origins(origins, 
+                                gather_shape=self.data.shape, 
+                                crop_shape=shape, 
+                                n_items=n_items, 
+                                grid_coverage=grid_coverage)
+        return CroppedGather(self, shape, origins, aggregation_mode=aggregation_mode, pad_mode=pad_mode)
 
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #

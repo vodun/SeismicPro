@@ -241,47 +241,36 @@ def clip(data, data_min, data_max):
     return data.reshape(data_shape)
 
 
-def make_origins(mode, gather_shape, crop_shape, **kwargs):
-    if isinstance(mode, tuple) or isinstance(mode, list):
-        origins = np.array(mode).reshape(-1, 2)
-    elif isinstance(mode, str):
-        origins = _origins_from_str(mode, gather_shape, crop_shape, **kwargs)
+def make_origins(origins, gather_shape, crop_shape, n_items=1, grid_coverage=1):
+    if isinstance(origins, tuple) or isinstance(origins, list):
+        return np.atleast_2d(origins)  # atleast_2d
+    elif isinstance(origins, str):
+        return _origins_from_str(origins, gather_shape, crop_shape, n_items, grid_coverage)
+    elif isinstance(origins, np.ndarray):
+        if len(origins.shape) == 2 and origins.shape[1] == 2:
+            return origins
+        else:
+            raise ValueError('Origins should be 2d array with shape [n_origins, 2].')
     else:
-        raise ValueError('Unknown mode value or type.')
-    return origins
+        raise ValueError('Unknown origins value or type.')
 
 
-def _origins_from_str(mode, gather_shape, crop_shape, **kwargs):
-    if mode == 'random':  # from uniform distribution. 
-        # size = kwargs['n_items'] if 'n_items' in kwargs.keys() else 1
-        size = kwargs.get('n_items', 1)
-        origins = np.array((np.random.randint(max(1, gather_shape[0] - crop_shape[0]), size=size),
-                            np.random.randint(max(1, gather_shape[1] - crop_shape[1]), size=size))).T.reshape(-1, 2)
+def _make_grid_laying(gather_shape, crop_shape, grid_coverage):
+    working_len = gather_shape - crop_shape
+    eps = 0 if working_len // crop_shape == 0 else 2
+    laying = np.linspace(0, working_len, num=int((working_len // crop_shape + eps) * grid_coverage), dtype=int)
+    return np.unique(laying)
 
-        # above variant are faster
-        # origins_x = np.random.randint(max(1, gather_shape[0] - crop_shape[0]), size=size).reshape(-1, 1)
-        # origins_y = np.random.randint(max(1, gather_shape[1] - crop_shape[1]), size=size).reshape(-1, 1)
-        # origins = np.hstack(origins_x, origins_y)
+
+def _origins_from_str(origins, gather_shape, crop_shape, n_items, grid_coverage):
+    if origins == 'random':  # from uniform distribution. 
+        origins = np.column_stack((np.random.randint(1 + max(0, gather_shape[0] - crop_shape[0]), size=n_items),
+                                   np.random.randint(1 + max(0, gather_shape[1] - crop_shape[1]), size=n_items)))
         return origins
-
-    elif mode == 'grid':
-        # TODO: move grid coverage from assembling to here
-        # grid_coverage = kwargs['grid_coverage'] if 'grid_coverage' in kwargs.keys() else 1
-        grid_coverage = kwargs.get('grid_coverage', 1)
-        grid_cut_edge = kwargs.get('grid_cut_edge', (0, 0))
-        grid_cut_value = kwargs.get('grid_cut_value', 0)
-
-        working_len_x = gather_shape[0] - crop_shape[0]  # + 2 * grid_cut_edge[0]
-        eps_x = 0 if working_len_x // crop_shape[0] == 0 else 2
-        origins_x = np.linspace(0, working_len_x,
-                               num=int((working_len_x // crop_shape[0] + eps_x) * grid_coverage),
-                               dtype=int)
-
-        working_len_y = gather_shape[1] - crop_shape[1]  # + 2 * grid_cut_edge[1]
-        eps_y = 0 if working_len_y // crop_shape[1] == 0 else 2
-        origins_y = np.linspace(0, working_len_y,
-                               num=int((working_len_y // crop_shape[1] + eps_y) * grid_coverage),
-                               dtype=int)
+    elif origins == 'grid':
+        origins_x = _make_grid_laying(gather_shape[0], crop_shape[0], grid_coverage)
+        origins_y = _make_grid_laying(gather_shape[1], crop_shape[1], grid_coverage)
         return np.array(np.meshgrid(origins_x, origins_y)).T.reshape(-1, 2)
     else:
-        raise NotImplementedError("Using mode don't realized now")
+        raise NotImplementedError("Using mode don't implement now")
+        

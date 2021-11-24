@@ -306,7 +306,8 @@ class SeismicBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component', target='for')
-    def crop(self, idx, src, mode, shape, dst=None, joint=True, **kwargs):  # b_crop -> crop
+    def crop(self, idx, src, origins, shape, dst=None, joint=True, n_items=1, grid_coverage=1, 
+             aggregation_mode='mean', pad_mode='constant'):
         ''' TODO: docs '''
         # TO DO: benchmark
         dst = src if dst is None else dst
@@ -331,13 +332,16 @@ class SeismicBatch(Batch):
                 raise TypeError('`src` should contain same type of objects when `joint` is True.')
             if len(set(src_shapes)) > 1:
                 raise ValueError("Shapes of the 'src' object are not consistent.")
-            origins_list = [make_origins(mode, gather_shape=src_shapes[0], crop_shape=shape, **kwargs)]
+            origins_list = [make_origins(origins, gather_shape=src_shapes[0],  crop_shape=shape, 
+                                         n_items=n_items, grid_coverage=grid_coverage)]
         else: 
-            origins_list = [make_origins(mode, gather_shape=item_shape, crop_shape=shape, **kwargs) for item_shape in src_shapes]
+            origins_list = [make_origins(origins, gather_shape=item_shape, crop_shape=shape, 
+                                         n_items=n_items, grid_coverage=grid_coverage) 
+                                         for item_shape in src_shapes]
 
-        for src_item, dst_item, origins in zip_longest(src_list, dst_list, origins_list, fillvalue=origins_list[0]):
+        for src_item, dst_item, origin_item in zip_longest(src_list, dst_list, origins_list, fillvalue=origins_list[0]):
             gather = getattr(self, src_item)[cur_pos]
-            cropped = gather.crop(shape=shape, origins=origins, **kwargs)
+            cropped = gather.crop(shape=shape, origins=origin_item, aggregation_mode=aggregation_mode, pad_mode=pad_mode)
             setattr(self[cur_pos], dst_item, cropped)
 
         return self
