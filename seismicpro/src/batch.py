@@ -309,7 +309,7 @@ class SeismicBatch(Batch):
     def crop(self, idx, src, origins, shape, dst=None, joint=True, n_items=1, grid_coverage=1, 
              aggregation_mode='mean', pad_mode='constant'):
         ''' TODO: docs '''
-        # TO DO: benchmark
+        # TODO: benchmark
         dst = src if dst is None else dst
         src_list = to_list(src)
         dst_list = to_list(dst)
@@ -317,13 +317,13 @@ class SeismicBatch(Batch):
         if len(src_list) != len(dst_list):
             raise ValueError('`src` and `dst` should have the same length.')
 
-        cur_pos = self.index.get_pos(idx)
+        pos = self.index.get_pos(idx)
 
         src_shapes = []
         src_types = []
 
         for item in src_list:
-            cur_object = getattr(self, item)[cur_pos]
+            cur_object = getattr(self, item)[pos]
             src_types.append(type(cur_object))
             src_shapes.append(cur_object.shape)
 
@@ -340,8 +340,8 @@ class SeismicBatch(Batch):
                                          for item_shape in src_shapes]
 
         for src_item, dst_item, origin_item in zip_longest(src_list, dst_list, origins_list, fillvalue=origins_list[0]):
-            gather = getattr(self, src_item)[cur_pos]
-            cropped = gather.crop(shape=shape, origins=origin_item, aggregation_mode=aggregation_mode, pad_mode=pad_mode)
-            setattr(self[cur_pos], dst_item, cropped)
+            object_item = getattr(self, src_item)[pos]
+            cropped = object_item.crop(shape=shape, origins=origin_item, pad_mode=pad_mode)
+            setattr(self[pos], dst_item, cropped)
 
         return self

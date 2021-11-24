@@ -6,17 +6,16 @@ from .decorators import batch_method
 class CroppedGather:
     ''' cool docstring here '''
 
-    def __init__(self, gather, shape, origins, aggregation_mode='mean', pad_mode='constant'):
+    def __init__(self, gather, shape, origins, pad_mode='constant'):
         self.gather = gather
         self.crop_shape = shape
-        self.aggregation_mode = aggregation_mode
+        self.n_origins = origins.shape[0]
         self.origins = origins
         self.crops = self.make_crops(self._padding(pad_mode))
 
     def make_crops(self, data):
         ''' TODO: docs '''
-        crops = np.empty(shape=(self.origins.shape[0], *self.crop_shape), dtype=float)
-
+        crops = np.empty(shape=(self.n_origins, *self.crop_shape), dtype=float)
         dx, dy = self.crop_shape
         for i, (start_x, start_y) in enumerate(self.origins):
             crops[i] = data[start_x:start_x + dx, start_y:start_y + dy]
@@ -30,10 +29,11 @@ class CroppedGather:
         return np.pad(self.gather.data, ((0, pad_shape_x), (0, pad_shape_y)), mode=pad_mode)
 
     @batch_method(target='for')
-    def assemble_gather(self, input_data=None, **kwargs):
+    def assemble_gather(self, input_data=None, strategy='greed', aggregation_mode='mean'):
         ''' TODO: docs '''
         # test save_to in predict_model
-        assembling_data = self._assembling(self.crops if input_data is None else input_data, **kwargs)
+        assembling_data = self._assembling(self.crops if input_data is None else input_data, 
+                                           strategy=strategy, aggregation_mode=aggregation_mode)
 
         # avoiding gather data copying 
         rest_data = self.gather.data
@@ -44,15 +44,14 @@ class CroppedGather:
         gather.data = assembling_data
         return gather
 
-    def _assembling(self, data, agg_matrix_raise=1, strategy='greed'):
+    def _assembling(self, data, strategy=None, aggregation_mode=None):
         ''' TODO: docs ''' 
-        result = np.full(shape=(*self.gather.shape, agg_matrix_raise), fill_value=np.nan, dtype=float)
+        result = np.full(shape=(*self.gather.shape, 1), fill_value=np.nan, dtype=float)
         mask = np.full(shape=self.gather.shape, fill_value=-1, dtype=int)
 
         mask_add = 1
         if strategy == 'rand':
-            n_origins = self.origins.shape[0]
-            rand_i = np.random.permutation(np.arange(n_origins))
+            rand_i = np.random.permutation(np.arange(self.n_origins))
             for i in rand_i:
                 one_crop = data[i]
                 origin = self.origins[i]
@@ -60,7 +59,7 @@ class CroppedGather:
                 plate_index = mask[origin[0]:origin[0] + self.crop_shape[0], origin[1]:origin[1] + self.crop_shape[1]].max() + 1
                 # checking if result array need to extend by axis=2
                 if plate_index >= result.shape[2]:
-                    result = np.dstack((result, np.full(shape=(*self.gather.shape, agg_matrix_raise), fill_value=np.nan, dtype=float)))
+                    result = np.dstack((result, np.full(shape=(*self.gather.shape, 1), fill_value=np.nan, dtype=float)))
                 result[origin[0]:origin[0] + self.crop_shape[0], origin[1]:(origin[1] + self.crop_shape[1]), plate_index] = one_crop
                 mask[origin[0]:origin[0] + self.crop_shape[0], origin[1]:origin[1] + self.crop_shape[1]] = plate_index
             print('Rand aggregate matrix shape:', result.shape)
@@ -87,8 +86,7 @@ class CroppedGather:
             print('Greed aggregate matrix shape:', result.shape)
 
 
-        result = self._aggregate(result, mode=self.aggregation_mode)
-        return result
+        return self._aggregate(result, mode=aggregation_mode)
 
     def _aggregate(self, data, mode):
         ''' TODO: docs '''

@@ -562,10 +562,10 @@ class Gather:
         self.data = None
         gather = self.copy()
         self.data = temp
+        
         gather.data = mask
         return gather
-        # setattr(self, mask_attr, mask)
-        # return self
+
 
     @batch_method(target='for')
     def mask_to_pick(self, threshold=0.5, first_breaks_col="FirstBreak"):
@@ -601,10 +601,6 @@ class Gather:
         """
         # TODO: test it
         self[first_breaks_col] = convert_mask_to_pick(self.data, self.sample_rate, threshold)
-        # mask = getattr(self, mask_attr, None)
-        # if mask is None:
-        #     raise ValueError(f"Mask attribute given by '{mask_attr}' does not exist")
-        # self[first_breaks_col] = convert_mask_to_pick(mask, self.sample_rate, threshold)
         return self
 
     #------------------------------------------------------------------------#
@@ -885,14 +881,14 @@ class Gather:
         return self
 
     @batch_method(target='for')
-    def crop(self, shape, origins, n_items=1, grid_coverage=1, aggregation_mode='mean', pad_mode='constant'):
+    def crop(self, shape, origins, n_items=1, grid_coverage=1, pad_mode='constant'):
         """" ! docs """
         origins = make_origins(origins, 
                                 gather_shape=self.data.shape, 
                                 crop_shape=shape, 
                                 n_items=n_items, 
                                 grid_coverage=grid_coverage)
-        return CroppedGather(self, shape, origins, aggregation_mode=aggregation_mode, pad_mode=pad_mode)
+        return CroppedGather(self, shape, origins, pad_mode=pad_mode)
 
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #
