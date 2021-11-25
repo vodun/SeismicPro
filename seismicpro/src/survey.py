@@ -441,12 +441,12 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         """
         return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
 
-    def load_first_breaks(self, path, trace_id_columns = ('FieldRecord', 'TraceNumber'), first_breaks_column='FirstBreak', 
-                          delim_whitespace=True, decimal=',', **kwargs):
+    def load_first_breaks(self, path, trace_id_columns = ('FieldRecord', 'TraceNumber'), 
+                          first_breaks_column='FirstBreak', delim_whitespace=True, decimal=',', **kwargs):
         """Load first break picking times and save them to the new `headers` column.
 
-        Each row in the file should correspond to the first break picking time of the trace. 
-        FBP time should be stored in the last column of the file. 
+        Each row in the file must correspond to the first break picking time of the trace. 
+        FBP time must be stored in the last column of the file. 
         The combination of all but the last columns should act as a unique trace identifier and is used to match 
         the trace from the file with the corresponding trace in `self.headers`.
 

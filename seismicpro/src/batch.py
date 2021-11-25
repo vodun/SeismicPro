@@ -301,7 +301,7 @@ class SeismicBatch(Batch):
             raise ValueError(f"dst must be either `str` or `NamedExpression`, not {type(dst)}.")
         return self
 
-    @action
+    @action(use_lock=True)
     def dump_first_breaks(self, path, src, trace_id_columns=('FieldRecord', 'TraceNumber'), 
                           col_space=8, decimal=',', **kwargs):
         """ Save first break picking times to the file.
