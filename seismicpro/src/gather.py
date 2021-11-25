@@ -129,12 +129,12 @@ class Gather:
         key = tuple(slice(k, k+1) if isinstance(k, (int, np.integer)) else k for k in key)
 
         new_self = self.copy(ignore=['data', 'headers', 'samples'])
-
         new_self.data = self.data[key]
-        if new_self.data.ndim < 2:
-            raise ValueError('Received invalid key format')
+        if new_self.data.ndim != 2:
+            raise ValueError("Given `key` leads either to ambiguous behavior when processing samples and headers or to"
+                             " a change in the dimension of the data")
         if new_self.data.size == 0:
-            raise ValueError('Given key results in empty object')
+            raise ValueError("Given `key` results in empty object")
 
         # The first axis is responsible for the number of traces, so we have to process traces headers.
         # The second axis is responsible for time. We need to process traces time descriptions.
@@ -263,7 +263,8 @@ class Gather:
         header_cols = set(self.headers.columns) | set(self.headers.index.names)
         missing_headers = set(to_list(required_header_cols)) - header_cols
         if missing_headers:
-            raise ValueError("The following headers must be preloaded: {}".format(", ".join(missing_headers)))
+            err_msg = "The following headers must be preloaded: {}"
+            raise ValueError(err_msg.format(", ".join(missing_headers)))
 
     def _validate_sorting(self, required_sorting):
         """Check if the gather is sorted by `required_sorting` header."""
