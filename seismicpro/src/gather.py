@@ -126,10 +126,13 @@ class Gather:
         # np.array's getitem.
         key = (key, ) if not isinstance(key, tuple) else key
         key =  key + (slice(None), ) if len(key) == 1 else key
-        key = tuple(slice(k, k+1) if isinstance(k, (int, np.integer)) else k for k in key)
+        key_tuple = ()
+        for k in key:
+            new_k = slice(k, k+1) if isinstance(k, (int, np.integer)) else to_list(k) if isinstance(k, tuple) else k
+            key_tuple = key_tuple + (new_k, )
 
         new_self = self.copy(ignore=['data', 'headers', 'samples'])
-        new_self.data = self.data[key]
+        new_self.data = self.data[key_tuple]
         if new_self.data.ndim != 2:
             raise ValueError("Given `key` leads either to ambiguous behavior when processing samples and headers or to"
                              " a change in the dimension of the data")
@@ -138,8 +141,8 @@ class Gather:
 
         # The first axis is responsible for the number of traces, so we have to process traces headers.
         # The second axis is responsible for time. We need to process traces time descriptions.
-        new_self.headers = self.headers.iloc[key[0]]
-        new_self.samples = self.samples[key[1]]
+        new_self.headers = self.headers.iloc[key_tuple[0]]
+        new_self.samples = self.samples[key_tuple[1]]
 
         # Check that `sort_by` is still represents the actual trace sorting since it may be changed during getitem.
         if new_self.sort_by is not None and not new_self.headers[new_self.sort_by].is_monotonic_increasing:
@@ -256,7 +259,7 @@ class Gather:
     @batch_method()
     def get_item(self, *args):
         """An interface for `self.__getitem__` method."""
-        return self[args]
+        return self[args if len(args) > 1 else args[0]]
 
     def _validate_header_cols(self, required_header_cols):
         """Check if the gather headers contain all columns from `required_header_cols`."""
