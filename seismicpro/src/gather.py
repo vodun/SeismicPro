@@ -91,8 +91,8 @@ class Gather:
         return self.data.shape
 
     def __getitem__(self, key):
-        """Depend on type of `key` either select gather headers by their names or create a new instance of Gather with
-        specified subset of traces.
+        """Depending on type of `key` either select gather headers by their names or create a new instance of Gather
+        with specified traces and samples.
 
         Notes
         -----
@@ -102,7 +102,8 @@ class Gather:
         ----------
         key : str, list of str, int, list, tuple, slice
             If str or list of str, gather headers to get.
-            Otherwise, indices of traces to get. Here, getitem behaviour coinside with getitem in numpy.array.
+            Otherwise, indices of traces and samples to get. Here, getitem behaviour coinside with getitem in
+            numpy.array.
 
         Returns
         -------
@@ -113,17 +114,23 @@ class Gather:
         keys_array = np.array(to_list(key))
         if keys_array.dtype.type == np.str_:
             self.validate(required_header_cols=keys_array)
-            # We avoid to use pandas indexing with multiple columns due to the performance reasons.
-            return np.column_stack([self.headers[col].values if col in self.headers.columns
-                                    else self.headers.index.get_level_values(col).values for col in keys_array])
+            # We avoid using pandas indexing with multiple columns to speed up selection of headers from gathers with
+            # small number of traces.
+            headers = []
+            for col in keys_array:
+                if col in self.headers.columns:
+                    headers.append(self.headers[col].values)
+                else:
+                    headers.append(self.headers.index.get_level_values(col).values)
+            return np.column_stack(headers)
 
         # Other case is to slice gather with given key. Here key can be any type that might be processed by
         # np.array's getitem.
-        key = [key] if not isinstance(key, tuple) else key
-        key = list(key) + [slice(None)] if len(key) == 1 else key
+        key = (key, ) if not isinstance(key, tuple) else key
+        key =  key + (slice(None), ) if len(key) == 1 else key
         key = tuple(slice(k, k+1) if isinstance(k, (int, np.integer)) else k for k in key)
 
-        new_self = self.copy(ignore=['data', 'headers'])
+        new_self = self.copy(ignore=['data', 'headers', 'samples'])
 
         new_self.data = np.atleast_2d(self.data[key])
         if new_self.data.size == 0:
@@ -226,8 +233,8 @@ class Gather:
 
     @batch_method(target='threads', copy_src=False)
     def copy(self, ignore=None):
-        """Perform a deepcopy of all gather attributes except for `survey` and `ignore`, which are kept
-        unchanged.
+        """Perform a deepcopy of all gather attributes except for `survey` and those, specified in `ignore`, which are
+        kept unchanged.
 
         Parameters
         ----------
@@ -239,10 +246,8 @@ class Gather:
         copy : Gather
             Copy of the gather.
         """
-        # To avoid copying `ignore` and `survey`, save thier values in the dict and None them in
-        # the souce object.
         ignore_attrs = set() if ignore is None else set(to_list(ignore))
-        ignore_attrs = [getattr(self, attr) for attr in ignore_attrs | set(['survey'])]
+        ignore_attrs = [getattr(self, attr) for attr in ignore_attrs | {'survey'}]
 
         # Construct a memo dict with attributes to avoid thier copying during deepcopy.
         memo = {id(attr): attr for attr in ignore_attrs}
@@ -256,8 +261,8 @@ class Gather:
     def _validate_header_cols(self, required_header_cols):
         """Check if the gather headers contain all columns from `required_header_cols`."""
         header_cols = set(self.headers.columns) | set(self.headers.index.names)
-        required_header_cols = to_list(required_header_cols)
-        if any(col not in header_cols for col in required_header_cols):
+        required_header_cols = set(to_list(required_header_cols))
+        if required_header_cols - header_cols:
             err_msg = "The following headers must be preloaded: {}"
             raise ValueError(err_msg.format(", ".join(required_header_cols)))
 
