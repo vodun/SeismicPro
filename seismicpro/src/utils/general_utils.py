@@ -242,28 +242,25 @@ def clip(data, data_min, data_max):
 
 
 def make_origins(origins, gather_shape, crop_shape, n_items=1, grid_coverage=1):
-    if isinstance(origins, tuple) or isinstance(origins, list):
-        return np.atleast_2d(origins)  # atleast_2d
-    elif isinstance(origins, str):
-        return _origins_from_str(origins, gather_shape, crop_shape, n_items, grid_coverage)
-    elif isinstance(origins, np.ndarray):
-        if len(origins.shape) == 2 and origins.shape[1] == 2:
+    if isinstance(origins, (tuple, list, np.ndarray)):
+        origins = np.atleast_2d(origins)
+        if origins.ndim == 2 and origins.shape[1] == 2:
             return origins
-        else:
-            raise ValueError('Origins should be 2d array with shape [n_origins, 2].')
-    else:
-        raise ValueError('Unknown origins value or type.')
+        raise ValueError('Origins should be 2d array with shape [n_origins, 2].')
+    if isinstance(origins, str):
+        return _origins_from_str(origins, gather_shape, crop_shape, n_items, grid_coverage)
+    raise ValueError('Unknown origins value or type.')
 
 
 def _make_grid_laying(gather_shape, crop_shape, grid_coverage):
     working_len = gather_shape - crop_shape
-    eps = 0 if working_len // crop_shape == 0 else 2
-    laying = np.linspace(0, working_len, num=int((working_len // crop_shape + eps) * grid_coverage), dtype=int)
+    eps = 0 if working_len % crop_shape == 0 else 1
+    laying = np.linspace(0, working_len, num=int((gather_shape // crop_shape + eps) * grid_coverage), dtype=int)
     return np.unique(laying)
 
 
 def _origins_from_str(origins, gather_shape, crop_shape, n_items, grid_coverage):
-    if origins == 'random':  # from uniform distribution. 
+    if origins == 'random':
         origins = np.column_stack((np.random.randint(1 + max(0, gather_shape[0] - crop_shape[0]), size=n_items),
                                    np.random.randint(1 + max(0, gather_shape[1] - crop_shape[1]), size=n_items)))
         return origins
