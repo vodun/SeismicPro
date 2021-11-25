@@ -303,7 +303,7 @@ class SeismicBatch(Batch):
 
     @action
     def dump_first_breaks(self, path, src, trace_id_columns=('FieldRecord', 'TraceNumber'), 
-                          header=False, col_space=8, decimal=',', **kwargs):
+                          col_space=8, decimal=',', **kwargs):
         """ Save first break picking times to the file.
 
         Each row in the resulted file corresponds to the first break picking of the trace. 
@@ -334,6 +334,6 @@ class SeismicBatch(Batch):
         df = self.index.headers.reset_index()[list(trace_id_columns)]
         df['TMP_FBP'] = np.concatenate(data)
 
-        with open(path, 'a') as f:
-            f.write(df.to_string(index=False, header=False, col_space=col_space, decimal=decimal, **kwargs))
+        with open(path, 'a+') as f:
+            f.write(df.to_string(index=False, header=False, col_space=col_space, decimal=decimal, **kwargs) + '\n')
         return self
