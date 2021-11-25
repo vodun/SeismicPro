@@ -306,8 +306,7 @@ class SeismicBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component', target='for')
-    def crop(self, idx, src, origins, shape, dst=None, joint=True, n_items=1, grid_coverage=1, 
-             aggregation_mode='mean', pad_mode='constant'):
+    def crop(self, idx, src, origins, crop_shape, dst=None, joint=True, n_items=1, grid_coverage=1, pad_kwargs={}):
         ''' TODO: docs '''
         # TODO: benchmark
         dst = src if dst is None else dst
@@ -319,29 +318,26 @@ class SeismicBatch(Batch):
 
         pos = self.index.get_pos(idx)
 
-        src_shapes = []
-        src_types = []
+        src_shapes = set()
+        src_types = set()
 
         for item in src_list:
             cur_object = getattr(self, item)[pos]
-            src_types.append(type(cur_object))
-            src_shapes.append(cur_object.shape)
+            src_types.add(type(cur_object))
+            src_shapes.add(cur_object.shape)
 
         if joint:
-            if len(set(src_types)) > 1:
+            if len(src_types) > 1:
                 raise TypeError('`src` should contain same type of objects when `joint` is True.')
-            if len(set(src_shapes)) > 1:
+            if len(src_shapes) > 1:
                 raise ValueError("Shapes of the 'src' object are not consistent.")
-            origins_list = [make_origins(origins, gather_shape=src_shapes[0],  crop_shape=shape, 
-                                         n_items=n_items, grid_coverage=grid_coverage)]
-        else: 
-            origins_list = [make_origins(origins, gather_shape=item_shape, crop_shape=shape, 
-                                         n_items=n_items, grid_coverage=grid_coverage) 
-                                         for item_shape in src_shapes]
+            origins = make_origins(origins, gather_shape=src_shapes.pop(),  crop_shape=crop_shape, 
+                                   n_items=n_items, grid_coverage=grid_coverage)
 
-        for src_item, dst_item, origin_item in zip_longest(src_list, dst_list, origins_list, fillvalue=origins_list[0]):
+        for src_item, dst_item in zip(src_list, dst_list):
             object_item = getattr(self, src_item)[pos]
-            cropped = object_item.crop(shape=shape, origins=origin_item, pad_mode=pad_mode)
+            cropped = object_item.crop(crop_shape=crop_shape, origins=origins, 
+                                       n_items=n_items, grid_coverage=grid_coverage, pad_kwargs=pad_kwargs)
             setattr(self[pos], dst_item, cropped)
 
         return self
