@@ -1,6 +1,8 @@
 """Implementation of tests for survey"""
 
 # pylint: disable=redefined-outer-name
+from itertools import product
+
 import pytest
 import numpy as np
 
@@ -10,34 +12,89 @@ from seismicpro import Survey, StackingVelocity
 @pytest.fixture(scope='module')
 def survey(segy_path):
     """Create gather"""
-    survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'], header_cols=['offset', 'FieldRecord'],
-                    collect_stats=True)
+    survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'],
+                    header_cols=['offset', 'FieldRecord'], collect_stats=True)
     survey.headers['FirstBreak'] = np.random.randint(0, 1000, len(survey.headers))
     return survey
+
 
 @pytest.fixture(scope='function')
 def gather(survey):
     """gather"""
     return survey.get_gather((0, 0))
 
-@pytest.mark.parametrize('tracewise,use_global', [[True, False], [False, False], [False, True]])
+
+def compare_gathers(first, second):
+    first_attrs = first.__dict__
+    second_attrs = second.__dict__
+
+    assert len(set(first_attrs) & set(second_attrs)) == len(first_attrs)
+
+    assert np.allclose(first.data, second.data)
+    assert np.allclose(first.samples, second.samples)
+    assert first.headers.equals(second.headers)
+    assert first.sample_rate == second.sample_rate
+    assert first.sort_by == second.sort_by
+    assert id(first.survey) == id(second.survey)
+
+
+@pytest.mark.xfail('Has problems with output shape')
+@pytest.mark.parametrize('key', ('offset', ['offset', 'FieldRecord']))
+def test_gather_getitem_headers(gather, key):
+    result_getitem = gather[key]
+    result_get_item = gather.get_item(key)
+
+    expected = gather.headers[key].values
+    assert np.allclose(result_getitem, result_get_item)
+    assert np.allclose(result_getitem, expected)
+    assert result_getitem.dtype == expected.dtype
+
+
+#TODO: compare shapes of arrays,values of headers and samples
+key_types = [0, (0, ), (0, 1), [0], [0, 4], slice(None, 5, None)]
+xfail_keys = list(product([(0, 1), (0, ), [0], [0, 4]], repeat=2))
+@pytest.mark.parametrize('key', key_types+list(product(key_types, repeat=2)))
+def test_gather_getitem_gathers(gather, key):
+    if key in xfail_keys:
+            pytest.raises(ValueError, gather.__getitem__, key)
+            pytest.raises(ValueError, gather.get_item, key)
+            pytest.xfail()
+
+    result_getitem = gather[key]
+    result_get_item = gather.get_item(key)
+    expected_data = gather.data[key]
+
+    compare_gathers(result_getitem, result_get_item)
+    assert np.allclose(result_getitem.data.reshape(-1), expected_data.reshape(-1))
+
+    assert result_getitem.data.shape[0] == len(result_getitem.headers)
+    assert result_getitem.data.shape[1] == len(result_getitem.samples)
+
+
+@pytest.mark.parametrize('key', [[0, 3, 1]])
+def test_gather_getitem_sort_by(gather, key):
+    result_getitem = gather[key]
+    assert result_getitem.sort_by is None
+
+
+@pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
 @pytest.mark.parametrize('q', [0.1, [0.1, 0.2], (0.1, 0.2), np.array([0.1, 0.2])])
 def test_gather_get_quantile(gather, tracewise, use_global, q):
     """Test gahter's methods"""
     # # check that quantile has the same type as q
     gather.get_quantile(q=q, tracewise=tracewise, use_global=use_global)
 
-@pytest.mark.parametrize('tracewise,use_global', [[True, False], [False, False], [False, True]])
+@pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
 def test_gather_scale_standard(gather, tracewise, use_global):
     """test_gather_scale_standard"""
     gather.scale_standard(tracewise=tracewise, use_global=use_global)
 
-@pytest.mark.parametrize('tracewise,use_global', [[True, False], [False, False], [False, True]])
+@pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
 def test_gather_scale_minmax(gather, tracewise, use_global):
     """test_gather_scale_minmax"""
     gather.scale_minmax(tracewise=tracewise, use_global=use_global)
 
-@pytest.mark.parametrize('tracewise,use_global', [[True, False], [False, False], [False, True]])
+@pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
 def test_gather_scale_maxabs(gather, tracewise, use_global):
     """test_gather_scale_minmax"""
     gather.scale_maxabs(tracewise=tracewise, use_global=use_global)
