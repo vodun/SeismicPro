@@ -25,19 +25,41 @@ def gather(survey):
     return survey.get_gather((0, 0))
 
 
-def compare_gathers(first, second):
+def compare_gathers(first, second, drop_cols=None, check_types=False, same_survey=True):
     """compare_gathers"""
     first_attrs = first.__dict__
     second_attrs = second.__dict__
 
     assert len(set(first_attrs) & set(second_attrs)) == len(first_attrs)
 
+    first_headers = first.headers.reset_index()
+    second_headers = second.headers.reset_index()
+    if drop_cols:
+        first.validate(required_header_cols=drop_cols)
+        second.validate(required_header_cols=drop_cols)
+
+        first_headers.drop(columns=drop_cols, inplace=True)
+        second_headers.drop(columns=drop_cols, inplace=True)
+
+    assert len(first_headers) == len(second_headers)
+    if len(first_headers) > 0:
+        assert first_headers.equals(second_headers)
+
     assert np.allclose(first.data, second.data)
     assert np.allclose(first.samples, second.samples)
-    assert first.headers.equals(second.headers)
     assert first.sample_rate == second.sample_rate
+
+    if check_types:
+        numpy_attrs = ['data', 'samples', 'sample_rate']
+        for attr in numpy_attrs:
+            assert getattr(first, attr).dtype.type == getattr(second, attr).dtype.type
+
+        assert np.all(first.headers.dtypes == second.headers.dtypes)
+        assert type(first.sort_by) == type(second.sort_by)
+
     assert first.sort_by == second.sort_by
-    assert id(first.survey) == id(second.survey)
+    if same_survey:
+        assert id(first.survey) == id(second.survey)
 
 
 @pytest.mark.xfail()
@@ -67,7 +89,7 @@ def test_gather_getitem_gathers(gather, key):
     result_get_item = gather.get_item(key)
     expected_data = gather.data[key]
 
-    compare_gathers(result_getitem, result_get_item)
+    compare_gathers(result_getitem, result_get_item, check_types=True)
     assert np.allclose(result_getitem.data.reshape(-1), expected_data.reshape(-1))
 
     # Find a correct shape of data when numpy indexing works differently
@@ -111,6 +133,8 @@ def test_gather_copy(gather, ignore):
             assert copy_id != orig_id
         else:
             assert copy_id == orig_id
+
+    compare_gathers(copy_gather, gather, check_types=True)
 
 
 @pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
