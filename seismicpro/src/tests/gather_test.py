@@ -55,7 +55,7 @@ def compare_gathers(first, second, drop_cols=None, check_types=False, same_surve
             assert getattr(first, attr).dtype.type == getattr(second, attr).dtype.type
 
         assert np.all(first.headers.dtypes == second.headers.dtypes)
-        assert type(first.sort_by) == type(second.sort_by)
+        assert isinstance(first.sort_by, type(second.sort_by))
 
     assert first.sort_by == second.sort_by
     if same_survey:
