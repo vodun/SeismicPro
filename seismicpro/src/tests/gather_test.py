@@ -1,12 +1,13 @@
 """Implementation of tests for survey"""
 
 # pylint: disable=redefined-outer-name
-from itertools import product
+from itertools import product, combinations
 
 import pytest
 import numpy as np
 
 from seismicpro import Survey, StackingVelocity
+from seismicpro.src.utils import to_list
 
 
 @pytest.fixture(scope='module')
@@ -25,6 +26,7 @@ def gather(survey):
 
 
 def compare_gathers(first, second):
+    """compare_gathers"""
     first_attrs = first.__dict__
     second_attrs = second.__dict__
 
@@ -38,9 +40,10 @@ def compare_gathers(first, second):
     assert id(first.survey) == id(second.survey)
 
 
-@pytest.mark.xfail('Has problems with output shape')
+@pytest.mark.xfail()
 @pytest.mark.parametrize('key', ('offset', ['offset', 'FieldRecord']))
 def test_gather_getitem_headers(gather, key):
+    """test_gather_getitem_headers"""
     result_getitem = gather[key]
     result_get_item = gather.get_item(key)
 
@@ -50,15 +53,15 @@ def test_gather_getitem_headers(gather, key):
     assert result_getitem.dtype == expected.dtype
 
 
-#TODO: compare shapes of arrays,values of headers and samples
 key_types = [0, (0, ), (0, 1), [0], [0, 4], slice(None, 5, None)]
-xfail_keys = list(product([(0, 1), (0, ), [0], [0, 4]], repeat=2))
-@pytest.mark.parametrize('key', key_types+list(product(key_types, repeat=2)))
+fail_keys = list(product([(0, 1), (0, ), [0], [0, 4]], repeat=2))
+@pytest.mark.parametrize('key', key_types + list(product(key_types, repeat=2)))
 def test_gather_getitem_gathers(gather, key):
-    if key in xfail_keys:
-            pytest.raises(ValueError, gather.__getitem__, key)
-            pytest.raises(ValueError, gather.get_item, key)
-            pytest.xfail()
+    """test_gather_getitem_gathers"""
+    if key in fail_keys:
+        pytest.raises(ValueError, gather.__getitem__, key)
+        pytest.raises(ValueError, gather.get_item, key)
+        pytest.xfail()
 
     result_getitem = gather[key]
     result_get_item = gather.get_item(key)
@@ -67,14 +70,47 @@ def test_gather_getitem_gathers(gather, key):
     compare_gathers(result_getitem, result_get_item)
     assert np.allclose(result_getitem.data.reshape(-1), expected_data.reshape(-1))
 
+    # Find a correct shape of data when numpy indexing works differently
+    keys = (key, ) if not isinstance(key, tuple) else key
+    if result_getitem.shape != expected_data.shape:
+        expected_shape = tuple(1 if isinstance(k, int) else k.stop if isinstance(k, slice) else len(k) for k in keys)
+        if len(expected_shape) < 2:
+            expected_shape = expected_shape + (gather.shape[1], )
+        assert result_getitem.shape == expected_shape, f"for the key {key} expected {result_getitem.shape} shape but "\
+                                                       f"received {expected_shape}"
+
     assert result_getitem.data.shape[0] == len(result_getitem.headers)
     assert result_getitem.data.shape[1] == len(result_getitem.samples)
+
+    # Check that the headers and samples contains proper values
+    ## This is probably not the best way for the equality check..
+    keys = (keys[0], slice(None)) if len(keys) < 2 else keys
+    keys = tuple(to_list(k) if isinstance(k, tuple) else k for k in keys)
+    assert np.allclose(result_getitem.headers, gather.headers.iloc[keys[0]].values)
+    assert np.allclose(result_getitem.samples, gather.samples[keys[1]])
 
 
 @pytest.mark.parametrize('key', [[0, 3, 1]])
 def test_gather_getitem_sort_by(gather, key):
+    """test_gather_getitem_sort_by"""
     result_getitem = gather[key]
     assert result_getitem.sort_by is None
+
+
+ignore_attrs = ['data', 'headers', 'samples', 'sample_rate']
+ignore =  [None] + ignore_attrs + sum([list(combinations(ignore_attrs, r=i)) for i in range(1, 4)], [])
+@pytest.mark.parametrize('ignore', ignore)
+def test_gather_copy(gather, ignore):
+    """test_gather_copy"""
+    copy_gather = gather.copy(ignore=ignore)
+    ignore = [] if ignore is None else ignore
+    for attr in copy_gather.__dict__:
+        copy_id = id(getattr(copy_gather, attr))
+        orig_id = id(getattr(gather, attr))
+        if attr in ignore_attrs and attr not in ignore:
+            assert copy_id != orig_id
+        else:
+            assert copy_id == orig_id
 
 
 @pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
@@ -108,9 +144,6 @@ def test_gather_get_coords(gather):
     """test_gather_get_coords"""
     gather.get_coords()
 
-def test_gather_copy(gather):
-    """test_gather_copy"""
-    gather.copy()
 
 def test_gather_sort(gather):
     """test_gather_sort"""
