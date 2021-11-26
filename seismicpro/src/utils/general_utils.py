@@ -246,10 +246,10 @@ def make_origins(origins, gather_shape, crop_shape, n_items=1, grid_coverage=1):
         origins = np.atleast_2d(origins)
         if origins.ndim == 2 and origins.shape[1] == 2:
             return origins
-        raise ValueError('Origins should be 2d array with shape [n_origins, 2].')
+        raise ValueError('Origins should be a tuple, list or np.array with total shape [n_origins, 2].')
     if isinstance(origins, str):
         return _origins_from_str(origins, gather_shape, crop_shape, n_items, grid_coverage)
-    raise ValueError('Unknown origins value or type.')
+    raise ValueError('Unknown origins type.')
 
 
 def _make_grid_laying(gather_shape, crop_shape, grid_coverage):
