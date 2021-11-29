@@ -1,7 +1,5 @@
 """Implements SeismicBatch class for processing a small subset of seismic gathers"""
 
-from itertools import zip_longest
-
 import numpy as np
 
 from .gather import Gather
@@ -306,7 +304,7 @@ class SeismicBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component', target='for')
-    def crop(self, idx, src, origins, crop_shape, dst=None, joint=True, n_items=1, grid_coverage=1, 
+    def crop(self, idx, src, origins, crop_shape, dst=None, joint=True, n_crops=1, grid_coverage=1, 
              pad_mode='constant', **kwargs):
         ''' TODO: docs '''
         # TODO: benchmark
@@ -333,12 +331,12 @@ class SeismicBatch(Batch):
             if len(src_shapes) > 1:
                 raise ValueError("Shapes of the 'src' object are not consistent.")
             origins = make_origins(origins, crop_shape=crop_shape, gather_shape=src_shapes.pop(), 
-                                   n_items=n_items, grid_coverage=grid_coverage)
+                                   n_crops=n_crops, grid_coverage=grid_coverage)
 
         for src_item, dst_item in zip(src_list, dst_list):
             object_item = getattr(self, src_item)[pos]
             cropped = object_item.crop(origins=origins, crop_shape=crop_shape, 
-                                       n_items=n_items, grid_coverage=grid_coverage, pad_mode=pad_mode, **kwargs)
+                                       n_crops=n_crops, grid_coverage=grid_coverage, pad_mode=pad_mode, **kwargs)
             setattr(self[pos], dst_item, cropped)
 
         return self
