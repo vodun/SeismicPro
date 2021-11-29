@@ -242,12 +242,13 @@ def clip(data, data_min, data_max):
 
 
 def make_origins(origins, gather_shape, crop_shape, n_crops=1, grid_coverage=1):
-    if not isinstance(origins, str):
-        origins = np.atleast_2d(origins)
-        if origins.ndim == 2 and origins.shape[1] == 2:
-            return origins
-        raise ValueError('Origins should be a tuple, list or np.array with total shape [n_origins, 2].')
-    return _origins_from_str(origins, gather_shape, crop_shape, n_crops, grid_coverage)
+    if isinstance(origins, str):
+        return _origins_from_str(origins, gather_shape, crop_shape, n_crops, grid_coverage)
+    origins = np.atleast_2d(origins)
+    if origins.ndim == 2 and origins.shape[1] == 2:
+        return origins
+    raise ValueError('Origins should be a tuple, list or np.array with a total shape is [n_origins, 2].')
+
 
 
 def _make_grid_laying(gather_shape, crop_shape, grid_coverage):
