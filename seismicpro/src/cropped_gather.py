@@ -26,9 +26,8 @@ class CroppedGather:
 
     def _padding(self, pad_mode, **kwargs):
         '''Checking if crop window is out of the gather and pad gather to make crop possible. '''
-        max_shapes = self.origins.max(axis=0, keepdims=True)
-        temp_max = (max_shapes + self.crop_shape - self.gather.shape).max(axis=0)
-        pad_shape_x, pad_shape_y = np.maximum(np.zeros(shape=2, dtype=int), temp_max)
+        max_shapes = self.origins.max(axis=0)
+        pad_shape_x, pad_shape_y = np.maximum((0, 0), (max_shapes + self.crop_shape - self.gather.shape))
         return np.pad(self.gather.data, ((0, pad_shape_x), (0, pad_shape_y)), mode=pad_mode, **kwargs)
 
     @batch_method(target='for')
