@@ -881,12 +881,12 @@ class Gather:
         return self
 
     @batch_method(target='for')
-    def crop(self, origins, crop_shape, n_items=1, grid_coverage=1, pad_mode='constant', **kwargs):
+    def crop(self, origins, crop_shape, n_crops=1, grid_coverage=1, pad_mode='constant', **kwargs):
         """" ! docs """
         origins = make_origins(origins, 
                                crop_shape=crop_shape, 
                                gather_shape=self.data.shape, 
-                               n_items=n_items, 
+                               n_crops=n_crops, 
                                grid_coverage=grid_coverage)
         return CroppedGather(self, origins, crop_shape, pad_mode=pad_mode, **kwargs)
 
