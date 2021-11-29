@@ -9,9 +9,12 @@ class CroppedGather:
     def __init__(self, gather, origins, crop_shape, pad_mode='constant', **kwargs):
         self.gather = gather
         self.crop_shape = crop_shape
-        self.n_origins = origins.shape[0]
         self.origins = origins
         self.crops = self.make_crops(self._padding(pad_mode, **kwargs))
+
+    @property
+    def n_origins(self):
+        return self.origins.shape[0]
 
     def make_crops(self, data):
         ''' TODO: docs '''
@@ -23,7 +26,7 @@ class CroppedGather:
 
     def _padding(self, pad_mode, **kwargs):
         '''Checking if crop window is out of the gather and pad gather to make crop possible. '''
-        max_shapes = np.atleast_2d(self.origins.max(axis=0))
+        max_shapes = self.origins.max(axis=0, keepdims=True)
         temp_max = (max_shapes + self.crop_shape - self.gather.shape).max(axis=0)
         pad_shape_x, pad_shape_y = np.maximum(np.zeros(shape=2, dtype=int), temp_max)
         return np.pad(self.gather.data, ((0, pad_shape_x), (0, pad_shape_y)), mode=pad_mode, **kwargs)
@@ -48,4 +51,4 @@ class CroppedGather:
         for i, origin in enumerate(self.origins):
             result[origin[0]:origin[0] + self.crop_shape[0], origin[1]:origin[1] + self.crop_shape[1]] += data[i]
             mask[origin[0]:origin[0] + self.crop_shape[0], origin[1]:origin[1] + self.crop_shape[1]] += 1
-        return result / mask
+        return np.nan_to_num(result / mask, copy=False, posinf=np.nan)
