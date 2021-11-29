@@ -612,12 +612,7 @@ class Gather:
         self.validate(required_header_cols=first_breaks_col)
         mask = convert_times_to_mask(times=self[first_breaks_col], sample_rate=self.sample_rate,
                                      mask_length=self.shape[1]).astype(np.int32)
-        # avoiding a gather data copying 
-        temp = self.data
-        self.data = None
-        gather = self.copy()
-        self.data = temp
-        
+        gather = self.copy(ignore='data')
         gather.data = mask
         return gather
 

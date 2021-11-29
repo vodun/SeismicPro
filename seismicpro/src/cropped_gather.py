@@ -35,12 +35,7 @@ class CroppedGather:
     def assemble_gather(self):
         ''' TODO: docs '''
         assembling_data = self._assembling(self.crops)
-        # avoiding gather data copying 
-        rest_data = self.gather.data
-        self.gather.data = None
-        gather = self.gather.copy()
-        self.gather.data = rest_data
-
+        gather = self.gather.copy(ignore='data')
         gather.data = assembling_data
         return gather
 
@@ -51,4 +46,4 @@ class CroppedGather:
         for i, origin in enumerate(self.origins):
             result[origin[0]:origin[0] + self.crop_shape[0], origin[1]:origin[1] + self.crop_shape[1]] += data[i]
             mask[origin[0]:origin[0] + self.crop_shape[0], origin[1]:origin[1] + self.crop_shape[1]] += 1
-        return np.nan_to_num(result / mask, copy=False, posinf=np.nan)
+        return result / mask
