@@ -92,19 +92,63 @@ class Gather:
         return self.data.shape
 
     def __getitem__(self, key):
-        """Select gather headers by their names.
+        """Depending on the `key` type, either select gather headers by their names or create a new instance of Gather
+        with specified traces and samples.
+
+        Notes
+        -----
+        If the data after getitem is no longer sorted, `sort_by` attribute in resulted Gather will be set to None.
 
         Parameters
         ----------
-        key : str or list of str
-            Gather headers to get.
+        key : str, list of str, int, list, tuple, slice
+            If str or list of str, gather headers to get.
+            Otherwise, indices of traces and samples to get. Here, getitem behaviour coincides with getitem in
+            numpy.array.
 
         Returns
         -------
-        headers : np.ndarray
-            Headers values.
+        result : np.ndarray or Gather
+            Headers values or Gather with a specified subset of traces.
         """
-        return self.headers[key].values
+        # If key is string or array of str, return header columns with specified names
+        keys_array = np.array(to_list(key))
+        if keys_array.dtype.type == np.str_:
+            self.validate(required_header_cols=keys_array)
+            # We avoid using pandas indexing with multiple columns to speed up the selection of headers from gathers
+            # with the small number of traces.
+            headers = []
+            for col in keys_array:
+                header = self.headers[col] if col in self.headers.columns else self.headers.index.get_level_values(col)
+                headers.append(header.values)
+            return np.column_stack(headers)
+
+        # Another case is to slice gather with the given key. Here key can be any type that might be processed by
+        # np.array's getitem.
+        key = (key, ) if not isinstance(key, tuple) else key
+        key =  key + (slice(None), ) if len(key) == 1 else key
+        key_tuple = ()
+        for k in key:
+            new_k = slice(k, k+1) if isinstance(k, (int, np.integer)) else to_list(k) if isinstance(k, tuple) else k
+            key_tuple = key_tuple + (new_k, )
+
+        new_self = self.copy(ignore=['data', 'headers', 'samples'])
+        new_self.data = self.data[key_tuple]
+        if new_self.data.ndim != 2:
+            raise ValueError("Given `key` leads either to ambiguous behavior when processing samples and headers or to"
+                             " a change in the dimension of the data")
+        if new_self.data.size == 0:
+            raise ValueError("Given `key` results in empty object")
+
+        # The first axis is responsible for the number of traces, so we have to process traces headers.
+        # The second axis is responsible for time. We need to process traces time descriptions.
+        new_self.headers = self.headers.iloc[key_tuple[0]]
+        new_self.samples = self.samples[key_tuple[1]]
+
+        # Check that `sort_by` is still represents the actual trace sorting since it may be changed during getitem.
+        if new_self.sort_by is not None and not new_self.headers[new_self.sort_by].is_monotonic_increasing:
+            new_self.sort_by = None
+        return new_self
 
     def __setitem__(self, key, value):
         """Set given values to selected gather headers.
@@ -192,28 +236,39 @@ class Gather:
         return tuple(coords[0].tolist())
 
     @batch_method(target='threads', copy_src=False)
-    def copy(self):
-        """Perform a deepcopy of all gather attributes except for `survey`, which is kept unchanged.
+    def copy(self, ignore=None):
+        """Perform a deepcopy of all gather attributes except for `survey` and those specified in ignore, which are
+        kept unchanged.
+
+        Parameters
+        ----------
+        ignore : str or array of str, default None
+            Attributes that will be kept unchanged after the copy.
 
         Returns
         -------
         copy : Gather
             Copy of the gather.
         """
-        survey = self.survey
-        self.survey = None
-        self_copy = deepcopy(self)
-        self_copy.survey = survey
-        self.survey = survey
-        return self_copy
+        ignore_attrs = set() if ignore is None else set(to_list(ignore))
+        ignore_attrs = [getattr(self, attr) for attr in ignore_attrs | {'survey'}]
+
+        # Construct a memo dict with attributes to avoid their copying during deepcopy.
+        memo = {id(attr): attr for attr in ignore_attrs}
+        return deepcopy(self, memo)
+
+    @batch_method()
+    def get_item(self, *args):
+        """An interface for `self.__getitem__` method."""
+        return self[args if len(args) > 1 else args[0]]
 
     def _validate_header_cols(self, required_header_cols):
         """Check if the gather headers contain all columns from `required_header_cols`."""
-        headers = self.headers.reset_index()
-        required_header_cols = to_list(required_header_cols)
-        if any(col not in headers for col in required_header_cols):
+        header_cols = set(self.headers.columns) | set(self.headers.index.names)
+        missing_headers = set(to_list(required_header_cols)) - header_cols
+        if missing_headers:
             err_msg = "The following headers must be preloaded: {}"
-            raise ValueError(err_msg.format(", ".join(required_header_cols)))
+            raise ValueError(err_msg.format(", ".join(missing_headers)))
 
     def _validate_sorting(self, required_sorting):
         """Check if the gather is sorted by `required_sorting` header."""
