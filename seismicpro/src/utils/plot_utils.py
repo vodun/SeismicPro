@@ -24,32 +24,31 @@ def set_text_formatting(kwargs):
 
 def set_ticks(ax, axis, axis_label, tick_labels, **kwargs):
     ticks, tick_labels, kwargs, rotation_kwargs = _process_ticks(labels=tick_labels, **kwargs)
-    ax_obj = getattr(ax, f"{axis}axis")
-    ax_obj.set_ticks(ticks)
-    ax_obj.set_ticklabels(tick_labels, **kwargs, **rotation_kwargs)
-    ax_obj.set_label_text(axis_label, **kwargs)
+    getattr(plt, f"{axis}ticks")(ticks=ticks, labels=tick_labels, **kwargs, **rotation_kwargs)
+    getattr(ax, f"set_{axis}label")(axis_label, **kwargs)
 
 
 def _process_ticks(labels, num=None, step_ticks=None, step_labels=None, round_to=0, **kwargs):
     n_labels = len(labels)
-    num = 10 if num is None and step_ticks is None and step_labels is None else num
+    ticks = None
 
     if num is not None:
         ticks = np.linspace(0, n_labels - 1, num)
-        labels = labels[ticks.astype(int)]
+        labels = labels[np.round(ticks).astype(int)]
     elif step_ticks is not None:
         ticks = np.arange(0, n_labels, step_ticks)
         ticks = np.append(ticks, n_labels - 1) if ticks[-1] != n_labels - 1 else ticks
         labels = labels[ticks]
-    else:
+    elif step_labels is not None:
         if (np.diff(labels) < 0).any():
             raise ValueError("step_labels is valid only for monotonically increasing labels.")
         candidates = np.arange((labels[0] // step_labels + 1) * step_labels, labels[-1], step_labels)
         ticks = np.concatenate([[0], np.searchsorted(labels, candidates), [n_labels - 1]])
         ticks, unique_indices = np.unique(ticks, return_index=True)
         labels = np.concatenate([[labels[0]], candidates, [labels[n_labels - 1]]])[unique_indices]
+    labels = None if ticks is None else labels
 
-    if round_to is not None:
+    if round_to is not None and labels is not None:
         labels = np.round(labels, round_to)
         labels = labels.astype(int) if round_to == 0 else labels
 

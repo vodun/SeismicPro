@@ -966,7 +966,7 @@ class Gather:
             return [{headers_key: header} for header in to_list(headers_kwargs)]
 
         if headers_key not in headers_kwargs:
-            raise ValueError(f'{headers_key} key is not defined in scatter_headers')
+            raise KeyError(f'{headers_key} key is not defined in scatter_headers')
 
         n_headers = len(to_list(headers_kwargs[headers_key]))
         kwargs_list = [{} for _ in range(n_headers)]
@@ -975,7 +975,7 @@ class Gather:
             if len(values) == 1:
                 values = values * n_headers
             elif len(values) != n_headers:
-                raise ValueError(f"Incompatible lenght of {key} array: {n_headers} expected but {len(values)} given.")
+                raise ValueError(f"Incompatible length of {key} array: {n_headers} expected but {len(values)} given.")
             for ix, value in enumerate(values):
                 kwargs_list[ix][key] = value
         return kwargs_list
