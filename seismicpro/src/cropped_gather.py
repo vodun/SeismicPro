@@ -27,7 +27,7 @@ class CroppedGather:
     def _padding(self, pad_mode, **kwargs):
         '''Checking if crop window is out of the gather and pad gather to make crop possible. '''
         max_shapes = self.origins.max(axis=0)
-        pad_shape_x, pad_shape_y = np.maximum((0, 0), (max_shapes + self.crop_shape - self.gather.shape))
+        pad_shape_x, pad_shape_y = np.maximum(0, (max_shapes + self.crop_shape - self.gather.shape))
         return np.pad(self.gather.data, ((0, pad_shape_x), (0, pad_shape_y)), mode=pad_mode, **kwargs)
 
     @batch_method(target='for')
@@ -42,7 +42,7 @@ class CroppedGather:
         ''' TODO: docs ''' 
         result = np.zeros(shape=self.gather.shape, dtype=float)
         mask = np.zeros(shape=self.gather.shape, dtype=int)
-        for i, origin in enumerate(self.origins):
-            result[origin[0]:origin[0] + self.crop_shape[0], origin[1]:origin[1] + self.crop_shape[1]] += data[i]
+        for crop, origin in zip(data, self.origins):
+            result[origin[0]:origin[0] + self.crop_shape[0], origin[1]:origin[1] + self.crop_shape[1]] += crop
             mask[origin[0]:origin[0] + self.crop_shape[0], origin[1]:origin[1] + self.crop_shape[1]] += 1
         return result / mask
