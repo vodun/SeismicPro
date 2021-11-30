@@ -5,9 +5,10 @@ from functools import partial, wraps
 
 from .utils import to_list
 from ..batchflow import action, inbatch_parallel
+from ..batchflow.decorators import _make_action_wrapper_with_args
 
 
-def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src=True):
+def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src=True, **kwargs):
     """Mark a method as being added to `SeismicBatch` class.
 
     The new method is added by :func:`~decorators.create_batch_methods` decorator of `SeismicBatch` if the parent class
@@ -49,7 +50,8 @@ def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src
     ValueError
         If positional arguments were passed except for the method being decorated.
     """
-    batch_method_params = {"target": target, "args_to_unpack": args_to_unpack, "force": force, "copy_src": copy_src}
+    batch_method_params = {"target": target, "args_to_unpack": args_to_unpack, 
+                           "force": force, "copy_src": copy_src, **kwargs}
 
     def decorator(method):
         """Decorate a method by setting passed batch method params to its attributes."""
@@ -153,12 +155,14 @@ def create_batch_methods(*component_classes):
     """
     def decorator(cls):
         decorated_methods = set()
+        decorated_methods_params = {}
         force_methods = set()
         for component_class in component_classes:
             for method_name in _get_class_methods(component_class):
                 method = getattr(component_class, method_name)
                 if hasattr(method, "batch_method_params"):
                     decorated_methods.add(method_name)
+                    decorated_methods_params[method_name] = getattr(method, "batch_method_params")
                     if getattr(method, "batch_method_params")["force"]:
                         force_methods.add(method_name)
         methods_to_add = (decorated_methods - _get_class_methods(cls)) | force_methods
@@ -184,8 +188,13 @@ def create_batch_methods(*component_classes):
                         if isinstance(arg_val, str):
                             obj_arguments.arguments[arg_name] = getattr(self, arg_val)[pos]
                 getattr(self, dst)[pos] = obj_method(*obj_arguments.args, **obj_arguments.kwargs)
+    
             method.__name__ = method_name
-            return action(apply_to_each_component(method))
+            d = decorated_methods_params[method_name]
+            _action_kwargs = {key: d[key] for key in d if key in  inspect.signature( _make_action_wrapper_with_args).parameters.keys()}
+            if not _action_kwargs:
+                return action(apply_to_each_component(method))
+            return action(**_action_kwargs)(apply_to_each_component(method))
 
         for method_name in methods_to_add:
             setattr(cls, method_name, create_method(method_name))
