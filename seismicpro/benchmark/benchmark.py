@@ -28,15 +28,17 @@ class Benchmark:
     ----------
     method_name : str
         A name of the benchmarked method.
-    method_kwargs : dict
-        Additional keyword arguments to the benchmarked method.
     targets : str or array of str
         Name(s) of target from :func:`~batchflow.batchflow.decorators.inbatch_parallel`.
     batch_sizes : int or array of int
         Batch size(s) to run the benchmark for.
     dataset : Dataset
         Dataset for which the benchmark is conducted.
-    root_pipeline : Pipeline, optional, by default None
+    method_args : tuple, optional, defaults to None
+        Additional positional arguments to the benchmarked method.
+    method_kwargs : dict, optional, defaults to None
+        Additional keyword arguments to the benchmarked method.
+    root_pipeline : Pipeline, optional, defaults to None
         Pipeline that contains actions to be performed before the benchmarked method.
 
     Attributes
@@ -50,15 +52,18 @@ class Benchmark:
     template_pipeline : Pipeline
         Pipeline that contains `root_pipeline`, benchmarked method, and dataset.
     """
-    def __init__(self, method_name, method_kwargs, targets, batch_sizes, dataset, root_pipeline=None):
+    def __init__(self, method_name, targets, batch_sizes, dataset, method_args=None, method_kwargs=None,
+                 root_pipeline=None):
         self.method_name = method_name
         self.results = None
         self.domain = Option('target', targets) * Option('batch_size', batch_sizes)
 
+        method_kwargs = dict() if method_kwargs is None else method_kwargs
+        method_args = tuple() if method_args is None else method_args
         # Add benchmarked method to the `root_pipeline` with `method_kwargs` and `target` from config.
         method_kwargs['target'] = C('target')
         root_pipeline = Pipeline() if root_pipeline is None else root_pipeline
-        root_pipeline = getattr(root_pipeline, self.method_name)(**method_kwargs)
+        root_pipeline = getattr(root_pipeline, self.method_name)(*method_args, **method_kwargs)
         self.template_pipeline = root_pipeline << dataset
 
         # Run the pipeline once to precompile all numba callables
@@ -109,16 +114,16 @@ class Benchmark:
 
         Parameters
         ----------
-        n_iters : int, optional, by default 10
+        n_iters : int, optional, defaults to 10
             The number of method executions to get a more accurate elapsed time estimation.
-        shuffle : int or bool, by default False
+        shuffle : int or bool, defaults to False
             Specifies the randomization in the pipeline.
             If `False`: items go sequentially, one after another as they appear in the index;
             If `True`: items are shuffled randomly before each epoch;
             If int: a seed number for a random shuffle;
-        bar : bool, optional, default True
+        bar : bool, optional, defaults to True
             Whether to use progress bar or not.
-        env_meta : dict or bool, optional, default False
+        env_meta : dict or bool, optional, defaults to False
             if dict, kwargs for :meth:`~batchflow.batchflow.research.attach_env_meta`
             if bool, whether to attach environment meta or not.
 
@@ -159,9 +164,9 @@ class Benchmark:
 
         Parameters
         ----------
-        figsize : tuple, optional, by default (15, 7)
+        figsize : tuple, optional, defaults to (15, 7)
             Output plot size.
-        cpu_util : bool, by default False
+        cpu_util : bool, defaults to False
             If True, the CPU utilization is plotted next to the elapsed time plot.
         """
         results = self.results.drop(columns='CPUMonitor') if not cpu_util else self.results

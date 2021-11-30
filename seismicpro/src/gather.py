@@ -247,7 +247,7 @@ class Gather:
 
         Parameters
         ----------
-        ignore : str or array of str, default None
+        ignore : str or array of str, defaults to None
             Attributes that won't be copied.
 
         Returns
@@ -262,7 +262,7 @@ class Gather:
         memo = {id(attr): attr for attr in ignore_attrs}
         return deepcopy(self, memo)
 
-    @batch_method()
+    @batch_method(target='for')
     def get_item(self, *args):
         """An interface for `self.__getitem__` method."""
         return self[args if len(args) > 1 else args[0]]
