@@ -58,8 +58,8 @@ class Benchmark:
         self.results = None
         self.domain = Option('target', targets) * Option('batch_size', batch_sizes)
 
-        method_kwargs = dict() if method_kwargs is None else method_kwargs
-        method_args = tuple() if method_args is None else method_args
+        method_kwargs = {} if method_kwargs is None else method_kwargs
+        method_args = () if method_args is None else method_args
         # Add benchmarked method to the `root_pipeline` with `method_kwargs` and `target` from config.
         method_kwargs['target'] = C('target')
         root_pipeline = Pipeline() if root_pipeline is None else root_pipeline
