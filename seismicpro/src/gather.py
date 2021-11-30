@@ -91,12 +91,14 @@ class Gather:
         return self.data.shape
 
     def __getitem__(self, key):
-        """Depending on the `key` type, either select gather headers by their names or create a new instance of Gather
-        with specified traces and samples.
+        """Either select gather headers by their names or create a new `Gather` with specified traces and samples
+        depending on the key type.
 
         Notes
         -----
-        If the data after getitem is no longer sorted, `sort_by` attribute in resulted Gather will be set to None.
+        1. If the data after `__getitem__` is no longer sorted, `sort_by` attribute in the resulting `Gather` will be
+        set to `None`.
+        2. If headers selection is performed, a 2d array is always returned even for a single header.
 
         Parameters
         ----------
@@ -125,26 +127,30 @@ class Gather:
         # Another case is to slice gather with the given key. Here key can be any type that might be processed by
         # np.array's getitem.
         key = (key, ) if not isinstance(key, tuple) else key
-        key =  key + (slice(None), ) if len(key) == 1 else key
-        key_tuple = ()
+        key = key + (slice(None), ) if len(key) == 1 else key
+        indices = ()
         for k in key:
-            new_k = slice(k, k+1) if isinstance(k, (int, np.integer)) else to_list(k) if isinstance(k, tuple) else k
-            key_tuple = key_tuple + (new_k, )
+            if isinstance(k, (int, np.integer)):
+                new_k = slice(k, k+1) # Switch from simple indexing to a slice to keep array dims
+            elif isinstance(k, tuple):
+                new_k = to_list(k) # Force advanced indexing for `samples`
+            else:
+                new_k = k
+            indices = indices + (new_k, )
 
         new_self = self.copy(ignore=['data', 'headers', 'samples'])
-        new_self.data = self.data[key_tuple]
+        new_self.data = self.data[indices]
         if new_self.data.ndim != 2:
             raise ValueError("Given `key` leads either to ambiguous behavior when processing samples and headers or to"
                              " a change in the dimension of the data")
         if new_self.data.size == 0:
             raise ValueError("Given `key` results in empty object")
 
-        # The first axis is responsible for the number of traces, so we have to process traces headers.
-        # The second axis is responsible for time. We need to process traces time descriptions.
-        new_self.headers = self.headers.iloc[key_tuple[0]]
-        new_self.samples = self.samples[key_tuple[1]]
+        # The two-dimensional `indices` describes the indices of the traces and samples to be obtained, respectively.
+        new_self.headers = self.headers.iloc[indices[0]]
+        new_self.samples = self.samples[indices[1]]
 
-        # Check that `sort_by` is still represents the actual trace sorting since it may be changed during getitem.
+        # Check that `sort_by` still represents the actual trace sorting as it might be changed during getitem.
         if new_self.sort_by is not None and not new_self.headers[new_self.sort_by].is_monotonic_increasing:
             new_self.sort_by = None
         return new_self
@@ -242,7 +248,7 @@ class Gather:
         Parameters
         ----------
         ignore : str or array of str, default None
-            Attributes that will be kept unchanged after the copy.
+            Attributes that won't be copied.
 
         Returns
         -------

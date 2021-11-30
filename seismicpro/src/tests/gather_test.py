@@ -62,7 +62,6 @@ def compare_gathers(first, second, drop_cols=None, check_types=False, same_surve
         assert id(first.survey) == id(second.survey)
 
 
-@pytest.mark.xfail()
 @pytest.mark.parametrize('key', ('offset', ['offset', 'FieldRecord']))
 def test_gather_getitem_headers(gather, key):
     """test_gather_getitem_headers"""
@@ -71,7 +70,8 @@ def test_gather_getitem_headers(gather, key):
 
     expected = gather.headers[key].values
     assert np.allclose(result_getitem, result_get_item)
-    assert np.allclose(result_getitem, expected)
+    assert result_getitem.shape == (gather.shape[0], len(to_list(key)))
+    assert np.allclose(result_getitem.reshape(-1), expected.reshape(-1))
     assert result_getitem.dtype == expected.dtype
 
 
