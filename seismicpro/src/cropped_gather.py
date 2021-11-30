@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 
 from .decorators import batch_method
@@ -27,7 +29,9 @@ class CroppedGather:
     def _padding(self, pad_mode, **kwargs):
         '''Checking if crop window is out of the gather and pad gather to make crop possible. '''
         max_shapes = self.origins.max(axis=0)
-        pad_shape_x, pad_shape_y = np.maximum(0, (max_shapes + self.crop_shape - self.gather.shape))
+        pad_shape_x, pad_shape_y = np.maximum(0, max_shapes + self.crop_shape - self.gather.shape)
+        if any((pad_shape_x, pad_shape_y)) > 0:
+            warnings.warn("Crop is out of the gather data. The Gather's data will be padded")
         return np.pad(self.gather.data, ((0, pad_shape_x), (0, pad_shape_y)), mode=pad_mode, **kwargs)
 
     @batch_method(target='for')
