@@ -91,8 +91,8 @@ class Gather:
         return self.data.shape
 
     def __getitem__(self, key):
-        """Either select gather headers by their names or create a new `Gather` with specified traces and samples
-        depending on the key type.
+        """Either select gather headers values by their names or create a new `Gather` with specified traces and
+        samples depending on the key type.
 
         Notes
         -----
@@ -129,13 +129,13 @@ class Gather:
         key = (key, ) if not isinstance(key, tuple) else key
         key = key + (slice(None), ) if len(key) == 1 else key
         indices = ()
-        for k in key:
-            if isinstance(k, (int, np.integer)):
-                new_k = slice(k, k+1) # Switch from simple indexing to a slice to keep array dims
-            elif isinstance(k, tuple):
-                new_k = to_list(k) # Force advanced indexing for `samples`
+        for axis_indexer in key:
+            if isinstance(axis_indexer, (int, np.integer)):
+                new_k = slice(axis_indexer, axis_indexer+1) # Switch from simple indexing to a slice to keep array dims
+            elif isinstance(axis_indexer, tuple):
+                new_k = to_list(axis_indexer) # Force advanced indexing for `samples`
             else:
-                new_k = k
+                new_k = axis_indexer
             indices = indices + (new_k, )
 
         new_self = self.copy(ignore=['data', 'headers', 'samples'])
@@ -146,7 +146,8 @@ class Gather:
         if new_self.data.size == 0:
             raise ValueError("Given `key` results in empty object")
 
-        # The two-dimensional `indices` describes the indices of the traces and samples to be obtained, respectively.
+        # The two-dimensional `indices` array describes the indices of the traces and samples to be obtained,
+        # respectively.
         new_self.headers = self.headers.iloc[indices[0]]
         new_self.samples = self.samples[indices[1]]
 
