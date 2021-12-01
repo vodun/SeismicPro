@@ -30,7 +30,7 @@ class CroppedGather:
         '''Checking if crop window is out of the gather and pad gather to make crop possible. '''
         max_shapes = self.origins.max(axis=0)
         pad_shape_x, pad_shape_y = np.maximum(0, max_shapes + self.crop_shape - self.gather.shape)
-        if any((pad_shape_x, pad_shape_y)) > 0:
+        if (pad_shape_x > 0) or (pad_shape_y > 0):
             warnings.warn("Crop is out of the gather data. The Gather's data will be padded")
         return np.pad(self.gather.data, ((0, pad_shape_x), (0, pad_shape_y)), mode=pad_mode, **kwargs)
 
@@ -44,9 +44,11 @@ class CroppedGather:
 
     def _assembling(self, data):
         ''' TODO: docs ''' 
-        result = np.zeros(shape=self.gather.shape, dtype=float)
-        mask = np.zeros(shape=self.gather.shape, dtype=int)
+        working_shape = np.maximum(self.gather.shape, data.shape[-2:])
+        result = np.zeros(shape=working_shape, dtype=float)
+        mask = np.zeros(shape=working_shape, dtype=int)
         for crop, origin in zip(data, self.origins):
             result[origin[0]:origin[0] + self.crop_shape[0], origin[1]:origin[1] + self.crop_shape[1]] += crop
             mask[origin[0]:origin[0] + self.crop_shape[0], origin[1]:origin[1] + self.crop_shape[1]] += 1
-        return result / mask
+        result /= mask
+        return result[:self.gather.shape[0], :self.gather.shape[1]]

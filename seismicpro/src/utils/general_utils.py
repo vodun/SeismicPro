@@ -250,9 +250,10 @@ def make_origins(origins, gather_shape, crop_shape, n_crops=1, grid_coverage=1):
     raise ValueError('Origins should be a tuple, list or np.array with a total shape is [n_origins, 2].')
 
 
-
 def _make_grid_laying(gather_shape, crop_shape, grid_coverage):
     working_len = gather_shape - crop_shape
+    if working_len <= 0:
+        return 0
     eps = 0 if working_len % crop_shape == 0 else 1
     laying = np.linspace(0, working_len, num=int((gather_shape // crop_shape + eps) * grid_coverage), dtype=int)
     return np.unique(laying)
