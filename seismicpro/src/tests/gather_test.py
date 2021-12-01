@@ -75,8 +75,8 @@ def test_gather_getitem_headers(gather, key):
     assert result_getitem.dtype == expected.dtype
 
 
-key_types = [-1, 0, (0, ), (0, 1), [0], [0, 4], slice(None, 5, None)]
-fail_keys = list(product([(0, 1), (0, ), [0], [0, 4]], repeat=2))
+key_types = [-1, 0, slice(None, 5, None), slice(None, -5, None), (0, ), (0, 1), [0], [0, 4], [-1, 5]]
+fail_keys = list(product([(0, ), (0, 1), [0], [0, 4], [-1, 5]], repeat=2))
 @pytest.mark.parametrize('key', key_types + list(product(key_types, repeat=2)))
 def test_gather_getitem_gathers(gather, key):
     """test_gather_getitem_gathers"""
@@ -97,11 +97,12 @@ def test_gather_getitem_gathers(gather, key):
     keys = (key, ) if not isinstance(key, tuple) else key
     if result_getitem.shape != expected_data.shape:
         expected_shape = ()
-        for k in keys:
+        for k, orig_shape in zip(keys, gather.shape):
             if isinstance(k, int):
                 shape_comp = 1
             elif isinstance(k, slice):
                 shape_comp = k.stop
+                shape_comp = orig_shape + shape_comp if shape_comp < 0 else shape_comp
             else:
                 shape_comp = len(k)
             expected_shape = expected_shape + (shape_comp, )
