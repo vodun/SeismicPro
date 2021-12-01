@@ -91,11 +91,21 @@ def test_gather_getitem_gathers(gather, key):
 
     compare_gathers(result_getitem, result_get_item, check_types=True)
     assert np.allclose(result_getitem.data.reshape(-1), expected_data.reshape(-1))
+    assert result_getitem.sort_by == result_get_item.sort_by == gather.sort_by
 
     # Find a correct shape of data when numpy indexing works differently
     keys = (key, ) if not isinstance(key, tuple) else key
     if result_getitem.shape != expected_data.shape:
-        expected_shape = tuple(1 if isinstance(k, int) else k.stop if isinstance(k, slice) else len(k) for k in keys)
+        expected_shape = ()
+        for k in keys:
+            if isinstance(k, int):
+                shape_comp = 1
+            elif isinstance(k, slice):
+                shape_comp = k.stop
+            else:
+                shape_comp = len(k)
+            expected_shape = expected_shape + (shape_comp, )
+
         if len(expected_shape) < 2:
             expected_shape = expected_shape + (gather.shape[1], )
         assert result_getitem.shape == expected_shape, f"for the key {key} expected {result_getitem.shape} shape but "\
@@ -104,10 +114,10 @@ def test_gather_getitem_gathers(gather, key):
     assert result_getitem.data.shape[0] == len(result_getitem.headers)
     assert result_getitem.data.shape[1] == len(result_getitem.samples)
 
-    # Check that the headers and samples contains proper values
+    # Check that the headers and samples contain  proper values
     ## This is probably not the best way for the equality check..
-    keys = (keys[0], slice(None)) if len(keys) < 2 else keys
     keys = tuple(to_list(k) if isinstance(k, tuple) else k for k in keys)
+    keys = (keys[0], slice(None)) if len(keys) < 2 else keys
     assert np.allclose(result_getitem.headers, gather.headers.iloc[keys[0]].values)
     assert np.allclose(result_getitem.samples, gather.samples[keys[1]])
 
