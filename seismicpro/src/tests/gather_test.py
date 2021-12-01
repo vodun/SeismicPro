@@ -75,16 +75,16 @@ def test_gather_getitem_headers(gather, key):
     assert result_getitem.dtype == expected.dtype
 
 
-key_types = [-1, 0, slice(None, 5, None), slice(None, -5, None), (0, ), (0, 1), [0], [0, 4], [-1, 5]]
+simple_keys = [-1, 0, slice(None, 5, None), slice(None, -5, None)]
+array_keys = [(0, ), (0, 1), [0], [0, 4], [-1, 5]]
+
 fail_keys = list(product([(0, ), (0, 1), [0], [0, 4], [-1, 5]], repeat=2))
-@pytest.mark.parametrize('key', key_types + list(product(key_types, repeat=2)))
+valid_keys = (simple_keys + array_keys + list(product(simple_keys, repeat=2))
+              + list(product(simple_keys, array_keys)) + list(product(array_keys, simple_keys)))
+
+@pytest.mark.parametrize('key', valid_keys)
 def test_gather_getitem_gathers(gather, key):
     """test_gather_getitem_gathers"""
-    if key in fail_keys:
-        pytest.raises(ValueError, gather.__getitem__, key)
-        pytest.raises(ValueError, gather.get_item, key)
-        pytest.xfail()
-
     result_getitem = gather[key]
     result_get_item = gather.get_item(key)
     expected_data = gather.data[key]
@@ -121,6 +121,15 @@ def test_gather_getitem_gathers(gather, key):
     keys = (keys[0], slice(None)) if len(keys) < 2 else keys
     assert np.allclose(result_getitem.headers, gather.headers.iloc[keys[0]].values)
     assert np.allclose(result_getitem.samples, gather.samples[keys[1]])
+
+
+@pytest.mark.parametrize('key', fail_keys)
+def test_gather_getitem_gather_fail(gather, key):
+    """test_gather_getitem_gathers"""
+    if key in fail_keys:
+        pytest.raises(ValueError, gather.__getitem__, key)
+        pytest.raises(ValueError, gather.get_item, key)
+        pytest.xfail()
 
 
 @pytest.mark.parametrize('key', [[0, 3, 1]])
