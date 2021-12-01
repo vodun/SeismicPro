@@ -75,7 +75,7 @@ def test_gather_getitem_headers(gather, key):
     assert result_getitem.dtype == expected.dtype
 
 
-key_types = [0, (0, ), (0, 1), [0], [0, 4], slice(None, 5, None)]
+key_types = [-1, 0, (0, ), (0, 1), [0], [0, 4], slice(None, 5, None)]
 fail_keys = list(product([(0, 1), (0, ), [0], [0, 4]], repeat=2))
 @pytest.mark.parametrize('key', key_types + list(product(key_types, repeat=2)))
 def test_gather_getitem_gathers(gather, key):

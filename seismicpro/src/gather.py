@@ -129,14 +129,15 @@ class Gather:
         key = (key, ) if not isinstance(key, tuple) else key
         key = key + (slice(None), ) if len(key) == 1 else key
         indices = ()
-        for axis_indexer in key:
+        for axis_indexer, axis_shape in zip(key, self.shape):
             if isinstance(axis_indexer, (int, np.integer)):
-                new_k = slice(axis_indexer, axis_indexer+1) # Switch from simple indexing to a slice to keep array dims
+                # Convert negative array index to a corresponding positive one
+                axis_indexer %= axis_shape
+                # Switch from simple indexing to a slice to keep array dims
+                axis_indexer = slice(axis_indexer, axis_indexer+1)
             elif isinstance(axis_indexer, tuple):
-                new_k = to_list(axis_indexer) # Force advanced indexing for `samples`
-            else:
-                new_k = axis_indexer
-            indices = indices + (new_k, )
+                axis_indexer = to_list(axis_indexer) # Force advanced indexing for `samples`
+            indices = indices + (axis_indexer, )
 
         new_self = self.copy(ignore=['data', 'headers', 'samples'])
         new_self.data = self.data[indices]
