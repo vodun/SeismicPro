@@ -91,19 +91,77 @@ class Gather:
         return self.data.shape
 
     def __getitem__(self, key):
-        """Select gather headers by their names.
+        """Either select gather headers values by their names or create a new `Gather` with specified traces and
+        samples depending on the key type.
+
+        Notes
+        -----
+        1. If the data after `__getitem__` is no longer sorted, `sort_by` attribute in the resulting `Gather` will be
+        set to `None`.
+        2. If headers selection is performed, a 2d array is always returned even for a single header.
 
         Parameters
         ----------
-        key : str or list of str
-            Gather headers to get.
+        key : str, list of str, int, list, tuple, slice
+            If str or list of str, gather headers to get as a 2d np.ndarray.
+            Otherwise, indices of traces and samples to get. In this case, __getitem__ behaviour almost coincides with
+            np.ndarray indexing and slicing except for cases, when resulting ndim is not preserved or joint indexation
+            of gather attributes becomes ambiguous (e.g. gather[[0, 1], [0, 1]]).
 
         Returns
         -------
-        headers : np.ndarray
-            Headers values.
+        result : 2d np.ndarray or Gather
+            Headers values or Gather with a specified subset of traces and samples.
+
+        Raises
+        ------
+        ValueError
+            If the resulting gather is empty, or data ndim has changed, or joint attribute indexation is ambiguous.
         """
-        return self.headers[key].values
+        # If key is str or array of str, treat it as names of headers columns
+        keys_array = np.array(to_list(key))
+        if keys_array.dtype.type == np.str_:
+            self.validate(required_header_cols=keys_array)
+            # Avoid using direct pandas indexing to speed up multiple headers selection from gathers with a small
+            # number of traces
+            headers = []
+            for col in keys_array:
+                header = self.headers[col] if col in self.headers.columns else self.headers.index.get_level_values(col)
+                headers.append(header.values)
+            return np.column_stack(headers)
+
+        # Perform traces and samples selection
+        key = (key, ) if not isinstance(key, tuple) else key
+        key = key + (slice(None), ) if len(key) == 1 else key
+        indices = ()
+        for axis_indexer, axis_shape in zip(key, self.shape):
+            if isinstance(axis_indexer, (int, np.integer)):
+                # Convert negative array index to a corresponding positive one
+                axis_indexer %= axis_shape
+                # Switch from simple indexing to a slice to keep array dims
+                axis_indexer = slice(axis_indexer, axis_indexer+1)
+            elif isinstance(axis_indexer, tuple):
+                # Force advanced indexing for `samples`
+                axis_indexer = list(axis_indexer)
+            indices = indices + (axis_indexer, )
+
+        new_self = self.copy(ignore=['data', 'headers', 'samples'])
+        new_self.data = self.data[indices]
+        if new_self.data.ndim != 2:
+            raise ValueError("Data ndim is not preserved or joint indexation of gather attributes becomes ambiguous "
+                             "after indexation")
+        if new_self.data.size == 0:
+            raise ValueError("Empty gather after indexation")
+
+        # The two-dimensional `indices` array describes the indices of the traces and samples to be obtained,
+        # respectively.
+        new_self.headers = self.headers.iloc[indices[0]]
+        new_self.samples = self.samples[indices[1]]
+
+        # Check that `sort_by` still represents the actual trace sorting as it might be changed during getitem.
+        if new_self.sort_by is not None and not new_self.headers[new_self.sort_by].is_monotonic_increasing:
+            new_self.sort_by = None
+        return new_self
 
     def __setitem__(self, key, value):
         """Set given values to selected gather headers.
@@ -191,28 +249,39 @@ class Gather:
         return tuple(coords[0].tolist())
 
     @batch_method(target='threads', copy_src=False)
-    def copy(self):
-        """Perform a deepcopy of all gather attributes except for `survey`, which is kept unchanged.
+    def copy(self, ignore=None):
+        """Perform a deepcopy of all gather attributes except for `survey` and those specified in ignore, which are
+        kept unchanged.
+
+        Parameters
+        ----------
+        ignore : str or array of str, defaults to None
+            Attributes that won't be copied.
 
         Returns
         -------
         copy : Gather
             Copy of the gather.
         """
-        survey = self.survey
-        self.survey = None
-        self_copy = deepcopy(self)
-        self_copy.survey = survey
-        self.survey = survey
-        return self_copy
+        ignore_attrs = set() if ignore is None else set(to_list(ignore))
+        ignore_attrs = [getattr(self, attr) for attr in ignore_attrs | {'survey'}]
+
+        # Construct a memo dict with attributes, that should not be copied
+        memo = {id(attr): attr for attr in ignore_attrs}
+        return deepcopy(self, memo)
+
+    @batch_method(target='for')
+    def get_item(self, *args):
+        """An interface for `self.__getitem__` method."""
+        return self[args if len(args) > 1 else args[0]]
 
     def _validate_header_cols(self, required_header_cols):
         """Check if the gather headers contain all columns from `required_header_cols`."""
-        headers = self.headers.reset_index()
-        required_header_cols = to_list(required_header_cols)
-        if any(col not in headers for col in required_header_cols):
+        header_cols = set(self.headers.columns) | set(self.headers.index.names)
+        missing_headers = set(to_list(required_header_cols)) - header_cols
+        if missing_headers:
             err_msg = "The following headers must be preloaded: {}"
-            raise ValueError(err_msg.format(", ".join(required_header_cols)))
+            raise ValueError(err_msg.format(", ".join(missing_headers)))
 
     def _validate_sorting(self, required_sorting):
         """Check if the gather is sorted by `required_sorting` header."""
