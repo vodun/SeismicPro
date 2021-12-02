@@ -665,17 +665,17 @@ class Gather:
         return self
 
     @batch_method(target='for', use_lock=True)
-    def dump_first_breaks(self, path, trace_id_columns=('FieldRecord', 'TraceNumber'), first_breaks_column='FirstBreak',
-                          col_space=8, decimal=',', **kwargs):
+    def dump_first_breaks(self, path, trace_id_columns=('FieldRecord', 'TraceNumber'),
+                          first_breaks_column='FirstBreak', col_space=8, decimal=',', **kwargs):
         """ Save first break picking times to the file.
 
-        Each row in the resulted file corresponds to the first break picking of the trace. 
-        All but the last columns stores values from `self.headers[trace_id_columns]`. 
+        Each row in the resulted file corresponds to the first break picking of the trace.
+        All but the last columns stores values from `self.headers[trace_id_columns]`.
         The last column stores fbp times from batch component.
 
         Parameters
         ----------
-        path : str 
+        path : str
             Path to the file.
         trace_id_columns : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
             Columns names from `self.headers` that act as trace id. These would present in the file.
@@ -694,7 +694,8 @@ class Gather:
             Gather unchanged
         """
         df = self.headers.reset_index()[list(trace_id_columns) + [first_breaks_column]]
-        with open(path, 'a') as f:
+
+        with open(path, 'a') as f:  #pylint: disable=unspecified-encoding
             f.write(df.to_string(index=False, header=False, col_space=col_space, decimal=decimal, **kwargs) + '\n')
         return self
 

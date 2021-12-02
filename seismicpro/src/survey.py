@@ -441,13 +441,13 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         """
         return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
 
-    def load_first_breaks(self, path, trace_id_columns = ('FieldRecord', 'TraceNumber'), 
+    def load_first_breaks(self, path, trace_id_columns = ('FieldRecord', 'TraceNumber'),
                           first_breaks_column='FirstBreak', delim_whitespace=True, decimal=',', **kwargs):
         """Load first break picking times and save them to the new `headers` column.
 
-        Each row in the file must correspond to the first break picking time of the trace. 
-        FBP time must be stored in the last column of the file. 
-        The combination of all but the last columns should act as a unique trace identifier and is used to match 
+        Each row in the file must correspond to the first break picking time of the trace.
+        FBP time must be stored in the last column of the file.
+        The combination of all but the last columns should act as a unique trace identifier and is used to match
         the trace from the file with the corresponding trace in `self.headers`.
 
         Parameters
@@ -455,7 +455,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         path : str
             A path to the file with first break times in milliseconds.
         trace_id_columns : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
-            All but the last columns names in the file. 
+            All but the last columns names in the file.
         first_breaks_column : str, optional, defaults to 'FirstBreak'
             Column name in `self.headers` where loaded first break times will be stored.
         delim_whitespace: bool, defaults to True
@@ -477,7 +477,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             If there is not a single match of rows from the file with those in `self.headers`.
         """
         file_columns = trace_id_columns + (first_breaks_column, )
-        first_breaks_df = pd.read_csv(path, names=file_columns, delim_whitespace=delim_whitespace, 
+        first_breaks_df = pd.read_csv(path, names=file_columns, delim_whitespace=delim_whitespace,
                                       decimal=decimal, **kwargs)
 
         headers = self.headers.reset_index()

@@ -5,7 +5,6 @@ from functools import partial, wraps
 
 from .utils import to_list
 from ..batchflow import action, inbatch_parallel
-from ..batchflow.decorators import _make_action_wrapper_with_args
 
 
 def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src=True, **kwargs):

@@ -300,4 +300,3 @@ class SeismicBatch(Batch):
         else:
             raise ValueError(f"dst must be either `str` or `NamedExpression`, not {type(dst)}.")
         return self
-
