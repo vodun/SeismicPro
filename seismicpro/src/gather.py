@@ -595,6 +595,41 @@ class Gather:
         self[first_breaks_col] = convert_mask_to_pick(mask, self.sample_rate, threshold)
         return self
 
+    @batch_method(target='for', use_lock=True)
+    def dump_first_breaks(self, path, trace_id_columns=('FieldRecord', 'TraceNumber'), first_breaks_column='FirstBreak',
+                          col_space=8, decimal=',', **kwargs):
+        """ Save first break picking times to the file.
+
+        Each row in the resulted file corresponds to the first break picking of the trace. 
+        All but the last columns stores values from `self.headers[trace_id_columns]`. 
+        The last column stores fbp times from batch component.
+
+        Parameters
+        ----------
+        path : str 
+            Path to the file.
+        trace_id_columns : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
+            Columns names from `self.headers` that act as trace id. These would present in the file.
+        first_breaks_column : str, defaults to 'FirstBreak'
+            Column name from `self.headers` where fbp is stored.
+        col_space : int, list or dict of int, defaults to 8
+            The minimum width of each column. See `df.to_string` for more details.
+        decimal : str, default to ','
+            Character recognized as decimal separator. See `df.to_string` for more details.
+        kwargs : misc, optional
+            Additional keyword arguments to `df.to_string`.
+
+        Returns
+        -------
+        self : Gather
+            Gather unchanged
+        """
+        df = self[list(trace_id_columns) + [first_breaks_column]]
+
+        with open(path, 'a') as f:
+            f.write(df.to_string(index=False, header=False, col_space=col_space, decimal=decimal, **kwargs) + '\n')
+        return self
+
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #
     #------------------------------------------------------------------------#
