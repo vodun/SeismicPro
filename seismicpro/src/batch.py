@@ -312,7 +312,7 @@ class SeismicBatch(Batch):
         if src_kwargs is None:
             src_kwargs = [{} for _ in range(len(src_list))]
         elif isinstance(src_kwargs, dict):
-            src_kwargs = {src: kwargs for src_l, kwargs in src_kwargs.items() for src in to_list(src_l)}
+            src_kwargs = {src: src_kwargs[keys] for keys in src_kwargs for src in to_list(keys)}
             src_kwargs = [src_kwargs.get(src, {}) for src in src_list]
         else:
             src_kwargs = to_list(src_kwargs)
@@ -324,7 +324,8 @@ class SeismicBatch(Batch):
         for src, kwargs in zip(src_list, src_kwargs):
             # Merge src kwargs with common kwargs and defaults
             src_plot_method_params = getattr(getattr(self, src)[0].plot, "method_params", {})
-            kwargs = {"figsize": src_plot_method_params["figsize"], "title": title, **common_kwargs, **kwargs}
+            kwargs = {"figsize": src_plot_method_params.get("figsize", (6.4, 4.8)), "title": title, **common_kwargs,
+                      **kwargs}
 
             # Scale subplot figsize if its width is greater than max_width
             width, height = kwargs.pop("figsize")
@@ -333,14 +334,15 @@ class SeismicBatch(Batch):
                 width = max_width
 
             title_template = kwargs.pop("title")
-            args_to_unpack = src_plot_method_params.get("args_to_unpack", [])
+            args_to_unpack = set(to_list(src_plot_method_params.get("args_to_unpack", [])))
 
             for i, index in enumerate(self.indices):
+                unpacked_args = {}
                 # Unpack required plotter arguments by getting the value of specified component with given index
-                for arg_name in set(to_list(args_to_unpack)) & kwargs.keys():
+                for arg_name in args_to_unpack & kwargs.keys():
                     arg_val = kwargs[arg_name]
                     if isinstance(arg_val, str):
-                        kwargs[arg_name] = getattr(self, arg_val)[i]
+                        unpacked_args[arg_name] = getattr(self, arg_val)[i]
 
                 # Format subplot title
                 if title_template is not None:
@@ -353,7 +355,7 @@ class SeismicBatch(Batch):
 
                 # Create subplotter config
                 subplot_config = {
-                    "plotter": partial(getattr(self, src)[i].plot, **kwargs),
+                    "plotter": partial(getattr(self, src)[i].plot, **{**kwargs, **unpacked_args}),
                     "height": height,
                     "width": width,
                 }

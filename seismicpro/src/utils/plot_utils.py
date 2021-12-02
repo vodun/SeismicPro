@@ -2,7 +2,8 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib import colors as mcolors
+import matplotlib.colors as mcolors
+import matplotlib.ticker as ticker
 
 
 def save_figure(fig, path, dpi=100, bbox_inches="tight", pad_inches=0.1, **kwargs):
@@ -23,41 +24,54 @@ def set_text_formatting(kwargs):
 
 
 def set_ticks(ax, axis, axis_label, tick_labels, **kwargs):
-    ticks, tick_labels, kwargs, rotation_kwargs = _process_ticks(labels=tick_labels, **kwargs)
-    getattr(plt, f"{axis}ticks")(ticks=ticks, labels=tick_labels, **kwargs, **rotation_kwargs)
-    getattr(ax, f"set_{axis}label")(axis_label, **kwargs)
+    locator, formatter, kwargs = _process_ticks(labels=tick_labels, **kwargs)
+    kwargs, rotation_kwargs = _process_kwargs(**kwargs)
+    ax_obj = getattr(ax, f"{axis}axis")
+    ax_obj.set_major_locator(locator)
+    ax_obj.set_major_formatter(formatter)
+    ax_obj.set_label_text(axis_label, **kwargs)
+    getattr(plt, f"{axis}ticks")(**kwargs, **rotation_kwargs)
 
 
 def _process_ticks(labels, num=None, step_ticks=None, step_labels=None, round_to=0, **kwargs):
+    use_index = False
     n_labels = len(labels)
-    ticks = None
+    locator = ticker.AutoLocator()
 
     if num is not None:
-        ticks = np.linspace(0, n_labels - 1, num)
-        labels = labels[np.round(ticks).astype(int)]
+        locator = ticker.LinearLocator(num)
     elif step_ticks is not None:
-        ticks = np.arange(0, n_labels, step_ticks)
-        ticks = np.append(ticks, n_labels - 1) if ticks[-1] != n_labels - 1 else ticks
-        labels = labels[ticks]
+        locator = ticker.IndexLocator(step_ticks, 0)
     elif step_labels is not None:
         if (np.diff(labels) < 0).any():
             raise ValueError("step_labels is valid only for monotonically increasing labels.")
+        use_index = True
         candidates = np.arange((labels[0] // step_labels + 1) * step_labels, labels[-1], step_labels)
         ticks = np.concatenate([[0], np.searchsorted(labels, candidates), [n_labels - 1]])
         ticks, unique_indices = np.unique(ticks, return_index=True)
+        locator = ticker.FixedLocator(ticks)
         labels = np.concatenate([[labels[0]], candidates, [labels[n_labels - 1]]])[unique_indices]
-    labels = None if ticks is None else labels
 
-    if round_to is not None and labels is not None:
-        labels = np.round(labels, round_to)
-        labels = labels.astype(int) if round_to == 0 else labels
+    def formatter(values, index):
+        ix = index if use_index else values
+        ix = int(np.clip(ix, 0, len(labels) - 1))
+        sub_labels = labels[ix]
 
+        if round_to is not None and sub_labels is not None:
+                sub_labels = np.round(sub_labels, round_to)
+                sub_labels = sub_labels.astype(int) if round_to == 0 else sub_labels
+        return sub_labels
+
+    return locator, formatter, kwargs
+
+
+def _process_kwargs(**kwargs):
     ROTATION_ARGS = {"ha", "rotation_mode"}
     rotation = kwargs.pop("rotation", None)
     rotation_kwargs = {arg: kwargs.pop(arg) for arg in ROTATION_ARGS if arg in kwargs}
     if rotation is not None:
         rotation_kwargs = {"rotation": rotation, "ha": "right", "rotation_mode": "anchor", **rotation_kwargs}
-    return ticks, labels, kwargs, rotation_kwargs
+    return kwargs, rotation_kwargs
 
 
 def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7),  # pylint: disable=too-many-arguments

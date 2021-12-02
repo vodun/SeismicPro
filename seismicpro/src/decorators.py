@@ -213,7 +213,7 @@ def create_batch_methods(*component_classes):
                 # and perform the call with updated args and kwargs
                 obj_arguments = inspect.signature(obj_method).bind(*args, **kwargs)
                 obj_arguments.apply_defaults()
-                for arg_name in to_list(obj_method_params["args_to_unpack"]):
+                for arg_name in to_list(obj_method_params.get("args_to_unpack", [])):
                     arg_val = obj_arguments.arguments[arg_name]
                     if isinstance(arg_val, str):
                         obj_arguments.arguments[arg_name] = getattr(self, arg_val)[pos]

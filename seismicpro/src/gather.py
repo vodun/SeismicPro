@@ -982,8 +982,8 @@ class Gather:
 
     def _plot_headers(self, ax, headers_kwargs):
         x_coords = np.arange(self.n_traces)
-        headers_kwargs = self._parse_headers_kwargs(headers_kwargs, "headers")
-        for kwargs in headers_kwargs:
+        kwargs_list = self._parse_headers_kwargs(headers_kwargs, "headers")
+        for kwargs in kwargs_list:
             header = kwargs.pop("headers")
             process_outliers = kwargs.pop("process_outliers", "none")
             y_coords = self[header] / self.sample_rate
@@ -998,9 +998,9 @@ class Gather:
         if headers_kwargs:
             ax.legend()
 
-    def _plot_top_subplot(self, ax, divider, header_values):
-        top_ax = divider.append_axes("top", size="12%", pad=0.05, sharex=ax)
-        top_ax.scatter(np.arange(self.n_traces), header_values, s=5, color="black")
+    def _plot_top_subplot(self, ax, divider, header_values, **kwargs):
+        top_ax = divider.append_axes("top", sharex=ax, size="12%", pad=0.05)
+        top_ax.scatter(np.arange(self.n_traces), header_values, **{"s": 5, "color": "black", **kwargs})
         top_ax.xaxis.set_visible(False)
         top_ax.yaxis.tick_right()
         top_ax.invert_yaxis()
