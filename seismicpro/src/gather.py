@@ -1076,7 +1076,7 @@ class Gather:
 
     def _get_x_ticks(self, axis_label):
         if axis_label in self.headers.columns:
-            return self[axis_label]
+            return self[axis_label].reshape(-1)
         if axis_label == "index":
             return np.arange(self.n_traces)
         raise ValueError(f"Unknown label for x axis {axis_label}")
