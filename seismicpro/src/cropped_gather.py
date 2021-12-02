@@ -32,7 +32,8 @@ class CroppedGather:
         pad_shape_x, pad_shape_y = np.maximum(0, max_shapes + self.crop_shape - self.gather.shape)
         if (pad_shape_x > 0) or (pad_shape_y > 0):
             warnings.warn("Crop is out of the gather data. The Gather's data will be padded")
-        return np.pad(self.gather.data, ((0, pad_shape_x), (0, pad_shape_y)), mode=pad_mode, **kwargs)
+            return np.pad(self.gather.data, ((0, pad_shape_x), (0, pad_shape_y)), mode=pad_mode, **kwargs)
+        return self.gather.data
 
     @batch_method(target='for')
     def assemble_gather(self):
@@ -44,9 +45,9 @@ class CroppedGather:
 
     def _mean_assemble(self):
         ''' TODO: docs ''' 
-        working_shape = np.maximum(self.gather.shape, self.crop_shape + self.origins.max(axis=0))
-        result = np.zeros(shape=working_shape, dtype=float)
-        mask = np.zeros(shape=working_shape, dtype=int)
+        result_shape = np.maximum(self.gather.shape, self.crop_shape + self.origins.max(axis=0))
+        result = np.zeros(shape=result_shape, dtype=float)
+        mask = np.zeros(shape=result_shape, dtype=int)
         for crop, origin in zip(self.crops, self.origins):
             result[origin[0]:origin[0] + self.crop_shape[0], origin[1]:origin[1] + self.crop_shape[1]] += crop
             mask[origin[0]:origin[0] + self.crop_shape[0], origin[1]:origin[1] + self.crop_shape[1]] += 1
