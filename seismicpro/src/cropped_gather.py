@@ -20,7 +20,7 @@ class CroppedGather:
 
     def make_crops(self, data):
         ''' TODO: docs '''
-        crops = np.empty(shape=(self.n_origins, *self.crop_shape), dtype=float)
+        crops = np.empty(shape=(self.n_origins, *self.crop_shape), dtype=data.dtype)
         dx, dy = self.crop_shape
         for i, (start_x, start_y) in enumerate(self.origins):
             crops[i] = data[start_x:start_x + dx, start_y:start_y + dy]
