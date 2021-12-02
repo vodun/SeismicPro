@@ -693,8 +693,7 @@ class Gather:
         self : Gather
             Gather unchanged
         """
-        df = self[list(trace_id_columns) + [first_breaks_column]]
-
+        df = self.headers.reset_index()[list(trace_id_columns) + [first_breaks_column]]
         with open(path, 'a') as f:
             f.write(df.to_string(index=False, header=False, col_space=col_space, decimal=decimal, **kwargs) + '\n')
         return self
