@@ -8,28 +8,15 @@ import glob
 import pytest
 import numpy as np
 
-from seismicpro.src import Survey, aggregate_segys
-
-
-def compare_gathers(expected_gather, suspected_gather):
-    expected_headers = expected_gather.headers.reset_index()
-    expected_headers.drop(columns="TRACE_SEQUENCE_FILE", inplace=True)
-    suspected_headers = suspected_gather.headers.reset_index()
-    suspected_headers.drop(columns="TRACE_SEQUENCE_FILE", inplace=True)
-
-    if len(expected_headers) > 0 and len(suspected_headers) > 0:
-        assert expected_headers.equals(suspected_headers), "Headers before and after dump don't match"
-    assert suspected_gather.shape == expected_gather.shape, "Shapes of the data before and after dump don't match"
-    assert np.allclose(suspected_gather.data, expected_gather.data), "Amplitudes before and after dump don't match"
-    assert np.allclose(suspected_gather.samples, expected_gather.samples), "Samples before and after dump don't match"
-    assert suspected_gather.sample_rate == expected_gather.sample_rate, "Sample rate before and after dump don't match"
+from seismicpro import Survey, aggregate_segys
+from seismicpro.src.tests.gather_test import compare_gathers
 
 
 @pytest.mark.parametrize('name', ['some_name', None])
 @pytest.mark.parametrize('copy_header', [False, True])
 @pytest.mark.parametrize('header_index', ['FieldRecord', 'TRACE_SEQUENCE_FILE'])
 @pytest.mark.parametrize('header_cols', [None, 'TraceNumber', 'all'])
-@pytest.mark.parametrize('dump_index', [1, 10])
+@pytest.mark.parametrize('dump_index', [1, 3])
 def test_dump_single_gather(segy_path, tmp_path, name, copy_header, header_index, header_cols, dump_index):
     survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name)
     expected_gather = survey.get_gather(dump_index)
@@ -41,7 +28,8 @@ def test_dump_single_gather(segy_path, tmp_path, name, copy_header, header_index
     dumped_survey = Survey(files[0], header_index=header_index, header_cols=header_cols)
     ix = 1 if header_index == 'TRACE_SEQUENCE_FILE' else dump_index
     dumped_gather = dumped_survey.get_gather(index=ix)
-    compare_gathers(expected_gather, dumped_gather)
+    compare_gathers(expected_gather, dumped_gather, drop_cols='TRACE_SEQUENCE_FILE', check_types=True,
+                    same_survey=False)
 
     if copy_header:
         full_exp_headers = Survey(segy_path, header_index=header_index, header_cols='all').headers
@@ -64,7 +52,7 @@ def test_dump_single_gather_with_invalid_kwargs(segy_path, dump_kwargs, error):
 
 
 @pytest.mark.parametrize('mode', ['one_folder', 'split'])
-@pytest.mark.parametrize('indices', [[1], [1, 10], 'all'])
+@pytest.mark.parametrize('indices', [[1], [1, 3], 'all'])
 def test_aggregate_segys(segy_path, tmp_path, mode, indices):
     expected_survey = Survey(segy_path, header_index='FieldRecord', header_cols='all', name='raw')
     indices = expected_survey.headers.index.drop_duplicates() if indices == 'all' else indices
@@ -102,4 +90,5 @@ def test_aggregate_segys(segy_path, tmp_path, mode, indices):
         expected_gather.sort(by='TraceNumber')
         dumped_gather = dumped_survey.get_gather(ix)
         dumped_gather.sort(by='TraceNumber')
-        compare_gathers(expected_gather, dumped_gather)
+        compare_gathers(expected_gather, dumped_gather, drop_cols='TRACE_SEQUENCE_FILE', check_types=True,
+                        same_survey=False)
