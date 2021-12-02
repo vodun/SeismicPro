@@ -62,7 +62,6 @@ def compare_gathers(first, second, drop_cols=None, check_types=False, same_surve
         assert id(first.survey) == id(second.survey)
 
 
-@pytest.mark.xfail()
 @pytest.mark.parametrize('key', ('offset', ['offset', 'FieldRecord']))
 def test_gather_getitem_headers(gather, key):
     """test_gather_getitem_headers"""
@@ -71,31 +70,43 @@ def test_gather_getitem_headers(gather, key):
 
     expected = gather.headers[key].values
     assert np.allclose(result_getitem, result_get_item)
-    assert np.allclose(result_getitem, expected)
+    assert result_getitem.shape == (gather.shape[0], len(to_list(key)))
+    assert np.allclose(result_getitem.reshape(-1), expected.reshape(-1))
     assert result_getitem.dtype == expected.dtype
 
 
-key_types = [0, (0, ), (0, 1), [0], [0, 4], slice(None, 5, None)]
-fail_keys = list(product([(0, 1), (0, ), [0], [0, 4]], repeat=2))
-@pytest.mark.parametrize('key', key_types + list(product(key_types, repeat=2)))
+simple_keys = [-1, 0, slice(None, 5, None), slice(None, -5, None)]
+array_keys = [(0, ), (0, 1), [0], [0, 4], [-1, 5]]
+
+fail_keys = list(product([(0, ), (0, 1), [0], [0, 4], [-1, 5]], repeat=2))
+valid_keys = (simple_keys + array_keys + list(product(simple_keys, repeat=2))
+              + list(product(simple_keys, array_keys)) + list(product(array_keys, simple_keys)))
+
+@pytest.mark.parametrize('key', valid_keys)
 def test_gather_getitem_gathers(gather, key):
     """test_gather_getitem_gathers"""
-    if key in fail_keys:
-        pytest.raises(ValueError, gather.__getitem__, key)
-        pytest.raises(ValueError, gather.get_item, key)
-        pytest.xfail()
-
     result_getitem = gather[key]
     result_get_item = gather.get_item(key)
     expected_data = gather.data[key]
 
     compare_gathers(result_getitem, result_get_item, check_types=True)
     assert np.allclose(result_getitem.data.reshape(-1), expected_data.reshape(-1))
+    assert result_getitem.sort_by == result_get_item.sort_by == gather.sort_by
 
     # Find a correct shape of data when numpy indexing works differently
     keys = (key, ) if not isinstance(key, tuple) else key
     if result_getitem.shape != expected_data.shape:
-        expected_shape = tuple(1 if isinstance(k, int) else k.stop if isinstance(k, slice) else len(k) for k in keys)
+        expected_shape = ()
+        for k, orig_shape in zip(keys, gather.shape):
+            if isinstance(k, int):
+                shape_comp = 1
+            elif isinstance(k, slice):
+                shape_comp = k.stop
+                shape_comp = orig_shape + shape_comp if shape_comp < 0 else shape_comp
+            else:
+                shape_comp = len(k)
+            expected_shape = expected_shape + (shape_comp, )
+
         if len(expected_shape) < 2:
             expected_shape = expected_shape + (gather.shape[1], )
         assert result_getitem.shape == expected_shape, f"for the key {key} expected {result_getitem.shape} shape but "\
@@ -104,12 +115,21 @@ def test_gather_getitem_gathers(gather, key):
     assert result_getitem.data.shape[0] == len(result_getitem.headers)
     assert result_getitem.data.shape[1] == len(result_getitem.samples)
 
-    # Check that the headers and samples contains proper values
+    # Check that the headers and samples contain  proper values
     ## This is probably not the best way for the equality check..
-    keys = (keys[0], slice(None)) if len(keys) < 2 else keys
     keys = tuple(to_list(k) if isinstance(k, tuple) else k for k in keys)
+    keys = (keys[0], slice(None)) if len(keys) < 2 else keys
     assert np.allclose(result_getitem.headers, gather.headers.iloc[keys[0]].values)
     assert np.allclose(result_getitem.samples, gather.samples[keys[1]])
+
+
+@pytest.mark.parametrize('key', fail_keys)
+def test_gather_getitem_gather_fail(gather, key):
+    """test_gather_getitem_gathers"""
+    if key in fail_keys:
+        pytest.raises(ValueError, gather.__getitem__, key)
+        pytest.raises(ValueError, gather.get_item, key)
+        pytest.xfail()
 
 
 @pytest.mark.parametrize('key', [[0, 3, 1]])

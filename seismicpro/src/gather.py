@@ -92,60 +92,74 @@ class Gather:
         return self.data.shape
 
     def __getitem__(self, key):
-        """Depending on the `key` type, either select gather headers by their names or create a new instance of Gather
-        with specified traces and samples.
+        """Either select gather headers values by their names or create a new `Gather` with specified traces and
+        samples depending on the key type.
 
         Notes
         -----
-        If the data after getitem is no longer sorted, `sort_by` attribute in resulted Gather will be set to None.
+        1. If the data after `__getitem__` is no longer sorted, `sort_by` attribute in the resulting `Gather` will be
+        set to `None`.
+        2. If headers selection is performed, a 2d array is always returned even for a single header.
 
         Parameters
         ----------
         key : str, list of str, int, list, tuple, slice
-            If str or list of str, gather headers to get.
-            Otherwise, indices of traces and samples to get. Here, getitem behaviour coincides with getitem in
-            numpy.array.
+            If str or list of str, gather headers to get as a 2d np.ndarray.
+            Otherwise, indices of traces and samples to get. In this case, __getitem__ behaviour almost coincides with
+            np.ndarray indexing and slicing except for cases, when resulting ndim is not preserved or joint indexation
+            of gather attributes becomes ambiguous (e.g. gather[[0, 1], [0, 1]]).
 
         Returns
         -------
-        result : np.ndarray or Gather
-            Headers values or Gather with a specified subset of traces.
+        result : 2d np.ndarray or Gather
+            Headers values or Gather with a specified subset of traces and samples.
+
+        Raises
+        ------
+        ValueError
+            If the resulting gather is empty, or data ndim has changed, or joint attribute indexation is ambiguous.
         """
-        # If key is string or array of str, return header columns with specified names
+        # If key is str or array of str, treat it as names of headers columns
         keys_array = np.array(to_list(key))
         if keys_array.dtype.type == np.str_:
             self.validate(required_header_cols=keys_array)
-            # We avoid using pandas indexing with multiple columns to speed up the selection of headers from gathers
-            # with the small number of traces.
+            # Avoid using direct pandas indexing to speed up multiple headers selection from gathers with a small
+            # number of traces
             headers = []
             for col in keys_array:
                 header = self.headers[col] if col in self.headers.columns else self.headers.index.get_level_values(col)
                 headers.append(header.values)
             return np.column_stack(headers)
 
-        # Another case is to slice gather with the given key. Here key can be any type that might be processed by
-        # np.array's getitem.
+        # Perform traces and samples selection
         key = (key, ) if not isinstance(key, tuple) else key
-        key =  key + (slice(None), ) if len(key) == 1 else key
-        key_tuple = ()
-        for k in key:
-            new_k = slice(k, k+1) if isinstance(k, (int, np.integer)) else to_list(k) if isinstance(k, tuple) else k
-            key_tuple = key_tuple + (new_k, )
+        key = key + (slice(None), ) if len(key) == 1 else key
+        indices = ()
+        for axis_indexer, axis_shape in zip(key, self.shape):
+            if isinstance(axis_indexer, (int, np.integer)):
+                # Convert negative array index to a corresponding positive one
+                axis_indexer %= axis_shape
+                # Switch from simple indexing to a slice to keep array dims
+                axis_indexer = slice(axis_indexer, axis_indexer+1)
+            elif isinstance(axis_indexer, tuple):
+                # Force advanced indexing for `samples`
+                axis_indexer = list(axis_indexer)
+            indices = indices + (axis_indexer, )
 
         new_self = self.copy(ignore=['data', 'headers', 'samples'])
-        new_self.data = self.data[key_tuple]
+        new_self.data = self.data[indices]
         if new_self.data.ndim != 2:
-            raise ValueError("Given `key` leads either to ambiguous behavior when processing samples and headers or to"
-                             " a change in the dimension of the data")
+            raise ValueError("Data ndim is not preserved or joint indexation of gather attributes becomes ambiguous "
+                             "after indexation")
         if new_self.data.size == 0:
-            raise ValueError("Given `key` results in empty object")
+            raise ValueError("Empty gather after indexation")
 
-        # The first axis is responsible for the number of traces, so we have to process traces headers.
-        # The second axis is responsible for time. We need to process traces time descriptions.
-        new_self.headers = self.headers.iloc[key_tuple[0]]
-        new_self.samples = self.samples[key_tuple[1]]
+        # The two-dimensional `indices` array describes the indices of the traces and samples to be obtained,
+        # respectively.
+        new_self.headers = self.headers.iloc[indices[0]]
+        new_self.samples = self.samples[indices[1]]
 
-        # Check that `sort_by` is still represents the actual trace sorting since it may be changed during getitem.
+        # Check that `sort_by` still represents the actual trace sorting as it might be changed during getitem.
         if new_self.sort_by is not None and not new_self.headers[new_self.sort_by].is_monotonic_increasing:
             new_self.sort_by = None
         return new_self
@@ -242,8 +256,8 @@ class Gather:
 
         Parameters
         ----------
-        ignore : str or array of str, default None
-            Attributes that will be kept unchanged after the copy.
+        ignore : str or array of str, defaults to None
+            Attributes that won't be copied.
 
         Returns
         -------
@@ -253,11 +267,11 @@ class Gather:
         ignore_attrs = set() if ignore is None else set(to_list(ignore))
         ignore_attrs = [getattr(self, attr) for attr in ignore_attrs | {'survey'}]
 
-        # Construct a memo dict with attributes to avoid their copying during deepcopy.
+        # Construct a memo dict with attributes, that should not be copied
         memo = {id(attr): attr for attr in ignore_attrs}
         return deepcopy(self, memo)
 
-    @batch_method()
+    @batch_method(target='for')
     def get_item(self, *args):
         """An interface for `self.__getitem__` method."""
         return self[args if len(args) > 1 else args[0]]
