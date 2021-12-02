@@ -5,7 +5,7 @@ from functools import partial, wraps
 
 import matplotlib.pyplot as plt
 
-from .utils import to_list, save_figure, set_text_formatting
+from .utils import to_list, save_figure, set_text_formatting, plot_arg_to_dict
 from ..batchflow import action, inbatch_parallel
 
 
@@ -33,10 +33,10 @@ def plotter(figsize, args_to_unpack=None):
                 return method(*args, **kwargs)
             fig, ax = plt.subplots(1, 1, figsize=kwargs.pop("figsize", figsize))
             save_to = kwargs.pop("save_to", None)
-            dpi = kwargs.pop("dpi", 100)
             output = method(*args, ax=ax, **kwargs)
             if save_to is not None:
-                save_figure(fig, path=save_to, dpi=dpi)
+                save_kwargs = plot_arg_to_dict(save_to, default_key="path")
+                save_figure(fig, **save_kwargs)
             plt.show()
             return output
         return _update_method_params(plot, {"figsize": figsize, "args_to_unpack": args_to_unpack})

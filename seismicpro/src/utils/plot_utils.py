@@ -10,8 +10,8 @@ def save_figure(fig, path, dpi=100, bbox_inches="tight", pad_inches=0.1, **kwarg
     fig.savefig(path, dpi=dpi, bbox_inches=bbox_inches, pad_inches=pad_inches, **kwargs)
 
 
-def plot_arg_to_dict(arg):
-    return arg.copy() if isinstance(arg, dict) else {"label": arg}
+def plot_arg_to_dict(arg, default_key="label"):
+    return arg.copy() if isinstance(arg, dict) else {default_key: arg}
 
 
 def set_text_formatting(kwargs):

@@ -396,6 +396,7 @@ class SeismicBatch(Batch):
                 plotter["plotter"](ax=fig.add_subplot(gridspec))
 
         if save_to is not None:
-            save_figure(fig, path=save_to, dpi=dpi)
+            save_kwargs = plot_arg_to_dict(save_to, default_key="path")
+            save_figure(fig, **save_kwargs)
         plt.show()
         return self
