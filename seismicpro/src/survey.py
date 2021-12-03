@@ -442,7 +442,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
 
     def load_first_breaks(self, path, trace_id_columns = ('FieldRecord', 'TraceNumber'),
-                          first_breaks_column='FirstBreak', delim_whitespace=True, decimal=',', **kwargs):
+                          first_breaks_column='FirstBreak', delim_whitespace=True, **kwargs):
         """Load first break picking times and save them to the new column in headers.
 
         Each row in the file must correspond to the first break picking time of the trace.
@@ -476,10 +476,11 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         file_columns = to_list(trace_id_columns) + [first_breaks_column]
         first_breaks_df = pd.read_csv(path, names=file_columns, delim_whitespace=delim_whitespace, **kwargs)
 
-        # secure a bit, if we messed with decimal, dtype still be infered
-        if first_breaks_df[FirstBreak].dtype == object:
-            first_breaks_df[FirstBreak] = pd.to_numeric(first_breaks_df[FirstBreak])
+        # little insurance: if we messed with decimal, dtype still be infered
+        if first_breaks_df[first_breaks_column].dtype == object:
+            first_breaks_df[first_breaks_column] = pd.to_numeric(first_breaks_df[first_breaks_column])
 
+        headers = self.headers.reset_index()
         headers = headers.merge(first_breaks_df, on=trace_id_columns)
         if headers.empty:
             raise ValueError('Empty headers after first breaks loading.')

@@ -667,12 +667,12 @@ class Gather:
     @batch_method(target='for', use_lock=True)
     def dump_first_breaks(self, path, trace_id_columns=('FieldRecord', 'TraceNumber'),
                           first_breaks_column='FirstBreak', col_space=8, decimal='.'):
-        """ Save first break picking times to the plain text file.
+        """ Save first break picking times to the file.
 
         Each row in the resulted file corresponds to the first break picking of the trace.
-        For each row: all but the last columns stores values from trace_id_columns headers,
-        the last column stores fbp times from first_breaks_column header.
-
+        For each row: all but the last columns stores values from `trace_id_columns` headers,
+        the last column stores fbp times from `first_breaks_column` header.
+ 
         Parameters
         ----------
         path : str
@@ -692,8 +692,8 @@ class Gather:
             Gather unchanged
         """
         rows = self[to_list(trace_id_columns) + [first_breaks_column]]
-        
-        # segy spec states that all headers values are integers, first break values tho can be float 
+
+        # segy spec states that all headers values are integers, first break values tho can be float
         if rows.dtype == int:
             fmt = ['{:{col_space}.0d}'] * rows.shape[1]
         else:
