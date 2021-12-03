@@ -320,12 +320,13 @@ class SeismicBatch(Batch):
         src_shapes = set()
         src_types = set()
 
-        for item in src_list:
-            cur_object = getattr(self, item)[pos]
-            src_types.add(type(cur_object))
-            src_shapes.add(cur_object.shape)
-
         if joint:
+            for item in src_list:
+                cur_object = getattr(self, item)[pos]
+                src_types.add(type(cur_object))
+                src_shapes.add(cur_object.shape)
+
+        # if joint:
             if len(src_types) > 1:
                 raise TypeError('`src` should contain same type of objects when `joint` is True.')
             if len(src_shapes) > 1:

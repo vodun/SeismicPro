@@ -243,11 +243,19 @@ def clip(data, data_min, data_max):
 
 def make_origins(origins, gather_shape, crop_shape, n_crops=1, grid_coverage=1):
     if isinstance(origins, str):
-        return _origins_from_str(origins, gather_shape, crop_shape, n_crops, grid_coverage)
+        if origins == 'random':
+            origins = np.column_stack((np.random.randint(1 + max(0, gather_shape[0] - crop_shape[0]), size=n_crops),
+                                    np.random.randint(1 + max(0, gather_shape[1] - crop_shape[1]), size=n_crops)))
+            return origins
+        if origins == 'grid':
+            origins_x = _make_grid_origins(gather_shape[0], crop_shape[0], grid_coverage)
+            origins_y = _make_grid_origins(gather_shape[1], crop_shape[1], grid_coverage)
+            return np.array(np.meshgrid(origins_x, origins_y)).T.reshape(-1, 2)
+        raise ValueError("Using origin type not found. Use 'random' or 'grid' values.")
     origins = np.atleast_2d(origins)
     if origins.ndim == 2 and origins.shape[1] == 2:
         return origins
-    raise ValueError('Origins should be a tuple, list or np.array with a total shape is [n_origins, 2].')
+    raise ValueError("Origins should be a tuple, list or np.array with a total shape is [n_origins, 2].")
 
 
 def _make_grid_origins(gather_shape, crop_shape, grid_coverage):
@@ -257,16 +265,3 @@ def _make_grid_origins(gather_shape, crop_shape, grid_coverage):
     eps = 0 if max_origins % crop_shape == 0 else 1
     origins = np.linspace(0, max_origins, num=int((gather_shape // crop_shape + eps) * grid_coverage), dtype=int)
     return np.unique(origins)
-
-
-def _origins_from_str(origins, gather_shape, crop_shape, n_crops, grid_coverage):
-    if origins == 'random':
-        origins = np.column_stack((np.random.randint(1 + max(0, gather_shape[0] - crop_shape[0]), size=n_crops),
-                                   np.random.randint(1 + max(0, gather_shape[1] - crop_shape[1]), size=n_crops)))
-        return origins
-    if origins == 'grid':
-        origins_x = _make_grid_origins(gather_shape[0], crop_shape[0], grid_coverage)
-        origins_y = _make_grid_origins(gather_shape[1], crop_shape[1], grid_coverage)
-        return np.array(np.meshgrid(origins_x, origins_y)).T.reshape(-1, 2)
-    raise NotImplementedError("Support origins of the used type don't implement now")
-        
