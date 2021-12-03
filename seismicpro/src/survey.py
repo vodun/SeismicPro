@@ -443,7 +443,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
     def load_first_breaks(self, path, trace_id_columns = ('FieldRecord', 'TraceNumber'),
                           first_breaks_column='FirstBreak', delim_whitespace=True, decimal=',', **kwargs):
-        """Load first break picking times and save them to the new `headers` column.
+        """Load first break picking times and save them to the new column in headers.
 
         Each row in the file must correspond to the first break picking time of the trace.
         FBP time must be stored in the last column of the file.
@@ -460,8 +460,6 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             Column name in `self.headers` where loaded first break times will be stored.
         delim_whitespace: bool, defaults to True
             Specifies whether or not whitespace will be used as the sep. See `pd.read_csv` for more details.
-        decimal: str, defaults to ','
-            Character to recognize as decimal point. See `pd.read_csv` for more details.
         kwargs : misc, optional
             Additional keyword arguments to pass to  `pd.read_csv`.
 
@@ -473,17 +471,14 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         Raises
         ------
         ValueError
-            If not all the `trace_id_columns` are loaded in `self.headers`
             If there is not a single match of rows from the file with those in `self.headers`.
         """
-        file_columns = trace_id_columns + (first_breaks_column, )
-        first_breaks_df = pd.read_csv(path, names=file_columns, delim_whitespace=delim_whitespace,
-                                      decimal=decimal, **kwargs)
+        file_columns = to_list(trace_id_columns) + [first_breaks_column]
+        first_breaks_df = pd.read_csv(path, names=file_columns, delim_whitespace=delim_whitespace, **kwargs)
 
-        headers = self.headers.reset_index()
-        missing_cols = set(trace_id_columns) - set(headers)
-        if missing_cols:
-            raise ValueError(f'Missing {missing_cols} column(s) required for first break loading.')
+        # secure a bit, if we messed with decimal, dtype still be infered
+        if first_breaks_df[FirstBreak].dtype == object:
+            first_breaks_df[FirstBreak] = pd.to_numeric(first_breaks_df[FirstBreak])
 
         headers = headers.merge(first_breaks_df, on=trace_id_columns)
         if headers.empty:

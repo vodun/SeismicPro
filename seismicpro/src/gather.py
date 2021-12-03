@@ -666,12 +666,12 @@ class Gather:
 
     @batch_method(target='for', use_lock=True)
     def dump_first_breaks(self, path, trace_id_columns=('FieldRecord', 'TraceNumber'),
-                          first_breaks_column='FirstBreak', col_space=8, decimal=',', **kwargs):
-        """ Save first break picking times to the file.
+                          first_breaks_column='FirstBreak', col_space=8, decimal='.'):
+        """ Save first break picking times to the plain text file.
 
         Each row in the resulted file corresponds to the first break picking of the trace.
-        All but the last columns stores values from `self.headers[trace_id_columns]`.
-        The last column stores fbp times from batch component.
+        For each row: all but the last columns stores values from trace_id_columns headers,
+        the last column stores fbp times from first_breaks_column header.
 
         Parameters
         ----------
@@ -681,23 +681,31 @@ class Gather:
             Columns names from `self.headers` that act as trace id. These would present in the file.
         first_breaks_column : str, defaults to 'FirstBreak'
             Column name from `self.headers` where fbp is stored.
-        col_space : int, list or dict of int, defaults to 8
-            The minimum width of each column. See `df.to_string` for more details.
+        col_space : int, defaults to 8
+            The minimum width of each column.
         decimal : str, default to ','
-            Character recognized as decimal separator. See `df.to_string` for more details.
-        kwargs : misc, optional
-            Additional keyword arguments to `df.to_string`.
+            Character recognized as decimal separator.
 
         Returns
         -------
         self : Gather
             Gather unchanged
         """
-        df = self.headers.reset_index()[list(trace_id_columns) + [first_breaks_column]]
+        rows = self[to_list(trace_id_columns) + [first_breaks_column]]
+        
+        # segy spec states that all headers values are integers, first break values tho can be float 
+        if rows.dtype == int:
+            fmt = ['{:{col_space}.0d}'] * rows.shape[1]
+        else:
+            fmt = ['{:{col_space}.0f}'] * (rows.shape[1] - 1) + ['{:{col_space}.2f}']
+        fmt = ''.join(fmt)
 
         with open(path, 'a') as f:  #pylint: disable=unspecified-encoding
-            f.write(df.to_string(index=False, header=False, col_space=col_space, decimal=decimal, **kwargs) + '\n')
-        return self
+            for row in rows:
+                string = fmt.format(*row, col_space=col_space)
+                if decimal != '.':
+                    string = string.replace('.', decimal, 1)
+                f.write(string + '\n')
 
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #
