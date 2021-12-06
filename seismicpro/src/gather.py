@@ -665,8 +665,8 @@ class Gather:
         return self
 
     @batch_method(target='for', use_lock=True)
-    def dump_first_breaks(self, path, trace_id_columns=('FieldRecord', 'TraceNumber'),
-                          first_breaks_column='FirstBreak', col_space=8, decimal='.'):
+    def dump_first_breaks(self, path, trace_id_columns=('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak', 
+                          col_space=8, encoding="UTF-8"):
         """ Save first break picking times to the file.
 
         Each row in the resulted file corresponds to the first break picking of the trace.
@@ -679,33 +679,25 @@ class Gather:
             Path to the file.
         trace_id_columns : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
             Columns names from `self.headers` that act as trace id. These would present in the file.
-        first_breaks_column : str, defaults to 'FirstBreak'
+        first_breaks_col : str, defaults to 'FirstBreak'
             Column name from `self.headers` where fbp is stored.
         col_space : int, defaults to 8
             The minimum width of each column.
-        decimal : str, default to ','
-            Character recognized as decimal separator.
-
+        encoding : str, optional, defaults to "UTF-8"
+            File encoding.
         Returns
         -------
         self : Gather
             Gather unchanged
         """
-        rows = self[to_list(trace_id_columns) + [first_breaks_column]]
+        rows = self[to_list(trace_id_columns) + [first_breaks_col]]
 
-        # segy spec states that all headers values are integers, first break values tho can be float
-        if rows.dtype == int:
-            fmt = ['{:{col_space}.0d}'] * rows.shape[1]
-        else:
-            fmt = ['{:{col_space}.0f}'] * (rows.shape[1] - 1) + ['{:{col_space}.2f}']
-        fmt = ''.join(fmt)
-
-        with open(path, 'a') as f:  #pylint: disable=unspecified-encoding
-            for row in rows:
-                string = fmt.format(*row, col_space=col_space)
-                if decimal != '.':
-                    string = string.replace('.', decimal, 1)
-                f.write(string + '\n')
+        with open(path, 'a', encoding=encoding) as f:
+            # segy spec states that all headers values are integers, first break values tho can be float
+            fmt_for_row = ['{:{col_space}.0f}'] * (rows.shape[1] - 1) + ['{:{col_space}.2f}'] + ['\n']
+            fmt_for_rows = ''.join(fmt_for_row) * len(rows)
+            rows_as_str = fmt_for_rows.format(*rows.ravel(), col_space=col_space)
+            f.write(rows_as_str)
 
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #

@@ -443,8 +443,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         """
         return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
 
-    def load_first_breaks(self, path, trace_id_columns = ('FieldRecord', 'TraceNumber'),
-                          first_breaks_column='FirstBreak', delim_whitespace=True, **kwargs):
+    def load_first_breaks(self, path, trace_id_columns = ('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak',
+                          delim_whitespace=True, decimal=None, **kwargs):
         """Load first break picking times and save them to the new column in headers.
 
         Each row in the file must correspond to the first break picking time of the trace.
@@ -458,10 +458,13 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             A path to the file with first break times in milliseconds.
         trace_id_columns : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
             All but the last columns names in the file.
-        first_breaks_column : str, optional, defaults to 'FirstBreak'
+        first_breaks_col : str, optional, defaults to 'FirstBreak'
             Column name in `self.headers` where loaded first break times will be stored.
         delim_whitespace: bool, defaults to True
             Specifies whether or not whitespace will be used as the sep. See `pd.read_csv` for more details.
+        decimal : str, defaults to None
+            Character to recognize as decimal point. 
+            In case None tries to infer decimal from the first line of the file.
         kwargs : misc, optional
             Additional keyword arguments to pass to  `pd.read_csv`.
 
@@ -475,12 +478,19 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         ValueError
             If there is not a single match of rows from the file with those in `self.headers`.
         """
-        file_columns = to_list(trace_id_columns) + [first_breaks_column]
-        first_breaks_df = pd.read_csv(path, names=file_columns, delim_whitespace=delim_whitespace, **kwargs)
+        # if decimal is not provided, try to infer it from the first line
+        if decimal is None:
+            encoding=kwargs.get('encoding', 'UTF-8')
+            with open(path, 'r', encoding=encoding) as f:
+                row = f.readline()
+                if not ' ' in row:  # coma-separated file
+                    decimal = '.'
+                else:               # fixed width column file   
+                     decimal = ',' if ',' in row else '.'
 
-        # little insurance: if we messed with decimal, dtype still be infered
-        if first_breaks_df[first_breaks_column].dtype == object:
-            first_breaks_df[first_breaks_column] = pd.to_numeric(first_breaks_df[first_breaks_column])
+        file_columns = to_list(trace_id_columns) + [first_breaks_col]
+        first_breaks_df = pd.read_csv(path, names=file_columns, decimal=decimal,
+                                      delim_whitespace=delim_whitespace, **kwargs)
 
         headers = self.headers.reset_index()
         headers = headers.merge(first_breaks_df, on=trace_id_columns)
