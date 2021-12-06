@@ -16,7 +16,7 @@ from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 from .decorators import batch_method, plotter
 from .utils import normalization, correction
-from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, set_ticks, plot_arg_to_dict
+from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, set_ticks, as_dict
 
 
 class Gather:
@@ -958,7 +958,7 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @plotter(figsize=(10, 7))
-    def plot(self, mode="seismogram", scatter_headers=None, top_subplot_header=None, title=None,
+    def plot(self, mode="seismogram", event_headers=None, header_on_top=None, title=None,
              x_ticker=None, y_ticker="time", ax=None, **kwargs):
         """Plot gather traces.
 
@@ -987,14 +987,14 @@ class Gather:
         plotters_dict[mode](ax, **kwargs)
 
         # Add headers scatter plot if needed
-        if scatter_headers is not None:
-            self._plot_headers(ax, scatter_headers)
+        if event_headers is not None:
+            self._plot_headers(ax, event_headers)
 
         # Add a top subplot for given header if needed and set plot title
         top_ax = ax
-        if top_subplot_header is not None:
-            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_subplot_header])
-        top_ax.set_title(**plot_arg_to_dict(title))
+        if header_on_top is not None:
+            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[header_on_top])
+        top_ax.set_title(**as_dict(title, key='label'))
 
         # Set axis ticks
         if x_ticker is None:
@@ -1003,8 +1003,8 @@ class Gather:
         self._set_ticks(ax, axis="y", ticker=y_ticker)
         return self
 
-    def _plot_seismogram(self, ax, divider, colorbar=False, **kwargs):
-        vmin, vmax = self.get_quantile([0.1, 0.9])
+    def _plot_seismogram(self, ax, divider, colorbar=False, qvmin=0.1, qvmax=0.9,**kwargs):
+        vmin, vmax = self.get_quantile([qvmin, qvmax])
         kwargs = {"cmap": "gray", "aspect": "auto", "vmin": vmin, "vmax": vmax, **kwargs}
         img = ax.imshow(self.data.T, **kwargs)
         if not isinstance(colorbar, (bool, dict)):
@@ -1034,7 +1034,7 @@ class Gather:
             return [{headers_key: header} for header in to_list(headers_kwargs)]
 
         if headers_key not in headers_kwargs:
-            raise KeyError(f'{headers_key} key is not defined in scatter_headers')
+            raise KeyError(f'{headers_key} key is not defined in event_headers')
 
         n_headers = len(to_list(headers_kwargs[headers_key]))
         kwargs_list = [{} for _ in range(n_headers)]
@@ -1089,7 +1089,7 @@ class Gather:
         raise ValueError(f"y axis label must be either `time` or `samples`, not {axis_label}")
 
     def _set_ticks(self, ax, axis, ticker):
-        ticker = plot_arg_to_dict(ticker)
+        ticker = as_dict(ticker, key='label')
         axis_label = ticker.pop("label")
         if not isinstance(axis_label, str):
             raise ValueError(f"{axis} axis ticker must be str, but {type(axis_label)} passed")

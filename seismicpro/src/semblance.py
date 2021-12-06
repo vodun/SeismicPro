@@ -8,7 +8,7 @@ from matplotlib import colors as mcolors
 from .decorators import batch_method, plotter
 from .velocity_model import calculate_stacking_velocity
 from .velocity_cube import StackingVelocity
-from .utils import set_ticks, plot_arg_to_dict
+from .utils import set_ticks, as_dict
 from .utils.correction import get_hodograph
 
 
@@ -174,7 +174,7 @@ class BaseSemblance:
         img = ax.imshow(semblance, norm=norm, aspect='auto', cmap='seismic')
         ax.figure.colorbar(img, ticks=levels[1::2], ax=ax)
 
-        ax.set_title(**plot_arg_to_dict(title))
+        ax.set_title(**as_dict(title, key='label'))
 
         # Change markers of stacking velocity points if they are far enough apart
         if stacking_velocities_ix is not None and stacking_times_ix is not None:

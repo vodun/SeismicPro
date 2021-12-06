@@ -10,8 +10,8 @@ def save_figure(fig, path, dpi=100, bbox_inches="tight", pad_inches=0.1, **kwarg
     fig.savefig(path, dpi=dpi, bbox_inches=bbox_inches, pad_inches=pad_inches, **kwargs)
 
 
-def plot_arg_to_dict(arg, default_key="label"):
-    return arg.copy() if isinstance(arg, dict) else {default_key: arg}
+def as_dict(val, key):
+    return val.copy() if isinstance(val, dict) else {key: val}
 
 
 def set_text_formatting(kwargs):
@@ -19,13 +19,15 @@ def set_text_formatting(kwargs):
     TEXT_ARGS = {'title', 'x_ticker', 'y_ticker'}
 
     global_formatting = {arg: kwargs.pop(arg) for arg in FORMAT_ARGS if arg in kwargs}
-    text_args = {arg: {**global_formatting, **plot_arg_to_dict(kwargs.pop(arg))} for arg in TEXT_ARGS if arg in kwargs}
+    text_args = {arg: {**global_formatting, **as_dict(kwargs.pop(arg), key="label")}
+                       for arg in TEXT_ARGS if arg in kwargs}
     return {**kwargs, **text_args}
 
 
-def set_ticks(ax, axis, axis_label, tick_labels, **kwargs):
-    locator, formatter, kwargs = _process_ticks(labels=tick_labels, **kwargs)
-    kwargs, rotation_kwargs = _process_kwargs(**kwargs)
+def set_ticks(ax, axis, axis_label, tick_labels, num=None, step_ticks=None, step_labels=None, round_to=0, **kwargs):
+    locator, formatter = _process_ticks(labels=tick_labels, num=num, step_ticks=step_ticks, step_labels=step_labels,
+                                        round_to=round_to)
+    rotation_kwargs = _pop_rotation_kwargs(kwargs)
     ax_obj = getattr(ax, f"{axis}axis")
     ax_obj.set_major_locator(locator)
     ax_obj.set_major_formatter(formatter)
@@ -33,7 +35,7 @@ def set_ticks(ax, axis, axis_label, tick_labels, **kwargs):
     getattr(plt, f"{axis}ticks")(**kwargs, **rotation_kwargs)
 
 
-def _process_ticks(labels, num=None, step_ticks=None, step_labels=None, round_to=0, **kwargs):
+def _process_ticks(labels, num, step_ticks, step_labels, round_to):
     use_index = False
     n_labels = len(labels)
     locator = ticker.AutoLocator()
@@ -49,8 +51,8 @@ def _process_ticks(labels, num=None, step_ticks=None, step_labels=None, round_to
         candidates = np.arange((labels[0] // step_labels + 1) * step_labels, labels[-1], step_labels)
         ticks = np.concatenate([[0], np.searchsorted(labels, candidates), [n_labels - 1]])
         ticks, unique_indices = np.unique(ticks, return_index=True)
-        locator = ticker.FixedLocator(ticks)
         labels = np.concatenate([[labels[0]], candidates, [labels[n_labels - 1]]])[unique_indices]
+        locator = ticker.FixedLocator(ticks)
 
     def formatter(values, index):
         ix = index if use_index else values
@@ -62,16 +64,16 @@ def _process_ticks(labels, num=None, step_ticks=None, step_labels=None, round_to
                 sub_labels = sub_labels.astype(int) if round_to == 0 else sub_labels
         return sub_labels
 
-    return locator, formatter, kwargs
+    return locator, formatter
 
 
-def _process_kwargs(**kwargs):
+def _pop_rotation_kwargs(kwargs):
     ROTATION_ARGS = {"ha", "rotation_mode"}
     rotation = kwargs.pop("rotation", None)
     rotation_kwargs = {arg: kwargs.pop(arg) for arg in ROTATION_ARGS if arg in kwargs}
     if rotation is not None:
         rotation_kwargs = {"rotation": rotation, "ha": "right", "rotation_mode": "anchor", **rotation_kwargs}
-    return kwargs, rotation_kwargs
+    return rotation_kwargs
 
 
 def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7),  # pylint: disable=too-many-arguments

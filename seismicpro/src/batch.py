@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from .gather import Gather
 from .semblance import Semblance, ResidualSemblance
 from .decorators import create_batch_methods, apply_to_each_component
-from .utils import to_list, plot_arg_to_dict, save_figure
+from .utils import to_list, as_dict, save_figure
 from ..batchflow import Batch, action, DatasetIndex, NamedExpression
 
 
@@ -306,7 +306,7 @@ class SeismicBatch(Batch):
         return self
 
     @action
-    def plot(self, src, src_kwargs=None, max_width=20, title="{src}: {index}", save_to=None, dpi=100, **common_kwargs):
+    def plot(self, src, src_kwargs=None, max_width=20, title="{src}: {index}", save_to=None, **common_kwargs):
         # Consturct a list of plot kwargs for each component in src
         src_list = to_list(src)
         if src_kwargs is None:
@@ -346,7 +346,7 @@ class SeismicBatch(Batch):
 
                 # Format subplot title
                 if title_template is not None:
-                    title = plot_arg_to_dict(title_template)
+                    title = as_dict(title_template, key='label')
                     label = title.pop("label")
                     format_names = {name for _, name, _, _ in Formatter().parse(label) if name is not None}
                     format_kwargs = {name: title.pop(name) for name in format_names if name in title}
@@ -396,7 +396,7 @@ class SeismicBatch(Batch):
                 plotter["plotter"](ax=fig.add_subplot(gridspec))
 
         if save_to is not None:
-            save_kwargs = plot_arg_to_dict(save_to, default_key="path")
+            save_kwargs = as_dict(save_to, key="path")
             save_figure(fig, **save_kwargs)
         plt.show()
         return self
