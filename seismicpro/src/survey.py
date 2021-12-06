@@ -132,10 +132,12 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         for column in load_headers:
             headers[column] = self.segy_handler.attributes(segyio.tracefield.keys[column])[:]
 
-        headers = pd.DataFrame(headers)
+        # According to segy spec, headers values at most 4 byte integers
+        headers = pd.DataFrame(headers, dtype=np.int32)
         # TRACE_SEQUENCE_FILE is reconstructed manually since it can be omitted according to the SEG-Y standard
         # but we rely on it during gather loading.
-        headers["TRACE_SEQUENCE_FILE"] = np.arange(1, self.segy_handler.tracecount+1)
+        tsf_dtype = np.int32 if len(headers) < np.iinfo(np.int32).max else np.int64
+        headers["TRACE_SEQUENCE_FILE"] = np.arange(1, self.segy_handler.tracecount+1, dtype=tsf_dtype)
         headers.set_index(header_index, inplace=True)
         # Sort headers by index to optimize further headers subsampling and merging.
         self.headers = headers.sort_index()
