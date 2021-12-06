@@ -172,7 +172,7 @@ class Gather:
         # Set `sample_rate` to None if `samples` became irregular after getitem.
         if indices[1] != slice(None):
             sample_rate = np.unique(np.diff(new_self.samples))
-            new_self._sample_rate = None if len(sample_rate) > 1 else sample_rate.item()
+            new_self._sample_rate = sample_rate[0] if len(sample_rate) == 1 else None
 
         return new_self
 
