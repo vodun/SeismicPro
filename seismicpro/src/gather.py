@@ -666,6 +666,8 @@ class Gather:
         # TODO: test it
         self[first_breaks_col] = convert_mask_to_pick(self.data, self.sample_rate, threshold)
         if save_picking_to is not None:
+            if first_breaks_col in save_picking_to.headers:
+                warnings.warn(f"Picking columns {first_breaks_col} is already exist and will be overwritten.")
             save_picking_to[first_breaks_col] = self[first_breaks_col]
         return self
 
