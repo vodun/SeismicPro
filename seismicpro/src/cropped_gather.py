@@ -12,7 +12,7 @@ class CroppedGather:
         self.gather = gather
         self.crop_shape = crop_shape
         self.origins = origins
-        self.crops = self.make_crops(self._gather_pad(pad_mode, **kwargs))
+        self.crops = self.make_crops(self._pad_gather(pad_mode, **kwargs))
 
     @property
     def n_origins(self):
@@ -26,10 +26,10 @@ class CroppedGather:
             crops[i] = data[start_x:start_x + dx, start_y:start_y + dy]
         return crops
 
-    def _gather_pad(self, pad_mode, **kwargs):
+    def _pad_gather(self, pad_mode, **kwargs):
         '''Checking if crop window is out of the gather and pad gather to make crop possible. '''
-        max_shapes = self.origins.max(axis=0)
-        pad_width_x, pad_width_y = np.maximum(0, max_shapes + self.crop_shape - self.gather.shape)
+        max_origins_distance = self.origins.max(axis=0)
+        pad_width_x, pad_width_y = np.maximum(0, max_origins_distance + self.crop_shape - self.gather.shape)
         if (pad_width_x > 0) or (pad_width_y > 0):
             warnings.warn("Crop is out of the gather data. The Gather's data will be padded")
             return np.pad(self.gather.data, ((0, pad_width_x), (0, pad_width_y)), mode=pad_mode, **kwargs)
@@ -38,18 +38,18 @@ class CroppedGather:
     @batch_method(target='for')
     def assemble_gather(self):
         ''' TODO: docs '''
-        assembling_data = self._mean_assemble()
+        assembled_data = self._assemble_mean()
         gather = self.gather.copy(ignore='data')
-        gather.data = assembling_data
+        gather.data = assembled_data
         return gather
 
-    def _mean_assemble(self):
+    def _assemble_mean(self):
         ''' TODO: docs ''' 
-        result_shape = np.maximum(self.gather.shape, self.crop_shape + self.origins.max(axis=0))
-        result = np.zeros(shape=result_shape, dtype=np.float32)
-        mask = np.zeros(shape=result_shape, dtype=int)
+        used_gather_shape = np.maximum(self.gather.shape, self.crop_shape + self.origins.max(axis=0))
+        agg_crops = np.zeros(shape=used_gather_shape, dtype=np.float32)
+        count_crops = np.zeros(shape=used_gather_shape, dtype=int)
         for crop, origin in zip(self.crops, self.origins):
-            result[origin[0]:origin[0] + self.crop_shape[0], origin[1]:origin[1] + self.crop_shape[1]] += crop
-            mask[origin[0]:origin[0] + self.crop_shape[0], origin[1]:origin[1] + self.crop_shape[1]] += 1
-        result /= mask
-        return result[:self.gather.shape[0], :self.gather.shape[1]]
+            agg_crops[origin[0]:origin[0] + self.crop_shape[0], origin[1]:origin[1] + self.crop_shape[1]] += crop
+            count_crops[origin[0]:origin[0] + self.crop_shape[0], origin[1]:origin[1] + self.crop_shape[1]] += 1
+        agg_crops /= count_crops
+        return agg_crops[:self.gather.shape[0], :self.gather.shape[1]]
