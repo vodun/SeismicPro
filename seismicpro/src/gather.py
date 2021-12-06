@@ -71,9 +71,16 @@ class Gather:
         self.headers = headers
         self.data = data
         self.samples = samples
-        self.sample_rate = sample_rate
+        self._sample_rate = sample_rate
         self.survey = survey
         self.sort_by = None
+
+    @property
+    def sample_rate(self):
+        """"float: Sample rate of seismic traces. Measured in milliseconds."""
+        if self._sample_rate is None:
+            raise ValueError("`sample_rate` is not defined, since `samples` is not regular.")
+        return self._sample_rate
 
     @property
     def times(self):
@@ -161,6 +168,12 @@ class Gather:
         # Check that `sort_by` still represents the actual trace sorting as it might be changed during getitem.
         if new_self.sort_by is not None and not new_self.headers[new_self.sort_by].is_monotonic_increasing:
             new_self.sort_by = None
+
+        # Set `sample_rate` to None if `samples` became irregular after getitem.
+        if indices[1] != slice(None):
+            sample_rate = np.unique(np.diff(new_self.samples))
+            new_self._sample_rate = None if len(sample_rate) > 1 else sample_rate.item()
+
         return new_self
 
     def __setitem__(self, key, value):
