@@ -47,12 +47,17 @@ def compare_gathers(first, second, drop_cols=None, check_types=False, same_surve
 
     assert np.allclose(first.data, second.data)
     assert np.allclose(first.samples, second.samples)
-    assert first.sample_rate == second.sample_rate
+    assert first._sample_rate == second._sample_rate
 
     if check_types:
-        numpy_attrs = ['data', 'samples', 'sample_rate']
+        numpy_attrs = ['data', 'samples', '_sample_rate']
         for attr in numpy_attrs:
-            assert getattr(first, attr).dtype.type == getattr(second, attr).dtype.type
+            first_item = getattr(first, attr)
+            second_item = getattr(second, attr)
+            if first_item is None or second_item is None:
+                assert first_item is second_item
+            else:
+                assert first_item.dtype.type == second_item.dtype.type
 
         assert np.all(first.headers.dtypes == second.headers.dtypes)
         assert isinstance(first.sort_by, type(second.sort_by))
@@ -126,10 +131,8 @@ def test_gather_getitem_gathers(gather, key):
 @pytest.mark.parametrize('key', fail_keys)
 def test_gather_getitem_gather_fail(gather, key):
     """test_gather_getitem_gathers"""
-    if key in fail_keys:
-        pytest.raises(ValueError, gather.__getitem__, key)
-        pytest.raises(ValueError, gather.get_item, key)
-        pytest.xfail()
+    pytest.raises(ValueError, gather.__getitem__, key)
+    pytest.raises(ValueError, gather.get_item, key)
 
 
 @pytest.mark.parametrize('key', [[0, 3, 1]])
@@ -139,7 +142,25 @@ def test_gather_getitem_sort_by(gather, key):
     assert result_getitem.sort_by is None
 
 
-ignore_attrs = ['data', 'headers', 'samples', 'sample_rate']
+@pytest.mark.parametrize('key, sample_rate', [(slice(None), 2),
+                                              (slice(0, 8, 2), 4),
+                                              ([1, 2, 3], 2),
+                                              ([1, 3, 5], 4),
+                                              ([1, 2, 5], None),
+                                              (0, None),
+                                              ])
+def test_gather_getitem_sample_rate_changes(gather, key, sample_rate):
+    """test_gather_getitem_sample_rate_changes"""
+    result_getitem = gather[slice(None), key]
+    assert result_getitem._sample_rate == sample_rate
+
+    if sample_rate is not None:
+        assert result_getitem.sample_rate == sample_rate
+    else:
+        with pytest.raises(ValueError):
+            result_getitem.sample_rate
+
+ignore_attrs = ['data', 'headers', 'samples', '_sample_rate']
 ignore =  [None] + ignore_attrs + sum([list(combinations(ignore_attrs, r=i)) for i in range(1, 4)], [])
 @pytest.mark.parametrize('ignore', ignore)
 def test_gather_copy(gather, ignore):
