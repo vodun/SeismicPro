@@ -163,7 +163,7 @@ def create_batch_methods(*component_classes):
                 method = getattr(component_class, method_name)
                 if hasattr(method, "batch_method_params"):
                     decorated_methods.add(method_name)
-                    action_params[method_name] = getattr(method, 'action_params')
+                    action_params[method_name] = getattr(method, 'action_params', {})
                     if getattr(method, "batch_method_params")["force"]:
                         force_methods.add(method_name)
         methods_to_add = (decorated_methods - _get_class_methods(cls)) | force_methods
@@ -190,9 +190,7 @@ def create_batch_methods(*component_classes):
                             obj_arguments.arguments[arg_name] = getattr(self, arg_val)[pos]
                 getattr(self, dst)[pos] = obj_method(*obj_arguments.args, **obj_arguments.kwargs)
             method.__name__ = method_name
-            if action_params[method_name]:
-                return action(**action_params[method_name])(apply_to_each_component(method))
-            return action(apply_to_each_component(method))
+            return action(**action_params[method_name])(apply_to_each_component(method))
 
         for method_name in methods_to_add:
             setattr(cls, method_name, create_method(method_name))

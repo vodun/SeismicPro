@@ -671,7 +671,7 @@ class Gather:
 
         Each row in the resulted file corresponds to the first break picking of the trace.
         For each row: all but the last columns stores values from `trace_id_columns` headers,
-        the last column stores fbp times from `first_breaks_column` header.
+        the last column stores fbp times from `first_breaks_col` header.
  
         Parameters
         ----------
@@ -698,6 +698,7 @@ class Gather:
             fmt_for_rows = ''.join(fmt_for_row) * len(rows)
             rows_as_str = fmt_for_rows.format(*rows.ravel(), col_space=col_space)
             f.write(rows_as_str)
+        return self
 
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #

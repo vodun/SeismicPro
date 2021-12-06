@@ -463,7 +463,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         delim_whitespace: bool, defaults to True
             Specifies whether or not whitespace will be used as the sep. See `pd.read_csv` for more details.
         decimal : str, defaults to None
-            Character to recognize as decimal point. 
+            Character to recognize as decimal point.
             In case None tries to infer decimal from the first line of the file.
         kwargs : misc, optional
             Additional keyword arguments to pass to  `pd.read_csv`.
@@ -483,9 +483,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             encoding=kwargs.get('encoding', 'UTF-8')
             with open(path, 'r', encoding=encoding) as f:
                 row = f.readline()
-                if not ' ' in row:  # coma-separated file
+                if not ' ' in row:  # coma-separated-values
                     decimal = '.'
-                else:               # fixed width column file   
+                else:               # fixed-width-column
                      decimal = ',' if ',' in row else '.'
 
         file_columns = to_list(trace_id_columns) + [first_breaks_col]
