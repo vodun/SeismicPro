@@ -605,7 +605,7 @@ class Gather:
     #                    First-breaks processing methods                     #
     #------------------------------------------------------------------------#
 
-    @batch_method(target="threads")
+    @batch_method(target="threads", copy_src=False)
     def pick_to_mask(self, first_breaks_col="FirstBreak"):
         """ TODO: Check docs
         # Convert first break times to a binary mask with the same shape as `gather.data` containing zeros before the
