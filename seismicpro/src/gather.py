@@ -631,8 +631,8 @@ class Gather:
         return gather
 
 
-    @batch_method(target='for')
-    def mask_to_pick(self, threshold=0.5, first_breaks_col="FirstBreak"):
+    @batch_method(target='for', args_to_unpack='save_picking_to')
+    def mask_to_pick(self, threshold=0.5, first_breaks_col="FirstBreak", save_picking_to=None):
         """ TODO: Check docs
         # Convert a first break mask into times of first arrivals.
 
@@ -665,6 +665,8 @@ class Gather:
         """
         # TODO: test it
         self[first_breaks_col] = convert_mask_to_pick(self.data, self.sample_rate, threshold)
+        if save_picking_to is not None:
+            save_picking_to[first_breaks_col] = self[first_breaks_col]
         return self
 
     #------------------------------------------------------------------------#
