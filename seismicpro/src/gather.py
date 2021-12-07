@@ -607,21 +607,18 @@ class Gather:
 
     @batch_method(target="threads", copy_src=False)
     def pick_to_mask(self, first_breaks_col="FirstBreak"):
-        """ TODO: Check docs
-        # Convert first break times to a binary mask with the same shape as `gather.data` containing zeros before the
-        # first arrivals and ones after for each trace.
+        """Convert first break times to a binary mask with the same shape as `gather.data` containing zeros before the
+        first arrivals and ones after for each trace.
 
-        # Parameters
-        # ----------
-        # first_breaks_col : str, optional, defaults to 'FirstBreak'
-        #     A column of `self.headers` that contains first arrival times, measured in milliseconds.
-        # mask_attr : str, optional, defaults to 'mask'
-        #     Gather attribute to store the mask in.
+        Parameters
+        ----------
+        first_breaks_col : str, optional, defaults to 'FirstBreak'
+            A column of `self.headers` that contains first arrival times, measured in milliseconds.
 
-        # Returns
-        # -------
-        # self : Gather
-        #     Gather with calculated first breaks mask. Overwrites `mask_attr` attribute if it exists.
+        Returns
+        -------
+        self : Gather
+            Gather with calculated first breaks mask. Overwrites `data` attribute.
         """
         self.validate(required_header_cols=first_breaks_col)
         mask = convert_times_to_mask(times=self[first_breaks_col], sample_rate=self.sample_rate,
@@ -633,35 +630,34 @@ class Gather:
 
     @batch_method(target='for', args_to_unpack='save_picking_to')
     def mask_to_pick(self, threshold=0.5, first_breaks_col="FirstBreak", save_picking_to=None):
-        """ TODO: Check docs
-        # Convert a first break mask into times of first arrivals.
+        """Convert a first break mask saved in data into times of first arrivals.
 
-        # The mask shape should match the shape of `gather.data`, each its value should represent a probability of
-        # corresponding index along the trace to follow the first break.
+        The mask should saved in the `gather.data`. Each trace of the gather with mask represents the probability 
+        that the corresponding index is greater than the index of the first break.
 
-        # Notes
-        # -----
-        # A detailed description of conversion heuristic used can be found in :func:`~general_utils.convert_mask_to_pick`
-        # docs.
+        Notes
+        -----
+        A detailed description of conversion heuristic used can be found in :func:`~general_utils.convert_mask_to_pick`
+        docs.
 
-        # Parameters
-        # ----------
-        # threshold : float, optional, defaults to 0.5
-        #     A threshold for trace mask value to refer its index to be either pre- or post-first break.
-        # first_breaks_col : str, optional, defaults to 'FirstBreak'
-        #     Headers column to save first break times to.
-        # mask_attr : str, optional, defaults to 'mask'
-        #     Gather attribute to get the mask from.
+        Parameters
+        ----------
+        threshold : float, optional, defaults to 0.5
+            A threshold for trace mask value to refer its index to be either pre- or post-first break.
+        first_breaks_col : str, optional, defaults to 'FirstBreak'
+            Headers column to save first break times to.
+        save_picking_to : Gather, optional, default is None
+            another Gather to save picking in the header column `first_breaks_col`.
 
-        # Returns
-        # -------
-        # self : Gather
-        #     A gather with first break times in headers column defined by `first_breaks_col`.
+        Returns
+        -------
+        self : Gather
+            A gather with first break times in headers column defined by `first_breaks_col`.
 
-        # Raises
-        # ------
-        # ValueError
-        #     If an attribute defined by `mask_attr` does not exist.
+        Raises
+        ------
+        ValueError
+            If an attribute defined by `mask_attr` does not exist.
         """
         # TODO: test it
         self[first_breaks_col] = convert_mask_to_pick(self.data, self.sample_rate, threshold)
@@ -949,7 +945,35 @@ class Gather:
         return self
 
     def crop(self, origins, crop_shape, n_crops=1, grid_coverage=1, pad_mode='constant', **kwargs):
-        """" ! docs """
+        """"Crop the gather data.
+
+        Crops saves in crops attribute of a CroppedGather class.
+
+        Parameters
+        ----------
+        origins : list, tuple, np.array or str.
+            origins define the top-left corner of each crop or rule used to calculate the top-left corner of each crop.
+            each origin should be defined by x and y coordinate and wrapped with tuple, list or np.array. 
+            when origins defined by str x and y coordinate will be calculated by make_origins function.
+            possible str value is 'random' and 'grid'
+        crop_shape: tuple
+            guaranteed shape of each crop.
+        n_crops: int, optional, default is 1
+            number of random origins. Used with the 'random' origins value only.
+        grid_coverage: int or float, optional, default is 1.
+            density of origins in the grid. Used with the 'grid' origins value only.
+            Lower value cause fractional cover of the gather data.
+        pad_mode: str or function, optional, default is 'constant'.
+            Padding mode for gather.data if padding is needful. `pad_mode` redirect to mode parameter of `numpy.pad`.
+            Read https://numpy.org/doc/stable/reference/generated/numpy.pad.html for more information.
+        kwargs: dict, oprional
+            Additional keyword arguments for padding gather.data. Redirect to numpy.pad function.
+
+        Returns
+        -------
+        crops : CroppedGather
+            CroppedGather with crops. Read CroppedGather docs for more information.
+        """
         origins = make_origins(origins, crop_shape=crop_shape, gather_shape=self.data.shape, n_crops=n_crops, 
                                grid_coverage=grid_coverage)
         return CroppedGather(self, origins, crop_shape, pad_mode=pad_mode, **kwargs)

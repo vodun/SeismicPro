@@ -242,6 +242,36 @@ def clip(data, data_min, data_max):
 
 
 def make_origins(origins, gather_shape, crop_shape, n_crops=1, grid_coverage=1):
+    ''' Calculate array of an origins or coercion given origins to numpy.array type.
+
+    Parameters
+    ----------
+    origins : list, tuple, numpy.array or str.
+        list, tuple, numpy.array of origins for coercion to 2d numpy.array with shape is [n_origins, 2] 
+        or str value to calculate origins.
+        Supporting str values :
+            'random' : calculate `n_crops` quantity of a random origins. Based on unifrom distribution.
+            'grid' : calculate grid of origins.
+    crop_shape: tuple
+        Used to calculate indention when str origins value is passed.
+    n_crops: int, optional, default is 1
+        Number of random origins. Used with the 'random' origins value only.
+    grid_coverage: int or float, optional, default is 1.
+        Density of origins in the grid. Used with the 'grid' origins value only.
+
+    Returns
+    -------
+    origins : numpy.array
+        2d numpy array with x and y coordinate of each origin.
+
+    Raises
+    ------
+        ValueError
+            If str value not in ['random', 'grid'].
+        ValueError
+            If result of the coercion to 2d numpy.array of a passed list, tuple or numpy.array not brings to numpy.array
+            with shape [n_origins, 2].
+    '''
     if isinstance(origins, str):
         if origins == 'random':
             origins = np.column_stack((np.random.randint(1 + max(0, gather_shape[0] - crop_shape[0]), size=n_crops),
@@ -259,6 +289,28 @@ def make_origins(origins, gather_shape, crop_shape, n_crops=1, grid_coverage=1):
 
 
 def _make_grid_origins(gather_shape, crop_shape, grid_coverage):
+    '''Calculate origins sequential.
+
+    Origin sequential start with 0 and end with `gather_shape - crop_shape`. Distance between two point basicaly 
+    not exceed `crop_shape` and could be change with 'grid_coverage' parameter.
+
+    Parameters
+    ----------
+    gather_shape : int
+        Maximum value of origins.
+
+    crop_shape : int
+        Base distance between two closest origin and right setback.
+
+    grid_coverage: int or float
+        Density of origins. When value is 1 than distance between two origin will close to `crop_shape`, but no more.
+        Increase this value to make origins closer, decrease to make origins farther.
+
+    Returns
+    -------
+    origins : numpy.array
+        numpy array with an origins sequential.
+    '''
     max_origins = gather_shape - crop_shape
     if max_origins <= 0:
         return [0]
