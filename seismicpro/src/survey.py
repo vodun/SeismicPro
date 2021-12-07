@@ -443,7 +443,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         """
         return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
 
-    def load_first_breaks(self, path, trace_id_columns = ('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak',
+    def load_first_breaks(self, path, trace_id_cols = ('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak',
                           delim_whitespace=True, decimal=None, **kwargs):
         """Load first break picking times and save them to the new column in headers.
 
@@ -456,7 +456,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         ----------
         path : str
             A path to the file with first break times in milliseconds.
-        trace_id_columns : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
+        trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
             All but the last columns names in the file.
         first_breaks_col : str, optional, defaults to 'FirstBreak'
             Column name in `self.headers` where loaded first break times will be stored.
@@ -486,14 +486,14 @@ class Survey:  # pylint: disable=too-many-instance-attributes
                 if not ' ' in row:  # coma-separated-values
                     decimal = '.'
                 else:               # fixed-width-column
-                     decimal = ',' if ',' in row else '.'
+                    decimal = ',' if ',' in row else '.'
 
-        file_columns = to_list(trace_id_columns) + [first_breaks_col]
+        file_columns = to_list(trace_id_cols) + [first_breaks_col]
         first_breaks_df = pd.read_csv(path, names=file_columns, decimal=decimal,
                                       delim_whitespace=delim_whitespace, **kwargs)
 
         headers = self.headers.reset_index()
-        headers = headers.merge(first_breaks_df, on=trace_id_columns)
+        headers = headers.merge(first_breaks_df, on=trace_id_cols)
         if headers.empty:
             raise ValueError('Empty headers after first breaks loading.')
         headers.set_index(self.headers.index.names, inplace=True)
