@@ -665,7 +665,7 @@ class Gather:
         return self
 
     @batch_method(target='for', use_lock=True)
-    def dump_first_breaks(self, path, trace_id_columns=('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak',
+    def dump_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak',
                           col_space=8, encoding="UTF-8"):
         """ Save first break picking times to the file.
 
@@ -677,7 +677,7 @@ class Gather:
         ----------
         path : str
             Path to the file.
-        trace_id_columns : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
+        trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
             Columns names from `self.headers` that act as trace id. These would present in the file.
         first_breaks_col : str, defaults to 'FirstBreak'
             Column name from `self.headers` where fbp is stored.
@@ -690,13 +690,14 @@ class Gather:
         self : Gather
             Gather unchanged
         """
-        rows = self[to_list(trace_id_columns) + [first_breaks_col]]
+        rows = self[to_list(trace_id_cols) + [first_breaks_col]]
+
+        # segy spec states that all headers values are integers, first break values tho can be float
+        row_fmt = '{:{col_space}.0f}' * (rows.shape[1] - 1) + '{:{col_space}.2f}\n'
+        fmt = row_fmt * len(rows)
+        rows_as_str = fmt.format(*rows.ravel(), col_space=col_space)
 
         with open(path, 'a', encoding=encoding) as f:
-            # segy spec states that all headers values are integers, first break values tho can be float
-            fmt_for_row = ['{:{col_space}.0f}'] * (rows.shape[1] - 1) + ['{:{col_space}.2f}'] + ['\n']
-            fmt_for_rows = ''.join(fmt_for_row) * len(rows)
-            rows_as_str = fmt_for_rows.format(*rows.ravel(), col_space=col_space)
             f.write(rows_as_str)
         return self
 

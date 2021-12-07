@@ -444,7 +444,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
 
     def load_first_breaks(self, path, trace_id_cols = ('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak',
-                          delim_whitespace=True, decimal=None, **kwargs):
+                          delim_whitespace=True, decimal=None, encoding="UTF-8", **kwargs):
         """Load first break picking times from the file and save them to the new column in headers.
         
         Each row in the file must correspond to the first break picking time of the trace.
@@ -468,6 +468,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         decimal : str, defaults to None
             Character to recognize as decimal point.
             In case None tries to infer decimal from the first line of the file.
+        encoding : str, optional, defaults to "UTF-8"
+            File encoding.
         kwargs : misc, optional
             Additional keyword arguments to pass to  `pd.read_csv`.
 
@@ -483,7 +485,6 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         """
         # if decimal is not provided, try to infer it from the first line
         if decimal is None:
-            encoding=kwargs.get('encoding', 'UTF-8')
             with open(path, 'r', encoding=encoding) as f:
                 row = f.readline()
                 if not ' ' in row:  # coma-separated-values
@@ -493,7 +494,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
         file_columns = to_list(trace_id_cols) + [first_breaks_col]
         first_breaks_df = pd.read_csv(path, names=file_columns, decimal=decimal,
-                                      delim_whitespace=delim_whitespace, **kwargs)
+                                      delim_whitespace=delim_whitespace, encoding=encoding, **kwargs)
 
         headers = self.headers.reset_index()
         headers = headers.merge(first_breaks_df, on=trace_id_cols)
