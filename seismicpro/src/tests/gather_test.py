@@ -53,7 +53,7 @@ def compare_gathers(first, second, drop_cols=None, check_types=False, same_surve
 
     assert np.allclose(first.data, second.data)
     assert np.allclose(first.samples, second.samples)
-    assert first._sample_rate == second._sample_rate
+    assert first._sample_rate == second._sample_rate  # pylint: disable=protected-access
 
     if check_types:
         for attr in NUMPY_ATTRS:
@@ -170,13 +170,13 @@ def test_gather_getitem_sort_by(gather, key):
 def test_gather_getitem_sample_rate_changes(gather, key, sample_rate):
     """test_gather_getitem_sample_rate_changes"""
     result_getitem = gather[slice(None), key]
-    assert result_getitem._sample_rate == sample_rate
+    assert result_getitem._sample_rate == sample_rate  # pylint: disable=protected-access
 
     if sample_rate is not None:
         assert result_getitem.sample_rate == sample_rate
     else:
         with pytest.raises(ValueError):
-            result_getitem.sample_rate
+            sample_rate = result_getitem.sample_rate
 
 
 ignore =  [None] + COPY_IGNORE_ATTRS + sum([list(combinations(COPY_IGNORE_ATTRS, r=i)) for i in range(1, 4)], [])
