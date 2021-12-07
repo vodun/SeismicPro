@@ -47,9 +47,9 @@ class CroppedGather:
         ''' TODO: docs ''' 
         padded_gather_shape = np.maximum(self.gather.shape, self.crop_shape + self.origins.max(axis=0))
         crops_sum = np.zeros(shape=padded_gather_shape, dtype=np.float32)
-        crops_count = np.zeros(shape=padded_gather_shape, dtype=np.int32)
+        crops_count = np.zeros(shape=padded_gather_shape, dtype=np.int16)
         for crop, origin in zip(self.crops, self.origins):
-            agg_crops[origin[0]:origin[0] + self.crop_shape[0], origin[1]:origin[1] + self.crop_shape[1]] += crop
-            count_crops[origin[0]:origin[0] + self.crop_shape[0], origin[1]:origin[1] + self.crop_shape[1]] += 1
-        agg_crops /= count_crops
-        return agg_crops[:self.gather.shape[0], :self.gather.shape[1]]
+            crops_sum[origin[0]:origin[0] + self.crop_shape[0], origin[1]:origin[1] + self.crop_shape[1]] += crop
+            crops_count[origin[0]:origin[0] + self.crop_shape[0], origin[1]:origin[1] + self.crop_shape[1]] += 1
+        crops_sum /= crops_count
+        return crops_sum[:self.gather.shape[0], :self.gather.shape[1]]
