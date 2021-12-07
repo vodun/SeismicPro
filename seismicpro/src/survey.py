@@ -445,12 +445,15 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
     def load_first_breaks(self, path, trace_id_cols = ('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak',
                           delim_whitespace=True, decimal=None, **kwargs):
-        """Load first break picking times and save them to the new column in headers.
-
+        """Load first break picking times from the file and save them to the new column in headers.
+        
         Each row in the file must correspond to the first break picking time of the trace.
         FBP time must be stored in the last column of the file.
         The combination of all but the last columns should act as a unique trace identifier and is used to match
         the trace from the file with the corresponding trace in `self.headers`.
+
+        The file can have any format that can be read by `pd.read_csv`,
+        by default it's expected to have whitespace separated values, notice `delim_whitespace=True`.
 
         Parameters
         ----------
