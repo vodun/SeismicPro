@@ -266,6 +266,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
         traces_buf = np.empty((n_quantile_traces, self.samples_length), dtype=np.float32)
         trace = np.empty(self.samples_length, dtype=np.float32)
+        dead_indices = []
 
         # Accumulate min, max, mean and std values of survey traces
         for i, pos in tqdm(enumerate(traces_pos), desc=f"Calculating statistics for survey {self.name}",
@@ -277,11 +278,17 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             global_sum += trace_sum
             global_sq_sum += trace_sq_sum
             traces_length += len(trace)
-            self.n_dead_traces += np.isclose(trace_min, trace_max)
+
+            if np.isclose(trace_min, trace_max):
+                dead_indices.append(pos + 1)
 
             # Sample random traces to calculate approximate quantiles
             if i < n_quantile_traces:
                 traces_buf[i] = trace
+                
+        self.n_dead_traces = len(dead_indices)
+        self.headers['DeadTrace'] = 0
+        self.headers.loc[self.headers["TRACE_SEQUENCE_FILE"].isin(dead_indices), 'DeadTrace'] = 1
 
         self.min = np.float32(global_min)
         self.max = np.float32(global_max)
