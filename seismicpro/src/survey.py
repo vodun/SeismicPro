@@ -224,9 +224,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
         After the method is executed `has_stats` flag is set to `True` and all the calculated values can be obtained
         via corresponding attributes.
-        
-        The method also appends 'DeadTrace' column to `headers`. The value of this column is 1 if the corresponding trace 
-        is constant (dead), otherwise, the value is 0.
+
+        The method also appends 'DeadTrace' column to `headers`.
+        The value of this column is 1 if the corresponding trace is constant (dead), otherwise, the value is 0.
 
         Parameters
         ----------
@@ -287,7 +287,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             # Sample random traces to calculate approximate quantiles
             if i < n_quantile_traces:
                 traces_buf[i] = trace
-                
+
         self.n_dead_traces = len(dead_indices)
         self.headers['DeadTrace'] = 0
         self.headers.loc[self.headers["TRACE_SEQUENCE_FILE"].isin(dead_indices), 'DeadTrace'] = 1
@@ -683,7 +683,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         if limits[-1] < 0:
             raise ValueError('Negative step is not allowed.')
         return slice(*limits)
-    
+
     def remove_dead_traces(self, recollect_stats=False, inplace=False):
         """ Removes dead (constant) traces from survey's data.
         Recalculates surveys statistics if needed
