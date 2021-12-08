@@ -224,6 +224,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
         After the method is executed `has_stats` flag is set to `True` and all the calculated values can be obtained
         via corresponding attributes.
+        
+        The method also appends 'DeadTrace' column to `headers`. The value of this column is 1 if the corresponding trace 
+        is constant (dead), otherwise, the value is 0.
 
         Parameters
         ----------
@@ -262,7 +265,6 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         global_min, global_max = np.inf, -np.inf
         global_sum, global_sq_sum = 0, 0
         traces_length = 0
-        self.n_dead_traces = 0
 
         traces_buf = np.empty((n_quantile_traces, self.samples_length), dtype=np.float32)
         trace = np.empty(self.samples_length, dtype=np.float32)
@@ -681,6 +683,34 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         if limits[-1] < 0:
             raise ValueError('Negative step is not allowed.')
         return slice(*limits)
+    
+    def remove_dead_traces(self, recollect_stats=False, inplace=False):
+        """ Removes dead (constant) traces from survey's data.
+        Recalculates surveys statistics if needed
+
+        Parameters
+        ----------
+        recollect_stats : bool, optional
+            Whether to recollect stats after dropping dead traces, by default False
+        inplace : bool, optional
+            Whether to remove data inplace or return a new survey instance, by default False
+
+        Returns
+        -------
+        Survey
+            Survey with no dead traces.
+        """
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        if not self.has_stats:
+            self.collect_stats()
+
+        self.filter(lambda c: c==0, cols='DeadTrace', inplace=True)
+        self.n_dead_traces = 0
+        if recollect_stats:
+            self.collect_stats()
+
+        return self
+
 
     #------------------------------------------------------------------------#
     #                         Task specific methods                          #
