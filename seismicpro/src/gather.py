@@ -628,8 +628,8 @@ class Gather:
         return gather
 
 
-    @batch_method(target='for', args_to_unpack='save_picking_to')
-    def mask_to_pick(self, threshold=0.5, first_breaks_col="FirstBreak", save_picking_to=None):
+    @batch_method(target='for', args_to_unpack='save_to')
+    def mask_to_pick(self, threshold=0.5, first_breaks_col="FirstBreak", save_to=None):
         """Convert a first break mask saved in data into times of first arrivals.
 
         The mask should saved in the `gather.data`. Each trace of the gather with mask represents the probability 
@@ -646,7 +646,7 @@ class Gather:
             A threshold for trace mask value to refer its index to be either pre- or post-first break.
         first_breaks_col : str, optional, defaults to 'FirstBreak'
             Headers column to save first break times to.
-        save_picking_to : Gather, optional, default is None
+        save_to : Gather, optional, default is None
             another Gather to save picking in the header column `first_breaks_col`.
 
         Returns
@@ -661,10 +661,8 @@ class Gather:
         """
         # TODO: test it
         self[first_breaks_col] = convert_mask_to_pick(self.data, self.sample_rate, threshold)
-        if save_picking_to is not None:
-            if first_breaks_col in save_picking_to.headers:
-                warnings.warn(f"Picking columns {first_breaks_col} is already exist and will be overwritten.")
-            save_picking_to[first_breaks_col] = self[first_breaks_col]
+        if save_to is not None:
+            save_to[first_breaks_col] = self[first_breaks_col]
         return self
 
     #------------------------------------------------------------------------#
@@ -974,7 +972,7 @@ class Gather:
         crops : CroppedGather
             CroppedGather with crops. Read CroppedGather docs for more information.
         """
-        origins = make_origins(origins, crop_shape=crop_shape, gather_shape=self.data.shape, n_crops=n_crops, 
+        origins = make_origins(origins, crop_shape=crop_shape, data_shape=self.data.shape, n_crops=n_crops, 
                                grid_coverage=grid_coverage)
         return CroppedGather(self, origins, crop_shape, pad_mode=pad_mode, **kwargs)
 

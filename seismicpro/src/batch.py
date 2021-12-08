@@ -330,7 +330,7 @@ class SeismicBatch(Batch):
                 raise TypeError('`src` should contain same type of objects when `joint` is True.')
             if len(src_shapes) > 1:
                 raise ValueError("Shapes of the 'src' object are not consistent.")
-            origins = make_origins(origins, crop_shape=crop_shape, gather_shape=src_shapes.pop(), 
+            origins = make_origins(origins, crop_shape=crop_shape, data_shape=src_shapes.pop(), 
                                    n_crops=n_crops, grid_coverage=grid_coverage)
 
         for src_item, dst_item in zip(src_list, dst_list):
