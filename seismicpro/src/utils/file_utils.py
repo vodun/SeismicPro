@@ -277,10 +277,10 @@ def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_st
                 trace_header_dict['GroupX'], trace_header_dict['GroupY'] = reciever_location
                 trace_header_dict['offset'] = int(np.sum((source_location - reciever_location)**2)**0.5)
 
-                CDP = ((source_location + reciever_location)/2).astype(int)
-                trace_header_dict['CDP'] = CDP[0]*survey_size[0] + CDP[1]
-                trace_header_dict['CDP_X'], trace_header_dict['CDP_Y'] = CDP
-                trace_header_dict['INLINE_3D'], trace_header_dict['CROSSLINE_3D'] = CDP // bin_size
+                inline_crossline = ((source_location + reciever_location) / (2 * bin_size)).astype(int)
+                trace_header_dict['INLINE_3D'], trace_header_dict['CROSSLINE_3D'] = inline_crossline
+                trace_header_dict['CDP_X'], trace_header_dict['CDP_Y'] = inline_crossline * bin_size + bin_size // 2
+                trace_header_dict['CDP'] = inline_crossline[0] * survey_size[1] + inline_crossline[1]
 
                 # Fill depth-related fields in header
                 trace_header_dict['TRACE_SAMPLE_COUNT'] = n_samples
