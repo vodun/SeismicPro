@@ -219,14 +219,14 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
         Since fair quantile calculation requires simultaneous loading of all traces from the file we avoid such memory
         overhead by calculating approximate quantiles for a small subset of `n_quantile_traces` traces selected
-        randomly, exluding dead traces. Moreover, only a set of quantiles defined by `quantile_precision` is calculated,
+        randomly, excluding dead traces. Moreover, only a set of quantiles defined by `quantile_precision` is calculated,
         the rest of them are linearly interpolated by the collected ones.
 
         After the method is executed `has_stats` flag is set to `True` and all the calculated values can be obtained
         via corresponding attributes.
 
         The method also appends 'DeadTrace' column to `headers`.
-        The value of this column is 1 if the corresponding trace is constant (dead), otherwise, the value is 0.
+        The value of this column is True if the corresponding trace is constant (dead), otherwise, the value is False.
 
         Parameters
         ----------
@@ -275,7 +275,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         counter = 0
         # Accumulate min, max, mean and std values of survey traces
         for i in tqdm(shuffled_indices, desc=f"Calculating statistics for survey {self.name}",
-                           total=num_traces, disable=not bar):
+                      total=num_traces, disable=not bar):
             self.load_trace(buf=trace, index=traces_pos[i], limits=limits, trace_length=self.samples_length)
             trace_min, trace_max, trace_sum, trace_sq_sum = calculate_stats(trace)
             global_min = min(trace_min, global_min)
@@ -304,8 +304,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         q = np.round(np.linspace(0, 1, num=10**quantile_precision), decimals=quantile_precision)
         # dead traces are not accumulated for quantiles, so if there are many of them,
         # the number of traces in `traces_buf` can be less than `n_quantiles_traces`
-        if counter < n_quantile_traces:
-            traces_buf = traces_buf[:counter]
+        traces_buf = traces_buf[:counter]
         quantiles = np.nanquantile(traces_buf.ravel(), q=q)
         # 0 and 1 quantiles are replaced with actual min and max values respectively
         quantiles[0], quantiles[-1] = global_min, global_max
@@ -693,12 +692,12 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
     def remove_dead_traces(self, inplace=False, **kwargs):
         """ Removes dead (constant) traces from survey's data.
-        Calls `collect_stats` if `self.has_stats` flag is not set
+        Calls `collect_stats` if `self.has_stats` flag is not set.
 
         Parameters
         ----------
         inplace : bool, optional
-            Whether to remove data inplace or return a new survey instance, by default False
+            Whether to remove traces inplace or return a new survey instance, by default False
         kwargs : misc, optional
             Additional keyword arguments to :func:`~Survey.collect_stats`.
 
@@ -711,7 +710,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         if not self.has_stats:
             self.collect_stats(**kwargs)
 
-        self.filter(lambda dt: dt == False, cols='DeadTrace', inplace=True)
+        self.filter(lambda dt: ~dt, cols='DeadTrace', inplace=True)
         self.n_dead_traces = 0
 
         return self
