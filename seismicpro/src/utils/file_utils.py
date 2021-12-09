@@ -227,7 +227,7 @@ def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_st
     trace_gen : callable, defaults to None.
         Callable to generate trace data. It recieves a dict of trace headers along with everything passed in `kwargs`.
         If `None`, traces are filled with gaussian noise.
-        Passed headers: FieldRecord, TraceNumber, SourceX, SourceY, Group_X, Group_Y, offset, CDP_X, CDP_Y,
+        Passed headers: FieldRecord, TraceNumber, SourceX, SourceY, Group_X, Group_Y, offset, CDP, CDP_X, CDP_Y,
                         INLINE_3D, CROSSLINE_3D, TRACE_SAMPLE_COUNT, TRACE_SAMPLE_INTERVAL, DelayRecordingTime
     kwargs : misc, optional
         Additional keyword arguments to `trace_gen`.
