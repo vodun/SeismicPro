@@ -617,10 +617,9 @@ class Gather:
 
         Returns
         -------
-        self : Gather
-            Gather with calculated first breaks mask. Overwrites `data` attribute.
+        gather : Gather
+            A new `Gather` with calculated first breaks mask in its `data` attribute.
         """
-        self.validate(required_header_cols=first_breaks_col)
         mask = convert_times_to_mask(times=self[first_breaks_col], sample_rate=self.sample_rate,
                                      mask_length=self.shape[1]).astype(np.int32)
         gather = self.copy(ignore='data')
@@ -630,7 +629,7 @@ class Gather:
 
     @batch_method(target='for', args_to_unpack='save_to')
     def mask_to_pick(self, threshold=0.5, first_breaks_col="FirstBreak", save_to=None):
-        """Convert a first break mask saved in data into times of first arrivals.
+        """Convert a first break mask saved in `data` into times of first arrivals.
 
         The mask should saved in the `gather.data`. Each trace of the gather with mask represents the probability 
         that the corresponding index is greater than the index of the first break.
@@ -646,20 +645,14 @@ class Gather:
             A threshold for trace mask value to refer its index to be either pre- or post-first break.
         first_breaks_col : str, optional, defaults to 'FirstBreak'
             Headers column to save first break times to.
-        save_to : Gather, optional, default is None
-            another Gather to save picking in the header column `first_breaks_col`.
+        save_to : Gather, optional, default to None
+            An extra `Gather` to save picking to.
 
         Returns
         -------
         self : Gather
             A gather with first break times in headers column defined by `first_breaks_col`.
-
-        Raises
-        ------
-        ValueError
-            If an attribute defined by `mask_attr` does not exist.
         """
-        # TODO: test it
         self[first_breaks_col] = convert_mask_to_pick(self.data, self.sample_rate, threshold)
         if save_to is not None:
             save_to[first_breaks_col] = self[first_breaks_col]
@@ -945,8 +938,6 @@ class Gather:
     def crop(self, origins, crop_shape, n_crops=1, grid_coverage=1, pad_mode='constant', **kwargs):
         """"Crop the gather data.
 
-        Crops saves in crops attribute of a CroppedGather class.
-
         Parameters
         ----------
         origins : list, tuple, np.array or str.
@@ -955,12 +946,13 @@ class Gather:
             when origins defined by str x and y coordinate will be calculated by make_origins function.
             possible str value is 'random' and 'grid'
         crop_shape: tuple
-            guaranteed shape of each crop.
+            shape of each crop. If the gather data will be not enough to make a crop with given shape than the gather 
+            data will be padded to make crop with given shape.
         n_crops: int, optional, default is 1
             number of random origins. Used with the 'random' origins value only.
         grid_coverage: int or float, optional, default is 1.
-            density of origins in the grid. Used with the 'grid' origins value only.
-            Lower value cause fractional cover of the gather data.
+            density of origins in the grid. Used with the 'grid' origins value only. 
+            Lower value cause fractional cover of the gather data. # add addition info
         pad_mode: str or function, optional, default is 'constant'.
             Padding mode for gather.data if padding is needful. `pad_mode` redirect to mode parameter of `numpy.pad`.
             Read https://numpy.org/doc/stable/reference/generated/numpy.pad.html for more information.
@@ -970,9 +962,10 @@ class Gather:
         Returns
         -------
         crops : CroppedGather
-            CroppedGather with crops. Read CroppedGather docs for more information.
+            CroppedGather with crops. Crops saves in crops attribute of a CroppedGather class.
+            Read CroppedGather docs for more information.
         """
-        origins = make_origins(origins, crop_shape=crop_shape, data_shape=self.data.shape, n_crops=n_crops, 
+        origins = make_origins(origins, crop_shape=crop_shape, data_shape=self.shape, n_crops=n_crops, 
                                grid_coverage=grid_coverage)
         return CroppedGather(self, origins, crop_shape, pad_mode=pad_mode, **kwargs)
 

@@ -253,9 +253,9 @@ def make_origins(origins, data_shape, crop_shape, n_crops=1, grid_coverage=1):
             'random' : calculate `n_crops` quantity of a random origins. Based on unifrom distribution.
             'grid' : calculate grid of origins.
     data_shape : tuple
-        Maximum value of a calculated origins by each axis.
+        Maximum value of a calculated origins by each axis. # rewrite
     crop_shape: tuple
-        Used to calculate indention when str origins value is passed.
+        Used to calculate indention when str origins value is passed. # rewrite
     n_crops: int, optional, default is 1
         Number of random origins. Used with the 'random' origins value only.
     grid_coverage: int or float, optional, default is 1.
@@ -277,38 +277,38 @@ def make_origins(origins, data_shape, crop_shape, n_crops=1, grid_coverage=1):
     if isinstance(origins, str):
         if origins == 'random':
             origins = np.column_stack((np.random.randint(1 + max(0, data_shape[0] - crop_shape[0]), size=n_crops),
-                                    np.random.randint(1 + max(0, data_shape[1] - crop_shape[1]), size=n_crops)))
+                                       np.random.randint(1 + max(0, data_shape[1] - crop_shape[1]), size=n_crops)))
             return origins
         if origins == 'grid':
             origins_x = _make_grid_origins(data_shape[0], crop_shape[0], grid_coverage)
             origins_y = _make_grid_origins(data_shape[1], crop_shape[1], grid_coverage)
             return np.array(np.meshgrid(origins_x, origins_y)).T.reshape(-1, 2)
-        raise ValueError("Using origin type not found. Use 'random' or 'grid' values.")
+        raise ValueError(f"Origin must be either 'random' or 'grid' but {origins} was given.")
     origins = np.atleast_2d(origins)
     if origins.ndim == 2 and origins.shape[1] == 2:
         return origins
-    raise ValueError("Origins should be a tuple, list or np.array with a total shape is [n_origins, 2].")
+    raise ValueError("Origins should be a tuple, list or np.ndarray with a shape of [n_origins, 2].")
 
 
 def _make_grid_origins(data_shape, crop_shape, grid_coverage):
     '''Calculate origins sequential.
 
-    Origin sequential start with 0 and end with `data_shape - crop_shape`. Distance between two point basicaly 
+    Origin sequential start with 0 and end with `data_shape - crop_shape`. Distance between two origin basicaly 
     not exceed `crop_shape` and could be change with 'grid_coverage' parameter.
 
     Parameters
     ----------
     data_shape : int
-        Maximum value of origins.
+        
     crop_shape : int
-        Base distance between two closest origin and right setback.
+        Distance between two origin.
     grid_coverage: int or float
         Density of origins. When value is 1 than distance between two origin will close to `crop_shape`, but no more.
         Increase this value to make origins closer, decrease to make origins farther.
 
     Returns
     -------
-    origins : numpy.array
+    origins : np.ndarray
         numpy array with an origins sequential.
     '''
     max_origins = data_shape - crop_shape

@@ -306,14 +306,16 @@ class SeismicBatch(Batch):
     @inbatch_parallel(init='_init_component', target='for')
     def crop(self, idx, src, origins, crop_shape, dst=None, joint=True, n_crops=1, grid_coverage=1, 
              pad_mode='constant', **kwargs):
-        ''' TODO: docs '''
+        '''Crop all src batch component. 
+
+        '''
         # TODO: benchmark
         dst = src if dst is None else dst
         src_list = to_list(src)
         dst_list = to_list(dst)
 
         if len(src_list) != len(dst_list):
-            raise ValueError('`src` and `dst` should have the same length.')
+            raise ValueError("`src` and `dst` should have the same length.")
 
         pos = self.index.get_pos(idx)
 
@@ -327,9 +329,9 @@ class SeismicBatch(Batch):
                 src_shapes.add(cur_object.shape)
 
             if len(src_types) > 1:
-                raise TypeError('`src` should contain same type of objects when `joint` is True.')
+                raise TypeError("If joint is True, all `src` components must be of the same type.")
             if len(src_shapes) > 1:
-                raise ValueError("Shapes of the 'src' object are not consistent.")
+                raise ValueError("If `joint` is True, all `src` components must have the same shape.")
             origins = make_origins(origins, crop_shape=crop_shape, data_shape=src_shapes.pop(), 
                                    n_crops=n_crops, grid_coverage=grid_coverage)
 
