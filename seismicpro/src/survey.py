@@ -449,8 +449,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
                           delimiter='\s+', decimal=None, encoding="UTF-8", inplace=False, **kwargs):
         """Load first break picking times from a file and save them to a new column in headers.
 
-        Each row in the file must correspond to the first break time of the trace.
-        First break time must be stored in the last column of the file.
+        Each line of the file stores the first break time for a trace in the last column.
         The combination of all but the last columns should act as a unique trace identifier and is used to match
         the trace from the file with the corresponding trace in `self.headers`.
 
@@ -462,20 +461,20 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         path : str
             A path to the file with first break times in milliseconds.
         trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
-            All but the last columns names in the file.
+            Headers, whose values are stored in all but the last columns of the file.
         first_breaks_col : str, optional, defaults to 'FirstBreak'
             Column name in `self.headers` where loaded first break times will be stored.
         delimiter: str, defaults to '\s+'
             Delimiter to use. See `pd.read_csv` for more details.
         decimal : str, defaults to None
             Character to recognize as decimal point.
-            In case None tries to infer decimal from the first line of the file.
+            If `None`, it is inferred from the first line of the file.
         encoding : str, optional, defaults to "UTF-8"
             File encoding.
         inplace : bool, optional, defaults to False
             Whether to load first break times inplace or to a survey copy.
         kwargs : misc, optional
-            Additional keyword arguments to pass to  `pd.read_csv`.
+            Additional keyword arguments to pass to `pd.read_csv`.
 
         Returns
         -------
