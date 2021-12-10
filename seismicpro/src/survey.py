@@ -444,9 +444,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
 
     def load_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak',
-                          delimiter='\s+', decimal=None, encoding="UTF-8", **kwargs):
+                          delimiter=r'\s+', decimal=None, encoding="UTF-8", inplace=False, **kwargs):
         """Load first break picking times from a file and save them to a new column in headers.
-        
+
         Each row in the file must correspond to the first break picking time of the trace.
         FBP time must be stored in the last column of the file.
         The combination of all but the last columns should act as a unique trace identifier and is used to match
@@ -463,7 +463,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             All but the last columns names in the file.
         first_breaks_col : str, optional, defaults to 'FirstBreak'
             Column name in `self.headers` where loaded first break times will be stored.
-        delimiter: str, defaults to '\s+'
+        delimiter: str, defaults to r'\s+'
             Delimiter to use. See `pd.read_csv` for more details.
         decimal : str, defaults to None
             Character to recognize as decimal point.
@@ -494,8 +494,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             decimal = '.' if '.' in row else ','
 
         file_columns = to_list(trace_id_cols) + [first_breaks_col]
-        first_breaks_df = pd.read_csv(path, names=file_columns, decimal=decimal,
-                                      delim_whitespace=delim_whitespace, encoding=encoding, **kwargs)
+        first_breaks_df = pd.read_csv(path, delimiter=delimiter, names=file_columns,
+                                      decimal=decimal, encoding=encoding, **kwargs)
 
         headers = self.headers.reset_index()
         headers = headers.merge(first_breaks_df, on=trace_id_cols)
