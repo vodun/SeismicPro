@@ -539,10 +539,12 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             The result of applying `func` to `df`.
         """
         if axis is None:
-            res = func(df, **kwargs)
+            args = (col_val for _, col_val in df.iteritems()) if unpack_args else (df,)
+            res = func(*args, **kwargs)
         else:
             apply_func = (lambda args: func(*args)) if unpack_args else func
             res = df.apply(apply_func, axis=axis, raw=True, **kwargs)
+
         if isinstance(res, pd.Series):
             res = res.to_frame()
         return res.values
@@ -589,11 +591,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         headers = self.headers.reset_index()[to_list(cols)]
         mask = self._apply(cond, headers, axis=axis, unpack_args=unpack_args, **kwargs)
-        if (mask.ndim == 2) and (mask.shape[1] == 1):
-            mask = mask[:, 0]
-        if mask.ndim != 1:
+        if (mask.ndim != 2) or (mask.shape[1] != 1):
             raise ValueError("cond must return a single bool value for each header row")
-        self.headers = self.headers.loc[mask]
+        self.headers = self.headers.loc[mask[:, 0]]
         return self
 
     def apply(self, func, cols, res_cols=None, axis=None, unpack_args=False, inplace=False, **kwargs):
