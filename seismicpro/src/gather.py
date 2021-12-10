@@ -667,7 +667,7 @@ class Gather:
     @batch_method(target='for', use_lock=True)
     def dump_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak',
                           col_space=8, encoding="UTF-8"):
-        """ Save first break picking times to the file.
+        """ Save first break picking times to a file.
 
         Each row in the resulting file corresponds to the first break picking of the trace.
         For each row: all but the last columns store values from `trace_id_cols` headers,
