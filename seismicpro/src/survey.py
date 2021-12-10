@@ -443,8 +443,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         """
         return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
 
+    # pylint: disable=anomalous-backslash-in-string
     def load_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak',
-                          delimiter=r'\s+', decimal=None, encoding="UTF-8", inplace=False, **kwargs):
+                          delimiter='\s+', decimal=None, encoding="UTF-8", inplace=False, **kwargs):
         """Load first break picking times from a file and save them to a new column in headers.
 
         Each row in the file must correspond to the first break picking time of the trace.
@@ -463,7 +464,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             All but the last columns names in the file.
         first_breaks_col : str, optional, defaults to 'FirstBreak'
             Column name in `self.headers` where loaded first break times will be stored.
-        delimiter: str, defaults to r'\s+'
+        delimiter: str, defaults to '\s+'
             Delimiter to use. See `pd.read_csv` for more details.
         decimal : str, defaults to None
             Character to recognize as decimal point.
