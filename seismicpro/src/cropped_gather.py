@@ -111,10 +111,10 @@ class CroppedGather:
     def assemble_gather(self):
         '''Assemble gather from crops.
         
-        `assemble_gather` uses crops and origins to assemble gather data. The resulting gather will be identically 
-        with gather used to create CroppedGather instance except for data attribute. If no crops the data corresponds
-        to some data array element then np.nan will keep in this cell. Use `origins='grid'` as `crop`'s method 
-        parameters to avoid this.
+        `assemble_gather` uses crops and origins to assemble gather data. The resulting gather will be identical with
+        gather used to create CroppedGather instance except for data attribute. If no crops the data corresponds to 
+        some data array element then np.nan will keep in this cell. Use `origins='grid'` as `crop`'s method parameters
+        to avoid this.
 
         Returns
         -------
