@@ -461,7 +461,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         path : str
             A path to the file with first break picking times in milliseconds.
         trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
-            All but the last columns names in the file.
+            Headers, whose values are stored in all but the last columns of the file.
         first_breaks_col : str, optional, defaults to 'FirstBreak'
             Column name in `self.headers` where loaded first break picking times will be stored.
         delimiter: str, defaults to '\s+'
