@@ -468,7 +468,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             Delimiter to use. See `pd.read_csv` for more details.
         decimal : str, defaults to None
             Character to recognize as decimal point.
-            In case None tries to infer decimal from the first line of the file.
+            If `None`, it is inferred from the first line of the file.
         encoding : str, optional, defaults to "UTF-8"
             File encoding.
         inplace : bool, optional, defaults to False
