@@ -243,9 +243,6 @@ def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_st
         x, y = np.mgrid[[slice(start, start+size, step) for start, size, step in zip(origin, survey_size, step)]]
         return np.vstack([x.ravel(), y.ravel()]).T
 
-    # Cast `bin_size` to np.ndarray
-    bin_size = np.array(bin_size)
-
     # Create coordinate points for sources and recievers
     source_coords = generate_coordinates(origin, survey_size, sources_step)
     reciever_coords = generate_coordinates(origin, survey_size, recievers_step)
@@ -280,10 +277,12 @@ def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_st
                 trace_header_dict['GroupX'], trace_header_dict['GroupY'] = reciever_location
                 trace_header_dict['offset'] = int(np.sum((source_location - reciever_location)**2)**0.5)
 
-                inline_crossline = ((source_location + reciever_location) / (2 * bin_size)).astype(int)
-                trace_header_dict['INLINE_3D'], trace_header_dict['CROSSLINE_3D'] = inline_crossline
-                trace_header_dict['CDP_X'], trace_header_dict['CDP_Y'] = inline_crossline * bin_size + bin_size // 2
-                trace_header_dict['CDP'] = inline_crossline[0] * survey_size[1] + inline_crossline[1]
+                # Fill bin-related headers
+                midpoint = (source_location + reciever_location) / 2
+                trace_header_dict['INLINE_3D'], trace_header_dict['CROSSLINE_3D'] = (midpoint // bin_size).astype(int)
+                trace_header_dict['CDP_X'] = trace_header_dict['INLINE_3D'] * bin_size[0] + bin_size[0] // 2
+                trace_header_dict['CDP_Y'] = trace_header_dict['CROSSLINE_3D'] * bin_size[1] + bin_size[1] // 2
+                trace_header_dict['CDP'] = trace_header_dict['INLINE_3D'] * survey_size[1] + trace_header_dict['CROSSLINE_3D']
 
                 # Fill depth-related fields in header
                 trace_header_dict['TRACE_SAMPLE_COUNT'] = n_samples
