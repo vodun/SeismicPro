@@ -692,7 +692,7 @@ class Gather:
         """
         rows = self[to_list(trace_id_cols) + [first_breaks_col]]
 
-        # segy spec states that all headers values are integers, first break values tho can be float
+        # SEG-Y specification states that all headers values are integers, but first break values can be float
         row_fmt = '{:{col_space}.0f}' * (rows.shape[1] - 1) + '{:{col_space}.2f}\n'
         fmt = row_fmt * len(rows)
         rows_as_str = fmt.format(*rows.ravel(), col_space=col_space)
