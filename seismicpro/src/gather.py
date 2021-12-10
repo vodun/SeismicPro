@@ -678,7 +678,7 @@ class Gather:
         path : str
             Path to the file.
         trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
-            Columns names from `self.headers` that act as trace id. These would present in the file.
+            Columns names from `self.headers` that act as trace id. These would be present in the file.
         first_breaks_col : str, defaults to 'FirstBreak'
             Column name from `self.headers` where fbp is stored.
         col_space : int, defaults to 8
