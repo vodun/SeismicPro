@@ -246,34 +246,34 @@ def make_origins(origins, data_shape, crop_shape, n_crops=1, grid_coverage=1):
 
     Parameters
     ----------
-    origins : list, tuple, numpy.array or str.
-        list, tuple, numpy.array of origins for coercion to 2d numpy.array with shape is [n_origins, 2] 
+    origins : list, tuple, np.ndarray or str.
+        list, tuple, np.ndarray of origins for coercion to 2d np.ndarray with shape is [n_origins, 2] 
         or str value to calculate origins.
         Supporting str values :
-            'random' : calculate `n_crops` quantity of a random origins. Based on unifrom distribution.
+            'random' : calculate `n_crops` quantity of random origins. Based on uniform distribution.
             'grid' : calculate grid of origins.
     data_shape : tuple
         Shape of the data to be cropped.
     crop_shape: tuple
-        Shape of a resulting crop.
+        Shape of a single crop.
     n_crops: int, optional, default is 1
         Number of random origins. Used with the 'random' origins value only.
-    grid_coverage: int or float, optional, default is 1. A multiplier of a minimum number of origins to cover data_shape.
-        Density of origins in the grid. 
-        Used with the 'grid' origins value only.
+    grid_coverage: int or float, optional, default is 1. 
+        Density of origins in the grid. A multiplier of a minimum number of origins to cover `data_shape`.
+        Increase this value to make origins closer, decrease to make origins farther. Used with the 'grid' origins 
+        value only.
 
     Returns
     -------
-    origins : numpy.array
-        2d numpy array with x and y coordinate of each origin.
+    origins : np.ndarray
+        2d NumPy array with x and y coordinate of each origin.
 
     Raises
     ------
         ValueError
             If str value not in ['random', 'grid'].
         ValueError
-            If result of the coercion to 2d numpy.array of a passed list, tuple or numpy.array not brings to numpy.array
-            with shape [n_origins, 2].
+            If the result of the reformat to 2d np.ndarray not the np.ndarray with shape [n_origins, 2].
     '''
     if isinstance(origins, str):
         if origins == 'random':
@@ -300,17 +300,16 @@ def _make_grid_origins(data_shape, crop_shape, grid_coverage):
     Parameters
     ----------
     data_shape : int
-        
+        Shape of the data to be cropped.
     crop_shape : int
-        Distance between two origin.
+        Shape of a single crop.
     grid_coverage: int or float
-        Density of origins. When value is 1 than distance between two origin will close to `crop_shape`, but no more.
-        Increase this value to make origins closer, decrease to make origins farther.
+        Density of origins.
 
     Returns
     -------
     origins : np.ndarray
-        numpy array with an origins sequential.
+        1d NumPy array with origins sequential.
     '''
     max_origins = data_shape - crop_shape
     if max_origins <= 0:
