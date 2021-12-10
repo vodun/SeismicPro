@@ -243,6 +243,9 @@ def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_st
         x, y = np.mgrid[[slice(start, start+size, step) for start, size, step in zip(origin, survey_size, step)]]
         return np.vstack([x.ravel(), y.ravel()]).T
 
+    # Cast `bin_size` to np.ndarray
+    bin_size = np.array(bin_size)
+
     # Create coordinate points for sources and recievers
     source_coords = generate_coordinates(origin, survey_size, sources_step)
     reciever_coords = generate_coordinates(origin, survey_size, recievers_step)
