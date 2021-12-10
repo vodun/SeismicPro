@@ -340,7 +340,7 @@ class SeismicBatch(Batch):
         pad_mode: str or function, optional, defaults to 'constant'.
             Padding mode for `scr` data if padding is needful. `pad_mode` redirect to mode parameter of `np.pad`.
             Read https://numpy.org/doc/stable/reference/generated/numpy.pad.html for more information.
-        kwargs: dict, optional
+        kwargs: misc, optional
             Additional keyword arguments for padding the `src` data. Redirect to `np.pad` function.
 
         Returns
