@@ -445,7 +445,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
     def load_first_breaks(self, path, trace_id_cols = ('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak',
                           delim_whitespace=True, decimal=None, encoding="UTF-8", **kwargs):
-        """Load first break picking times from the file and save them to the new column in headers.
+        """Load first break picking times from a file and save them to a new column in headers.
         
         Each row in the file must correspond to the first break picking time of the trace.
         FBP time must be stored in the last column of the file.
