@@ -487,10 +487,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         if decimal is None:
             with open(path, 'r', encoding=encoding) as f:
                 row = f.readline()
-                if not ' ' in row:  # coma-separated-values
-                    decimal = '.'
-                else:               # fixed-width-column
-                    decimal = ',' if ',' in row else '.'
+            decimal = '.' if '.' in row else ','
 
         file_columns = to_list(trace_id_cols) + [first_breaks_col]
         first_breaks_df = pd.read_csv(path, names=file_columns, decimal=decimal,
