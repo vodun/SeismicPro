@@ -219,7 +219,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
         Since fair quantile calculation requires simultaneous loading of all traces from the file we avoid such memory
         overhead by calculating approximate quantiles for a small subset of `n_quantile_traces` traces selected
-        randomly, excluding dead traces. Moreover, only a set of quantiles defined by `quantile_precision` is calculated,
+        randomly, excluding dead traces. Only a set of quantiles defined by `quantile_precision` is calculated,
         the rest of them are linearly interpolated by the collected ones.
 
         After the method is executed `has_stats` flag is set to `True` and all the calculated values can be obtained
@@ -272,7 +272,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         trace = np.empty(self.samples_length, dtype=np.float32)
 
         dead_indices = []
-        counter = 0
+        quantile_traces_counter = 0
         # Accumulate min, max, mean and std values of survey traces
         for i in tqdm(shuffled_indices, desc=f"Calculating statistics for survey {self.name}",
                       total=num_traces, disable=not bar):
@@ -287,9 +287,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             if np.isclose(trace_min, trace_max):
                 dead_indices.append(i)
             # Sample random traces to calculate approximate quantiles
-            elif counter < n_quantile_traces:
-                traces_buf[counter] = trace
-                counter += 1
+            elif quantile_traces_counter < n_quantile_traces:
+                traces_buf[quantile_traces_counter] = trace
+                quantile_traces_counter += 1
 
         self.n_dead_traces = len(dead_indices)
         self.headers['DeadTrace'] = False
@@ -304,7 +304,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         q = np.round(np.linspace(0, 1, num=10**quantile_precision), decimals=quantile_precision)
         # dead traces are not accumulated for quantiles, so if there are many of them,
         # the number of traces in `traces_buf` can be less than `n_quantiles_traces`
-        traces_buf = traces_buf[:counter]
+        traces_buf = traces_buf[:quantile_traces_counter]
         quantiles = np.nanquantile(traces_buf.ravel(), q=q)
         # 0 and 1 quantiles are replaced with actual min and max values respectively
         quantiles[0], quantiles[-1] = global_min, global_max
