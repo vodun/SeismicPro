@@ -2,16 +2,16 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
 import matplotlib.ticker as ticker
-
-
-def save_figure(fig, path, dpi=100, bbox_inches="tight", pad_inches=0.1, **kwargs):
-    fig.savefig(path, dpi=dpi, bbox_inches=bbox_inches, pad_inches=pad_inches, **kwargs)
+import matplotlib.colors as mcolors
 
 
 def as_dict(val, key):
     return val.copy() if isinstance(val, dict) else {key: val}
+
+
+def save_figure(fig, path, dpi=100, bbox_inches="tight", pad_inches=0.1, **kwargs):
+    fig.savefig(path, dpi=dpi, bbox_inches=bbox_inches, pad_inches=pad_inches, **kwargs)
 
 
 def set_text_formatting(kwargs):
@@ -29,17 +29,13 @@ def set_ticks(ax, axis, axis_label, tick_labels, num=None, step_ticks=None, step
                                         round_to=round_to)
     rotation_kwargs = _pop_rotation_kwargs(kwargs)
     ax_obj = getattr(ax, f"{axis}axis")
+    ax_obj.set_label_text(axis_label, **kwargs)
+    ax_obj.set_ticklabels([], **kwargs, **rotation_kwargs)
     ax_obj.set_major_locator(locator)
     ax_obj.set_major_formatter(formatter)
-    ax_obj.set_label_text(axis_label, **kwargs)
-    getattr(plt, f"{axis}ticks")(**kwargs, **rotation_kwargs)
 
 
 def _process_ticks(labels, num, step_ticks, step_labels, round_to):
-    use_index = False
-    n_labels = len(labels)
-    locator = ticker.AutoLocator()
-
     if num is not None:
         locator = ticker.LinearLocator(num)
     elif step_ticks is not None:
@@ -47,22 +43,23 @@ def _process_ticks(labels, num, step_ticks, step_labels, round_to):
     elif step_labels is not None:
         if (np.diff(labels) < 0).any():
             raise ValueError("step_labels is valid only for monotonically increasing labels.")
-        use_index = True
-        candidates = np.arange((labels[0] // step_labels + 1) * step_labels, labels[-1], step_labels)
-        ticks = np.concatenate([[0], np.searchsorted(labels, candidates), [n_labels - 1]])
-        ticks, unique_indices = np.unique(ticks, return_index=True)
-        labels = np.concatenate([[labels[0]], candidates, [labels[n_labels - 1]]])[unique_indices]
+        candidates = np.arange(labels[0], labels[-1], step_labels)
+        ticks = np.searchsorted(labels, candidates)
+        # Always include last label along the axis and remove duplicates
+        ticks = np.unique(np.append(ticks, len(labels) - 1))
         locator = ticker.FixedLocator(ticks)
+    else:
+        locator = ticker.AutoLocator()
 
-    def formatter(values, index):
-        ix = index if use_index else values
-        ix = int(np.clip(ix, 0, len(labels) - 1))
-        sub_labels = labels[ix]
+    def formatter(label_ix, *args):
+        if (label_ix < 0) or (label_ix > len(labels) - 1):
+            return None
 
-        if round_to is not None and sub_labels is not None:
-                sub_labels = np.round(sub_labels, round_to)
-                sub_labels = sub_labels.astype(int) if round_to == 0 else sub_labels
-        return sub_labels
+        label_value = labels[np.round(label_ix).astype(np.int32)]
+        if round_to is not None:
+            label_value = np.round(label_value, round_to)
+            label_value = label_value.astype(np.int32) if round_to == 0 else label_value
+        return label_value
 
     return locator, formatter
 
@@ -78,7 +75,7 @@ def _pop_rotation_kwargs(kwargs):
 
 def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7),  # pylint: disable=too-many-arguments
                      pad=False, fontsize=11, ticks_range_x=None, ticks_range_y=None,
-                     x_ticker=None, y_ticker=None, save_to=None, dpi=300, **kwargs):
+                     x_ticker=None, y_ticker=None, save_to=None, **kwargs):
     """Plot a map with metric values.
 
     Notes
@@ -139,6 +136,7 @@ def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7),  # pyl
     set_ticks(ax, "x", None, np.linspace(*ticks_range_x, metrics_map.shape[1]), **x_ticker)
     set_ticks(ax, "y", None, np.linspace(*ticks_range_y, metrics_map.shape[0]), **y_ticker)
 
-    if save_to:
-        save_figure(fig, save_to, dpi=dpi, bbox_inches="tight", pad_inches=0.1)
+    if save_to is not None:
+        save_kwargs = as_dict(save_to, key="path")
+        save_figure(fig, **save_kwargs)
     plt.show()

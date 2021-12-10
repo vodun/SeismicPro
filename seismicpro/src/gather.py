@@ -958,7 +958,7 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @plotter(figsize=(10, 7))
-    def plot(self, mode="seismogram", event_headers=None, header_on_top=None, title=None,
+    def plot(self, mode="seismogram", event_headers=None, top_header=None, title=None,
              x_ticker=None, y_ticker="time", ax=None, **kwargs):
         """Plot gather traces.
 
@@ -992,8 +992,8 @@ class Gather:
 
         # Add a top subplot for given header if needed and set plot title
         top_ax = ax
-        if header_on_top is not None:
-            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[header_on_top])
+        if top_header is not None:
+            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_header].ravel())
         top_ax.set_title(**as_dict(title, key='label'))
 
         # Set axis ticks
@@ -1022,10 +1022,10 @@ class Gather:
             raise ValueError('The number of items in `color` must match the number of plotted traces')
 
         y_coords = np.arange(self.n_samples)
-        traces = np.arange(self.n_traces).reshape(-1, 1) + std * self.data / np.std(self.data)
+        traces = std * (self.data - self.data.mean(axis=1, keepdims=True)) / (np.std(self.data) + 1e-10)
         for i, (trace, col) in enumerate(zip(traces, color)):
-            ax.plot(trace, y_coords, color=col)
-            ax.fill_betweenx(y_coords, i, trace, where=(trace > i), color=col)
+            ax.plot(i + trace, y_coords, color=col)
+            ax.fill_betweenx(y_coords, i, i + trace, where=(trace > 0), color=col)
         ax.invert_yaxis()
 
     @staticmethod
