@@ -1,5 +1,6 @@
 """Implements Survey class describing a single SEG-Y file"""
 
+# pylint: disable=self-cls-assignment
 import os
 import warnings
 from copy import copy, deepcopy
@@ -448,8 +449,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
                           delimiter='\s+', decimal=None, encoding="UTF-8", inplace=False, **kwargs):
         """Load first break picking times from a file and save them to a new column in headers.
 
-        Each row in the file must correspond to the first break picking time of the trace.
-        First break picking time must be stored in the last column of the file.
+        Each row in the file must correspond to the first break time of the trace.
+        First break time must be stored in the last column of the file.
         The combination of all but the last columns should act as a unique trace identifier and is used to match
         the trace from the file with the corresponding trace in `self.headers`.
 
@@ -459,34 +460,34 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         Parameters
         ----------
         path : str
-            A path to the file with first break picking times in milliseconds.
+            A path to the file with first break times in milliseconds.
         trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
-            Headers, whose values are stored in all but the last columns of the file.
+            All but the last columns names in the file.
         first_breaks_col : str, optional, defaults to 'FirstBreak'
-            Column name in `self.headers` where loaded first break picking times will be stored.
+            Column name in `self.headers` where loaded first break times will be stored.
         delimiter: str, defaults to '\s+'
             Delimiter to use. See `pd.read_csv` for more details.
         decimal : str, defaults to None
             Character to recognize as decimal point.
-            If `None`, it is inferred from the first line of the file.
+            In case None tries to infer decimal from the first line of the file.
         encoding : str, optional, defaults to "UTF-8"
             File encoding.
         inplace : bool, optional, defaults to False
             Whether to load first break times inplace or to a survey copy.
         kwargs : misc, optional
-            Additional keyword arguments to pass to `pd.read_csv`.
+            Additional keyword arguments to pass to  `pd.read_csv`.
 
         Returns
         -------
         self : Survey
-            A survey with loaded first break picking times. Changes `self.headers` inplace.
+            A survey with loaded first break times. Changes `self.headers` inplace.
 
         Raises
         ------
         ValueError
             If there is not a single match of rows from the file with those in `self.headers`.
         """
-        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        self = maybe_copy(self, inplace)
 
         # if decimal is not provided, try to infer it from the first line
         if decimal is None:
@@ -592,7 +593,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         ValueError
             If `cond` returns more than one bool value for each row of `headers`.
         """
-        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        self = maybe_copy(self, inplace)
         headers = self.headers.reset_index()[to_list(cols)]
         mask = self._apply(cond, headers, axis=axis, unpack_args=unpack_args, **kwargs)
         if (mask.ndim == 2) and (mask.shape[1] == 1):
@@ -638,7 +639,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self : Survey
             A survey with the function applied.
         """
-        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        self = maybe_copy(self, inplace)
         cols = to_list(cols)
         res_cols = cols if res_cols is None else to_list(res_cols)
         headers = self.headers.reset_index()[cols]
@@ -661,7 +662,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self : Survey
             Reindexed survey.
         """
-        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        self = maybe_copy(self, inplace)
         self.headers.reset_index(inplace=True)
         self.headers.set_index(new_index, inplace=True)
         self.headers.sort_index(inplace=True)
@@ -739,7 +740,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         KeyError
             If `INLINE_3D` and `CROSSLINE_3D` headers were not loaded.
         """
-        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        self = maybe_copy(self, inplace)
         index_cols = self.headers.index.names
         headers = self.headers.reset_index()
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]

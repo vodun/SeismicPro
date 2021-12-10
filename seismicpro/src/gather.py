@@ -669,9 +669,9 @@ class Gather:
                           col_space=8, encoding="UTF-8"):
         """ Save first break picking times to the file.
 
-        Each row in the resulting file corresponds to the first break picking time of the trace.
+        Each row in the resulting file corresponds to the first break picking of the trace.
         For each row: all but the last columns store values from `trace_id_cols` headers,
-        the last column stores first break picking times from `first_breaks_col` header.
+        the last column stores first break times from `first_breaks_col` header.
 
         Parameters
         ----------
@@ -680,7 +680,7 @@ class Gather:
         trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
             Columns names from `self.headers` that act as trace id. These would be present in the file.
         first_breaks_col : str, defaults to 'FirstBreak'
-            Column name from `self.headers` where first break picking times are stored.
+            Column name from `self.headers` where first break times are stored.
         col_space : int, defaults to 8
             The minimum width of each column.
         encoding : str, optional, defaults to "UTF-8"
