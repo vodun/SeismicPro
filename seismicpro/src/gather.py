@@ -669,9 +669,9 @@ class Gather:
                           col_space=8, encoding="UTF-8"):
         """ Save first break picking times to a file.
 
-        Each row in the resulting file corresponds to the first break picking of the trace.
-        For each row: all but the last columns store values from `trace_id_cols` headers,
-        the last column stores first break times from `first_breaks_col` header.
+        Each line in the resulting file corresponds to one trace, where all columns but
+        the last one store values from `trace_id_cols` headers and identify the trace
+        while the last column stores first break time from `first_breaks_col` header.
 
         Parameters
         ----------
