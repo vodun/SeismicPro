@@ -222,11 +222,14 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
         Since fair quantile calculation requires simultaneous loading of all traces from the file we avoid such memory
         overhead by calculating approximate quantiles for a small subset of `n_quantile_traces` traces selected
-        randomly. Moreover, only a set of quantiles defined by `quantile_precision` is calculated, the rest of them are
-        linearly interpolated by the collected ones.
+        randomly, excluding dead traces. Only a set of quantiles defined by `quantile_precision` is calculated,
+        the rest of them are linearly interpolated by the collected ones.
 
         After the method is executed `has_stats` flag is set to `True` and all the calculated values can be obtained
         via corresponding attributes.
+
+        The method also appends 'DeadTrace' column to `headers`.
+        The value of this column is True if the corresponding trace is constant (dead), otherwise, the value is False.
 
         Parameters
         ----------
@@ -252,15 +255,16 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         headers = self.headers
         if indices is not None:
             headers = headers.loc[indices]
+        num_traces = len(headers)
         traces_pos = headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
-        np.random.shuffle(traces_pos)
+        shuffled_indices = np.random.permutation(num_traces)
 
         limits = self.limits if stats_limits is None else self._process_limits(stats_limits)
 
         if n_quantile_traces <= 0:
             raise ValueError("n_quantile_traces must be positive")
         # Clip n_quantile_traces if it's greater than the total number of traces
-        n_quantile_traces = min(n_quantile_traces, len(traces_pos))
+        n_quantile_traces = min(n_quantile_traces, num_traces)
 
         global_min, global_max = np.inf, -np.inf
         global_sum, global_sq_sum = 0, 0
@@ -270,21 +274,29 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         traces_buf = np.empty((n_quantile_traces, self.samples_length), dtype=np.float32)
         trace = np.empty(self.samples_length, dtype=np.float32)
 
+        dead_indices = []
+        quantile_traces_counter = 0
         # Accumulate min, max, mean and std values of survey traces
-        for i, pos in tqdm(enumerate(traces_pos), desc=f"Calculating statistics for survey {self.name}",
-                           total=len(traces_pos), disable=not bar):
-            self.load_trace(buf=trace, index=pos, limits=limits, trace_length=self.samples_length)
+        for i in tqdm(shuffled_indices, desc=f"Calculating statistics for survey {self.name}",
+                      total=num_traces, disable=not bar):
+            self.load_trace(buf=trace, index=traces_pos[i], limits=limits, trace_length=self.samples_length)
             trace_min, trace_max, trace_sum, trace_sq_sum = calculate_stats(trace)
             global_min = min(trace_min, global_min)
             global_max = max(trace_max, global_max)
             global_sum += trace_sum
             global_sq_sum += trace_sq_sum
             traces_length += len(trace)
-            self.n_dead_traces += np.isclose(trace_min, trace_max)
 
+            if np.isclose(trace_min, trace_max):
+                dead_indices.append(i)
             # Sample random traces to calculate approximate quantiles
-            if i < n_quantile_traces:
-                traces_buf[i] = trace
+            elif quantile_traces_counter < n_quantile_traces:
+                traces_buf[quantile_traces_counter] = trace
+                quantile_traces_counter += 1
+
+        self.n_dead_traces = len(dead_indices)
+        self.headers['DeadTrace'] = False
+        self.headers.iloc[dead_indices, self.headers.columns.get_loc('DeadTrace')] = True
 
         self.min = np.float32(global_min)
         self.max = np.float32(global_max)
@@ -293,6 +305,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
         # Calculate all q-quantiles from 0 to 1 with step 1 / 10**quantile_precision
         q = np.round(np.linspace(0, 1, num=10**quantile_precision), decimals=quantile_precision)
+        # dead traces are not accumulated for quantiles, so if there are many of them,
+        # the number of traces in `traces_buf` can be less than `n_quantiles_traces`
+        traces_buf = traces_buf[:quantile_traces_counter]
         quantiles = np.nanquantile(traces_buf.ravel(), q=q)
         # 0 and 1 quantiles are replaced with actual min and max values respectively
         quantiles[0], quantiles[-1] = global_min, global_max
@@ -697,6 +712,31 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         if limits[-1] < 0:
             raise ValueError('Negative step is not allowed.')
         return slice(*limits)
+
+    def remove_dead_traces(self, inplace=False, **kwargs):
+        """ Removes dead (constant) traces from survey's data.
+        Calls `collect_stats` if `self.has_stats` flag is not set.
+
+        Parameters
+        ----------
+        inplace : bool, optional
+            Whether to remove traces inplace or return a new survey instance, by default False
+        kwargs : misc, optional
+            Additional keyword arguments to :func:`~Survey.collect_stats`.
+
+        Returns
+        -------
+        Survey
+            Survey with no dead traces.
+        """
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        if not self.has_stats:
+            self.collect_stats(**kwargs)
+
+        self.filter(lambda dt: ~dt, cols='DeadTrace', inplace=True)
+        self.n_dead_traces = 0
+
+        return self
 
     #------------------------------------------------------------------------#
     #                         Task specific methods                          #
