@@ -541,8 +541,10 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         if axis is None:
             res = func(df, **kwargs)
         else:
-            apply_func = lambda args: func(*args) if unpack_args else func
+            apply_func = (lambda args: func(*args)) if unpack_args else func
             res = df.apply(apply_func, axis=axis, raw=True, **kwargs)
+        if isinstance(res, pd.Series):
+            res = res.to_frame()
         return res.values
 
     def filter(self, cond, cols, axis=None, unpack_args=False, inplace=False, **kwargs):
