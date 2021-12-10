@@ -620,7 +620,7 @@ class Gather:
         gather : Gather
             A new `Gather` with calculated first breaks mask in its `data` attribute.
         """
-        mask = convert_times_to_mask(times=self[first_breaks_col], sample_rate=self.sample_rate,
+        mask = convert_times_to_mask(times=self[first_breaks_col].ravel(), sample_rate=self.sample_rate,
                                      mask_length=self.shape[1]).astype(np.int32)
         gather = self.copy(ignore='data')
         gather.data = mask
@@ -631,8 +631,8 @@ class Gather:
     def mask_to_pick(self, threshold=0.5, first_breaks_col="FirstBreak", save_to=None):
         """Convert a first break mask saved in `data` into times of first arrivals.
 
-        The mask should saved in the `gather.data`. Each trace of the gather with mask represents the probability 
-        that the corresponding index is greater than the index of the first break.
+        Each value of the mask should represent a probability of the corresponding index along the trace to follow the
+        first break.
 
         Notes
         -----
@@ -645,7 +645,7 @@ class Gather:
             A threshold for trace mask value to refer its index to be either pre- or post-first break.
         first_breaks_col : str, optional, defaults to 'FirstBreak'
             Headers column to save first break times to.
-        save_to : Gather, optional, default to None
+        save_to : Gather, optional, defaults to None
             An extra `Gather` to save picking to.
 
         Returns
@@ -653,9 +653,10 @@ class Gather:
         self : Gather
             A gather with first break times in headers column defined by `first_breaks_col`.
         """
-        self[first_breaks_col] = convert_mask_to_pick(self.data, self.sample_rate, threshold)
+        picking_times = convert_mask_to_pick(self.data, self.sample_rate, threshold)
+        self[first_breaks_col] = picking_times
         if save_to is not None:
-            save_to[first_breaks_col] = self[first_breaks_col]
+            save_to[first_breaks_col] = picking_times
         return self
 
     #------------------------------------------------------------------------#
@@ -940,21 +941,22 @@ class Gather:
 
         Parameters
         ----------
-        origins : list, tuple, np.array or str.
-            origins define the top-left corner of each crop or rule used to calculate the top-left corner of each crop.
-            each origin should be defined by x and y coordinate and wrapped with tuple, list or np.array. 
-            when origins defined by str x and y coordinate will be calculated by make_origins function.
+        origins : list, tuple, np.ndarray or str.
+            Origins define the top-left corner of each crop or rule used to calculate the top-left corner of each crop.
+            Each origin should be defined by x and y coordinate and wrapped with a tuple, list, or np.ndarray. 
+            When origins defined by str x and y coordinate will be calculated by make_origins function.
             possible str value is 'random' and 'grid'
         crop_shape: tuple
-            shape of each crop. If the gather data will be not enough to make a crop with given shape than the gather 
-            data will be padded to make crop with given shape.
-        n_crops: int, optional, default is 1
+            shape of each crop. If the gather data will be not enough to make a crop with a given shape than 
+            the `gather` data will be padded to make a crop with a given shape.
+        n_crops: int, optional, defaults to 1
             number of random origins. Used with the 'random' origins value only.
-        grid_coverage: int or float, optional, default is 1.
-            density of origins in the grid. Used with the 'grid' origins value only. 
-            Lower value cause fractional cover of the gather data. # add addition info
-        pad_mode: str or function, optional, default is 'constant'.
-            Padding mode for gather.data if padding is needful. `pad_mode` redirect to mode parameter of `numpy.pad`.
+        grid_coverage: int or float, optional, defaults to 1.
+            Density of origins in the grid. Used with the 'grid' origins value only. A multiplier of a minimum number 
+            of origins to cover all `gather` data. A higher value leads to crop overlapping and is usefull to remove 
+            edge effects. A lower value causes fractional cover of the `gather` data.
+        pad_mode: str or function, optional, defaults to 'constant'.
+            Padding mode for `gather` data if padding is needful. `pad_mode` redirect to mode parameter of `numpy.pad`.
             Read https://numpy.org/doc/stable/reference/generated/numpy.pad.html for more information.
         kwargs: dict, oprional
             Additional keyword arguments for padding gather.data. Redirect to numpy.pad function.
@@ -962,12 +964,11 @@ class Gather:
         Returns
         -------
         crops : CroppedGather
-            CroppedGather with crops. Crops saves in crops attribute of a CroppedGather class.
-            Read CroppedGather docs for more information.
+            CroppedGather with crops saved in `crops` attribute. Read `CroppedGather` docs for more information.
         """
         origins = make_origins(origins, crop_shape=crop_shape, data_shape=self.shape, n_crops=n_crops, 
                                grid_coverage=grid_coverage)
-        return CroppedGather(self, origins, crop_shape, pad_mode=pad_mode, **kwargs)
+        return CroppedGather(self, origins, crop_shape, pad_mode, **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #

@@ -242,7 +242,7 @@ def clip(data, data_min, data_max):
 
 
 def make_origins(origins, data_shape, crop_shape, n_crops=1, grid_coverage=1):
-    ''' Calculate array of an origins or coercion given origins to numpy.array type.
+    '''Calculate array of origins or reformat given origins to 2d np.ndarray.
 
     Parameters
     ----------
@@ -253,13 +253,14 @@ def make_origins(origins, data_shape, crop_shape, n_crops=1, grid_coverage=1):
             'random' : calculate `n_crops` quantity of a random origins. Based on unifrom distribution.
             'grid' : calculate grid of origins.
     data_shape : tuple
-        Maximum value of a calculated origins by each axis. # rewrite
+        Shape of the data to be cropped.
     crop_shape: tuple
-        Used to calculate indention when str origins value is passed. # rewrite
+        Shape of a resulting crop.
     n_crops: int, optional, default is 1
         Number of random origins. Used with the 'random' origins value only.
-    grid_coverage: int or float, optional, default is 1.
-        Density of origins in the grid. Used with the 'grid' origins value only.
+    grid_coverage: int or float, optional, default is 1. A multiplier of a minimum number of origins to cover data_shape.
+        Density of origins in the grid. 
+        Used with the 'grid' origins value only.
 
     Returns
     -------
@@ -315,5 +316,5 @@ def _make_grid_origins(data_shape, crop_shape, grid_coverage):
     if max_origins <= 0:
         return [0]
     eps = 0 if max_origins % crop_shape == 0 else 1
-    origins = np.linspace(0, max_origins, num=int((data_shape // crop_shape + eps) * grid_coverage), dtype=int)
+    origins = np.linspace(0, max_origins, num=int((data_shape // crop_shape + eps) * grid_coverage), dtype=np.int32)
     return np.unique(origins)

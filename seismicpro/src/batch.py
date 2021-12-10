@@ -306,10 +306,16 @@ class SeismicBatch(Batch):
     @inbatch_parallel(init='_init_component', target='for')
     def crop(self, idx, src, origins, crop_shape, dst=None, joint=True, n_crops=1, grid_coverage=1, 
              pad_mode='constant', **kwargs):
-        '''Crop all src batch component. 
+        '''Crop all src batch component.
+
+        Parameters
+        ----------
+        idx : int, automaticaly passed.
+            index of the current batch item. `idx` passed automaticaly by the decorator.
+        src : str or list of str
+            Gather names to crop.
 
         '''
-        # TODO: benchmark
         dst = src if dst is None else dst
         src_list = to_list(src)
         dst_list = to_list(dst)

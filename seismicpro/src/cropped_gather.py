@@ -8,11 +8,11 @@ from .decorators import batch_method
 class CroppedGather:
     ''' cool docstring here '''
 
-    def __init__(self, gather, origins, crop_shape, **kwargs):
+    def __init__(self, gather, origins, crop_shape, pad_mode, **kwargs):
         self.gather = gather
         self.crop_shape = crop_shape
         self.origins = origins
-        self.crops = self.make_crops(self._pad_gather(**kwargs))
+        self.crops = self.make_crops(self._pad_gather(mode=pad_mode, **kwargs))
 
     @property
     def n_origins(self):
@@ -28,11 +28,11 @@ class CroppedGather:
 
     def _pad_gather(self, **kwargs):
         '''Checking if crop window is out of the gather and pad gather to make crop possible. '''
-        max_origins_distance = self.origins.max(axis=0)
-        pad_width_x, pad_width_y = np.maximum(0, max_origins_distance + self.crop_shape - self.gather.shape)
+        max_origins = self.origins.max(axis=0)
+        pad_width_x, pad_width_y = np.maximum(0, max_origins + self.crop_shape - self.gather.shape)
         if (pad_width_x > 0) or (pad_width_y > 0):
             warnings.warn("Crop is out of the gather data. The Gather's data will be padded")
-            return np.pad(self.gather.data, ((0, pad_width_x), (0, pad_width_y)), mode=kwargs.pop('pad_mode'), **kwargs)
+            return np.pad(self.gather.data, ((0, pad_width_x), (0, pad_width_y)), **kwargs)
         return self.gather.data
 
     @batch_method(target='for', copy_src=False)
@@ -48,8 +48,9 @@ class CroppedGather:
         padded_gather_shape = np.maximum(self.gather.shape, self.crop_shape + self.origins.max(axis=0))
         crops_sum = np.zeros(shape=padded_gather_shape, dtype=np.float32)
         crops_count = np.zeros(shape=padded_gather_shape, dtype=np.int16)
+        dx, dy = self.crop_shape
         for crop, (x_0, y_0) in zip(self.crops, self.origins):
-            crops_sum[x_0:x_0 + self.crop_shape[0], y_0:y_0 + self.crop_shape[1]] += crop
-            crops_count[x_0:x_0 + self.crop_shape[0], y_0:y_0 + self.crop_shape[1]] += 1
+            crops_sum[x_0:x_0 + dx, y_0:y_0 + dy] += crop
+            crops_count[x_0:x_0 + dx, y_0:y_0 + dy] += 1
         crops_sum /= crops_count
         return crops_sum[:self.gather.shape[0], :self.gather.shape[1]]
