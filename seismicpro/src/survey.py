@@ -132,7 +132,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         for column in load_headers:
             headers[column] = self.segy_handler.attributes(segyio.tracefield.keys[column])[:]
 
-        # According to segy spec, headers values at most 4 byte integers
+        # According to SEG-Y spec, headers values are at most 4-byte integers
         headers = pd.DataFrame(headers, dtype=np.int32)
         # TRACE_SEQUENCE_FILE is reconstructed manually since it can be omitted according to the SEG-Y standard
         # but we rely on it during gather loading.
@@ -449,21 +449,21 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         """Load first break picking times from a file and save them to a new column in headers.
 
         Each row in the file must correspond to the first break picking time of the trace.
-        FBP time must be stored in the last column of the file.
+        First break picking time must be stored in the last column of the file.
         The combination of all but the last columns should act as a unique trace identifier and is used to match
         the trace from the file with the corresponding trace in `self.headers`.
 
         The file can have any format that can be read by `pd.read_csv`,
-        by default it's expected to have whitespace separated values, notice `delim_whitespace=True`.
+        by default it's expected to have whitespace-separated values.
 
         Parameters
         ----------
         path : str
-            A path to the file with first break times in milliseconds.
+            A path to the file with first break picking times in milliseconds.
         trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
             All but the last columns names in the file.
         first_breaks_col : str, optional, defaults to 'FirstBreak'
-            Column name in `self.headers` where loaded first break times will be stored.
+            Column name in `self.headers` where loaded first break picking times will be stored.
         delimiter: str, defaults to '\s+'
             Delimiter to use. See `pd.read_csv` for more details.
         decimal : str, defaults to None
@@ -479,7 +479,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         Returns
         -------
         self : Survey
-            A survey with loaded first break times. Changes `self.headers` inplace.
+            A survey with loaded first break picking times. Changes `self.headers` inplace.
 
         Raises
         ------
