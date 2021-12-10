@@ -670,7 +670,7 @@ class Gather:
         """ Save first break picking times to the file.
 
         Each row in the resulting file corresponds to the first break picking of the trace.
-        For each row: all but the last columns store values from `trace_id_columns` headers,
+        For each row: all but the last columns store values from `trace_id_cols` headers,
         the last column stores first break picking times from `first_breaks_col` header.
 
         Parameters
@@ -685,6 +685,7 @@ class Gather:
             The minimum width of each column.
         encoding : str, optional, defaults to "UTF-8"
             File encoding.
+
         Returns
         -------
         self : Gather

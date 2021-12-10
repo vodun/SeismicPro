@@ -444,7 +444,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
 
     def load_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak',
-                          delim_whitespace=True, decimal=None, encoding="UTF-8", **kwargs):
+                          delimiter='\s+', decimal=None, encoding="UTF-8", **kwargs):
         """Load first break picking times from a file and save them to a new column in headers.
         
         Each row in the file must correspond to the first break picking time of the trace.
@@ -463,13 +463,15 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             All but the last columns names in the file.
         first_breaks_col : str, optional, defaults to 'FirstBreak'
             Column name in `self.headers` where loaded first break times will be stored.
-        delim_whitespace: bool, defaults to True
-            Specifies whether or not whitespace will be used as the sep. See `pd.read_csv` for more details.
+        delimiter: str, defaults to '\s+'
+            Delimiter to use. See `pd.read_csv` for more details.
         decimal : str, defaults to None
             Character to recognize as decimal point.
             In case None tries to infer decimal from the first line of the file.
         encoding : str, optional, defaults to "UTF-8"
             File encoding.
+        inplace : bool, optional, defaults to False
+            Whether to load first break times inplace or to a survey copy.
         kwargs : misc, optional
             Additional keyword arguments to pass to  `pd.read_csv`.
 
@@ -483,6 +485,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         ValueError
             If there is not a single match of rows from the file with those in `self.headers`.
         """
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+
         # if decimal is not provided, try to infer it from the first line
         if decimal is None:
             with open(path, 'r', encoding=encoding) as f:
