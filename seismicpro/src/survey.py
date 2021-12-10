@@ -453,8 +453,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         The combination of all but the last columns should act as a unique trace identifier and is used to match
         the trace from the file with the corresponding trace in `self.headers`.
 
-        The file can have any format that can be read by `pd.read_csv`,
-        by default it's expected to have whitespace-separated values.
+        The file can have any format that can be read by `pd.read_csv`, by default, it's expected
+        to have whitespace-separated values.
 
         Parameters
         ----------
