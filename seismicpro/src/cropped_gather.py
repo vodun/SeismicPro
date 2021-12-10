@@ -109,14 +109,32 @@ class CroppedGather:
 
     @batch_method(target='for', copy_src=False)
     def assemble_gather(self):
-        ''' TODO: docs '''
+        '''Assemble gather from crops.
+        
+        `assemble_gather` uses crops and origins to assemble gather data. The resulting gather will be identically 
+        with gather used to create CroppedGather instance except for data attribute. If no crops the data corresponds
+        to some data array element then np.nan will keep in this cell. Use `origins='grid'` as `crop`'s method 
+        parameters to avoid this.
+
+        Returns
+        -------
+        gather : Gather
+            Gather data assembled from crops. Other gather's attributes will copy from gather used to create 
+            CroppedGather instance.
+        '''
         assembled_data = self._assemble_mean()
         gather = self.gather.copy(ignore='data')
         gather.data = assembled_data
         return gather
 
     def _assemble_mean(self):
-        ''' TODO: docs ''' 
+        '''Assemble and mean aggregate crops.
+
+        Returns
+        -------
+        crops_sum : np.ndarray
+            2d array with a point-by-point sum of all crops normalized at a number of crops cover.
+        ''' 
         padded_gather_shape = np.maximum(self.gather.shape, self.crop_shape + self.origins.max(axis=0))
         crops_sum = np.zeros(shape=padded_gather_shape, dtype=np.float32)
         crops_count = np.zeros(shape=padded_gather_shape, dtype=np.int16)
