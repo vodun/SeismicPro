@@ -443,7 +443,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         """
         return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
 
-    def load_first_breaks(self, path, trace_id_cols = ('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak',
+    def load_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak',
                           delim_whitespace=True, decimal=None, encoding="UTF-8", **kwargs):
         """Load first break picking times from a file and save them to a new column in headers.
         
