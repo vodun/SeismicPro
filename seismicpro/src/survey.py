@@ -447,7 +447,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     # pylint: disable=anomalous-backslash-in-string
     def load_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak',
                           delimiter='\s+', decimal=None, encoding="UTF-8", inplace=False, **kwargs):
-        """Load first break picking times from a file and save them to a new column in headers.
+        """Load times of first breaks from a file and save them to a new column in headers.
 
         Each line of the file stores the first break time for a trace in the last column.
         The combination of all but the last columns should act as a unique trace identifier and is used to match
