@@ -1054,7 +1054,7 @@ class Gather:
         for kwargs in kwargs_list:
             header = kwargs.pop("headers")
             process_outliers = kwargs.pop("process_outliers", "none")
-            y_coords = self[header] / self.sample_rate
+            y_coords = self[header].ravel() / self.sample_rate
             if process_outliers == "clip":
                 y_coords = np.clip(y_coords, 0, self.n_samples - 1)
             elif process_outliers == "discard":
