@@ -474,7 +474,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         inplace : bool, optional, defaults to False
             Whether to load first break times inplace or to a survey copy.
         kwargs : misc, optional
-            Additional keyword arguments to pass to  `pd.read_csv`.
+            Additional keyword arguments to pass to `pd.read_csv`.
 
         Returns
         -------
