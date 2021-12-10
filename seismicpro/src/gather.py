@@ -680,7 +680,7 @@ class Gather:
         trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
             Columns names from `self.headers` that act as trace id. These would be present in the file.
         first_breaks_col : str, defaults to 'FirstBreak'
-            Column name from `self.headers` where fbp is stored.
+            Column name from `self.headers` where first break picking times are stored.
         col_space : int, defaults to 8
             The minimum width of each column.
         encoding : str, optional, defaults to "UTF-8"
