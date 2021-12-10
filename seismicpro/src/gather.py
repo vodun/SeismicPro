@@ -944,21 +944,21 @@ class Gather:
         origins : list, tuple, np.ndarray or str.
             Origins define the top-left corner of each crop or rule used to calculate the top-left corner of each crop.
             Each origin should be defined by x and y coordinate and wrapped with a tuple, list, or np.ndarray. 
-            When origins defined by str x and y coordinate will be calculated by make_origins function.
+            When origins are defined by str x and y coordinate will be calculated by `make_origins` function.
             possible str value is 'random' and 'grid'
         crop_shape: tuple
-            shape of each crop. If the gather data will be not enough to make a crop with a given shape than 
+            Shape of each crop. If the gather data will be not enough to make a crop with a given shape than 
             the `gather` data will be padded to make a crop with a given shape.
         n_crops: int, optional, defaults to 1
-            number of random origins. Used with the 'random' origins value only.
+            Number of random origins. Used with the 'random' origins value only.
         grid_coverage: int or float, optional, defaults to 1.
             Density of origins in the grid. Used with the 'grid' origins value only. A multiplier of a minimum number 
-            of origins to cover all `gather` data. A higher value leads to crop overlapping and is usefull to remove 
+            of origins to cover all `gather` data. A higher value leads to crop overlapping and is useful to remove 
             edge effects. A lower value causes fractional cover of the `gather` data.
         pad_mode: str or function, optional, defaults to 'constant'.
             Padding mode for `gather` data if padding is needful. `pad_mode` redirect to mode parameter of `numpy.pad`.
             Read https://numpy.org/doc/stable/reference/generated/numpy.pad.html for more information.
-        kwargs: dict, oprional
+        kwargs: dict, optional
             Additional keyword arguments for padding gather.data. Redirect to numpy.pad function.
 
         Returns
