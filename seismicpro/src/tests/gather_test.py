@@ -116,9 +116,9 @@ def test_gather_getitem_gathers(gather, key):
 
     # Check that the headers and samples contain  proper values
     ## This is probably not the best way for the equality check..
-    keys = tuple(to_list(k) if isinstance(k, tuple) else k for k in keys)
+    keys = tuple(to_list(k) if not isinstance(k, slice) else k for k in keys)
     keys = (keys[0], slice(None)) if len(keys) < 2 else keys
-    assert np.allclose(result_getitem.headers, gather.headers.iloc[keys[0]].values)
+    assert result_getitem.headers.equals(gather.headers.iloc[keys[0]])
     assert np.allclose(result_getitem.samples, gather.samples[keys[1]])
 
 

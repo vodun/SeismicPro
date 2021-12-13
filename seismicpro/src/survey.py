@@ -1,5 +1,6 @@
 """Implements Survey class describing a single SEG-Y file"""
 
+# pylint: disable=self-cls-assignment
 import os
 import warnings
 from copy import copy, deepcopy
@@ -132,10 +133,12 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         for column in load_headers:
             headers[column] = self.segy_handler.attributes(segyio.tracefield.keys[column])[:]
 
-        headers = pd.DataFrame(headers)
+        # According to SEG-Y spec, headers values are at most 4-byte integers
+        headers = pd.DataFrame(headers, dtype=np.int32)
         # TRACE_SEQUENCE_FILE is reconstructed manually since it can be omitted according to the SEG-Y standard
         # but we rely on it during gather loading.
-        headers["TRACE_SEQUENCE_FILE"] = np.arange(1, self.segy_handler.tracecount+1)
+        tsf_dtype = np.int32 if len(headers) < np.iinfo(np.int32).max else np.int64
+        headers["TRACE_SEQUENCE_FILE"] = np.arange(1, self.segy_handler.tracecount+1, dtype=tsf_dtype)
         headers.set_index(header_index, inplace=True)
         # Sort headers by index to optimize further headers subsampling and merging.
         self.headers = headers.sort_index()
@@ -219,11 +222,14 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
         Since fair quantile calculation requires simultaneous loading of all traces from the file we avoid such memory
         overhead by calculating approximate quantiles for a small subset of `n_quantile_traces` traces selected
-        randomly. Moreover, only a set of quantiles defined by `quantile_precision` is calculated, the rest of them are
-        linearly interpolated by the collected ones.
+        randomly, excluding dead traces. Only a set of quantiles defined by `quantile_precision` is calculated,
+        the rest of them are linearly interpolated by the collected ones.
 
         After the method is executed `has_stats` flag is set to `True` and all the calculated values can be obtained
         via corresponding attributes.
+
+        The method also appends 'DeadTrace' column to `headers`.
+        The value of this column is True if the corresponding trace is constant (dead), otherwise, the value is False.
 
         Parameters
         ----------
@@ -249,15 +255,16 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         headers = self.headers
         if indices is not None:
             headers = headers.loc[indices]
+        num_traces = len(headers)
         traces_pos = headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
-        np.random.shuffle(traces_pos)
+        shuffled_indices = np.random.permutation(num_traces)
 
         limits = self.limits if stats_limits is None else self._process_limits(stats_limits)
 
         if n_quantile_traces <= 0:
             raise ValueError("n_quantile_traces must be positive")
         # Clip n_quantile_traces if it's greater than the total number of traces
-        n_quantile_traces = min(n_quantile_traces, len(traces_pos))
+        n_quantile_traces = min(n_quantile_traces, num_traces)
 
         global_min, global_max = np.inf, -np.inf
         global_sum, global_sq_sum = 0, 0
@@ -267,21 +274,29 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         traces_buf = np.empty((n_quantile_traces, self.samples_length), dtype=np.float32)
         trace = np.empty(self.samples_length, dtype=np.float32)
 
+        dead_indices = []
+        quantile_traces_counter = 0
         # Accumulate min, max, mean and std values of survey traces
-        for i, pos in tqdm(enumerate(traces_pos), desc=f"Calculating statistics for survey {self.name}",
-                           total=len(traces_pos), disable=not bar):
-            self.load_trace(buf=trace, index=pos, limits=limits, trace_length=self.samples_length)
+        for i in tqdm(shuffled_indices, desc=f"Calculating statistics for survey {self.name}",
+                      total=num_traces, disable=not bar):
+            self.load_trace(buf=trace, index=traces_pos[i], limits=limits, trace_length=self.samples_length)
             trace_min, trace_max, trace_sum, trace_sq_sum = calculate_stats(trace)
             global_min = min(trace_min, global_min)
             global_max = max(trace_max, global_max)
             global_sum += trace_sum
             global_sq_sum += trace_sq_sum
             traces_length += len(trace)
-            self.n_dead_traces += np.isclose(trace_min, trace_max)
 
+            if np.isclose(trace_min, trace_max):
+                dead_indices.append(i)
             # Sample random traces to calculate approximate quantiles
-            if i < n_quantile_traces:
-                traces_buf[i] = trace
+            elif quantile_traces_counter < n_quantile_traces:
+                traces_buf[quantile_traces_counter] = trace
+                quantile_traces_counter += 1
+
+        self.n_dead_traces = len(dead_indices)
+        self.headers['DeadTrace'] = False
+        self.headers.iloc[dead_indices, self.headers.columns.get_loc('DeadTrace')] = True
 
         self.min = np.float32(global_min)
         self.max = np.float32(global_max)
@@ -290,6 +305,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
         # Calculate all q-quantiles from 0 to 1 with step 1 / 10**quantile_precision
         q = np.round(np.linspace(0, 1, num=10**quantile_precision), decimals=quantile_precision)
+        # dead traces are not accumulated for quantiles, so if there are many of them,
+        # the number of traces in `traces_buf` can be less than `n_quantiles_traces`
+        traces_buf = traces_buf[:quantile_traces_counter]
         quantiles = np.nanquantile(traces_buf.ravel(), q=q)
         # 0 and 1 quantiles are replaced with actual min and max values respectively
         quantiles[0], quantiles[-1] = global_min, global_max
@@ -441,20 +459,37 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         """
         return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
 
-    def load_first_breaks(self, path, first_breaks_col='FirstBreak'):
-        """Load times of first breaks and save them to `headers`.
+    # pylint: disable=anomalous-backslash-in-string
+    def load_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak',
+                          delimiter='\s+', decimal=None, encoding="UTF-8", inplace=False, **kwargs):
+        """Load times of first breaks from a file and save them to a new column in headers.
 
-        A file with first breaks data must have three columns: `FieldRecord`, `TraceNumber` and times of first
-        arrivals in milliseconds. The combination of `FieldRecord` and `TraceNumber` acts as a unique trace identifier
-        and is used to match the times of first breaks with the corresponding traces in `self.headers` and save them
-        into the column specified by `first_breaks_col`.
+        Each line of the file stores the first break time for a trace in the last column.
+        The combination of all but the last columns should act as a unique trace identifier and is used to match
+        the trace from the file with the corresponding trace in `self.headers`.
+
+        The file can have any format that can be read by `pd.read_csv`, by default, it's expected
+        to have whitespace-separated values.
 
         Parameters
         ----------
         path : str
             A path to the file with first break times in milliseconds.
+        trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
+            Headers, whose values are stored in all but the last columns of the file.
         first_breaks_col : str, optional, defaults to 'FirstBreak'
             Column name in `self.headers` where loaded first break times will be stored.
+        delimiter: str, defaults to '\s+'
+            Delimiter to use. See `pd.read_csv` for more details.
+        decimal : str, defaults to None
+            Character to recognize as decimal point.
+            If `None`, it is inferred from the first line of the file.
+        encoding : str, optional, defaults to "UTF-8"
+            File encoding.
+        inplace : bool, optional, defaults to False
+            Whether to load first break times inplace or to a survey copy.
+        kwargs : misc, optional
+            Additional keyword arguments to pass to `pd.read_csv`.
 
         Returns
         -------
@@ -464,19 +499,22 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         Raises
         ------
         ValueError
-            If `FieldRecord` or `TraceNumber` headers were not loaded.
-            If ('FieldRecord', 'TraceNumber') pairs from the file do not match those in `self.headers`.
+            If there is not a single match of rows from the file with those in `self.headers`.
         """
-        segy_columns = ['FieldRecord', 'TraceNumber']
-        first_breaks_columns = segy_columns + [first_breaks_col]
-        first_breaks_df = pd.read_csv(path, names=first_breaks_columns, delim_whitespace=True, decimal=',')
+        self = maybe_copy(self, inplace)
+
+        # if decimal is not provided, try to infer it from the first line
+        if decimal is None:
+            with open(path, 'r', encoding=encoding) as f:
+                row = f.readline()
+            decimal = '.' if '.' in row else ','
+
+        file_columns = to_list(trace_id_cols) + [first_breaks_col]
+        first_breaks_df = pd.read_csv(path, delimiter=delimiter, names=file_columns,
+                                      decimal=decimal, encoding=encoding, **kwargs)
 
         headers = self.headers.reset_index()
-        missing_cols = set(segy_columns) - set(headers)
-        if missing_cols:
-            raise ValueError(f'Missing {missing_cols} column(s) required for first break loading.')
-
-        headers = headers.merge(first_breaks_df, on=segy_columns)
+        headers = headers.merge(first_breaks_df, on=trace_id_cols)
         if headers.empty:
             raise ValueError('Empty headers after first breaks loading.')
         headers.set_index(self.headers.index.names, inplace=True)
@@ -569,7 +607,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         ValueError
             If `cond` returns more than one bool value for each row of `headers`.
         """
-        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        self = maybe_copy(self, inplace)
         headers = self.headers.reset_index()[to_list(cols)]
         mask = self._apply(cond, headers, axis=axis, unpack_args=unpack_args, **kwargs)
         if (mask.ndim == 2) and (mask.shape[1] == 1):
@@ -615,7 +653,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self : Survey
             A survey with the function applied.
         """
-        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        self = maybe_copy(self, inplace)
         cols = to_list(cols)
         res_cols = cols if res_cols is None else to_list(res_cols)
         headers = self.headers.reset_index()[cols]
@@ -638,7 +676,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self : Survey
             Reindexed survey.
         """
-        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        self = maybe_copy(self, inplace)
         self.headers.reset_index(inplace=True)
         self.headers.set_index(new_index, inplace=True)
         self.headers.sort_index(inplace=True)
@@ -674,6 +712,31 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         if limits[-1] < 0:
             raise ValueError('Negative step is not allowed.')
         return slice(*limits)
+
+    def remove_dead_traces(self, inplace=False, **kwargs):
+        """ Removes dead (constant) traces from survey's data.
+        Calls `collect_stats` if `self.has_stats` flag is not set.
+
+        Parameters
+        ----------
+        inplace : bool, optional
+            Whether to remove traces inplace or return a new survey instance, by default False
+        kwargs : misc, optional
+            Additional keyword arguments to :func:`~Survey.collect_stats`.
+
+        Returns
+        -------
+        Survey
+            Survey with no dead traces.
+        """
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        if not self.has_stats:
+            self.collect_stats(**kwargs)
+
+        self.filter(lambda dt: ~dt, cols='DeadTrace', inplace=True)
+        self.n_dead_traces = 0
+
+        return self
 
     #------------------------------------------------------------------------#
     #                         Task specific methods                          #
@@ -716,7 +779,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         KeyError
             If `INLINE_3D` and `CROSSLINE_3D` headers were not loaded.
         """
-        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        self = maybe_copy(self, inplace)
         index_cols = self.headers.index.names
         headers = self.headers.reset_index()
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]
