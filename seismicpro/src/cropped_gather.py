@@ -54,7 +54,7 @@ class CroppedGather:
     crop_shape : tuple with 2 elements
         Shape of the crops.
     crops : 3d np.ndarray
-        Crops from the gather data, stacked along the first axis. Has shape (n_origins, *(crop_shape)).
+        Crops from the gather data, stacked along the zero axis. Has shape (n_origins, *(crop_shape)).
     """
     def __init__(self, gather, origins, crop_shape, pad_mode, **kwargs):
         self.gather = gather

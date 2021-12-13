@@ -325,8 +325,8 @@ class SeismicBatch(Batch):
         dst : str or list of str, optional, defaults to None
             Components to store cropped data. If `dst` is `None` cropping is performed inplace.
         joint : bool, optional, defaults to True
-            Defines whether to create the same origins if `origins` passed is `str`. Generally used to perform joint
-            random cropping of segmentation model input and output.
+            Defines whether to create the same origins in case multiple `src` if `origins` passed is `str`. Generally
+            used to perform joint random cropping of segmentation model input and output.
         n_crops : int, optional, defaults to 1
             The number of generated crops if `origins` is "random".
         n_overlaps : int or float, optional, defaults to 1
