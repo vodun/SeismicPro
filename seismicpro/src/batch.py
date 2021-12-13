@@ -7,7 +7,7 @@ from .cropped_gather import CroppedGather
 from .semblance import Semblance, ResidualSemblance
 from .decorators import create_batch_methods, apply_to_each_component
 from .utils import to_list, make_origins
-from ..batchflow import Batch, action, DatasetIndex, NamedExpression, inbatch_parallel
+from ..batchflow import action, inbatch_parallel, Batch, DatasetIndex, NamedExpression
 
 
 @create_batch_methods(Gather, CroppedGather, Semblance, ResidualSemblance)
@@ -71,9 +71,7 @@ class SeismicBatch(Batch):
         `self.nested_indices`. This method is typically used as a default `init` function in `inbatch_parallel`
         decorator."""
         _ = args, kwargs
-        if dst is None:
-            return self.nested_indices
-        dst = to_list(dst)
+        dst = [] if dst is None else to_list(dst)
         for comp in dst:
             if self.components is None or comp not in self.components:
                 self.add_components(comp, init=self.array_of_nones)
@@ -306,48 +304,50 @@ class SeismicBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component', target='for')
-    def crop(self, idx, src, origins, crop_shape, dst=None, joint=True, n_crops=1, grid_coverage=1, 
-             pad_mode='constant', **kwargs):
-        '''Crop the batch components.
+    def crop(self, idx, src, origins, crop_shape, dst=None, joint=True, n_crops=1, n_overlaps=1, **kwargs):
+        """Crop batch components.
 
         Parameters
         ----------
         src : str or list of str
-            A component's names to be cropped.
-
+            Components to be cropped. Objects in each of them must implement `crop` method which will be called from
+            this method.
         origins : list, tuple, np.ndarray or str
-            Origins define the top-left corner of each crop or rule used to calculate the top-left corner of each crop.
-            Each origin should be defined by x and y coordinate and wrapped with a tuple, list, or np.ndarray. 
-            When origins are defined by str x and y coordinate will be calculated by `make_origins` function.
-			Supporting str values :
-				'random' : calculate `n_crops` quantity of random origins. Based on uniform distribution. Used in 
-                           a training model pipelines.
-				'grid' : calculate grid of origins. Used in an inference pipelines.
-        crop_shape: tuple
-            Shape of each crop. If the `src` data will be not enough to make a crop with a given shape then the data 
-            will be padded to make a crop with a given shape.
-        dst : str or list of str, optional, defaults to None.
-            A component's name to store cropped data. If `dst` is None the crop method works inplace.
-        joint : bool, optional, defaults to True.
-            If True crop used the same origins for crop a different `src` components. Needs to `src` data types and 
-            shapes are same.
-        n_crops : int, optional, defaults to 1.
-            Number of random origins. Used with the 'random' origins value only.
-        grid_coverage: int or float, optional, defaults to 1.
-            Density of origins in the grid. A multiplier of a minimum number of origins to cover all `scr` data. 
-            A higher value leads to crop overlapping and is useful to remove edge effects. A lower value causes 
-            fractional cover of the `src` data. Used with the 'grid' origins value only.
-        pad_mode: str or function, optional, defaults to 'constant'.
-            Padding mode for `scr` data if padding is needful. `pad_mode` redirect to mode parameter of `np.pad`.
-            Read https://numpy.org/doc/stable/reference/generated/numpy.pad.html for more information.
+            Origins define top-left corners for each crop or a rule used to calculate them. All array-like values are
+            cast to an `np.ndarray` and treated as crops directly, except for a 2-element tuple of `int`, which will be
+            treated as a single individual origin.
+            If `str`, represents a mode to calculate origins. Two options are supported:
+            - "random": calculate `n_crops` crops selected randomly using a uniform distribution over the source data,
+              so that no crop crosses data boundaries,
+            - "grid": calculate a deterministic uniform grid of origins, whose density is determined by `n_overlaps`.
+        crop_shape: tuple with 2 elements
+            Shape of the resulting crops.
+        dst : str or list of str, optional, defaults to None
+            Components to store cropped data. If `dst` is `None` cropping is performed inplace.
+        joint : bool, optional, defaults to True
+            Defines whether to create the same origins if `origins` passed is `str`. Generally used to perform joint
+            random cropping of segmentation model input and output.
+        n_crops: int, optional, defaults to 1
+            The number of generated crops if `origins` is "random".
+        n_overlaps: int or float, optional, defaults to 1
+            An average number of crops covering a single element of source data if `origins` is "grid". The higher the
+            value is, the more dense the grid of crops will be. Values less than 1 may result in incomplete data
+            coverage with crops, the default value of 1 guarantees to cover the whole data.
         kwargs: misc, optional
-            Additional keyword arguments for padding the `src` data. Redirect to `np.pad` function.
+            Additional keyword arguments to `crop` method of the objects being cropped.
 
         Returns
         -------
         self : SeismicBatch
             The batch with cropped data.
-        '''
+
+        Raises
+        ------
+        TypeError
+            If `joint` is `True` and components of different types are present in `src`.
+        ValueError
+            If `joint` is `True` and components of different shapes are present in `src`.
+        """
         dst = src if dst is None else dst
         src_list = to_list(src)
         dst_list = to_list(dst)
@@ -361,22 +361,21 @@ class SeismicBatch(Batch):
             src_shapes = set()
             src_types = set()
 
-            for item in src_list:
-                cur_object = getattr(self, item)[pos]
-                src_types.add(type(cur_object))
-                src_shapes.add(cur_object.shape)
+            for src in src_list:  # pylint: disable=redefined-argument-from-local
+                src_obj = getattr(self, src)[pos]
+                src_types.add(type(src_obj))
+                src_shapes.add(src_obj.shape)
 
             if len(src_types) > 1:
-                raise TypeError("If joint is True, all `src` components must be of the same type.")
+                raise TypeError("If joint is True, all src components must be of the same type.")
             if len(src_shapes) > 1:
-                raise ValueError("If `joint` is True, all `src` components must have the same shape.")
-            origins = make_origins(origins, crop_shape=crop_shape, data_shape=src_shapes.pop(), 
-                                   n_crops=n_crops, grid_coverage=grid_coverage)
+                raise ValueError("If joint is True, all src components must have the same shape.")
+            data_shape = src_shapes.pop()
+            origins = make_origins(origins, data_shape, crop_shape, n_crops, n_overlaps)
 
-        for src_item, dst_item in zip(src_list, dst_list):
-            object_item = getattr(self, src_item)[pos]
-            cropped = object_item.crop(origins=origins, crop_shape=crop_shape, 
-                                       n_crops=n_crops, grid_coverage=grid_coverage, pad_mode=pad_mode, **kwargs)
-            setattr(self[pos], dst_item, cropped)
+        for src, dst in zip(src_list, dst_list):  # pylint: disable=redefined-argument-from-local
+            src_obj = getattr(self, src)[pos]
+            src_cropped = src_obj.crop(origins, crop_shape, n_crops, n_overlaps, **kwargs)
+            setattr(self[pos], dst, src_cropped)
 
         return self
