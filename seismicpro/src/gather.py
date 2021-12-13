@@ -988,19 +988,19 @@ class Gather:
             - "random": calculate `n_crops` crops selected randomly using a uniform distribution over the gather data,
               so that no crop crosses gather boundaries,
             - "grid": calculate a deterministic uniform grid of origins, whose density is determined by `n_overlaps`.
-        crop_shape: tuple with 2 elements
+        crop_shape : tuple with 2 elements
             Shape of the resulting crops.
-        n_crops: int, optional, defaults to 1
+        n_crops : int, optional, defaults to 1
             The number of generated crops if `origins` is "random".
-        n_overlaps: int or float, optional, defaults to 1
+        n_overlaps : int or float, optional, defaults to 1
             An average number of crops covering a single element of gather data if `origins` is "grid". The higher the
             value is, the more dense the grid of crops will be. Values less than 1 may result in incomplete gather
             coverage with crops, the default value of 1 guarantees to cover the whole data.
-        pad_mode: str or callable, optional, defaults to 'constant'
+        pad_mode : str or callable, optional, defaults to 'constant'
             Padding mode used when a crop with given origin and shape crossed boundaries of gather data. Passed
             directly to `np.pad`, read https://numpy.org/doc/stable/reference/generated/numpy.pad.html for more
             details.
-        kwargs: dict, optional
+        kwargs : dict, optional
             Additional keyword arguments to `np.pad`.
 
         Returns

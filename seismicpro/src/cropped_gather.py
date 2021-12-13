@@ -36,13 +36,13 @@ class CroppedGather:
     origins : 2d np.ndarray
         An array of shape [n_origins, 2] representing absolute coordinates of the first trace of each crop and the
         first time sample respectively.
-    crop_shape: tuple with 2 elements
+    crop_shape : tuple with 2 elements
         Shape of the resulting crops.
-    pad_mode: str or callable
+    pad_mode : str or callable
         Padding mode used when a crop with given origin and shape crosses boundaries of gather data. Passed
         directly to `np.pad`, read https://numpy.org/doc/stable/reference/generated/numpy.pad.html for more
         details.
-    kwargs: dict, optional
+    kwargs : dict, optional
         Additional keyword arguments to `np.pad`.
 
     Attributes
@@ -51,7 +51,7 @@ class CroppedGather:
         Cropped `Gather`.
     origins : 2d np.ndarray
         Origins of the crops.
-    crop_shape: tuple with 2 elements
+    crop_shape : tuple with 2 elements
         Shape of the crops.
     crops : 3d np.ndarray
         Crops from the gather data, stacked along the first axis. Has shape (n_origins, *(crop_shape)).

@@ -258,11 +258,11 @@ def make_origins(origins, data_shape, crop_shape, n_crops=1, n_overlaps=1):
         - "grid": calculate a deterministic uniform grid of origins, whose density is determined by `n_overlaps`.
     data_shape : tuple with 2 elements
         Shape of the data to be cropped.
-    crop_shape: tuple with 2 elements
+    crop_shape : tuple with 2 elements
         Shape of the resulting crops.
-    n_crops: int, optional, defaults to 1
+    n_crops : int, optional, defaults to 1
         The number of generated crops if `origins` is "random".
-    n_overlaps: int or float, optional, defaults to 1
+    n_overlaps : int or float, optional, defaults to 1
         An average number of crops covering a single element of source data if `origins` is "grid". The higher the
         value is, the more dense the grid of crops will be. Values less than 1 may result in incomplete data coverage
         with crops, the default value of 1 guarantees to cover the whole data.
@@ -302,9 +302,9 @@ def _make_grid_origins(data_shape, crop_shape, n_overlaps):
     ----------
     data_shape : int
         Shape of the data to be cropped.
-    crop_shape: int
+    crop_shape : int
         Shape of the resulting crops.
-    n_overlaps: int or float
+    n_overlaps : int or float
         An average number of crops covering a single element of source data.
 
     Returns

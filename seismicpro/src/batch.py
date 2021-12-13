@@ -320,20 +320,20 @@ class SeismicBatch(Batch):
             - "random": calculate `n_crops` crops selected randomly using a uniform distribution over the source data,
               so that no crop crosses data boundaries,
             - "grid": calculate a deterministic uniform grid of origins, whose density is determined by `n_overlaps`.
-        crop_shape: tuple with 2 elements
+        crop_shape : tuple with 2 elements
             Shape of the resulting crops.
         dst : str or list of str, optional, defaults to None
             Components to store cropped data. If `dst` is `None` cropping is performed inplace.
         joint : bool, optional, defaults to True
             Defines whether to create the same origins if `origins` passed is `str`. Generally used to perform joint
             random cropping of segmentation model input and output.
-        n_crops: int, optional, defaults to 1
+        n_crops : int, optional, defaults to 1
             The number of generated crops if `origins` is "random".
-        n_overlaps: int or float, optional, defaults to 1
+        n_overlaps : int or float, optional, defaults to 1
             An average number of crops covering a single element of source data if `origins` is "grid". The higher the
             value is, the more dense the grid of crops will be. Values less than 1 may result in incomplete data
             coverage with crops, the default value of 1 guarantees to cover the whole data.
-        kwargs: misc, optional
+        kwargs : misc, optional
             Additional keyword arguments to `crop` method of the objects being cropped.
 
         Returns
@@ -346,6 +346,7 @@ class SeismicBatch(Batch):
         TypeError
             If `joint` is `True` and components of different types are present in `src`.
         ValueError
+            If `src` and `dst` have different lengths.
             If `joint` is `True` and components of different shapes are present in `src`.
         """
         dst = src if dst is None else dst
