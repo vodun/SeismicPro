@@ -998,7 +998,7 @@ class Gather:
             coverage with crops, the default value of 1 guarantees to cover the whole data.
         pad_mode : str or callable, optional, defaults to 'constant'
             Padding mode used when a crop with given origin and shape crossed boundaries of gather data. Passed
-            directly to `np.pad`, read https://numpy.org/doc/stable/reference/generated/numpy.pad.html for more
+            directly to `np.pad`, see https://numpy.org/doc/stable/reference/generated/numpy.pad.html for more
             details.
         kwargs : dict, optional
             Additional keyword arguments to `np.pad`.

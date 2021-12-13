@@ -280,19 +280,18 @@ def make_origins(origins, data_shape, crop_shape, n_crops=1, n_overlaps=1):
     """
     if isinstance(origins, str):
         if origins == 'random':
-            origins = np.column_stack((np.random.randint(1 + max(0, data_shape[0] - crop_shape[0]), size=n_crops),
-                                       np.random.randint(1 + max(0, data_shape[1] - crop_shape[1]), size=n_crops)))
-            return origins
+            return np.column_stack((np.random.randint(1 + max(0, data_shape[0] - crop_shape[0]), size=n_crops),
+                                    np.random.randint(1 + max(0, data_shape[1] - crop_shape[1]), size=n_crops)))
         if origins == 'grid':
             origins_x = _make_grid_origins(data_shape[0], crop_shape[0], n_overlaps)
             origins_y = _make_grid_origins(data_shape[1], crop_shape[1], n_overlaps)
             return np.array(np.meshgrid(origins_x, origins_y)).T.reshape(-1, 2)
-        raise ValueError(f"Origin must be either 'random' or 'grid' but {origins} was given.")
+        raise ValueError(f"If str, origin should be either 'random' or 'grid' but {origins} was given.")
 
     origins = np.atleast_2d(origins)
     if origins.ndim == 2 and origins.shape[1] == 2:
         return origins
-    raise ValueError("Origins should be a tuple, list or np.ndarray with a shape of [n_origins, 2].")
+    raise ValueError("If array-like, origins must be of a shape [n_origins, 2].")
 
 
 def _make_grid_origins(data_shape, crop_shape, n_overlaps):

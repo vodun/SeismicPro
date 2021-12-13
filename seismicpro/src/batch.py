@@ -325,8 +325,8 @@ class SeismicBatch(Batch):
         dst : str or list of str, optional, defaults to None
             Components to store cropped data. If `dst` is `None` cropping is performed inplace.
         joint : bool, optional, defaults to True
-            Defines whether to create the same origins in case multiple `src` if `origins` passed is `str`. Generally
-            used to perform joint random cropping of segmentation model input and output.
+            Defines whether to create the same origins for all `src`s if passed `origins` is `str`. Generally used to
+            perform joint random cropping of segmentation model input and output.
         n_crops : int, optional, defaults to 1
             The number of generated crops if `origins` is "random".
         n_overlaps : int or float, optional, defaults to 1
@@ -334,7 +334,7 @@ class SeismicBatch(Batch):
             value is, the more dense the grid of crops will be. Values less than 1 may result in incomplete data
             coverage with crops, the default value of 1 guarantees to cover the whole data.
         kwargs : misc, optional
-            Additional keyword arguments to `crop` method of the objects being cropped.
+            Additional keyword arguments to pass to `crop` method of the objects being cropped.
 
         Returns
         -------
@@ -344,17 +344,17 @@ class SeismicBatch(Batch):
         Raises
         ------
         TypeError
-            If `joint` is `True` and components of different types are present in `src`.
+            If `joint` is `True` and `src` contains components of different types.
         ValueError
             If `src` and `dst` have different lengths.
-            If `joint` is `True` and components of different shapes are present in `src`.
+            If `joint` is `True` and `src` contains components of different shapes.
         """
         dst = src if dst is None else dst
         src_list = to_list(src)
         dst_list = to_list(dst)
 
         if len(src_list) != len(dst_list):
-            raise ValueError("`src` and `dst` should have the same length.")
+            raise ValueError("src and dst should have the same length.")
 
         pos = self.index.get_pos(idx)
 

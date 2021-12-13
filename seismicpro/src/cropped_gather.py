@@ -18,7 +18,7 @@ class CroppedGather:
     A single crop from a fixed known origin can be obtained as follows:
     >>> crop = gather.crop(origins=(0, 0), crop_shape=(100, 100))
 
-    Cropping is often used during model training to select random regions of a gather and pass them to a model in your
+    Cropping is often used during model training to select random regions of a gather and pass them to a model in the
     training loop:
     >>> crops = gather.crop(origins="random", crop_shape=(100, 100), n_crops=16)
     >>> train(model, crops)  # Your train step here
@@ -54,7 +54,7 @@ class CroppedGather:
     crop_shape : tuple with 2 elements
         Shape of the crops.
     crops : 3d np.ndarray
-        Crops from the gather data, stacked along the zero axis. Has shape (n_origins, *(crop_shape)).
+        Crops from the gather data, stacked along the zero axis. Has shape (n_crops, *(crop_shape)).
     """
     def __init__(self, gather, origins, crop_shape, pad_mode, **kwargs):
         self.gather = gather
@@ -63,14 +63,14 @@ class CroppedGather:
         self.crops = self._make_crops(self._pad_gather(mode=pad_mode, **kwargs))
 
     @property
-    def n_origins(self):
-        """int: the number of crop origins provided."""
+    def n_crops(self):
+        """int: the number of generated crops."""
         return self.origins.shape[0]
 
     def _make_crops(self, data):
         """Crop given `data` using known `origins` and `crop_shape`. `data` must be padded so that no crop crosses its
         boundaries."""
-        crops = np.empty(shape=(self.n_origins, *self.crop_shape), dtype=data.dtype)
+        crops = np.empty(shape=(self.n_crops, *self.crop_shape), dtype=data.dtype)
         dx, dy = self.crop_shape
         for i, (x0, y0) in enumerate(self.origins):
             crops[i] = data[x0:x0+dx, y0:y0+dy]
