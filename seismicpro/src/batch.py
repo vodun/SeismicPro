@@ -314,8 +314,8 @@ class SeismicBatch(Batch):
             this method.
         origins : list, tuple, np.ndarray or str
             Origins define top-left corners for each crop or a rule used to calculate them. All array-like values are
-            cast to an `np.ndarray` and treated as crops directly, except for a 2-element tuple of `int`, which will be
-            treated as a single individual origin.
+            cast to an `np.ndarray` and treated as origins directly, except for a 2-element tuple of `int`, which will
+            be treated as a single individual origin.
             If `str`, represents a mode to calculate origins. Two options are supported:
             - "random": calculate `n_crops` crops selected randomly using a uniform distribution over the source data,
               so that no crop crosses data boundaries,
