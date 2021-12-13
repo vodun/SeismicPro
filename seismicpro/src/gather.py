@@ -15,8 +15,8 @@ from .muting import Muter
 from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 from .decorators import batch_method
-from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, normalization, correction, 
-                    make_origins)
+from .utils import normalization, correction
+from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, make_origins
 
 class Gather:
     """A class representing a single seismic gather.
@@ -631,8 +631,8 @@ class Gather:
     def mask_to_pick(self, threshold=0.5, first_breaks_col="FirstBreak", save_to=None):
         """Convert a first break mask saved in `data` into times of first arrivals.
 
-        Each value of the mask should represent a probability of the corresponding index along the trace to follow the
-        first break.
+        For a given trace each value of the mask represents the probability that the corresponding index is greater
+        than the index of the first break.
 
         Notes
         -----
@@ -646,7 +646,8 @@ class Gather:
         first_breaks_col : str, optional, defaults to 'FirstBreak'
             Headers column to save first break times to.
         save_to : Gather, optional, defaults to None
-            An extra `Gather` to save picking to.
+            An extra `Gather` to save first break times to. Generally used to conveniently pass first break times from
+            a `Gather` instance with a first break mask to an original `Gather`.
 
         Returns
         -------
@@ -974,38 +975,40 @@ class Gather:
         self.data = np.nan_to_num(self.data)
         return self
 
-    def crop(self, origins, crop_shape, n_crops=1, grid_coverage=1, pad_mode='constant', **kwargs):
-        """"Crop the gather data.
+    def crop(self, origins, crop_shape, n_crops=1, n_overlaps=1, pad_mode='constant', **kwargs):
+        """"Crop gather data.
 
         Parameters
         ----------
-        origins : list, tuple, np.ndarray or str.
-            Origins define the top-left corner of each crop or rule used to calculate the top-left corner of each crop.
-            Each origin should be defined by x and y coordinate and wrapped with a tuple, list, or np.ndarray. 
-            When origins are defined by str x and y coordinate will be calculated by `make_origins` function.
-            possible str value is 'random' and 'grid'
-        crop_shape: tuple
-            Shape of each crop. If the gather data will be not enough to make a crop with a given shape than 
-            the `gather` data will be padded to make a crop with a given shape.
+        origins : list, tuple, np.ndarray or str
+            Origins define top-left corners for each crop or a rule used to calculate them. All array-like values are
+            cast to an `np.ndarray` and treated as crops directly, except for a 2-element tuple of `int`, which will be
+            treated as a single individual origin.
+            If `str`, represents a mode to calculate origins. Two options are supported:
+            - "random": calculate `n_crops` crops selected randomly using a uniform distribution over the gather data,
+              so that no crop crosses gather boundaries,
+            - "grid": calculate a deterministic uniform grid of origins, whose density is determined by `n_overlaps`.
+        crop_shape: tuple with 2 elements
+            Shape of the resulting crops.
         n_crops: int, optional, defaults to 1
-            Number of random origins. Used with the 'random' origins value only.
-        grid_coverage: int or float, optional, defaults to 1.
-            Density of origins in the grid. Used with the 'grid' origins value only. A multiplier of a minimum number 
-            of origins to cover all `gather` data. A higher value leads to crop overlapping and is useful to remove 
-            edge effects. A lower value causes fractional cover of the `gather` data.
-        pad_mode: str or function, optional, defaults to 'constant'.
-            Padding mode for `gather` data if padding is needful. `pad_mode` redirect to mode parameter of `numpy.pad`.
-            Read https://numpy.org/doc/stable/reference/generated/numpy.pad.html for more information.
+            The number of generated crops if `origins` is "random".
+        n_overlaps: int or float, optional, defaults to 1
+            An average number of crops covering a single element of gather data if `origins` is "grid". The higher the
+            value is, the more dense the grid of crops will be. Values less than 1 may result in incomplete gather
+            coverage with crops, the default value of 1 guarantees to cover the whole data.
+        pad_mode: str or callable, optional, defaults to 'constant'
+            Padding mode used when a crop with given origin and shape crossed boundaries of gather data. Passed
+            directly to `np.pad`, read https://numpy.org/doc/stable/reference/generated/numpy.pad.html for more
+            details.
         kwargs: dict, optional
-            Additional keyword arguments for padding gather.data. Redirect to numpy.pad function.
+            Additional keyword arguments to `np.pad`.
 
         Returns
         -------
         crops : CroppedGather
-            CroppedGather with crops saved in `crops` attribute. Read `CroppedGather` docs for more information.
+            Calculated gather crops.
         """
-        origins = make_origins(origins, crop_shape=crop_shape, data_shape=self.shape, n_crops=n_crops, 
-                               grid_coverage=grid_coverage)
+        origins = make_origins(origins, self.shape, crop_shape, n_crops, n_overlaps)
         return CroppedGather(self, origins, crop_shape, pad_mode, **kwargs)
 
     #------------------------------------------------------------------------#

@@ -241,79 +241,80 @@ def clip(data, data_min, data_max):
     return data.reshape(data_shape)
 
 
-def make_origins(origins, data_shape, crop_shape, n_crops=1, grid_coverage=1):
-    '''Calculate array of origins or reformat given origins to 2d np.ndarray.
+def make_origins(origins, data_shape, crop_shape, n_crops=1, n_overlaps=1):
+    """Calculate an array of origins or reformat given origins to a 2d `np.ndarray`.
+
+    The returned array has shape [n_origins, 2], where each origin represents a top-left corner of a corresponding crop
+    with the shape `crop_shape` from the source data.
 
     Parameters
     ----------
-    origins : list, tuple, np.ndarray or str.
-        list, tuple, np.ndarray of origins for coercion to 2d np.ndarray with shape is [n_origins, 2] 
-        or str value to calculate origins.
-        Supporting str values :
-            'random' : calculate `n_crops` quantity of random origins. Based on uniform distribution.
-            'grid' : calculate grid of origins.
-    data_shape : tuple
+    origins : list, tuple, np.ndarray or str
+        All array-like values are cast to an `np.ndarray` and treated as crops directly, except for a 2-element tuple
+        of `int`, which will be treated as a single individual origin.
+        If `str`, represents a mode to calculate origins. Two options are supported:
+        - "random": calculate `n_crops` crops selected randomly using a uniform distribution over the source data, so
+          that no crop crosses data boundaries,
+        - "grid": calculate a deterministic uniform grid of origins, whose density is determined by `n_overlaps`.
+    data_shape : tuple with 2 elements
         Shape of the data to be cropped.
-    crop_shape: tuple
-        Shape of a single crop.
-    n_crops: int, optional, default is 1
-        Number of random origins. Used with the 'random' origins value only.
-    grid_coverage: int or float, optional, default is 1. 
-        Density of origins in the grid. A multiplier of a minimum number of origins to cover `data_shape`.
-        Increase this value to make origins closer, decrease to make origins farther. Used with the 'grid' origins 
-        value only.
+    crop_shape: tuple with 2 elements
+        Shape of the resulting crops.
+    n_crops: int, optional, defaults to 1
+        The number of generated crops if `origins` is "random".
+    n_overlaps: int or float, optional, defaults to 1
+        An average number of crops covering a single element of source data if `origins` is "grid". The higher the
+        value is, the more dense the grid of crops will be. Values less than 1 may result in incomplete data coverage
+        with crops, the default value of 1 guarantees to cover the whole data.
 
     Returns
     -------
-    origins : np.ndarray
-        2d NumPy array with x and y coordinate of each origin.
+    origins : 2d np.ndarray
+        An array of absolute coordinates of top-left corners of crops.
 
     Raises
     ------
-        ValueError
-            If str value not in ['random', 'grid'].
-        ValueError
-            If the result of the reformat to 2d np.ndarray not the np.ndarray with shape [n_origins, 2].
-    '''
+    ValueError
+        If `origins` is `str`, but not "random" or "grid".
+        If `origins` is array-like, but can not be cast to a 2d `np.ndarray` with shape [n_origins, 2].
+    """
     if isinstance(origins, str):
         if origins == 'random':
             origins = np.column_stack((np.random.randint(1 + max(0, data_shape[0] - crop_shape[0]), size=n_crops),
                                        np.random.randint(1 + max(0, data_shape[1] - crop_shape[1]), size=n_crops)))
             return origins
         if origins == 'grid':
-            origins_x = _make_grid_origins(data_shape[0], crop_shape[0], grid_coverage)
-            origins_y = _make_grid_origins(data_shape[1], crop_shape[1], grid_coverage)
+            origins_x = _make_grid_origins(data_shape[0], crop_shape[0], n_overlaps)
+            origins_y = _make_grid_origins(data_shape[1], crop_shape[1], n_overlaps)
             return np.array(np.meshgrid(origins_x, origins_y)).T.reshape(-1, 2)
         raise ValueError(f"Origin must be either 'random' or 'grid' but {origins} was given.")
+
     origins = np.atleast_2d(origins)
     if origins.ndim == 2 and origins.shape[1] == 2:
         return origins
     raise ValueError("Origins should be a tuple, list or np.ndarray with a shape of [n_origins, 2].")
 
 
-def _make_grid_origins(data_shape, crop_shape, grid_coverage):
-    '''Calculate origins sequential.
-
-    Origin sequential start with 0 and end with `data_shape - crop_shape`. Distance between two origin basicaly 
-    not exceed `crop_shape` and could be change with 'grid_coverage' parameter.
+def _make_grid_origins(data_shape, crop_shape, n_overlaps):
+    """Calculate evenly-spaced origins along a single axis.
 
     Parameters
     ----------
     data_shape : int
         Shape of the data to be cropped.
-    crop_shape : int
-        Shape of a single crop.
-    grid_coverage: int or float
-        Density of origins.
+    crop_shape: int
+        Shape of the resulting crops.
+    n_overlaps: int or float
+        An average number of crops covering a single element of source data.
 
     Returns
     -------
-    origins : np.ndarray
-        1d NumPy array with origins sequential.
-    '''
-    max_origins = data_shape - crop_shape
-    if max_origins <= 0:
-        return [0]
-    eps = 0 if max_origins % crop_shape == 0 else 1
-    origins = np.linspace(0, max_origins, num=int((data_shape // crop_shape + eps) * grid_coverage), dtype=np.int32)
+    origins : 1d np.ndarray
+        An array of crop origins.
+    """
+    max_origin = data_shape - crop_shape
+    if max_origin <= 0:
+        return np.zeros(1, dtype=np.int32)
+    eps = 0 if max_origin % crop_shape == 0 else 1
+    origins = np.linspace(0, max_origin, num=int((data_shape // crop_shape + eps) * n_overlaps), dtype=np.int32)
     return np.unique(origins)
