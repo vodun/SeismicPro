@@ -250,7 +250,7 @@ def make_origins(origins, data_shape, crop_shape, n_crops=1, n_overlaps=1):
     Parameters
     ----------
     origins : list, tuple, np.ndarray or str
-        All array-like values are cast to an `np.ndarray` and treated as crops directly, except for a 2-element tuple
+        All array-like values are cast to an `np.ndarray` and treated as origins directly, except for a 2-element tuple
         of `int`, which will be treated as a single individual origin.
         If `str`, represents a mode to calculate origins. Two options are supported:
         - "random": calculate `n_crops` crops selected randomly using a uniform distribution over the source data, so
