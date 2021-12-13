@@ -304,7 +304,7 @@ class SeismicBatch(Batch):
 
     @action
     @inbatch_parallel(init='_init_component', target='for')
-    def crop(self, idx, src, origins, crop_shape, dst=None, joint=True, n_crops=1, n_overlaps=1, **kwargs):
+    def crop(self, idx, src, origins, crop_shape, dst=None, joint=True, n_crops=1, stride=None, **kwargs):
         """Crop batch components.
 
         Parameters
@@ -319,7 +319,7 @@ class SeismicBatch(Batch):
             If `str`, represents a mode to calculate origins. Two options are supported:
             - "random": calculate `n_crops` crops selected randomly using a uniform distribution over the source data,
               so that no crop crosses data boundaries,
-            - "grid": calculate a deterministic uniform grid of origins, whose density is determined by `n_overlaps`.
+            - "grid": calculate a deterministic uniform grid of origins, whose density is determined by `stride`.
         crop_shape : tuple with 2 elements
             Shape of the resulting crops.
         dst : str or list of str, optional, defaults to None
@@ -329,10 +329,11 @@ class SeismicBatch(Batch):
             perform joint random cropping of segmentation model input and output.
         n_crops : int, optional, defaults to 1
             The number of generated crops if `origins` is "random".
-        n_overlaps : int or float, optional, defaults to 1
-            An average number of crops covering a single element of source data if `origins` is "grid". The higher the
-            value is, the more dense the grid of crops will be. Values less than 1 may result in incomplete data
-            coverage with crops, the default value of 1 guarantees to cover the whole data.
+        stride : tuple with 2 elements, optional, defaults to crop_shape
+            Steps between two adjacent crops along both axes if `origins` is "grid". The lower the value is, the more
+            dense the grid of crops will be. An extra origin will always be placed so that the corresponding crop will
+            fit in the very end of an axis to guarantee complete data coverage with crops regardless of passed
+            `crop_shape` and `stride`.
         kwargs : misc, optional
             Additional keyword arguments to pass to `crop` method of the objects being cropped.
 
@@ -372,11 +373,11 @@ class SeismicBatch(Batch):
             if len(src_shapes) > 1:
                 raise ValueError("If joint is True, all src components must have the same shape.")
             data_shape = src_shapes.pop()
-            origins = make_origins(origins, data_shape, crop_shape, n_crops, n_overlaps)
+            origins = make_origins(origins, data_shape, crop_shape, n_crops, stride)
 
         for src, dst in zip(src_list, dst_list):  # pylint: disable=redefined-argument-from-local
             src_obj = getattr(self, src)[pos]
-            src_cropped = src_obj.crop(origins, crop_shape, n_crops, n_overlaps, **kwargs)
+            src_cropped = src_obj.crop(origins, crop_shape, n_crops, stride, **kwargs)
             setattr(self[pos], dst, src_cropped)
 
         return self

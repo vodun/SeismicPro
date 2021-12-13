@@ -241,7 +241,7 @@ def clip(data, data_min, data_max):
     return data.reshape(data_shape)
 
 
-def make_origins(origins, data_shape, crop_shape, n_crops=1, n_overlaps=1):
+def make_origins(origins, data_shape, crop_shape, n_crops=1, stride=None):
     """Calculate an array of origins or reformat given origins to a 2d `np.ndarray`.
 
     The returned array has shape [n_origins, 2], where each origin represents a top-left corner of a corresponding crop
@@ -255,17 +255,17 @@ def make_origins(origins, data_shape, crop_shape, n_crops=1, n_overlaps=1):
         If `str`, represents a mode to calculate origins. Two options are supported:
         - "random": calculate `n_crops` crops selected randomly using a uniform distribution over the source data, so
           that no crop crosses data boundaries,
-        - "grid": calculate a deterministic uniform grid of origins, whose density is determined by `n_overlaps`.
+        - "grid": calculate a deterministic uniform grid of origins, whose density is determined by `stride`.
     data_shape : tuple with 2 elements
         Shape of the data to be cropped.
     crop_shape : tuple with 2 elements
         Shape of the resulting crops.
     n_crops : int, optional, defaults to 1
         The number of generated crops if `origins` is "random".
-    n_overlaps : int or float, optional, defaults to 1
-        An average number of crops covering a single element of source data if `origins` is "grid". The higher the
-        value is, the more dense the grid of crops will be. Values less than 1 may result in incomplete data coverage
-        with crops, the default value of 1 guarantees to cover the whole data.
+    stride : tuple with 2 elements, optional, defaults to `crop_shape`
+        Steps between two adjacent crops along both axes. The lower the value is, the more dense the grid of crops will
+        be. An extra origin will always be placed so that the corresponding crop will fit in the very end of an axis to
+        guarantee complete data coverage with crops regardless of passed `crop_shape` and `stride`.
 
     Returns
     -------
@@ -283,8 +283,9 @@ def make_origins(origins, data_shape, crop_shape, n_crops=1, n_overlaps=1):
             return np.column_stack((np.random.randint(1 + max(0, data_shape[0] - crop_shape[0]), size=n_crops),
                                     np.random.randint(1 + max(0, data_shape[1] - crop_shape[1]), size=n_crops)))
         if origins == 'grid':
-            origins_x = _make_grid_origins(data_shape[0], crop_shape[0], n_overlaps)
-            origins_y = _make_grid_origins(data_shape[1], crop_shape[1], n_overlaps)
+            stride = crop_shape if stride is None else stride
+            origins_x = _make_grid_origins(data_shape[0], crop_shape[0], stride[0])
+            origins_y = _make_grid_origins(data_shape[1], crop_shape[1], stride[1])
             return np.array(np.meshgrid(origins_x, origins_y)).T.reshape(-1, 2)
         raise ValueError(f"If str, origin should be either 'random' or 'grid' but {origins} was given.")
 
@@ -294,7 +295,7 @@ def make_origins(origins, data_shape, crop_shape, n_crops=1, n_overlaps=1):
     raise ValueError("If array-like, origins must be of a shape [n_origins, 2].")
 
 
-def _make_grid_origins(data_shape, crop_shape, n_overlaps):
+def _make_grid_origins(data_shape, crop_shape, stride):
     """Calculate evenly-spaced origins along a single axis.
 
     Parameters
@@ -303,17 +304,13 @@ def _make_grid_origins(data_shape, crop_shape, n_overlaps):
         Shape of the data to be cropped.
     crop_shape : int
         Shape of the resulting crops.
-    n_overlaps : int or float
-        An average number of crops covering a single element of source data.
+    stride : int
+        A step between two adjacent crops.
 
     Returns
     -------
     origins : 1d np.ndarray
         An array of crop origins.
     """
-    max_origin = data_shape - crop_shape
-    if max_origin <= 0:
-        return np.zeros(1, dtype=np.int32)
-    eps = 0 if max_origin % crop_shape == 0 else 1
-    origins = np.linspace(0, max_origin, num=int((data_shape // crop_shape + eps) * n_overlaps), dtype=np.int32)
-    return np.unique(origins)
+    max_origin = max(data_shape - crop_shape, 0)
+    return np.array(list(range(0, max_origin, stride)) + [max_origin], dtype=np.int32)

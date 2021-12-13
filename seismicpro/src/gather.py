@@ -975,7 +975,7 @@ class Gather:
         self.data = np.nan_to_num(self.data)
         return self
 
-    def crop(self, origins, crop_shape, n_crops=1, n_overlaps=1, pad_mode='constant', **kwargs):
+    def crop(self, origins, crop_shape, n_crops=1, stride=None, pad_mode='constant', **kwargs):
         """"Crop gather data.
 
         Parameters
@@ -987,15 +987,16 @@ class Gather:
             If `str`, represents a mode to calculate origins. Two options are supported:
             - "random": calculate `n_crops` crops selected randomly using a uniform distribution over the gather data,
               so that no crop crosses gather boundaries,
-            - "grid": calculate a deterministic uniform grid of origins, whose density is determined by `n_overlaps`.
+            - "grid": calculate a deterministic uniform grid of origins, whose density is determined by `stride`.
         crop_shape : tuple with 2 elements
             Shape of the resulting crops.
         n_crops : int, optional, defaults to 1
             The number of generated crops if `origins` is "random".
-        n_overlaps : int or float, optional, defaults to 1
-            An average number of crops covering a single element of gather data if `origins` is "grid". The higher the
-            value is, the more dense the grid of crops will be. Values less than 1 may result in incomplete gather
-            coverage with crops, the default value of 1 guarantees to cover the whole data.
+        stride : tuple with 2 elements, optional, defaults to crop_shape
+            Steps between two adjacent crops along both axes if `origins` is "grid". The lower the value is, the more
+            dense the grid of crops will be. An extra origin will always be placed so that the corresponding crop will
+            fit in the very end of an axis to guarantee complete data coverage with crops regardless of passed
+            `crop_shape` and `stride`.
         pad_mode : str or callable, optional, defaults to 'constant'
             Padding mode used when a crop with given origin and shape crossed boundaries of gather data. Passed
             directly to `np.pad`, see https://numpy.org/doc/stable/reference/generated/numpy.pad.html for more
@@ -1008,7 +1009,7 @@ class Gather:
         crops : CroppedGather
             Calculated gather crops.
         """
-        origins = make_origins(origins, self.shape, crop_shape, n_crops, n_overlaps)
+        origins = make_origins(origins, self.shape, crop_shape, n_crops, stride)
         return CroppedGather(self, origins, crop_shape, pad_mode, **kwargs)
 
     #------------------------------------------------------------------------#

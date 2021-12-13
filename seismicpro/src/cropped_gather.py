@@ -25,7 +25,7 @@ class CroppedGather:
 
     During inference, you can generate a regular grid of crops covering the whole gather, obtain model predictions for
     them and then aggregate crop predictions back to get a prediction for the whole gather:
-    >>> crops = gather.crop(origins="grid", crop_shape=(100, 100), n_overlaps=1)
+    >>> crops = gather.crop(origins="grid", crop_shape=(100, 100), stride=(50, 50))
     >>> predict(model, crops)  # Your inference code here
     >>> gather = crops.assemble_gather()
 
