@@ -3,11 +3,47 @@
 import inspect
 from functools import partial, wraps
 
-from .utils import to_list
+import matplotlib.pyplot as plt
+
+from .utils import to_list, save_figure, set_text_formatting, as_dict
 from ..batchflow import action, inbatch_parallel
 
 
-def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src=True, **kwargs):
+def _update_method_params(method, method_params):
+    """Update a `method_params` dict of the `method` with passed parameters."""
+    if not hasattr(method, "method_params"):
+        method.method_params = {}
+    method.method_params.update(method_params)
+    return method
+
+
+def set_method_params(**kwargs):
+    return partial(_update_method_params, method_params=kwargs)
+
+
+def plotter(figsize, args_to_unpack=None):
+    if args_to_unpack is None:
+        args_to_unpack = []
+
+    def decorator(method):
+        @wraps(method)
+        def plot(*args, **kwargs):
+            kwargs = set_text_formatting(kwargs)
+            if "ax" in kwargs:
+                return method(*args, **kwargs)
+            fig, ax = plt.subplots(1, 1, figsize=kwargs.pop("figsize", figsize))
+            save_to = kwargs.pop("save_to", None)
+            output = method(*args, ax=ax, **kwargs)
+            if save_to is not None:
+                save_kwargs = as_dict(save_to, key="path")
+                save_figure(fig, **save_kwargs)
+            plt.show()
+            return output
+        return _update_method_params(plot, {"figsize": figsize, "args_to_unpack": args_to_unpack})
+    return decorator
+
+
+def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src=True):
     """Mark a method as being added to `SeismicBatch` class.
 
     The new method is added by :func:`~decorators.create_batch_methods` decorator of `SeismicBatch` if the parent class
@@ -37,13 +73,11 @@ def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src
         is set to `True` to keep `src` data intact since most processing methods are done inplace. Sometimes it should
         be set to `False` to avoid redundant copying e.g. when a new object is returned like in
         :func:`~Gather.calculate_semblance`.
-    kwargs : misc, optional
-        Additional keyword arguments to `batchflow.decorators.action`.
 
     Returns
     -------
     decorator : callable
-        A decorator, that keeps the method unchanged, but saves all the passed arguments to its `batch_method_params`
+        A decorator, that keeps the method unchanged, but saves all the passed arguments to its `method_params`
         attribute.
 
     Raises
@@ -51,13 +85,10 @@ def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src
     ValueError
         If positional arguments were passed except for the method being decorated.
     """
-    batch_method_params = {"target": target, "args_to_unpack": args_to_unpack, "force": force, "copy_src": copy_src}
-
-    def decorator(method):
-        """Decorate a method by setting passed batch method params to its attributes."""
-        method.batch_method_params = batch_method_params
-        method.action_params = kwargs
-        return method
+    if args_to_unpack is None:
+        args_to_unpack = []
+    method_params = {"target": target, "args_to_unpack": args_to_unpack, "force": force, "copy_src": copy_src}
+    decorator = partial(_update_method_params, method_params=method_params)
 
     if len(args) == 1 and callable(args[0]):
         return decorator(args[0])
@@ -82,9 +113,9 @@ def _apply_to_each_component(method, target, fetch_method_target):
             if fetch_method_target:
                 src_types = {type(elem) for elem in getattr(self, src)}
                 if len(src_types) != 1:
-                    err_msg = "All elements in {src} component must have the same type, but {src_types} found"
-                    raise ValueError(err_msg.format(src=src, src_types=", ".join(map(str, src_types))))
-                src_method_target = getattr(src_types.pop(), method.__name__).batch_method_params["target"]
+                    raise ValueError(f"All elements in {src} component must have the same type, "
+                                     f"but {', '.join(map(str, src_types))} found")
+                src_method_target = getattr(src_types.pop(), method.__name__).method_params["target"]
 
             # Fetch target from passed kwargs
             src_method_target = kwargs.pop("target", src_method_target)
