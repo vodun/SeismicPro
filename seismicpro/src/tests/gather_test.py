@@ -180,8 +180,8 @@ def test_gather_scale_maxabs(gather, tracewise, use_global):
 
 def test_gather_mask_to_pick_and_pick_to_mask(gather):
     """test_gather_mask_to_pick"""
-    gather.pick_to_mask(first_breaks_col='FirstBreak', mask_attr='mask')
-    gather.mask_to_pick(first_breaks_col='FirstBreak', mask_attr='mask')
+    mask = gather.pick_to_mask(first_breaks_col='FirstBreak')
+    mask.mask_to_pick(first_breaks_col='FirstBreak', save_to=gather)
 
 def test_gather_get_coords(gather):
     """test_gather_get_coords"""
