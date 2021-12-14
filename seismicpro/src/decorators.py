@@ -43,7 +43,7 @@ def plotter(figsize, args_to_unpack=None):
     return decorator
 
 
-def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src=True):
+def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src=True, **kwargs):
     """Mark a method as being added to `SeismicBatch` class.
 
     The new method is added by :func:`~decorators.create_batch_methods` decorator of `SeismicBatch` if the parent class
@@ -73,11 +73,12 @@ def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src
         is set to `True` to keep `src` data intact since most processing methods are done inplace. Sometimes it should
         be set to `False` to avoid redundant copying e.g. when a new object is returned like in
         :func:`~Gather.calculate_semblance`.
-
+    kwargs : misc, optional
+        Additional keyword arguments to `batchflow.decorators.action`.
     Returns
     -------
     decorator : callable
-        A decorator, that keeps the method unchanged, but saves all the passed arguments to its `method_params`
+        A decorator, that keeps the method unchanged, but saves all the passed arguments to its `batch_method_params`
         attribute.
 
     Raises
@@ -85,10 +86,13 @@ def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src
     ValueError
         If positional arguments were passed except for the method being decorated.
     """
-    if args_to_unpack is None:
-        args_to_unpack = []
-    method_params = {"target": target, "args_to_unpack": args_to_unpack, "force": force, "copy_src": copy_src}
-    decorator = partial(_update_method_params, method_params=method_params)
+    batch_method_params = {"target": target, "args_to_unpack": args_to_unpack, "force": force, "copy_src": copy_src}
+
+    def decorator(method):
+        """Decorate a method by setting passed batch method params to its attributes."""
+        method.batch_method_params = batch_method_params
+        method.action_params = kwargs
+        return method
 
     if len(args) == 1 and callable(args[0]):
         return decorator(args[0])
