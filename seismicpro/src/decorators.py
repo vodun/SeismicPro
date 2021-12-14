@@ -2,6 +2,7 @@
 
 import inspect
 from functools import partial, wraps
+from collections import defaultdict
 
 import matplotlib.pyplot as plt
 
@@ -9,16 +10,14 @@ from .utils import to_list, save_figure, set_text_formatting, as_dict
 from ..batchflow import action, inbatch_parallel
 
 
-def _update_method_params(method, method_params):
+def _update_method_params(method, decorator_name, **decorator_params):
     """Update a `method_params` dict of the `method` with passed parameters."""
     if not hasattr(method, "method_params"):
         method.method_params = {}
-    method.method_params.update(method_params)
+    if decorator_name not in method.method_params:
+        method.method_params[decorator_name] = {}
+    method.method_params[decorator_name].update(decorator_params)
     return method
-
-
-def set_method_params(**kwargs):
-    return partial(_update_method_params, method_params=kwargs)
 
 
 def plotter(figsize, args_to_unpack=None):
@@ -39,11 +38,11 @@ def plotter(figsize, args_to_unpack=None):
                 save_figure(fig, **save_kwargs)
             plt.show()
             return output
-        return _update_method_params(plot, {"figsize": figsize, "args_to_unpack": args_to_unpack})
+        return _update_method_params(plot, "plotter", figsize=figsize, args_to_unpack=args_to_unpack)
     return decorator
 
 
-def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src=True, **kwargs):
+def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src=True, use_lock=False):
     """Mark a method as being added to `SeismicBatch` class.
 
     The new method is added by :func:`~decorators.create_batch_methods` decorator of `SeismicBatch` if the parent class
@@ -86,13 +85,10 @@ def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src
     ValueError
         If positional arguments were passed except for the method being decorated.
     """
-    batch_method_params = {"target": target, "args_to_unpack": args_to_unpack, "force": force, "copy_src": copy_src}
-
-    def decorator(method):
-        """Decorate a method by setting passed batch method params to its attributes."""
-        method.batch_method_params = batch_method_params
-        method.action_params = kwargs
-        return method
+    if args_to_unpack is None:
+        args_to_unpack = []
+    decorator = partial(_update_method_params, decorator_name="batch_method", target=target,
+                        args_to_unpack=args_to_unpack, force=force, copy_src=copy_src, use_lock=use_lock)
 
     if len(args) == 1 and callable(args[0]):
         return decorator(args[0])
@@ -108,6 +104,8 @@ def _apply_to_each_component(method, target, fetch_method_target):
     def decorated_method(self, *args, src, dst=None, **kwargs):
         src_list = to_list(src)
         dst_list = to_list(dst) if dst is not None else src_list
+        if len(src_list) != len(dst_list):
+            raise ValueError("src and dst should have the same length.")
 
         for src, dst in zip(src_list, dst_list):  # pylint: disable=redefined-argument-from-local
             # Set src_method_target default
@@ -118,13 +116,14 @@ def _apply_to_each_component(method, target, fetch_method_target):
                 src_types = {type(elem) for elem in getattr(self, src)}
                 if len(src_types) != 1:
                     raise ValueError(f"All elements in {src} component must have the same type, "
-                                     f"but {', '.join(map(str, src_types))} found")
-                src_method_target = getattr(src_types.pop(), method.__name__).method_params["target"]
+                                     f"but the following types were found: {', '.join(map(str, src_types))}")
+                src_method_params = getattr(src_types.pop(), method.__name__).method_params
+                src_method_target = src_method_params["batch_method"]["target"]
 
             # Fetch target from passed kwargs
             src_method_target = kwargs.pop("target", src_method_target)
 
-            # Set method target to for if the batch contains only one element
+            # Set method target to "for" if the batch contains only one element
             if len(self) == 1:
                 src_method_target = "for"
 
@@ -189,19 +188,21 @@ def create_batch_methods(*component_classes):
     decorator : callable
         A decorator, that adds new methods to the batch class.
     """
-    def decorator(cls):
+    def decorator(batch_cls):
         decorated_methods = set()
         force_methods = set()
-        action_params = {}
+        method_use_lock = defaultdict(lambda: False)
         for component_class in component_classes:
             for method_name in _get_class_methods(component_class):
                 method = getattr(component_class, method_name)
-                if hasattr(method, "batch_method_params"):
+                batch_method_params = getattr(method, "method_params", {}).get("batch_method")
+                if batch_method_params is not None:
                     decorated_methods.add(method_name)
-                    action_params[method_name] = getattr(method, 'action_params', {})
-                    if getattr(method, "batch_method_params")["force"]:
+                    if batch_method_params["force"]:
                         force_methods.add(method_name)
-        methods_to_add = (decorated_methods - _get_class_methods(cls)) | force_methods
+                    # Set use_lock to True for the batch method if it was set in any component method
+                    method_use_lock[method_name] = method_use_lock[method_name] or batch_method_params["use_lock"]
+        methods_to_add = (decorated_methods - _get_class_methods(batch_cls)) | force_methods
 
         # TODO: dynamically generate docstring
         def create_method(method_name):
@@ -209,7 +210,8 @@ def create_batch_methods(*component_classes):
                 # Get an object corresponding to the given index from src component and copy it if needed
                 pos = self.index.get_pos(index)
                 obj = getattr(self, src)[pos]
-                if getattr(obj, method_name).batch_method_params["copy_src"] and src != dst:
+                obj_method_params = getattr(obj, method_name).method_params["batch_method"]
+                if obj_method_params["copy_src"] and src != dst:
                     obj = obj.copy()
 
                 # Unpack required method arguments by getting the value of specified component with index pos
@@ -217,17 +219,15 @@ def create_batch_methods(*component_classes):
                 obj_method = getattr(obj, method_name)
                 obj_arguments = inspect.signature(obj_method).bind(*args, **kwargs)
                 obj_arguments.apply_defaults()
-                args_to_unpack = obj_method.batch_method_params["args_to_unpack"]
-                if args_to_unpack is not None:
-                    for arg_name in to_list(args_to_unpack):
-                        arg_val = obj_arguments.arguments[arg_name]
-                        if isinstance(arg_val, str):
-                            obj_arguments.arguments[arg_name] = getattr(self, arg_val)[pos]
+                for arg_name in to_list(obj_method_params["args_to_unpack"]):
+                    arg_val = obj_arguments.arguments[arg_name]
+                    if isinstance(arg_val, str):
+                        obj_arguments.arguments[arg_name] = getattr(self, arg_val)[pos]
                 getattr(self, dst)[pos] = obj_method(*obj_arguments.args, **obj_arguments.kwargs)
             method.__name__ = method_name
-            return action(**action_params[method_name])(apply_to_each_component(method))
+            return action(use_lock=method_use_lock[method_name])(apply_to_each_component(method))
 
         for method_name in methods_to_add:
-            setattr(cls, method_name, create_method(method_name))
-        return cls
+            setattr(batch_cls, method_name, create_method(method_name))
+        return batch_cls
     return decorator

@@ -403,9 +403,10 @@ class SeismicBatch(Batch):
         plotters = [[] for _ in range(len(self))]
         for src, kwargs in zip(src_list, src_kwargs):
             # Merge src kwargs with common kwargs and defaults
-            src_plot_method_params = getattr(getattr(self, src)[0].plot, "method_params", {})
-            kwargs = {"figsize": src_plot_method_params.get("figsize", (6.4, 4.8)), "title": title, **common_kwargs,
-                      **kwargs}
+            plotter_params = getattr(getattr(self, src)[0].plot, "method_params", {}).get("plotter")
+            if plotter_params is None:
+                raise ValueError("plot method of each component in src must be decorated with plotter")
+            kwargs = {"figsize": plotter_params["figsize"], "title": title, **common_kwargs, **kwargs}
 
             # Scale subplot figsize if its width is greater than max_width
             width, height = kwargs.pop("figsize")
@@ -414,7 +415,7 @@ class SeismicBatch(Batch):
                 width = max_width
 
             title_template = kwargs.pop("title")
-            args_to_unpack = set(to_list(src_plot_method_params.get("args_to_unpack", [])))
+            args_to_unpack = set(to_list(plotter_params["args_to_unpack"]))
 
             for i, index in enumerate(self.indices):
                 unpacked_args = {}
