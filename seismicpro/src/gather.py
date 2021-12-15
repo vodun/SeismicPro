@@ -1048,11 +1048,12 @@ class Gather:
             - "round_to": Number of decimal places to round to (defaults to 0). If "round_to" is 0, labels cast to an
             integer.
             - "rotation": The rotation angle in degrees of the ticklabels.
-        Also, is allowed to pass other rotation kwargs: "ha" and "rotation_mode"; see `matplotlib.text.Text` for more.
+        Also, is allowed to pass other rotation kwargs: "ha" and "rotation_mode"; see `matplotlib.text.Text` for more
+        details.
 
         Notes
         -----
-        1. Depending on the `mode`, `kwargs` can be treated differently; see method description for more.
+        1. Depending on the `mode`, `kwargs` can be treated differently; see method description for more details.
         2. If given Gather is sorted and `x_ticker` is None, the `sort_by` will be used for setting ticklabels for
         the x-axis.
 
@@ -1070,24 +1071,25 @@ class Gather:
                 - "headers": header names. Likewise, it can be either a str or an array-like.
                 - "process_outliers": an approach for outliers processing. There are two avalible approaches:
                     * "clip": clip outliers with 0 and trace length,
-                    * "discard": do not display outliers.
+                    * "discard": do not display outliers,
+                    * "none": leave outliers unchanged (default behaviour).
                 - Additional arguments for `matplotlib.pyplot.scatter`. If argument value is array-like, every element
                 will be passed to the scatter plot of corresponding header. Otherwise, the value will be used by every
                 scatter plots.
         top_header : str, optional, defaults to None
             A header name to plot on the top of the main axis.
         title : str or dict, optional, defaults to None
-            If str is passed, use string as a title.
-            If dict, all items are treated as keyword arguments for `matplotlib.axes.set_title`.
+            If `str` is passed, use string as a title.
+            If `dict`, all items are treated as keyword arguments for `matplotlib.axes.set_title`.
         x_ticker : str or dict, optional, defaults to None
             Set ticks and ticklabels for the x-axis.
             If `str`, headers name to use its values as ticklabels for x-axis.
-            If dict, represents header names in "labels" key and additional arguments for x-axis to control ticks
+            If `dict`, represents header names in "labels" key and additional arguments for x-axis to control ticks
             frequency and ticklabels rotation.
         y_ticker : 'time', 'samples' or dict, optional, defaults to "time"
             Set ticks and ticklabels for the y-axis. If "time", the y-axis will correspond to the time in milliseconds.
             If "samples", the y-axis will correspond to the time in samples.
-            If dict, represents a type of y-axis in "labels" key and additional arguments for the y-axis to control
+            If `dict`, represents a type of y-axis in "labels" key and additional arguments for the y-axis to control
             ticks frequency and ticklabels rotation.
         ax : matplotlib.pyplot.axes, optional, defaults to None
             An axes of the figure to plot on.
