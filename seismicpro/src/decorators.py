@@ -34,7 +34,7 @@ def plotter(figsize, args_to_unpack=None):
             save_to = kwargs.pop("save_to", None)
             output = method(*args, ax=ax, **kwargs)
             if save_to is not None:
-                save_kwargs = as_dict(save_to, key="path")
+                save_kwargs = as_dict(save_to, key="fname")
                 save_figure(fig, **save_kwargs)
             plt.show()
             return output

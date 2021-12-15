@@ -7,14 +7,17 @@ import matplotlib.colors as mcolors
 
 
 def as_dict(val, key):
+    """Construct a dict with a structure {`key`: `val`} if given `val` is not dict, or copy `val` otherwise"""
     return val.copy() if isinstance(val, dict) else {key: val}
 
 
-def save_figure(fig, path, dpi=100, bbox_inches="tight", pad_inches=0.1, **kwargs):
-    fig.savefig(path, dpi=dpi, bbox_inches=bbox_inches, pad_inches=pad_inches, **kwargs)
+def save_figure(fig, fname, dpi=100, bbox_inches="tight", pad_inches=0.1, **kwargs):
+    """Save the given figure `fig`. All arguemnts and `kwargs` are directly passed into `matplotlib.pyplot.savefig`."""
+    fig.savefig(fname, dpi=dpi, bbox_inches=bbox_inches, pad_inches=pad_inches, **kwargs)
 
 
 def set_text_formatting(kwargs):
+    """Pop text related arguments from kwargs and add them to the following keys: 'title', 'x_ticker', 'y_ticker'"""
     FORMAT_ARGS = {'fontsize', 'size', 'fontfamily', 'family', 'fontweight', 'weight'}
     TEXT_ARGS = {'title', 'x_ticker', 'y_ticker'}
 
@@ -25,6 +28,30 @@ def set_text_formatting(kwargs):
 
 
 def set_ticks(ax, axis, axis_label, tick_labels, num=None, step_ticks=None, step_labels=None, round_to=0, **kwargs):
+    """Set ticks and ticklabels for x or y axis depending on the "axis".
+
+    Parameters
+    ----------
+    ax : matplotlib.Axes
+        Axis to which ticks are set.
+    axis : "x" or "y"
+        Whether to set ticks for "x" or "y" axis.
+    axis_label : str
+        The label of the current axis.
+    tick_labels : array-like
+        Array of ticklabels.
+    num : int, optional, defaults to None
+        Number of ticks on the axis that are evenly spaced.
+    step_ticks : int, optional, defaults to None
+        Step between ticks. Ticks are placed evenly with a step equal to `step_ticks`.
+    step_labels : int, optional, defaults to None
+        Step between ticks. Ticks are placed at an exact distance by ticklabels.
+    round_to : int, optional, defaults to 0
+        Number of decimal places to round to. If `round_to` is 0, labels cast to an integer.
+    kwargs : misc, optional
+        Additional keyword arguments to control text formatting and rotation. Passes directly to
+        `matplotlib.axis.Axis.set_label_text` and `matplotlib.axis.Axis.set_ticklabels`.
+    """
     locator, formatter = _process_ticks(labels=tick_labels, num=num, step_ticks=step_ticks, step_labels=step_labels,
                                         round_to=round_to)
     rotation_kwargs = _pop_rotation_kwargs(kwargs)
@@ -36,6 +63,7 @@ def set_ticks(ax, axis, axis_label, tick_labels, num=None, step_ticks=None, step
 
 
 def _process_ticks(labels, num, step_ticks, step_labels, round_to):
+    """Create locator and formatter based on `labels` and desired tick steps"""
     if num is not None:
         locator = ticker.LinearLocator(num)
     elif step_ticks is not None:
@@ -52,6 +80,8 @@ def _process_ticks(labels, num, step_ticks, step_labels, round_to):
         locator = ticker.AutoLocator()
 
     def formatter(label_ix, *args):
+        """Get label value for given label index."""
+        _ = args
         if (label_ix < 0) or (label_ix > len(labels) - 1):
             return None
 
@@ -65,6 +95,7 @@ def _process_ticks(labels, num, step_ticks, step_labels, round_to):
 
 
 def _pop_rotation_kwargs(kwargs):
+    """Pop keys obliged for text rotation"""
     ROTATION_ARGS = {"ha", "rotation_mode"}
     rotation = kwargs.pop("rotation", None)
     rotation_kwargs = {arg: kwargs.pop(arg) for arg in ROTATION_ARGS if arg in kwargs}
@@ -137,6 +168,6 @@ def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7),  # pyl
     set_ticks(ax, "y", None, np.linspace(*ticks_range_y, metrics_map.shape[0]), **y_ticker)
 
     if save_to is not None:
-        save_kwargs = as_dict(save_to, key="path")
+        save_kwargs = as_dict(save_to, key="fname")
         save_figure(fig, **save_kwargs)
     plt.show()
