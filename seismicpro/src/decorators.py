@@ -21,6 +21,28 @@ def _update_method_params(method, decorator_name, **decorator_params):
 
 
 def plotter(figsize, args_to_unpack=None):
+    """Decorate method so that if `matplotlib.Axis` is missed in `ax` key of method's `kwargs`, it will be created with
+    provided `figsize` and saves the resulting figure if key `save_to` is passed. Otherwise, the method will be called
+    directly.
+
+    Before passing to the method, `kwargs` are processed as follows: All text-related arguments are popped from the
+    `kwargs` and added to the following keys: 'title', 'x_ticker', 'y_ticker'.
+
+    Parameters
+    ----------
+    figsize : array-like with length 2
+        Output figure size.
+    args_to_unpack : str or list of str, optional, defaults to None
+        If given, listed arguments are allowed to accept `str` value which will be treated as a name of a batch
+        component. In this case, when the call is redirected to a particular element, each argument will be substituted
+        by the corresponding value of the specified component.
+
+    Returns
+    -------
+    decorator : callable
+        A decorator, that keeps the method unchanged but restructures a method `kwargs` if needed and saves `figsize`
+        and `args_to_unpack` to its `plotter` attribute.
+    """
     if args_to_unpack is None:
         args_to_unpack = []
 
