@@ -17,7 +17,7 @@ def save_figure(fig, fname, dpi=100, bbox_inches="tight", pad_inches=0.1, **kwar
 
 
 def set_text_formatting(kwargs):
-    """Pop text related arguments from kwargs and add them to the following keys: 'title', 'x_ticker', 'y_ticker'"""
+    """Pop text related arguments from `kwargs` and add them to the following keys: 'title', 'x_ticker', 'y_ticker'"""
     FORMAT_ARGS = {'fontsize', 'size', 'fontfamily', 'family', 'fontweight', 'weight'}
     TEXT_ARGS = {'title', 'x_ticker', 'y_ticker'}
 
@@ -80,7 +80,7 @@ def _process_ticks(labels, num, step_ticks, step_labels, round_to):
         locator = ticker.AutoLocator()
 
     def formatter(label_ix, *args):
-        """Get label value for given label index."""
+        """Get label value for given label index in `label_ix`"""
         _ = args
         if (label_ix < 0) or (label_ix > len(labels) - 1):
             return None
@@ -128,18 +128,16 @@ def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7),  # pyl
         unchanged.
     fontsize : int, optional, defaults to 11
         The size of the text on the plot.
-    ticks_range_x : array-like with length 2, optional
+    ticks_range_x : array-like with length 2, optional, defaults to None
         Min and max value of labels on the x-axis.
-    ticks_range_y : array-like with length 2, optional
+    ticks_range_y : array-like with length 2, optional, defaults to None
         Min and max value of labels on the y-axis.
-    x_ticks : int, optional, defaults to 15
-        The number of coordinates on the x-axis.
-    y_ticks : int, optional, defaults to 15
-        The number of coordinates on the y-axis.
-    save_to : str, optional
-        If given, save plot to the path specified.
-    dpi : int, optional, defaults to 300
-        The resolution of saved figure in dots per inch.
+    x_ticker : dict, optional, defaults to None
+        Paramters for ticks and ticklabels formatting for the x-aixs; see `.utils.set_ticks` for more details.
+    y_ticker : dict, optional, defaults to None
+        Paramters for ticks and ticklabels formatting for the y-aixs; see `.utils.set_ticks` for more details.
+    save_to : str or dict, optional, defaults to None
+        If `str`, a path to the resulting figure. Otherwise, all the `kwargs` to `matplotlib.pyplot.savefig`.
     kwargs : misc, optional
         Additional named arguments for :func:`matplotlib.pyplot.imshow`.
     """
