@@ -145,21 +145,21 @@ class BaseSemblance:
         x_ticklabels : list of str, optional, defaults to None
             An array of labels for the x-axis.
         x_ticker : dict, optional, defaults to None
-            Paramters for ticks and ticklabels formatting for the x-aixs; see `.utils.set_ticks` for more details.
+            Parameters for ticks and ticklabels formatting for the x-axis; see `.utils.set_ticks` for more details.
         y_ticklabels : list of str, optional, defaults to None
             An array of labels for the y-axis.
         y_ticker : dict, optional, defaults to None
-            Paramters for ticks and ticklabels formatting for the y-aixs; see `.utils.set_ticks` for more details.
+            Parameters for ticks and ticklabels formatting for the y-axis; see `.utils.set_ticks` for more details.
         grid : bool, optional, defaults to False
             Specifies whether to draw a grid on the plot.
         stacking_times_ix : 1d np.ndarray, optional
             Time indices of calculated stacking velocities to show on the plot.
         stacking_velocities_ix : 1d np.ndarray, optional
             Velocity indices of calculated stacking velocities to show on the plot.
-        ax : matplotlib.pyplot.axes, optional, defaults to None
-            An axes of the figure to plot on.
+        ax : matplotlib.axes.Axes, optional, defaults to None
+            Axes of the figure to plot on.
         kwargs : misc, optional
-            Common additional keyword arguments for `x_ticker` and `y_tickers`.
+            Additional common keyword arguments for `x_ticker` and `y_tickers`.
         """
         # Split the range of semblance amplitudes into 16 levels on a log scale,
         # that will further be used as colormap bins
@@ -309,18 +309,18 @@ class Semblance(BaseSemblance):
         stacking_velocity : StackingVelocity, optional
             Stacking velocity to plot if given. If its sample rate is more than 50 ms, every point will be highlighted
             with a circle.
-        title : str, optional, defaults to None
+        title : str, optional, defaults to "Semblance"
             Plot title.
         x_ticker : dict, optional, defaults to None
-            Paramters for ticks and ticklabels formatting for the x-aixs; see `.utils.set_ticks` for more details.
+            Parameters for ticks and ticklabels formatting for the x-axis; see `.utils.set_ticks` for more details.
         y_ticker : dict, optional, defaults to None
-            Paramters for ticks and ticklabels formatting for the y-aixs; see `.utils.set_ticks` for more details.
+            Parameters for ticks and ticklabels formatting for the y-axis; see `.utils.set_ticks` for more details.
         grid : bool, optional, defaults to False
             Specifies whether to draw a grid on the plot.
-        ax : matplotlib.pyplot.axes, optional, defaults to None
-            An axes of the figure to plot on.
+        ax : matplotlib.axes.Axes, optional, defaults to None
+            Axes of the figure to plot on.
         kwargs : misc, optional
-            Additional named arguments for :func:`~BaseSemblance.plot`.
+            Additional common keyword arguments for `x_ticker` and `y_tickers`.
 
         Returns
         -------
@@ -571,18 +571,18 @@ class ResidualSemblance(BaseSemblance):
 
         Parameters
         ----------
-        title : str, optional, defaults to None
+        title : str, optional, defaults to "Residual semblance"
             Plot title.
         x_ticker : dict, optional, defaults to None
-            Paramters for ticks and ticklabels formatting for the x-aixs; see `.utils.set_ticks` for more details.
+            Parameters for ticks and ticklabels formatting for the x-axis; see `.utils.set_ticks` for more details.
         y_ticker : dict, optional, defaults to None
-            Paramters for ticks and ticklabels formatting for the y-aixs; see `.utils.set_ticks` for more details.
+            Parameters for ticks and ticklabels formatting for the y-axis; see `.utils.set_ticks` for more details.
         grid : bool, optional, defaults to False
             Specifies whether to draw a grid on the plot.
-        ax : matplotlib.pyplot.axes, optional, defaults to None
-            An axes of the figure to plot on.
+        ax : matplotlib.axes.Axes, optional, defaults to None
+            Axes of the figure to plot on.
         kwargs : misc, optional
-            Additional named arguments for :func:`~BaseSemblance.plot`.
+            Additional common keyword arguments for `x_ticker` and `y_tickers`.
 
         Returns
         -------
