@@ -7,49 +7,50 @@ from matplotlib import ticker, colors as mcolors
 
 
 def as_dict(val, key):
-    """Construct a dict with a structure {`key`: `val`} if given `val` is not dict, or copy `val` otherwise"""
+    """Construct a dict with a {`key`: `val`} structure if given `val` is not a `dict`, or copy `val` otherwise."""
     return val.copy() if isinstance(val, dict) else {key: val}
 
 
 def save_figure(fig, fname, dpi=100, bbox_inches="tight", pad_inches=0.1, **kwargs):
-    """Save the given figure `fig`. All arguemnts and `kwargs` are directly passed into `matplotlib.pyplot.savefig`."""
+    """Save the given figure. All `args` and `kwargs` are passed directly into `matplotlib.pyplot.savefig`."""
     fig.savefig(fname, dpi=dpi, bbox_inches=bbox_inches, pad_inches=pad_inches, **kwargs)
 
 
 def set_text_formatting(kwargs):
-    """Pop text related arguments from `kwargs` and add them to the following keys: 'title', 'x_ticker', 'y_ticker'"""
+    """Pop text formatting args from `kwargs` and set them as defaults for 'title', 'x_ticker', 'y_ticker'."""
     FORMAT_ARGS = {'fontsize', 'size', 'fontfamily', 'family', 'fontweight', 'weight'}
     TEXT_ARGS = {'title', 'x_ticker', 'y_ticker'}
 
     global_formatting = {arg: kwargs.pop(arg) for arg in FORMAT_ARGS if arg in kwargs}
     text_args = {arg: {**global_formatting, **as_dict(kwargs.pop(arg), key="label")}
-                       for arg in TEXT_ARGS if arg in kwargs}
+                 for arg in TEXT_ARGS if arg in kwargs}
     return {**kwargs, **text_args}
 
 
 def set_ticks(ax, axis, axis_label, tick_labels, num=None, step_ticks=None, step_labels=None, round_to=0, **kwargs):
-    """Set ticks and ticklabels for x or y axis depending on the "axis".
+    """Set ticks and labels for `x` or `y` axis depending on the `axis`.
 
     Parameters
     ----------
-    ax : matplotlib.Axes
-        Axis to which ticks are set.
+    ax : matplotlib.axes.Axes
+        An axis on which ticks are set.
     axis : "x" or "y"
-        Whether to set ticks for "x" or "y" axis.
+        Whether to set ticks for "x" or "y" axis of `ax`.
     axis_label : str
-        The label of the current axis.
+        The label to set for `axis` axis.
     tick_labels : array-like
-        Array of ticklabels.
+        An array of labels for axis ticks.
     num : int, optional, defaults to None
-        Number of ticks on the axis that are evenly spaced.
+        The number of evenly spaced ticks on the axis.
     step_ticks : int, optional, defaults to None
-        Step between ticks. Ticks are placed evenly with a step equal to `step_ticks`.
+        A step between two adjacent ticks in samples (e.g. place every hundredth tick).
     step_labels : int, optional, defaults to None
-        Step between ticks. Ticks are placed at an exact distance by ticklabels.
+        A step between two adjacent tick in the units of the corresponding labels (e.g. place a tick every 200ms for an
+        axis, whose labels are measured in milliseconds).
     round_to : int, optional, defaults to 0
-        Number of decimal places to round to. If `round_to` is 0, labels cast to an integer.
+        The number of decimal places to round tick labels to. If 0, tick labels will be cast to integers.
     kwargs : misc, optional
-        Additional keyword arguments to control text formatting and rotation. Passes directly to
+        Additional keyword arguments to control text formatting and rotation. Passed directly to
         `matplotlib.axis.Axis.set_label_text` and `matplotlib.axis.Axis.set_ticklabels`.
     """
     locator, formatter = _process_ticks(labels=tick_labels, num=num, step_ticks=step_ticks, step_labels=step_labels,
@@ -63,7 +64,7 @@ def set_ticks(ax, axis, axis_label, tick_labels, num=None, step_ticks=None, step
 
 
 def _process_ticks(labels, num, step_ticks, step_labels, round_to):
-    """Create locator and formatter based on `labels` and desired tick steps"""
+    """Create an axis locator and formatter by given `labels` and tick layout parameters."""
     if num is not None:
         locator = ticker.LinearLocator(num)
     elif step_ticks is not None:
@@ -80,7 +81,7 @@ def _process_ticks(labels, num, step_ticks, step_labels, round_to):
         locator = ticker.AutoLocator()
 
     def formatter(label_ix, *args):
-        """Get label value for given label index in `label_ix`"""
+        """Get tick label by its index in `labels` and format the resulting value."""
         _ = args
         if (label_ix < 0) or (label_ix > len(labels) - 1):
             return None
@@ -95,7 +96,7 @@ def _process_ticks(labels, num, step_ticks, step_labels, round_to):
 
 
 def _pop_rotation_kwargs(kwargs):
-    """Pop keys obliged for text rotation"""
+    """Pop the keys responsible for text rotation from `kwargs`."""
     ROTATION_ARGS = {"ha", "rotation_mode"}
     rotation = kwargs.pop("rotation", None)
     rotation_kwargs = {arg: kwargs.pop(arg) for arg in ROTATION_ARGS if arg in kwargs}
@@ -133,11 +134,14 @@ def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7),  # pyl
     ticks_range_y : array-like with length 2, optional, defaults to None
         Min and max value of labels on the y-axis.
     x_ticker : dict, optional, defaults to None
-        Paramters for ticks and ticklabels formatting for the x-aixs; see `.utils.set_ticks` for more details.
+        Parameters for ticks and ticklabels formatting for the x-axis; see `.utils.set_ticks` for more details.
     y_ticker : dict, optional, defaults to None
-        Paramters for ticks and ticklabels formatting for the y-aixs; see `.utils.set_ticks` for more details.
+        Parameters for ticks and ticklabels formatting for the y-axis; see `.utils.set_ticks` for more details.
     save_to : str or dict, optional, defaults to None
-        If `str`, a path to the resulting figure. Otherwise, all the `kwargs` to `matplotlib.pyplot.savefig`.
+        If `str`, a path to save the figure to.
+        If `dict`, should contain keyword arguments to pass to `matplotlib.pyplot.savefig`. In this case, the path
+        is stored under the `fname` key.
+        Otherwise, the figure is not saved.
     kwargs : misc, optional
         Additional named arguments for :func:`matplotlib.pyplot.imshow`.
     """
