@@ -1030,71 +1030,89 @@ class Gather:
     @plotter(figsize=(10, 7))
     def plot(self, mode="seismogram", event_headers=None, top_header=None, title=None, x_ticker=None, y_ticker="time",
              ax=None, **kwargs):
-        """Plot gather with specified `mode`. The function contains main approaches for visualizing seismic traces:
-            - "seismogram": grayscale 2d-image of seismic traces. This mode supports the following `kwargs`:
-                * "colorbar": wether to add a colorbar on the right side of the main axis (defaults to False),
-                * "qvmin", "qvmax": the quantile range covered by the colormap (defaults to 0.1 and 0.9),
-                * Additional arguments for `matplotlib.pyplot.imshow`.
-            - "wiggle": seismic traces in a wiggle form. This mode supports the following `kwargs`:
-                * "std": the amplitude scaling factor (defaults to 0.5),
-                * "color": specify color for every trace. Can be either color name for all traces or an array of colors
-                (defaults to None).
+        """Plot gather traces.
 
-        Ticks and ticklabels of the resulting gather representation can be controlled by `x_ticker` and `y_ticker`,
-        which support the following keys:
-            - "num": number of ticks on the axis that are evenly spaced,
-            - "step_ticks": step between ticks. Ticks are placed evenly with a step equal to "step_ticks",
-            - "step_labels": step between ticks. Ticks are placed at an exact distance by ticklabels.
-            - "round_to": Number of decimal places to round to (defaults to 0). If "round_to" is 0, labels cast to an
-            integer.
-            - "rotation": The rotation angle in degrees of the ticklabels.
-        Also, is allowed to pass other rotation kwargs: "ha" and "rotation_mode"; see `matplotlib.text.Text` for more
-        details.
+        The traces can be displayed in a number of representations, depending on the `mode` provided. Currently, the
+        following options are supported:
+        - `seismogram`: a 2d grayscale image of seismic traces. This mode supports the following `kwargs`:
+            * `colorbar`: whether to add a colorbar on the right side of the main axis (defaults to `False`). If
+              `dict`, defines extra keyword arguments for `matplotlib.figure.Figure.colorbar`.
+            * `qvmin`, `qvmax`: quantile range of amplitude values covered by the colormap (defaults to 0.1 and 0.9),
+            * Any additional arguments for `matplotlib.pyplot.imshow`. Note, that `vmin` and `vmax` arguments take
+              priority over `qvmin` and `qvmax` respectively.
+        - `wiggle`: an amplitude vs time plot for each trace of the gather as an oscillating line around its mean
+          amplitude. This mode supports the following `kwargs`:
+            * `std`: amplitude scaling factor. Higher values result in higher plot oscillations (defaults to 0.5),
+            * `color`: defines a color for each trace. If a single color is given, it is applied to all the traces
+              (defaults to black).
 
-        Notes
-        -----
-        1. Depending on the `mode`, `kwargs` can be treated differently; see method description for more details.
-        2. If given Gather is sorted and `x_ticker` is None, the `sort_by` will be used for setting ticklabels for
-        the x-axis.
+        Trace headers, whose values are measured in milliseconds (e.g. first break picking) may be displayed over the
+        gather plot if passed as `event_headers`. If `top_header` is passed, an auxiliary scatter plot of values of
+        this header will be shown on top of the gather plot.
+
+        Ticks and their labels for both `x` and `y` axes can be controlled via `x_ticker` and `y_ticker` parameters
+        respectively. In the most general form, each of them is a `dict` with the following most used keys:
+        - `label`: source to get tick labels from. Can be either any gather header or "index" (ordinary numbers of
+          traces) for `x` axis and "times" or "samples" for `y` axis.
+        - `round_to`: the number of decimal places to round tick labels to (defaults to 0).
+        - `rotation`: the rotation angle of tick labels in degrees (defaults to 0).
+        - One of the following keys, defining the number of ticks or their locations:
+            * `num`: the number of evenly spaced ticks on the axis,
+            * `step_ticks`: a step between two adjacent ticks in samples (e.g. place every hundredth tick),
+            * `step_labels`: a step between two adjacent tick in the units of the corresponding labels (e.g. place a
+              tick every 200ms for `y` axis or every 300m offset for `x` axis).
+        A short argument form allows defining both tickers as a single `str`, which will be treated as the value for
+        `label` key. See :func:`~plot_utils.set_ticks` for more details on the ticker parameters.
 
         Parameters
         ----------
         mode : "seismogram" or "wiggle", optional, defaults to "seismogram"
-            A type of the gather representation to produce:
-            - "seismogram": grayscale 2d-image of seismic traces.
-            - "wiggle": seismic traces in a wiggle form.
+            A type of the gather representation to display:
+            - "seismogram": a 2d grayscale image of seismic traces,
+            - "wiggle": an amplitude vs time plot for each trace of the gather.
         event_headers : str, array-like or dict, optional, defaults to None
-            A header name to plot its values over the main axis using a scatter plot. If `array-like` is passed,
-            provided header values will be plotted iteratevely on the main axis.
-            If `dict`, represents header names, an approach for outliers processing and additional arguments for
-            `matplotlib.pyplot.scatter`. The following keys are supported:
-                - "headers": header names. Likewise, it can be either a str or an array-like.
-                - "process_outliers": an approach for outliers processing. There are two avalible approaches:
-                    * "clip": clip outliers with 0 and trace length,
-                    * "discard": do not display outliers,
-                    * "none": leave outliers unchanged (default behaviour).
-                - Additional arguments for `matplotlib.pyplot.scatter`. If argument value is array-like, every element
-                will be passed to the scatter plot of corresponding header. Otherwise, the value will be used by every
-                scatter plots.
+            Headers, whose values will be displayed over the gather plot. Must be measured in milliseconds.
+            If `dict`, allows controlling scatter plot options and handling outliers (header values falling out the `y`
+            axis range). The following keys are supported:
+            - `headers`: header names, can be either `str` or an array-like.
+            - `process_outliers`: an approach for outliers processing. Available options are:
+                * `clip`: clip outliers to fit the range of `y` axis,
+                * `discard`: do not display outliers,
+                * `none`: plot all the header values (default behavior).
+            - Any additional arguments for `matplotlib.axes.Axes.scatter`.
+            If a value of any argument is array-like, each its element will be associated with the corresponding
+            header. Otherwise, the value will be used for all the scatter plots.
         top_header : str, optional, defaults to None
-            A header name to plot on the top of the main axis.
+            A header name to plot on top of the main axis.
         title : str or dict, optional, defaults to None
-            If `str` is passed, use string as a title.
-            If `dict`, all items are treated as keyword arguments for `matplotlib.axes.set_title`.
+            If `str`, a title of the plot.
+            If `dict`, should contain keyword arguments to pass to `matplotlib.axes.Axes.set_title`. In this case, the
+            title string is stored under the `label` key.
         x_ticker : str or dict, optional, defaults to None
-            Set ticks and ticklabels for the x-axis.
-            If `str`, headers name to use its values as ticklabels for x-axis.
-            If `dict`, represents header names in "labels" key and additional arguments for x-axis to control ticks
-            frequency and ticklabels rotation.
-        y_ticker : 'time', 'samples' or dict, optional, defaults to "time"
-            Set ticks and ticklabels for the y-axis. If "time", the y-axis will correspond to the time in milliseconds.
-            If "samples", the y-axis will correspond to the time in samples.
-            If `dict`, represents a type of y-axis in "labels" key and additional arguments for the y-axis to control
-            ticks frequency and ticklabels rotation.
-        ax : matplotlib.pyplot.axes, optional, defaults to None
-            An axes of the figure to plot on.
+            Source to get `x` tick labels from and additional parameters to control their formatting and layout.
+            If `str`, either any gather header name to use its values as labels or "index" to use ordinary numbers of
+            traces in the gather.
+            If `dict`, the source is specified under the "labels" key and the rest keys define labels formatting and
+            layout, see :func:`~plot_utils.set_ticks` for more details.
+            If not given, but the gather is sorted, `self.sort_by` will be passed as `x_ticker`. Otherwise, "index"
+            will be passed.
+        y_ticker : "time", "samples" or dict, optional, defaults to "time"
+            Source to get `y` tick labels from and additional parameters to control their formatting and layout.
+            If "time", the labels are the times of gather samples in milliseconds, if "samples" - ordinary numbers of
+            gather samples.
+            If `dict`, stores either "time" or "samples" under the "labels" key and the rest keys define labels
+            formatting and layout, see :func:`~plot_utils.set_ticks` for more details.
+        ax : matplotlib.axes.Axes, optional, defaults to None
+            An axis of the figure to plot on. If not given, it will be created automatically.
+        figsize : tuple, optional, defaults to (10, 7)
+            Size of the figure to create if `ax` is not given. Measured in inches.
+        save_to : str or dict, optional, defaults to None
+            If `str`, a path to save the figure to.
+            If `dict`, should contain keyword arguments to pass to `matplotlib.pyplot.savefig`. In this case, the path
+            is stored under the `fname` key.
+            Otherwise, the figure is not saved.
         kwargs : misc, optional
-            Additional keyword arguments to plotter depending on the `mode`.
+            Additional keyword arguments to the plotter depending on the `mode`.
 
         Returns
         -------
@@ -1104,8 +1122,11 @@ class Gather:
         Raises
         ------
         ValueError
-            If given `mode` is unknown, or if given wrong type of `colorbar` in `seismogram` mode, or if given wrong
-            number of `colors` in `wiggle` mode.
+            If given `mode` is unknown.
+            If `colorbar` is not `bool` or `dict`.
+            If the number of `colors` doesn't match the number of traces.
+            If `event_headers` argument has the wrong format or given outlier processing mode is unknown.
+            If `x_ticker` or `y_ticker` has the wrong format.
         """
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
@@ -1137,7 +1158,7 @@ class Gather:
         return self
 
     def _plot_seismogram(self, ax, divider, colorbar=False, qvmin=0.1, qvmax=0.9, **kwargs):
-        """Plot seismic traces"""
+        """Plot the gather as a 2d grayscale image of seismic traces."""
         vmin, vmax = self.get_quantile([qvmin, qvmax])
         kwargs = {"cmap": "gray", "aspect": "auto", "vmin": vmin, "vmax": vmax, **kwargs}
         img = ax.imshow(self.data.T, **kwargs)
@@ -1149,7 +1170,7 @@ class Gather:
             ax.figure.colorbar(img, cax=cax, **colorbar)
 
     def _plot_wiggle(self, ax, std=0.5, color=None):
-        """Plot seismic traces in wiggle form"""
+        """Plot the gather as an amplitude vs time plot for each trace."""
         color = ["black"] if color is None else to_list(color)
         if len(color) == 1:
             color = color * self.n_traces
@@ -1165,21 +1186,23 @@ class Gather:
 
     @staticmethod
     def _parse_headers_kwargs(headers_kwargs, headers_key):
-        """Construct a dict of kwargs for each header defined in `headers_kwargs` under `headers_key` key so that it
+        """Construct a `dict` of kwargs for each header defined in `headers_kwargs` under `headers_key` key so that it
         contains all other keys from `headers_kwargs` with the values defined as follows:
-        1. If it's an array-like in `headers_kwargs`, it is indexed with the index of the currently processed header
-        2. Otherwise, it is kept unchanged
+        1. If the value in `headers_kwargs` is an array-like, it is indexed with the index of the currently processed
+           header,
+        2. Otherwise, it is kept unchanged.
 
         Examples
         --------
         >>> headers_kwargs = {
-            "headers" : ["offset", "TraceNumber"],
-            "s" : [5, 10],
-            "c" : "red"
-        }
-        >>> _parse_headers_kwargs(headers_kwargs, headers_key="headers")
-        [{"headers": "offset", "s" : 5, "c" : "red"}, {"headers" : "TraceNumber", "s" : 10, "c" : "red"}]
-         """
+        ...     "headers": ["FirstBreakTrue", "FirstBreakPred"],
+        ...     "s": 5,
+        ...     "c": ["blue", "red"]
+        ... }
+        >>> Gather._parse_headers_kwargs(headers_kwargs, headers_key="headers")
+        [{'headers': 'FirstBreakTrue', 's': 5, 'c': 'blue'},
+         {'headers': 'FirstBreakPred', 's': 5, 'c': 'red'}]
+        """
         if not isinstance(headers_kwargs, dict):
             return [{headers_key: header} for header in to_list(headers_kwargs)]
 
@@ -1199,7 +1222,7 @@ class Gather:
         return kwargs_list
 
     def _plot_headers(self, ax, headers_kwargs):
-        """Add scatter plot with values of given header names over the main axis"""
+        """Add scatter plots of values of one or more headers over the main gather plot."""
         x_coords = np.arange(self.n_traces)
         kwargs_list = self._parse_headers_kwargs(headers_kwargs, "headers")
         for kwargs in kwargs_list:
@@ -1218,7 +1241,7 @@ class Gather:
             ax.legend()
 
     def _plot_top_subplot(self, ax, divider, header_values, **kwargs):
-        """Add scatter plot with given header name on the top of the main axis"""
+        """Add a scatter plot of given header values on top of the main gather plot."""
         top_ax = divider.append_axes("top", sharex=ax, size="12%", pad=0.05)
         top_ax.scatter(np.arange(self.n_traces), header_values, **{"s": 5, "color": "black", **kwargs})
         top_ax.xaxis.set_visible(False)
@@ -1227,7 +1250,7 @@ class Gather:
         return top_ax
 
     def _get_x_ticks(self, axis_label):
-        """Get ticklabels for x-axis"""
+        """Get tick labels for x-axis: either any gather header or ordinary numbers of traces in the gather."""
         if axis_label in self.headers.columns:
             return self[axis_label].reshape(-1)
         if axis_label == "index":
@@ -1235,7 +1258,7 @@ class Gather:
         raise ValueError(f"Unknown label for x axis {axis_label}")
 
     def _get_y_ticks(self, axis_label):
-        """Get ticklabels for y-axis"""
+        """Get tick labels for y-axis: either time samples or ordinary numbers of samples in the gather."""
         if axis_label == "time":
             return self.samples
         if axis_label == "samples":
@@ -1243,7 +1266,7 @@ class Gather:
         raise ValueError(f"y axis label must be either `time` or `samples`, not {axis_label}")
 
     def _set_ticks(self, ax, axis, ticker):
-        """Set ticks for given axis"""
+        """Set ticks and their labels for a given axis."""
         ticker = as_dict(ticker, key='label')
         axis_label = ticker.pop("label")
         if not isinstance(axis_label, str):
