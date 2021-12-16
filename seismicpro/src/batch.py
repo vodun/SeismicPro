@@ -11,7 +11,7 @@ from .cropped_gather import CroppedGather
 from .semblance import Semblance, ResidualSemblance
 from .decorators import create_batch_methods, apply_to_each_component
 from .utils import to_list, as_dict, save_figure, make_origins
-from ..batchflow import Batch, action, inbatch_parallel, DatasetIndex, NamedExpression
+from ..batchflow import action, inbatch_parallel, Batch, DatasetIndex, NamedExpression
 
 
 @create_batch_methods(Gather, CroppedGather, Semblance, ResidualSemblance)
@@ -306,6 +306,7 @@ class SeismicBatch(Batch):
             raise ValueError(f"dst must be either `str` or `NamedExpression`, not {type(dst)}.")
         return self
 
+    @action
     @inbatch_parallel(init='_init_component', target='for')
     def crop(self, idx, src, origins, crop_shape, dst=None, joint=True, n_crops=1, stride=None, **kwargs):
         """Crop batch components.
@@ -388,21 +389,22 @@ class SeismicBatch(Batch):
     @action
     def plot(self, src, src_kwargs=None, max_width=20, title="{src}: {index}", save_to=None, **common_kwargs):
         """Plot batch components on a grid constructed as follows:
-        1. If a single batch component is passed, its objects will be plotted side by side.
-        2. Otherwise, each batch element will be drawn on a separate line by plotting its components from `src` next to
-        each other as they appear.
+        1. If a single batch component is passed, its objects are plotted side by side on a single line.
+        2. Otherwise, each batch element is drawn on a separate line, its components are plotted in the order they
+           appear in `src`.
 
-        If the total width of plots on a line exceeds `max_width`, the line will be wrapped and the plot that did not
-        fit will be drawn below.
+        If the total width of plots on a line exceeds `max_width`, the line is wrapped and the plots that did not fit
+        are drawn below.
 
-        There are two approaches of passing kwargs to objects' plotter stored in batch component:
-        1. To pass the same kwargs to all plotters, use `common_kwargs`,
-        2. To pass method specific kwargs, use `src_kwargs`.
+        This action calls `plot` methods of objects in components in `src`. There are two ways to pass arguments to
+        these methods:
+        1. `common_kwargs` set defaults for all of them,
+        2. `src_kwargs` define specific `kwargs` for an individual component that override those in `common_kwargs`.
 
         Notes
         -----
-        1. Kwargs from `src_kwargs` take priority over the `common_kwargs` and `title` argument.
-        2. `title` argument is processed differently, than in the `plot` method of objects in `src` components, see its
+        1. `kwargs` from `src_kwargs` take priority over the `common_kwargs` and `title` argument.
+        2. `title` is processed differently than in the `plot` methods of objects in `src` components, see its
            description below for more details.
 
         Parameters
@@ -412,22 +414,27 @@ class SeismicBatch(Batch):
             this method.
         src_kwargs : dict or list of dicts, optional, defaults to None
             Additional arguments for plotters of components in `src`.
-            If `dict`, these arguments are stored in its values as `dict`s, while its keys are either a name of the
-            corresponding batch component or a tuple of them.
-            If `list` of `dict`s, every element contains these arguments for corresponding component in `src`.
+            If `dict`, defines a mapping from a component or a tuple of them to `plot` arguments, which are stored as
+            `dict`s.
+            If `list`, each element is a `dict` with arguments for the corresponding component in `src`.
         max_width : int, optional, defaults to 20
-            The figure width, measured in inches.
+            Maximal figure width, measured in inches.
         title : str or dict, optional, defaults to "{src}: {index}"
-            Title of component plots. Title string may contain variables highlighted in curly braces that will be
-            formatted as python f-strings. If the variable is "src" or "index", then they will be substituted with
-            component name or corresponding index of batch element being plotted respectively, while all other
-            variables will be substituted from values in title if passed as a dict.
-            Moreover, if `dict` is passed, a title text stores in "label" key, while the other keys that were not
-            substituted into the title text, will be directly passed into `matplotlib.axes.Axes.set_title`.
+            Title of subplots. If `dict`, should contain keyword arguments to pass to `matplotlib.axes.Axes.set_title`.
+            In this case, the title string is stored under the `label` key.
+
+            The title string may contain variables enclosed in curly braces that are formatted as python f-strings as
+            follows:
+            - "src" is substituted with the component name of the subplot,
+            - "index" is substituted with the index of the current batch element,
+            - All other variables are popped from the `title` `dict`.
         save_to : str or dict, optional, defaults to None
-            If `str`, a path to the resulting figure. Otherwise, all the `kwargs` to `matplotlib.pyplot.savefig`.
+            If `str`, a path to save the figure to.
+            If `dict`, should contain keyword arguments to pass to `matplotlib.pyplot.savefig`. In this case, the path
+            is stored under the `fname` key.
+            Otherwise, the figure is not saved.
         common_kwargs : misc, optional
-            Common additional arguments to all plotters of components in `src`.
+            Additional common arguments to all plotters of components in `src`.
 
         Returns
         -------
@@ -437,8 +444,8 @@ class SeismicBatch(Batch):
         Raises
         ------
         ValueError
-            If the length of `src_kwargs` when passed as a list does not match the length of `src`, or one of the
-            components plot does not decorated with `plotter` decorator.
+            If the length of `src_kwargs` when passed as a list does not match the length of `src`.
+            If any of the components' `plot` method is not decorated with `plotter` decorator.
         """
         # Consturct a list of plot kwargs for each component in src
         src_list = to_list(src)
@@ -471,8 +478,8 @@ class SeismicBatch(Batch):
             args_to_unpack = set(to_list(plotter_params["args_to_unpack"]))
 
             for i, index in enumerate(self.indices):
-                unpacked_args = {}
                 # Unpack required plotter arguments by getting the value of specified component with given index
+                unpacked_args = {}
                 for arg_name in args_to_unpack & kwargs.keys():
                     arg_val = kwargs[arg_name]
                     if isinstance(arg_val, str):
