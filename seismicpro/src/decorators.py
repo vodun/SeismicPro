@@ -11,7 +11,8 @@ from ..batchflow import action, inbatch_parallel
 
 
 def _update_method_params(method, decorator_name, **decorator_params):
-    """Update a `method_params` dict of the `method` with passed parameters."""
+    """Update a `method_params` dict of the `method` with passed `decorator_params` by storing them under
+    `decorator_name` key. If such a key already exists, its value will be updated."""
     if not hasattr(method, "method_params"):
         method.method_params = {}
     if decorator_name not in method.method_params:
@@ -21,27 +22,34 @@ def _update_method_params(method, decorator_name, **decorator_params):
 
 
 def plotter(figsize, args_to_unpack=None):
-    """Decorate method so that if `matplotlib.Axis` is missed in `ax` key of method's `kwargs`, it will be created with
-    provided `figsize` and saves the resulting figure if key `save_to` is passed. Otherwise, the method will be called
-    directly.
+    """Expand the functionality of a plotting method by defining figure creation and saving.
 
-    Before passing to the method, `kwargs` are processed as follows: All text-related arguments are popped from the
-    `kwargs` and added to the following keys: 'title', 'x_ticker', 'y_ticker'.
+    The decorated method is supposed to accept an `ax` argument. If it's not passed during the call, the decorator
+    creates it with the `figsize` provided. Before calling the decorated method, `kwargs` are processed as follows: all
+    text formatting arguments are popped from `kwargs` and set as defaults for 'title', 'x_ticker' and 'y_ticker'.
+
+    A new argument is added for the decorated method:
+    save_to : str or dict, optional, defaults to None
+        If `str`, a path to save the figure to.
+        If `dict`, should contain keyword arguments to pass to `matplotlib.pyplot.savefig`. In this case, the path is
+        stored under the `fname` key.
+        Otherwise, the figure is not saved.
 
     Parameters
     ----------
-    figsize : array-like with length 2
-        Output figure size.
+    figsize : tuple with 2 elements
+        Default figure width and height in inches. Can be redefined by passing `figsize` in `kwargs` to the decorated
+        method.
     args_to_unpack : str or list of str, optional, defaults to None
         If given, listed arguments are allowed to accept `str` value which will be treated as a name of a batch
-        component. In this case, when the call is redirected to a particular element, each argument will be substituted
-        by the corresponding value of the specified component.
+        component if the decorated method is called by `SeismicBatch.plot`. In this case, such arguments will be
+        substituted by the corresponding value of the specified component.
 
     Returns
     -------
     decorator : callable
-        A decorator, that keeps the method unchanged but restructures a method `kwargs` if needed and saves `figsize`
-        and `args_to_unpack` to its `plotter` attribute.
+        A decorator, that expands plotting method functionality by defining figure creation and saving. Stores given
+        `figsize` and `args_to_unpack` arguments in its `method_params` attribute under the `plotter` key.
     """
     if args_to_unpack is None:
         args_to_unpack = []
@@ -94,13 +102,15 @@ def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src
         is set to `True` to keep `src` data intact since most processing methods are done inplace. Sometimes it should
         be set to `False` to avoid redundant copying e.g. when a new object is returned like in
         :func:`~Gather.calculate_semblance`.
-    kwargs : misc, optional
-        Additional keyword arguments to `batchflow.decorators.action`.
+    use_lock : bool or str, optional, defaults to False
+        Whether to lock an action when a pipeline is executed. If `str`, defines a pipeline variable name, which will
+        store the `Lock`.
+
     Returns
     -------
     decorator : callable
-        A decorator, that keeps the method unchanged, but saves all the passed arguments to its `batch_method_params`
-        attribute.
+        A decorator, that keeps the method unchanged, but saves all the passed arguments to its `method_params`
+        attribute under the `batch_method` key.
 
     Raises
     ------
@@ -189,10 +199,9 @@ def _get_class_methods(cls):
 def create_batch_methods(*component_classes):
     """Create new batch methods from those decorated by `batch_method` in classes listed in `component_classes`.
 
-    A new batch method is created for a method decorated by `batch_method` in classes defined by `component_classes`
-    only if there is no method with the same name in the decorated class or if `force` flag was set to `True` in the
-    `batch_method` arguments. Created methods parallelly redirect calls to elements of the batch and each of them has
-    two new arguments added:
+    A new batch method is created only if there is no method with the same name in the decorated class or if `force`
+    flag was set to `True` in the `batch_method` arguments. Created methods parallelly redirect calls to elements of
+    the batch and each of them has two new arguments added:
     src : str or list of str
         Names of components whose elements will be processed by the method.
     dst : str or list of str, optional

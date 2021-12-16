@@ -17,7 +17,7 @@ def save_figure(fig, fname, dpi=100, bbox_inches="tight", pad_inches=0.1, **kwar
 
 
 def set_text_formatting(kwargs):
-    """Pop text formatting args from `kwargs` and set them as defaults for 'title', 'x_ticker', 'y_ticker'."""
+    """Pop text formatting args from `kwargs` and set them as defaults for 'title', 'x_ticker' and 'y_ticker'."""
     FORMAT_ARGS = {'fontsize', 'size', 'fontfamily', 'family', 'fontweight', 'weight'}
     TEXT_ARGS = {'title', 'x_ticker', 'y_ticker'}
 
