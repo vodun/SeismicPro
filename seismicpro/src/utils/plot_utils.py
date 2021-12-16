@@ -1,9 +1,9 @@
 """Utilily functions for visualization"""
 
+# pylint: disable=invalid-name
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
-import matplotlib.colors as mcolors
+from matplotlib import ticker, colors as mcolors
 
 
 def as_dict(val, key):

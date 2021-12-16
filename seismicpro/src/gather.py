@@ -1258,7 +1258,7 @@ class Gather:
             raise ValueError(f"Unknown axis {axis}")
 
         # Format axis label
-        UNITS = {
+        UNITS = {  # pylint: disable=invalid-name
             "time": " (ms)",
             "offset": " (m)",
         }

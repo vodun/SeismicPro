@@ -387,7 +387,7 @@ class SeismicBatch(Batch):
         return self
 
     @action
-    def plot(self, src, src_kwargs=None, max_width=20, title="{src}: {index}", save_to=None, **common_kwargs):
+    def plot(self, src, src_kwargs=None, max_width=20, title="{src}: {index}", save_to=None, **common_kwargs):  # pylint: disable=too-many-statements
         """Plot batch components on a grid constructed as follows:
         1. If a single batch component is passed, its objects are plotted side by side on a single line.
         2. Otherwise, each batch element is drawn on a separate line, its components are plotted in the order they
@@ -461,7 +461,7 @@ class SeismicBatch(Batch):
 
         # Construct a grid of plotters with shape (len(self), len(src_list)) for each of the subplots
         plotters = [[] for _ in range(len(self))]
-        for src, kwargs in zip(src_list, src_kwargs):
+        for src, kwargs in zip(src_list, src_kwargs):  # pylint: disable=redefined-argument-from-local
             # Merge src kwargs with common kwargs and defaults
             plotter_params = getattr(getattr(self, src)[0].plot, "method_params", {}).get("plotter")
             if plotter_params is None:
