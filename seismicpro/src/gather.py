@@ -14,6 +14,7 @@ from .cropped_gather import CroppedGather
 from .muting import Muter
 from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
+from .weathering_velocity import WeatheringVelocity
 from .decorators import batch_method
 from .utils import normalization, correction
 from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, make_origins
@@ -697,6 +698,21 @@ class Gather:
         with open(path, 'a', encoding=encoding) as f:
             f.write(rows_as_str)
         return self
+
+    @batch_method(target='for')
+    def calculate_weathering_velocity(self, **kwargs):
+        '''docsting'''
+        return WeatheringVelocity(**kwargs)
+    
+    @batch_method(target='for', args_to_unpack='WV') # 
+    def calculate_weathering_metrics(self, WV, treshhold_times=50, strategy='mean', offset_cone=0.01):
+        # if strategy == 'mean':
+        
+        metrics = np.mean(abs(WV.predict - WV.picking) > treshhold_times)
+        
+        # if strategy == 'cone':
+        #     metrics = ((abs(y_pred - y) > n + x * offset_cone).sum() / x.shape[0])
+        return metrics
 
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #

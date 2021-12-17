@@ -11,3 +11,4 @@ from .velocity_cube import StackingVelocity, VelocityCube
 from .muting import Muter
 from .metrics import MetricsMap
 from .utils import aggregate_segys, make_prestack_segy
+from .weathering_velocity import WeatheringVelocity
