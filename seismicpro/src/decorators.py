@@ -7,7 +7,7 @@ from .utils import to_list
 from ..batchflow import action, inbatch_parallel
 
 
-def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src=True):
+def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src=True, **kwargs):
     """Mark a method as being added to `SeismicBatch` class.
 
     The new method is added by :func:`~decorators.create_batch_methods` decorator of `SeismicBatch` if the parent class
@@ -37,6 +37,8 @@ def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src
         is set to `True` to keep `src` data intact since most processing methods are done inplace. Sometimes it should
         be set to `False` to avoid redundant copying e.g. when a new object is returned like in
         :func:`~Gather.calculate_semblance`.
+    kwargs : misc, optional
+        Additional keyword arguments to `batchflow.decorators.action`.
 
     Returns
     -------
@@ -54,6 +56,7 @@ def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src
     def decorator(method):
         """Decorate a method by setting passed batch method params to its attributes."""
         method.batch_method_params = batch_method_params
+        method.action_params = kwargs
         return method
 
     if len(args) == 1 and callable(args[0]):
@@ -154,11 +157,13 @@ def create_batch_methods(*component_classes):
     def decorator(cls):
         decorated_methods = set()
         force_methods = set()
+        action_params = {}
         for component_class in component_classes:
             for method_name in _get_class_methods(component_class):
                 method = getattr(component_class, method_name)
                 if hasattr(method, "batch_method_params"):
                     decorated_methods.add(method_name)
+                    action_params[method_name] = getattr(method, 'action_params', {})
                     if getattr(method, "batch_method_params")["force"]:
                         force_methods.add(method_name)
         methods_to_add = (decorated_methods - _get_class_methods(cls)) | force_methods
@@ -185,7 +190,7 @@ def create_batch_methods(*component_classes):
                             obj_arguments.arguments[arg_name] = getattr(self, arg_val)[pos]
                 getattr(self, dst)[pos] = obj_method(*obj_arguments.args, **obj_arguments.kwargs)
             method.__name__ = method_name
-            return action(apply_to_each_component(method))
+            return action(**action_params[method_name])(apply_to_each_component(method))
 
         for method_name in methods_to_add:
             setattr(cls, method_name, create_method(method_name))

@@ -140,9 +140,9 @@ def test_gather_getitem_gathers(gather, key):
 
     # Check that the headers and samples contain  proper values
     ## This is probably not the best way for the equality check..
-    keys = tuple(to_list(k) if isinstance(k, tuple) else k for k in keys)
+    keys = tuple(to_list(k) if not isinstance(k, slice) else k for k in keys)
     keys = (keys[0], slice(None)) if len(keys) < 2 else keys
-    assert np.allclose(result_getitem.headers, gather.headers.iloc[keys[0]].values)
+    assert result_getitem.headers.equals(gather.headers.iloc[keys[0]])
     assert np.allclose(result_getitem.samples, gather.samples[keys[1]])
 
 
@@ -220,8 +220,8 @@ def test_gather_scale_maxabs(gather, tracewise, use_global):
 
 def test_gather_mask_to_pick_and_pick_to_mask(gather):
     """test_gather_mask_to_pick"""
-    gather.pick_to_mask(first_breaks_col='FirstBreak', mask_attr='mask')
-    gather.mask_to_pick(first_breaks_col='FirstBreak', mask_attr='mask')
+    mask = gather.pick_to_mask(first_breaks_col='FirstBreak')
+    mask.mask_to_pick(first_breaks_col='FirstBreak', save_to=gather)
 
 def test_gather_get_coords(gather):
     """test_gather_get_coords"""

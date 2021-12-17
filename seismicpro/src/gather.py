@@ -10,12 +10,13 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+from .cropped_gather import CroppedGather
 from .muting import Muter
 from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 from .decorators import batch_method
-from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, normalization, correction
-
+from .utils import normalization, correction
+from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, make_origins
 
 class Gather:
     """A class representing a single seismic gather.
@@ -617,8 +618,8 @@ class Gather:
     #                    First-breaks processing methods                     #
     #------------------------------------------------------------------------#
 
-    @batch_method(target="threads")
-    def pick_to_mask(self, first_breaks_col="FirstBreak", mask_attr="mask"):
+    @batch_method(target="threads", copy_src=False)
+    def pick_to_mask(self, first_breaks_col="FirstBreak"):
         """Convert first break times to a binary mask with the same shape as `gather.data` containing zeros before the
         first arrivals and ones after for each trace.
 
@@ -626,26 +627,25 @@ class Gather:
         ----------
         first_breaks_col : str, optional, defaults to 'FirstBreak'
             A column of `self.headers` that contains first arrival times, measured in milliseconds.
-        mask_attr : str, optional, defaults to 'mask'
-            Gather attribute to store the mask in.
 
         Returns
         -------
-        self : Gather
-            Gather with calculated first breaks mask. Overwrites `mask_attr` attribute if it exists.
+        gather : Gather
+            A new `Gather` with calculated first breaks mask in its `data` attribute.
         """
-        self.validate(required_header_cols=first_breaks_col)
-        mask = convert_times_to_mask(times=self[first_breaks_col], sample_rate=self.sample_rate,
+        mask = convert_times_to_mask(times=self[first_breaks_col].ravel(), sample_rate=self.sample_rate,
                                      mask_length=self.shape[1]).astype(np.int32)
-        setattr(self, mask_attr, mask)
-        return self
+        gather = self.copy(ignore='data')
+        gather.data = mask
+        return gather
 
-    @batch_method(target='for')
-    def mask_to_pick(self, threshold=0.5, first_breaks_col="FirstBreak", mask_attr="mask"):
-        """Convert a first break mask into times of first arrivals.
 
-        The mask shape should match the shape of `gather.data`, each its value should represent a probability of
-        corresponding index along the trace to follow the first break.
+    @batch_method(target='for', args_to_unpack='save_to')
+    def mask_to_pick(self, threshold=0.5, first_breaks_col="FirstBreak", save_to=None):
+        """Convert a first break mask saved in `data` into times of first arrivals.
+
+        For a given trace each value of the mask represents the probability that the corresponding index is greater
+        than the index of the first break.
 
         Notes
         -----
@@ -658,23 +658,57 @@ class Gather:
             A threshold for trace mask value to refer its index to be either pre- or post-first break.
         first_breaks_col : str, optional, defaults to 'FirstBreak'
             Headers column to save first break times to.
-        mask_attr : str, optional, defaults to 'mask'
-            Gather attribute to get the mask from.
+        save_to : Gather, optional, defaults to None
+            An extra `Gather` to save first break times to. Generally used to conveniently pass first break times from
+            a `Gather` instance with a first break mask to an original `Gather`.
 
         Returns
         -------
         self : Gather
             A gather with first break times in headers column defined by `first_breaks_col`.
-
-        Raises
-        ------
-        ValueError
-            If an attribute defined by `mask_attr` does not exist.
         """
-        mask = getattr(self, mask_attr, None)
-        if mask is None:
-            raise ValueError(f"Mask attribute given by '{mask_attr}' does not exist")
-        self[first_breaks_col] = convert_mask_to_pick(mask, self.sample_rate, threshold)
+        picking_times = convert_mask_to_pick(self.data, self.sample_rate, threshold)
+        self[first_breaks_col] = picking_times
+        if save_to is not None:
+            save_to[first_breaks_col] = picking_times
+        return self
+
+    @batch_method(target='for', use_lock=True)
+    def dump_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak',
+                          col_space=8, encoding="UTF-8"):
+        """ Save first break picking times to a file.
+
+        Each line in the resulting file corresponds to one trace, where all columns but
+        the last one store values from `trace_id_cols` headers and identify the trace
+        while the last column stores first break time from `first_breaks_col` header.
+
+        Parameters
+        ----------
+        path : str
+            Path to the file.
+        trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
+            Columns names from `self.headers` that act as trace id. These would be present in the file.
+        first_breaks_col : str, defaults to 'FirstBreak'
+            Column name from `self.headers` where first break times are stored.
+        col_space : int, defaults to 8
+            The minimum width of each column.
+        encoding : str, optional, defaults to "UTF-8"
+            File encoding.
+
+        Returns
+        -------
+        self : Gather
+            Gather unchanged
+        """
+        rows = self[to_list(trace_id_cols) + [first_breaks_col]]
+
+        # SEG-Y specification states that all headers values are integers, but first break values can be float
+        row_fmt = '{:{col_space}.0f}' * (rows.shape[1] - 1) + '{:{col_space}.2f}\n'
+        fmt = row_fmt * len(rows)
+        rows_as_str = fmt.format(*rows.ravel(), col_space=col_space)
+
+        with open(path, 'a', encoding=encoding) as f:
+            f.write(rows_as_str)
         return self
 
     #------------------------------------------------------------------------#
@@ -953,6 +987,43 @@ class Gather:
             self.data = np.nanmean(self.data, axis=0, keepdims=True)
         self.data = np.nan_to_num(self.data)
         return self
+
+    def crop(self, origins, crop_shape, n_crops=1, stride=None, pad_mode='constant', **kwargs):
+        """"Crop gather data.
+
+        Parameters
+        ----------
+        origins : list, tuple, np.ndarray or str
+            Origins define top-left corners for each crop (the first trace and the first time sample respectively)
+            or a rule used to calculate them. All array-like values are cast to an `np.ndarray` and treated as origins
+            directly, except for a 2-element tuple of `int`, which will be treated as a single individual origin.
+            If `str`, represents a mode to calculate origins. Two options are supported:
+            - "random": calculate `n_crops` crops selected randomly using a uniform distribution over the gather data,
+              so that no crop crosses gather boundaries,
+            - "grid": calculate a deterministic uniform grid of origins, whose density is determined by `stride`.
+        crop_shape : tuple with 2 elements
+            Shape of the resulting crops.
+        n_crops : int, optional, defaults to 1
+            The number of generated crops if `origins` is "random".
+        stride : tuple with 2 elements, optional, defaults to crop_shape
+            Steps between two adjacent crops along both axes if `origins` is "grid". The lower the value is, the more
+            dense the grid of crops will be. An extra origin will always be placed so that the corresponding crop will
+            fit in the very end of an axis to guarantee complete data coverage with crops regardless of passed
+            `crop_shape` and `stride`.
+        pad_mode : str or callable, optional, defaults to 'constant'
+            Padding mode used when a crop with given origin and shape crossed boundaries of gather data. Passed
+            directly to `np.pad`, see https://numpy.org/doc/stable/reference/generated/numpy.pad.html for more
+            details.
+        kwargs : dict, optional
+            Additional keyword arguments to `np.pad`.
+
+        Returns
+        -------
+        crops : CroppedGather
+            Calculated gather crops.
+        """
+        origins = make_origins(origins, self.shape, crop_shape, n_crops, stride)
+        return CroppedGather(self, origins, crop_shape, pad_mode, **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #

@@ -3,13 +3,14 @@
 import numpy as np
 
 from .gather import Gather
+from .cropped_gather import CroppedGather
 from .semblance import Semblance, ResidualSemblance
 from .decorators import create_batch_methods, apply_to_each_component
-from .utils import to_list
-from ..batchflow import Batch, action, DatasetIndex, NamedExpression
+from .utils import to_list, make_origins
+from ..batchflow import action, inbatch_parallel, Batch, DatasetIndex, NamedExpression
 
 
-@create_batch_methods(Gather, Semblance, ResidualSemblance)
+@create_batch_methods(Gather, CroppedGather, Semblance, ResidualSemblance)
 class SeismicBatch(Batch):
     """A batch class for seismic data that allows for joint and simultaneous processing of small subsets of seismic
     gathers in a parallel way.
@@ -65,12 +66,12 @@ class SeismicBatch(Batch):
             return self.indices.tolist()
         return [[index] for index in self.indices]
 
-    def _init_component(self, *args, dst, **kwargs):
+    def _init_component(self, *args, dst=None, **kwargs):
         """Create and preallocate new attributes with names listed in `dst` if they don't exist and return
         `self.nested_indices`. This method is typically used as a default `init` function in `inbatch_parallel`
         decorator."""
         _ = args, kwargs
-        dst = to_list(dst)
+        dst = [] if dst is None else to_list(dst)
         for comp in dst:
             if self.components is None or comp not in self.components:
                 self.add_components(comp, init=self.array_of_nones)
@@ -299,4 +300,84 @@ class SeismicBatch(Batch):
             dst.set(value=split_data)
         else:
             raise ValueError(f"dst must be either `str` or `NamedExpression`, not {type(dst)}.")
+        return self
+
+    @action
+    @inbatch_parallel(init='_init_component', target='for')
+    def crop(self, idx, src, origins, crop_shape, dst=None, joint=True, n_crops=1, stride=None, **kwargs):
+        """Crop batch components.
+
+        Parameters
+        ----------
+        src : str or list of str
+            Components to be cropped. Objects in each of them must implement `crop` method which will be called from
+            this method.
+        origins : list, tuple, np.ndarray or str
+            Origins define top-left corners for each crop or a rule used to calculate them. All array-like values are
+            cast to an `np.ndarray` and treated as origins directly, except for a 2-element tuple of `int`, which will
+            be treated as a single individual origin.
+            If `str`, represents a mode to calculate origins. Two options are supported:
+            - "random": calculate `n_crops` crops selected randomly using a uniform distribution over the source data,
+              so that no crop crosses data boundaries,
+            - "grid": calculate a deterministic uniform grid of origins, whose density is determined by `stride`.
+        crop_shape : tuple with 2 elements
+            Shape of the resulting crops.
+        dst : str or list of str, optional, defaults to None
+            Components to store cropped data. If `dst` is `None` cropping is performed inplace.
+        joint : bool, optional, defaults to True
+            Defines whether to create the same origins for all `src`s if passed `origins` is `str`. Generally used to
+            perform joint random cropping of segmentation model input and output.
+        n_crops : int, optional, defaults to 1
+            The number of generated crops if `origins` is "random".
+        stride : tuple with 2 elements, optional, defaults to crop_shape
+            Steps between two adjacent crops along both axes if `origins` is "grid". The lower the value is, the more
+            dense the grid of crops will be. An extra origin will always be placed so that the corresponding crop will
+            fit in the very end of an axis to guarantee complete data coverage with crops regardless of passed
+            `crop_shape` and `stride`.
+        kwargs : misc, optional
+            Additional keyword arguments to pass to `crop` method of the objects being cropped.
+
+        Returns
+        -------
+        self : SeismicBatch
+            The batch with cropped data.
+
+        Raises
+        ------
+        TypeError
+            If `joint` is `True` and `src` contains components of different types.
+        ValueError
+            If `src` and `dst` have different lengths.
+            If `joint` is `True` and `src` contains components of different shapes.
+        """
+        dst = src if dst is None else dst
+        src_list = to_list(src)
+        dst_list = to_list(dst)
+
+        if len(src_list) != len(dst_list):
+            raise ValueError("src and dst should have the same length.")
+
+        pos = self.index.get_pos(idx)
+
+        if joint:
+            src_shapes = set()
+            src_types = set()
+
+            for src in src_list:  # pylint: disable=redefined-argument-from-local
+                src_obj = getattr(self, src)[pos]
+                src_types.add(type(src_obj))
+                src_shapes.add(src_obj.shape)
+
+            if len(src_types) > 1:
+                raise TypeError("If joint is True, all src components must be of the same type.")
+            if len(src_shapes) > 1:
+                raise ValueError("If joint is True, all src components must have the same shape.")
+            data_shape = src_shapes.pop()
+            origins = make_origins(origins, data_shape, crop_shape, n_crops, stride)
+
+        for src, dst in zip(src_list, dst_list):  # pylint: disable=redefined-argument-from-local
+            src_obj = getattr(self, src)[pos]
+            src_cropped = src_obj.crop(origins, crop_shape, n_crops, stride, **kwargs)
+            setattr(self[pos], dst, src_cropped)
+
         return self
