@@ -68,20 +68,20 @@ class Gather:
     sort_by : None or str
         Headers column that was used for gather sorting. If `None`, no sorting was performed.
     """
-    def __init__(self, headers, data, samples, sample_rate, survey):
+    def __init__(self, headers, data, samples, survey):
         self.headers = headers
         self.data = data
         self.samples = samples
-        self._sample_rate = sample_rate
         self.survey = survey
         self.sort_by = None
 
     @property
     def sample_rate(self):
         """"float: Sample rate of seismic traces. Measured in milliseconds."""
-        if self._sample_rate is None:
-            raise ValueError("`sample_rate` is not defined, since `samples` is not regular.")
-        return self._sample_rate
+        sample_rate = np.unique(np.diff(self.samples))
+        if len(sample_rate):
+            return sample_rate.item()
+        raise ValueError("`sample_rate` is not defined, since `samples` is not regular.")
 
     @property
     def times(self):
@@ -288,6 +288,12 @@ class Gather:
     def get_item(self, *args):
         """An interface for `self.__getitem__` method."""
         return self[args if len(args) > 1 else args[0]]
+
+    def times_to_indices(self, times):
+        return np.clip(np.rint((times - self.samples[0]) / self.sample_rate), 0, self.shape[1])
+
+    def indices_to_times(self, indices):
+        return np.clip(indices * self.sample_rate + self.samples[0], 0, self.samples[-1])
 
     def _validate_header_cols(self, required_header_cols):
         """Check if the gather headers contain all columns from `required_header_cols`."""
@@ -633,8 +639,8 @@ class Gather:
         gather : Gather
             A new `Gather` with calculated first breaks mask in its `data` attribute.
         """
-        mask = convert_times_to_mask(times=self[first_breaks_col].ravel(), sample_rate=self.sample_rate,
-                                     mask_length=self.shape[1]).astype(np.int32)
+        times_indices = self.times_to_indices(self[first_breaks_col].ravel())
+        mask = convert_times_to_mask(times_indices=times_indices, mask_length=self.shape[1]).astype(np.int32)
         gather = self.copy(ignore='data')
         gather.data = mask
         return gather
@@ -667,7 +673,8 @@ class Gather:
         self : Gather
             A gather with first break times in headers column defined by `first_breaks_col`.
         """
-        picking_times = convert_mask_to_pick(self.data, self.sample_rate, threshold)
+        picking_indices = convert_mask_to_pick(self.data, threshold)
+        picking_times = self.indices_to_times(picking_indices)
         self[first_breaks_col] = picking_times
         if save_to is not None:
             save_to[first_breaks_col] = picking_times
@@ -768,8 +775,8 @@ class Gather:
         self : Gather
             Muted gather.
         """
-        self.data = mute_gather(gather_data=self.data, muting_times=muter(self.offsets),
-                                sample_rate=self.sample_rate, fill_value=fill_value)
+        muting_indices = self.times_to_indices(muter(self.offsets))
+        self.data = mute_gather(gather_data=self.data, muting_indices=muting_indices, fill_value=fill_value)
         return self
 
     #------------------------------------------------------------------------#

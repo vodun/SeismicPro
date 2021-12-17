@@ -379,8 +379,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             self.load_trace(buf=data[i], index=ix, limits=limits, trace_length=trace_length)
 
         samples = self.file_samples[limits]
-        sample_rate = np.float32(self.sample_rate * limits.step)
-        gather = Gather(headers=headers, data=data, samples=samples, sample_rate=sample_rate, survey=self)
+        gather = Gather(headers=headers, data=data, samples=samples, survey=self)
         return gather
 
     def get_gather(self, index, limits=None, copy_headers=True):

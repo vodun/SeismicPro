@@ -90,7 +90,7 @@ def create_supergather_index(centers, size):
 
 
 @njit(nogil=True)
-def convert_times_to_mask(times, sample_rate, mask_length):
+def convert_times_to_mask(times_indices, mask_length):
     """Convert `times` to indices by dividing them by `sample_rate` and rounding to the nearest integer and construct a
     binary mask with shape (len(times), mask_length) with `False` values before calculated time index for each row and
     `True` after.
@@ -119,13 +119,11 @@ def convert_times_to_mask(times, sample_rate, mask_length):
     mask : np.ndarray of bool
         Bool mask with shape (len(times), mask_length).
     """
-    times_ixs = np.rint(times / sample_rate)
-    mask = (np.arange(mask_length) - times_ixs.reshape(-1, 1)) >= 0
-    return mask
+    return (np.arange(mask_length) - times_indices.reshape(-1, 1)) >= 0
 
 
 @njit(nogil=True, parallel=True)
-def convert_mask_to_pick(mask, sample_rate, threshold):
+def convert_mask_to_pick(mask, threshold):
     """Convert a first breaks `mask` into an array of arrival times.
 
     The mask has shape (n_traces, trace_length), each its value represents a probability of corresponding index along
@@ -182,11 +180,11 @@ def convert_mask_to_pick(mask, sample_rate, threshold):
             picking_ix = len(trace)
             max_len = curr_len
         picking_array[i] = picking_ix - max_len
-    return picking_array * sample_rate
+    return picking_array
 
 
 @njit(nogil=True)
-def mute_gather(gather_data, muting_times, sample_rate, fill_value):
+def mute_gather(gather_data, muting_indices, fill_value):
     """Fill area before `muting_times` with `fill_value`.
 
     Parameters
@@ -206,7 +204,7 @@ def mute_gather(gather_data, muting_times, sample_rate, fill_value):
     gather_data : 2d np.ndarray
         Muted gather data.
     """
-    mask = convert_times_to_mask(times=muting_times, sample_rate=sample_rate, mask_length=gather_data.shape[1])
+    mask = convert_times_to_mask(times_indices=muting_indices, mask_length=gather_data.shape[1])
     data_shape = gather_data.shape
     gather_data = gather_data.reshape(-1)
     mask = mask.reshape(-1)
