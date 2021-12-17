@@ -1035,8 +1035,8 @@ class Gather:
         The traces can be displayed in a number of representations, depending on the `mode` provided. Currently, the
         following options are supported:
         - `seismogram`: a 2d grayscale image of seismic traces. This mode supports the following `kwargs`:
-            * `colorbar`: whether to add a colorbar on the right side of the main axis (defaults to `False`). If
-              `dict`, defines extra keyword arguments for `matplotlib.figure.Figure.colorbar`.
+            * `colorbar`: whether to add a colorbar to the right of the gather plot (defaults to `False`). If `dict`,
+              defines extra keyword arguments for `matplotlib.figure.Figure.colorbar`.
             * `qvmin`, `qvmax`: quantile range of amplitude values covered by the colormap (defaults to 0.1 and 0.9),
             * Any additional arguments for `matplotlib.pyplot.imshow`. Note, that `vmin` and `vmax` arguments take
               priority over `qvmin` and `qvmax` respectively.
@@ -1046,23 +1046,24 @@ class Gather:
             * `color`: defines a color for each trace. If a single color is given, it is applied to all the traces
               (defaults to black).
 
-        Trace headers, whose values are measured in milliseconds (e.g. first break picking) may be displayed over the
+        Trace headers, whose values are measured in milliseconds (e.g. first break times) may be displayed over the
         gather plot if passed as `event_headers`. If `top_header` is passed, an auxiliary scatter plot of values of
         this header will be shown on top of the gather plot.
 
         Ticks and their labels for both `x` and `y` axes can be controlled via `x_ticker` and `y_ticker` parameters
-        respectively. In the most general form, each of them is a `dict` with the following most used keys:
-        - `label`: source to get tick labels from. Can be either any gather header or "index" (ordinary numbers of
+        respectively. In the most general form, each of them is a `dict` with the following most commonly used keys:
+        - `label`: source to get tick labels from. Can be either any gather header name or "index" (ordinal numbers of
           traces) for `x` axis and "times" or "samples" for `y` axis.
         - `round_to`: the number of decimal places to round tick labels to (defaults to 0).
         - `rotation`: the rotation angle of tick labels in degrees (defaults to 0).
-        - One of the following keys, defining the number of ticks or their locations:
-            * `num`: the number of evenly spaced ticks on the axis,
-            * `step_ticks`: a step between two adjacent ticks in samples (e.g. place every hundredth tick),
-            * `step_labels`: a step between two adjacent tick in the units of the corresponding labels (e.g. place a
-              tick every 200ms for `y` axis or every 300m offset for `x` axis).
+        - One of the following keys, defining the way to place ticks:
+            * `num`: place a given number of evenly-spaced ticks,
+            * `step_ticks`: place ticks with a given step between two adjacent ones in samples (e.g. place a tick for
+              every hundredth value in labels),
+            * `step_labels`: place ticks with a given step between two adjacent ones in the units of the corresponding
+              labels (e.g. place a tick every 200ms for `y` axis or every 300m offset for `x` axis).
         A short argument form allows defining both tickers as a single `str`, which will be treated as the value for
-        `label` key. See :func:`~plot_utils.set_ticks` for more details on the ticker parameters.
+        the `label` key. See :func:`~plot_utils.set_ticks` for more details on the ticker parameters.
 
         Parameters
         ----------
@@ -1080,17 +1081,17 @@ class Gather:
                 * `discard`: do not display outliers,
                 * `none`: plot all the header values (default behavior).
             - Any additional arguments for `matplotlib.axes.Axes.scatter`.
-            If a value of any argument is array-like, each its element will be associated with the corresponding
-            header. Otherwise, the value will be used for all the scatter plots.
+            If any dictionary value is array-like, each its element will be associated with the corresponding header.
+            Otherwise, the single value will be used for all the scatter plots.
         top_header : str, optional, defaults to None
-            A header name to plot on top of the main axis.
+            A header name to plot on top of the gather plot.
         title : str or dict, optional, defaults to None
             If `str`, a title of the plot.
             If `dict`, should contain keyword arguments to pass to `matplotlib.axes.Axes.set_title`. In this case, the
             title string is stored under the `label` key.
         x_ticker : str or dict, optional, defaults to None
             Source to get `x` tick labels from and additional parameters to control their formatting and layout.
-            If `str`, either any gather header name to use its values as labels or "index" to use ordinary numbers of
+            If `str`, either any gather header name to use its values as labels or "index" to use ordinal numbers of
             traces in the gather.
             If `dict`, the source is specified under the "labels" key and the rest keys define labels formatting and
             layout, see :func:`~plot_utils.set_ticks` for more details.
@@ -1098,7 +1099,7 @@ class Gather:
             will be passed.
         y_ticker : "time", "samples" or dict, optional, defaults to "time"
             Source to get `y` tick labels from and additional parameters to control their formatting and layout.
-            If "time", the labels are the times of gather samples in milliseconds, if "samples" - ordinary numbers of
+            If "time", the labels are the times of gather samples in milliseconds, if "samples" - ordinal numbers of
             gather samples.
             If `dict`, stores either "time" or "samples" under the "labels" key and the rest keys define labels
             formatting and layout, see :func:`~plot_utils.set_ticks` for more details.
@@ -1110,7 +1111,7 @@ class Gather:
             If `str`, a path to save the figure to.
             If `dict`, should contain keyword arguments to pass to `matplotlib.pyplot.savefig`. In this case, the path
             is stored under the `fname` key.
-            Otherwise, the figure is not saved.
+            If `None`, the figure is not saved.
         kwargs : misc, optional
             Additional keyword arguments to the plotter depending on the `mode`.
 
@@ -1169,9 +1170,9 @@ class Gather:
             cax = divider.append_axes("right", size="5%", pad=0.05)
             ax.figure.colorbar(img, cax=cax, **colorbar)
 
-    def _plot_wiggle(self, ax, std=0.5, color=None):
+    def _plot_wiggle(self, ax, std=0.5, color="black"):
         """Plot the gather as an amplitude vs time plot for each trace."""
-        color = ["black"] if color is None else to_list(color)
+        color = to_list(color)
         if len(color) == 1:
             color = color * self.n_traces
         elif len(color) != self.n_traces:
@@ -1227,6 +1228,7 @@ class Gather:
         kwargs_list = self._parse_headers_kwargs(headers_kwargs, "headers")
         for kwargs in kwargs_list:
             header = kwargs.pop("headers")
+            label = kwargs.pop("label", header)
             process_outliers = kwargs.pop("process_outliers", "none")
             y_coords = self[header].ravel() / self.sample_rate
             if process_outliers == "clip":
@@ -1235,7 +1237,7 @@ class Gather:
                 y_coords = np.where((y_coords >= 0) & (y_coords <= self.n_samples - 1), y_coords, np.nan)
             elif process_outliers != "none":
                 raise ValueError(f"Unknown outlier processing mode {process_outliers}")
-            ax.scatter(x_coords, y_coords, label=header, **kwargs)
+            ax.scatter(x_coords, y_coords, label=label, **kwargs)
 
         if headers_kwargs:
             ax.legend()
@@ -1250,7 +1252,7 @@ class Gather:
         return top_ax
 
     def _get_x_ticks(self, axis_label):
-        """Get tick labels for x-axis: either any gather header or ordinary numbers of traces in the gather."""
+        """Get tick labels for x-axis: either any gather header or ordinal numbers of traces in the gather."""
         if axis_label in self.headers.columns:
             return self[axis_label].reshape(-1)
         if axis_label == "index":
@@ -1258,7 +1260,7 @@ class Gather:
         raise ValueError(f"Unknown label for x axis {axis_label}")
 
     def _get_y_ticks(self, axis_label):
-        """Get tick labels for y-axis: either time samples or ordinary numbers of samples in the gather."""
+        """Get tick labels for y-axis: either time samples or ordinal numbers of samples in the gather."""
         if axis_label == "time":
             return self.samples
         if axis_label == "samples":
@@ -1266,7 +1268,7 @@ class Gather:
         raise ValueError(f"y axis label must be either `time` or `samples`, not {axis_label}")
 
     def _set_ticks(self, ax, axis, ticker):
-        """Set ticks and their labels for a given axis."""
+        """Set ticks, their labels and an axis label for a given axis."""
         ticker = as_dict(ticker, key='label')
         axis_label = ticker.pop("label")
         if not isinstance(axis_label, str):

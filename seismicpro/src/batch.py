@@ -417,7 +417,7 @@ class SeismicBatch(Batch):
             If `dict`, defines a mapping from a component or a tuple of them to `plot` arguments, which are stored as
             `dict`s.
             If `list`, each element is a `dict` with arguments for the corresponding component in `src`.
-        max_width : int, optional, defaults to 20
+        max_width : float, optional, defaults to 20
             Maximal figure width, measured in inches.
         title : str or dict, optional, defaults to "{src}: {index}"
             Title of subplots. If `dict`, should contain keyword arguments to pass to `matplotlib.axes.Axes.set_title`.
