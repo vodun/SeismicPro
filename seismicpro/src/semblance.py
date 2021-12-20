@@ -2,14 +2,13 @@
 
 # pylint: disable=not-an-iterable
 import numpy as np
-import matplotlib.pyplot as plt
 from numba import njit, prange
 from matplotlib import colors as mcolors
 
-from .utils import set_ticks
-from .decorators import batch_method
+from .decorators import batch_method, plotter
 from .velocity_model import calculate_stacking_velocity
 from .velocity_cube import StackingVelocity
+from .utils import set_ticks, as_dict
 from .utils.correction import get_hodograph
 
 
@@ -130,39 +129,37 @@ class BaseSemblance:
         return semblance_slice
 
     @staticmethod
-    def plot(semblance, ticks_range_x, ticks_range_y, xlabel, title=None,  # pylint: disable=too-many-arguments
-             figsize=(15, 12), fontsize=11, grid=False, stacking_times_ix=None, stacking_velocities_ix=None,
-             save_to=None, dpi=300, **kwargs):
+    def plot(semblance, title=None, x_label=None, x_ticklabels=None,  # pylint: disable=too-many-arguments
+             x_ticker=None, y_ticklabels=None, y_ticker=None, grid=False, stacking_times_ix=None,
+             stacking_velocities_ix=None, ax=None, **kwargs):
         """Plot vertical velocity semblance and, optionally, stacking velocity.
 
         Parameters
         ----------
         semblance : 2d np.ndarray
             An array with vertical velocity or residual semblance.
-        ticks_range_x : array-like with length 2
-            Min and max values of labels on the x-axis.
-        ticks_range_y : array-like with length 2
-            Min and max values of labels on the y-axis.
-        xlabel : str
-            The title of the x-axis.
         title : str, optional, defaults to None
             Plot title.
-        figsize : array-like with length 2, optional, defaults to (15, 12)
-            Output plot size.
-        fontsize : int, optional, defaults to 11
-            The size of the text on the plot.
+        x_label : str, optional, defaults to None
+            The title of the x-axis.
+        x_ticklabels : list of str, optional, defaults to None
+            An array of labels for the x-axis.
+        x_ticker : dict, optional, defaults to None
+            Parameters for ticks and ticklabels formatting for the x-axis; see `.utils.set_ticks` for more details.
+        y_ticklabels : list of str, optional, defaults to None
+            An array of labels for the y-axis.
+        y_ticker : dict, optional, defaults to None
+            Parameters for ticks and ticklabels formatting for the y-axis; see `.utils.set_ticks` for more details.
         grid : bool, optional, defaults to False
             Specifies whether to draw a grid on the plot.
         stacking_times_ix : 1d np.ndarray, optional
             Time indices of calculated stacking velocities to show on the plot.
         stacking_velocities_ix : 1d np.ndarray, optional
             Velocity indices of calculated stacking velocities to show on the plot.
-        save_to : str, optional, defaults to None
-            If given, save the plot to the path specified.
-        dpi : int, optional, defaults to 300
-            Resolution for the saved figure.
+        ax : matplotlib.axes.Axes, optional, defaults to None
+            Axes of the figure to plot on.
         kwargs : misc, optional
-            Additional keyword arguments to :func:`.set_ticks`.
+            Additional common keyword arguments for `x_ticker` and `y_tickers`.
         """
         # Split the range of semblance amplitudes into 16 levels on a log scale,
         # that will further be used as colormap bins
@@ -171,31 +168,26 @@ class BaseSemblance:
         levels[0] = 0
 
         # Add level lines and colorize the graph
-        fig, ax = plt.subplots(figsize=figsize)
         norm = mcolors.BoundaryNorm(boundaries=levels, ncolors=256)
         x_grid, y_grid = np.meshgrid(np.arange(0, semblance.shape[1]), np.arange(0, semblance.shape[0]))
         ax.contour(x_grid, y_grid, semblance, levels, colors='k', linewidths=.5, alpha=.5)
         img = ax.imshow(semblance, norm=norm, aspect='auto', cmap='seismic')
-        fig.colorbar(img, ticks=levels[1::2])
+        ax.figure.colorbar(img, ticks=levels[1::2], ax=ax)
 
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel('Time')
-
-        if title is not None:
-            ax.set_title(title, fontsize=fontsize)
+        ax.set_title(**as_dict(title, key='label'))
 
         # Change markers of stacking velocity points if they are far enough apart
         if stacking_velocities_ix is not None and stacking_times_ix is not None:
             marker = 'o' if np.min(np.diff(np.sort(stacking_times_ix))) > 50 else ''
-            plt.plot(stacking_velocities_ix, stacking_times_ix, c='#fafcc2', linewidth=2.5, marker=marker)
+            ax.plot(stacking_velocities_ix, stacking_times_ix, c='#fafcc2', linewidth=2.5, marker=marker)
 
-        set_ticks(ax, img_shape=semblance.T.shape, ticks_range_x=ticks_range_x, ticks_range_y=ticks_range_y, **kwargs)
-        ax.set_ylim(semblance.shape[0], 0)
         if grid:
             ax.grid(c='k')
-        if save_to:
-            plt.savefig(save_to, bbox_inches='tight', pad_inches=0.1, dpi=dpi)
-        plt.show()
+
+        x_ticker = kwargs if x_ticker is None else {**kwargs, **x_ticker}
+        y_ticker = kwargs if y_ticker is None else {**kwargs, **y_ticker}
+        set_ticks(ax, "x", x_label, x_ticklabels, **x_ticker)
+        set_ticks(ax, "y", "Time (ms)", y_ticklabels, **y_ticker)
 
 
 class Semblance(BaseSemblance):
@@ -307,8 +299,9 @@ class Semblance(BaseSemblance):
                                              t_min_ix=0, t_max_ix=len(gather_data))
         return semblance
 
-    @batch_method(target="for", args_to_unpack="stacking_velocity")
-    def plot(self, stacking_velocity=None, **kwargs):
+    @plotter(figsize=(10, 9), args_to_unpack="stacking_velocity")
+    def plot(self, stacking_velocity=None, title="Semblance", x_ticker=None, y_ticker=None, grid=False, ax=None,
+             **kwargs):
         """Plot vertical velocity semblance.
 
         Parameters
@@ -316,19 +309,26 @@ class Semblance(BaseSemblance):
         stacking_velocity : StackingVelocity, optional
             Stacking velocity to plot if given. If its sample rate is more than 50 ms, every point will be highlighted
             with a circle.
+        title : str, optional, defaults to "Semblance"
+            Plot title.
+        x_ticker : dict, optional, defaults to None
+            Parameters for ticks and ticklabels formatting for the x-axis; see `.utils.set_ticks` for more details.
+        y_ticker : dict, optional, defaults to None
+            Parameters for ticks and ticklabels formatting for the y-axis; see `.utils.set_ticks` for more details.
+        grid : bool, optional, defaults to False
+            Specifies whether to draw a grid on the plot.
+        ax : matplotlib.axes.Axes, optional, defaults to None
+            Axes of the figure to plot on.
         kwargs : misc, optional
-            Additional named arguments for :func:`~BaseSemblance.plot`.
+            Additional common keyword arguments for `x_ticker` and `y_tickers`.
 
         Returns
         -------
         semblance : Semblance
             Self unchanged.
         """
-        ticks_range_x = [self.velocities[0], self.velocities[-1]]
-        ticks_range_y = [self.times[0], self.times[-1]]
-
-        stacking_times_ix, stacking_velocities_ix = None, None
         # Add a stacking velocity line on the plot
+        stacking_times_ix, stacking_velocities_ix = None, None
         if stacking_velocity is not None:
             stacking_times = stacking_velocity.times if stacking_velocity.times is not None else self.times
             stacking_velocities = stacking_velocity(stacking_times)
@@ -336,8 +336,9 @@ class Semblance(BaseSemblance):
             stacking_velocities_ix = ((stacking_velocities - self.velocities[0]) /
                                       (self.velocities[-1] - self.velocities[0]) * self.semblance.shape[1])
 
-        super().plot(self.semblance, ticks_range_x, ticks_range_y, stacking_times_ix=stacking_times_ix,
-                     stacking_velocities_ix=stacking_velocities_ix, xlabel='Velocity (m/s)', **kwargs)
+        super().plot(self.semblance, title=title, x_label="Velocity (m/s)", x_ticklabels=self.velocities,
+                     x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax, grid=grid,
+                     stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix, **kwargs)
         return self
 
     @batch_method(target="for", args_to_unpack="other")
@@ -563,29 +564,39 @@ class ResidualSemblance(BaseSemblance):
                                               cropped_semblance)
         return residual_semblance
 
-    @batch_method(target="for")
-    def plot(self, **kwargs):
+    @plotter(figsize=(10, 9))
+    def plot(self, title="Residual semblance", x_ticker=None, y_ticker=None, grid=False, ax=None, **kwargs):
         """Plot residual vertical velocity semblance. The plot always has a vertical line in the middle, representing
         the stacking velocity it was calculated for.
 
         Parameters
         ----------
+        title : str, optional, defaults to "Residual semblance"
+            Plot title.
+        x_ticker : dict, optional, defaults to None
+            Parameters for ticks and ticklabels formatting for the x-axis; see `.utils.set_ticks` for more details.
+        y_ticker : dict, optional, defaults to None
+            Parameters for ticks and ticklabels formatting for the y-axis; see `.utils.set_ticks` for more details.
+        grid : bool, optional, defaults to False
+            Specifies whether to draw a grid on the plot.
+        ax : matplotlib.axes.Axes, optional, defaults to None
+            Axes of the figure to plot on.
         kwargs : misc, optional
-            Additional named arguments for :func:`~BaseSemblance.plot`.
+            Additional common keyword arguments for `x_ticker` and `y_tickers`.
 
         Returns
         -------
         semblance : ResidualSemblance
             Self unchanged.
         """
-        ticks_range_x = [-self.relative_margin * 100, self.relative_margin * 100]
-        ticks_range_y = [self.times[0], self.times[-1]]  # from ix to ms
+        x_ticklabels = np.linspace(-self.relative_margin, self.relative_margin, self.residual_semblance.shape[1]) * 100
 
         stacking_times = self.stacking_velocity.times if self.stacking_velocity.times is not None else self.times
         stacking_times_ix = stacking_times / self.sample_rate
         stacking_velocities_ix = np.full_like(stacking_times_ix, self.residual_semblance.shape[1] / 2)
 
-        super().plot(self.residual_semblance, ticks_range_x=ticks_range_x, ticks_range_y=ticks_range_y,
-                     stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
-                     xlabel='Relative velocity margin (%)', **kwargs)
+        super().plot(self.residual_semblance, title=title, x_label="Relative velocity margin (%)",
+                     x_ticklabels=x_ticklabels, x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax,
+                     grid=grid, stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
+                     **kwargs)
         return self

@@ -1,15 +1,20 @@
 """Implements SeismicBatch class for processing a small subset of seismic gathers"""
 
+from string import Formatter
+from functools import partial
+
 import numpy as np
+import matplotlib.pyplot as plt
 
 from .gather import Gather
+from .cropped_gather import CroppedGather
 from .semblance import Semblance, ResidualSemblance
 from .decorators import create_batch_methods, apply_to_each_component
-from .utils import to_list
-from ..batchflow import Batch, action, DatasetIndex, NamedExpression
+from .utils import to_list, as_dict, save_figure, make_origins
+from ..batchflow import action, inbatch_parallel, Batch, DatasetIndex, NamedExpression
 
 
-@create_batch_methods(Gather, Semblance, ResidualSemblance)
+@create_batch_methods(Gather, CroppedGather, Semblance, ResidualSemblance)
 class SeismicBatch(Batch):
     """A batch class for seismic data that allows for joint and simultaneous processing of small subsets of seismic
     gathers in a parallel way.
@@ -65,12 +70,12 @@ class SeismicBatch(Batch):
             return self.indices.tolist()
         return [[index] for index in self.indices]
 
-    def _init_component(self, *args, dst, **kwargs):
+    def _init_component(self, *args, dst=None, **kwargs):
         """Create and preallocate new attributes with names listed in `dst` if they don't exist and return
         `self.nested_indices`. This method is typically used as a default `init` function in `inbatch_parallel`
         decorator."""
         _ = args, kwargs
-        dst = to_list(dst)
+        dst = [] if dst is None else to_list(dst)
         for comp in dst:
             if self.components is None or comp not in self.components:
                 self.add_components(comp, init=self.array_of_nones)
@@ -299,4 +304,240 @@ class SeismicBatch(Batch):
             dst.set(value=split_data)
         else:
             raise ValueError(f"dst must be either `str` or `NamedExpression`, not {type(dst)}.")
+        return self
+
+    @action
+    @inbatch_parallel(init='_init_component', target='for')
+    def crop(self, idx, src, origins, crop_shape, dst=None, joint=True, n_crops=1, stride=None, **kwargs):
+        """Crop batch components.
+
+        Parameters
+        ----------
+        src : str or list of str
+            Components to be cropped. Objects in each of them must implement `crop` method which will be called from
+            this method.
+        origins : list, tuple, np.ndarray or str
+            Origins define top-left corners for each crop or a rule used to calculate them. All array-like values are
+            cast to an `np.ndarray` and treated as origins directly, except for a 2-element tuple of `int`, which will
+            be treated as a single individual origin.
+            If `str`, represents a mode to calculate origins. Two options are supported:
+            - "random": calculate `n_crops` crops selected randomly using a uniform distribution over the source data,
+              so that no crop crosses data boundaries,
+            - "grid": calculate a deterministic uniform grid of origins, whose density is determined by `stride`.
+        crop_shape : tuple with 2 elements
+            Shape of the resulting crops.
+        dst : str or list of str, optional, defaults to None
+            Components to store cropped data. If `dst` is `None` cropping is performed inplace.
+        joint : bool, optional, defaults to True
+            Defines whether to create the same origins for all `src`s if passed `origins` is `str`. Generally used to
+            perform joint random cropping of segmentation model input and output.
+        n_crops : int, optional, defaults to 1
+            The number of generated crops if `origins` is "random".
+        stride : tuple with 2 elements, optional, defaults to crop_shape
+            Steps between two adjacent crops along both axes if `origins` is "grid". The lower the value is, the more
+            dense the grid of crops will be. An extra origin will always be placed so that the corresponding crop will
+            fit in the very end of an axis to guarantee complete data coverage with crops regardless of passed
+            `crop_shape` and `stride`.
+        kwargs : misc, optional
+            Additional keyword arguments to pass to `crop` method of the objects being cropped.
+
+        Returns
+        -------
+        self : SeismicBatch
+            The batch with cropped data.
+
+        Raises
+        ------
+        TypeError
+            If `joint` is `True` and `src` contains components of different types.
+        ValueError
+            If `src` and `dst` have different lengths.
+            If `joint` is `True` and `src` contains components of different shapes.
+        """
+        dst = src if dst is None else dst
+        src_list = to_list(src)
+        dst_list = to_list(dst)
+
+        if len(src_list) != len(dst_list):
+            raise ValueError("src and dst should have the same length.")
+
+        pos = self.index.get_pos(idx)
+
+        if joint:
+            src_shapes = set()
+            src_types = set()
+
+            for src in src_list:  # pylint: disable=redefined-argument-from-local
+                src_obj = getattr(self, src)[pos]
+                src_types.add(type(src_obj))
+                src_shapes.add(src_obj.shape)
+
+            if len(src_types) > 1:
+                raise TypeError("If joint is True, all src components must be of the same type.")
+            if len(src_shapes) > 1:
+                raise ValueError("If joint is True, all src components must have the same shape.")
+            data_shape = src_shapes.pop()
+            origins = make_origins(origins, data_shape, crop_shape, n_crops, stride)
+
+        for src, dst in zip(src_list, dst_list):  # pylint: disable=redefined-argument-from-local
+            src_obj = getattr(self, src)[pos]
+            src_cropped = src_obj.crop(origins, crop_shape, n_crops, stride, **kwargs)
+            setattr(self[pos], dst, src_cropped)
+
+        return self
+
+    @action
+    def plot(self, src, src_kwargs=None, max_width=20, title="{src}: {index}", save_to=None, **common_kwargs):  # pylint: disable=too-many-statements
+        """Plot batch components on a grid constructed as follows:
+        1. If a single batch component is passed, its objects are plotted side by side on a single line.
+        2. Otherwise, each batch element is drawn on a separate line, its components are plotted in the order they
+           appear in `src`.
+
+        If the total width of plots on a line exceeds `max_width`, the line is wrapped and the plots that did not fit
+        are drawn below.
+
+        This action calls `plot` methods of objects in components in `src`. There are two ways to pass arguments to
+        these methods:
+        1. `common_kwargs` set defaults for all of them,
+        2. `src_kwargs` define specific `kwargs` for an individual component that override those in `common_kwargs`.
+
+        Notes
+        -----
+        1. `kwargs` from `src_kwargs` take priority over the `common_kwargs` and `title` argument.
+        2. `title` is processed differently than in the `plot` methods of objects in `src` components, see its
+           description below for more details.
+
+        Parameters
+        ----------
+        src : str or list of str
+            Components to be plotted. Objects in each of them must implement `plot` method which will be called from
+            this method.
+        src_kwargs : dict or list of dicts, optional, defaults to None
+            Additional arguments for plotters of components in `src`.
+            If `dict`, defines a mapping from a component or a tuple of them to `plot` arguments, which are stored as
+            `dict`s.
+            If `list`, each element is a `dict` with arguments for the corresponding component in `src`.
+        max_width : float, optional, defaults to 20
+            Maximal figure width, measured in inches.
+        title : str or dict, optional, defaults to "{src}: {index}"
+            Title of subplots. If `dict`, should contain keyword arguments to pass to `matplotlib.axes.Axes.set_title`.
+            In this case, the title string is stored under the `label` key.
+
+            The title string may contain variables enclosed in curly braces that are formatted as python f-strings as
+            follows:
+            - "src" is substituted with the component name of the subplot,
+            - "index" is substituted with the index of the current batch element,
+            - All other variables are popped from the `title` `dict`.
+        save_to : str or dict, optional, defaults to None
+            If `str`, a path to save the figure to.
+            If `dict`, should contain keyword arguments to pass to `matplotlib.pyplot.savefig`. In this case, the path
+            is stored under the `fname` key.
+            Otherwise, the figure is not saved.
+        common_kwargs : misc, optional
+            Additional common arguments to all plotters of components in `src`.
+
+        Returns
+        -------
+        self : SeismicBatch
+            The batch unchanged.
+
+        Raises
+        ------
+        ValueError
+            If the length of `src_kwargs` when passed as a list does not match the length of `src`.
+            If any of the components' `plot` method is not decorated with `plotter` decorator.
+        """
+        # Consturct a list of plot kwargs for each component in src
+        src_list = to_list(src)
+        if src_kwargs is None:
+            src_kwargs = [{} for _ in range(len(src_list))]
+        elif isinstance(src_kwargs, dict):
+            src_kwargs = {src: src_kwargs[keys] for keys in src_kwargs for src in to_list(keys)}
+            src_kwargs = [src_kwargs.get(src, {}) for src in src_list]
+        else:
+            src_kwargs = to_list(src_kwargs)
+            if len(src_list) != len(src_kwargs):
+                raise ValueError("The length of src_kwargs must match the length of src")
+
+        # Construct a grid of plotters with shape (len(self), len(src_list)) for each of the subplots
+        plotters = [[] for _ in range(len(self))]
+        for src, kwargs in zip(src_list, src_kwargs):  # pylint: disable=redefined-argument-from-local
+            # Merge src kwargs with common kwargs and defaults
+            plotter_params = getattr(getattr(self, src)[0].plot, "method_params", {}).get("plotter")
+            if plotter_params is None:
+                raise ValueError("plot method of each component in src must be decorated with plotter")
+            kwargs = {"figsize": plotter_params["figsize"], "title": title, **common_kwargs, **kwargs}
+
+            # Scale subplot figsize if its width is greater than max_width
+            width, height = kwargs.pop("figsize")
+            if width > max_width:
+                height = height * max_width / width
+                width = max_width
+
+            title_template = kwargs.pop("title")
+            args_to_unpack = set(to_list(plotter_params["args_to_unpack"]))
+
+            for i, index in enumerate(self.indices):
+                # Unpack required plotter arguments by getting the value of specified component with given index
+                unpacked_args = {}
+                for arg_name in args_to_unpack & kwargs.keys():
+                    arg_val = kwargs[arg_name]
+                    if isinstance(arg_val, str):
+                        unpacked_args[arg_name] = getattr(self, arg_val)[i]
+
+                # Format subplot title
+                if title_template is not None:
+                    title = as_dict(title_template, key='label')
+                    label = title.pop("label")
+                    format_names = {name for _, name, _, _ in Formatter().parse(label) if name is not None}
+                    format_kwargs = {name: title.pop(name) for name in format_names if name in title}
+                    title["label"] = label.format(src=src, index=index, **format_kwargs)
+                    kwargs["title"] = title
+
+                # Create subplotter config
+                subplot_config = {
+                    "plotter": partial(getattr(self, src)[i].plot, **{**kwargs, **unpacked_args}),
+                    "height": height,
+                    "width": width,
+                }
+                plotters[i].append(subplot_config)
+
+        # Flatten all the subplots into a row if a single component was specified
+        if len(src_list) == 1:
+            plotters = [sum(plotters, [])]
+
+        # Wrap lines of subplots wider than max_width
+        split_pos = []
+        curr_width = 0
+        for i, plotter in enumerate(plotters[0]):
+            curr_width += plotter["width"]
+            if curr_width > max_width:
+                split_pos.append(i)
+                curr_width = plotter["width"]
+        plotters = sum([np.split(plotters_row, split_pos) for plotters_row in plotters], [])
+
+        # Define axes layout and perform plotting
+        fig_width = max(sum(plotter["width"] for plotter in plotters_row) for plotters_row in plotters)
+        row_heigths = [max(plotter["height"] for plotter in plotters_row) for plotters_row in plotters]
+        fig = plt.figure(figsize=(fig_width, sum(row_heigths)), constrained_layout=True)
+        gridspecs = fig.add_gridspec(len(plotters), 1, height_ratios=row_heigths)
+
+        for gridspecs_row, plotters_row in zip(gridspecs, plotters):
+            n_cols = len(plotters_row)
+            col_widths = [plotter["width"] for plotter in plotters_row]
+
+            # Create a dummy axis if row width is less than fig_width in order to avoid row stretching
+            if fig_width > sum(col_widths):
+                col_widths.append(fig_width - sum(col_widths))
+                n_cols += 1
+
+            # Create a gridspec for the current row
+            gridspecs_col = gridspecs_row.subgridspec(1, n_cols, width_ratios=col_widths)
+            for gridspec, plotter in zip(gridspecs_col, plotters_row):
+                plotter["plotter"](ax=fig.add_subplot(gridspec))
+
+        if save_to is not None:
+            save_kwargs = as_dict(save_to, key="fname")
+            save_figure(fig, **save_kwargs)
+        plt.show()
         return self

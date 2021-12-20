@@ -227,7 +227,7 @@ def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_st
     trace_gen : callable, defaults to None.
         Callable to generate trace data. It recieves a dict of trace headers along with everything passed in `kwargs`.
         If `None`, traces are filled with gaussian noise.
-        Passed headers: FieldRecord, TraceNumber, SourceX, SourceY, Group_X, Group_Y, offset, CDP_X, CDP_Y,
+        Passed headers: FieldRecord, TraceNumber, SourceX, SourceY, Group_X, Group_Y, offset, CDP, CDP_X, CDP_Y,
                         INLINE_3D, CROSSLINE_3D, TRACE_SAMPLE_COUNT, TRACE_SAMPLE_INTERVAL, DelayRecordingTime
     kwargs : misc, optional
         Additional keyword arguments to `trace_gen`.
@@ -277,9 +277,13 @@ def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_st
                 trace_header_dict['GroupX'], trace_header_dict['GroupY'] = reciever_location
                 trace_header_dict['offset'] = int(np.sum((source_location - reciever_location)**2)**0.5)
 
-                CDP = ((source_location + reciever_location)/2).astype(int)
-                trace_header_dict['CDP_X'], trace_header_dict['CDP_Y'] = CDP
-                trace_header_dict['INLINE_3D'], trace_header_dict['CROSSLINE_3D'] = CDP // bin_size
+                # Fill bin-related headers
+                midpoint = (source_location + reciever_location) / 2
+                trace_header_dict['INLINE_3D'], trace_header_dict['CROSSLINE_3D'] = (midpoint // bin_size).astype(int)
+                trace_header_dict['CDP_X'] = trace_header_dict['INLINE_3D'] * bin_size[0] + bin_size[0] // 2
+                trace_header_dict['CDP_Y'] = trace_header_dict['CROSSLINE_3D'] * bin_size[1] + bin_size[1] // 2
+                trace_header_dict['CDP'] = (trace_header_dict['INLINE_3D'] * survey_size[1] +
+                                            trace_header_dict['CROSSLINE_3D'])
 
                 # Fill depth-related fields in header
                 trace_header_dict['TRACE_SAMPLE_COUNT'] = n_samples

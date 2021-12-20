@@ -1,5 +1,6 @@
 """Implements Survey class describing a single SEG-Y file"""
 
+# pylint: disable=self-cls-assignment
 import os
 import warnings
 from copy import copy, deepcopy
@@ -132,10 +133,12 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         for column in load_headers:
             headers[column] = self.segy_handler.attributes(segyio.tracefield.keys[column])[:]
 
-        headers = pd.DataFrame(headers)
+        # According to SEG-Y spec, headers values are at most 4-byte integers
+        headers = pd.DataFrame(headers, dtype=np.int32)
         # TRACE_SEQUENCE_FILE is reconstructed manually since it can be omitted according to the SEG-Y standard
         # but we rely on it during gather loading.
-        headers["TRACE_SEQUENCE_FILE"] = np.arange(1, self.segy_handler.tracecount+1)
+        tsf_dtype = np.int32 if len(headers) < np.iinfo(np.int32).max else np.int64
+        headers["TRACE_SEQUENCE_FILE"] = np.arange(1, self.segy_handler.tracecount+1, dtype=tsf_dtype)
         headers.set_index(header_index, inplace=True)
         # Sort headers by index to optimize further headers subsampling and merging.
         self.headers = headers.sort_index()
@@ -475,20 +478,37 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         """
         return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
 
-    def load_first_breaks(self, path, first_breaks_col='FirstBreak'):
-        """Load times of first breaks and save them to `headers`.
+    # pylint: disable=anomalous-backslash-in-string
+    def load_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak',
+                          delimiter='\s+', decimal=None, encoding="UTF-8", inplace=False, **kwargs):
+        """Load times of first breaks from a file and save them to a new column in headers.
 
-        A file with first breaks data must have three columns: `FieldRecord`, `TraceNumber` and times of first
-        arrivals in milliseconds. The combination of `FieldRecord` and `TraceNumber` acts as a unique trace identifier
-        and is used to match the times of first breaks with the corresponding traces in `self.headers` and save them
-        into the column specified by `first_breaks_col`.
+        Each line of the file stores the first break time for a trace in the last column.
+        The combination of all but the last columns should act as a unique trace identifier and is used to match
+        the trace from the file with the corresponding trace in `self.headers`.
+
+        The file can have any format that can be read by `pd.read_csv`, by default, it's expected
+        to have whitespace-separated values.
 
         Parameters
         ----------
         path : str
             A path to the file with first break times in milliseconds.
+        trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
+            Headers, whose values are stored in all but the last columns of the file.
         first_breaks_col : str, optional, defaults to 'FirstBreak'
             Column name in `self.headers` where loaded first break times will be stored.
+        delimiter: str, defaults to '\s+'
+            Delimiter to use. See `pd.read_csv` for more details.
+        decimal : str, defaults to None
+            Character to recognize as decimal point.
+            If `None`, it is inferred from the first line of the file.
+        encoding : str, optional, defaults to "UTF-8"
+            File encoding.
+        inplace : bool, optional, defaults to False
+            Whether to load first break times inplace or to a survey copy.
+        kwargs : misc, optional
+            Additional keyword arguments to pass to `pd.read_csv`.
 
         Returns
         -------
@@ -498,19 +518,22 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         Raises
         ------
         ValueError
-            If `FieldRecord` or `TraceNumber` headers were not loaded.
-            If ('FieldRecord', 'TraceNumber') pairs from the file do not match those in `self.headers`.
+            If there is not a single match of rows from the file with those in `self.headers`.
         """
-        segy_columns = ['FieldRecord', 'TraceNumber']
-        first_breaks_columns = segy_columns + [first_breaks_col]
-        first_breaks_df = pd.read_csv(path, names=first_breaks_columns, delim_whitespace=True, decimal=',')
+        self = maybe_copy(self, inplace)
+
+        # if decimal is not provided, try to infer it from the first line
+        if decimal is None:
+            with open(path, 'r', encoding=encoding) as f:
+                row = f.readline()
+            decimal = '.' if '.' in row else ','
+
+        file_columns = to_list(trace_id_cols) + [first_breaks_col]
+        first_breaks_df = pd.read_csv(path, delimiter=delimiter, names=file_columns,
+                                      decimal=decimal, encoding=encoding, **kwargs)
 
         headers = self.headers.reset_index()
-        missing_cols = set(segy_columns) - set(headers)
-        if missing_cols:
-            raise ValueError(f'Missing {missing_cols} column(s) required for first break loading.')
-
-        headers = headers.merge(first_breaks_df, on=segy_columns)
+        headers = headers.merge(first_breaks_df, on=trace_id_cols)
         if headers.empty:
             raise ValueError('Empty headers after first breaks loading.')
         headers.set_index(self.headers.index.names, inplace=True)
@@ -607,7 +630,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         ValueError
             If `cond` returns more than one bool value for each row of `headers`.
         """
-        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        self = maybe_copy(self, inplace)
         headers = self.headers.reset_index()[to_list(cols)]
         mask = self._apply(cond, headers, axis=axis, unpack_args=unpack_args, **kwargs)
         if (mask.ndim != 2) or (mask.shape[1] != 1):
@@ -651,7 +674,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self : Survey
             A survey with the function applied.
         """
-        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        self = maybe_copy(self, inplace)
         cols = to_list(cols)
         res_cols = cols if res_cols is None else to_list(res_cols)
         headers = self.headers.reset_index()[cols]
@@ -674,7 +697,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self : Survey
             Reindexed survey.
         """
-        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        self = maybe_copy(self, inplace)
         self.headers.reset_index(inplace=True)
         self.headers.set_index(new_index, inplace=True)
         self.headers.sort_index(inplace=True)
@@ -778,7 +801,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         KeyError
             If `INLINE_3D` and `CROSSLINE_3D` headers were not loaded.
         """
-        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        self = maybe_copy(self, inplace)
         index_cols = self.headers.index.names
         headers = self.headers.reset_index()
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]
