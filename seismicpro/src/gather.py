@@ -16,7 +16,6 @@ from .muting import Muter
 from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 from .weathering_velocity import WeatheringVelocity
-from .decorators import batch_method
 from .decorators import batch_method, plotter
 from .utils import normalization, correction
 from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, set_ticks, as_dict, make_origins
@@ -714,7 +713,7 @@ class Gather:
     @batch_method(target='for')
     def calculate_weathering_velocity(self, **kwargs):
         '''docsting'''
-        return WeatheringVelocity(**kwargs)
+        return WeatheringVelocity(self, **kwargs)
     
     @batch_method(target='for', args_to_unpack='WV') # 
     def calculate_weathering_metrics(self, WV, treshhold_times=50, strategy='mean', offset_cone=0.01):
