@@ -15,6 +15,81 @@ def maybe_copy(obj, inplace=False, **kwargs):
     return obj if inplace else obj.copy(**kwargs)
 
 
+def times_to_indices(samples, times, outliers='none', round=True):
+    """Convert to corresponding indices in samples ...
+
+    Notes
+    -----
+    `samples` array must be non-decreasing.
+
+    Parameters
+    ----------
+    samples : array-like
+        !!
+    times : array-like
+        !!
+    round : bool, optional, defaults to True
+        Round indices to the nearest integer. For values exactly halfway between rounded decimal values, it rounds to
+        the nearest even value.
+
+    Returns
+    -------
+    indices : 1d np.ndarray
+        Indices of ...
+    """
+    if np.any(np.diff(samples) < 0):
+        raise ValueError('..')
+    if outliers not in ['none', 'clip']:
+        raise ValueError("..")
+    return _times_to_indices(samples, times, outliers, round)
+
+
+@njit
+def _times_to_indices(samples, times, outliers='none', round=True):
+    indices_array = np.full(len(times), np.nan, dtype=np.float32)
+    left_mask = times < samples[0]
+    right_mask = times > samples[-1]
+    if outliers == 'clip':
+        indices_array[np.where(left_mask)[0]] = samples[0]
+        indices_array[np.where(right_mask)[0]] = samples[-1]
+    outliers = left_mask | right_mask
+
+    for i, (time, is_outlier) in enumerate(zip(times, outliers)):
+        if is_outlier:
+            continue
+        ix = np.searchsorted(samples, time)
+        indices_array[i] = ix + (time - samples[ix]) / (samples[ix] - samples[ix-1])
+    indices_array = np.rint(indices_array) if round else indices_array
+    return indices_array
+
+
+def indices_to_times(samples, indices, outliers='none'):
+    """Convert indices to samples based on `samples`."""
+    if np.any(np.diff(samples) < 0):
+        raise ValueError('..')
+    if outliers not in ['none', 'clip']:
+        raise ValueError("..")
+    return _indices_to_times(samples, indices, outliers)
+
+
+@njit
+def _indices_to_times(samples, indices, outliers='none'):
+    indices_array = np.full(len(indices), np.nan, dtype=np.float32)
+    left_mask = indices < 0
+    right_mask = indices > len(samples)-1
+    if outliers == 'clip':
+        indices_array[np.where(left_mask)[0]] = samples[0]
+        indices_array[np.where(right_mask)[0]] = samples[-1]
+    outliers = left_mask | right_mask
+
+    int_indices = indices.astype(np.int32)
+    for i, (ix, int_ix, is_outlier) in enumerate(zip(indices, int_indices, outliers)):
+        if is_outlier:
+            continue
+        indices_array[i] = samples[int_ix] + (ix - int_ix) * (samples[int_ix] - samples[int_ix-1])
+    return indices_array
+
+
 def unique_indices_sorted(arr):
     """Return indices of the first occurrences of the unique values in a sorted array."""
     mask = np.empty(len(arr), dtype=np.bool_)

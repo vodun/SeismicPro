@@ -17,7 +17,9 @@ from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 from .decorators import batch_method, plotter
 from .utils import normalization, correction
-from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, set_ticks, as_dict, make_origins
+from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, set_ticks, as_dict,
+                    make_origins, times_to_indices, indices_to_times)
+
 
 class Gather:
     """A class representing a single seismic gather.
@@ -49,8 +51,6 @@ class Gather:
         Trace data of the gather with (num_traces, trace_lenght) layout.
     samples : 1d np.ndarray of floats
         Recording time for each trace value. Measured in milliseconds.
-    sample_rate : float
-        Sample rate of seismic traces. Measured in milliseconds.
     survey : Survey
         A survey that generated the gather.
 
@@ -80,7 +80,7 @@ class Gather:
     def sample_rate(self):
         """"float: Sample rate of seismic traces. Measured in milliseconds."""
         sample_rate = np.unique(np.diff(self.samples))
-        if len(sample_rate):
+        if len(sample_rate) == 1:
             return sample_rate.item()
         raise ValueError("`sample_rate` is not defined, since `samples` is not regular.")
 
@@ -180,12 +180,6 @@ class Gather:
         # Check that `sort_by` still represents the actual trace sorting as it might be changed during getitem.
         if new_self.sort_by is not None and not new_self.headers[new_self.sort_by].is_monotonic_increasing:
             new_self.sort_by = None
-
-        # Set `sample_rate` to None if `samples` became irregular after getitem.
-        if indices[1] != slice(None):
-            sample_rate = np.unique(np.diff(new_self.samples))
-            new_self._sample_rate = sample_rate[0] if len(sample_rate) == 1 else None
-
         return new_self
 
     def __setitem__(self, key, value):
@@ -299,12 +293,6 @@ class Gather:
     def get_item(self, *args):
         """An interface for `self.__getitem__` method."""
         return self[args if len(args) > 1 else args[0]]
-
-    def times_to_indices(self, times):
-        return np.clip(np.rint((times - self.samples[0]) / self.sample_rate), 0, self.shape[1])
-
-    def indices_to_times(self, indices):
-        return np.clip(indices * self.sample_rate + self.samples[0], 0, self.samples[-1])
 
     def _validate_header_cols(self, required_header_cols):
         """Check if the gather headers contain all columns from `required_header_cols`."""
@@ -636,7 +624,7 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", copy_src=False)
-    def pick_to_mask(self, first_breaks_col="FirstBreak"):
+    def pick_to_mask(self, first_breaks_col="FirstBreak", **kwargs):
         """Convert first break times to a binary mask with the same shape as `gather.data` containing zeros before the
         first arrivals and ones after for each trace.
 
@@ -644,13 +632,16 @@ class Gather:
         ----------
         first_breaks_col : str, optional, defaults to 'FirstBreak'
             A column of `self.headers` that contains first arrival times, measured in milliseconds.
+        kwargs : dict, optional
+            Additional keyword arguments to `.utils.general_utils.times_to_indices`.
+
 
         Returns
         -------
         gather : Gather
             A new `Gather` with calculated first breaks mask in its `data` attribute.
         """
-        times_indices = self.times_to_indices(self[first_breaks_col].ravel())
+        times_indices = times_to_indices(self.samples, self[first_breaks_col].ravel(), **kwargs)
         mask = convert_times_to_mask(times_indices=times_indices, mask_length=self.shape[1]).astype(np.int32)
         gather = self.copy(ignore='data')
         gather.data = mask
@@ -685,7 +676,7 @@ class Gather:
             A gather with first break times in headers column defined by `first_breaks_col`.
         """
         picking_indices = convert_mask_to_pick(self.data, threshold)
-        picking_times = self.indices_to_times(picking_indices)
+        picking_times = indices_to_times(self.samples, picking_indices)
         self[first_breaks_col] = picking_times
         if save_to is not None:
             save_to[first_breaks_col] = picking_times
@@ -768,7 +759,7 @@ class Gather:
         return builder(**kwargs)
 
     @batch_method(target="threads", args_to_unpack="muter")
-    def mute(self, muter, fill_value=0):
+    def mute(self, muter, fill_value=0, **kwargs):
         """Mute the gather using given `muter`.
 
         The muting operation is performed by setting gather values above an offset-time boundary defined by `muter` to
@@ -780,13 +771,15 @@ class Gather:
             An object that defines muting times by gather offsets.
         fill_value : float, defaults to 0
             A value to fill the muted part of the gather with.
+        kwargs : dict, optional
+            Additional keyword arguments to `.utils.general_utils.times_to_indices`.
 
         Returns
         -------
         self : Gather
             Muted gather.
         """
-        muting_indices = self.times_to_indices(muter(self.offsets))
+        muting_indices = times_to_indices(self.samples, muter(self.offsets), **kwargs)
         self.data = mute_gather(gather_data=self.data, muting_indices=muting_indices, fill_value=fill_value)
         return self
 
