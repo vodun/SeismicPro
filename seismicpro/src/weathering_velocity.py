@@ -1,3 +1,5 @@
+from collections import OrderedDict
+
 import numpy as np
 from scipy import optimize
 import matplotlib.transforms as mtransforms
@@ -5,59 +7,105 @@ import matplotlib.transforms as mtransforms
 from .decorators import plotter
 from .utils import to_list
 
+
 class WeatheringVelocity:
-    
-    def __init__(self, gather, offset=None, picking_times_col='PredictedBreak', t0=200, offset_breakpoints=2000, velocity_layers=[2, 3], bounds=None):
-        # keep a base parameters when class initializate and rewrite it after fit function is done
 
-        # offset_breakpoints -> crossover_offsets
+    def __init__(self, offset, picking_times, t0=200, crossovers=1500, velocities=[2, 3], bounds=None):
+        # keep a base parameters when class initializate and rewrite it after fit function is done -> denied
 
-        # offset and picking times not from gather
-        self.gather = gather
-        self.offset = offset or gather['offset'].ravel()
-        self.picking = gather[picking_times_col].ravel()
+        # L namedexpression used in pipeline call returned list.
+        self.offset = offset[0].ravel() if isinstance(offset, list) else offset.ravel()
+        self.picking = picking_times[0].ravel() if isinstance(picking_times, list) else picking_times.ravel()
 
-        self.t0 = None
-        self.offset_breakpoints = None
-        self.velocity_layers = None
-        self._args = self._params_to_args(t0, offset_breakpoints, velocity_layers)
-        # self._args = [t0] + to_list(offset_breakpoints) + to_list(velocity_layers)
-        self.n_layers = len(velocity_layers)
+        # params after fitting only
+        # self.t0, self.cs1, self.v1, self.v2
+        # self.t0 = None
+        # self.crossovers = None
+        # self.velocities = None
 
-        self.bounds = bounds or ([0, 1000, 1, 1], [1000, 3000, 3, 5])
-        # self.bounds = bound or {'t0': [0, 1000], 
-        #                         'offset_breakpoints': [0, 3000],
-        #                         'Vp1': [1, 3],
-        #                         'Vp2': [1, 5]}
-        self.predict = None
-        self._fit_predict(self.offset, self.picking)
-    
+        self.n_layers = len(velocities)
+        self._base_args = self._params_to_args(t0, crossovers, velocities)
+
+        # bounds passed as dict with next structure:
+        # {'t0': [0, 1000],
+        #  'c1': [1000, 2000],
+        #  'c2': [1500, 2500],
+        #  'v1': [1, 3],
+        #  'v2': [1, 4],
+        #  'v3': [2, 5]}
+        self.bounds = self._calc_bounds(t0, crossovers, velocities) if bounds is None else self._parse_dict(bounds)
+
+        self._fitted_args = None
+        self._fit(self.offset, self.picking)
+
     # @property
     # def n_layers(self):
-        # return len(velocity_layers)
+    # return len(self.velocities)
 
+    def _calc_bounds(self, t0, crossovers, velocities):
+        # is we need to change multipliers?
+        # t0 block
+        lower_bound = [0]
+        upper_bound = [0 + t0 * 3]
+        # crossovers block
+        for offset in to_list(crossovers):
+            lower_bound += [offset / 2]
+            upper_bound += [offset * 2]
+        # velocities block
+        for v_i in to_list(velocities):
+            lower_bound += [v_i / 2]
+            upper_bound += [v_i * 2]
+        return (lower_bound, upper_bound)
+
+    def _parse_dict(self, bounds):
+        bounds = OrderedDict(sorted(bounds.items()))
+        lower_bounds = [None] * (self.n_layers * 2)
+        upper_bounds = [None] * (self.n_layers * 2)
+        for i, key in enumerate(bounds.keys()):
+            if key[0] == 'c':
+                lower_bounds[i + 1] = bounds[key][0]
+                upper_bounds[i + 1] = bounds[key][1]
+            if key[0] == 't':
+                lower_bounds[0] = bounds[key][0]
+                upper_bounds[0] = bounds[key][1]
+            if key[0] == 'v':
+                lower_bounds[i] = bounds[key][0]
+                upper_bounds[i] = bounds[key][1]
+        return (lower_bounds, upper_bounds)
 
     def _params_to_args(self, t0, crossovers, velocities):
-    #     # (t0, offsetoffset_breakpoints_crunch, velocity_layers)
+        #     # (t0, crossovers, velocities)
         result_args = to_list(t0)
-        if crossovers is not None:
+        if self.n_layers > 1:
             result_args += to_list(crossovers)
         result_args += to_list(velocities)
+        # print('_params_to_args', result_args)
         return result_args
-        
+
     def _args_to_params(self, *args):
         self.t0 = args[0]
-        self.offset_breakpoints = args[1:self.n_layers]
-        self.velocity_layers = args[self.n_layers:]
+        if self.n_layers > 1:
+            for i, offset in enumerate(args[1:self.n_layers]):
+                setattr(self, f'c{i + 1}', offset)
+        else:
+            setattr(self, f'c1', None)
+        for i, velocity in enumerate(args[self.n_layers:]):
+            setattr(self, f'v{i + 1}', velocity)
+
+        # legacy for working call func
+        # self.crossovers = args[1:self.n_layers]
+        # self.velocities = args[self.n_layers:]
 
     @staticmethod
     def piecewise_linear(offset, *args):
         '''
-        args = [t0, *offset_breakpoints, *velocity_layers]
+        args = [t0, *crossovers, *velocities]
         '''
+        # print('piecewise_offset', offset)
+        # print('piecewise_args', args)
         t0 = args[0]
-        crunch = list(args[1:len(args)//2]) + [offset.max()]
-        velocity = args[len(args)//2:]
+        crunch = list(args[1:len(args) // 2]) + [offset.max()]
+        velocity = args[len(args) // 2:]
         offset_coords = [0]
         times_coords = [t0]
         for i, (v_i, offset_i) in enumerate(zip(velocity, crunch)):
@@ -65,44 +113,42 @@ class WeatheringVelocity:
             offset_coords.append(offset_i)
         return np.interp(offset, offset_coords, times_coords)
 
-    def _fit_predict(self, offset, picking_times):
+    def _fit(self, offset, picking_times):
         # offset = offset.ravel()
         # picking_times = picking_times.ravel()
-        print(offset.shape, picking_times.shape)
-        print(self._args, self.bounds)
-        _args, _ = optimize.curve_fit(self.piecewise_linear, offset, picking_times,
-                            p0 = self._args,
-                            bounds=self.bounds, 
-                            method='trf', 
-                            loss='soft_l1'
-                            )
-        self.predict = self.piecewise_linear(offset, *_args)  # from calc_metrics
+        # print(offset.shape, picking_times.shape)
+        # print(self._args, self.bounds)
+        _args, _ = optimize.curve_fit(self.piecewise_linear, offset, picking_times, p0=self._base_args,
+                                      bounds=self.bounds, method='trf', loss='soft_l1')
         self._args_to_params(*_args)
+        self._fitted_args = _args
+
+    def __call__(self, offset):
+        ''' return a predicted times using the fitted crossovers and velocities. '''
+        # print('call args: ', *self._fitted_args)
+        # print('call offset: ', offset)
+        return self.piecewise_linear(offset, *self._fitted_args)
 
     @plotter(figsize=(10, 5))
     def plot(self, ax, title=None, show_params=False, **kwargs):
-        # show_params=True don't work yet
+        # TODO: add thresholds lines
         ax.scatter(self.offset, self.picking)
-        ax.scatter(self.offset, self.predict, s=5)
-        # print(self.t0, self.offset_breakpoints, self.velocity_layers)
+        ax.scatter(self.offset, self(self.offset), s=5)
         if show_params:
+            crossover_title = 'crossovers offset = '
+            if self.n_layers > 1:
+                crossovers = ['{:.2f}'.format(getattr(self, f'c{i + 1}', -1)) for i in range(self.n_layers - 1)]
+                crossover_title += ', '.join(crossovers)
+            else:
+                crossover_title += 'None'
             velocity_title = 'velocities = '
-            for i in range(len(self.velocity_layers)):
-                if i > 0:
-                    velocity_title += ', '
-                velocity_title += f"{self.velocity_layers[i]:.2f}"
-            breakpoint_title = 'breakpoints = '
-            for i in range(len(self.offset_breakpoints)):
-                if i > 0:
-                    breakpoint_title += ', '
-                breakpoint_title += f"{self.offset_breakpoints[i]:.2f}"
-            if len(self.offset_breakpoints) == 0:
-                breakpoint_title += 'None'
-                
-            trans = mtransforms.ScaledTranslation(1/5, -1/5, scale_trans=mtransforms.Affine2D([[100, 0, 0],
-                                                                                               [0, 100, 0],
-                                                                                               [0, 0, 1]]))  # fig.dpi_scale_trans
-            ax.text(0.0, 1.0, f"t0={self.t0:.2f}\n{breakpoint_title}\n{velocity_title}", fontsize=15, va='top',
+            velocities = ['{:.2f}'.format(getattr(self, f'v{i + 1}', -1)) for i in range(self.n_layers)]
+            velocity_title += ', '.join(velocities)
+
+            trans = mtransforms.ScaledTranslation(1 / 5, -1 / 5, scale_trans=mtransforms.Affine2D([[100, 0, 0],
+                                                                                                   [0, 100, 0],
+                                                                                                   [0, 0,
+                                                                                                    1]]))  # fig.dpi_scale_trans
+            ax.text(0.0, 1.0, f"t0={self.t0:.2f}\n{crossover_title}\n{velocity_title}", fontsize=15, va='top',
                     transform=ax.transAxes + trans,
                     )
-
