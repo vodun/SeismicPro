@@ -40,7 +40,7 @@ class WeatheringVelocity:
 
     # @property
     # def n_layers(self):
-    # return len(self.velocities)
+    #     return len(self.velocities)
 
     def _calc_bounds(self, t0, crossovers, velocities):
         # is we need to change multipliers?
@@ -74,12 +74,10 @@ class WeatheringVelocity:
         return (lower_bounds, upper_bounds)
 
     def _params_to_args(self, t0, crossovers, velocities):
-        #     # (t0, crossovers, velocities)
         result_args = to_list(t0)
         if self.n_layers > 1:
             result_args += to_list(crossovers)
         result_args += to_list(velocities)
-        # print('_params_to_args', result_args)
         return result_args
 
     def _args_to_params(self, *args):
@@ -92,17 +90,11 @@ class WeatheringVelocity:
         for i, velocity in enumerate(args[self.n_layers:]):
             setattr(self, f'v{i + 1}', velocity)
 
-        # legacy for working call func
-        # self.crossovers = args[1:self.n_layers]
-        # self.velocities = args[self.n_layers:]
-
     @staticmethod
     def piecewise_linear(offset, *args):
         '''
         args = [t0, *crossovers, *velocities]
         '''
-        # print('piecewise_offset', offset)
-        # print('piecewise_args', args)
         t0 = args[0]
         crunch = list(args[1:len(args) // 2]) + [offset.max()]
         velocity = args[len(args) // 2:]
@@ -114,10 +106,6 @@ class WeatheringVelocity:
         return np.interp(offset, offset_coords, times_coords)
 
     def _fit(self, offset, picking_times):
-        # offset = offset.ravel()
-        # picking_times = picking_times.ravel()
-        # print(offset.shape, picking_times.shape)
-        # print(self._args, self.bounds)
         _args, _ = optimize.curve_fit(self.piecewise_linear, offset, picking_times, p0=self._base_args,
                                       bounds=self.bounds, method='trf', loss='soft_l1')
         self._args_to_params(*_args)
@@ -125,8 +113,6 @@ class WeatheringVelocity:
 
     def __call__(self, offset):
         ''' return a predicted times using the fitted crossovers and velocities. '''
-        # print('call args: ', *self._fitted_args)
-        # print('call offset: ', offset)
         return self.piecewise_linear(offset, *self._fitted_args)
 
     @plotter(figsize=(10, 5))
@@ -147,8 +133,7 @@ class WeatheringVelocity:
 
             trans = mtransforms.ScaledTranslation(1 / 5, -1 / 5, scale_trans=mtransforms.Affine2D([[100, 0, 0],
                                                                                                    [0, 100, 0],
-                                                                                                   [0, 0,
-                                                                                                    1]]))  # fig.dpi_scale_trans
+                                                                                                   [0, 0, 1]]))  # fig.dpi_scale_trans
             ax.text(0.0, 1.0, f"t0={self.t0:.2f}\n{crossover_title}\n{velocity_title}", fontsize=15, va='top',
                     transform=ax.transAxes + trans,
                     )
