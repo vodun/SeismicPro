@@ -644,7 +644,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         headers = self.headers.reset_index()[to_list(cols)]
         mask = self._apply(cond, headers, axis=axis, unpack_args=unpack_args, **kwargs)
         if (mask.ndim != 2) or (mask.shape[1] != 1):
-            raise ValueError("cond must return a single bool value for each header row")
+            raise ValueError("cond must return a single value for each header row")
+        if mask.dtype != np.bool_:
+            raise ValueError("cond must return a bool value for each header row")
         self.headers = self.headers.loc[mask[:, 0]]
         return self
 
