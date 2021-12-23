@@ -711,22 +711,14 @@ class Gather:
         return self
 
     @batch_method(target='for')
-    def calculate_weathering_velocity(self, offset=None, picking_times=None, **kwargs):
-        # does remove deafualts ?
+    def calculate_weathering_velocity(self, picking_cols='FirstBreak', **kwargs):
         ''' TODO: docsting'''
-        offset = self['offset'] if offset is None else offset
-        picking_times = self['FirstBreak'] if picking_times is None else picking_times
-        return WeatheringVelocity(offset=offset, picking_times=picking_times, **kwargs)
+        return WeatheringVelocity(offset=self['offset'].ravel(), picking_times=self[picking_cols].ravel(), **kwargs)
     
     @batch_method(target='for', args_to_unpack='wv')
-    def calculate_weathering_metrics(self, wv, offset=None, picking_cols='FirstBreak', threshold_times=50):
-        # does remove offset and takes it from gather only ?
-        # does remove defaults for `picking_cols` ?
+    def calculate_weathering_metrics(self, wv, picking_cols='FirstBreak', threshold_times=50):
         ''' TODO: docstring '''
-        offset = self['offset'].ravel() if offset is None else offset
-        metrics = np.mean(np.fabs(wv(offset) - self[picking_cols].ravel()) > threshold_times)
-        # or
-        # metrics = np.mean(np.fabs(wv(offset) - wv.picking) > threshold_times)
+        metrics = np.mean(np.fabs(wv(self['offset'].ravel()) - self[picking_cols].ravel()) > threshold_times)
         return metrics
 
     #------------------------------------------------------------------------#
