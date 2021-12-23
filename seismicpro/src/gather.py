@@ -1243,7 +1243,7 @@ class Gather:
             header = kwargs.pop("headers")
             label = kwargs.pop("label", header)
             process_outliers = kwargs.pop("process_outliers", "none")
-            y_coords = self[header].ravel() / self.sample_rate
+            y_coords = times_to_indices(self.samples, self[header].ravel(), outliers='none', round=False)
             if process_outliers == "clip":
                 y_coords = np.clip(y_coords, 0, self.n_samples - 1)
             elif process_outliers == "discard":
