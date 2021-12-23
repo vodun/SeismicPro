@@ -140,8 +140,10 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         tsf_dtype = np.int32 if len(headers) < np.iinfo(np.int32).max else np.int64
         headers["TRACE_SEQUENCE_FILE"] = np.arange(1, self.segy_handler.tracecount+1, dtype=tsf_dtype)
         headers.set_index(header_index, inplace=True)
+
         # Sort headers by index to optimize further headers subsampling and merging.
-        self.headers = headers.sort_index()
+        # Preserve trace order from the file for traces from the same gather.
+        self.headers = headers.sort_index(kind="stable")
 
         # Precalculate survey statistics if needed
         self.has_stats = False
@@ -543,7 +545,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         if headers.empty:
             raise ValueError('Empty headers after first breaks loading.')
         headers.set_index(self.headers.index.names, inplace=True)
-        self.headers = headers.sort_index()
+        self.headers = headers.sort_index(kind="stable")
         return self
 
     #------------------------------------------------------------------------#
@@ -712,7 +714,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self = maybe_copy(self, inplace)
         self.headers.reset_index(inplace=True)
         self.headers.set_index(new_index, inplace=True)
-        self.headers.sort_index(inplace=True)
+        self.headers.sort_index(kind="stable", inplace=True)
         return self
 
     def set_limits(self, limits):
@@ -832,5 +834,5 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         if reindex:
             index_cols = super_line_cols
         self.headers.set_index(index_cols, inplace=True)
-        self.headers.sort_index(inplace=True)
+        self.headers.sort_index(kind="stable", inplace=True)
         return self
