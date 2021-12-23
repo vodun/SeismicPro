@@ -590,8 +590,12 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             args = (col_val for _, col_val in df.iteritems()) if unpack_args else (df,)
             res = func(*args, **kwargs)
         else:
+            # FIXME: Workaround for a pandas bug https://github.com/pandas-dev/pandas/issues/34822
+            # raw=True causes incorrect apply behavior when axis=1 and several values are returned from `func`
+            raw = (axis != 1)
+
             apply_func = (lambda args: func(*args)) if unpack_args else func
-            res = df.apply(apply_func, axis=axis, raw=True, **kwargs)
+            res = df.apply(apply_func, axis=axis, raw=raw, result_type="expand", **kwargs)
 
         if isinstance(res, pd.Series):
             res = res.to_frame()
