@@ -9,7 +9,7 @@ import pytest
 import numpy as np
 
 from seismicpro import Survey, aggregate_segys
-from seismicpro.src.tests.gather_test import compare_gathers
+from .test_gather import compare_gathers
 
 
 @pytest.mark.parametrize('name', ['some_name', None])
