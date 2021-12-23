@@ -33,7 +33,7 @@ def test_batch_make_model_inputs(dataset):
     batch = dataset.next_batch(1, shuffle=False)
     batch.load(src='raw').make_model_inputs(src=[batch.raw[0].data], dst='inputs', mode='c', axis=0,
                                             expand_dims_axis=1)
-    assert batch.inputs.shape == (36, 1, 1500)
+    assert batch.inputs.shape == (27, 1, 1000)
 
 def test_batch_make_model_outputs(dataset):
     """test_batch_make_model_outputs"""
@@ -42,6 +42,6 @@ def test_batch_make_model_outputs(dataset):
     batch = dataset.next_batch(2, shuffle=False)
     batch.load(src='raw').make_model_inputs(src=[batch.raw[0].data, batch.raw[1].data], dst='inputs', mode='c', axis=0,
                                             expand_dims_axis=1)
-    batch.split_model_outputs(src='inputs', dst='outputs', shapes=[36, 36])
-    assert batch.outputs[0].shape == (36, 1, 1500)
-    assert batch.outputs[1].shape == (36, 1, 1500)
+    batch.split_model_outputs(src='inputs', dst='outputs', shapes=[27, 27])
+    assert batch.outputs[0].shape == (27, 1, 1500)
+    assert batch.outputs[1].shape == (27, 1, 1500)

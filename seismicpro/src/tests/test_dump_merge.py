@@ -70,7 +70,7 @@ def test_aggregate_segys(segy_path, tmp_path, mode, indices):
     dumped_survey = Survey(os.path.join(tmp_path, 'aggr.sgy'), header_index='FieldRecord', header_cols='all')
     assert np.allclose(expected_survey.samples, dumped_survey.samples),"Samples don't match"
     assert np.allclose(expected_survey.sample_rate, dumped_survey.sample_rate), "Sample rate doesn't match"
-    assert np.allclose(expected_survey.samples_length, dumped_survey.samples_length), "length of samples doesn't match"
+    assert np.allclose(expected_survey.n_samples, dumped_survey.n_samples), "length of samples doesn't match"
 
     #TODO: optimize
     expected_survey_headers = (expected_survey.headers.loc[indices].reset_index()
