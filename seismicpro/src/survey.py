@@ -278,7 +278,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         limits = self.limits if stats_limits is None else self._process_limits(stats_limits)
         n_samples = len(self.file_samples[limits])
 
-        if n_quantile_traces <= 0:
+        if n_quantile_traces < 0:
             raise ValueError("n_quantile_traces must be positive")
         # Clip n_quantile_traces if it's greater than the total number of traces
         n_quantile_traces = min(n_quantile_traces, n_traces)
@@ -326,11 +326,17 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         # Dead traces are not used for quantiles calculation, so if there are many of them,
         # the number of traces in `traces_buf` can be less than `n_quantiles_traces`
         traces_buf = traces_buf[:quantile_traces_counter]
-        # Calculate all q-quantiles from 0 to 1 with step 1 / 10**quantile_precision
-        q = np.round(np.linspace(0, 1, num=10**quantile_precision), decimals=quantile_precision)
-        quantiles = np.nanquantile(traces_buf.ravel(), q=q)
-        # 0 and 1 quantiles are replaced with actual min and max values respectively
-        quantiles[0], quantiles[-1] = global_min, global_max
+
+        if traces_buf.size == 0:
+            # Either n_quantile_traces = 0 or if all traces are dead
+            q = [0, 1]
+            quantiles = [global_min, global_max]
+        else:
+            # Calculate all q-quantiles from 0 to 1 with step 1 / 10**quantile_precision
+            q = np.round(np.linspace(0, 1, num=10**quantile_precision), decimals=quantile_precision)
+            quantiles = np.nanquantile(traces_buf.ravel(), q=q)
+            # 0 and 1 quantiles are replaced with actual min and max values respectively
+            quantiles[0], quantiles[-1] = global_min, global_max
         self.quantile_interpolator = interp1d(q, quantiles)
 
         self.has_stats = True
