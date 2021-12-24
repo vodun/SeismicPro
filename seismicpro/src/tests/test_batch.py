@@ -48,4 +48,4 @@ def test_split_model_outputs(dataset, batch_size):
         .split_model_outputs(src="inputs", dst="outputs", shapes=L("raw").shape[0])
     )
     batch = (dataset >> ppl).next_batch(batch_size, shuffle=False)
-    assert all([np.allclose(gather.data, output) for gather, output in zip(batch.raw, batch.outputs)])
+    assert all(np.allclose(gather.data, output) for gather, output in zip(batch.raw, batch.outputs))
