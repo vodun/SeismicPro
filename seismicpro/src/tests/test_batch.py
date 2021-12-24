@@ -2,8 +2,10 @@
 
 # pylint: disable=redefined-outer-name
 import pytest
+import numpy as np
 
 from seismicpro import Survey, SeismicDataset
+from seismicpro.batchflow import Pipeline, L
 
 
 @pytest.fixture
@@ -26,20 +28,24 @@ def test_batch_load_combined(segy_path):
     assert len(batch.raw) == 1
     assert len(batch.raw[0].data) == 200
 
-def test_batch_make_model_inputs(dataset):
-    """test_batch_make_model_inputs"""
-    #TODO: change it to pipeline!
-    batch = dataset.next_batch(1, shuffle=False)
-    batch.load(src='raw').make_model_inputs(src=[batch.raw[0].data], dst='inputs', mode='c', axis=0,
-                                            expand_dims_axis=1)
-    assert batch.inputs.shape == (27, 1, 1000)
 
-def test_batch_make_model_outputs(dataset):
-    """test_batch_make_model_outputs"""
-    #TODO: change it to pipeline!
-    batch = dataset.next_batch(2, shuffle=False)
-    batch.load(src='raw').make_model_inputs(src=[batch.raw[0].data, batch.raw[1].data], dst='inputs', mode='c', axis=0,
-                                            expand_dims_axis=1)
-    batch.split_model_outputs(src='inputs', dst='outputs', shapes=[27, 27])
-    assert batch.outputs[0].shape == (27, 1, 1500)
-    assert batch.outputs[1].shape == (27, 1, 1500)
+@pytest.mark.parametrize("batch_size", [1, 2])
+def test_make_model_inputs(dataset, batch_size):
+    """test_batch_make_model_inputs"""
+    ppl = (Pipeline()
+        .load(src='raw')
+        .make_model_inputs(src=L("raw").data, dst="inputs", mode="c", axis=0)
+    )
+    batch = (dataset >> ppl).next_batch(batch_size, shuffle=False)
+    assert np.allclose(batch.inputs, np.concatenate([gather.data for gather in batch.raw]))
+
+@pytest.mark.parametrize("batch_size", [1, 2])
+def test_split_model_outputs(dataset, batch_size):
+    """test_batch_make_model_inputs"""
+    ppl = (Pipeline()
+        .load(src='raw')
+        .make_model_inputs(src=L("raw").data, dst="inputs", mode="c", axis=0)
+        .split_model_outputs(src="inputs", dst="outputs", shapes=L("raw").shape[0])
+    )
+    batch = (dataset >> ppl).next_batch(batch_size, shuffle=False)
+    assert all([np.allclose(gather.data, output) for gather, output in zip(batch.raw, batch.outputs)])
