@@ -1,5 +1,6 @@
 """General Survey assertions"""
 
+# pylint: disable=protected-access
 import pathlib
 
 import segyio
@@ -7,6 +8,7 @@ import numpy as np
 
 
 def assert_survey_loaded(survey, segy_path, header_index, header_cols, name, extra_headers=None, rtol=1e-5, atol=1e-8):
+    """Check if a SEG-Y file was properly loaded into a `Survey` instance."""
     name = segy_path.stem if name is None else name
     with segyio.open(segy_path, ignore_geometry=True) as f:
         file_samples = f.samples
@@ -55,6 +57,7 @@ def assert_survey_loaded(survey, segy_path, header_index, header_cols, name, ext
 
 def assert_surveys_equal(left, right, ignore_column_order=False, ignore_dtypes=False, check_stats=True,
                          rtol=1e-5, atol=1e-8):
+    """Check if two surveys are equal. Optionally allow for changes in headers order or dtypes."""
     # Check whether all path-related attributes are equal
     assert left.name == right.name
     assert pathlib.Path(left.path) == pathlib.Path(right.path)
@@ -101,12 +104,15 @@ def assert_surveys_equal(left, right, ignore_column_order=False, ignore_dtypes=F
 
 
 def assert_survey_processed_inplace(before, after, inplace):
+    """Assert whether survey processing was performed inplace depending on the `inplace` flag."""
     assert (id(before) == id(after)) is inplace
     if inplace:
         assert_surveys_equal(before, after)
 
 
 def assert_survey_limits(survey, limits, rtol=1e-5, atol=1e-8):
+    """Check if `survey` limits were set correctly. `limits` must be a `slice` object with `start`, `stop` and `step`
+    arguments set to `int`s."""
     limited_samples = survey.file_samples[limits]
     limited_sample_rate = survey.file_sample_rate * abs(limits.step)
 

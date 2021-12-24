@@ -1,5 +1,6 @@
 """Survey fixtures with optionally collected stats"""
 
+# pylint: disable=redefined-outer-name
 import pytest
 
 from seismicpro import Survey

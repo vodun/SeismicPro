@@ -26,7 +26,8 @@ class TestStats:
         trace_gen = request.param
         trace_data = trace_gen(n_traces, n_samples)
 
-        def gen_trace(TRACE_SEQUENCE_FILE, **kwargs):
+        def gen_trace(TRACE_SEQUENCE_FILE, **kwargs):  # pylint: disable=invalid-name
+            _ = kwargs
             return trace_data[TRACE_SEQUENCE_FILE - 1]
 
         path = tmp_path_factory.mktemp("stat") / "stat.sgy"

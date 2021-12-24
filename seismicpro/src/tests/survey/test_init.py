@@ -101,8 +101,8 @@ class TestInit:
     @pytest.mark.parametrize("quantile_precision", [1])
     @pytest.mark.parametrize("stats_limits", [None, 100])
     @pytest.mark.parametrize(["limits", "slice_limits"], LIMITS)
-    def test_limits_stats(self, segy_path, header_index, header_cols, name, limits, slice_limits, n_quantile_traces,
-                          quantile_precision, stats_limits, monkeypatch):
+    def test_limits_stats(self, segy_path, header_index, header_cols, name,  # pylint: disable=too-many-arguments
+                          limits, slice_limits, n_quantile_traces, quantile_precision, stats_limits, monkeypatch):
         # Always use the same traces for quantile estimation
         monkeypatch.setattr(np.random, "permutation", lambda n: np.arange(n))
 
