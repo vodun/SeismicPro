@@ -3,11 +3,12 @@
 import pytest
 
 from . import assert_survey_limits
+from ..conftest import N_SAMPLES
 
 
-LIMITS = [
+@pytest.mark.parametrize("limits, slice_limits", [
     # None equals to loading of whole traces
-    (None, slice(0, 1000, 1)),
+    (None, slice(0, N_SAMPLES, 1)),
 
     # Ints and tuples are converted to a corresponding slice
     (10, slice(0, 10, 1)),
@@ -17,23 +18,21 @@ LIMITS = [
 
     # Slices with positive attributes are passed as-is
     (slice(700, 800), slice(700, 800, 1)),
-    (slice(400, None, 4), slice(400, 1000, 4)),
+    (slice(400, None, 4), slice(400, N_SAMPLES, 4)),
 
-    # Handle negative bounds (note that that each trace has 1000 samples)
+    # Handle negative bounds (note that that each trace has N_SAMPLES samples)
     (-100, slice(0, 900, 1)),
-    (slice(0, -100), slice(0, 900, 1)),
-    (slice(-200, -100), slice(800, 900, 1)),
-    (slice(-200), slice(0, 800, 1)),
-]
-
-
-@pytest.mark.parametrize("limits, slice_limits", LIMITS)
+    (slice(0, -100), slice(0, N_SAMPLES - 100, 1)),
+    (slice(-200, -100), slice(N_SAMPLES - 200, N_SAMPLES - 100, 1)),
+    (slice(-200), slice(0, N_SAMPLES - 200, 1)),
+])
 def test_set_limits(survey, limits, slice_limits):
+    """Test `Survey.set_limits` with a broad range of possible `limits` passed."""
     survey.set_limits(limits)
     assert_survey_limits(survey, slice_limits)
 
 
-FAIL_LIMITS = [
+@pytest.mark.parametrize("limits", [
     # Negetive step is not allowed
     (200, 100, -2),
     slice(-100, -500, -1),
@@ -41,10 +40,8 @@ FAIL_LIMITS = [
     # Slicing must not return empty traces
     slice(-100, -200),
     slice(500, 100),
-]
-
-
-@pytest.mark.parametrize("limits", FAIL_LIMITS)
+])
 def test_set_limits_fails(survey, limits):
+    """`set_limits` must fail if negative step is passed or empty traces are returned."""
     with pytest.raises(ValueError):
         survey.set_limits(limits)
