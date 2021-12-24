@@ -55,8 +55,15 @@ def assert_survey_loaded(survey, segy_path, header_index, header_cols, name, ext
     assert survey.headers.index.is_monotonic_increasing
 
 
-def assert_surveys_equal(left, right, ignore_column_order=False, ignore_dtypes=False, check_stats=True,
-                         rtol=1e-5, atol=1e-8):
+def assert_both_none_or_close(left, right, rtol=1e-5, atol=1e-8):
+    """Check whether both `left` and `right` are `None` or they are close."""
+    left_none = left is None
+    right_none = right is None
+    assert not(left_none ^ right_none)  #pylint: disable=superfluous-parens
+    assert left_none and right_none or np.allclose(left, right, rtol=rtol, atol=atol)
+
+
+def assert_surveys_equal(left, right, ignore_column_order=False, ignore_dtypes=False, rtol=1e-5, atol=1e-8):
     """Check if two surveys are equal. Optionally allow for changes in headers order or dtypes."""
     # Check whether all path-related attributes are equal
     assert left.name == right.name
@@ -87,20 +94,18 @@ def assert_surveys_equal(left, right, ignore_column_order=False, ignore_dtypes=F
     assert np.allclose(left.samples, right.samples, rtol=rtol, atol=atol)
     assert np.isclose(left.sample_rate, right.sample_rate, rtol=rtol, atol=atol)
 
-    if not check_stats:
-        return
-
     # Assert that either stats were not calculated for both surveys or they are equal
-    quantiles = np.linspace(0, 1, 11)
     assert left.has_stats == right.has_stats
-    if left.has_stats:
-        assert left.n_dead_traces == right.n_dead_traces
-        assert np.isclose(left.min, right.min, rtol=rtol, atol=atol)
-        assert np.isclose(left.max, right.max, rtol=rtol, atol=atol)
-        assert np.isclose(left.mean, right.mean, rtol=rtol, atol=atol)
-        assert np.isclose(left.std, right.std, rtol=rtol, atol=atol)
-        assert np.allclose(left.quantile_interpolator(quantiles), right.quantile_interpolator(quantiles),
-                           rtol=rtol, atol=atol)
+    assert_both_none_or_close(left.min, right.min, rtol=rtol, atol=atol)
+    assert_both_none_or_close(left.max, right.max, rtol=rtol, atol=atol)
+    assert_both_none_or_close(left.mean, right.mean, rtol=rtol, atol=atol)
+    assert_both_none_or_close(left.std, right.std, rtol=rtol, atol=atol)
+    assert_both_none_or_close(left.n_dead_traces, right.n_dead_traces, rtol=rtol, atol=atol)
+
+    q = np.linspace(0, 1, 11)
+    left_quantiles = left.quantile_interpolator(q) if left.quantile_interpolator is not None else None
+    right_quantiles = right.quantile_interpolator(q) if right.quantile_interpolator is not None else None
+    assert_both_none_or_close(left_quantiles, right_quantiles, rtol=rtol, atol=atol)
 
 
 def assert_survey_processed_inplace(before, after, inplace):
