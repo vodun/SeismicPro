@@ -1,13 +1,13 @@
 """ Tests for segy generator function """
+
 # pylint: disable=missing-docstring
 # pylint: disable=redefined-outer-name
-
 import os
 import shutil
 
 import pytest
-from ..utils import make_prestack_segy
-from .. import Survey
+from seismicpro import Survey, make_prestack_segy
+
 
 @pytest.fixture(scope='module',
                 params=[dict(survey_area=(500,500), activation_dist=(500,500), bin_size=(50,50), samples=1500,

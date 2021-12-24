@@ -6,7 +6,7 @@ import pytest
 from seismicpro import Survey, SeismicDataset
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture
 def dataset(segy_path):
     """dataset"""
     survey = Survey(segy_path, header_index='FieldRecord', name='raw')
@@ -29,7 +29,6 @@ def test_batch_load_combined(segy_path):
 def test_batch_make_model_inputs(dataset):
     """test_batch_make_model_inputs"""
     #TODO: change it to pipeline!
-    dataset = dataset.copy()
     batch = dataset.next_batch(1, shuffle=False)
     batch.load(src='raw').make_model_inputs(src=[batch.raw[0].data], dst='inputs', mode='c', axis=0,
                                             expand_dims_axis=1)
@@ -38,7 +37,6 @@ def test_batch_make_model_inputs(dataset):
 def test_batch_make_model_outputs(dataset):
     """test_batch_make_model_outputs"""
     #TODO: change it to pipeline!
-    dataset = dataset.copy()
     batch = dataset.next_batch(2, shuffle=False)
     batch.load(src='raw').make_model_inputs(src=[batch.raw[0].data, batch.raw[1].data], dst='inputs', mode='c', axis=0,
                                             expand_dims_axis=1)

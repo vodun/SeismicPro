@@ -1,7 +1,7 @@
 """Implementation of tests functions for dump and aggregate segy files."""
+
 # pylint: disable=missing-docstring
 # pylint: disable=redefined-outer-name
-
 import os
 
 import glob
