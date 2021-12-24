@@ -6,7 +6,7 @@ from . import assert_survey_limits
 from ..conftest import N_SAMPLES
 
 
-@pytest.mark.parametrize("limits, slice_limits", [
+@pytest.mark.parametrize("limits, expected_limits", [
     # None equals to loading of whole traces
     (None, slice(0, N_SAMPLES, 1)),
 
@@ -26,10 +26,10 @@ from ..conftest import N_SAMPLES
     (slice(-200, -100), slice(N_SAMPLES - 200, N_SAMPLES - 100, 1)),
     (slice(-200), slice(0, N_SAMPLES - 200, 1)),
 ])
-def test_set_limits(survey, limits, slice_limits):
+def test_set_limits(survey, limits, expected_limits):
     """Test `Survey.set_limits` with a broad range of possible `limits` passed."""
     survey.set_limits(limits)
-    assert_survey_limits(survey, slice_limits)
+    assert_survey_limits(survey, expected_limits)
 
 
 @pytest.mark.parametrize("limits", [

@@ -1,50 +1,68 @@
 """Test Survey class instantiation"""
 
 import pytest
+import segyio
 import numpy as np
 
 from seismicpro import Survey
 
-from . import assert_surveys_equal, assert_survey_limits, assert_survey_loaded
+from . import assert_survey_loaded, assert_surveys_equal, assert_survey_limits
+from ..conftest import N_SAMPLES
 
 
 HEADER_INDEX = [
-    # Single header as a string, list and tuple:
-    "TRACE_SEQUENCE_FILE",
-    ("FieldRecord",),
-    ["CDP"],
+    # Single header index passed as a string, list or tuple:
+    ["TRACE_SEQUENCE_FILE", {"TRACE_SEQUENCE_FILE"}],
+    [("FieldRecord",), {"FieldRecord"}],
+    [["CDP"], {"CDP"}],
 
-    # Multiple headers as a list or tuple:
-    ["FieldRecord", "TraceNumber"],
-    ("INLINE_3D", "CROSSLINE_3D"),
+    # Multiple header indices passed as a list or tuple:
+    [["FieldRecord", "TraceNumber"], {"FieldRecord", "TraceNumber"}],
+    [("INLINE_3D", "CROSSLINE_3D"), {"INLINE_3D", "CROSSLINE_3D"}],
 ]
 
 
 HEADER_COLS = [
-    None,  # Don't load extra headers
-    "all",  # Load all SEG-Y headers
-    "offset",  # Load a single header
-    ["offset"],  # Load a single header (pass as a list)
-    ["offset", "SourceDepth"],  # Load several headers (pass as a list)
-    ("offset", "SourceDepth"),  # Load several headers (pass as a tuple)
-    ["offset", "INLINE_3D", "CROSSLINE_3D"],  # Load several headers with possible intersetion with index
+    # Don't load extra headers
+    [None, set()],
+
+    # Load all SEG-Y headers
+    ["all", set(segyio.tracefield.keys.keys())],
+
+    # Load a single extra header passed as a string, list or tuple:
+    ["offset", {"offset"}],
+    [["offset"], {"offset"}],
+    [("offset",), {"offset"}],
+
+    # Load several extra headers passed as a list or a tuple:
+    [["offset", "SourceDepth"], {"offset", "SourceDepth"}],
+    [("offset", "SourceDepth"), {"offset", "SourceDepth"}],
+
+    # Load several extra headers with possible intersection with index
+    [["offset", "INLINE_3D", "CROSSLINE_3D"], {"offset", "INLINE_3D", "CROSSLINE_3D"}],
 ]
 
 
 LIMITS = [
-    (None, slice(0, 1000, 1)),
+    (None, slice(0, N_SAMPLES, 1)),
     (10, slice(0, 10, 1)),
-    (slice(100, -100), slice(100, 900, 1)),
+    (slice(100, -100), slice(100, N_SAMPLES - 100, 1)),
 ]
 
 
-@pytest.mark.parametrize("header_index", HEADER_INDEX)
-@pytest.mark.parametrize("header_cols", HEADER_COLS)
+@pytest.mark.parametrize("header_index, expected_index", HEADER_INDEX)
+@pytest.mark.parametrize("header_cols, expected_cols", HEADER_COLS)
 @pytest.mark.parametrize("name", [None, "raw"])
 class TestInit:
-    def test_nolimits_nostats(self, segy_path, header_index, header_cols, name):
+    """Test `Survey` instantiation."""
+
+    def test_nolimits_nostats(self, segy_path, header_index, expected_index, header_cols, expected_cols, name):
+        """Test survey loading when limits are not passed and stats are not calculated."""
         survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name)
-        assert_survey_loaded(survey, segy_path, header_index, header_cols, name)
+
+        expected_name = segy_path.stem if name is None else name
+        expected_headers = expected_index | expected_cols | {"TRACE_SEQUENCE_FILE"}
+        assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers)
 
         # Assert that whole traces are loaded
         limits = slice(0, survey.n_file_samples, 1)
@@ -54,9 +72,14 @@ class TestInit:
         assert survey.has_stats is False
 
     @pytest.mark.parametrize(["limits", "slice_limits"], LIMITS)
-    def test_limits_nostats(self, segy_path, header_index, header_cols, name, limits, slice_limits):
+    def test_limits_nostats(self, segy_path, header_index, expected_index, header_cols, expected_cols, name, limits,
+                            slice_limits):
+        """Test survey loading with limits set when stats are not calculated."""
         survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name, limits=limits)
-        assert_survey_loaded(survey, segy_path, header_index, header_cols, name)
+
+        expected_name = segy_path.stem if name is None else name
+        expected_headers = expected_index | expected_cols | {"TRACE_SEQUENCE_FILE"}
+        assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers)
 
         # Assert that correct limits were set
         assert_survey_limits(survey, slice_limits)
@@ -72,8 +95,10 @@ class TestInit:
     @pytest.mark.parametrize("n_quantile_traces", [10])
     @pytest.mark.parametrize("quantile_precision", [1])
     @pytest.mark.parametrize("stats_limits", [None, 100])
-    def test_nolimits_stats(self, segy_path, header_index, header_cols, name, n_quantile_traces, quantile_precision,
-                            stats_limits, monkeypatch):
+    def test_nolimits_stats(self, segy_path, header_index, expected_index,  # pylint: disable=too-many-arguments
+                            header_cols, expected_cols, name, n_quantile_traces, quantile_precision, stats_limits,
+                            monkeypatch):
+        """Test survey loading when stats are calculated, but limits are not set."""
         # Always use the same traces for quantile estimation
         monkeypatch.setattr(np.random, "permutation", lambda n: np.arange(n))
 
@@ -82,7 +107,9 @@ class TestInit:
                         stats_limits=stats_limits, bar=False)
 
         # Assert that a survey was loaded correctly and an extra DeadTrace header was created
-        assert_survey_loaded(survey, segy_path, header_index, header_cols, name, extra_headers="DeadTrace")
+        expected_name = segy_path.stem if name is None else name
+        expected_headers = expected_index | expected_cols | {"TRACE_SEQUENCE_FILE", "DeadTrace"}
+        assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers)
 
         # Assert that whole traces are loaded
         limits = slice(0, survey.n_file_samples, 1)
@@ -101,8 +128,10 @@ class TestInit:
     @pytest.mark.parametrize("quantile_precision", [1])
     @pytest.mark.parametrize("stats_limits", [None, 100])
     @pytest.mark.parametrize(["limits", "slice_limits"], LIMITS)
-    def test_limits_stats(self, segy_path, header_index, header_cols, name,  # pylint: disable=too-many-arguments
-                          limits, slice_limits, n_quantile_traces, quantile_precision, stats_limits, monkeypatch):
+    def test_limits_stats(self, segy_path, header_index, expected_index,  # pylint: disable=too-many-arguments
+                          header_cols, expected_cols, name, limits, slice_limits, n_quantile_traces,
+                          quantile_precision, stats_limits, monkeypatch):
+        """Test survey loading when limits are set and stats are calculated."""
         # Always use the same traces for quantile estimation
         monkeypatch.setattr(np.random, "permutation", lambda n: np.arange(n))
 
@@ -111,7 +140,9 @@ class TestInit:
                         stats_limits=stats_limits, bar=False)
 
         # Assert that a survey was loaded correctly and an extra DeadTrace header was created
-        assert_survey_loaded(survey, segy_path, header_index, header_cols, name, extra_headers="DeadTrace")
+        expected_name = segy_path.stem if name is None else name
+        expected_headers = expected_index | expected_cols | {"TRACE_SEQUENCE_FILE", "DeadTrace"}
+        assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers)
 
         # Assert that correct limits were set
         assert_survey_limits(survey, slice_limits)

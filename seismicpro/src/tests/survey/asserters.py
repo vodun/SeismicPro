@@ -7,37 +7,16 @@ import segyio
 import numpy as np
 
 
-def assert_survey_loaded(survey, segy_path, header_index, header_cols, name, extra_headers=None, rtol=1e-5, atol=1e-8):
+def assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers, rtol=1e-5, atol=1e-8):
     """Check if a SEG-Y file was properly loaded into a `Survey` instance."""
-    name = segy_path.stem if name is None else name
     with segyio.open(segy_path, ignore_geometry=True) as f:
         file_samples = f.samples
         n_traces = f.tracecount
     n_samples = len(file_samples)
     file_sample_rate = np.unique(np.diff(file_samples))[0]
 
-    header_index = {header_index,} if isinstance(header_index, str) else set(header_index)
-
-    if header_cols is None:
-        header_cols = set()
-    elif header_cols == "all":
-        header_cols = set(segyio.tracefield.keys.keys())
-    elif isinstance(header_cols, str):
-        header_cols = {header_cols,}
-    else:
-        header_cols = set(header_cols)
-
-    if extra_headers is None:
-        extra_headers = set()
-    elif isinstance(extra_headers, str):
-        extra_headers = {extra_headers,}
-    else:
-        extra_headers = set(extra_headers)
-
-    headers = header_cols | header_index | extra_headers | {"TRACE_SEQUENCE_FILE",}
-
     # Check all path-related attributes
-    assert survey.name == name
+    assert survey.name == expected_name
     assert pathlib.Path(survey.path) == segy_path
     assert isinstance(survey.segy_handler, segyio.SegyFile)
     assert pathlib.Path(survey.segy_handler._filename) == segy_path
@@ -50,8 +29,8 @@ def assert_survey_loaded(survey, segy_path, header_index, header_cols, name, ext
     # Check loaded trace headers
     assert survey.n_traces == n_traces
     assert len(survey.headers) == n_traces
-    assert set(survey.headers.index.names) == header_index
-    assert set(survey.headers.columns) | set(survey.headers.index.names) == headers
+    assert set(survey.headers.index.names) == expected_index
+    assert set(survey.headers.index.names) | set(survey.headers.columns) == expected_headers
     assert survey.headers.index.is_monotonic_increasing
 
 
