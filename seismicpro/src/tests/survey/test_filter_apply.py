@@ -192,4 +192,4 @@ class TestApply:
                                       res_cols="MAX_LINE", axis=None, unpack_args=False, inplace=False)
         survey_applied_rows = survey.apply(lambda row: row.max(), cols=["INLINE_3D", "CROSSLINE_3D"],
                                            res_cols="MAX_LINE", axis=1, unpack_args=False, inplace=False)
-        assert_surveys_equal(survey_applied, survey_applied_rows)
+        assert_surveys_equal(survey_applied, survey_applied_rows, ignore_dtypes=True)
