@@ -63,20 +63,48 @@ class WeatheringVelocity:
     def _params_to_args(self, t0, crossovers, velocities):
         return to_list(t0) + to_list(crossovers)[:self.n_layers - 1] + to_list(velocities)
 
-    @staticmethod
-    def piecewise_linear(offset, *args):
+    # @staticmethod
+    def piecewise_linear(self, offset, *args):
         '''
         args = [t0, *crossovers, *velocities]
         '''
         t0 = args[0]
-        crunch = list(args[1:len(args) // 2]) + [offset.max()]
-        velocity = args[len(args) // 2:]
-        offset_coords = [0]
-        times_coords = [t0]
-        for i, (v_i, offset_i) in enumerate(zip(velocity, crunch)):
-            times_coords.append((offset_i - offset_coords[-1]) / v_i + times_coords[-1])
-            offset_coords.append(offset_i)
-        return np.interp(offset, offset_coords, times_coords)
+        cross_offset = [0] + list(args[1:self.n_layers]) + [offset.max()]
+        velocites = args[self.n_layers:]
+        times = [t0] + [0] * self.n_layers
+        for i in range(1, self.n_layers + 1):
+            times[i] = (cross_offset[i] - cross_offset[i-1]) / velocites[i-1] + times[i-1]
+        return np.interp(offset, cross_offset, times)
+    
+    # another piecewise func
+    # two times slower and needs args [*times, *crossovers, *velocities], times = [t0, t1, ..., tn]
+    # ----------------------------
+    # @staticmethod
+    # def _lambda_factory(t, v):
+    #     return lambda x:  x / v + t
+
+    # @staticmethod
+    # def _calc_times(t, c, v):
+    #     for i in range(1, len(t)):
+    #         t[i] = (v[i] - v[i-1])/(v[i] * v[i-1]) * c[i] + t[i-1]
+    #     return t
+    
+    # def piecewise_piecewise(self, offset, *args):
+    #     '''
+    #     args = [*times, *crossovers, *velocities]
+    #     '''
+    #     times = list(args[:self.n_layers])
+    #     cross_offset = [0] + list(args[self.n_layers:(2*self.n_layers-1)]) + [offset.max()]
+    #     velocites = args[-self.n_layers:]
+    #     times = _calc_times(times, cross_offset, velocites)
+
+    #     condition_list = [None] * self.n_layers
+    #     func_list = [None] * self.n_layers
+    #     for i in range(n_layers):
+    #         condition_list[i] = (cross_offset[i] < offset) & (offset <= cross_offset[i+1])
+    #         func_list[i] = _lambda_factory(times[i], velocites[i])
+    #     return np.piecewise(offset, condition_list, func_list)
+    # ----------------------------
 
     def _create_keys(self):
         return ['t0'] + [f'c{i+1}' for i in range(self.n_layers - 1)][:self.n_layers - 1] + \

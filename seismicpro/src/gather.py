@@ -718,7 +718,8 @@ class Gather:
     @batch_method(target='for', args_to_unpack='wv')
     def calculate_weathering_metrics(self, wv, picking_cols='FirstBreak', threshold_times=50):
         ''' TODO: docstring '''
-        metrics = np.mean(np.fabs(wv(self['offset'].ravel()) - self[picking_cols].ravel()) > threshold_times)
+        offset = self['offset'].ravel()
+        metrics = np.mean(np.fabs(wv(offset) - self[picking_cols].ravel()) > threshold_times)
         return metrics
 
     #------------------------------------------------------------------------#
