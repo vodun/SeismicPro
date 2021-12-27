@@ -48,7 +48,6 @@ class TestStats:
     @pytest.mark.parametrize("n_quantile_traces", [0, 10, 100])
     @pytest.mark.parametrize("quantile_precision", [1, 2])
     @pytest.mark.parametrize("stats_limits", [None, slice(5), slice(2, 8)])
-    @pytest.mark.parametrize("bar", [True, False])
     def test_collect_stats(self, stat_segy, limits, n_quantile_traces, quantile_precision, stats_limits, bar):
         """Compare stats obtained by running `collect_stats` with the actual ones."""
         path, trace_data = stat_segy
@@ -56,7 +55,7 @@ class TestStats:
                         collect_stats=False)
         survey_copy = survey.copy()
         survey.collect_stats(n_quantile_traces=n_quantile_traces, quantile_precision=quantile_precision,
-                             stats_limits=stats_limits, bar=bar)
+                             stats_limits=stats_limits, bar=True)
 
         # stats_limits take priority over survey limits
         stats_limits = limits if stats_limits is None else stats_limits
