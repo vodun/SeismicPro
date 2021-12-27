@@ -83,7 +83,7 @@ class WeatheringVelocity:
     def _parse_params(self, initial=None, bounds=None):
         # from dict to list ot tuple of two list
         work_dict = initial if bounds is None else bounds
-        work_dict.copy()
+        work_dict = work_dict.copy()
         t0 = work_dict.pop('t0')
         data = np.full((self.n_layers * 2, len(to_list(t0))), None)
         data[0] = t0
