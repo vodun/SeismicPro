@@ -100,19 +100,15 @@ class TestInit:
         other.set_limits(limits)
         assert_surveys_equal(survey, other)
 
-    @pytest.mark.parametrize("n_quantile_traces", [10])
-    @pytest.mark.parametrize("quantile_precision", [1])
     @pytest.mark.parametrize("stats_limits", [None, 100])
-    def test_nolimits_stats(self, segy_path, header_index, expected_index,  # pylint: disable=too-many-arguments
-                            header_cols, expected_cols, name, expected_name, n_quantile_traces, quantile_precision,
-                            stats_limits, monkeypatch):
+    def test_nolimits_stats(self, segy_path, header_index, expected_index, header_cols, expected_cols, name,
+                            expected_name, stats_limits, monkeypatch):
         """Test survey loading when stats are calculated, but limits are not set."""
         # Always use the same traces for quantile estimation
         monkeypatch.setattr(np.random, "permutation", lambda n: np.arange(n))
 
-        survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name,
-                        collect_stats=True, n_quantile_traces=n_quantile_traces, quantile_precision=quantile_precision,
-                        stats_limits=stats_limits, bar=False)
+        survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name, collect_stats=True,
+                        n_quantile_traces=10, quantile_precision=1, stats_limits=stats_limits, bar=False)
 
         # Assert that a survey was loaded correctly and an extra DeadTrace header was created
         expected_headers = expected_index | expected_cols | {"TRACE_SEQUENCE_FILE", "DeadTrace"}
@@ -127,24 +123,21 @@ class TestInit:
 
         # Check that passing collect_stats to init is identical to running collect_stats method
         other = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name)
-        other.collect_stats(n_quantile_traces=n_quantile_traces, quantile_precision=quantile_precision,
-                            stats_limits=stats_limits, bar=False)
+        other.collect_stats(n_quantile_traces=10, quantile_precision=1, stats_limits=stats_limits, bar=False)
         assert_surveys_equal(survey, other)
 
-    @pytest.mark.parametrize("n_quantile_traces", [10])
-    @pytest.mark.parametrize("quantile_precision", [1])
     @pytest.mark.parametrize("stats_limits", [None, 100])
     @pytest.mark.parametrize(["limits", "slice_limits"], LIMITS)
     def test_limits_stats(self, segy_path, header_index, expected_index,  # pylint: disable=too-many-arguments
-                          header_cols, expected_cols, name, expected_name, limits, slice_limits, n_quantile_traces,
-                          quantile_precision, stats_limits, monkeypatch):
+                          header_cols, expected_cols, name, expected_name, limits, slice_limits, stats_limits,
+                          monkeypatch):
         """Test survey loading when limits are set and stats are calculated."""
         # Always use the same traces for quantile estimation
         monkeypatch.setattr(np.random, "permutation", lambda n: np.arange(n))
 
         survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name, limits=limits,
-                        collect_stats=True, n_quantile_traces=n_quantile_traces, quantile_precision=quantile_precision,
-                        stats_limits=stats_limits, bar=False)
+                        collect_stats=True, n_quantile_traces=10, quantile_precision=1, stats_limits=stats_limits,
+                        bar=False)
 
         # Assert that a survey was loaded correctly and an extra DeadTrace header was created
         expected_headers = expected_index | expected_cols | {"TRACE_SEQUENCE_FILE", "DeadTrace"}
@@ -160,6 +153,5 @@ class TestInit:
         # following run of collect_stats
         other = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name)
         other.set_limits(limits)
-        other.collect_stats(n_quantile_traces=n_quantile_traces, quantile_precision=quantile_precision,
-                            stats_limits=stats_limits, bar=False)
+        other.collect_stats(n_quantile_traces=10, quantile_precision=1, stats_limits=stats_limits, bar=False)
         assert_surveys_equal(survey, other)
