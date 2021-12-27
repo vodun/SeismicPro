@@ -23,7 +23,7 @@ def survey_stats(survey_no_stats):
 def survey(survey_no_stats, request):
     """Return surveys with and without collected stats."""
     if request.param:
-        # copy is needed since survey_no_stats will be updated inplace
-        # and only surveys with collected stats will be returned
+        # copy is needed since otherwise survey_no_stats will be updated inplace and only surveys with collected stats
+        # will be returned
         return survey_no_stats.copy().collect_stats()
     return survey_no_stats
