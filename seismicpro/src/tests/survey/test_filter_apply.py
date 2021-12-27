@@ -1,6 +1,7 @@
 """Test Survey filter and apply methods"""
 
 import pytest
+import numpy as np
 import pandas as pd
 
 from . import assert_surveys_equal, assert_survey_processed_inplace
@@ -42,9 +43,11 @@ class TestFilter:
     def test_rowwise_unpack(self, survey):
         """Test `filter` when checks are performed rowwise and headers values are unpacked into separate `cond`
         args."""
-        survey_filtered = survey.filter(lambda gx, gy: gx < gy, cols=["GroupX", "GroupY"], axis=1, unpack_args=True,
+        survey_filtered = survey.filter(lambda sx, sy, gx, gy: (sx < sy) and (gx < gy),
+                                        cols=["SourceX", "SourceY", "GroupX", "GroupY"], axis=1, unpack_args=True,
                                         inplace=False)
-        survey.headers = survey.headers[survey.headers["GroupX"] < survey.headers["GroupY"]]
+        survey.headers = survey.headers[((survey.headers["SourceX"] < survey.headers["SourceY"]) &
+                                         (survey.headers["GroupX"] < survey.headers["GroupY"]))]
         assert_surveys_equal(survey, survey_filtered)
 
     @pytest.mark.parametrize("axis, unpack_args", [
@@ -69,9 +72,24 @@ class TestFilter:
                                              unpack_args=False, inplace=False)
         assert_surveys_equal(survey_filtered, survey_filtered_rows)
 
-    def test_empty_filter(self, survey):
+    @pytest.mark.parametrize("axis", [None, 1])
+    @pytest.mark.parametrize("unpack_args", [False, True])
+    @pytest.mark.parametrize("threshold", [0, 1, 5])
+    def test_kwargs(self, survey, axis, unpack_args, threshold):
+        """Test that extra `kwargs` are passed to `cond`."""
+        survey_filtered = survey.filter(lambda offset, threshold: offset < threshold, cols="offset", axis=axis,
+                                        unpack_args=unpack_args, inplace=False, threshold=threshold)
+        survey.headers = survey.headers[survey.headers["offset"] < threshold]
+        assert_surveys_equal(survey, survey_filtered)
+
+    @pytest.mark.parametrize("axis, cond", [
+        [None, lambda x: pd.DataFrame(np.zeros_like(x, dtype=bool))],
+        [1, lambda x: False]
+    ])
+    @pytest.mark.parametrize("unpack_args", [True, False])
+    def test_empty_filter(self, survey, axis, cond, unpack_args):
         """Test a case, when `filter` returns an empty `Survey`."""
-        survey_filtered = survey.filter(lambda x: False, cols="offset", axis=1, inplace=False)
+        survey_filtered = survey.filter(cond, cols="offset", axis=axis, unpack_args=unpack_args, inplace=False)
         survey_copy = survey.copy()
         survey_copy.headers = survey_copy.headers.iloc[0:0]
         assert_surveys_equal(survey_copy, survey_filtered)
@@ -79,17 +97,18 @@ class TestFilter:
     def test_wrong_shape_fail(self, survey):
         """`filter` must fail if `cond` returns several columns."""
         with pytest.raises(ValueError):
-            survey.filter(lambda df: df, cols=["SourceX", "SourceY"], axis=None, inplace=False)
+            survey.filter(lambda df: df, cols=["SourceX", "SourceY"], axis=None, unpack_args=False, inplace=False)
 
-    def test_wrong_dtype_fail(self, survey):
+    @pytest.mark.parametrize("unpack_args", [True, False])
+    def test_wrong_dtype_fail(self, survey, unpack_args):
         """`filter` must fail if `cond` returns an object with non-bool `dtype`."""
         with pytest.raises(ValueError):
-            survey.filter(lambda offset: offset, cols="offset", axis=None, inplace=False)
+            survey.filter(lambda offset: offset, cols="offset", axis=None, unpack_args=unpack_args, inplace=False)
 
     def test_columnwise_fail(self, survey):
         """`filter` must fail if columnwise processing is performed for several columns."""
         with pytest.raises(ValueError):
-            survey.filter(lambda x: x < 0, cols=["GroupX", "GroupY"], axis=0, inplace=False)
+            survey.filter(lambda x: x < 0, cols=["GroupX", "GroupY"], axis=0, unpack_args=False, inplace=False)
 
 
 class TestApply:
@@ -160,7 +179,7 @@ class TestApply:
     def test_independent_processing_equality(self, survey, cols, axis):
         """Independently applying a `ufunc` to the selected values must work the same regardless of the `axis`
         specified."""
-        survey_applied = survey.apply(lambda x: x**2, cols=cols, axis=axis, inplace=False)
+        survey_applied = survey.apply(lambda x: x**2, cols=cols, axis=axis, unpack_args=False, inplace=False)
         survey.headers[cols] **= 2
         assert_surveys_equal(survey, survey_applied)
 
@@ -193,3 +212,13 @@ class TestApply:
         survey_applied_rows = survey.apply(lambda row: row.max(), cols=["INLINE_3D", "CROSSLINE_3D"],
                                            res_cols="MAX_LINE", axis=1, unpack_args=False, inplace=False)
         assert_surveys_equal(survey_applied, survey_applied_rows, ignore_dtypes=True)
+
+    @pytest.mark.parametrize("axis", [None, 1])
+    @pytest.mark.parametrize("unpack_args", [False, True])
+    @pytest.mark.parametrize("divisor", [1, 1000])
+    def test_kwargs(self, survey, axis, unpack_args, divisor):
+        """Test that extra `kwargs` are passed to `func`."""
+        survey_applied = survey.apply(lambda offset, divisor: offset / divisor, cols="offset", axis=axis,
+                                      unpack_args=unpack_args, inplace=False, divisor=divisor)
+        survey.headers["offset"] /= divisor
+        assert_surveys_equal(survey, survey_applied)
