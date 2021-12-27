@@ -11,7 +11,6 @@ from .utils import to_list
 class WeatheringVelocity:
 
     def __init__(self, offset, picking_times, n_layers=None, initial=None, bounds=None):
-        #t0=200, crossovers=1500, velocities=[2, 3],
         '''
         bounds passed as dict with next structure:
         {'t0': [0, 1000],
@@ -29,7 +28,6 @@ class WeatheringVelocity:
          'v3': 3}  
         
         '''
-        # keep a base parameters when class initializate and rewrite it after fit function is done -> denied
         print(f'n_layers={n_layers}, initial={initial}, bounds={bounds}')
         if n_layers is None and initial is None and bounds is None:
             raise ValueError('One of the `n_layers`, `initial`, `bounds` should be passed')
@@ -65,12 +63,6 @@ class WeatheringVelocity:
         return self.piecewise_linear(offset, *self._fitted_args.values())
 
     def __getattr__(self, key):
-        # print('__getattr__ keys: ', key)
-        # base_dict = self._fitted_args if key[0] in 'tcv' and len(key) <= 3 else self.__dict__
-        # try:
-        #     return base_dict[key]
-        # except:
-        #     raise AttributeError
         return self._fitted_args[key]
 
     def _calc_params(self, params: dict):
