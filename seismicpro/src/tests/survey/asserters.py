@@ -7,7 +7,12 @@ import segyio
 import numpy as np
 
 
-def assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers, rtol=1e-5, atol=1e-8):
+# Define default tolerances to check if two float values are close
+RTOL = 1e-5
+ATOL = 1e-8
+
+
+def assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers, rtol=RTOL, atol=ATOL):
     """Check if a SEG-Y file was properly loaded into a `Survey` instance."""
     with segyio.open(segy_path, ignore_geometry=True) as f:
         file_samples = f.samples
@@ -34,7 +39,7 @@ def assert_survey_loaded(survey, segy_path, expected_name, expected_index, expec
     assert survey.headers.index.is_monotonic_increasing
 
 
-def assert_both_none_or_close(left, right, rtol=1e-5, atol=1e-8):
+def assert_both_none_or_close(left, right, rtol=RTOL, atol=ATOL):
     """Check whether both `left` and `right` are `None` or they are close."""
     left_none = left is None
     right_none = right is None
@@ -42,7 +47,7 @@ def assert_both_none_or_close(left, right, rtol=1e-5, atol=1e-8):
     assert left_none and right_none or np.allclose(left, right, rtol=rtol, atol=atol)
 
 
-def assert_surveys_equal(left, right, ignore_column_order=False, ignore_dtypes=False, rtol=1e-5, atol=1e-8):
+def assert_surveys_equal(left, right, ignore_column_order=False, ignore_dtypes=False, rtol=RTOL, atol=ATOL):
     """Check if two surveys are equal. Optionally allow for changes in headers order or dtypes."""
     # Check whether all path-related attributes are equal
     assert left.name == right.name
@@ -94,11 +99,11 @@ def assert_survey_processed_inplace(before, after, inplace):
         assert_surveys_equal(before, after)
 
 
-def assert_survey_limits(survey, limits, rtol=1e-5, atol=1e-8):
+def assert_survey_limits_set(survey, limits, rtol=RTOL, atol=ATOL):
     """Check if `survey` limits were set correctly. `limits` must be a `slice` object with `start`, `stop` and `step`
     arguments set to `int`s."""
     limited_samples = survey.file_samples[limits]
-    limited_sample_rate = survey.file_sample_rate * abs(limits.step)
+    limited_sample_rate = survey.file_sample_rate * limits.step
 
     assert survey.limits == limits
     assert survey.n_samples == len(limited_samples)

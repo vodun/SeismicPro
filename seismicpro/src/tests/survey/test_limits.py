@@ -2,7 +2,7 @@
 
 import pytest
 
-from . import assert_survey_limits
+from . import assert_survey_limits_set
 from ..conftest import N_SAMPLES
 
 
@@ -29,7 +29,7 @@ from ..conftest import N_SAMPLES
 def test_set_limits(survey, limits, expected_limits):
     """Test `Survey.set_limits` with a broad range of possible `limits` passed."""
     survey.set_limits(limits)
-    assert_survey_limits(survey, expected_limits)
+    assert_survey_limits_set(survey, expected_limits)
 
 
 @pytest.mark.parametrize("limits", [

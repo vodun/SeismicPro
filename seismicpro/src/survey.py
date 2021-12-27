@@ -281,7 +281,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         n_samples = len(self.file_samples[limits])
 
         if n_quantile_traces < 0:
-            raise ValueError("n_quantile_traces must be positive")
+            raise ValueError("n_quantile_traces must be non-negative")
         # Clip n_quantile_traces if it's greater than the total number of traces
         n_quantile_traces = min(n_quantile_traces, n_traces)
 
@@ -579,7 +579,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             - `None`: apply a function to the `DataFrame` as a whole.
         unpack_args : bool
             If `True`, row or column values are passed to `func` as individual arguments, otherwise the whole array is
-            passed as a single arg. Has no effect if `axis` is `None`.
+            passed as a single arg. If `axis` is `None` and `unpack_args` is `True`, columns of the `df` are passed to
+            the `func` as individual arguments.
         kwargs : misc, optional
             Additional keyword arguments to pass to `func` or `pd.DataFrame.apply`.
 
@@ -626,7 +627,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             - `None`: apply `cond` to the `DataFrame` as a whole.
         unpack_args : bool, optional, defaults to False
             If `True`, row or column values are passed to `cond` as individual arguments, otherwise the whole array is
-            passed as a single arg. Has no effect if `axis` is `None`.
+            passed as a single arg. If `axis` is `None` and `unpack_args` is `True`, each column from `cols` is passed
+            to the `cond` as an individual argument.
         inplace : bool, optional, defaults to False
             Whether to perform filtering inplace or process a survey copy.
         kwargs : misc, optional
@@ -677,7 +679,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             - `None`: apply a function to the `DataFrame` as a whole.
         unpack_args : bool, optional, defaults to False
             If `True`, row or column values are passed to `func` as individual arguments, otherwise the whole array is
-            passed as a single arg. Has no effect if `axis` is `None`.
+            passed as a single arg. If `axis` is `None` and `unpack_args` is `True`, each column from `cols` is passed
+            to the `func` as an individual argument.
         inplace : bool, optional, defaults to False
             Whether to apply the function inplace or to a survey copy.
         kwargs : misc, optional

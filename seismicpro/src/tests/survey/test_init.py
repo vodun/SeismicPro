@@ -6,7 +6,7 @@ import numpy as np
 
 from seismicpro import Survey
 
-from . import assert_survey_loaded, assert_surveys_equal, assert_survey_limits
+from . import assert_survey_loaded, assert_surveys_equal, assert_survey_limits_set
 from ..conftest import FILE_NAME, N_SAMPLES
 
 
@@ -75,7 +75,7 @@ class TestInit:
 
         # Assert that whole traces are loaded
         limits = slice(0, survey.n_file_samples, 1)
-        assert_survey_limits(survey, limits)
+        assert_survey_limits_set(survey, limits)
 
         # Assert that stats are not calculated
         assert survey.has_stats is False
@@ -90,7 +90,7 @@ class TestInit:
         assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers)
 
         # Assert that correct limits were set
-        assert_survey_limits(survey, slice_limits)
+        assert_survey_limits_set(survey, slice_limits)
 
         # Assert that stats are not calculated
         assert survey.has_stats is False
@@ -120,7 +120,7 @@ class TestInit:
 
         # Assert that whole traces are loaded
         limits = slice(0, survey.n_file_samples, 1)
-        assert_survey_limits(survey, limits)
+        assert_survey_limits_set(survey, limits)
 
         # Assert that stats are calculated
         assert survey.has_stats is True
@@ -151,7 +151,7 @@ class TestInit:
         assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers)
 
         # Assert that correct limits were set
-        assert_survey_limits(survey, slice_limits)
+        assert_survey_limits_set(survey, slice_limits)
 
         # Assert that stats are calculated
         assert survey.has_stats is True
