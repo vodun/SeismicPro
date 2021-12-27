@@ -10,7 +10,8 @@ from .utils import to_list
 
 class WeatheringVelocity:
 
-    def __init__(self, offset, picking_times, t0=200, crossovers=1500, velocities=[2, 3], bounds=None):
+    def __init__(self, offset, picking_times, n_layers=None, initial=None, bounds=None):
+        #t0=200, crossovers=1500, velocities=[2, 3],
         '''
         bounds passed as dict with next structure:
         {'t0': [0, 1000],
@@ -19,51 +20,89 @@ class WeatheringVelocity:
          'v1': [1, 3],
          'v2': [1, 4],
          'v3': [2, 5]}       
+        initial passed as dict with next structure:
+        {'t0': 200,
+         'c1': 1000,
+         'c2': 2000,
+         'v1': 1,
+         'v2': 2,
+         'v3': 3}  
         
         '''
         # keep a base parameters when class initializate and rewrite it after fit function is done -> denied
+        print(f'n_layers={n_layers}, initial={initial}, bounds={bounds}')
+        if n_layers is None and initial is None and bounds is None:
+            raise ValueError('One of the `n_layers`, `initial`, `bounds` should be passed')
+
         self.offset = offset
         self.picking = picking_times
-        self.n_layers = len(velocities)
 
-        self.bounds = self._calc_bounds(t0, crossovers, velocities) if bounds is None else self._parse_dict(bounds)
+        self.n_layers = n_layers
+        self.initial = initial
+        self.bounds = bounds
 
-        self._fitted_args = None
-        self._fit(self.offset, self.picking, start_params=self._params_to_args(t0, crossovers, velocities))
+        if initial is not None:
+            self.n_layers = len(initial) // 2
+            self.bounds = self._calc_params(initial) if bounds is None else bounds
+
+        elif bounds is not None:
+            self.n_layers = len(bounds) // 2
+            self.initial = self._calc_params(bounds)
+
+        else:
+            try:
+                self.initial, self.bounds = self._precalc_by_layers(n_layers)
+            except:
+                raise NotImplementedError('Use initial or bounds')
+
+        # fitting
+        _args, _ = optimize.curve_fit(self.piecewise_linear, offset, picking_times, p0=self._parse_params(self.initial),
+                                      bounds=self._parse_params(self.bounds), method='trf', loss='soft_l1')
+        self._fitted_args = dict(zip(self._create_keys(), _args))
 
     def __call__(self, offset):
         ''' return a predicted times using the fitted crossovers and velocities. '''
         return self.piecewise_linear(offset, *self._fitted_args.values())
 
     def __getattr__(self, key):
-        base_dict = self._fitted_args if key[0] in 'tcv' and len(key) <= 3 else self.__dict__
-        try: 
-            return base_dict[key]
-        except:
-            raise AttributeError
+        # print('__getattr__ keys: ', key)
+        # base_dict = self._fitted_args if key[0] in 'tcv' and len(key) <= 3 else self.__dict__
+        # try:
+        #     return base_dict[key]
+        # except:
+        #     raise AttributeError
+        return self._fitted_args[key]
 
-    def _calc_bounds(self, t0, crossovers, velocities):
-        lower_bound = [0]
-        upper_bound = [0 + t0 * 3]
-        for item in to_list(crossovers)[:self.n_layers - 1] + to_list(velocities):
-            lower_bound += [item / 2]
-            upper_bound += [item * 2]
-        return (lower_bound, upper_bound)
+    def _calc_params(self, params: dict):
+        ''' calc bounds based on initial or calc initial based on bounds '''
+        result = {}
+        for key, value in params.items():
+            if len(to_list(value)) == 1:
+                if key[0] == 't':
+                    result[key] = [0, value * 3]
+                else:
+                    result[key] = [value / 2, value * 2]
+            else:
+                result[key] = value[0] + (value[1] - value[0]) / 3
+                # another variant
+                # result[key] = (value[0] + value[1]) / 2
+        return result
 
-    def _parse_dict(self, bounds):
-        bounds = OrderedDict(sorted(bounds.items()))
-        lower_bounds = [None] * (self.n_layers * 2)
-        upper_bounds = [None] * (self.n_layers * 2)
-        for i, key in enumerate(bounds.keys()):
-            idx = i + 1 if key[0] == 'c' else i if key[0] == 'v' else 0
-            lower_bounds[idx] = bounds[key][0]
-            upper_bounds[idx] = bounds[key][1]
-        return (lower_bounds, upper_bounds)
+    def _parse_params(self, initial=None, bounds=None):
+        # from dict to list ot tuple of two list
+        work_dict = initial if bounds is None else bounds
+        work_dict.copy()
+        t0 = work_dict.pop('t0')
+        data = np.full((self.n_layers * 2, len(to_list(t0))), None)
+        data[0] = t0
+        
+        work_dict = OrderedDict(sorted(work_dict.items()))
+        for idx, value in enumerate(work_dict.values()):
+            data[idx + 1] = value
+        if len(to_list(t0)) == 1:
+            return data.ravel()
+        return (data[:, 0], data[:, 1])
 
-    def _params_to_args(self, t0, crossovers, velocities):
-        return to_list(t0) + to_list(crossovers)[:self.n_layers - 1] + to_list(velocities)
-
-    # @staticmethod
     def piecewise_linear(self, offset, *args):
         '''
         args = [t0, *crossovers, *velocities]
@@ -75,45 +114,10 @@ class WeatheringVelocity:
         for i in range(1, self.n_layers + 1):
             times[i] = (cross_offset[i] - cross_offset[i-1]) / velocites[i-1] + times[i-1]
         return np.interp(offset, cross_offset, times)
-    
-    # another piecewise func
-    # two times slower and needs args [*times, *crossovers, *velocities], times = [t0, t1, ..., tn]
-    # ----------------------------
-    # @staticmethod
-    # def _lambda_factory(t, v):
-    #     return lambda x:  x / v + t
-
-    # @staticmethod
-    # def _calc_times(t, c, v):
-    #     for i in range(1, len(t)):
-    #         t[i] = (v[i] - v[i-1])/(v[i] * v[i-1]) * c[i] + t[i-1]
-    #     return t
-    
-    # def piecewise_piecewise(self, offset, *args):
-    #     '''
-    #     args = [*times, *crossovers, *velocities]
-    #     '''
-    #     times = list(args[:self.n_layers])
-    #     cross_offset = [0] + list(args[self.n_layers:(2*self.n_layers-1)]) + [offset.max()]
-    #     velocites = args[-self.n_layers:]
-    #     times = _calc_times(times, cross_offset, velocites)
-
-    #     condition_list = [None] * self.n_layers
-    #     func_list = [None] * self.n_layers
-    #     for i in range(n_layers):
-    #         condition_list[i] = (cross_offset[i] < offset) & (offset <= cross_offset[i+1])
-    #         func_list[i] = _lambda_factory(times[i], velocites[i])
-    #     return np.piecewise(offset, condition_list, func_list)
-    # ----------------------------
 
     def _create_keys(self):
         return ['t0'] + [f'c{i+1}' for i in range(self.n_layers - 1)][:self.n_layers - 1] + \
                [f'v{i+1}' for i in range(self.n_layers)]
-
-    def _fit(self, offset, picking_times, start_params):
-        _args, _ = optimize.curve_fit(self.piecewise_linear, offset, picking_times, p0=start_params,
-                                      bounds=self.bounds, method='trf', loss='soft_l1')
-        self._fitted_args = dict(zip(self._create_keys(), _args))
 
     @plotter(figsize=(10, 5))
     def plot(self, ax, title=None, show_params=False, **kwargs):
