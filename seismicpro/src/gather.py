@@ -711,12 +711,12 @@ class Gather:
         return self
 
     @batch_method(target='for')
-    def calculate_weathering_velocity(self, first_breaks_col='FirstBreak', n_layers=None, init=None, bounds=None, 
+    def calculate_weathering_velocity(self, first_breaks_col='FirstBreak', n_layers=None, init=None, bounds=None,
                                       **kwargs):
         ''' TODO: docsting'''
         return WeatheringVelocity(offsets=self.offsets, picking_times=self[first_breaks_col].ravel(), 
                                   n_layers=n_layers, init=init, bounds=bounds, **kwargs)
-    
+
     @batch_method(target='for', args_to_unpack='weathering_velocity')
     def calculate_weathering_metrics(self, weathering_velocity, first_breaks_col='FirstBreak', threshold_times=50):
         ''' TODO: docstring '''

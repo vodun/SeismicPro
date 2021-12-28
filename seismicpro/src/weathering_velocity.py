@@ -1,8 +1,9 @@
 from collections import OrderedDict
 
-import numpy as np
-from scipy import optimize
 import matplotlib.transforms as mtransforms
+import numpy as np
+from sklearn.linear_model import LinearRegression
+from scipy import optimize
 
 from .decorators import plotter
 from .utils import to_list
@@ -19,15 +20,14 @@ class WeatheringVelocity:
          'c2': [1500, 2500],
          'v1': [1, 3],
          'v2': [1, 4],
-         'v3': [2, 5]}       
+         'v3': [2, 5]}
         init passed as dict with next structure:
         {'t0': 200,
          'c1': 1000,
          'c2': 2000,
          'v1': 1,
          'v2': 2,
-         'v3': 3}  
-        
+         'v3': 3}
         '''
         # print(f'n_layers={n_layers}, init={init}, bounds={bounds}')
         if n_layers is None and init is None and bounds is None:
@@ -43,23 +43,20 @@ class WeatheringVelocity:
         if init is not None:
             self.n_layers = len(init) // 2
             self._check_keys(init)
-            self.bounds = self._calc_params(init) if bounds is None else bounds
+            self.bounds = self._calc_bounds(init) if bounds is None else bounds
 
         elif bounds is not None:
             self.n_layers = len(bounds) // 2
             self._check_keys(bounds)
-            self.init = self._calc_params(bounds)
+            self.init = self._calc_init(bounds)
 
         else:
-            try:
-                self.init, self.bounds = self._precalc_by_layers(n_layers)
-            except:
-                raise NotImplementedError('Use init or bounds')
+            self.init, self.bounds = self._calc_params_by_layers(n_layers)
 
         # fitting
-        _args, _ = optimize.curve_fit(self.piecewise_linear, offsets, picking_times, p0=self._parse_params(self.init),
-                                      bounds=self._parse_params(self.bounds), method='trf', loss='soft_l1', **kwargs)
-        self._fitted_args = dict(zip(self._create_keys(), _args))
+        fitted, _ = optimize.curve_fit(self.piecewise_linear, offsets, picking_times, p0=self._parse_params(self.init),
+                                       bounds=self._parse_params(self.bounds), method='trf', loss='soft_l1', **kwargs)
+        self._fitted_args = dict(zip(self._create_keys(), fitted))
 
     def __call__(self, offsets):
         ''' return a predicted times using the fitted crossovers and velocities. '''
@@ -80,7 +77,7 @@ class WeatheringVelocity:
 
     def _calc_init(self, bounds):
         result = {}
-        for key, value in init.items():
+        for key, value in bounds.items():
             result[key] = value[0] + (value[1] - value[0]) / 3
         return result
 
@@ -90,7 +87,7 @@ class WeatheringVelocity:
         t0 = work_dict.pop('t0')
         data = np.full((self.n_layers * 2, len(to_list(t0))), None)
         data[0] = t0
-        
+
         work_dict = OrderedDict(sorted(work_dict.items()))
         for idx, value in enumerate(work_dict.values()):
             data[idx + 1] = value
@@ -108,19 +105,28 @@ class WeatheringVelocity:
         times = [t0] + [0] * self.n_layers
         for i in range(1, self.n_layers + 1):
             times[i] = (cross_offsets[i] - cross_offsets[i-1]) / velocites[i-1] + times[i-1]
-        # interpolator = interp1d(cross_offsets, times)
-        # return interpolator(offsets)
         return np.interp(offsets, cross_offsets, times)
 
     def _create_keys(self):
-        return ['t0'] + [f'c{i+1}' for i in range(self.n_layers - 1)] + \
-               [f'v{i+1}' for i in range(self.n_layers)]
+        return ['t0'] + [f'c{i+1}' for i in range(self.n_layers - 1)] + [f'v{i+1}' for i in range(self.n_layers)]
 
     def _check_keys(self, work_dict):
         expected_keys = set(self._create_keys())
         given_keys = set(work_dict.keys())
         if expected_keys != given_keys:
             raise KeyError('Given dict with parameters contains unexpected keys.')
+
+    def _calc_params_by_layers(self, n_layers):
+        ''' use _precal_params is 1.5 times slower than put init'''
+        lin_reg = LinearRegression().fit(np.atleast_2d(self.offsets).T, self.picking)
+        base_v = 1 / lin_reg.coef_
+
+        init = np.empty(shape=2 * n_layers)
+        init[0] = lin_reg.intercept_ / 2
+        init[1:n_layers] = np.linspace(0, self.offsets.max(), num=n_layers+1)[1:-1]
+        init[n_layers:] = np.linspace(base_v / 1.5, base_v * 1.33, num=n_layers).ravel()
+        init = dict(zip(self._create_keys(), init))
+        return init, self._calc_bounds(init)
 
     @plotter(figsize=(10, 5))
     def plot(self, ax, title=None, show_params=False, **kwargs):
