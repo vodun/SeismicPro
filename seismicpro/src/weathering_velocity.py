@@ -119,6 +119,9 @@ class WeatheringVelocity:
     def _calc_params_by_layers(self, n_layers):
         ''' use _precal_params is 1.5 times slower than put init'''
         lin_reg = LinearRegression().fit(np.atleast_2d(self.offsets).T, self.picking)
+        if lin_reg.coef_ <= 0:
+            # with np.setprintoptions(precision=3)
+            raise ValueError(f'Precalculated velocity is non positive. Velocity is {float(1 / lin_reg.coef_):.2f}')
         base_v = 1 / lin_reg.coef_
 
         init = np.empty(shape=2 * n_layers)
