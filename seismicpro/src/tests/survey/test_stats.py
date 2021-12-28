@@ -48,7 +48,7 @@ class TestStats:
     @pytest.mark.parametrize("n_quantile_traces", [0, 10, 100])
     @pytest.mark.parametrize("quantile_precision", [1, 2])
     @pytest.mark.parametrize("stats_limits", [None, slice(5), slice(2, 8)])
-    def test_collect_stats(self, stat_segy, limits, n_quantile_traces, quantile_precision, stats_limits, bar):
+    def test_collect_stats(self, stat_segy, limits, n_quantile_traces, quantile_precision, stats_limits):
         """Compare stats obtained by running `collect_stats` with the actual ones."""
         path, trace_data = stat_segy
         survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset", limits=limits,
@@ -96,18 +96,16 @@ class TestStats:
         assert np.isscalar(quantile) is is_scalar
         assert np.allclose(np.array(quantile_val).ravel(), survey.quantile_interpolator(quantile))
 
-    @pytest.mark.parametrize("quantile", [0, 0.5, 1, [0.05, 0.95]])
-    def test_get_quantile_fails(self, stat_segy, quantile):
+    def test_get_quantile_fails(self, stat_segy):
         """`get_quantile` must fail if survey stats were not collected."""
         path, _ = stat_segy
         survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset")
         with pytest.raises(ValueError):
-            survey.get_quantile(quantile)
+            survey.get_quantile(0.5)
 
-    @pytest.mark.parametrize("n_quantile_traces", [0, 10])
     @pytest.mark.parametrize("stats_limits", [None, slice(5)])
     @pytest.mark.parametrize("inplace", [True, False])
-    def test_remove_dead_traces(self, stat_segy, n_quantile_traces, stats_limits, inplace, monkeypatch):
+    def test_remove_dead_traces(self, stat_segy, stats_limits, inplace, monkeypatch):
         """Check that `remove_dead_traces` properly updates survey `headers` and sets `n_dead_traces` counter to 0."""
         # FIXME: known issue: DeadTrace flag is set incorrectly in case of passed indices
 
@@ -116,9 +114,8 @@ class TestStats:
 
         path, trace_data = stat_segy
         survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset")
-        survey_copy = survey.copy().collect_stats(n_quantile_traces=n_quantile_traces, stats_limits=stats_limits)
-        survey_filtered = survey.remove_dead_traces(inplace=inplace, n_quantile_traces=n_quantile_traces,
-                                                    stats_limits=stats_limits)
+        survey_copy = survey.copy().collect_stats(n_quantile_traces=10, stats_limits=stats_limits)
+        survey_filtered = survey.remove_dead_traces(inplace=inplace, n_quantile_traces=10, stats_limits=stats_limits)
 
         is_dead = np.isclose(trace_data.min(axis=1), trace_data.max(axis=1))
         survey_copy.headers = survey_copy.headers.loc[~is_dead]
