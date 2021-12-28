@@ -711,15 +711,16 @@ class Gather:
         return self
 
     @batch_method(target='for')
-    def calculate_weathering_velocity(self, picking_col='FirstBreak', n_layers=None, initial=None, bounds=None):
+    def calculate_weathering_velocity(self, first_breaks_col='FirstBreak', n_layers=None, init=None, bounds=None, 
+                                      **kwargs):
         ''' TODO: docsting'''
-        return WeatheringVelocity(offset=self.offsets, picking_times=self.headers.get(picking_col), n_layers=n_layers,
-                                  initial=initial, bounds=bounds)
+        return WeatheringVelocity(offsets=self.offsets, picking_times=self[first_breaks_col].ravel(), 
+                                  n_layers=n_layers, init=init, bounds=bounds, **kwargs)
     
-    @batch_method(target='for', args_to_unpack='wv')
-    def calculate_weathering_metrics(self, wv, picking_col='FirstBreak', threshold_times=50):
+    @batch_method(target='for', args_to_unpack='weathering_velocity')
+    def calculate_weathering_metrics(self, weathering_velocity, first_breaks_col='FirstBreak', threshold_times=50):
         ''' TODO: docstring '''
-        metrics = np.mean(np.abs(wv(self.offsets) - self[picking_col].ravel()) > threshold_times)
+        metrics = np.mean(np.abs(weathering_velocity(self.offsets) - self[first_breaks_col].ravel()) > threshold_times)
         return metrics
 
     #------------------------------------------------------------------------#

@@ -6,11 +6,12 @@ import matplotlib.transforms as mtransforms
 
 from .decorators import plotter
 from .utils import to_list
+from .utils.interpolation import interp1d
 
 
 class WeatheringVelocity:
 
-    def __init__(self, offset, picking_times, n_layers=None, initial=None, bounds=None):
+    def __init__(self, offsets, picking_times, n_layers=None, init=None, bounds=None, **kwargs):
         '''
         bounds passed as dict with next structure:
         {'t0': [0, 1000],
@@ -19,7 +20,7 @@ class WeatheringVelocity:
          'v1': [1, 3],
          'v2': [1, 4],
          'v3': [2, 5]}       
-        initial passed as dict with next structure:
+        init passed as dict with next structure:
         {'t0': 200,
          'c1': 1000,
          'c2': 2000,
@@ -28,61 +29,63 @@ class WeatheringVelocity:
          'v3': 3}  
         
         '''
-        print(f'n_layers={n_layers}, initial={initial}, bounds={bounds}')
-        if n_layers is None and initial is None and bounds is None:
-            raise ValueError('One of the `n_layers`, `initial`, `bounds` should be passed')
+        # print(f'n_layers={n_layers}, init={init}, bounds={bounds}')
+        if n_layers is None and init is None and bounds is None:
+            raise ValueError('One of the `n_layers`, `init`, `bounds` should be passed')
 
-        self.offset = offset
+        self.offsets = offsets
         self.picking = picking_times
 
         self.n_layers = n_layers
-        self.initial = initial
+        self.init = init
         self.bounds = bounds
 
-        if initial is not None:
-            self.n_layers = len(initial) // 2
-            self.bounds = self._calc_params(initial) if bounds is None else bounds
+        if init is not None:
+            self.n_layers = len(init) // 2
+            self._check_keys(init)
+            self.bounds = self._calc_params(init) if bounds is None else bounds
 
         elif bounds is not None:
             self.n_layers = len(bounds) // 2
-            self.initial = self._calc_params(bounds)
+            self._check_keys(bounds)
+            self.init = self._calc_params(bounds)
 
         else:
             try:
-                self.initial, self.bounds = self._precalc_by_layers(n_layers)
+                self.init, self.bounds = self._precalc_by_layers(n_layers)
             except:
-                raise NotImplementedError('Use initial or bounds')
+                raise NotImplementedError('Use init or bounds')
 
         # fitting
-        _args, _ = optimize.curve_fit(self.piecewise_linear, offset, picking_times, p0=self._parse_params(self.initial),
-                                      bounds=self._parse_params(self.bounds), method='trf', loss='soft_l1')
+        _args, _ = optimize.curve_fit(self.piecewise_linear, offsets, picking_times, p0=self._parse_params(self.init),
+                                      bounds=self._parse_params(self.bounds), method='trf', loss='soft_l1', **kwargs)
         self._fitted_args = dict(zip(self._create_keys(), _args))
 
-    def __call__(self, offset):
+    def __call__(self, offsets):
         ''' return a predicted times using the fitted crossovers and velocities. '''
-        return self.piecewise_linear(offset, *self._fitted_args.values())
+        return self.piecewise_linear(offsets, *self._parse_params(self._fitted_args))
 
     def __getattr__(self, key):
         return self._fitted_args[key]
 
-    def _calc_params(self, params: dict):
-        ''' calc bounds based on initial or calc initial based on bounds '''
+    def _calc_bounds(self, init):
+        ''' calc bounds based on init or calc init based on bounds '''
         result = {}
-        for key, value in params.items():
-            if len(to_list(value)) == 1:
-                if key[0] == 't':
-                    result[key] = [0, value * 3]
-                else:
-                    result[key] = [value / 2, value * 2]
+        for key, value in init.items():
+            if key[0] == 't':
+                result[key] = [0, value * 3]
             else:
-                result[key] = value[0] + (value[1] - value[0]) / 3
-                # another variant
-                # result[key] = (value[0] + value[1]) / 2
+                result[key] = [value / 2, value * 2]
         return result
 
-    def _parse_params(self, initial=None, bounds=None):
-        # from dict to list ot tuple of two list
-        work_dict = initial if bounds is None else bounds
+    def _calc_init(self, bounds):
+        result = {}
+        for key, value in init.items():
+            result[key] = value[0] + (value[1] - value[0]) / 3
+        return result
+
+    def _parse_params(self, work_dict):
+        # from dict to list or tuple of two list
         work_dict = work_dict.copy()
         t0 = work_dict.pop('t0')
         data = np.full((self.n_layers * 2, len(to_list(t0))), None)
@@ -95,43 +98,52 @@ class WeatheringVelocity:
             return data.ravel()
         return (data[:, 0], data[:, 1])
 
-    def piecewise_linear(self, offset, *args):
+    def piecewise_linear(self, offsets, *args):
         '''
         args = [t0, *crossovers, *velocities]
         '''
         t0 = args[0]
-        cross_offset = [0] + list(args[1:self.n_layers]) + [offset.max()]
+        cross_offsets = [0] + list(args[1:self.n_layers]) + [offsets.max()]
         velocites = args[self.n_layers:]
         times = [t0] + [0] * self.n_layers
         for i in range(1, self.n_layers + 1):
-            times[i] = (cross_offset[i] - cross_offset[i-1]) / velocites[i-1] + times[i-1]
-        return np.interp(offset, cross_offset, times)
+            times[i] = (cross_offsets[i] - cross_offsets[i-1]) / velocites[i-1] + times[i-1]
+        # interpolator = interp1d(cross_offsets, times)
+        # return interpolator(offsets)
+        return np.interp(offsets, cross_offsets, times)
 
     def _create_keys(self):
-        return ['t0'] + [f'c{i+1}' for i in range(self.n_layers - 1)][:self.n_layers - 1] + \
+        return ['t0'] + [f'c{i+1}' for i in range(self.n_layers - 1)] + \
                [f'v{i+1}' for i in range(self.n_layers)]
+
+    def _check_keys(self, work_dict):
+        expected_keys = set(self._create_keys())
+        given_keys = set(work_dict.keys())
+        if expected_keys != given_keys:
+            raise KeyError('Given dict with parameters contains unexpected keys.')
 
     @plotter(figsize=(10, 5))
     def plot(self, ax, title=None, show_params=False, **kwargs):
         # TODO: add thresholds lines
-        ax.scatter(self.offset, self.picking)
-        ax.scatter(self.offset, self(self.offset), s=5)
+        ax.scatter(self.offsets, self.picking)
+        ax.scatter(self.offsets, self(self.offsets), s=5)
 
         if show_params:
-            crossover_title = 'crossovers offset = '
+            crossover_title = 'crossovers offsets = '
             if self.n_layers > 1:
-                crossovers = ['{:.2f}'.format(getattr(self, f'c{i + 1}', -1)) for i in range(self.n_layers - 1)]
+                crossovers = ['{:.2f}'.format(getattr(self, f'c{i + 1}')) for i in range(self.n_layers - 1)]
                 crossover_title += ', '.join(crossovers)
             else:
                 crossover_title += 'None'
             velocity_title = 'velocities = '
-            velocities = ['{:.2f}'.format(getattr(self, f'v{i + 1}', -1)) for i in range(self.n_layers)]
+            velocities = ['{:.2f}'.format(getattr(self, f'v{i + 1}')) for i in range(self.n_layers)]
             velocity_title += ', '.join(velocities)
 
-            # transform need to move text from edge
+            # transform need to move text from edges
             trans = mtransforms.ScaledTranslation(1 / 5, -1 / 5, scale_trans=mtransforms.Affine2D([[100, 0, 0],
                                                                                                    [0, 100, 0],
                                                                                                    [0, 0, 1]]))
             ax.text(0.0, 1.0, f"t0={self.t0:.2f}\n{crossover_title}\n{velocity_title}", fontsize=15, va='top',
                     transform=ax.transAxes + trans,
                     )
+        return self
