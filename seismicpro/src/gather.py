@@ -714,7 +714,7 @@ class Gather:
     def calculate_weathering_velocity(self, first_breaks_col='FirstBreak', n_layers=None, init=None, bounds=None,
                                       **kwargs):
         ''' TODO: docsting'''
-        return WeatheringVelocity(offsets=self.offsets, picking_times=self[first_breaks_col].ravel(), 
+        return WeatheringVelocity(offsets=self.offsets, picking_times=self[first_breaks_col].ravel(),
                                   n_layers=n_layers, init=init, bounds=bounds, **kwargs)
 
     @batch_method(target='for', args_to_unpack='weathering_velocity')

@@ -29,7 +29,6 @@ class WeatheringVelocity:
          'v2': 2,
          'v3': 3}
         '''
-        # print(f'n_layers={n_layers}, init={init}, bounds={bounds}')
         if n_layers is None and init is None and bounds is None:
             raise ValueError('One of the `n_layers`, `init`, `bounds` should be passed')
 
@@ -54,8 +53,8 @@ class WeatheringVelocity:
             self.init, self.bounds = self._calc_params_by_layers(n_layers)
 
         # fitting
-        fitted, _ = optimize.curve_fit(self.piecewise_linear, offsets, picking_times, p0=self._parse_params(self.init),
-                                       bounds=self._parse_params(self.bounds), method='trf', loss='soft_l1', **kwargs)
+        fitted, _ = optimize.curve_fit(self.piecewise_linear, offsets, picking_times, p0=self._parse_params(init=self.init),
+                                       bounds=self._parse_params(bounds=self.bounds), method='trf', loss='soft_l1', **kwargs)
         self._fitted_args = dict(zip(self._create_keys(), fitted))
 
     def __call__(self, offsets):
@@ -72,6 +71,9 @@ class WeatheringVelocity:
             if key[0] == 't':
                 result[key] = [0, value * 3]
             else:
+                if init[key] <= 0:
+                    raise ValueError(f"Used parameters for a bounds calculation is non positive. " \
+                                     f"Paramter {key} is {float(init[key]):.2f}")
                 result[key] = [value / 2, value * 2]
         return result
 
@@ -81,17 +83,14 @@ class WeatheringVelocity:
             result[key] = value[0] + (value[1] - value[0]) / 3
         return result
 
-    def _parse_params(self, work_dict):
+    def _parse_params(self, init=None, bounds=None):
         # from dict to list or tuple of two list
-        work_dict = work_dict.copy()
-        t0 = work_dict.pop('t0')
-        data = np.full((self.n_layers * 2, len(to_list(t0))), None)
-        data[0] = t0
-
-        work_dict = OrderedDict(sorted(work_dict.items()))
-        for idx, value in enumerate(work_dict.values()):
-            data[idx + 1] = value
-        if len(to_list(t0)) == 1:
+        work_dict = init if init is not None else bounds
+        keys = self._create_keys()
+        data = np.empty((len(keys), 1 if bounds is None else 2))
+        for idx, key in enumerate(keys):
+            data[idx] = work_dict[key]
+        if bounds is None:
             return data.ravel()
         return (data[:, 0], data[:, 1])
 
@@ -119,9 +118,6 @@ class WeatheringVelocity:
     def _calc_params_by_layers(self, n_layers):
         ''' use _precal_params is 1.5 times slower than put init'''
         lin_reg = LinearRegression().fit(np.atleast_2d(self.offsets).T, self.picking)
-        if lin_reg.coef_ <= 0:
-            # with np.setprintoptions(precision=3)
-            raise ValueError(f'Precalculated velocity is non positive. Velocity is {float(1 / lin_reg.coef_):.2f}')
         base_v = 1 / lin_reg.coef_
 
         init = np.empty(shape=2 * n_layers)
@@ -140,19 +136,18 @@ class WeatheringVelocity:
         if show_params:
             crossover_title = 'crossovers offsets = '
             if self.n_layers > 1:
-                crossovers = ['{:.2f}'.format(getattr(self, f'c{i + 1}')) for i in range(self.n_layers - 1)]
+                crossovers = [f"{getattr(self, f'c{i + 1}'):.2f}" for i in range(self.n_layers - 1)]
                 crossover_title += ', '.join(crossovers)
             else:
                 crossover_title += 'None'
             velocity_title = 'velocities = '
-            velocities = ['{:.2f}'.format(getattr(self, f'v{i + 1}')) for i in range(self.n_layers)]
+            velocities = [f"{getattr(self, f'v{i + 1}'):.2f}" for i in range(self.n_layers)]
             velocity_title += ', '.join(velocities)
 
-            # transform need to move text from edges
+            # transform need to make ident from a plot edges.
             trans = mtransforms.ScaledTranslation(1 / 5, -1 / 5, scale_trans=mtransforms.Affine2D([[100, 0, 0],
                                                                                                    [0, 100, 0],
                                                                                                    [0, 0, 1]]))
             ax.text(0.0, 1.0, f"t0={self.t0:.2f}\n{crossover_title}\n{velocity_title}", fontsize=15, va='top',
-                    transform=ax.transAxes + trans,
-                    )
+                    transform=ax.transAxes + trans)
         return self
