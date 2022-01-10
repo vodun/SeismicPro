@@ -110,8 +110,8 @@ class TestInit:
         survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name, collect_stats=True,
                         n_quantile_traces=10, quantile_precision=1, stats_limits=stats_limits, bar=False)
 
-        # Assert that a survey was loaded correctly and an extra DeadTrace header was created
-        expected_headers = expected_index | expected_cols | {"TRACE_SEQUENCE_FILE", "DeadTrace"}
+        # Assert that a survey was loaded correctly
+        expected_headers = expected_index | expected_cols | {"TRACE_SEQUENCE_FILE"}
         assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers)
 
         # Assert that whole traces are loaded
@@ -139,8 +139,8 @@ class TestInit:
                         collect_stats=True, n_quantile_traces=10, quantile_precision=1, stats_limits=stats_limits,
                         bar=False)
 
-        # Assert that a survey was loaded correctly and an extra DeadTrace header was created
-        expected_headers = expected_index | expected_cols | {"TRACE_SEQUENCE_FILE", "DeadTrace"}
+        # Assert that a survey was loaded correctly
+        expected_headers = expected_index | expected_cols | {"TRACE_SEQUENCE_FILE"}
         assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers)
 
         # Assert that correct limits were set

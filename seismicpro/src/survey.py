@@ -15,6 +15,8 @@ from scipy.interpolate import interp1d
 from .gather import Gather
 from .utils import to_list, maybe_copy, calculate_stats, create_supergather_index
 
+DEAD_TRACE_HEADER = 'DeadTrace'
+
 
 class Survey:  # pylint: disable=too-many-instance-attributes
     """A class representing a single SEG-Y file.
@@ -237,9 +239,6 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         2. Mean amplitude and trace standard deviation,
         3. Approximation of trace data quantiles with given precision.
 
-        Also, the method marks dead traces (those having constant amplitudes) by setting a value of a new `DeadTrace`
-        header to `True` and stores the overall number of dead traces in the `n_dead_traces` attribute.
-
         Since fair quantile calculation requires simultaneous loading of all traces from the file we avoid such memory
         overhead by calculating approximate quantiles for a small subset of `n_quantile_traces` traces selected
         randomly. Only a set of quantiles defined by `quantile_precision` is calculated, the rest of them are linearly
@@ -267,8 +266,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         Returns
         -------
         survey : Survey
-            The survey with collected stats. Sets `has_stats` flag to `True`, updates statistics attributes inplace and
-            creates a new `DeadTrace` header.
+            The survey with collected stats. Sets `has_stats` flag to `True`, and updates statistics attributes inplace.
         """
         headers = self.headers
         if indices is not None:
@@ -292,7 +290,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         traces_buf = np.empty((n_quantile_traces, n_samples), dtype=np.float32)
         trace = np.empty(n_samples, dtype=np.float32)
 
-        dead_indices = []
+        self.n_dead_traces = 0
         quantile_traces_counter = 0
         # Accumulate min, max, mean and std values of survey traces
         for i in tqdm(shuffled_indices, desc=f"Calculating statistics for survey {self.name}",
@@ -302,7 +300,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
             # Handle dead trace case
             if np.isclose(trace_min, trace_max):
-                dead_indices.append(i)
+                self.n_dead_traces += 1
                 continue
 
             global_min = min(trace_min, global_min)
@@ -316,9 +314,6 @@ class Survey:  # pylint: disable=too-many-instance-attributes
                 traces_buf[quantile_traces_counter] = trace
                 quantile_traces_counter += 1
 
-        self.n_dead_traces = len(dead_indices)
-        self.headers['DeadTrace'] = False
-        self.headers.iloc[dead_indices, self.headers.columns.get_loc('DeadTrace')] = True
 
         self.min = np.float32(global_min)
         self.max = np.float32(global_max)
@@ -343,6 +338,40 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
         self.has_stats = True
         return self
+
+    def mark_dead_traces(self, bar=True):
+        """ Mark dead traces (those having constant amplitudes) by setting a value of a new `DeadTrace`
+        header to `True` and stores the overall number of dead traces in the `n_dead_traces` attribute.
+
+        Parameters
+        ----------
+        bar : bool, optional, defaults to True
+            Whether to show a progress bar.
+
+        Returns
+        -------
+        survey : Survey with a new `DeadTrace` header created.
+
+        """
+
+        traces_pos = self.headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
+        n_samples = len(self.file_samples[self.limits])
+
+        trace = np.empty(n_samples, dtype=np.float32)
+        dead_indices = []
+        for i in tqdm(traces_pos, desc=f"Calculating statistics for survey {self.name}",
+                      total=len(self.headers), disable=not bar):
+            self.load_trace(buf=trace, index=i, limits=self.limits, trace_length=n_samples)
+            trace_min, trace_max, *_ = calculate_stats(trace)
+
+            # Handle dead trace case
+            if np.isclose(trace_min, trace_max):
+                dead_indices.append(i)
+
+        self.n_dead_traces = len(dead_indices)
+        self.headers[DEAD_TRACE_HEADER] = False
+        self.headers.iloc[dead_indices, self.headers.columns.get_loc(DEAD_TRACE_HEADER)] = True
+
 
     def get_quantile(self, q):
         """Calculate an approximation of the `q`-th quantile of the survey data.
@@ -769,10 +798,10 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             Survey with no dead traces.
         """
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
-        if not self.has_stats:
-            self.collect_stats(**kwargs)
+        if not DEAD_TRACE_HEADER in self.headers:
+            self.mark_dead_traces(**kwargs)
 
-        self.filter(lambda dt: ~dt, cols='DeadTrace', inplace=True)
+        self.filter(lambda dt: ~dt, cols=DEAD_TRACE_HEADER, inplace=True)
         self.n_dead_traces = 0
 
         return self

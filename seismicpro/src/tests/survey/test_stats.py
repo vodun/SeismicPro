@@ -71,7 +71,6 @@ class TestStats:
         survey.quantile_interpolator = None
 
         # Fill the copy of the survey with actual stats and compare it with the source survey
-        survey_copy.headers["DeadTrace"] = is_dead
         survey_copy.n_dead_traces = is_dead.sum()
         survey_copy.has_stats = True
         survey_copy.min = non_dead_traces.min()
@@ -114,12 +113,13 @@ class TestStats:
 
         path, trace_data = stat_segy
         survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset")
-        survey_copy = survey.copy().collect_stats(n_quantile_traces=10, stats_limits=stats_limits)
-        survey_filtered = survey.remove_dead_traces(inplace=inplace, n_quantile_traces=10, stats_limits=stats_limits)
+        survey_filtered = survey.remove_dead_traces(inplace=inplace)
 
+        survey_copy = survey.copy()
         is_dead = np.isclose(trace_data.min(axis=1), trace_data.max(axis=1))
         survey_copy.headers = survey_copy.headers.loc[~is_dead]
         survey_copy.n_dead_traces = 0
+        survey_copy.headers['DeadTrace'] = False
 
         # Validate that dead traces are not present
         assert survey_filtered.n_dead_traces == 0
