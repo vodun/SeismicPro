@@ -1,10 +1,11 @@
-"""Test Survey collect_stats and remove_dead_traces methods"""
+"""Test Survey collect_stats and dead_traces-related methods"""
 
 # pylint: disable=redefined-outer-name
 import pytest
 import numpy as np
 
 from seismicpro import Survey, make_prestack_segy
+from seismicpro.src.custom_headers import HDR_DEAD_TRACE
 
 from . import assert_surveys_equal, assert_survey_processed_inplace
 
@@ -102,27 +103,39 @@ class TestStats:
         with pytest.raises(ValueError):
             survey.get_quantile(0.5)
 
-    @pytest.mark.parametrize("stats_limits", [None, slice(5)])
     @pytest.mark.parametrize("inplace", [True, False])
-    def test_remove_dead_traces(self, stat_segy, stats_limits, inplace, monkeypatch):
+    def test_remove_dead_traces(self, stat_segy, inplace):
         """Check that `remove_dead_traces` properly updates survey `headers` and sets `n_dead_traces` counter to 0."""
-        # FIXME: known issue: DeadTrace flag is set incorrectly in case of passed indices
-
-        # Always use the same traces for quantile estimation
-        monkeypatch.setattr(np.random, "permutation", lambda n: np.arange(n))
 
         path, trace_data = stat_segy
         survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset")
+        survey_copy = survey.copy()
+
         survey_filtered = survey.remove_dead_traces(inplace=inplace)
 
-        survey_copy = survey.copy()
         is_dead = np.isclose(trace_data.min(axis=1), trace_data.max(axis=1))
         survey_copy.headers = survey_copy.headers.loc[~is_dead]
         survey_copy.n_dead_traces = 0
-        survey_copy.headers['DeadTrace'] = False
+        survey_copy.headers[HDR_DEAD_TRACE] = False
 
         # Validate that dead traces are not present
         assert survey_filtered.n_dead_traces == 0
         assert survey_filtered.headers.index.is_monotonic_increasing
         assert_surveys_equal(survey_filtered, survey_copy)
         assert_survey_processed_inplace(survey, survey_filtered, inplace)
+
+    def test_mark_dead_traces(self, stat_segy):
+        """Check that `mark_dead_traces` properly updates survey `headers` and sets `n_dead_traces` counter to 0."""
+
+        path, trace_data = stat_segy
+        survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset")
+        survey_copy = survey.copy()
+
+        survey.mark_dead_traces()
+
+        is_dead = np.isclose(trace_data.min(axis=1), trace_data.max(axis=1))
+        survey_copy.headers[HDR_DEAD_TRACE] = False
+        survey_copy.headers.loc[is_dead, HDR_DEAD_TRACE] = True
+        survey_copy.n_dead_traces = np.sum(is_dead)
+
+        assert_surveys_equal(survey, survey_copy)

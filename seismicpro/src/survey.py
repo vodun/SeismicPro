@@ -14,8 +14,7 @@ from scipy.interpolate import interp1d
 
 from .gather import Gather
 from .utils import to_list, maybe_copy, calculate_stats, create_supergather_index
-
-DEAD_TRACE_HEADER = 'DeadTrace'
+from .custom_headers import HDR_DEAD_TRACE
 
 
 class Survey:  # pylint: disable=too-many-instance-attributes
@@ -369,8 +368,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
                 dead_indices.append(i)
 
         self.n_dead_traces = len(dead_indices)
-        self.headers[DEAD_TRACE_HEADER] = False
-        self.headers.iloc[dead_indices, self.headers.columns.get_loc(DEAD_TRACE_HEADER)] = True
+        self.headers[HDR_DEAD_TRACE] = False
+        self.headers.iloc[dead_indices, self.headers.columns.get_loc(HDR_DEAD_TRACE)] = True
 
 
     def get_quantile(self, q):
@@ -798,10 +797,10 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             Survey with no dead traces.
         """
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
-        if not DEAD_TRACE_HEADER in self.headers:
+        if not HDR_DEAD_TRACE in self.headers:
             self.mark_dead_traces(**kwargs)
 
-        self.filter(lambda dt: ~dt, cols=DEAD_TRACE_HEADER, inplace=True)
+        self.filter(lambda dt: ~dt, cols=HDR_DEAD_TRACE, inplace=True)
         self.n_dead_traces = 0
 
         return self
