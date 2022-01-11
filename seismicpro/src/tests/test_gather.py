@@ -1,4 +1,5 @@
 """Implementation of tests for survey"""
+
 # pylint: disable=redefined-outer-name
 from itertools import product, combinations
 

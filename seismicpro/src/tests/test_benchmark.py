@@ -2,9 +2,9 @@
 
 import pytest
 
-from seismicpro.benchmark import Benchmark
-from seismicpro.src import Survey, SeismicDataset
+from seismicpro import Survey, SeismicDataset
 from seismicpro.batchflow import Pipeline
+from seismicpro.benchmark import Benchmark
 
 
 #TODO:
