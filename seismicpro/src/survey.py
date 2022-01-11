@@ -272,7 +272,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             headers = headers.loc[indices]
         n_traces = len(headers)
         traces_pos = headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
-        shuffled_indices = np.random.permutation(n_traces)
+        np.random.shuffle(traces_pos)
 
         limits = self.limits if stats_limits is None else self._process_limits(stats_limits)
         n_samples = len(self.file_samples[limits])
@@ -292,9 +292,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self.n_dead_traces = 0
         quantile_traces_counter = 0
         # Accumulate min, max, mean and std values of survey traces
-        for i in tqdm(shuffled_indices, desc=f"Calculating statistics for survey {self.name}",
+        for pos in tqdm(traces_pos, desc=f"Calculating statistics for survey {self.name}",
                       total=n_traces, disable=not bar):
-            self.load_trace(buf=trace, index=traces_pos[i], limits=limits, trace_length=n_samples)
+            self.load_trace(buf=trace, index=pos, limits=limits, trace_length=n_samples)
             trace_min, trace_max, trace_sum, trace_sq_sum = calculate_stats(trace)
 
             # Handle dead trace case
@@ -358,14 +358,13 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
         trace = np.empty(n_samples, dtype=np.float32)
         dead_indices = []
-        for i in tqdm(traces_pos, desc=f"Calculating statistics for survey {self.name}",
+        for pos in tqdm(traces_pos, desc=f"Calculating statistics for survey {self.name}",
                       total=len(self.headers), disable=not bar):
-            self.load_trace(buf=trace, index=i, limits=self.limits, trace_length=n_samples)
+            self.load_trace(buf=trace, index=pos, limits=self.limits, trace_length=n_samples)
             trace_min, trace_max, *_ = calculate_stats(trace)
 
-            # Handle dead trace case
             if np.isclose(trace_min, trace_max):
-                dead_indices.append(i)
+                dead_indices.append(pos)
 
         self.n_dead_traces = len(dead_indices)
         self.headers[HDR_DEAD_TRACE] = False

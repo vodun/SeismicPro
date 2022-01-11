@@ -104,12 +104,16 @@ class TestStats:
             survey.get_quantile(0.5)
 
     @pytest.mark.parametrize("inplace", [True, False])
-    def test_remove_dead_traces(self, stat_segy, inplace):
+    @pytest.mark.parametrize("pre_mark_dead", [True, False])
+    def test_remove_dead_traces(self, stat_segy, inplace, pre_mark_dead):
         """Check that `remove_dead_traces` properly updates survey `headers` and sets `n_dead_traces` counter to 0."""
 
         path, trace_data = stat_segy
         survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset")
         survey_copy = survey.copy()
+
+        if pre_mark_dead:
+            survey.mark_dead_traces()
 
         survey_filtered = survey.remove_dead_traces(inplace=inplace)
 

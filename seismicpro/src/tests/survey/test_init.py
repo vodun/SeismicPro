@@ -105,7 +105,7 @@ class TestInit:
                             expected_name, stats_limits, monkeypatch):
         """Test survey loading when stats are calculated, but limits are not set."""
         # Always use the same traces for quantile estimation
-        monkeypatch.setattr(np.random, "permutation", lambda n: np.arange(n))
+        monkeypatch.setattr(np.random, "shuffle", lambda x: x)
 
         survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name, collect_stats=True,
                         n_quantile_traces=10, quantile_precision=1, stats_limits=stats_limits, bar=False)
@@ -133,7 +133,7 @@ class TestInit:
                           monkeypatch):
         """Test survey loading when limits are set and stats are calculated."""
         # Always use the same traces for quantile estimation
-        monkeypatch.setattr(np.random, "permutation", lambda n: np.arange(n))
+        monkeypatch.setattr(np.random, "shuffle", lambda x: x)
 
         survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name, limits=limits,
                         collect_stats=True, n_quantile_traces=10, quantile_precision=1, stats_limits=stats_limits,
