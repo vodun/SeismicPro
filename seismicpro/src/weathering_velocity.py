@@ -2,7 +2,7 @@ from collections import OrderedDict
 
 import matplotlib.transforms as mtransforms
 import numpy as np
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LinearRegression, SGDRegressor, HuberRegressor
 from scipy import optimize
 
 from .decorators import plotter
@@ -29,32 +29,27 @@ class WeatheringVelocity:
          'v2': 2,
          'v3': 3}
         '''
+
         if n_layers is None and init is None and bounds is None:
             raise ValueError('One of the `n_layers`, `init`, `bounds` should be passed')
 
         self.offsets = offsets
-        self.picking = picking_times
+        self.offsets_max = offsets.max()
+        self.picking_times = picking_times
 
-        self.n_layers = n_layers
-        self.init = init
-        self.bounds = bounds
+        init = {} if init is None else init
+        bounds = {} if bounds is None else bounds
 
-        if init is not None:
-            self.n_layers = len(init) // 2
-            self._check_keys(init)
-            self.bounds = self._calc_bounds(init) if bounds is None else bounds
+        self.init = {**self._calc_params_by_layers(n_layers), **self._calc_init(bounds), **init}
+        self.bounds = {**self._calc_bounds(self.init), **bounds}
+        self.n_layers = len(self.bounds) // 2
 
-        elif bounds is not None:
-            self.n_layers = len(bounds) // 2
-            self._check_keys(bounds)
-            self.init = self._calc_init(bounds)
-
-        else:
-            self.init, self.bounds = self._calc_params_by_layers(n_layers)
-
+        if set(self._create_keys()) != set(self.bounds.keys()):
+            raise ValueError(f"Insufficient parameters to fit a weathering velocity curve. ",
+                             f"Add {set(self._create_keys()) - set(self.bounds.keys())} keys or use `n_layers` parameter")
         # fitting
-        fitted, _ = optimize.curve_fit(self.piecewise_linear, offsets, picking_times, p0=self._parse_params(init=self.init),
-                                       bounds=self._parse_params(bounds=self.bounds), method='trf', loss='soft_l1', **kwargs)
+        fitted, _ = optimize.curve_fit(self.piecewise_linear, offsets, picking_times, p0=self._parse_params(self.init),
+                                       bounds=self._parse_params(self.bounds), method='trf', loss='soft_l1', **kwargs)
         self._fitted_args = dict(zip(self._create_keys(), fitted))
 
     def __call__(self, offsets):
@@ -64,73 +59,65 @@ class WeatheringVelocity:
     def __getattr__(self, key):
         return self._fitted_args[key]
 
+    def _create_keys(self, n_layers=None):
+        n_layers = self.n_layers if n_layers is None else n_layers
+        return ['t0'] + [f'c{i+1}' for i in range(n_layers - 1)] + [f'v{i+1}' for i in range(n_layers)]
+
     def _calc_bounds(self, init):
         ''' calc bounds based on init or calc init based on bounds '''
-        result = {}
+        # checking inital values
         for key, value in init.items():
-            if key[0] == 't':
-                result[key] = [0, value * 3]
-            else:
-                if init[key] <= 0:
-                    raise ValueError(f"Used parameters for a bounds calculation is non positive. " \
-                                     f"Paramter {key} is {float(init[key]):.2f}")
-                result[key] = [value / 2, value * 2]
-        return result
+            if value < 0:
+                raise ValueError(f"Used parameters for a bounds calculation is non positive. " \
+                                    f"Parameter {key} is {float(init[key]):.2f}")
+        # t0 bounds could be too narrow
+        return {key: [val / 2, val * 2] for key, val in init.items()}
 
     def _calc_init(self, bounds):
-        result = {}
-        for key, value in bounds.items():
-            result[key] = value[0] + (value[1] - value[0]) / 3
-        return result
+        return {key: val1 + (val2 - val1) / 3 for key, (val1, val2) in bounds.items()}
 
-    def _parse_params(self, init=None, bounds=None):
-        # from dict to list or tuple of two list
-        work_dict = init if init is not None else bounds
-        keys = self._create_keys()
-        data = np.empty((len(keys), 1 if bounds is None else 2))
-        for idx, key in enumerate(keys):
-            data[idx] = work_dict[key]
-        if bounds is None:
-            return data.ravel()
-        return (data[:, 0], data[:, 1])
+    def _parse_params(self, parsing_dict):
+        return np.stack([parsing_dict[key] for key in self._create_keys()], axis=-1)
 
     def piecewise_linear(self, offsets, *args):
         '''
         args = [t0, *crossovers, *velocities]
         '''
-        t0 = args[0]
-        cross_offsets = [0] + list(args[1:self.n_layers]) + [offsets.max()]
-        velocites = args[self.n_layers:]
-        times = [t0] + [0] * self.n_layers
-        for i in range(1, self.n_layers + 1):
-            times[i] = (cross_offsets[i] - cross_offsets[i-1]) / velocites[i-1] + times[i-1]
+        times = np.empty(self.n_layers + 1)
+        times[0] = args[0]
+
+        cross_offsets = np.zeros(self.n_layers + 1)
+        cross_offsets[1:self.n_layers] = args[1:self.n_layers]
+        cross_offsets[-1] = self.offsets_max
+
+        for i in range(self.n_layers):
+            times[i+1] = (cross_offsets[i+1] - cross_offsets[i]) / args[self.n_layers + i] + times[i]
+
         return np.interp(offsets, cross_offsets, times)
 
-    def _create_keys(self):
-        return ['t0'] + [f'c{i+1}' for i in range(self.n_layers - 1)] + [f'v{i+1}' for i in range(self.n_layers)]
-
-    def _check_keys(self, work_dict):
-        expected_keys = set(self._create_keys())
-        given_keys = set(work_dict.keys())
-        if expected_keys != given_keys:
-            raise KeyError('Given dict with parameters contains unexpected keys.')
+        # times[1:] = np.diff(cross_offsets) / args[self.n_layers:]
+        # return np.interp(offsets, cross_offsets, np.cumsum(times))
 
     def _calc_params_by_layers(self, n_layers):
-        ''' use _precal_params is 1.5 times slower than put init'''
-        lin_reg = LinearRegression().fit(np.atleast_2d(self.offsets).T, self.picking)
-        base_v = 1 / lin_reg.coef_
-
+        ''' '''
+        if n_layers is None:
+            return {}
+        lin_reg = SGDRegressor(loss='huber', early_stopping=True, penalty=None, shuffle=False, epsilon=0.01, 
+                               eta0=.003, alpha=0)
+        lin_reg.fit(self.offsets.reshape(-1, 1), self.picking_times, 
+                    coef_init=0.5, # (max(self.picking_times) - min(self.picking_times)) / self.offsets_max
+                    intercept_init=min(self.picking_times))
         init = np.empty(shape=2 * n_layers)
         init[0] = lin_reg.intercept_ / 2
         init[1:n_layers] = np.linspace(0, self.offsets.max(), num=n_layers+1)[1:-1]
-        init[n_layers:] = np.linspace(base_v / 1.5, base_v * 1.33, num=n_layers).ravel()
-        init = dict(zip(self._create_keys(), init))
-        return init, self._calc_bounds(init)
+        init[n_layers:] = np.linspace(0, 2 / lin_reg.coef_[0], num=n_layers+2)[1:-1]
+        init = dict(zip(self._create_keys(n_layers), init))
+        return init
 
     @plotter(figsize=(10, 5))
     def plot(self, ax, title=None, show_params=False, **kwargs):
         # TODO: add thresholds lines
-        ax.scatter(self.offsets, self.picking)
+        ax.scatter(self.offsets, self.picking_times)
         ax.scatter(self.offsets, self(self.offsets), s=5)
 
         if show_params:
@@ -144,10 +131,6 @@ class WeatheringVelocity:
             velocities = [f"{getattr(self, f'v{i + 1}'):.2f}" for i in range(self.n_layers)]
             velocity_title += ', '.join(velocities)
 
-            # transform need to make ident from a plot edges.
-            trans = mtransforms.ScaledTranslation(1 / 5, -1 / 5, scale_trans=mtransforms.Affine2D([[100, 0, 0],
-                                                                                                   [0, 100, 0],
-                                                                                                   [0, 0, 1]]))
-            ax.text(0.0, 1.0, f"t0={self.t0:.2f}\n{crossover_title}\n{velocity_title}", fontsize=15, va='top',
-                    transform=ax.transAxes + trans)
+            ax.text(0.03, .94, f"t0={self.t0:.2f}\n{crossover_title}\n{velocity_title}", fontsize=15, va='top',
+                    transform=ax.transAxes)
         return self
