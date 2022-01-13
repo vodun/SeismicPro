@@ -349,8 +349,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
         Returns
         -------
-        survey : Survey with a new `DeadTrace` header created.
-
+        survey : Survey
+            The same survey with a new `DeadTrace` header created.
         """
 
         traces_pos = self.headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
