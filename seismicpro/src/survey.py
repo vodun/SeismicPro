@@ -400,13 +400,13 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
         limits = self.limits if limits is None else self._process_limits(limits)
         samples = self.file_samples[limits]
-        sample_rate = np.float32(self.file_sample_rate * limits.step)
         n_samples = len(samples)
 
         data = np.empty((len(trace_indices), n_samples), dtype=np.float32)
         for i, ix in enumerate(trace_indices):
             self.load_trace(buf=data[i], index=ix, limits=limits, trace_length=n_samples)
-        gather = Gather(headers=headers, data=data, samples=samples, sample_rate=sample_rate, survey=self)
+
+        gather = Gather(headers=headers, data=data, samples=samples, survey=self)
         return gather
 
     def get_gather(self, index, limits=None, copy_headers=True):

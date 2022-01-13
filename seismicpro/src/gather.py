@@ -624,7 +624,7 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", copy_src=False)
-    def pick_to_mask(self, first_breaks_col="FirstBreak", **kwargs):
+    def pick_to_mask(self, first_breaks_col="FirstBreak"):
         """Convert first break times to a binary mask with the same shape as `gather.data` containing zeros before the
         first arrivals and ones after for each trace.
 
@@ -632,16 +632,13 @@ class Gather:
         ----------
         first_breaks_col : str, optional, defaults to 'FirstBreak'
             A column of `self.headers` that contains first arrival times, measured in milliseconds.
-        kwargs : dict, optional
-            Additional keyword arguments to `.utils.general_utils.times_to_indices`.
-
 
         Returns
         -------
         gather : Gather
             A new `Gather` with calculated first breaks mask in its `data` attribute.
         """
-        times_indices = times_to_indices(self.samples, self[first_breaks_col].ravel(), **kwargs)
+        times_indices = times_to_indices(self[first_breaks_col].ravel(), self.samples, round=True)
         mask = convert_times_to_mask(times_indices=times_indices, mask_length=self.shape[1]).astype(np.int32)
         gather = self.copy(ignore='data')
         gather.data = mask
@@ -676,7 +673,7 @@ class Gather:
             A gather with first break times in headers column defined by `first_breaks_col`.
         """
         picking_indices = convert_mask_to_pick(self.data, threshold)
-        picking_times = indices_to_times(self.samples, picking_indices)
+        picking_times = indices_to_times(picking_indices, self.samples)
         self[first_breaks_col] = picking_times
         if save_to is not None:
             save_to[first_breaks_col] = picking_times
@@ -759,7 +756,7 @@ class Gather:
         return builder(**kwargs)
 
     @batch_method(target="threads", args_to_unpack="muter")
-    def mute(self, muter, fill_value=0, **kwargs):
+    def mute(self, muter, fill_value=0):
         """Mute the gather using given `muter`.
 
         The muting operation is performed by setting gather values above an offset-time boundary defined by `muter` to
@@ -771,15 +768,13 @@ class Gather:
             An object that defines muting times by gather offsets.
         fill_value : float, defaults to 0
             A value to fill the muted part of the gather with.
-        kwargs : dict, optional
-            Additional keyword arguments to `.utils.general_utils.times_to_indices`.
 
         Returns
         -------
         self : Gather
             Muted gather.
         """
-        muting_indices = times_to_indices(self.samples, muter(self.offsets), **kwargs)
+        muting_indices = times_to_indices(muter(self.offsets), self.samples, round=True)
         self.data = mute_gather(gather_data=self.data, muting_indices=muting_indices, fill_value=fill_value)
         return self
 
@@ -1243,7 +1238,7 @@ class Gather:
             header = kwargs.pop("headers")
             label = kwargs.pop("label", header)
             process_outliers = kwargs.pop("process_outliers", "none")
-            y_coords = times_to_indices(self.samples, self[header].ravel(), outliers='none', round=False)
+            y_coords = times_to_indices(self[header].ravel(), self.samples, round=False)
             if process_outliers == "clip":
                 y_coords = np.clip(y_coords, 0, self.n_samples - 1)
             elif process_outliers == "discard":

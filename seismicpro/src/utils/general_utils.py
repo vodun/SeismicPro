@@ -3,6 +3,8 @@
 import numpy as np
 from numba import njit, prange
 
+from .interpolation import interpolate
+
 
 def to_list(obj):
     """Cast an object to a list. Almost identical to `list(obj)` for 1-D objects, except for `str`, which won't be
@@ -15,7 +17,7 @@ def maybe_copy(obj, inplace=False, **kwargs):
     return obj if inplace else obj.copy(**kwargs)
 
 
-def times_to_indices(samples, times, outliers='none', round=True):
+def times_to_indices(times, samples, round=False):
     """Convert to corresponding indices in samples ...
 
     Notes
@@ -36,58 +38,43 @@ def times_to_indices(samples, times, outliers='none', round=True):
     -------
     indices : 1d np.ndarray
         Indices of ...
+
+    Raises
+    ------
+    ValueError
+        If ...
     """
     if np.any(np.diff(samples) < 0):
         raise ValueError('..')
-    if outliers not in ['none', 'clip']:
-        raise ValueError("..")
-    return _times_to_indices(samples, times, outliers, round)
-
+    return _times_to_indices(times=times, samples=samples, round=round)
 
 @njit
-def _times_to_indices(samples, times, outliers='none', round=True):
-    indices_array = np.full(len(times), np.nan, dtype=np.float32)
-    left_mask = times < samples[0]
-    right_mask = times > samples[-1]
-    if outliers == 'clip':
-        indices_array[np.where(left_mask)[0]] = samples[0]
-        indices_array[np.where(right_mask)[0]] = samples[-1]
-    outliers = left_mask | right_mask
-
-    for i, (time, is_outlier) in enumerate(zip(times, outliers)):
-        if is_outlier:
-            continue
-        ix = np.searchsorted(samples, time)
-        indices_array[i] = ix + (time - samples[ix]) / (samples[ix] - samples[ix-1])
-    indices_array = np.rint(indices_array) if round else indices_array
-    return indices_array
+def _times_to_indices(times, samples, round):
+    left_slope = 1 / (samples[1] - samples[0])
+    right_slope = 1 / (samples[-1] - samples[-2])
+    res = interpolate(times, samples, np.arange(len(samples), dtype=np.float32), left_slope, right_slope)
+    return np.rint(res) if round else res
 
 
-def indices_to_times(samples, indices, outliers='none'):
-    """Convert indices to samples based on `samples`."""
+def indices_to_times(indices, samples):
+    """Convert indices to samples.
+
+    Notes
+    -----
+    Indices that go out of bounds of `samples` are clipped within it's range.
+    """
     if np.any(np.diff(samples) < 0):
         raise ValueError('..')
-    if outliers not in ['none', 'clip']:
-        raise ValueError("..")
-    return _indices_to_times(samples, indices, outliers)
+    return _indices_to_times(indices=indices, samples=samples)
 
 
 @njit
-def _indices_to_times(samples, indices, outliers='none'):
-    indices_array = np.full(len(indices), np.nan, dtype=np.float32)
-    left_mask = indices < 0
-    right_mask = indices > len(samples)-1
-    if outliers == 'clip':
-        indices_array[np.where(left_mask)[0]] = samples[0]
-        indices_array[np.where(right_mask)[0]] = samples[-1]
-    outliers = left_mask | right_mask
-
-    int_indices = indices.astype(np.int32)
-    for i, (ix, int_ix, is_outlier) in enumerate(zip(indices, int_indices, outliers)):
-        if is_outlier:
-            continue
-        indices_array[i] = samples[int_ix] + (ix - int_ix) * (samples[int_ix] - samples[int_ix-1])
-    return indices_array
+def _indices_to_times(indices, samples):
+    times = np.empty(shape=len(indices), dtype=samples.dtype)
+    for i in range(len(indices)):
+        int_i = int(min(max(indices[i], 0), len(samples) - 1))
+        times[i] = samples[int_i] + (indices[i] - int_i) * (samples[min(int_i + 1, len(samples) - 1)] - samples[int_i])
+    return times
 
 
 def unique_indices_sorted(arr):
