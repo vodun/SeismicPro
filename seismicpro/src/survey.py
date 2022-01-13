@@ -120,8 +120,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self.segy_handler.mmap()
 
         # Get attributes from the source SEG-Y file.
-        self.file_samples = self.segy_handler.samples.astype(np.float32)
-        self.file_sample_rate = np.float32(segyio.dt(self.segy_handler) / 1000)
+        self.file_sample_rate = self._get_sample_rate() / 1000
+        # TODO: Add processing of DelayRecordingTime
+        self.file_samples = (np.arange(self.segy_handler.trace.shape) * self.file_sample_rate).astype(np.float32)
 
         # Set samples and sample_rate according to passed `limits`.
         self.limits = None
@@ -227,6 +228,16 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         calculated."""
         print(self)
 
+    def _get_sample_rate(self):
+        bin_sample_rate = self.segy_handler.bin[segyio.binfield.keys['Interval']]
+        trace_sample_rate = self.segy_handler.header[0][segyio.TraceField.TRACE_SAMPLE_INTERVAL]
+        union_sample_rate = {bin_sample_rate, trace_sample_rate} - {0}
+        if len(union_sample_rate) != 1:
+            error_msg = "Cannot define sample rate from file. It means that the bin header `Interval` (placed in"\
+                        " 3217-3218 bytes) and trace header `TRACE_SAMPLE_INTERVAL` (placed in 117-118 bytes) either "\
+                        " both are null or have different values."
+            raise ValueError(error_msg)
+        return union_sample_rate.pop()
     #------------------------------------------------------------------------#
     #                     Statistics computation methods                     #
     #------------------------------------------------------------------------#
