@@ -203,7 +203,7 @@ def convert_times_to_mask(times_indices, mask_length):
 
 @njit(nogil=True, parallel=True)
 def convert_mask_to_pick(mask, threshold):
-    """Convert a first breaks `mask` into an array of arrival times.
+    """Convert a first breaks `mask` into an array of arrival indices.
 
     The mask has shape (n_traces, trace_length), each its value represents a probability of corresponding index along
     the trace to follow the first break. A naive approach is to define the first break time index as the location of
@@ -211,33 +211,29 @@ def convert_mask_to_pick(mask, threshold):
     conversion procedure is proposed as it appears to be more stable:
     1. Binarize the mask according to the specified `threshold`,
     2. Find the longest sequence of ones in the `mask` for each trace and save indices of the first elements of the
-       found sequences,
-    3. Convert the found indices to times by multiplying them by `sample_rate`.
+       found sequences.
 
     Examples
     --------
     >>> mask = np.array([[  1, 1, 1, 1, 1],
     ...                  [  0, 0, 1, 1, 1],
     ...                  [0.6, 0, 0, 1, 1]])
-    >>> sample_rate = 2
     >>> threshold = 0.5
     >>> convert_mask_to_pick(mask, sample_rate, threshold)
-    array([0, 4, 6])
+    array([0, 2, 3])
 
     Parameters
     ----------
     mask : 2d np.ndarray
         An array with shape (n_traces, trace_length), with each value representing a probability of corresponding index
         along the trace to follow the first break.
-    sample_rate : int
-        Sample rate of seismic traces. Measured in milliseconds.
     threshold : float
         A threshold for trace mask value to refer its index to be either pre- or post-first break.
 
     Returns
     -------
-    times : np.ndarray with length len(mask)
-        Start time of the longest sequence with `mask` values greater than the `threshold` for each trace. Measured in
+    indices : np.ndarray with length len(mask)
+        Start index of the longest sequence with `mask` values greater than the `threshold` for each trace. Measured in
         milliseconds.
     """
     picking_array = np.empty(len(mask), dtype=np.int32)
