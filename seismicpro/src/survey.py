@@ -126,7 +126,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self.segy_handler.mmap()
 
         # Get attributes from the source SEG-Y file.
-        self.file_sample_rate = self._infer_sample_rate() / 1000
+        self.file_sample_rate = self._infer_sample_rate() / 1000 # Convert from microseconds to milliseconds
         self.file_samples = (np.arange(self.segy_handler.trace.shape) * self.file_sample_rate).astype(np.float32)
 
         # Set samples and sample_rate according to passed `limits`.

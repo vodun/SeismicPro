@@ -345,7 +345,12 @@ class Gather:
 
         Notes
         -----
-        All binary and textual headers are copied from the parent SEG-Y file unchanged.
+        Almost all binary and textual headers are copied from the parent SEG-Y file unchanged. The exceptions from
+        binary headers are the following:
+        1. Sample rate, 3217-3218 bytes, named `Interval` in segyio,
+        2. Number of samples per data trace, 3221-3222 bytes, named `Samples` in segyio,
+        3. Extended number of samples per data trace, 3269-3272 bytes, named `ExtSamples` in segyio.
+        They are taken from the current gather.
 
         Parameters
         ----------
@@ -386,7 +391,7 @@ class Gather:
         spec.tracecount = self.n_traces
 
         trace_headers = self.headers.reset_index()
-
+        sample_rate = np.int32(self.sample_rate * 1000) # Convert to microseconds
         # Remember ordinal numbers of traces in the parent SEG-Y file to further copy their headers
         # and reset them to start from 1 in the resulting file to match SEG-Y standard.
         trace_ids = trace_headers["TRACE_SEQUENCE_FILE"].values - 1
@@ -405,6 +410,9 @@ class Gather:
             # if the number of traces or sample ratio changes.
             # TODO: Check if bin headers matter
             dump_handler.bin = parent_handler.bin
+            dump_handler.bin[segyio.BinField.Interval] = sample_rate
+            dump_handler.bin[segyio.BinField.Samples] = self.n_samples
+            dump_handler.bin[segyio.BinField.ExtSamples] = self.n_samples
 
             # Copy textual headers from the parent SEG-Y file.
             for i in range(spec.ext_headers + 1):
@@ -415,7 +423,7 @@ class Gather:
             for i, dump_h in trace_headers_dict.items():
                 if copy_header:
                     dump_handler.header[i].update(parent_handler.header[trace_ids[i]])
-                dump_handler.header[i].update(dump_h)
+                dump_handler.header[i].update({**dump_h, **{segyio.TraceField.TRACE_SAMPLE_COUNT: sample_rate}})
         return self
 
     #------------------------------------------------------------------------#

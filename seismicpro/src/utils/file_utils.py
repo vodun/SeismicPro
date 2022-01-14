@@ -50,8 +50,10 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=False, keep_exts=(
     for path in in_paths:
         with segyio.open(path, ignore_geometry=True) as handler:
             tracecount += handler.tracecount
-            samples = handler.samples
-            samples_params.add((len(samples), samples[0], samples[1] - samples[0]))
+            sample_rate = {handler.bin[segyio.BinField.Interval],
+                           handler.header[0][segyio.TraceField.TRACE_SAMPLE_INTERVAL]} - {0}
+            n_samples = handler.trace.shape
+            samples_params.add((sample_rate, n_samples))
 
     if len(samples_params) != 1:
         raise ValueError("Source files contain inconsistent samples")
