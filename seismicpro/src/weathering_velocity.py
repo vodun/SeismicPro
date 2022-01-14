@@ -42,7 +42,7 @@ class WeatheringVelocity:
 
         if set(self._create_keys()) != set(self.bounds.keys()):
             raise ValueError(f"Insufficient parameters to fit a weathering velocity curve. ",
-                             f"Add {set(self._create_keys()) - set(self.bounds.keys())} keys or use `n_layers` parameter")
+                             f"Add {set(self._create_keys()) - set(self.bounds.keys())} keys or define `n_layers`")
 
         # piecewise variables
         self._count = 0
@@ -88,8 +88,8 @@ class WeatheringVelocity:
         self._piecewise_times[0] = args[0]
         self._piecewise_cross_offsets[1:self.n_layers] = args[1:self.n_layers]
         for i in range(self.n_layers):
-            self._piecewise_times[i+1] = ((self._piecewise_cross_offsets[i + 1] - self._piecewise_cross_offsets[i])
-                                           / args[self.n_layers + i]) + self._piecewise_times[i]
+            self._piecewise_times[i+1] = ((self._piecewise_cross_offsets[i + 1] - self._piecewise_cross_offsets[i]) /
+                                           args[self.n_layers + i]) + self._piecewise_times[i]
         self._count += 1
         return np.interp(offsets, self._piecewise_cross_offsets, self._piecewise_times)
 
@@ -102,10 +102,8 @@ class WeatheringVelocity:
         times = np.empty(n_layers)
         slopes = np.empty(n_layers)
         start_params = [0.5, min(self.picking_times)]
-        cross_offsets_ident = 0 #ident * self.offsets_max / n_layers
         for i in range(n_layers):
-            idx = np.argwhere((self.offsets >= cross_offsets[i] + cross_offsets_ident) & 
-                              (self.offsets < cross_offsets[i+1] - cross_offsets_ident))[:, 0]
+            idx = np.argwhere((self.offsets >= cross_offsets[i]) & (self.offsets < cross_offsets[i +1 ]))[:, 0]
             slopes[i], times[i] = self._fit_regressor(np.take(self.offsets, idx).reshape(-1, 1),
                                                       np.take(self.picking_times, idx), start_params)
             start_params[0] = slopes[i] * (n_layers / (n_layers + 1))
