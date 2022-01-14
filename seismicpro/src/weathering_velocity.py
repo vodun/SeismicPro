@@ -49,8 +49,9 @@ class WeatheringVelocity:
         self._piecewise_cross_offsets = np.zeros(self.n_layers + 1)
         self._piecewise_cross_offsets[-1] = self.offsets_max
         # fitting
+        kwargs = {**{'method': 'trf', 'loss': 'soft_l1'}, **kwargs}
         fitted, _ = optimize.curve_fit(self.piecewise_linear, offsets, picking_times, p0=self._parse_params(self.init),
-                                       bounds=self._parse_params(self.bounds), method='trf', loss='soft_l1', **kwargs)
+                                       bounds=self._parse_params(self.bounds), **kwargs)
         self._fitted_args = dict(zip(self._create_keys(), fitted))
 
     def __call__(self, offsets):
@@ -102,7 +103,7 @@ class WeatheringVelocity:
         cross_offsets = np.linspace(0, self.offsets_max, num=n_layers+1)
         times = np.empty(n_layers)
         slopes = np.empty(n_layers)
-        start_params = [0.5, min(self.picking_times)]
+        start_params = [2/3, min(self.picking_times)]
         for i in range(n_layers):
             idx = np.argwhere((self.offsets >= cross_offsets[i]) & (self.offsets < cross_offsets[i +1 ]))[:, 0]
             slopes[i], times[i] = self._fit_regressor(np.take(self.offsets, idx).reshape(-1, 1),
@@ -122,8 +123,8 @@ class WeatheringVelocity:
 
     def _fit_regressor(self, x, y, start_params):
         ''' docstring '''
-        lin_reg = SGDRegressor(loss='huber', early_stopping=True, penalty=None, shuffle=True, epsilon=0.1,
-                               eta0=.003, alpha=0)
+        lin_reg = SGDRegressor(loss='huber', early_stopping=True, penalty=None, shuffle=True, epsilon=0.01,
+                               eta0=.003, alpha=0, fit_intercept=False)
         lin_reg.fit(x, y, coef_init=start_params[0], intercept_init=start_params[1])
         return lin_reg.coef_[0], lin_reg.intercept_
 
@@ -150,6 +151,5 @@ class WeatheringVelocity:
         if threshold is not None:
             ax.plot(self._piecewise_cross_offsets, self._piecewise_times + threshold, '--', color='gray')
             ax.plot(self._piecewise_cross_offsets, self._piecewise_times - threshold, '--', color='gray')
-
 
         return self
