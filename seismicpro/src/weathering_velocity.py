@@ -75,9 +75,11 @@ class WeatheringVelocity:
         return {key: [val / 2, val * 2] for key, val in init.items()}
 
     def _calc_init(self, bounds):
+        ''' docstring '''
         return {key: val1 + (val2 - val1) / 3 for key, (val1, val2) in bounds.items()}
 
     def _parse_params(self, parsing_dict):
+        ''' docstring '''
         return np.stack([parsing_dict[key] for key in self._create_keys()], axis=-1)
 
     def piecewise_linear(self, offsets, *args):
@@ -119,14 +121,15 @@ class WeatheringVelocity:
         return init
 
     def _fit_regressor(self, x, y, start_params):
+        ''' docstring '''
         lin_reg = SGDRegressor(loss='huber', early_stopping=True, penalty=None, shuffle=True, epsilon=0.1,
                                eta0=.003, alpha=0)
         lin_reg.fit(x, y, coef_init=start_params[0], intercept_init=start_params[1])
         return lin_reg.coef_[0], lin_reg.intercept_
 
     @plotter(figsize=(10, 5))
-    def plot(self, ax, title=None, show_params=False, **kwargs):
-        # TODO: add thresholds lines
+    def plot(self, ax, title=None, show_params=False, threshold=None, **kwargs):
+        ''' docstring '''
         ax.scatter(self.offsets, self.picking_times)
         ax.scatter(self.offsets, self(self.offsets), s=5)
 
@@ -143,4 +146,10 @@ class WeatheringVelocity:
 
             ax.text(0.03, .94, f"t0={self.t0:.2f}\n{crossover_title}\n{velocity_title}", fontsize=15, va='top',
                     transform=ax.transAxes)
+
+        if threshold is not None:
+            ax.plot(self._piecewise_cross_offsets, self._piecewise_times + threshold, '--', color='gray')
+            ax.plot(self._piecewise_cross_offsets, self._piecewise_times - threshold, '--', color='gray')
+
+
         return self
