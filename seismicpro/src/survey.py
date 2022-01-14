@@ -37,6 +37,12 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     reconstructed. All loaded headers are stored in a `headers` attribute as a `pd.DataFrame` with `header_index`
     columns set as its index.
 
+    The resulting sample rate depends on two headers: one from 3217-3218 bytes in binary header, named `Interval` in
+    segyio, another from 117-118 bytes in the trace header of the first trace in the file, named
+    `TRACE_SAMPLE_INTERVAL` in segyio. If one of them is zero and second one is not, second one is taken. If these
+    numbers are non-zero, the sample rate is set only if they are equal. Otherwise, or if both numbers are zero, an
+    error will be raised.
+
     Examples
     --------
     Create a survey of common source gathers and get a randomly selected gather from it:
@@ -120,8 +126,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self.segy_handler.mmap()
 
         # Get attributes from the source SEG-Y file.
-        self.file_sample_rate = self._get_sample_rate() / 1000
-        # TODO: Add processing of DelayRecordingTime
+        self.file_sample_rate = self._infer_sample_rate() / 1000
         self.file_samples = (np.arange(self.segy_handler.trace.shape) * self.file_sample_rate).astype(np.float32)
 
         # Set samples and sample_rate according to passed `limits`.
@@ -156,6 +161,18 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self.n_dead_traces = None
         if collect_stats:
             self.collect_stats(**kwargs)
+
+    def _infer_sample_rate(self):
+        """Get sample rate from file headers"""
+        bin_sample_rate = self.segy_handler.bin[segyio.BinField.Interval]
+        trace_sample_rate = self.segy_handler.header[0][segyio.TraceField.TRACE_SAMPLE_INTERVAL]
+        union_sample_rate = {bin_sample_rate, trace_sample_rate} - {0}
+        if len(union_sample_rate) != 1:
+            error_msg = "Cannot infer sample rate from file. It means that the binary header `Interval` (placed in"\
+                        " 3217-3218 bytes) and trace header `TRACE_SAMPLE_INTERVAL` (placed in 117-118 bytes) either "\
+                        " both are null or have different values."
+            raise ValueError(error_msg)
+        return union_sample_rate.pop()
 
     @property
     def times(self):
@@ -228,16 +245,6 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         calculated."""
         print(self)
 
-    def _get_sample_rate(self):
-        bin_sample_rate = self.segy_handler.bin[segyio.binfield.keys['Interval']]
-        trace_sample_rate = self.segy_handler.header[0][segyio.TraceField.TRACE_SAMPLE_INTERVAL]
-        union_sample_rate = {bin_sample_rate, trace_sample_rate} - {0}
-        if len(union_sample_rate) != 1:
-            error_msg = "Cannot define sample rate from file. It means that the bin header `Interval` (placed in"\
-                        " 3217-3218 bytes) and trace header `TRACE_SAMPLE_INTERVAL` (placed in 117-118 bytes) either "\
-                        " both are null or have different values."
-            raise ValueError(error_msg)
-        return union_sample_rate.pop()
     #------------------------------------------------------------------------#
     #                     Statistics computation methods                     #
     #------------------------------------------------------------------------#
