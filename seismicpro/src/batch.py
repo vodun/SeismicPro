@@ -189,7 +189,7 @@ class SeismicBatch(Batch):
         concatenate into a single array, add a dummy axis and save the result into the `inputs` component:
         >>> pipeline = (Pipeline()
         ...     .load(src='survey')
-        ...     .make_model_inputs(src=BA('survey').data, dst='inputs', mode='c', axis=0, expand_dims_axis=1)
+        ...     .make_model_inputs(src=L('survey').data, dst='inputs', mode='c', axis=0, expand_dims_axis=1)
         ... )
         >>> batch = (dataset >> pipeline).next_batch(3)
         >>> batch.inputs.shape
@@ -250,9 +250,9 @@ class SeismicBatch(Batch):
         ...     .init_model(mode='dynamic', model_class=UNet, name='model', config=config)
         ...     .init_variable('predictions')
         ...     .load(src='survey')
-        ...     .make_model_inputs(src=BA('survey').data, dst='inputs', mode='c', axis=0, expand_dims_axis=1)
+        ...     .make_model_inputs(src=L('survey').data, dst='inputs', mode='c', axis=0, expand_dims_axis=1)
         ...     .predict_model('model', B('inputs'), fetches='predictions', save_to=B('predictions'))
-        ...     .split_model_outputs(src='predictions', dst='outputs', shapes=BA('survey').shape[:, 0])
+        ...     .split_model_outputs(src='predictions', dst='outputs', shapes=L('survey').shape[0])
         ... )
         >>> batch = (dataset >> pipeline).next_batch(3)
 

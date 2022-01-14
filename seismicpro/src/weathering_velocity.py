@@ -3,7 +3,6 @@ from sklearn.linear_model import SGDRegressor
 from scipy import optimize
 
 from .decorators import plotter
-from .utils import to_list
 
 
 class WeatheringVelocity:

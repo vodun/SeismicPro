@@ -5,7 +5,7 @@ import pytest
 
 from seismicpro import Survey, SeismicIndex, SeismicDataset
 
-@pytest.fixture(scope='module')
+@pytest.fixture
 def survey(segy_path):
     """survey"""
     return Survey(segy_path, header_index='FieldRecord')
