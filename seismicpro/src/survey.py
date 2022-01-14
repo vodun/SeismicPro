@@ -779,16 +779,16 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             raise ValueError('Empty traces after setting limits.')
         return slice(*limits)
 
-    def remove_dead_traces(self, inplace=False, **kwargs):
+    def remove_dead_traces(self, inplace=False, bar=True):
         """ Removes dead (constant) traces from survey's data.
         Calls `collect_stats` if `self.has_stats` flag is not set.
 
         Parameters
         ----------
-        inplace : bool, optional
-            Whether to remove traces inplace or return a new survey instance, by default False
-        kwargs : misc, optional
-            Additional keyword arguments to :func:`~Survey.collect_stats`.
+        inplace : bool, optional, defaults to False
+            Whether to remove traces inplace or return a new survey instance.
+        bar : bool, optional, defaults to True
+            Whether to show a progress bar.
 
         Returns
         -------
@@ -797,7 +797,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         """
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         if not HDR_DEAD_TRACE in self.headers:
-            self.mark_dead_traces(**kwargs)
+            self.mark_dead_traces(bar)
 
         self.filter(lambda dt: ~dt, cols=HDR_DEAD_TRACE, inplace=True)
         self.n_dead_traces = 0
