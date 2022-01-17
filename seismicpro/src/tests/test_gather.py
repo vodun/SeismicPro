@@ -11,9 +11,9 @@ from seismicpro.src.utils import to_list
 
 
 # Constants
-ALL_ATTRS = ['data', 'headers', 'samples', '_sample_rate', 'sort_by', 'survey']
-COPY_IGNORE_ATTRS = ['data', 'headers', 'samples', '_sample_rate'] # Attrs that might not be copied during gather.copy
-NUMPY_ATTRS = ['data', 'samples', '_sample_rate']
+ALL_ATTRS = ['data', 'headers', 'samples', 'sort_by', 'survey']
+COPY_IGNORE_ATTRS = ['data', 'headers', 'samples'] # Attrs that might not be copied during gather.copy
+NUMPY_ATTRS = ['data', 'samples']
 
 
 @pytest.fixture(scope='module')
@@ -53,7 +53,6 @@ def compare_gathers(first, second, drop_cols=None, check_types=False, same_surve
 
     assert np.allclose(first.data, second.data)
     assert np.allclose(first.samples, second.samples)
-    assert first._sample_rate == second._sample_rate  # pylint: disable=protected-access
 
     if check_types:
         for attr in NUMPY_ATTRS:
@@ -170,8 +169,11 @@ def test_gather_getitem_sort_by(gather, key):
 def test_gather_getitem_sample_rate_changes(gather, key, sample_rate):
     """test_gather_getitem_sample_rate_changes"""
     result_getitem = gather[slice(None), key]
-    assert result_getitem._sample_rate == sample_rate  # pylint: disable=protected-access
-
+    if sample_rate is not None:
+        assert result_getitem.sample_rate == sample_rate  # pylint: disable=protected-access
+    else:
+        with pytest.raises(ValueError):
+            dt = result_getitem.sample_rate
     if sample_rate is not None:
         assert result_getitem.sample_rate == sample_rate
     else:

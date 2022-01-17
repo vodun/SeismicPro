@@ -53,7 +53,7 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=False, keep_exts=(
             sample_rate = {handler.bin[segyio.BinField.Interval],
                            handler.header[0][segyio.TraceField.TRACE_SAMPLE_INTERVAL]} - {0}
             n_samples = handler.trace.shape
-            samples_params.add((sample_rate, n_samples))
+            samples_params.add((tuple(sample_rate), n_samples))
 
     if len(samples_params) != 1:
         raise ValueError("Source files contain inconsistent samples")
