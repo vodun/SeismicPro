@@ -18,7 +18,7 @@ from .velocity_cube import StackingVelocity, VelocityCube
 from .decorators import batch_method, plotter
 from .utils import normalization, correction
 from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, set_ticks, as_dict,
-                    make_origins, times_to_indices, indices_to_times)
+                    make_origins, times_to_indices)
 
 
 class Gather:
@@ -646,8 +646,8 @@ class Gather:
         gather : Gather
             A new `Gather` with calculated first breaks mask in its `data` attribute.
         """
-        times_indices = times_to_indices(self[first_breaks_col].ravel(), self.samples, round=True)
-        mask = convert_times_to_mask(times_indices=times_indices, mask_length=self.shape[1]).astype(np.int32)
+        mask = convert_times_to_mask(times=self[first_breaks_col].ravel(), samples=self.samples,
+                                     mask_length=self.shape[1]).astype(np.int32)
         gather = self.copy(ignore='data')
         gather.data = mask
         return gather
@@ -680,8 +680,7 @@ class Gather:
         self : Gather
             A gather with first break times in headers column defined by `first_breaks_col`.
         """
-        picking_indices = convert_mask_to_pick(self.data, threshold)
-        picking_times = indices_to_times(picking_indices, self.samples)
+        picking_times = convert_mask_to_pick(mask=self.data, samples=self.samples, threshold=threshold)
         self[first_breaks_col] = picking_times
         if save_to is not None:
             save_to[first_breaks_col] = picking_times
@@ -782,8 +781,8 @@ class Gather:
         self : Gather
             Muted gather.
         """
-        muting_indices = times_to_indices(muter(self.offsets), self.samples, round=True)
-        self.data = mute_gather(gather_data=self.data, muting_indices=muting_indices, fill_value=fill_value)
+        self.data = mute_gather(gather_data=self.data, muting_times=muter(self.offsets), samples=self.samples,
+                                fill_value=fill_value)
         return self
 
     #------------------------------------------------------------------------#
