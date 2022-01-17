@@ -173,7 +173,7 @@ def test_gather_getitem_sample_rate_changes(gather, key, sample_rate):
         assert result_getitem.sample_rate == sample_rate  # pylint: disable=protected-access
     else:
         with pytest.raises(ValueError):
-            dt = result_getitem.sample_rate
+            _ = result_getitem.sample_rate
     if sample_rate is not None:
         assert result_getitem.sample_rate == sample_rate
     else:
