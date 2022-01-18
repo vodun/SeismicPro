@@ -1142,7 +1142,7 @@ class Gather:
         return self
 
     def _plot_histogram(self, bins=50, hist_header=None, log=False, title=None,
-                        x_ticker=None, y_ticker="counts", ax=None, **kwargs):
+                        x_ticker=None, y_ticker="counts", ax=None, grid=False, **kwargs):
         """ TODO """
         data = self.data.ravel() if hist_header is None else self.headers[hist_header].values
 
@@ -1155,10 +1155,11 @@ class Gather:
                 raise ValueError(f"{axis} axis ticker must be str, but {type(axis_label)} passed")
 
             # Get tick_labels depending on axis and its label
-            tick_labels = np.arange(0, counts) if axis=="y" else bins[:-1] + np.diff(bins) / 2
+            tick_labels = np.arange(0, counts.max()) if axis=="y" else (bins[:-1] + np.diff(bins) / 2)
 
             set_ticks(ax, axis, axis_label, tick_labels, **ticker)
 
+        ax.grid(grid)
         if log:
             ax.set_yscale("log")
 
@@ -1189,7 +1190,7 @@ class Gather:
 
         # Wiggle plot requires custom data interval for correct tick setting
         if mode == "wiggle":
-            x_ticker.update({"tick_range":np.arange(self.n_traces)})
+            x_ticker.update({"tick_range":(0, self.n_traces-1)})
 
         # Set axis ticks
         self._set_ticks(ax, axis="x", ticker=x_ticker)

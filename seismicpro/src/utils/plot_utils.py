@@ -64,7 +64,8 @@ def set_ticks(ax, axis, axis_label, tick_labels, num=None, step_ticks=None,
 
     ax_obj = getattr(ax, f"{axis}axis")
     tick_range = ax_obj.get_data_interval() if tick_range is None else tick_range
-    tick_interpolator = interp1d(np.linspace(tick_range, len(tick_labels)), tick_labels, kind="nearest")
+    tick_interpolator = interp1d(np.linspace(*tick_range, len(tick_labels)), tick_labels,
+                                 kind="nearest", bounds_error=False)
     locator, formatter = _process_ticks(labels=tick_labels, num=num, step_ticks=step_ticks, step_labels=step_labels,
                                         round_to=round_to, tick_interpolator=tick_interpolator)
     rotation_kwargs = _pop_rotation_kwargs(kwargs)
@@ -74,7 +75,7 @@ def set_ticks(ax, axis, axis_label, tick_labels, num=None, step_ticks=None,
     ax_obj.set_major_formatter(formatter)
 
 
-def _process_ticks(labels, num, step_ticks, step_labels, round_to):
+def _process_ticks(labels, num, step_ticks, step_labels, round_to, tick_interpolator):
     """Create an axis locator and formatter by given `labels` and tick layout parameters."""
     if num is not None:
         locator = ticker.LinearLocator(num)
@@ -94,12 +95,10 @@ def _process_ticks(labels, num, step_ticks, step_labels, round_to):
     def formatter(label_ix, *args):
         """Get tick label by its index in `labels` and format the resulting value."""
         _ = args
-        if labels is None:
-            return label_ix
-        if (label_ix < 0) or (label_ix > len(labels) - 1):
-            return None
 
-        label_value = labels[np.round(label_ix).astype(np.int32)]
+        label_value = tick_interpolator(label_ix)
+        if np.isnan(label_value):
+            return None
         if round_to is not None:
             label_value = np.round(label_value, round_to)
             label_value = label_value.astype(np.int32) if round_to == 0 else label_value
