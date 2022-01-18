@@ -1,6 +1,5 @@
 """Implements Gather class that represents a group of seismic traces that share some common acquisition parameter"""
 
-from email import header
 import os
 import warnings
 from copy import deepcopy
