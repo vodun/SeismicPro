@@ -51,13 +51,12 @@ class WeatheringVelocity:
         self.bounds = {**self._calc_bounds_by_init(self.init), **bounds}
         self.n_layers = len(self.bounds) // 2
 
-        # checking
-        missing_keys = set(self._create_keys()) ^ set(self.bounds.keys())
+        missing_keys = set(self._get_valid_keys()) ^ set(self.bounds.keys())
         if missing_keys:
             raise ValueError("Inconsistent parameters to fit a weathering velocity curve. ",
                             f"Check {missing_keys} key(s) or define `n_layers`")
 
-        # piecewise variables
+        # piecewise func variables
         self._n_iters = 0
         self._piecewise_times = np.empty(self.n_layers + 1)
         self._piecewise_offsets = np.zeros(self.n_layers + 1)
@@ -66,7 +65,7 @@ class WeatheringVelocity:
         kwargs = {'method': 'trf', 'loss': 'soft_l1', **kwargs}
         fitted, _ = optimize.curve_fit(self.piecewise_linear, offsets, picking_times, p0=self._stack_values(self.init),
                                        bounds=self._stack_values(self.bounds), **kwargs)
-        self.params = dict(zip(self._create_keys(), fitted))
+        self.params = dict(zip(self._get_valid_keys(), fitted))
 
     def __call__(self, offsets):
         ''' return a predicted times using the fitted crossovers and velocities. '''
@@ -75,13 +74,13 @@ class WeatheringVelocity:
     def __getattr__(self, key):
         return self.params[key]
 
-    def _create_keys(self, n_layers=None):
+    def _get_valid_keys(self, n_layers=None):
         n_layers = self.n_layers if n_layers is None else n_layers
         return ['t0'] + [f'c{i+1}' for i in range(n_layers - 1)] + [f'v{i+1}' for i in range(n_layers)]
 
     def _stack_values(self, params_dict):
         ''' docstring '''
-        return np.stack([params_dict[key] for key in self._create_keys()], axis=-1)
+        return np.stack([params_dict[key] for key in self._get_valid_keys()], axis=-1)
 
 
     def _calc_bounds_by_init(self, init):
@@ -92,7 +91,6 @@ class WeatheringVelocity:
     def _calc_init_by_bounds(self, bounds):
         ''' docstring '''
         return {key: val1 + (val2 - val1) / 3 for key, (val1, val2) in bounds.items()}
-
 
     def piecewise_linear(self, offsets, *args):
         '''
@@ -129,7 +127,7 @@ class WeatheringVelocity:
         init[1:n_layers] = cross_offsets[1:-1]
         init[n_layers:] = velocities
 
-        init = dict(zip(self._create_keys(n_layers), init))
+        init = dict(zip(self._get_valid_keys(n_layers), init))
         return init
 
     def _fit_regressor(self, x, y, start_params, fit_intercept):
