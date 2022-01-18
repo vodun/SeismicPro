@@ -1,5 +1,6 @@
 """Implements Gather class that represents a group of seismic traces that share some common acquisition parameter"""
 
+from email import header
 import os
 import warnings
 from copy import deepcopy
@@ -1028,9 +1029,9 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @plotter(figsize=(10, 7))
-    def plot(self, mode="seismogram", event_headers=None, top_header=None, title=None, x_ticker=None, y_ticker="time",
-             ax=None, **kwargs):
-        """Plot gather traces.
+    def plot(self, mode="seismogram", title=None, x_ticker=None, y_ticker=None, ax=None, **kwargs):
+        """ TODO
+        Plot gather traces.
 
         The traces can be displayed in a number of representations, depending on the `mode` provided. Currently, the
         following options are supported:
@@ -1129,6 +1130,41 @@ class Gather:
             If `event_headers` argument has the wrong format or given outlier processing mode is unknown.
             If `x_ticker` or `y_ticker` has the wrong format.
         """
+        if mode == "hist":
+            x_ticker = as_dict(("amplitude" if x_ticker is None else x_ticker), key="label")
+            y_ticker = as_dict(("counts" if y_ticker is None else y_ticker), key="label")
+            self._plot_histogram(ax=ax, title=title, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
+        else:
+            if x_ticker is None:
+                x_ticker = as_dict((self.sort_by if self.sort_by is not None else "index"), key="label")
+            y_ticker = as_dict(("time" if y_ticker is None else y_ticker), key="label")
+            self._plot_traces(mode, title=title, x_ticker=x_ticker, y_ticker=y_ticker, ax=ax, **kwargs)
+        return self
+
+    def _plot_histogram(self, bins=50, hist_header=None, log=False, title=None,
+                        x_ticker=None, y_ticker="counts", ax=None, **kwargs):
+        """ TODO """
+        data = self.data.ravel() if hist_header is None else self.headers[hist_header].values
+
+        counts, bins, _ = ax.hist(data, bins=bins, **kwargs)
+        ax.set_title(title)
+
+        for axis, ticker in [("x", x_ticker), ("y", y_ticker)]:
+            axis_label = ticker.pop("label")
+            if not isinstance(axis_label, str):
+                raise ValueError(f"{axis} axis ticker must be str, but {type(axis_label)} passed")
+
+            # Get tick_labels depending on axis and its label
+            tick_labels = np.arange(0, counts) if axis=="y" else bins[:-1] + np.diff(bins) / 2
+
+            set_ticks(ax, axis, axis_label, tick_labels, **ticker)
+
+        if log:
+            ax.set_yscale("log")
+
+    def _plot_traces(self, mode, event_headers=None, top_header=None,
+                     title=None, x_ticker=None, y_ticker="time", ax=None, **kwargs):
+        """ TODO """
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
 
@@ -1151,12 +1187,13 @@ class Gather:
             top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_header].ravel())
         top_ax.set_title(**as_dict(title, key='label'))
 
+        # Wiggle plot requires custom data interval for correct tick setting
+        if mode == "wiggle":
+            x_ticker.update({"tick_range":np.arange(self.n_traces)})
+
         # Set axis ticks
-        if x_ticker is None:
-            x_ticker = self.sort_by if self.sort_by is not None else "index"
         self._set_ticks(ax, axis="x", ticker=x_ticker)
         self._set_ticks(ax, axis="y", ticker=y_ticker)
-        return self
 
     def _plot_seismogram(self, ax, divider, colorbar=False, qvmin=0.1, qvmax=0.9, **kwargs):
         """Plot the gather as a 2d grayscale image of seismic traces."""
@@ -1269,7 +1306,6 @@ class Gather:
 
     def _set_ticks(self, ax, axis, ticker):
         """Set ticks, their labels and an axis label for a given axis."""
-        ticker = as_dict(ticker, key='label')
         axis_label = ticker.pop("label")
         if not isinstance(axis_label, str):
             raise ValueError(f"{axis} axis ticker must be str, but {type(axis_label)} passed")
@@ -1282,11 +1318,4 @@ class Gather:
         else:
             raise ValueError(f"Unknown axis {axis}")
 
-        # Format axis label
-        UNITS = {  # pylint: disable=invalid-name
-            "time": " (ms)",
-            "offset": " (m)",
-        }
-        axis_label += UNITS.get(axis_label, "")
-        axis_label = axis_label[0].upper() + axis_label[1:]
         set_ticks(ax, axis, axis_label, tick_labels, **ticker)

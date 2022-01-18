@@ -4,7 +4,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import ticker, colors as mcolors
-
+from scipy.interpolate import interp1d
 
 def as_dict(val, key):
     """Construct a dict with a {`key`: `val`} structure if given `val` is not a `dict`, or copy `val` otherwise."""
@@ -27,7 +27,8 @@ def set_text_formatting(kwargs):
     return {**kwargs, **text_args}
 
 
-def set_ticks(ax, axis, axis_label, tick_labels, num=None, step_ticks=None, step_labels=None, round_to=0, **kwargs):
+def set_ticks(ax, axis, axis_label, tick_labels, num=None, step_ticks=None,
+              step_labels=None, round_to=0, tick_range=None, **kwargs):
     """Set ticks and labels for `x` or `y` axis depending on the `axis`.
 
     Parameters
@@ -53,10 +54,20 @@ def set_ticks(ax, axis, axis_label, tick_labels, num=None, step_ticks=None, step
         Additional keyword arguments to control text formatting and rotation. Passed directly to
         `matplotlib.axis.Axis.set_label_text` and `matplotlib.axis.Axis.set_ticklabels`.
     """
-    locator, formatter = _process_ticks(labels=tick_labels, num=num, step_ticks=step_ticks, step_labels=step_labels,
-                                        round_to=round_to)
-    rotation_kwargs = _pop_rotation_kwargs(kwargs)
+    # Format axis label
+    UNITS = {  # pylint: disable=invalid-name
+        "time": " (ms)",
+        "offset": " (m)",
+    }
+    axis_label += UNITS.get(axis_label, "")
+    axis_label = str.capitalize(axis_label)
+
     ax_obj = getattr(ax, f"{axis}axis")
+    tick_range = ax_obj.get_data_interval() if tick_range is None else tick_range
+    tick_interpolator = interp1d(np.linspace(tick_range, len(tick_labels)), tick_labels, kind="nearest")
+    locator, formatter = _process_ticks(labels=tick_labels, num=num, step_ticks=step_ticks, step_labels=step_labels,
+                                        round_to=round_to, tick_interpolator=tick_interpolator)
+    rotation_kwargs = _pop_rotation_kwargs(kwargs)
     ax_obj.set_label_text(axis_label, **kwargs)
     ax_obj.set_ticklabels([], **kwargs, **rotation_kwargs)
     ax_obj.set_major_locator(locator)
@@ -83,6 +94,8 @@ def _process_ticks(labels, num, step_ticks, step_labels, round_to):
     def formatter(label_ix, *args):
         """Get tick label by its index in `labels` and format the resulting value."""
         _ = args
+        if labels is None:
+            return label_ix
         if (label_ix < 0) or (label_ix > len(labels) - 1):
             return None
 
