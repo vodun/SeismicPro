@@ -63,7 +63,14 @@ def set_ticks(ax, axis, axis_label, tick_labels, num=None, step_ticks=None,
     axis_label = str.capitalize(axis_label)
 
     ax_obj = getattr(ax, f"{axis}axis")
+    # The object drawn can have single tick label (e.g., for single-trace `gather`) which leads to interp1d being
+    # unable initiate, since both x and y should have at least 2 entries. Repeating this single label solves the issue.
+    if len(tick_labels) == 1:
+        tick_labels = np.repeat(tick_labels, 2)
     tick_range = ax_obj.get_data_interval() if tick_range is None else tick_range
+    # matplotlib does not update data interval when new artist is redrawn on the existing axes in interactive mode,
+    # which leads to incorrect tick position to label interpolation. To overcome this, call `ax.clear()` before drawing
+    # a new artist.
     tick_interpolator = interp1d(np.linspace(*tick_range, len(tick_labels)), tick_labels,
                                  kind="nearest", bounds_error=False)
     locator, formatter = _process_ticks(labels=tick_labels, num=num, step_ticks=step_ticks, step_labels=step_labels,

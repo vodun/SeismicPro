@@ -1135,13 +1135,14 @@ class Gather:
             self._plot_histogram(ax=ax, title=title, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
         else:
             if x_ticker is None:
-                x_ticker = as_dict((self.sort_by if self.sort_by is not None else "index"), key="label")
+                x_ticker = self.sort_by if self.sort_by is not None else "index"
+            x_ticker = as_dict(x_ticker, key="label")
             y_ticker = as_dict(("time" if y_ticker is None else y_ticker), key="label")
             self._plot_traces(mode, title=title, x_ticker=x_ticker, y_ticker=y_ticker, ax=ax, **kwargs)
         return self
 
     def _plot_histogram(self, bins=50, hist_header=None, log=False, title=None,
-                        x_ticker=None, y_ticker="counts", ax=None, grid=False, **kwargs):
+                        x_ticker=None, y_ticker=None, ax=None, grid=False, **kwargs):
         """ TODO """
         data = self.data.ravel() if hist_header is None else self.headers[hist_header].values
 
@@ -1152,10 +1153,8 @@ class Gather:
             axis_label = ticker.pop("label")
             if not isinstance(axis_label, str):
                 raise ValueError(f"{axis} axis ticker must be str, but {type(axis_label)} passed")
-
             # Get tick_labels depending on axis and its label
             tick_labels = np.arange(0, counts.max()) if axis=="y" else (bins[:-1] + np.diff(bins) / 2)
-
             set_ticks(ax, axis, axis_label, tick_labels, **ticker)
 
         ax.grid(grid)
@@ -1163,7 +1162,7 @@ class Gather:
             ax.set_yscale("log")
 
     def _plot_traces(self, mode, event_headers=None, top_header=None,
-                     title=None, x_ticker=None, y_ticker="time", ax=None, **kwargs):
+                     title=None, x_ticker=None, y_ticker=None, ax=None, **kwargs):
         """ TODO """
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
