@@ -666,4 +666,44 @@ class VelocityCube:
         with ThreadPoolExecutor(max_workers=n_workers) as executor:
             metrics = executor.map(calculate_window_metrics, windows_indices)
         metrics = {func.__name__: np.array(val) for func, val in zip(metrics_funcs, zip(*metrics))}
-        return MetricsAccumulator(coords, **metrics)
+
+        def plot_central_velocity(x, y, ax):
+            velocity_ix = coords_knn.kneighbors([[x, y]], n_neighbors=1, return_distance=False)[0, 0]
+            ax.plot(velocities[velocity_ix], times)
+            ax.invert_yaxis()
+
+        def plot_neighbouring_velocities(x, y, ax):
+            _, (window_indices,) = coords_knn.radius_neighbors([[x, y]], return_distance=True, sort_results=True)
+            window_velocities = velocities[window_indices]
+            for vel in window_velocities:
+                ax.plot(vel, times)
+            ax.invert_yaxis()
+
+        is_decreasing_params = {
+            "click_fn": plot_central_velocity,
+            "vmin": 0,
+            "vmax": 1,
+            "is_lower_better": True,
+        }
+
+        max_standard_deviation_params = {
+            "click_fn": plot_neighbouring_velocities,
+            "vmin": 0,
+            "is_lower_better": True,
+            "vmax": coords_knn,
+        }
+
+        max_relative_variation_params = {
+            "click_fn": plot_neighbouring_velocities,
+            "vmin": 0,
+            "is_lower_better": True,
+        }
+
+        metric_params = {
+            "is_decreasing": is_decreasing_params,
+            "max_standard_deviation": max_standard_deviation_params,
+            "max_relative_variation": max_relative_variation_params,
+        }
+
+        metrics_acc = MetricsAccumulator(coords, **metrics, metric_params=metric_params)
+        return metrics_acc
