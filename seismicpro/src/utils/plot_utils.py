@@ -3,6 +3,7 @@
 # pylint: disable=invalid-name
 import numpy as np
 from matplotlib import ticker
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 
 def as_dict(val, key):
@@ -24,6 +25,17 @@ def set_text_formatting(kwargs):
     text_args = {arg: {**global_formatting, **as_dict(kwargs.pop(arg), key="label")}
                  for arg in TEXT_ARGS if arg in kwargs}
     return {**kwargs, **text_args}
+
+
+def add_colorbar(ax, img, colorbar, divider=None):
+    if not isinstance(colorbar, (bool, dict)):
+        raise ValueError(f"colorbar must be bool or dict but {type(colorbar)} was passed")
+    if colorbar is not False:
+        colorbar = {} if colorbar is True else colorbar
+        if divider is None:
+            divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        ax.figure.colorbar(img, cax=cax, **colorbar)
 
 
 def set_ticks(ax, axis, axis_label, tick_labels, num=None, step_ticks=None, step_labels=None, round_to=0, **kwargs):

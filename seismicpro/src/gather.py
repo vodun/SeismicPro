@@ -17,7 +17,8 @@ from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 from .decorators import batch_method, plotter
 from .utils import normalization, correction
-from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, set_ticks, as_dict, make_origins
+from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, add_colorbar, set_ticks,
+                    as_dict, make_origins)
 
 class Gather:
     """A class representing a single seismic gather.
@@ -1163,12 +1164,7 @@ class Gather:
         vmin, vmax = self.get_quantile([qvmin, qvmax])
         kwargs = {"cmap": "gray", "aspect": "auto", "vmin": vmin, "vmax": vmax, **kwargs}
         img = ax.imshow(self.data.T, **kwargs)
-        if not isinstance(colorbar, (bool, dict)):
-            raise ValueError(f"colorbar must be bool or dict but {type(colorbar)} was passed")
-        if colorbar is not False:
-            colorbar = {} if colorbar is True else colorbar
-            cax = divider.append_axes("right", size="5%", pad=0.05)
-            ax.figure.colorbar(img, cax=cax, **colorbar)
+        add_colorbar(ax, img, colorbar, divider)
 
     def _plot_wiggle(self, ax, std=0.5, color="black"):
         """Plot the gather as an amplitude vs time plot for each trace."""

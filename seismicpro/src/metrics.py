@@ -5,10 +5,9 @@ a particular metric visualization over a field map"""
 import numpy as np
 import pandas as pd
 from matplotlib import colors as mcolors
-from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .decorators import plotter
-from .utils import to_list, as_dict, set_ticks
+from .utils import to_list, as_dict, add_colorbar, set_ticks
 from ..batchflow.models.metrics import Metrics
 
 
@@ -206,26 +205,19 @@ class MetricMap:
         return self.bin_to_coords.get_group((x, y)).set_index(["x", "y"])[self.metric].sort_values(ascending=ascending)
 
     @plotter(figsize=(10, 7))
-    def plot(self, title=None, colorbar=True, interpolation="none", origin="lower", aspect="auto", cmap=None,
-             x_ticker=None, y_ticker=None, ax=None, **kwargs):
+    def plot(self, title=None, interpolation="none", origin="lower", aspect="auto", cmap=None, x_ticker=None,
+             y_ticker=None, colorbar=True, ax=None, **kwargs):
         if cmap is None:
             colors = ((0.0, 0.6, 0.0), (.66, 1, 0), (0.9, 0.0, 0.0))
             cmap = mcolors.LinearSegmentedColormap.from_list("cmap", colors)
 
-        divider = make_axes_locatable(ax)
         img = ax.imshow(self.metric_map.T, origin=origin, aspect=aspect, cmap=cmap, interpolation=interpolation,
                         **kwargs)
+        add_colorbar(ax, img, colorbar)
 
         title = {} if title is None else as_dict(title, key="label")
         title = {"label": f"{self.agg}({self.metric}) in {self.bin_size} bins", **title}
         ax.set_title(**title)
-
-        if not isinstance(colorbar, (bool, dict)):
-            raise ValueError(f"colorbar must be bool or dict but {type(colorbar)} was passed")
-        if colorbar is not False:
-            colorbar = {} if colorbar is True else colorbar
-            cax = divider.append_axes("right", size="5%", pad=0.05)
-            ax.figure.colorbar(img, cax=cax, **colorbar)
 
         x_ticker = {} if x_ticker is None else x_ticker
         y_ticker = {} if y_ticker is None else y_ticker

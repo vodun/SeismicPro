@@ -8,7 +8,7 @@ from matplotlib import colors as mcolors
 from .decorators import batch_method, plotter
 from .velocity_model import calculate_stacking_velocity
 from .velocity_cube import StackingVelocity
-from .utils import set_ticks, as_dict
+from .utils import as_dict, add_colorbar, set_ticks
 from .utils.correction import get_hodograph
 
 
@@ -131,7 +131,7 @@ class BaseSemblance:
     @staticmethod
     def plot(semblance, title=None, x_label=None, x_ticklabels=None,  # pylint: disable=too-many-arguments
              x_ticker=None, y_ticklabels=None, y_ticker=None, grid=False, stacking_times_ix=None,
-             stacking_velocities_ix=None, ax=None, **kwargs):
+             stacking_velocities_ix=None, colorbar=True, ax=None, **kwargs):
         """Plot vertical velocity semblance and, optionally, stacking velocity.
 
         Parameters
@@ -172,7 +172,7 @@ class BaseSemblance:
         x_grid, y_grid = np.meshgrid(np.arange(0, semblance.shape[1]), np.arange(0, semblance.shape[0]))
         ax.contour(x_grid, y_grid, semblance, levels, colors='k', linewidths=.5, alpha=.5)
         img = ax.imshow(semblance, norm=norm, aspect='auto', cmap='seismic')
-        ax.figure.colorbar(img, ticks=levels[1::2], ax=ax)
+        add_colorbar(ax, img, colorbar)
 
         ax.set_title(**as_dict(title, key='label'))
 
@@ -300,8 +300,8 @@ class Semblance(BaseSemblance):
         return semblance
 
     @plotter(figsize=(10, 9), args_to_unpack="stacking_velocity")
-    def plot(self, stacking_velocity=None, title="Semblance", x_ticker=None, y_ticker=None, grid=False, ax=None,
-             **kwargs):
+    def plot(self, stacking_velocity=None, title="Semblance", x_ticker=None, y_ticker=None, grid=False, colorbar=True,
+             ax=None, **kwargs):
         """Plot vertical velocity semblance.
 
         Parameters
@@ -338,7 +338,8 @@ class Semblance(BaseSemblance):
 
         super().plot(self.semblance, title=title, x_label="Velocity (m/s)", x_ticklabels=self.velocities,
                      x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax, grid=grid,
-                     stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix, **kwargs)
+                     stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
+                     colorbar=colorbar, **kwargs)
         return self
 
     @batch_method(target="for", args_to_unpack="other")
@@ -565,7 +566,8 @@ class ResidualSemblance(BaseSemblance):
         return residual_semblance
 
     @plotter(figsize=(10, 9))
-    def plot(self, title="Residual semblance", x_ticker=None, y_ticker=None, grid=False, ax=None, **kwargs):
+    def plot(self, title="Residual semblance", x_ticker=None, y_ticker=None, grid=False, colorbar=True, ax=None,
+             **kwargs):
         """Plot residual vertical velocity semblance. The plot always has a vertical line in the middle, representing
         the stacking velocity it was calculated for.
 
@@ -598,5 +600,5 @@ class ResidualSemblance(BaseSemblance):
         super().plot(self.residual_semblance, title=title, x_label="Relative velocity margin (%)",
                      x_ticklabels=x_ticklabels, x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax,
                      grid=grid, stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
-                     **kwargs)
+                     colorbar=colorbar, **kwargs)
         return self
