@@ -93,23 +93,22 @@ def create_supergather_index(centers, size):
 
 @njit(nogil=True)
 def times_to_indices(times, samples, round=False):
-    """Convert `times` to indices by finding the corresponding position in `samples` for each time in `times` array.
+    """Convert `times` to their indices in the non-decreasing `samples` array. If some value of `times` is not present
+    in `samples`, its index is linearly interpolated or extrapolated by the other indices of `samples`.
 
     Notes
     -----
     1. The `samples` array must be non-decreasing.
-    2. `times` values outside the `samples` range are extrapolated.
 
     Parameters
     ----------
     times : 1d np.ndarray of floats
-        Time values to convert to indices. Measured in milliseconds.
+        Time values to convert to indices.
     samples : 1d np.ndarray of floats
-        Recording time for each trace value. Measured in milliseconds.
+        Recording time for each trace value.
     round : bool, optional, defaults to False
-        If True, round indices to the nearest integer. For values exactly halfway between rounded decimal values, it
-        rounds to the nearest even value.
-        Otherwise, the indices are interpolating between nearest samples.
+        If `True`, round the obtained real-valued indices to the nearest integer. Values exactly halfway between two
+        adjacent integers are rounded to the nearest even one.
 
     Returns
     -------
@@ -132,18 +131,20 @@ def times_to_indices(times, samples, round=False):
 
 @njit(nogil=True)
 def indices_to_times(indices, samples):
-    """Convert `indices` to time values measured in milliseconds.
+    """Convert `indices` to the corresponding time values from `samples`. Times for real-valued indices are obtained
+    using linear interpolation by the adjacent values.
 
     Notes
     -----
-    Indices outside the `samples` range are clipped within the range of the `samples`.
+    1. The `samples` array must be non-decreasing.
+    2. Indices outside the `samples` range are clipped to the range of the `samples`.
 
     Parameters
     ----------
     indices : 1d np.ndarray of floats
         Indices to convert to times.
     samples : 1d np.ndarray of floats
-        Recording time for each trace value. Measured in milliseconds.
+        Recording time for each trace value.
 
     Returns
     -------
@@ -160,23 +161,23 @@ def indices_to_times(indices, samples):
             raise ValueError('The `samples` array must be non-decreasing.')
     times = np.empty(shape=len(indices), dtype=samples.dtype)
     for i, ix in enumerate(indices):
-        int_i = int(min(max(ix, 0), len(samples) - 1))
+        ix = max(ix, 0)
+        int_i = int(min(ix, len(samples) - 1))
         times[i] = samples[int_i] + (ix - int_i) * (samples[min(int_i + 1, len(samples) - 1)] - samples[int_i])
     return times
 
 
 @njit(nogil=True)
-def convert_times_to_mask(times, samples, mask_length):
+def convert_times_to_mask(times, samples):
     """Convert `times` to indices by finding a nearest position in `samples` for each time in `times` and construct a
-    binary mask with shape (len(times_indices), mask_length) with `False` values before calculated time index for each
+    binary mask with shape (len(times_indices), len(samples)) with `False` values before calculated time index for each
     row and `True` after.
 
     Examples
     --------
     >>> times = np.array([0, 4, 6])
-    >>> samples = [0, 2, 4, 6, 8, 10]
-    >>> mask_length = 5
-    >>> convert_times_to_mask(times, samples, mask_length)
+    >>> samples = [0, 2, 4, 6, 8]
+    >>> convert_times_to_mask(times, samples)
     array([[ True,  True,  True,  True,  True],
            [False, False,  True,  True,  True],
            [False, False, False,  True,  True]])
@@ -184,19 +185,17 @@ def convert_times_to_mask(times, samples, mask_length):
     Parameters
     ----------
     times : 1d np.ndarray
-        Time values to construct the mask. Measured in milliseconds.
+        Time values to construct the mask.
     samples : 1d np.ndarray of floats
-        Recording time for each trace value. Measured in milliseconds.
-    mask_length : int
-        Length of the resulting mask for each time.
+        Recording time for each trace value.
 
     Returns
     -------
     mask : np.ndarray of bool
-        Bool mask with shape (len(times), mask_length).
+        Bool mask with shape (len(times), len(samples)).
     """
     times_indices = times_to_indices(times, samples, round=True)
-    return (np.arange(mask_length) - times_indices.reshape(-1, 1)) >= 0
+    return (np.arange(len(samples)) - times_indices.reshape(-1, 1)) >= 0
 
 
 @njit(nogil=True, parallel=True)
@@ -208,18 +207,19 @@ def convert_mask_to_pick(mask, samples, threshold):
     the first trace value exceeding the `threshold`. Unfortunately, it results in noisy predictions, so the following
     conversion procedure is proposed as it appears to be more stable:
     1. Binarize the mask according to the specified `threshold`,
-    2. Find the longest sequence of ones in the `mask` for each trace and save `sample` value with indices of the first
-       elements of the found sequences.
+    2. Find the longest sequence of ones in the `mask` for each trace and save indices of the first elements of the
+       found sequences,
+    3. Return an array of `samples` values corresponding to the obtained indices.
 
     Examples
     --------
     >>> mask = np.array([[  1, 1, 1, 1, 1],
     ...                  [  0, 0, 1, 1, 1],
     ...                  [0.6, 0, 0, 1, 1]])
-    >>> samples = [0, 2, 4, 6, 8, 10]
+    >>> samples = [0, 2, 4, 6, 8]
     >>> threshold = 0.5
     >>> convert_mask_to_pick(mask, samples, threshold)
-    array([0, 2, 3])
+    array([0, 4, 6])
 
     Parameters
     ----------
@@ -261,7 +261,7 @@ def convert_mask_to_pick(mask, samples, threshold):
 
 @njit(nogil=True)
 def mute_gather(gather_data, muting_times, samples, fill_value):
-    """Fill area before `muting_indices` with `fill_value`.
+    """Fill area before `muting_times` with `fill_value`.
 
     Parameters
     ----------
@@ -280,7 +280,7 @@ def mute_gather(gather_data, muting_times, samples, fill_value):
     gather_data : 2d np.ndarray
         Muted gather data.
     """
-    mask = convert_times_to_mask(times=muting_times, samples=samples, mask_length=gather_data.shape[1])
+    mask = convert_times_to_mask(times=muting_times, samples=samples)
     data_shape = gather_data.shape
     gather_data = gather_data.reshape(-1)
     mask = mask.reshape(-1)

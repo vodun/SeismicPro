@@ -82,7 +82,7 @@ class Gather:
         sample_rate = np.unique(np.diff(self.samples))
         if len(sample_rate) == 1:
             return sample_rate.item()
-        raise ValueError("`sample_rate` is not defined, since `samples` is not regular.")
+        raise ValueError("`sample_rate` is not defined, since `samples` are not regular.")
 
     @property
     def times(self):
@@ -345,12 +345,11 @@ class Gather:
 
         Notes
         -----
-        Almost all binary and textual headers are copied from the parent SEG-Y file unchanged. The exceptions from
-        binary headers are the following:
-        1. Sample rate, 3217-3218 bytes, named `Interval` in segyio,
-        2. Number of samples per data trace, 3221-3222 bytes, named `Samples` in segyio,
-        3. Extended number of samples per data trace, 3269-3272 bytes, named `ExtSamples` in segyio.
-        They are taken from the current gather.
+        Almost all binary and textual headers are copied from the parent SEG-Y file unchanged except for the following
+        binary headers that are calculated by the current gather:
+        1. Sample rate, bytes 3217-3218, called `Interval` in `segyio`,
+        2. Number of samples per data trace, bytes 3221-3222, called `Samples` in `segyio`,
+        3. Extended number of samples per data trace, bytes 3269-3272, called `ExtSamples` in `segyio`.
 
         Parameters
         ----------
@@ -423,7 +422,7 @@ class Gather:
             for i, dump_h in trace_headers_dict.items():
                 if copy_header:
                     dump_handler.header[i].update(parent_handler.header[trace_ids[i]])
-                dump_handler.header[i].update({**dump_h, **{segyio.TraceField.TRACE_SAMPLE_COUNT: sample_rate}})
+                dump_handler.header[i].update({**dump_h, segyio.TraceField.TRACE_SAMPLE_COUNT: sample_rate})
         return self
 
     #------------------------------------------------------------------------#
@@ -646,8 +645,7 @@ class Gather:
         gather : Gather
             A new `Gather` with calculated first breaks mask in its `data` attribute.
         """
-        mask = convert_times_to_mask(times=self[first_breaks_col].ravel(), samples=self.samples,
-                                     mask_length=self.shape[1]).astype(np.int32)
+        mask = convert_times_to_mask(times=self[first_breaks_col].ravel(), samples=self.samples).astype(np.int32)
         gather = self.copy(ignore='data')
         gather.data = mask
         return gather

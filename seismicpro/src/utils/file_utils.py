@@ -50,10 +50,10 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=False, keep_exts=(
     for path in in_paths:
         with segyio.open(path, ignore_geometry=True) as handler:
             tracecount += handler.tracecount
-            sample_rate = {handler.bin[segyio.BinField.Interval],
-                           handler.header[0][segyio.TraceField.TRACE_SAMPLE_INTERVAL]} - {0}
+            bin_sample_rate = handler.bin[segyio.BinField.Interval]
+            trace_sample_rate = handler.header[0][segyio.TraceField.TRACE_SAMPLE_INTERVAL]
             n_samples = handler.trace.shape
-            samples_params.add((tuple(sample_rate), n_samples))
+            samples_params.add((bin_sample_rate, trace_sample_rate, n_samples))
 
     if len(samples_params) != 1:
         raise ValueError("Source files contain inconsistent samples")
@@ -70,6 +70,9 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=False, keep_exts=(
     os.makedirs(os.path.abspath(os.path.dirname(out_path)), exist_ok=True)
     with segyio.create(out_path, spec) as out_handler:
         trace_pos = 0
+        out_handler.bin[segyio.BinField.Interval] = bin_sample_rate
+        out_handler.bin[segyio.BinField.Samples] = n_samples
+        out_handler.bin[segyio.BinField.ExtSamples] = n_samples
         for path in tqdm(in_paths, desc="Aggregating files", disable=not bar):
             with segyio.open(path, ignore_geometry=True) as in_handler:
                 if mmap:
