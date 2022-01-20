@@ -10,7 +10,7 @@ from numba import njit, prange
 from scipy.spatial.qhull import Delaunay, QhullError  #pylint: disable=no-name-in-module
 from sklearn.neighbors import NearestNeighbors
 
-from .metrics import MetricsMap
+from .metrics import MetricsAccumulator
 from .utils import to_list, read_vfunc, read_single_vfunc, dump_vfunc, velocity_qc
 from .utils.interpolation import interp1d
 
@@ -666,4 +666,4 @@ class VelocityCube:
         with ThreadPoolExecutor(max_workers=n_workers) as executor:
             metrics = executor.map(calculate_window_metrics, windows_indices)
         metrics = {func.__name__: np.array(val) for func, val in zip(metrics_funcs, zip(*metrics))}
-        return MetricsMap(coords, **metrics)
+        return MetricsAccumulator(coords, **metrics)
