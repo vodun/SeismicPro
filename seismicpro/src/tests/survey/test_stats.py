@@ -46,6 +46,7 @@ class TestStats:
     """Test `collect_stats` method."""
 
     def test_no_mark_dead_warning(self, segy_path):
+        """Check that a warning is emmited when `collect_stats` is run before `mark_dead_races`"""
         survey = Survey(segy_path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset")
 
         with pytest.warns(RuntimeWarning):
@@ -119,6 +120,7 @@ class TestStats:
 
 
 class TestDeadTraces:
+    """Test dead traces processing"""
     @pytest.mark.parametrize("inplace", [True, False])
     @pytest.mark.parametrize("pre_mark_dead", [True, False])
     def test_remove(self, stat_segy, inplace, pre_mark_dead):

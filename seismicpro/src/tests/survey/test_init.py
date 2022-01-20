@@ -2,7 +2,6 @@
 
 import pytest
 import segyio
-import numpy as np
 
 from seismicpro import Survey
 
