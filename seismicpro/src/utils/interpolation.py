@@ -30,8 +30,8 @@ class interp1d:
         Function values, evaluated at `x`. Must match the length of `x`.
     """
     def __init__(self, x, y):
-        x = np.array(x)
-        y = np.array(y)
+        x = np.array(x, dtype=np.float32)
+        y = np.array(y, dtype=np.float32)
 
         if len(x) < 2:
             raise ValueError("At least two points should be passed to perform interpolation")
