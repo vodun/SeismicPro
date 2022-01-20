@@ -2,8 +2,7 @@
 
 # pylint: disable=invalid-name
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib import ticker, colors as mcolors
+from matplotlib import ticker
 
 
 def as_dict(val, key):
@@ -103,73 +102,3 @@ def _pop_rotation_kwargs(kwargs):
     if rotation is not None:
         rotation_kwargs = {"rotation": rotation, "ha": "right", "rotation_mode": "anchor", **rotation_kwargs}
     return rotation_kwargs
-
-
-def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7),  # pylint: disable=too-many-arguments
-                     pad=False, fontsize=11, ticks_range_x=None, ticks_range_y=None,
-                     x_ticker=None, y_ticker=None, save_to=None, **kwargs):
-    """Plot a map with metric values.
-
-    Notes
-    -----
-    The map is drawn with `origin='lower'` by default, keep it in mind when passing arguments, related to axes ticks.
-
-    Parameters
-    ----------
-    metrics_map : array-like
-        Array with aggregated metrics values.
-    cmap : str or `~matplotlib.colors.Colormap`, optional
-        `~matplotlib.imshow` colormap.
-    title : str, optional
-        The title of the plot.
-    figsize : array-like with length 2, optional, defaults to (10, 7)
-        Output figure size.
-    pad : bool, optional, defaults to False
-        If `True`, edges of the figure will be padded with a thin white line. Otherwise, the figure will remain
-        unchanged.
-    fontsize : int, optional, defaults to 11
-        The size of the text on the plot.
-    ticks_range_x : array-like with length 2, optional, defaults to None
-        Min and max value of labels on the x-axis.
-    ticks_range_y : array-like with length 2, optional, defaults to None
-        Min and max value of labels on the y-axis.
-    x_ticker : dict, optional, defaults to None
-        Parameters for ticks and ticklabels formatting for the x-axis; see `.utils.set_ticks` for more details.
-    y_ticker : dict, optional, defaults to None
-        Parameters for ticks and ticklabels formatting for the y-axis; see `.utils.set_ticks` for more details.
-    save_to : str or dict, optional, defaults to None
-        If `str`, a path to save the figure to.
-        If `dict`, should contain keyword arguments to pass to `matplotlib.pyplot.savefig`. In this case, the path
-        is stored under the `fname` key.
-        Otherwise, the figure is not saved.
-    kwargs : misc, optional
-        Additional named arguments for :func:`matplotlib.pyplot.imshow`.
-    """
-    if cmap is None:
-        colors = ((0.0, 0.6, 0.0), (.66, 1, 0), (0.9, 0.0, 0.0))
-        cmap = mcolors.LinearSegmentedColormap.from_list('cmap', colors)
-        cmap.set_under('black')
-        cmap.set_over('red')
-
-    origin = kwargs.pop('origin', 'lower')
-    aspect = kwargs.pop('aspect', 'auto')
-    fig, ax = plt.subplots(figsize=figsize)
-    img = ax.imshow(metrics_map, origin=origin, cmap=cmap, aspect=aspect, **kwargs)
-
-    if pad:
-        ax.use_sticky_edges = False
-        ax.margins(x=0.01, y=0.01)
-
-    ax.set_title(title, fontsize=fontsize)
-    cbar = fig.colorbar(img, extend='both', ax=ax)
-    cbar.ax.tick_params(labelsize=fontsize)
-
-    x_ticker = {} if x_ticker is None else x_ticker
-    y_ticker = {} if y_ticker is None else y_ticker
-    set_ticks(ax, "x", None, np.linspace(*ticks_range_x, metrics_map.shape[1]), **x_ticker)
-    set_ticks(ax, "y", None, np.linspace(*ticks_range_y, metrics_map.shape[0]), **y_ticker)
-
-    if save_to is not None:
-        save_kwargs = as_dict(save_to, key="fname")
-        save_figure(fig, **save_kwargs)
-    plt.show()
