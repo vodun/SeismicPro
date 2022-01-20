@@ -720,8 +720,8 @@ class Gather:
     @batch_method(target='for', args_to_unpack='weathering_velocity')
     def calculate_weathering_metrics(self, weathering_velocity, first_breaks_col='FirstBreak', threshold_times=50):
         ''' TODO: docstring '''
-        metrics = np.mean(np.abs(weathering_velocity(self.offsets) - self[first_breaks_col].ravel()) > threshold_times)
-        return metrics
+        metric = np.mean(np.abs(weathering_velocity(self.offsets) - self[first_breaks_col].ravel()) > threshold_times)
+        return metric
 
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #
