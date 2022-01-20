@@ -19,7 +19,7 @@ VELOCITY_QC_METRICS = ["is_decreasing", "max_standard_deviation", "max_relative_
 @njit(nogil=True)
 def is_decreasing(window):
     """Return whether the central stacking velocity of the window decreases at some time."""
-    for i in range(window.shape[1]):
+    for i in range(window.shape[1] - 1):
         if window[0, i] > window[0, i + 1]:
             return True
     return False
