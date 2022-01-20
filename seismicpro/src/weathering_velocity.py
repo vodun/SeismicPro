@@ -102,30 +102,13 @@ class WeatheringVelocity:
         self.max_offset = offsets.max()
         self.picking_times = picking_times
 
-        if n_layers is None and init is None and bounds is None:
-            raise ValueError('At least one of the `n_layers`, `init` or `bounds` should be passed')
-
-        negative_init = {key: val for key, val in init.items() if val < 0}
-        if negative_init:
-            raise ValueError(f"Init parameters {list(negative_init.keys())} contain ", 
-                             f"negative values {list(negative_init.values())}")
-        negative_bounds = {key: val for key, val in bounds.items() if min(val) < 0}
-        if negative_bounds:
-            raise ValueError(f"Bounds parameters {list(negative_bounds.keys())} contain ", 
-                             f"negative values {list(negative_bounds.values())}")
-        reversed_bounds = {key: [left, right] for key, [left, right] in bounds.items() if left > right}
-        if reversed_bounds:
-            raise ValueError(f"Left bound is greater than right bound for {list(reversed_bounds.keys())} key(s).")
+        self._check_values(init, bounds, n_layers)
 
         self.init = {**self._calc_init_by_layers(n_layers), **self._calc_init_by_bounds(bounds), **init}
         self.bounds = {**self._calc_bounds_by_init(self.init), **bounds}
         self.n_layers = len(self.bounds) // 2
 
-        # change naming and error message
-        missing_keys = set(self._get_valid_keys()) ^ set(self.bounds.keys())
-        if missing_keys:
-            raise ValueError("Inconsistent parameters to fit a weathering velocity curve. ",
-                            f"Check {missing_keys} key(s) or define `n_layers`")
+        self._check_keys()
 
         # piecewise func variables
         self._n_iters = 0
@@ -136,7 +119,7 @@ class WeatheringVelocity:
         # Piecewise linear regression minimization
         constraints = {"type": "ineq", "fun": lambda x: (np.diff(x[1:self.n_layers]) >= 0).all(out=np.array(0))}
         minimizer_kwargs = {'method': 'SLSQP', 'constraints': constraints, **kwargs}
-        model_params = optimize.minimize(self.piecewise_linear, x0=self._stack_values(self.init), 
+        model_params = optimize.minimize(self.piecewise_linear, x0=self._stack_values(self.init),
                                          bounds=self._stack_values(self.bounds), **minimizer_kwargs)
         self.params = dict(zip(self._get_valid_keys(), model_params.x))
 
@@ -214,9 +197,49 @@ class WeatheringVelocity:
         # t0 bounds could be too narrow
         return {key: [val / 2, val * 2] for key, val in init.items()}
 
+    def _check_values(self, init, bounds):
+        '''Checking values of input dicts'''
+        negative_init = {key: val for key, val in init.items() if val < 0}
+        if negative_init:
+            raise ValueError(f"Init parameters {list(negative_init.keys())} contain ", 
+                             f"negative values {list(negative_init.values())}")
+        negative_bounds = {key: val for key, val in bounds.items() if min(val) < 0}
+        if negative_bounds:
+            raise ValueError(f"Bounds parameters {list(negative_bounds.keys())} contain ", 
+                             f"negative values {list(negative_bounds.values())}")
+        reversed_bounds = {key: [left, right] for key, [left, right] in bounds.items() if left > right}
+        if reversed_bounds:
+            raise ValueError(f"Left bound is greater than right bound for {list(reversed_bounds.keys())} key(s).")
+
+    def _check_values(self):
+        '''Checking keys of `self.bounds` for excessive and insufficient and `n_layers` for possitive.'''
+        if self.n_layers < 1:
+            raise ValueError("Insufficient parameters to fit a weathering velocity curve.")
+        missing_keys = set(self._get_valid_keys()) - set(self.bounds.keys())
+        if missing_keys:
+            raise ValueError("Insufficient parameters to fit a weathering velocity curve. ",
+                            f"Check {missing_keys} key(s) or define `n_layers`")
+        excessive_keys = set(self.bounds.keys()) - set(self._get_valid_keys())
+        if excessive_keys:
+            raise ValueError(f"Excessive parameters to fir a weathering velocity curve. Remove {excessive_keys}.")
+
     @plotter(figsize=(10, 5))
     def plot(self, ax, title=None, show_params=False, threshold_times=None):
-        ''' docstring '''
+        ''' Plot input data and fitted curve. 
+        
+        Parameters
+        ----------
+        show_params : bool, optional, defaults to False
+            show a weathering velocity parameters on a plot.
+        threshold_times : int or float, optional. Defaults to None.
+            gap for plotting two outlines. If None additional plot doesn't show.
+
+        Returns
+        -------
+        self : WeatheringVelocity
+            WeatheringVelocity without changes.
+
+        '''
         # TODO: add ticks and ticklabels and labels
         ax.scatter(self.offsets, self.picking_times)
         ax.scatter(self.offsets, self(self.offsets), s=5)
