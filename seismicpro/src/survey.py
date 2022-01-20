@@ -14,7 +14,7 @@ from scipy.interpolate import interp1d
 
 from .gather import Gather
 from .utils import to_list, maybe_copy, calculate_stats, create_supergather_index
-from .const import HDR_DEAD_TRACE
+from .const import HDR_DEAD_TRACE, HDR_FIRST_BREAK
 
 
 class Survey:  # pylint: disable=too-many-instance-attributes
@@ -512,7 +512,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
 
     # pylint: disable=anomalous-backslash-in-string
-    def load_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak',
+    def load_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col=HDR_FIRST_BREAK,
                           delimiter='\s+', decimal=None, encoding="UTF-8", inplace=False, **kwargs):
         """Load times of first breaks from a file and save them to a new column in headers.
 
