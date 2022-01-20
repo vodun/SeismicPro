@@ -182,9 +182,7 @@ class MetricsAccumulator(Metrics):
             bin_to_coords = bin_to_coords.to_frame().reset_index(level=["x", "y"]).groupby(["x_bin", "y_bin"])
 
             agg_func = agg_func.__name__ if callable(agg_func) else agg_func
-            extra_map_kwargs = {**self.map_kwargs.get(metric, {}), **map_kwargs.get(metric, {})}
-            metric_map = MetricMap(metric_map, x_bin_coords, y_bin_coords, bin_to_coords, metric, agg_func, bin_size,
-                                   **extra_map_kwargs)
+            metric_map = MetricMap(metric_map, x_bin_coords, y_bin_coords, bin_to_coords, metric, agg_func, bin_size)
             metrics_maps.append(metric_map)
 
         if is_single_metric:
