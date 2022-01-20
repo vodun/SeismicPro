@@ -112,7 +112,7 @@ class MetricsAccumulator(Metrics):
             return metrics_vals[0]
         return metrics_vals
 
-    def construct_map(self, metrics=None, agg="mean", bin_size=500, **map_kwargs):
+    def construct_map(self, metrics=None, agg="mean", bin_size=500):
         """Calculate and optionally plot a metrics map.
 
         The map is constructed in the following way:
