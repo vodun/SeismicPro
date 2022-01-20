@@ -14,7 +14,9 @@ from seismicpro.src.utils import to_list
 def survey(segy_path):
     """Create gather"""
     survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'],
-                    header_cols=['offset', 'FieldRecord'], collect_stats=True)
+                    header_cols=['offset', 'FieldRecord'])
+    survey.remove_dead_traces(bar=False)
+    survey.collect_stats(bar=False)
     survey.headers['FirstBreak'] = np.random.randint(0, 1000, len(survey.headers))
     return survey
 
