@@ -5,7 +5,7 @@ import pytest
 import numpy as np
 
 from seismicpro import Survey, make_prestack_segy
-from seismicpro.src.custom_headers import HDR_DEAD_TRACE
+from seismicpro.src.const import HDR_DEAD_TRACE
 
 from . import assert_surveys_equal, assert_survey_processed_inplace
 

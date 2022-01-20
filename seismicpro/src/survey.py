@@ -14,7 +14,7 @@ from scipy.interpolate import interp1d
 
 from .gather import Gather
 from .utils import to_list, maybe_copy, calculate_stats, create_supergather_index
-from .custom_headers import HDR_DEAD_TRACE
+from .const import HDR_DEAD_TRACE
 
 
 class Survey:  # pylint: disable=too-many-instance-attributes
