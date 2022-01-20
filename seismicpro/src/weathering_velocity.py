@@ -133,17 +133,6 @@ class WeatheringVelocity:
         self._piecewise_offsets = np.zeros(self.n_layers + 1)
         self._piecewise_offsets[-1] = self.max_offset
 
-        # using `optimize.curve_fit` faster at 25% than `optimize.minimize` but could be affected to swap 'x1' and `x2`
-        # and turn to wrong velocity values with a small chance. Testing on noisly linear data shows 0.1% to it 
-        # on a `n_layers` > 2
-        
-        # Piecewise linear regression fitting
-        # optimizer_kwargs  = {'method': 'trf', 'loss': 'soft_l1', **kwargs}
-        # model_params, _ = optimize.curve_fit(self.piecewise_linear, offsets, picking_times,
-        #                                      p0=self._stack_values(self.init), bounds=self._stack_values(self.bounds),
-        #                                      **optimizer_kwargs)
-        # self.params = dict(zip(self._get_valid_keys(), model_params))
-
         # Piecewise linear regression minimization
         constraints = {"type": "ineq", "fun": lambda x: (np.diff(x[1:self.n_layers]) >= 0).all(out=np.array(0))}
         minimizer_kwargs = {'method': 'SLSQP', 'constraints': constraints, **kwargs}
