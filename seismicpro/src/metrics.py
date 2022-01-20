@@ -4,7 +4,6 @@ a particular metric visualization over a field map"""
 # pylint: disable=no-name-in-module, import-error
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 from matplotlib import colors as mcolors
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
