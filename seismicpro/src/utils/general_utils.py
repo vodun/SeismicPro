@@ -149,7 +149,7 @@ def indices_to_times(indices, samples):
     Returns
     -------
     times : 1d np.ndarray
-        Array of times measured in milliseconds.
+        Array of times.
 
     Raises
     ------
@@ -170,8 +170,8 @@ def indices_to_times(indices, samples):
 @njit(nogil=True)
 def convert_times_to_mask(times, samples):
     """Convert `times` to indices by finding a nearest position in `samples` for each time in `times` and construct a
-    binary mask with shape (len(times_indices), len(samples)) with `False` values before calculated time index for each
-    row and `True` after.
+    binary mask with shape (len(times), len(samples)) with `False` values before calculated time index for each row and
+    `True` after.
 
     Examples
     --------
@@ -185,9 +185,9 @@ def convert_times_to_mask(times, samples):
     Parameters
     ----------
     times : 1d np.ndarray
-        Time values to construct the mask.
+        Time values to construct the mask. Measured in milliseconds.
     samples : 1d np.ndarray of floats
-        Recording time for each trace value.
+        Recording time for each trace value. Measured in milliseconds.
 
     Returns
     -------
