@@ -272,7 +272,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         """
         if not self.traces_checked:
             warn_msg = ("Dead traces detection was not performed, collected statistics may be skewed. "
-                        "Run `mark_dead_traces`to remove this warning")
+                        "Run `mark_dead_traces` to remove this warning")
             warnings.warn(warn_msg, RuntimeWarning)
 
         headers = self.headers
@@ -300,7 +300,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         quantile_traces_counter = 0
         # Accumulate min, max, mean and std values of survey traces
         for pos in tqdm(traces_pos, desc=f"Calculating statistics for survey {self.name}",
-                      total=n_traces, disable=not bar):
+                        total=n_traces, disable=not bar):
             self.load_trace(buf=trace, index=pos, limits=limits, trace_length=n_samples)
             trace_min, trace_max, trace_sum, trace_sq_sum = calculate_stats(trace)
 
@@ -325,7 +325,6 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             q = [0, 1]
             quantiles = [global_min, global_max]
         else:
-            traces_buf = traces_buf[:n_quantile_traces]
             # Calculate all q-quantiles from 0 to 1 with step 1 / 10**quantile_precision
             q = np.round(np.linspace(0, 1, num=10**quantile_precision), decimals=quantile_precision)
             quantiles = np.nanquantile(traces_buf.ravel(), q=q)
@@ -338,7 +337,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
     def mark_dead_traces(self, bar=True):
         """Mark dead traces (those having constant amplitudes) by setting a value of a new `DeadTrace`
-        header to `True` and stores the overall number of dead traces in the `n_dead_traces` attribute.
+        header to `True` and store the overall number of dead traces in the `n_dead_traces` attribute.
 
         Parameters
         ----------
@@ -356,13 +355,13 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
         trace = np.empty(n_samples, dtype=np.float32)
         dead_indices = []
-        for pos in tqdm(traces_pos, desc=f"Detecting dead traces for survey {self.name}",
-                      total=len(self.headers), disable=not bar):
+        for tr_index, pos in tqdm(enumerate(traces_pos), desc=f"Detecting dead traces for survey {self.name}",
+                                  total=len(self.headers), disable=not bar):
             self.load_trace(buf=trace, index=pos, limits=self.limits, trace_length=n_samples)
             trace_min, trace_max, *_ = calculate_stats(trace)
 
             if np.isclose(trace_min, trace_max):
-                dead_indices.append(pos)
+                dead_indices.append(tr_index)
 
         self.n_dead_traces = len(dead_indices)
         self.headers[HDR_DEAD_TRACE] = False
@@ -778,7 +777,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         return slice(*limits)
 
     def remove_dead_traces(self, inplace=False, bar=True):
-        """ Removes dead (constant) traces from survey's data.
+        """ Remove dead (constant) traces from the survey.
         Calls `mark_dead_traces` if it was not called before.
 
         Parameters
