@@ -142,7 +142,6 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         # Preserve trace order from the file for traces from the same gather.
         self.headers = headers.sort_index(kind="stable")
 
-        # Precalculate survey statistics if needed
         self.has_stats = False
         self.min = None
         self.max = None
@@ -173,7 +172,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
     @property
     def traces_checked(self):
-        """bool: `mark_dead_traces` called"""
+        """bool: `mark_dead_traces` called."""
         return self.n_dead_traces is not None
 
     def __del__(self):
@@ -366,7 +365,6 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self.n_dead_traces = len(dead_indices)
         self.headers[HDR_DEAD_TRACE] = False
         self.headers.iloc[dead_indices, self.headers.columns.get_loc(HDR_DEAD_TRACE)] = True
-
 
     def get_quantile(self, q):
         """Calculate an approximation of the `q`-th quantile of the survey data.
