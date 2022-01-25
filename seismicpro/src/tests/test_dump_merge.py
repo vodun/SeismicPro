@@ -28,7 +28,8 @@ def test_dump_single_gather(segy_path, tmp_path, name, copy_header, header_index
     dumped_survey = Survey(files[0], header_index=header_index, header_cols=header_cols)
     ix = 1 if header_index == 'TRACE_SEQUENCE_FILE' else dump_index
     dumped_gather = dumped_survey.get_gather(index=ix)
-    drop_columns = ["TRACE_SEQUENCE_FILE"] + list({"TRACE_SAMPLE_INTERVAL"} & set(tuple(expected_gather.headers.columns)))
+    drop_columns = ["TRACE_SEQUENCE_FILE"] + list({"TRACE_SAMPLE_INTERVAL"}
+                                                  & set(tuple(expected_gather.headers.columns)))
     compare_gathers(expected_gather, dumped_gather, drop_cols=drop_columns, check_types=True,
                     same_survey=False)
 
@@ -78,7 +79,8 @@ def test_aggregate_segys(segy_path, tmp_path, mode, indices):
     assert np.allclose(expected_survey.n_samples, dumped_survey.n_samples), "length of samples doesn't match"
 
     #TODO: optimize
-    drop_columns = ["TRACE_SEQUENCE_FILE"] + list({"TRACE_SAMPLE_INTERVAL"} & set(tuple(expected_survey.headers.columns)))
+    drop_columns = ["TRACE_SEQUENCE_FILE"] + list({"TRACE_SAMPLE_INTERVAL"}
+                                                  & set(tuple(expected_survey.headers.columns)))
     expected_survey_headers = (expected_survey.headers.loc[indices].reset_index()
                                                                    .sort_values(['FieldRecord', 'TraceNumber'])
                                                                    .drop(columns=drop_columns)
