@@ -407,7 +407,7 @@ class Gather:
         with segyio.create(full_path, spec) as dump_handler:
             # Copy binary headers from the parent SEG-Y file. This is possibly incorrect and needs to be checked
             # if the number of traces or sample ratio changes.
-            # TODO: Check if bin headers matter
+            # TODO: Check if other bin headers matter
             dump_handler.bin = parent_handler.bin
             dump_handler.bin[segyio.BinField.Interval] = sample_rate
             dump_handler.bin[segyio.BinField.Samples] = self.n_samples
@@ -422,7 +422,7 @@ class Gather:
             for i, dump_h in trace_headers_dict.items():
                 if copy_header:
                     dump_handler.header[i].update(parent_handler.header[trace_ids[i]])
-                dump_handler.header[i].update({**dump_h, segyio.TraceField.TRACE_SAMPLE_COUNT: sample_rate})
+                dump_handler.header[i].update({**dump_h, segyio.TraceField.TRACE_SAMPLE_INTERVAL: sample_rate})
         return self
 
     #------------------------------------------------------------------------#

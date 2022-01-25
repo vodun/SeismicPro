@@ -93,12 +93,12 @@ def create_supergather_index(centers, size):
 
 @njit(nogil=True)
 def times_to_indices(times, samples, round=False):
-    """Convert `times` to their indices in the non-decreasing `samples` array. If some value of `times` is not present
+    """Convert `times` to their indices in the increasing `samples` array. If some value of `times` is not present
     in `samples`, its index is linearly interpolated or extrapolated by the other indices of `samples`.
 
     Notes
     -----
-    1. The `samples` array must be non-decreasing.
+    1. The `samples` array must be increasing.
 
     Parameters
     ----------
@@ -118,11 +118,11 @@ def times_to_indices(times, samples, round=False):
     Raises
     ------
     ValueError
-        If `samples` is not non-decreasing.
+        If `samples` is not increasing.
     """
     for i in range(len(samples) - 1):
         if samples[i+1] <= samples[i]:
-            raise ValueError('The `samples` array must be non-decreasing.')
+            raise ValueError('The `samples` array must be increasing.')
     left_slope = 1 / (samples[1] - samples[0])
     right_slope = 1 / (samples[-1] - samples[-2])
     float_position = interpolate(times, samples, np.arange(len(samples), dtype=np.float32), left_slope, right_slope)
@@ -136,7 +136,7 @@ def indices_to_times(indices, samples):
 
     Notes
     -----
-    1. The `samples` array must be non-decreasing.
+    1. The `samples` array must be increasing.
     2. Indices outside the `samples` range are clipped to the range of the `samples`.
 
     Parameters
@@ -154,11 +154,11 @@ def indices_to_times(indices, samples):
     Raises
     ------
     ValueError
-        If `samples` is not non-decreasing.
+        If `samples` is not increasing.
     """
     for i in range(len(samples) - 1):
         if samples[i+1] <= samples[i]:
-            raise ValueError('The `samples` array must be non-decreasing.')
+            raise ValueError('The `samples` array must be increasing.')
     times = np.empty(shape=len(indices), dtype=samples.dtype)
     for i, ix in enumerate(indices):
         ix = max(ix, 0)
