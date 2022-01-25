@@ -171,7 +171,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         return len(self.file_samples)
 
     @property
-    def traces_checked(self):
+    def is_dead_traces_marked(self):
         """bool: `mark_dead_traces` called."""
         return self.n_dead_traces is not None
 
@@ -219,7 +219,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
          q01 | q99:                {self.get_quantile(0.01):>10.2f} | {self.get_quantile(0.99):<10.2f}
         """
 
-        if self.traces_checked:
+        if self.is_dead_traces_marked:
             msg += f"""
         Number of dead traces:     {self.n_dead_traces}
         """
@@ -269,7 +269,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         survey : Survey
             The survey with collected stats. Sets `has_stats` flag to `True`, and updates statistics attributes inplace.
         """
-        if not self.traces_checked:
+        if not self.is_dead_traces_marked:
             warn_msg = ("Dead traces detection was not performed, collected statistics may be skewed. "
                         "Run `mark_dead_traces` to remove this warning")
             warnings.warn(warn_msg, RuntimeWarning)
@@ -791,7 +791,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             Survey with no dead traces.
         """
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
-        if not self.traces_checked:
+        if not self.is_dead_traces_marked:
             self.mark_dead_traces(bar)
 
         self.filter(lambda dt: ~dt, cols=HDR_DEAD_TRACE, inplace=True)
