@@ -1,4 +1,4 @@
-"""Implements WeatheringVelocity class to calc piecewise function and store parameters of this function."""
+"""Implements WeatheringVelocity class to fit piecewise function and store parameters of a fitted function."""
 
 import numpy as np
 from sklearn.linear_model import SGDRegressor
@@ -12,7 +12,7 @@ class WeatheringVelocity:
     and times of a first break picking.
     
     `WeatheringVelocity` object use next parameters:
-        `t0`: double travel time to weathering layer's base
+        `t0`: double travel time to the weathering layer's base
         `x1`: offsets where refracted wave from first subweathering layer comes at same time with reflected wave.
         `x{i}`: offset where refracted wave from i-th subweathering layer comes at same time with refracted wave from
                 previous layer.
@@ -104,8 +104,7 @@ class WeatheringVelocity:
 
         self.init = {**self._calc_init_by_layers(n_layers), **self._calc_init_by_bounds(bounds), **init}
         self.bounds = {**self._calc_bounds_by_init(self.init), **bounds}
-        self.n_layers = len(self.bounds) // 2 # expected number of layers
-
+        self.n_layers = n_layers
         self._check_keys()
 
         # piecewise func variables
@@ -147,15 +146,15 @@ class WeatheringVelocity:
         n_layers = self.n_layers if n_layers is None else n_layers
         return ['t0'] + [f'x{i+1}' for i in range(n_layers - 1)] + [f'v{i+1}' for i in range(n_layers)]
 
-    def _stack_values(self, params_dict):
+    def _stack_values(self, params_dict): # reshuffle params
         ''' docstring '''
         return np.stack([params_dict[key] for key in self._get_valid_keys()], axis=0)
 
-    def _fit_regressor(self, x, y, start_params, fit_intercept):
+    def _fit_regressor(self, x, y, start_slope, start_time, fit_intercept):
         ''' docstring '''
         lin_reg = SGDRegressor(loss='huber', early_stopping=True, penalty=None, shuffle=True, epsilon=0.01,
-                               eta0=.003, alpha=0, fit_intercept=fit_intercept) 
-        lin_reg.fit(x, y, coef_init=start_params[0], intercept_init=start_params[1])
+                               eta0=.1, alpha=0, tol=1e-2, fit_intercept=fit_intercept) 
+        lin_reg.fit(x, y, coef_init=start_slope, intercept_init=start_time)
         return lin_reg.coef_[0], lin_reg.intercept_
 
     def _calc_init_by_layers(self, n_layers):
@@ -167,18 +166,19 @@ class WeatheringVelocity:
         cross_offsets = np.linspace(self.offsets.min(), self.max_offset, num=n_layers+1)
         times = np.empty(n_layers)
         slopes = np.empty(n_layers)
-        # start_params contains slopes value and 't0'. base slope corresponds with velocity is 1.5 km/s
-        start_params = [2/3, min(self.picking_times)]
+
+        max_picking = self.picking_times.max()
+        start_slope, start_time = 2/3, self.picking_times.min() / max_picking
         for i in range(n_layers):
             mask = (self.offsets > cross_offsets[i]) & (self.offsets <= cross_offsets[i + 1])
-            slopes[i], times[i] = self._fit_regressor(self.offsets[mask].reshape(-1, 1), self.picking_times[mask],
-                                                      start_params, fit_intercept=(i==0))
-            start_params[0] = slopes[i] * (n_layers / (n_layers + 1))
-            start_params[1] = times[i] + (slopes[i] - start_params[0]) * cross_offsets[i + 1]
+            slopes[i], times[i] = self._fit_regressor(self.offsets[mask].reshape(-1, 1) / self.max_offset,
+                                                      self.picking_times[mask] / max_picking,
+                                                      start_slope, start_time, fit_intercept=(i==0))
+            start_slope = slopes[i] * (n_layers / (n_layers + 1))
+            start_time = times[i] + (slopes[i] - start_slope) * (cross_offsets[i + 1] / self.max_offset)
+        velocities = 1 / (slopes * (max_picking / self.max_offset))
 
-        velocities = 1 / slopes
-
-        init = np.hstack((times[0], cross_offsets[1:-1], velocities))
+        init = np.hstack((times[0] * max_picking, cross_offsets[1:-1], velocities))
         init = dict(zip(self._get_valid_keys(n_layers), init))
         return init
 
@@ -195,7 +195,7 @@ class WeatheringVelocity:
         '''Checking values of input dicts'''
         negative_init = {key: val for key, val in init.items() if val < 0}
         if negative_init:
-            raise ValueError(f"Init parameters {list(negative_init.keys())} contain ", 
+            raise ValueError(f"Init parameters {list(negative_init.keys())} contain ",
                              f"negative values {list(negative_init.values())}")
         negative_bounds = {key: val for key, val in bounds.items() if min(val) < 0}
         if negative_bounds:
@@ -207,19 +207,21 @@ class WeatheringVelocity:
 
     def _check_keys(self):
         '''Checking keys of `self.bounds` for excessive and insufficient and `n_layers` for possitive.'''
-        if self.n_layers < 1:
+        expected_layers = len(self.bounds) // 2
+        if expected_layers < 1:
             raise ValueError("Insufficient parameters to fit a weathering velocity curve.")
-        missing_keys = set(self._get_valid_keys()) - set(self.bounds.keys())
+        missing_keys = set(self._get_valid_keys(expected_layers)) - set(self.bounds.keys())
         if missing_keys:
             raise ValueError("Insufficient parameters to fit a weathering velocity curve. ",
                             f"Check {missing_keys} key(s) or define `n_layers`")
-        excessive_keys = set(self.bounds.keys()) - set(self._get_valid_keys())
+        excessive_keys = set(self.bounds.keys()) - set(self._get_valid_keys(expected_layers))
         if excessive_keys:
             raise ValueError(f"Excessive parameters to fit a weathering velocity curve. Remove {excessive_keys}.")
+        return expected_layers
 
     @plotter(figsize=(10, 5))
     def plot(self, ax, title=None, show_params=True, threshold_times=None):
-        ''' Plot input data and fitted curve. 
+        ''' Plot input data and fitted curve.
 
         Parameters
         ----------
