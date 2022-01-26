@@ -104,8 +104,8 @@ class WeatheringVelocity:
 
         self.init = {**self._calc_init_by_layers(n_layers), **self._calc_init_by_bounds(bounds), **init}
         self.bounds = {**self._calc_bounds_by_init(self.init), **bounds}
-        self.n_layers = n_layers
         self._check_keys()
+        self.n_layers = len(self.bounds) // 2
 
         # piecewise func variables
         self._piecewise_times = np.empty(self.n_layers + 1)
@@ -217,7 +217,6 @@ class WeatheringVelocity:
         excessive_keys = set(self.bounds.keys()) - set(self._get_valid_keys(expected_layers))
         if excessive_keys:
             raise ValueError(f"Excessive parameters to fit a weathering velocity curve. Remove {excessive_keys}.")
-        return expected_layers
 
     @plotter(figsize=(10, 5))
     def plot(self, ax, title=None, show_params=True, threshold_times=None):
