@@ -147,7 +147,7 @@ class TestDeadTraces:
         assert_survey_processed_inplace(survey, survey_filtered, inplace)
 
     def test_mark(self, stat_segy):
-        """Check that `mark_dead_traces` properly updates survey `headers` and sets `n_dead_traces` counter to 0."""
+        """Check that `mark_dead_traces` properly updates survey `headers` and sets `n_dead_traces` counter."""
 
         path, trace_data = stat_segy
         survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset")
