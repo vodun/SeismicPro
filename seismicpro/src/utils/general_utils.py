@@ -107,8 +107,8 @@ def times_to_indices(times, samples, round=False):
     samples : 1d np.ndarray of floats
         Recording time for each trace value.
     round : bool, optional, defaults to False
-        If `True`, round the obtained real-valued indices to the nearest integer. Values exactly halfway between two
-        adjacent integers are rounded to the nearest even one.
+        If `True`, round the obtained float indices to the nearest integer. Values exactly halfway between two adjacent
+        integers are rounded to the nearest even one.
 
     Returns
     -------
@@ -130,48 +130,10 @@ def times_to_indices(times, samples, round=False):
 
 
 @njit(nogil=True)
-def indices_to_times(indices, samples):
-    """Convert `indices` to the corresponding time values from `samples`. Times for real-valued indices are obtained
-    using linear interpolation by the adjacent values.
-
-    Notes
-    -----
-    1. The `samples` array must be increasing.
-    2. Indices outside the `samples` range are clipped to the range of the `samples`.
-
-    Parameters
-    ----------
-    indices : 1d np.ndarray of floats
-        Indices to convert to times.
-    samples : 1d np.ndarray of floats
-        Recording time for each trace value.
-
-    Returns
-    -------
-    times : 1d np.ndarray
-        Array of times.
-
-    Raises
-    ------
-    ValueError
-        If `samples` is not increasing.
-    """
-    for i in range(len(samples) - 1):
-        if samples[i+1] <= samples[i]:
-            raise ValueError('The `samples` array must be increasing.')
-    times = np.empty(shape=len(indices), dtype=samples.dtype)
-    for i, ix in enumerate(indices):
-        ix = max(ix, 0)
-        int_i = int(min(ix, len(samples) - 1))
-        times[i] = samples[int_i] + (ix - int_i) * (samples[min(int_i + 1, len(samples) - 1)] - samples[int_i])
-    return times
-
-
-@njit(nogil=True)
 def convert_times_to_mask(times, samples):
     """Convert `times` to indices by finding a nearest position in `samples` for each time in `times` and construct a
-    binary mask with shape (len(times), len(samples)) with `False` values before calculated time index for each row and
-    `True` after.
+    boolean mask with shape (len(times), len(samples)) with `False` values before calculated time index for each row
+    and `True` after.
 
     Examples
     --------
@@ -192,7 +154,7 @@ def convert_times_to_mask(times, samples):
     Returns
     -------
     mask : np.ndarray of bool
-        Bool mask with shape (len(times), len(samples)).
+        Boolean mask with shape (len(times), len(samples)).
     """
     times_indices = times_to_indices(times, samples, round=True)
     return (np.arange(len(samples)) - times_indices.reshape(-1, 1)) >= 0

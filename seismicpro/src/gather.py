@@ -345,11 +345,13 @@ class Gather:
 
         Notes
         -----
-        Almost all binary and textual headers are copied from the parent SEG-Y file unchanged except for the following
-        binary headers that are calculated by the current gather:
-        1. Sample rate, bytes 3217-3218, called `Interval` in `segyio`,
-        2. Number of samples per data trace, bytes 3221-3222, called `Samples` in `segyio`,
-        3. Extended number of samples per data trace, bytes 3269-3272, called `ExtSamples` in `segyio`.
+        1. All textual and almost all binary headers are copied from the parent SEG-Y file unchanged except for the
+           following binary header fields that are inferred by the current gather:
+           1) Sample rate, bytes 3217-3218, called `Interval` in `segyio`,
+           2) Number of samples per data trace, bytes 3221-3222, called `Samples` in `segyio`,
+           3) Extended number of samples per data trace, bytes 3269-3272, called `ExtSamples` in `segyio`.
+        2. Bytes 117-118 of trace header (called `TRACE_SAMPLE_INTERVAL` in `segyio`) for each trace is filled with
+           sample rate of the current gather.
 
         Parameters
         ----------
@@ -405,8 +407,7 @@ class Gather:
         trace_headers_dict = trace_headers.to_dict("index")
 
         with segyio.create(full_path, spec) as dump_handler:
-            # Copy binary headers from the parent SEG-Y file. This is possibly incorrect and needs to be checked
-            # if the number of traces or sample ratio changes.
+            # Copy binary headers from the parent SEG-Y file.
             # TODO: Check if other bin headers matter
             dump_handler.bin = parent_handler.bin
             dump_handler.bin[segyio.BinField.Interval] = sample_rate

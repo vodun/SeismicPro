@@ -38,10 +38,10 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     columns set as its index.
 
     The survey sample rate is calculated by two values stored in:
-    * bytes 3217-3218 of binary headers, called `Interval` in `segyio`,
-    * bytes 117-118 of the header of the first trace in the file, called `TRACE_SAMPLE_INTERVAL` in `segyio`.
-    If both of them are present and equal or only one of them is well-defined, it is used as a sample rate. Otherwise,
-    an error is raised.
+    * bytes 3217-3218 of the binary header, called `Interval` in `segyio`,
+    * bytes 117-118 of the trace header of the first trace in the file, called `TRACE_SAMPLE_INTERVAL` in `segyio`.
+    If both of them are present and equal or only one of them is well-defined (non-zero), it is used as a sample rate.
+    Otherwise, an error is raised.
 
     Examples
     --------
