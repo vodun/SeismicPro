@@ -17,7 +17,7 @@ class WeatheringVelocity:
         `x{i}`: offset where refracted wave from i-th subweathering layer comes at same time with refracted wave from
                 previous layer.
         `v1`: velocity of a weathering layer
-        `v{i}`: velocity of a i-th layer. Subweathering layers start with 2 number.
+        `v{i}`: velocity of a i-th layer. Subweathering layers start with second number.
     All parameters stores in `params` attribute as dict with a stated above keys.
 
     Class could be initialize with a `init`, `bounds`, `n_layers` or by mix of it.
@@ -37,7 +37,7 @@ class WeatheringVelocity:
     >>> weathering_velocity = gather.calculate_weathering_velocity(init={'t0': 100, 'x1': 1500, 'v1': 2, 'v2': 3})
 
     A Weathering Velocity object with bounds for final parameters of a piecewise function for one layer model
-    >>> weathering_velocity = gather.calculate_weathering_velocity(init={'t0': [0, 200], 'x1': [1, 3]})
+    >>> weathering_velocity = gather.calculate_weathering_velocity(init={'t0': [0, 200], 'v1': [1, 3]})
 
     A Weathering Velocity object for three layers model.
     >>> weathering_velocity = gather.calculate_weathering_velocity(n_layers=3)
@@ -49,11 +49,9 @@ class WeatheringVelocity:
 
     Parameters
     ----------
-    offsets : ndarray
+    offsets : 1d ndarray
         offsets of a traces
-    max_offset : int
-        maximum offsets value
-    picking_times : ndarray
+    picking_times : 1d ndarray
         picking times of a traces
     init : dict
         inital values for fitting a piecewise function. Used to calculate `bounds` and `n_layers` if these params not enough.
@@ -102,16 +100,15 @@ class WeatheringVelocity:
         self.max_offset = offsets.max()
         self.picking_times = picking_times
 
-        self._check_values(init, bounds, n_layers)
+        self._check_values(init, bounds) # n_layers
 
         self.init = {**self._calc_init_by_layers(n_layers), **self._calc_init_by_bounds(bounds), **init}
         self.bounds = {**self._calc_bounds_by_init(self.init), **bounds}
-        self.n_layers = len(self.bounds) // 2
+        self.n_layers = len(self.bounds) // 2 # expected number of layers
 
         self._check_keys()
 
         # piecewise func variables
-        self._n_iters = 0
         self._piecewise_times = np.empty(self.n_layers + 1)
         self._piecewise_offsets = np.zeros(self.n_layers + 1)
         self._piecewise_offsets[-1] = self.max_offset
@@ -121,6 +118,7 @@ class WeatheringVelocity:
         minimizer_kwargs = {'method': 'SLSQP', 'constraints': constraints, **kwargs}
         model_params = optimize.minimize(self.piecewise_linear, x0=self._stack_values(self.init),
                                          bounds=self._stack_values(self.bounds), **minimizer_kwargs)
+        self._model_params = model_params
         self.params = dict(zip(self._get_valid_keys(), model_params.x))
 
     def __call__(self, offsets):
@@ -140,7 +138,7 @@ class WeatheringVelocity:
         for i in range(self.n_layers):
             self._piecewise_times[i+1] = ((self._piecewise_offsets[i + 1] - self._piecewise_offsets[i]) /
                                            args[self.n_layers + i]) + self._piecewise_times[i]
-        self._n_iters += 1
+        # self._n_iters += 1
         # TODO: add different loss function
         return np.abs(np.interp(self.offsets, self._piecewise_offsets, self._piecewise_times) - 
                      self.picking_times).mean()
@@ -166,7 +164,7 @@ class WeatheringVelocity:
             return {}
 
         # cross offsets makes equal interval
-        cross_offsets = np.linspace(0, self.max_offset, num=n_layers+1)
+        cross_offsets = np.linspace(self.offsets.min(), self.max_offset, num=n_layers+1)
         times = np.empty(n_layers)
         slopes = np.empty(n_layers)
         # start_params contains slopes value and 't0'. base slope corresponds with velocity is 1.5 km/s
@@ -180,18 +178,14 @@ class WeatheringVelocity:
 
         velocities = 1 / slopes
 
-        init = np.empty(shape=2 * n_layers)
-        init[0] = times[0]
-        init[1:n_layers] = cross_offsets[1:-1]
-        init[n_layers:] = velocities
-
+        init = np.hstack((times[0], cross_offsets[1:-1], velocities))
         init = dict(zip(self._get_valid_keys(n_layers), init))
         return init
 
     def _calc_init_by_bounds(self, bounds):
         ''' docstring '''
         return {key: val1 + (val2 - val1) / 3 for key, (val1, val2) in bounds.items()}
-    
+
     def _calc_bounds_by_init(self, init):
         ''' calc bounds based on init or calc init based on bounds '''
         # t0 bounds could be too narrow
@@ -205,13 +199,13 @@ class WeatheringVelocity:
                              f"negative values {list(negative_init.values())}")
         negative_bounds = {key: val for key, val in bounds.items() if min(val) < 0}
         if negative_bounds:
-            raise ValueError(f"Bounds parameters {list(negative_bounds.keys())} contain ", 
+            raise ValueError(f"Bounds parameters {list(negative_bounds.keys())} contain ",
                              f"negative values {list(negative_bounds.values())}")
         reversed_bounds = {key: [left, right] for key, [left, right] in bounds.items() if left > right}
         if reversed_bounds:
             raise ValueError(f"Left bound is greater than right bound for {list(reversed_bounds.keys())} key(s).")
 
-    def _check_values(self):
+    def _check_keys(self):
         '''Checking keys of `self.bounds` for excessive and insufficient and `n_layers` for possitive.'''
         if self.n_layers < 1:
             raise ValueError("Insufficient parameters to fit a weathering velocity curve.")
@@ -221,12 +215,12 @@ class WeatheringVelocity:
                             f"Check {missing_keys} key(s) or define `n_layers`")
         excessive_keys = set(self.bounds.keys()) - set(self._get_valid_keys())
         if excessive_keys:
-            raise ValueError(f"Excessive parameters to fir a weathering velocity curve. Remove {excessive_keys}.")
+            raise ValueError(f"Excessive parameters to fit a weathering velocity curve. Remove {excessive_keys}.")
 
     @plotter(figsize=(10, 5))
-    def plot(self, ax, title=None, show_params=False, threshold_times=None):
+    def plot(self, ax, title=None, show_params=True, threshold_times=None):
         ''' Plot input data and fitted curve. 
-        
+
         Parameters
         ----------
         show_params : bool, optional, defaults to False
@@ -241,22 +235,22 @@ class WeatheringVelocity:
 
         '''
         # TODO: add ticks and ticklabels and labels
-        ax.scatter(self.offsets, self.picking_times)
-        ax.scatter(self.offsets, self(self.offsets), s=5)
+        ax.scatter(self.offsets, self.picking_times, s=1, color='black')
+        ax.plot(self._piecewise_offsets, self._piecewise_times, '-', color='red')
+        for i in range(self.n_layers-1):
+            ax.axvline(self._piecewise_offsets[i+1], 0, self.picking_times.max(), ls='--', c='blue')
 
         if show_params:
-            crossover_title = 'crossovers offsets = '
-            crossover_title += ', '.join(f"{self.params[f'x{i + 1}']:.2f}" for i in range(self.n_layers - 1))
-            if self.n_layers == 1:
-                crossover_title += 'None'
-            velocity_title = 'velocities = '
-            velocity_title += ', '.join(f"{self.params[f'v{i + 1}']:.2f}" for i in range(self.n_layers))
+            params = [self.params[key] for key in self._get_valid_keys()]
+            title = f"t0 : {params[0]:.2f} ms"
+            if self.n_layers > 1:
+                title += '\ncrossover offsets : ' + ', '.join(f"{round(x)}" for x in params[1:self.n_layers]) + ' m'
+            title += '\nvelocities : ' + ', '.join(f"{v:.2f}" for v in params[self.n_layers:]) + ' km/s'
 
-            ax.text(0.03, .94, f"t0={self.t0:.2f}\n{crossover_title}\n{velocity_title}", fontsize=15, va='top',
-                    transform=ax.transAxes)
+            ax.text(0.03, .94, title, fontsize=15, va='top', transform=ax.transAxes)
 
         if threshold_times is not None:
-            ax.plot(self._piecewise_offsets, self._piecewise_times + threshold_times, '--', color='gray')
-            ax.plot(self._piecewise_offsets, self._piecewise_times - threshold_times, '--', color='gray')
+            ax.plot(self._piecewise_offsets, self._piecewise_times + threshold_times, '--', color='red')
+            ax.plot(self._piecewise_offsets, self._piecewise_times - threshold_times, '--', color='red')
 
         return self
