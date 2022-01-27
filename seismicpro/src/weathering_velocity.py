@@ -1,7 +1,9 @@
 """Implements WeatheringVelocity class to fit piecewise function and store parameters of a fitted function."""
 
+import warnings
+
 import numpy as np
-from sklearn.linear_model import SGDRegressor
+from sklearn.linear_model import SGDRegressor, HuberRegressor
 from scipy import optimize
 
 from .decorators import plotter
@@ -100,7 +102,7 @@ class WeatheringVelocity:
         self.max_offset = offsets.max()
         self.picking_times = picking_times
 
-        self._check_values(init, bounds) # n_layers
+        self._check_values(init, bounds)
 
         self.init = {**self._calc_init_by_layers(n_layers), **self._calc_init_by_bounds(bounds), **init}
         self.bounds = {**self._calc_bounds_by_init(self.init), **bounds}
@@ -137,7 +139,6 @@ class WeatheringVelocity:
         for i in range(self.n_layers):
             self._piecewise_times[i+1] = ((self._piecewise_offsets[i + 1] - self._piecewise_offsets[i]) /
                                            args[self.n_layers + i]) + self._piecewise_times[i]
-        # self._n_iters += 1
         # TODO: add different loss function
         return np.abs(np.interp(self.offsets, self._piecewise_offsets, self._piecewise_times) - 
                      self.picking_times).mean()
@@ -153,7 +154,7 @@ class WeatheringVelocity:
     def _fit_regressor(self, x, y, start_slope, start_time, fit_intercept):
         ''' docstring '''
         lin_reg = SGDRegressor(loss='huber', early_stopping=True, penalty=None, shuffle=True, epsilon=0.01,
-                               eta0=.1, alpha=0, tol=1e-2, fit_intercept=fit_intercept) 
+                               eta0=.03, alpha=0, tol=1e-5, fit_intercept=fit_intercept)
         lin_reg.fit(x, y, coef_init=start_slope, intercept_init=start_time)
         return lin_reg.coef_[0], lin_reg.intercept_
 
@@ -163,23 +164,34 @@ class WeatheringVelocity:
             return {}
 
         # cross offsets makes equal interval
-        cross_offsets = np.linspace(self.offsets.min(), self.max_offset, num=n_layers+1)
+        cross_offsets = np.linspace(0, self.max_offset, num=n_layers+1)
         times = np.empty(n_layers)
         slopes = np.empty(n_layers)
 
-        max_picking = self.picking_times.max()
-        start_slope, start_time = 2/3, self.picking_times.min() / max_picking
+        min_picking = self.picking_times.min()
+        start_slope = 2/3 # * (self.max_offset / max_picking)
+        start_time = self.picking_times.min() / min_picking # max_picking
+        # print('start: ', start_slope, start_time)
+        # print('slope norm: ', self.max_offset / min_picking)
         for i in range(n_layers):
             mask = (self.offsets > cross_offsets[i]) & (self.offsets <= cross_offsets[i + 1])
-            slopes[i], times[i] = self._fit_regressor(self.offsets[mask].reshape(-1, 1) / self.max_offset,
-                                                      self.picking_times[mask] / max_picking,
-                                                      start_slope, start_time, fit_intercept=(i==0))
+            if mask.sum() > 1: # at least 2 point to fit
+                slopes[i], times[i] = self._fit_regressor(self.offsets[mask].reshape(-1, 1) / min_picking,
+                                                        self.picking_times[mask] / min_picking,
+                                                        start_slope, start_time, fit_intercept=(i==0))
+            else:
+                slopes[i], times[i] = start_slope, start_time
+                warnings.warn("Not enough first break points to fit a init params. Using a base estimation.")
+            # print('regr: ', slopes[i], times[i])
             start_slope = slopes[i] * (n_layers / (n_layers + 1))
-            start_time = times[i] + (slopes[i] - start_slope) * (cross_offsets[i + 1] / self.max_offset)
-        velocities = 1 / (slopes * (max_picking / self.max_offset))
+            start_time = times[i] + (slopes[i] - start_slope) * (cross_offsets[i + 1] / min_picking)
+            # print('new start: ', start_slope, start_time)
+        velocities = 1 / (slopes) # * (max_picking / self.max_offset))
 
-        init = np.hstack((times[0] * max_picking, cross_offsets[1:-1], velocities))
+        init = np.hstack((times[0] * min_picking, cross_offsets[1:-1], velocities))
+        # init = np.hstack((times[0] * max_picking, cross_offsets[1:-1], velocities))
         init = dict(zip(self._get_valid_keys(n_layers), init))
+        # print(init)
         return init
 
     def _calc_init_by_bounds(self, bounds):
@@ -236,11 +248,11 @@ class WeatheringVelocity:
 
         '''
         # TODO: add ticks and ticklabels and labels
-        ax.scatter(self.offsets, self.picking_times, s=1, color='black')
-        ax.plot(self._piecewise_offsets, self._piecewise_times, '-', color='red')
+        ax.scatter(self.offsets, self.picking_times, s=1, color='black', label='fbp points')
+        ax.plot(self._piecewise_offsets, self._piecewise_times, '-', color='red', label='fitted linear function')
         for i in range(self.n_layers-1):
-            ax.axvline(self._piecewise_offsets[i+1], 0, self.picking_times.max(), ls='--', c='blue')
-
+            ax.axvline(self._piecewise_offsets[i+1], 0, self.picking_times.max(), ls='--', c='blue', 
+                       label='crossover point')
         if show_params:
             params = [self.params[key] for key in self._get_valid_keys()]
             title = f"t0 : {params[0]:.2f} ms"
@@ -251,7 +263,8 @@ class WeatheringVelocity:
             ax.text(0.03, .94, title, fontsize=15, va='top', transform=ax.transAxes)
 
         if threshold_times is not None:
-            ax.plot(self._piecewise_offsets, self._piecewise_times + threshold_times, '--', color='red')
+            ax.plot(self._piecewise_offsets, self._piecewise_times + threshold_times, '--', color='red', 
+                    label=f'+/- {threshold_times}ms window')
             ax.plot(self._piecewise_offsets, self._piecewise_times - threshold_times, '--', color='red')
-
+        ax.legend(loc='lower right')
         return self
