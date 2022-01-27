@@ -58,7 +58,7 @@ class TestStats:
     @pytest.mark.parametrize("quantile_precision", [1, 2])
     @pytest.mark.parametrize("stats_limits", [None, slice(5), slice(2, 8)])
     def test_collect_stats(self, stat_segy, remove_dead,
-                                       limits, n_quantile_traces, quantile_precision, stats_limits):
+                           limits, n_quantile_traces, quantile_precision, stats_limits):
         """Compare stats obtained by running `collect_stats` with the actual ones."""
         path, trace_data = stat_segy
         survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset", limits=limits)
@@ -146,14 +146,18 @@ class TestDeadTraces:
         assert_surveys_equal(survey_filtered, survey_copy)
         assert_survey_processed_inplace(survey, survey_filtered, inplace)
 
-    def test_mark(self, stat_segy):
+    @pytest.mark.parametrize("detection_limits", [None, slice(5), slice(2, 8)])
+    def test_mark(self, stat_segy, detection_limits):
         """Check that `mark_dead_traces` properly updates survey `headers` and sets `n_dead_traces` counter."""
 
         path, trace_data = stat_segy
         survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset")
         survey_copy = survey.copy()
 
-        survey.mark_dead_traces()
+        survey.mark_dead_traces(limits=detection_limits, bar=False)
+
+        if detection_limits:
+            trace_data = trace_data[:, detection_limits]
 
         is_dead = np.isclose(trace_data.min(axis=1), trace_data.max(axis=1))
         survey_copy.headers[HDR_DEAD_TRACE] = False

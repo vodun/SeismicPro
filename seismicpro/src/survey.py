@@ -171,7 +171,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         return len(self.file_samples)
 
     @property
-    def is_dead_traces_marked(self):
+    def dead_traces_marked(self):
         """bool: `mark_dead_traces` called."""
         return self.n_dead_traces is not None
 
@@ -219,7 +219,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
          q01 | q99:                {self.get_quantile(0.01):>10.2f} | {self.get_quantile(0.99):<10.2f}
         """
 
-        if self.is_dead_traces_marked:
+        if self.dead_traces_marked:
             msg += f"""
         Number of dead traces:     {self.n_dead_traces}
         """
@@ -269,7 +269,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         survey : Survey
             The survey with collected stats. Sets `has_stats` flag to `True`, and updates statistics attributes inplace.
         """
-        if not self.is_dead_traces_marked:
+        if not self.dead_traces_marked:
             warn_msg = ("Dead traces detection was not performed, collected statistics may be skewed. "
                         "Run `mark_dead_traces` to remove this warning")
             warnings.warn(warn_msg, RuntimeWarning)
@@ -334,12 +334,16 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self.has_stats = True
         return self
 
-    def mark_dead_traces(self, bar=True):
+    def mark_dead_traces(self, limits=None, bar=True):
         """Mark dead traces (those having constant amplitudes) by setting a value of a new `DeadTrace`
         header to `True` and store the overall number of dead traces in the `n_dead_traces` attribute.
 
         Parameters
         ----------
+        limits : int or tuple or slice or None, optional, defaults to None
+            Time range that is used to detect dead traces.
+            `int` or `tuple` are used as arguments to init a `slice` object.
+            If None, whole traces are loaded. Measured in samples.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
 
@@ -349,14 +353,16 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             The same survey with a new `DeadTrace` header created.
         """
 
+        limits = self.limits if limits is None else self._process_limits(limits)
+
         traces_pos = self.headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
-        n_samples = len(self.file_samples[self.limits])
+        n_samples = len(self.file_samples[limits])
 
         trace = np.empty(n_samples, dtype=np.float32)
         dead_indices = []
         for tr_index, pos in tqdm(enumerate(traces_pos), desc=f"Detecting dead traces for survey {self.name}",
                                   total=len(self.headers), disable=not bar):
-            self.load_trace(buf=trace, index=pos, limits=self.limits, trace_length=n_samples)
+            self.load_trace(buf=trace, index=pos, limits=limits, trace_length=n_samples)
             trace_min, trace_max, *_ = calculate_stats(trace)
 
             if np.isclose(trace_min, trace_max):
@@ -365,6 +371,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self.n_dead_traces = len(dead_indices)
         self.headers[HDR_DEAD_TRACE] = False
         self.headers.iloc[dead_indices, self.headers.columns.get_loc(HDR_DEAD_TRACE)] = True
+
+        return self
 
     def get_quantile(self, q):
         """Calculate an approximation of the `q`-th quantile of the survey data.
@@ -774,7 +782,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             raise ValueError('Empty traces after setting limits.')
         return slice(*limits)
 
-    def remove_dead_traces(self, inplace=False, bar=True):
+    def remove_dead_traces(self, inplace=False, limits=None, bar=True):
         """ Remove dead (constant) traces from the survey.
         Calls `mark_dead_traces` if it was not called before.
 
@@ -782,6 +790,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         ----------
         inplace : bool, optional, defaults to False
             Whether to remove traces inplace or return a new survey instance.
+        limits : int or tuple or slice or None, optional, defaults to None
+            Time range that is used to detect dead traces, if needed.
+            See :meth:`Survey.mark_dead_traces` for more info.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
 
@@ -791,8 +802,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             Survey with no dead traces.
         """
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
-        if not self.is_dead_traces_marked:
-            self.mark_dead_traces(bar)
+        if not self.dead_traces_marked:
+            self.mark_dead_traces(limits=limits, bar=bar)
 
         self.filter(lambda dt: ~dt, cols=HDR_DEAD_TRACE, inplace=True)
         self.n_dead_traces = 0

@@ -78,7 +78,7 @@ class TestInit:
 
         # Assert that stats are not calculated
         assert survey.has_stats is False
-        assert survey.is_dead_traces_marked is False
+        assert survey.dead_traces_marked is False
 
     @pytest.mark.parametrize(["limits", "slice_limits"], LIMITS)
     def test_limits(self, segy_path, header_index, expected_index, header_cols, expected_cols,
@@ -94,7 +94,7 @@ class TestInit:
 
         # Assert that stats are not calculated
         assert survey.has_stats is False
-        assert survey.is_dead_traces_marked is False
+        assert survey.dead_traces_marked is False
 
         # Check that passing limits to init is identical to running set_limits method
         other = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name)
