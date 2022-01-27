@@ -6,9 +6,6 @@ from copy import deepcopy
 from textwrap import dedent
 from functools import partial
 
-import cv2
-import PIL
-from scipy import signal
 import segyio
 import numpy as np
 import pandas as pd
@@ -1305,8 +1302,9 @@ class Gather:
 
     @batch_method(target="t")
     def resample(self, new_sample_rate, mode='cubic', anti_aliasing=True):
+        """ docs """
         current_sample_rate = self.sample_rate
-        
+
         data = self.data
         if new_sample_rate > current_sample_rate and anti_aliasing:
             factor = new_sample_rate / current_sample_rate
