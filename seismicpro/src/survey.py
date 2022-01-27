@@ -800,17 +800,17 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             raise ValueError('Empty traces after setting limits.')
         return slice(*limits)
 
-    def remove_dead_traces(self, inplace=False, limits=None, bar=True):
+    def remove_dead_traces(self, limits=None, inplace=False, bar=True):
         """ Remove dead (constant) traces from the survey.
         Calls `mark_dead_traces` if it was not called before.
 
         Parameters
         ----------
-        inplace : bool, optional, defaults to False
-            Whether to remove traces inplace or return a new survey instance.
         limits : int or tuple or slice or None, optional, defaults to None
             Time range that is used to detect dead traces, if needed.
             See :meth:`Survey.mark_dead_traces` for more info.
+        inplace : bool, optional, defaults to False
+            Whether to remove traces inplace or return a new survey instance.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
 
