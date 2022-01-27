@@ -407,7 +407,7 @@ class Gather:
         trace_headers_dict = trace_headers.to_dict("index")
 
         with segyio.create(full_path, spec) as dump_handler:
-            # Copy binary headers from the parent SEG-Y file.
+            # Copy the binary header from the parent SEG-Y file and update it with samples data of the gather.
             # TODO: Check if other bin headers matter
             dump_handler.bin = parent_handler.bin
             dump_handler.bin[segyio.BinField.Interval] = sample_rate

@@ -96,10 +96,6 @@ def times_to_indices(times, samples, round=False):
     """Convert `times` to their indices in the increasing `samples` array. If some value of `times` is not present
     in `samples`, its index is linearly interpolated or extrapolated by the other indices of `samples`.
 
-    Notes
-    -----
-    1. The `samples` array must be increasing.
-
     Parameters
     ----------
     times : 1d np.ndarray of floats

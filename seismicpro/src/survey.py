@@ -166,7 +166,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         """Get sample rate from file headers"""
         bin_sample_rate = self.segy_handler.bin[segyio.BinField.Interval]
         trace_sample_rate = self.segy_handler.header[0][segyio.TraceField.TRACE_SAMPLE_INTERVAL]
-        # 0 means that sample rate is undefined, so it is subtracting from the set of sample rate values.
+        # 0 means that the sample rate is undefined, so it is removed from the set of sample rate values.
         union_sample_rate = {bin_sample_rate, trace_sample_rate} - {0}
         if len(union_sample_rate) != 1:
             error_msg = "Cannot infer sample rate from file headers: either both `Interval` (bytes 3217-3218 in the "\
