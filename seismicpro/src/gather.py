@@ -19,18 +19,9 @@ from .muting import Muter
 from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 from .decorators import batch_method, plotter
-from .utils import normalization, correction
+from .utils import normalization, correction, resize
 from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, set_ticks, as_dict,
                     make_origins, times_to_indices, indices_to_times)
-
-
-def pillow_resize(image, new_shape, resample):
-    img = PIL.Image.fromarray(image, mode='F')
-    new_img = img.resize(new_shape, resample=resample)
-    return np.array(new_img)
-
-def scipy_resize(image, new_shape):
-    return signal.resample(image, new_shape[0], axis=1)
 
 
 class Gather:
@@ -1311,24 +1302,21 @@ class Gather:
         axis_label = axis_label[0].upper() + axis_label[1:]
         set_ticks(ax, axis, axis_label, tick_labels, **ticker)
 
-    
-    INTERPOLATORS = {
-        'nearest' : partial(cv2.resize, interpolation=cv2.INTER_NEAREST),
-        'linear' : partial(cv2.resize, interpolation=cv2.INTER_LINEAR),
-        'cubic' : partial(cv2.resize, interpolation=cv2.INTER_CUBIC),
-#        'nearest' : partial(pillow_resize, resample=PIL.Image.NEAREST),
-#        ('pillow', 'linear') : partial(pillow_resize, resample=PIL.Image.BILINEAR),
-#        ('pillow', 'cubic') : partial(pillow_resize, resample=PIL.Image.BICUBIC),
-        'sinc' : partial(pillow_resize, resample=PIL.Image.LANCZOS),
-        'fft' : scipy_resize
-    }
 
-    @batch_method(target="for")
-    def resample(self, sample_rate, mode="cubic"):
-        new_samples = np.arange(0, self.samples[-1] + sample_rate, sample_rate)
+    @batch_method(target="t")
+    def resample(self, new_sample_rate, mode='cubic', anti_aliasing=True):
+        current_sample_rate = self.sample_rate
+        
+        data = self.data
+        if new_sample_rate > current_sample_rate and anti_aliasing:
+            factor = new_sample_rate / current_sample_rate
+            n = int(2 * 10 * factor)
+            b = signal.firwin(n+1, 1. / factor, window='hamming')
+            data = signal.upfirdn(b, data)
 
-        func = self.INTERPOLATORS[mode]
-        resampled = func(self.data, (len(new_samples), self.shape[0]))
+        new_samples = np.arange(0, self.samples[-1] + new_sample_rate, new_sample_rate)
+        func = resize.INTERPOLATORS[mode]
+        resampled = func(data, (len(new_samples), self.shape[0]))
 
         self.data = resampled
         self.samples = new_samples
