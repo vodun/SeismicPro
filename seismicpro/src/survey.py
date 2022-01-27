@@ -38,6 +38,12 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     reconstructed. All loaded headers are stored in a `headers` attribute as a `pd.DataFrame` with `header_index`
     columns set as its index.
 
+    The survey sample rate is calculated by two values stored in:
+    * bytes 3217-3218 of the binary header, called `Interval` in `segyio`,
+    * bytes 117-118 of the trace header of the first trace in the file, called `TRACE_SAMPLE_INTERVAL` in `segyio`.
+    If both of them are present and equal or only one of them is well-defined (non-zero), it is used as a sample rate.
+    Otherwise, an error is raised.
+
     Examples
     --------
     Create a survey of common source gathers and get a randomly selected gather from it:
@@ -117,8 +123,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self.segy_handler.mmap()
 
         # Get attributes from the source SEG-Y file.
-        self.file_samples = self.segy_handler.samples.astype(np.float32)
-        self.file_sample_rate = np.float32(segyio.dt(self.segy_handler) / 1000)
+        self.file_sample_rate = self._infer_sample_rate()
+        self.file_samples = (np.arange(self.segy_handler.trace.shape) * self.file_sample_rate).astype(np.float32)
 
         # Set samples and sample_rate according to passed `limits`.
         self.limits = None
@@ -149,6 +155,19 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self.std = None
         self.quantile_interpolator = None
         self.n_dead_traces = None
+
+    def _infer_sample_rate(self):
+        """Get sample rate from file headers"""
+        bin_sample_rate = self.segy_handler.bin[segyio.BinField.Interval]
+        trace_sample_rate = self.segy_handler.header[0][segyio.TraceField.TRACE_SAMPLE_INTERVAL]
+        # 0 means that the sample rate is undefined, so it is removed from the set of sample rate values.
+        union_sample_rate = {bin_sample_rate, trace_sample_rate} - {0}
+        if len(union_sample_rate) != 1:
+            error_msg = "Cannot infer sample rate from file headers: either both `Interval` (bytes 3217-3218 in the "\
+                        "binary header) and `TRACE_SAMPLE_INTERVAL` (bytes 117-118 in the header of the first trace) "\
+                        "are undefined or they have different values."
+            raise ValueError(error_msg)
+        return union_sample_rate.pop() / 1000 # Convert sample rate from microseconds to milliseconds
 
     @property
     def times(self):
@@ -430,14 +449,13 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
         limits = self.limits if limits is None else self._process_limits(limits)
         samples = self.file_samples[limits]
-        sample_rate = np.float32(self.file_sample_rate * limits.step)
         n_samples = len(samples)
 
         data = np.empty((len(trace_indices), n_samples), dtype=np.float32)
         for i, ix in enumerate(trace_indices):
             self.load_trace(buf=data[i], index=ix, limits=limits, trace_length=n_samples)
 
-        gather = Gather(headers=headers, data=data, samples=samples, sample_rate=sample_rate, survey=self)
+        gather = Gather(headers=headers, data=data, samples=samples, survey=self)
         return gather
 
     def get_gather(self, index, limits=None, copy_headers=True):
