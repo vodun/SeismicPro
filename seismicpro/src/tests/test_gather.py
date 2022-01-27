@@ -10,6 +10,12 @@ from seismicpro import Survey, StackingVelocity
 from seismicpro.src.utils import to_list
 
 
+# Constants
+ALL_ATTRS = ['data', 'headers', 'samples', 'sort_by', 'survey']
+COPY_IGNORE_ATTRS = ['data', 'headers', 'samples'] # Attrs that might not be copied during gather.copy
+NUMPY_ATTRS = ['data', 'samples']
+
+
 @pytest.fixture(scope='module')
 def survey(segy_path):
     """Create gather"""
@@ -47,12 +53,15 @@ def compare_gathers(first, second, drop_cols=None, check_types=False, same_surve
 
     assert np.allclose(first.data, second.data)
     assert np.allclose(first.samples, second.samples)
-    assert first.sample_rate == second.sample_rate
 
     if check_types:
-        numpy_attrs = ['data', 'samples', 'sample_rate']
-        for attr in numpy_attrs:
-            assert getattr(first, attr).dtype.type == getattr(second, attr).dtype.type
+        for attr in NUMPY_ATTRS:
+            first_item = getattr(first, attr)
+            second_item = getattr(second, attr)
+            if first_item is None or second_item is None:
+                assert first_item is second_item
+            else:
+                assert first_item.dtype.type == second_item.dtype.type
 
         assert np.all(first.headers.dtypes == second.headers.dtypes)
         assert isinstance(first.sort_by, type(second.sort_by))
@@ -60,6 +69,19 @@ def compare_gathers(first, second, drop_cols=None, check_types=False, same_surve
     assert first.sort_by == second.sort_by
     if same_survey:
         assert id(first.survey) == id(second.survey)
+
+
+def test_gather_attrs(gather):
+    """This test insist to recheck all tests if new attribute is added."""
+    attrs = gather.__dict__
+    for name, value in attrs.items():
+        assert name in ALL_ATTRS, f"Missing attribute {name} in gather tests."
+        if name in NUMPY_ATTRS:
+            assert type(value).__module__ == np.__name__, f"The {name} attribute is not related to numpy object and "\
+                                                           "must be deleted from NUMPY_ATTRS"
+        else:
+            assert type(value).__module__ != np.__name__, f"Missing attribute {name} in numpy related tests in gather"
+
 
 
 @pytest.mark.parametrize('key', ('offset', ['offset', 'FieldRecord']))
@@ -126,10 +148,8 @@ def test_gather_getitem_gathers(gather, key):
 @pytest.mark.parametrize('key', fail_keys)
 def test_gather_getitem_gather_fail(gather, key):
     """test_gather_getitem_gathers"""
-    if key in fail_keys:
-        pytest.raises(ValueError, gather.__getitem__, key)
-        pytest.raises(ValueError, gather.get_item, key)
-        pytest.xfail()
+    pytest.raises(ValueError, gather.__getitem__, key)
+    pytest.raises(ValueError, gather.get_item, key)
 
 
 @pytest.mark.parametrize('key', [[0, 3, 1]])
@@ -139,8 +159,29 @@ def test_gather_getitem_sort_by(gather, key):
     assert result_getitem.sort_by is None
 
 
-ignore_attrs = ['data', 'headers', 'samples', 'sample_rate']
-ignore =  [None] + ignore_attrs + sum([list(combinations(ignore_attrs, r=i)) for i in range(1, 4)], [])
+@pytest.mark.parametrize('key, sample_rate', [(slice(None), 2),
+                                              (slice(0, 8, 2), 4),
+                                              ([1, 2, 3], 2),
+                                              ([1, 3, 5], 4),
+                                              ([1, 2, 5], None),
+                                              (0, None),
+                                              ])
+def test_gather_getitem_sample_rate_changes(gather, key, sample_rate):
+    """test_gather_getitem_sample_rate_changes"""
+    result_getitem = gather[slice(None), key]
+    if sample_rate is not None:
+        assert result_getitem.sample_rate == sample_rate  # pylint: disable=protected-access
+    else:
+        with pytest.raises(ValueError):
+            _ = result_getitem.sample_rate
+    if sample_rate is not None:
+        assert result_getitem.sample_rate == sample_rate
+    else:
+        with pytest.raises(ValueError):
+            sample_rate = result_getitem.sample_rate
+
+
+ignore =  [None] + COPY_IGNORE_ATTRS + sum([list(combinations(COPY_IGNORE_ATTRS, r=i)) for i in range(1, 4)], [])
 @pytest.mark.parametrize('ignore', ignore)
 def test_gather_copy(gather, ignore):
     """test_gather_copy"""
@@ -149,7 +190,7 @@ def test_gather_copy(gather, ignore):
     for attr in copy_gather.__dict__:
         copy_id = id(getattr(copy_gather, attr))
         orig_id = id(getattr(gather, attr))
-        if attr in ignore_attrs and attr not in ignore:
+        if attr in COPY_IGNORE_ATTRS and attr not in ignore:
             assert copy_id != orig_id
         else:
             assert copy_id == orig_id
