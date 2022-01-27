@@ -8,6 +8,7 @@ import numpy as np
 
 from seismicpro import Survey, StackingVelocity
 from seismicpro.src.utils import to_list
+from seismicpro.src.const import HDR_FIRST_BREAK
 
 
 # Constants
@@ -20,8 +21,10 @@ NUMPY_ATTRS = ['data', 'samples']
 def survey(segy_path):
     """Create gather"""
     survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'],
-                    header_cols=['offset', 'FieldRecord'], collect_stats=True)
-    survey.headers['FirstBreak'] = np.random.randint(0, 1000, len(survey.headers))
+                    header_cols=['offset', 'FieldRecord'])
+    survey.remove_dead_traces(bar=False)
+    survey.collect_stats(bar=False)
+    survey.headers[HDR_FIRST_BREAK] = np.random.randint(0, 1000, len(survey.headers))
     return survey
 
 
@@ -222,8 +225,8 @@ def test_gather_scale_maxabs(gather, tracewise, use_global):
 
 def test_gather_mask_to_pick_and_pick_to_mask(gather):
     """test_gather_mask_to_pick"""
-    mask = gather.pick_to_mask(first_breaks_col='FirstBreak')
-    mask.mask_to_pick(first_breaks_col='FirstBreak', save_to=gather)
+    mask = gather.pick_to_mask(first_breaks_col=HDR_FIRST_BREAK)
+    mask.mask_to_pick(first_breaks_col=HDR_FIRST_BREAK, save_to=gather)
 
 def test_gather_get_coords(gather):
     """test_gather_get_coords"""

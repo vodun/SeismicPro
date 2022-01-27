@@ -19,7 +19,7 @@ from .decorators import batch_method, plotter
 from .utils import normalization, correction
 from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, set_ticks, as_dict,
                     make_origins, times_to_indices)
-
+from .const import HDR_FIRST_BREAK
 
 class Gather:
     """A class representing a single seismic gather.
@@ -632,7 +632,7 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", copy_src=False)
-    def pick_to_mask(self, first_breaks_col="FirstBreak"):
+    def pick_to_mask(self, first_breaks_col=HDR_FIRST_BREAK):
         """Convert first break times to a binary mask with the same shape as `gather.data` containing zeros before the
         first arrivals and ones after for each trace.
 
@@ -653,7 +653,7 @@ class Gather:
 
 
     @batch_method(target='for', args_to_unpack='save_to')
-    def mask_to_pick(self, threshold=0.5, first_breaks_col="FirstBreak", save_to=None):
+    def mask_to_pick(self, threshold=0.5, first_breaks_col=HDR_FIRST_BREAK, save_to=None):
         """Convert a first break mask saved in `data` into times of first arrivals.
 
         For a given trace each value of the mask represents the probability that the corresponding index is greater
@@ -686,7 +686,7 @@ class Gather:
         return self
 
     @batch_method(target='for', use_lock=True)
-    def dump_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak',
+    def dump_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col=HDR_FIRST_BREAK,
                           col_space=8, encoding="UTF-8"):
         """ Save first break picking times to a file.
 
@@ -757,7 +757,7 @@ class Gather:
             raise ValueError(f"Unknown mode {mode}")
 
         if mode == "first_breaks":
-            first_breaks_col = kwargs.pop("first_breaks_col", "FirstBreak")
+            first_breaks_col = kwargs.pop("first_breaks_col", HDR_FIRST_BREAK)
             return builder(offsets=self.offsets, times=self[first_breaks_col], **kwargs)
         return builder(**kwargs)
 
