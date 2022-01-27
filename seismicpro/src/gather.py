@@ -14,7 +14,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from .cropped_gather import CroppedGather
 from .muting import Muter
 from .semblance import Semblance, ResidualSemblance
-from .velocity_cube import StackingVelocity, VelocityCube
+from .stacking_velocity import StackingVelocity, VelocityCube
 from .decorators import batch_method, plotter
 from .utils import normalization, correction
 from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, add_colorbar, set_ticks,

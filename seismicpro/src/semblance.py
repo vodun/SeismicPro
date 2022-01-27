@@ -6,8 +6,7 @@ from numba import njit, prange
 from matplotlib import colors as mcolors
 
 from .decorators import batch_method, plotter
-from .velocity_model import calculate_stacking_velocity
-from .velocity_cube import StackingVelocity
+from .stacking_velocity import StackingVelocity, calculate_stacking_velocity
 from .utils import as_dict, add_colorbar, set_ticks
 from .utils.correction import get_hodograph
 
