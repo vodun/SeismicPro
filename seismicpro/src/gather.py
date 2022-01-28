@@ -6,9 +6,11 @@ from copy import deepcopy
 from textwrap import dedent
 from functools import partial
 
+import cv2
 import segyio
 import numpy as np
 import pandas as pd
+from scipy import signal
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .cropped_gather import CroppedGather
@@ -1301,18 +1303,42 @@ class Gather:
 
 
     @batch_method(target="t")
+    def bandpass(self, cutoff, n, window='hamm'):
+        fir = scipy.firwin(n, cutoff, window=window, fs=1000 / gather.sample_rate, pass_zero='bandpass', **kwargs)
+        self.data = cv2.filter2D(gather.data, ddepth=-1, kernel=kernel.reshape(1, -1))
+        return self
+
+    @batch_method(target="t")
+    def lowpass(self, cutoff, n, window='hamm'):
+        fir = scipy.firwin(n, cutoff, window=window, fs=1000 / gather.sample_rate, pass_zero='lowpass', **kwargs)
+        self.data = cv2.filter2D(gather.data, ddepth=-1, kernel=kernel.reshape(1, -1))
+        return self
+
+    @batch_method(target="t")
+    def highpass(self, cutoff, n, window='hamm'):
+        kernel = scipy.firwin(n, cutoff, window=window, fs=1000 / gather.sample_rate, pass_zero='highpass', **kwargs)
+        self.data = cv2.filter2D(gather.data, ddepth=-1, kernel=kernel.reshape(1, -1))
+        return self
+
+    @batch_method(target="t")
+    def apply_fir_filter(self, type, n, cutoff, window='hamm', **kwargs):
+        fir = scipy.firwin(numtaps, cutoff, window=window, fs=1000 / gather.sample_rate, pass_zero=type, **kwargs)
+        self.data = cv2.filter2D(gather.data, ddepth=-1, kernel=kernel.reshape(1, -1))
+        return self
+    
+    @batch_method(target="t")
     def resample(self, new_sample_rate, mode='cubic', anti_aliasing=True):
         """ docs """
         current_sample_rate = self.sample_rate
 
-        data = self.data
         if new_sample_rate > current_sample_rate and anti_aliasing:
             factor = new_sample_rate / current_sample_rate
             n = int(2 * 10 * factor)
-            b = signal.firwin(n+1, 1. / factor, window='hamming')
-            data = signal.upfirdn(b, data)
+            nyq = 1000 / (2 * new_sample_rate)
+            self.lowpass(0.8 * nyq, n)
 
-        new_samples = np.arange(0, self.samples[-1] + new_sample_rate, new_sample_rate)
+        data = self.data
+        new_samples = np.arange(self.samples[0], self.samples[-1] + new_sample_rate, new_sample_rate)
         func = resize.INTERPOLATORS[mode]
         resampled = func(data, (len(new_samples), self.shape[0]))
 
