@@ -6,7 +6,7 @@ from collections import defaultdict
 
 import matplotlib.pyplot as plt
 
-from .utils import to_list, save_figure, set_text_formatting, as_dict
+from .utils import to_list, save_figure, as_dict
 from ..batchflow import action, inbatch_parallel
 
 
@@ -57,7 +57,6 @@ def plotter(figsize, args_to_unpack=None):
     def decorator(method):
         @wraps(method)
         def plot(*args, **kwargs):
-            kwargs = set_text_formatting(kwargs)
             if "ax" in kwargs:
                 return method(*args, **kwargs)
             fig, ax = plt.subplots(1, 1, figsize=kwargs.pop("figsize", figsize))

@@ -8,7 +8,7 @@ from matplotlib import colors as mcolors
 from .decorators import batch_method, plotter
 from .velocity_model import calculate_stacking_velocity
 from .velocity_cube import StackingVelocity
-from .utils import set_ticks, as_dict
+from .utils import as_dict, set_ticks, set_text_formatting
 from .utils.correction import get_hodograph
 
 
@@ -327,6 +327,8 @@ class Semblance(BaseSemblance):
         semblance : Semblance
             Self unchanged.
         """
+        # Cast text-related parameters to dicts and add text formatting parameters from kwargs to each of them
+        (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
         # Add a stacking velocity line on the plot
         stacking_times_ix, stacking_velocities_ix = None, None
         if stacking_velocity is not None:
@@ -589,6 +591,8 @@ class ResidualSemblance(BaseSemblance):
         semblance : ResidualSemblance
             Self unchanged.
         """
+        # Cast text-related parameters to dicts and add text formatting parameters from kwargs to each of them
+        (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
         x_ticklabels = np.linspace(-self.relative_margin, self.relative_margin, self.residual_semblance.shape[1]) * 100
 
         stacking_times = self.stacking_velocity.times if self.stacking_velocity.times is not None else self.times

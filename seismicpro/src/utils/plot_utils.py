@@ -15,20 +15,17 @@ def save_figure(fig, fname, dpi=100, bbox_inches="tight", pad_inches=0.1, **kwar
     """Save the given figure. All `args` and `kwargs` are passed directly into `matplotlib.pyplot.savefig`."""
     fig.savefig(fname, dpi=dpi, bbox_inches=bbox_inches, pad_inches=pad_inches, **kwargs)
 
-
-def set_text_formatting(kwargs):
-    """Pop text formatting args from `kwargs` and set them as defaults for 'title', 'x_ticker' and 'y_ticker'."""
+def set_text_formatting(*args, **kwargs):
+    """Pop text formatting args from `kwargs` and set them as defaults for args transformed to dickts."""
     FORMAT_ARGS = {'fontsize', 'size', 'fontfamily', 'family', 'fontweight', 'weight'}
-    TEXT_ARGS = {'title', 'x_ticker', 'y_ticker'}
 
     global_formatting = {arg: kwargs.pop(arg) for arg in FORMAT_ARGS if arg in kwargs}
-    text_args = {arg: {**global_formatting, **as_dict(kwargs.pop(arg), key="label")}
-                 for arg in TEXT_ARGS if arg in kwargs}
-    return {**kwargs, **text_args}
+    text_args = ({**global_formatting, **({} if arg is None else as_dict(arg, key="label"))}
+                  for arg in args)
+    return text_args, kwargs
 
-
-def set_ticks(ax, axis, axis_label, tick_labels, num=None, step_ticks=None,
-              step_labels=None, round_to=0, tick_range=None, **kwargs):
+def set_ticks(ax, axis, label, tick_labels, num=None, step_ticks=None,
+              step_labels=None, tick_range=None, round_to=0, **kwargs):
     """Set ticks and labels for `x` or `y` axis depending on the `axis`.
 
     Parameters
@@ -59,8 +56,8 @@ def set_ticks(ax, axis, axis_label, tick_labels, num=None, step_ticks=None,
         "time": " (ms)",
         "offset": " (m)",
     }
-    axis_label += UNITS.get(axis_label, "")
-    axis_label = str.capitalize(axis_label)
+    label += UNITS.get(label, "")
+    label = str.capitalize(label)
 
     ax_obj = getattr(ax, f"{axis}axis")
     # The object drawn can have single tick label (e.g., for single-trace `gather`) which leads to interp1d being
@@ -76,7 +73,7 @@ def set_ticks(ax, axis, axis_label, tick_labels, num=None, step_ticks=None,
     locator, formatter = _process_ticks(labels=tick_labels, num=num, step_ticks=step_ticks, step_labels=step_labels,
                                         round_to=round_to, tick_interpolator=tick_interpolator)
     rotation_kwargs = _pop_rotation_kwargs(kwargs)
-    ax_obj.set_label_text(axis_label, **kwargs)
+    ax_obj.set_label_text(label, **kwargs)
     ax_obj.set_ticklabels([], **kwargs, **rotation_kwargs)
     ax_obj.set_major_locator(locator)
     ax_obj.set_major_formatter(formatter)

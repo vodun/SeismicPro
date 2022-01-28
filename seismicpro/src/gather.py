@@ -4,7 +4,6 @@ import os
 import warnings
 from copy import deepcopy
 from textwrap import dedent
-from functools import partial
 
 import segyio
 import numpy as np
@@ -17,7 +16,8 @@ from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 from .decorators import batch_method, plotter
 from .utils import normalization, correction
-from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, set_ticks, as_dict, make_origins
+from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, make_origins
+from .utils import set_ticks, set_text_formatting
 
 class Gather:
     """A class representing a single seismic gather.
@@ -1129,73 +1129,50 @@ class Gather:
             If `event_headers` argument has the wrong format or given outlier processing mode is unknown.
             If `x_ticker` or `y_ticker` has the wrong format.
         """
-        if mode == "hist":
-            x_ticker = as_dict(("amplitude" if x_ticker is None else x_ticker), key="label")
-            y_ticker = as_dict(("counts" if y_ticker is None else y_ticker), key="label")
-            self._plot_histogram(ax=ax, title=title, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
-        else:
-            if x_ticker is None:
-                x_ticker = self.sort_by if self.sort_by is not None else "index"
-            x_ticker = as_dict(x_ticker, key="label")
-            y_ticker = as_dict(("time" if y_ticker is None else y_ticker), key="label")
-            self._plot_traces(mode, title=title, x_ticker=x_ticker, y_ticker=y_ticker, ax=ax, **kwargs)
-        return self
-
-    def _plot_histogram(self, bins=50, hist_header=None, log=False, title=None,
-                        x_ticker=None, y_ticker=None, ax=None, grid=False, **kwargs):
-        """ TODO """
-        data = self.data.ravel() if hist_header is None else self.headers[hist_header].values
-
-        counts, bins, _ = ax.hist(data, bins=bins, **kwargs)
-        ax.set_title(title)
-
-        for axis, ticker in [("x", x_ticker), ("y", y_ticker)]:
-            axis_label = ticker.pop("label")
-            if not isinstance(axis_label, str):
-                raise ValueError(f"{axis} axis ticker must be str, but {type(axis_label)} passed")
-            # Get tick_labels depending on axis and its label
-            tick_labels = np.arange(0, counts.max()) if axis=="y" else (bins[:-1] + np.diff(bins) / 2)
-            set_ticks(ax, axis, axis_label, tick_labels, **ticker)
-
-        ax.grid(grid)
-        if log:
-            ax.set_yscale("log")
-
-    def _plot_traces(self, mode, event_headers=None, top_header=None,
-                     title=None, x_ticker=None, y_ticker=None, ax=None, **kwargs):
-        """ TODO """
-        # Make the axis divisible to further plot colorbar and header subplot
-        divider = make_axes_locatable(ax)
+        # Cast text-related parameters to dicts and add text formatting parameters from kwargs to each of them
+        (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
 
         # Plot the gather depending on the mode passed
         plotters_dict = {
-            "seismogram": partial(self._plot_seismogram, divider=divider),
+            "seismogram": self._plot_seismogram,
             "wiggle": self._plot_wiggle,
+            "hist": self._plot_histogram,
         }
         if mode not in plotters_dict:
             raise ValueError(f"Unknown mode {mode}")
-        plotters_dict[mode](ax, **kwargs)
+        ax = plotters_dict[mode](ax, x_ticker, y_ticker, **kwargs)
+        ax.set_title(**{'label': None, **title})
+        return self
 
-        # Add headers scatter plot if needed
-        if event_headers is not None:
-            self._plot_headers(ax, event_headers)
+    def _plot_histogram(self, bins=50, hist_header=None, log=False, x_ticker=None, y_ticker=None, grid=False,
+                        ax=None, **kwargs):
+        """ TODO """
+        data, x_label = (
+            (self.data.ravel(), "amplitude") if hist_header is None else (self[hist_header].ravel(), hist_header)
+            )
 
-        # Add a top subplot for given header if needed and set plot title
-        top_ax = ax
-        if top_header is not None:
-            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_header].ravel())
-        top_ax.set_title(**as_dict(title, key='label'))
+        counts, bins, _ = ax.hist(data, bins=bins, **kwargs)
 
-        # Wiggle plot requires custom data interval for correct tick setting
-        if mode == "wiggle":
-            x_ticker.update({"tick_range":(0, self.n_traces-1)})
+        for axis, ticker in [("x", x_ticker), ("y", y_ticker)]:
+            axis_label = ticker.get("label", None)
+            if axis_label is None:
+                axis_label = "counts" if axis=="y" else x_label
+            if not isinstance(axis_label, str):
+                raise ValueError(f"{axis} axis ticker must be str, but {type(axis_label)} passed")
+            tick_labels = np.arange(0, counts.max()) if axis=="y" else (bins[:-1] + np.diff(bins) / 2)
+            ticker.update({"tick_labels": tick_labels, "label": axis_label})
+            set_ticks(ax, axis, **ticker)
 
-        # Set axis ticks
-        self._set_ticks(ax, axis="x", ticker=x_ticker)
-        self._set_ticks(ax, axis="y", ticker=y_ticker)
+        ax.grid(grid)
+        ax.set_yscale("log" if log else "linear")
+        return ax
 
-    def _plot_seismogram(self, ax, divider, colorbar=False, qvmin=0.1, qvmax=0.9, **kwargs):
+    def _plot_seismogram(self, ax, colorbar=False, qvmin=0.1, qvmax=0.9, x_ticker=None, y_ticker=None,
+                         event_headers=None, top_header=None, **kwargs):
         """Plot the gather as a 2d grayscale image of seismic traces."""
+        # Make the axis divisible to further plot colorbar and header subplot
+        divider = make_axes_locatable(ax)
+
         vmin, vmax = self.get_quantile([qvmin, qvmax])
         kwargs = {"cmap": "gray", "aspect": "auto", "vmin": vmin, "vmax": vmax, **kwargs}
         img = ax.imshow(self.data.T, **kwargs)
@@ -1206,8 +1183,26 @@ class Gather:
             cax = divider.append_axes("right", size="5%", pad=0.05)
             ax.figure.colorbar(img, cax=cax, **colorbar)
 
-    def _plot_wiggle(self, ax, std=0.5, color="black"):
+        # Add headers scatter plot if needed
+        if event_headers is not None:
+            self._plot_headers(ax, event_headers)
+
+        # Add a top subplot for given header if needed and set plot title
+        top_ax = ax
+        if top_header is not None:
+            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_header].ravel())
+
+        # Set axis ticks
+        self._set_ticks(ax, axis="x", ticker=x_ticker)
+        self._set_ticks(ax, axis="y", ticker=y_ticker)
+        return top_ax
+
+    def _plot_wiggle(self, ax, std=0.5, color="black", x_ticker=None, y_ticker=None,
+                     event_headers=None, top_header=None, **kwargs):
         """Plot the gather as an amplitude vs time plot for each trace."""
+        # Make the axis divisible to further plot colorbar and header subplot
+        divider = make_axes_locatable(ax)
+
         color = to_list(color)
         if len(color) == 1:
             color = color * self.n_traces
@@ -1217,9 +1212,27 @@ class Gather:
         y_coords = np.arange(self.n_samples)
         traces = std * (self.data - self.data.mean(axis=1, keepdims=True)) / (np.std(self.data) + 1e-10)
         for i, (trace, col) in enumerate(zip(traces, color)):
-            ax.plot(i + trace, y_coords, color=col)
-            ax.fill_betweenx(y_coords, i, i + trace, where=(trace > 0), color=col)
+            ax.plot(i + trace, y_coords, color=col, **kwargs)
+            ax.fill_betweenx(y_coords, i, i + trace, where=(trace > 0), color=col, **kwargs)
         ax.invert_yaxis()
+
+        # Add headers scatter plot if needed
+        if event_headers is not None:
+            self._plot_headers(ax, event_headers)
+
+        # Add a top subplot for given header if needed and set plot title
+        top_ax = ax
+        if top_header is not None:
+            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_header].ravel())
+
+        # Wiggle plot requires custom data interval for correct tick setting
+        x_ticker.update({"tick_range":(0, self.n_traces-1)})
+
+        # Set axis ticks
+        self._set_ticks(ax, axis="x", ticker=x_ticker)
+        self._set_ticks(ax, axis="y", ticker=y_ticker)
+
+        return top_ax
 
     @staticmethod
     def _parse_headers_kwargs(headers_kwargs, headers_key):
@@ -1305,9 +1318,9 @@ class Gather:
 
     def _set_ticks(self, ax, axis, ticker):
         """Set ticks, their labels and an axis label for a given axis."""
-        axis_label = ticker.pop("label")
-        if not isinstance(axis_label, str):
-            raise ValueError(f"{axis} axis ticker must be str, but {type(axis_label)} passed")
+        axis_label = ticker.get("label", None)
+        if axis_label is None:
+            axis_label = "time" if axis=="y" else (self.sort_by if self.sort_by is not None else "index")
 
         # Get tick_labels depending on axis and its label
         if axis == "x":
@@ -1317,4 +1330,5 @@ class Gather:
         else:
             raise ValueError(f"Unknown axis {axis}")
 
-        set_ticks(ax, axis, axis_label, tick_labels, **ticker)
+        ticker.update({"tick_labels": tick_labels, "label": axis_label})
+        set_ticks(ax, axis, **ticker)
