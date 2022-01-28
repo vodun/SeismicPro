@@ -5,10 +5,11 @@ import numpy as np
 from numba import njit, prange
 from matplotlib import colors as mcolors
 
-from .decorators import batch_method, plotter
-from .stacking_velocity import StackingVelocity, calculate_stacking_velocity
-from .utils import as_dict, add_colorbar, set_ticks
-from .utils.correction import get_hodograph
+from ..decorators import batch_method, plotter
+from ..stacking_velocity import StackingVelocity, calculate_stacking_velocity
+from ..utils import as_dict, add_colorbar, set_ticks
+from ..utils.correction import get_hodograph
+from .interactive_plot import SemblancePlot
 
 
 class BaseSemblance:
@@ -340,6 +341,9 @@ class Semblance(BaseSemblance):
                      stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
                      colorbar=colorbar, **kwargs)
         return self
+
+    def plot_interactive(self, stacking_velocity=None, title="Semblance", x_ticker=None, y_ticker=None, **kwargs):
+        SemblancePlot(self, stacking_velocity, title, x_ticker, y_ticker, **kwargs).plot()
 
     @batch_method(target="for", args_to_unpack="other")
     def calculate_signal_leakage(self, other):

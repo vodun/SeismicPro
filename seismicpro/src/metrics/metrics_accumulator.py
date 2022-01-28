@@ -7,7 +7,7 @@ import pandas as pd
 
 from .metric_map import MetricMap
 from ..utils import to_list
-from ..batchflow.models.metrics import Metrics
+from ...batchflow.models.metrics import Metrics
 
 
 class MetricsAccumulator(Metrics):
