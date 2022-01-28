@@ -12,8 +12,9 @@ import pandas as pd
 from tqdm.auto import tqdm
 from scipy.interpolate import interp1d
 
-from .gather import Gather
-from .utils import to_list, maybe_copy, calculate_stats, create_supergather_index
+from ..gather import Gather
+from ..utils import to_list, maybe_copy, calculate_stats, create_supergather_index
+from .interactive_plot import SurveyPlot
 
 
 class Survey:  # pylint: disable=too-many-instance-attributes
@@ -839,3 +840,6 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self.headers.set_index(index_cols, inplace=True)
         self.headers.sort_index(kind="stable", inplace=True)
         return self
+
+    def plot_interactive(self, sort_by=None):
+        SurveyPlot(self, sort_by).plot()
