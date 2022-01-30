@@ -1144,31 +1144,21 @@ class Gather:
         ax.set_title(**{'label': None, **title})
         return self
 
-    def _plot_histogram(self, bins=50, hist_header=None, log=False, x_ticker=None, y_ticker=None, grid=False,
+    def _plot_histogram(self, bins=50, x_tick_src="amplitude", log=False, x_ticker=None, y_ticker=None, grid=False,
                         ax=None, **kwargs):
         """ TODO """
-        data, x_label = (
-            (self.data.ravel(), "amplitude") if hist_header is None else (self[hist_header].ravel(), hist_header)
-            )
+        data = self.data if x_tick_src=="amplitude" else self[x_tick_src]
+        counts, bins, _ = ax.hist(data.ravel(), bins=bins, **kwargs)
 
-        counts, bins, _ = ax.hist(data, bins=bins, **kwargs)
-
-        for axis, ticker in [("x", x_ticker), ("y", y_ticker)]:
-            axis_label = ticker.get("label", None)
-            if axis_label is None:
-                axis_label = "counts" if axis=="y" else x_label
-            if not isinstance(axis_label, str):
-                raise ValueError(f"{axis} axis ticker must be str, but {type(axis_label)} passed")
-            tick_labels = np.arange(0, counts.max()) if axis=="y" else (bins[:-1] + np.diff(bins) / 2)
-            ticker.update({"tick_labels": tick_labels, "label": axis_label})
-            set_ticks(ax, axis, **ticker)
+        set_ticks(ax, "x", tick_labels=(bins[:-1] + np.diff(bins) / 2), **{"label": x_tick_src, **x_ticker})
+        set_ticks(ax, "y", tick_labels=np.arange(0, counts.max()), **{"label": "counts", **y_ticker})
 
         ax.grid(grid)
         ax.set_yscale("log" if log else "linear")
         return ax
 
     def _plot_seismogram(self, ax, colorbar=False, qvmin=0.1, qvmax=0.9, x_ticker=None, y_ticker=None,
-                         event_headers=None, top_header=None, **kwargs):
+                         x_tick_src=None, y_tick_src='time', event_headers=None, top_header=None, **kwargs):
         """Plot the gather as a 2d grayscale image of seismic traces."""
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
@@ -1182,23 +1172,10 @@ class Gather:
             colorbar = {} if colorbar is True else colorbar
             cax = divider.append_axes("right", size="5%", pad=0.05)
             ax.figure.colorbar(img, cax=cax, **colorbar)
+        return self._finalize_plot(ax, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
-        # Add headers scatter plot if needed
-        if event_headers is not None:
-            self._plot_headers(ax, event_headers)
-
-        # Add a top subplot for given header if needed and set plot title
-        top_ax = ax
-        if top_header is not None:
-            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_header].ravel())
-
-        # Set axis ticks
-        self._set_ticks(ax, axis="x", ticker=x_ticker)
-        self._set_ticks(ax, axis="y", ticker=y_ticker)
-        return top_ax
-
-    def _plot_wiggle(self, ax, std=0.5, color="black", x_ticker=None, y_ticker=None,
-                     event_headers=None, top_header=None, **kwargs):
+    def _plot_wiggle(self, ax, std=0.5, color="black", x_ticker=None, y_ticker=None, x_tick_src=None,
+                     y_tick_src='time', event_headers=None, top_header=None, **kwargs):
         """Plot the gather as an amplitude vs time plot for each trace."""
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
@@ -1216,6 +1193,11 @@ class Gather:
             ax.fill_betweenx(y_coords, i, i + trace, where=(trace > 0), color=col, **kwargs)
         ax.invert_yaxis()
 
+        # Wiggle plot requires custom data interval for correct tick setting
+        x_ticker.update({"tick_range":(0, self.n_traces-1)})
+        return self._finalize_plot(ax, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
+
+    def _finalize_plot(self, ax, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src):
         # Add headers scatter plot if needed
         if event_headers is not None:
             self._plot_headers(ax, event_headers)
@@ -1225,12 +1207,10 @@ class Gather:
         if top_header is not None:
             top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_header].ravel())
 
-        # Wiggle plot requires custom data interval for correct tick setting
-        x_ticker.update({"tick_range":(0, self.n_traces-1)})
-
         # Set axis ticks
-        self._set_ticks(ax, axis="x", ticker=x_ticker)
-        self._set_ticks(ax, axis="y", ticker=y_ticker)
+        x_tick_src = (self.sort_by if self.sort_by is not None else "index") if x_tick_src is None else x_tick_src
+        self._set_ticks(ax, axis="x", axis_value=x_tick_src, ticker=x_ticker)
+        self._set_ticks(ax, axis="y", axis_value=y_tick_src, ticker=y_ticker)
 
         return top_ax
 
@@ -1316,19 +1296,13 @@ class Gather:
             return np.arange(self.n_samples)
         raise ValueError(f"y axis label must be either `time` or `samples`, not {axis_label}")
 
-    def _set_ticks(self, ax, axis, ticker):
+    def _set_ticks(self, ax, axis, tick_src, ticker):
         """Set ticks, their labels and an axis label for a given axis."""
-        axis_label = ticker.get("label", None)
-        if axis_label is None:
-            axis_label = "time" if axis=="y" else (self.sort_by if self.sort_by is not None else "index")
-
         # Get tick_labels depending on axis and its label
         if axis == "x":
-            tick_labels = self._get_x_ticks(axis_label)
+            tick_labels = self._get_x_ticks(tick_src)
         elif axis == "y":
-            tick_labels = self._get_y_ticks(axis_label)
+            tick_labels = self._get_y_ticks(tick_src)
         else:
             raise ValueError(f"Unknown axis {axis}")
-
-        ticker.update({"tick_labels": tick_labels, "label": axis_label})
-        set_ticks(ax, axis, **ticker)
+        set_ticks(ax, axis, tick_labels, {"label": tick_src, **ticker})

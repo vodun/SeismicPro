@@ -161,6 +161,9 @@ class BaseSemblance:
         kwargs : misc, optional
             Additional common keyword arguments for `x_ticker` and `y_tickers`.
         """
+        # Cast text-related parameters to dicts and add text formatting parameters from kwargs to each of them
+        (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
+
         # Split the range of semblance amplitudes into 16 levels on a log scale,
         # that will further be used as colormap bins
         max_val = np.max(semblance)
@@ -184,10 +187,8 @@ class BaseSemblance:
         if grid:
             ax.grid(c='k')
 
-        x_ticker = kwargs if x_ticker is None else {**kwargs, **x_ticker}
-        y_ticker = kwargs if y_ticker is None else {**kwargs, **y_ticker}
         set_ticks(ax, "x", x_label, x_ticklabels, **x_ticker)
-        set_ticks(ax, "y", "Time (ms)", y_ticklabels, **y_ticker)
+        set_ticks(ax, "y", "Time", y_ticklabels, **y_ticker)
 
 
 class Semblance(BaseSemblance):
@@ -327,8 +328,6 @@ class Semblance(BaseSemblance):
         semblance : Semblance
             Self unchanged.
         """
-        # Cast text-related parameters to dicts and add text formatting parameters from kwargs to each of them
-        (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
         # Add a stacking velocity line on the plot
         stacking_times_ix, stacking_velocities_ix = None, None
         if stacking_velocity is not None:
@@ -591,8 +590,6 @@ class ResidualSemblance(BaseSemblance):
         semblance : ResidualSemblance
             Self unchanged.
         """
-        # Cast text-related parameters to dicts and add text formatting parameters from kwargs to each of them
-        (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
         x_ticklabels = np.linspace(-self.relative_margin, self.relative_margin, self.residual_semblance.shape[1]) * 100
 
         stacking_times = self.stacking_velocity.times if self.stacking_velocity.times is not None else self.times
