@@ -1140,17 +1140,17 @@ class Gather:
         }
         if mode not in plotters_dict:
             raise ValueError(f"Unknown mode {mode}")
-        ax = plotters_dict[mode](ax, x_ticker, y_ticker, **kwargs)
+        ax = plotters_dict[mode](ax, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
         ax.set_title(**{'label': None, **title})
         return self
 
-    def _plot_histogram(self, bins=50, x_tick_src="amplitude", log=False, x_ticker=None, y_ticker=None, grid=False,
-                        ax=None, **kwargs):
+    def _plot_histogram(self, ax, bins=50, x_tick_src="amplitude", log=False, x_ticker=None, y_ticker=None, grid=False,
+                        **kwargs):
         """ TODO """
         data = self.data if x_tick_src=="amplitude" else self[x_tick_src]
         counts, bins, _ = ax.hist(data.ravel(), bins=bins, **kwargs)
-
-        set_ticks(ax, "x", tick_labels=(bins[:-1] + np.diff(bins) / 2), **{"label": x_tick_src, **x_ticker})
+        set_ticks(ax, "x", tick_labels=(bins[:-1] + np.diff(bins) / 2),
+                  **{"label": x_tick_src, 'round_to': None, **x_ticker})
         set_ticks(ax, "y", tick_labels=np.arange(0, counts.max()), **{"label": "counts", **y_ticker})
 
         ax.grid(grid)
@@ -1209,8 +1209,8 @@ class Gather:
 
         # Set axis ticks
         x_tick_src = (self.sort_by if self.sort_by is not None else "index") if x_tick_src is None else x_tick_src
-        self._set_ticks(ax, axis="x", axis_value=x_tick_src, ticker=x_ticker)
-        self._set_ticks(ax, axis="y", axis_value=y_tick_src, ticker=y_ticker)
+        self._set_ticks(ax, axis="x", tick_src=x_tick_src, ticker=x_ticker)
+        self._set_ticks(ax, axis="y", tick_src=y_tick_src, ticker=y_ticker)
 
         return top_ax
 
@@ -1305,4 +1305,4 @@ class Gather:
             tick_labels = self._get_y_ticks(tick_src)
         else:
             raise ValueError(f"Unknown axis {axis}")
-        set_ticks(ax, axis, tick_labels, {"label": tick_src, **ticker})
+        set_ticks(ax, axis, tick_labels=tick_labels, **{"label": tick_src, **ticker})

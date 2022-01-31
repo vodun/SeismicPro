@@ -62,8 +62,9 @@ def set_ticks(ax, axis, label='', tick_labels=None, num=None, step_ticks=None,
     ax_obj = getattr(ax, f"{axis}axis")
     rotation_kwargs = _pop_rotation_kwargs(kwargs)
     ax_obj.set_label_text(label, **kwargs)
-    ax_obj.set_tick_params(**kwargs, **rotation_kwargs)
-    if tick_labels is not None:
+    if tick_labels is None:
+        locator, formatter = ticker.AutoLocator(), ticker.ScalarFormatter()
+    else:
         # The object drawn can have single tick label (e.g., for single-trace `gather`) which leads to interp1d being
         # unable to initiate since both x and y should have at least 2 entries. Repeating this single label solves the
         # issue.
@@ -77,10 +78,9 @@ def set_ticks(ax, axis, label='', tick_labels=None, num=None, step_ticks=None,
                                      kind="nearest", bounds_error=False)
         locator, formatter = _process_ticks(labels=tick_labels, num=num, step_ticks=step_ticks, step_labels=step_labels,
                                             round_to=round_to, tick_interpolator=tick_interpolator)
-
-        ax_obj.set_ticklabels([])
-        ax_obj.set_major_locator(locator)
-        ax_obj.set_major_formatter(formatter)
+    ax_obj.set_ticklabels([], **kwargs, **rotation_kwargs)
+    ax_obj.set_major_locator(locator)
+    ax_obj.set_major_formatter(formatter)
 
 
 def _process_ticks(labels, num, step_ticks, step_labels, round_to, tick_interpolator):
