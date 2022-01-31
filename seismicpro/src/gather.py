@@ -16,8 +16,8 @@ from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 from .decorators import batch_method, plotter
 from .utils import normalization, correction
-from .utils import to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, make_origins
-from .utils import set_ticks, set_text_formatting
+from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins,
+                    set_ticks, set_text_formatting)
 
 class Gather:
     """A class representing a single seismic gather.
