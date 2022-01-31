@@ -18,6 +18,7 @@ from .decorators import batch_method, plotter
 from .utils import normalization, correction
 from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins,
                     set_ticks, set_text_formatting)
+from .const import HDR_FIRST_BREAK
 
 class Gather:
     """A class representing a single seismic gather.
@@ -49,8 +50,6 @@ class Gather:
         Trace data of the gather with (num_traces, trace_lenght) layout.
     samples : 1d np.ndarray of floats
         Recording time for each trace value. Measured in milliseconds.
-    sample_rate : float
-        Sample rate of seismic traces. Measured in milliseconds.
     survey : Survey
         A survey that generated the gather.
 
@@ -69,13 +68,20 @@ class Gather:
     sort_by : None or str
         Headers column that was used for gather sorting. If `None`, no sorting was performed.
     """
-    def __init__(self, headers, data, samples, sample_rate, survey):
+    def __init__(self, headers, data, samples, survey):
         self.headers = headers
         self.data = data
         self.samples = samples
-        self.sample_rate = sample_rate
         self.survey = survey
         self.sort_by = None
+
+    @property
+    def sample_rate(self):
+        """"float: Sample rate of seismic traces. Measured in milliseconds."""
+        sample_rate = np.unique(np.diff(self.samples))
+        if len(sample_rate) == 1:
+            return sample_rate.item()
+        raise ValueError("`sample_rate` is not defined, since `samples` are not regular.")
 
     @property
     def times(self):
@@ -338,7 +344,13 @@ class Gather:
 
         Notes
         -----
-        All binary and textual headers are copied from the parent SEG-Y file unchanged.
+        1. All textual and almost all binary headers are copied from the parent SEG-Y file unchanged except for the
+           following binary header fields that are inferred by the current gather:
+           1) Sample rate, bytes 3217-3218, called `Interval` in `segyio`,
+           2) Number of samples per data trace, bytes 3221-3222, called `Samples` in `segyio`,
+           3) Extended number of samples per data trace, bytes 3269-3272, called `ExtSamples` in `segyio`.
+        2. Bytes 117-118 of trace header (called `TRACE_SAMPLE_INTERVAL` in `segyio`) for each trace is filled with
+           sample rate of the current gather.
 
         Parameters
         ----------
@@ -379,7 +391,7 @@ class Gather:
         spec.tracecount = self.n_traces
 
         trace_headers = self.headers.reset_index()
-
+        sample_rate = np.int32(self.sample_rate * 1000) # Convert to microseconds
         # Remember ordinal numbers of traces in the parent SEG-Y file to further copy their headers
         # and reset them to start from 1 in the resulting file to match SEG-Y standard.
         trace_ids = trace_headers["TRACE_SEQUENCE_FILE"].values - 1
@@ -394,10 +406,12 @@ class Gather:
         trace_headers_dict = trace_headers.to_dict("index")
 
         with segyio.create(full_path, spec) as dump_handler:
-            # Copy binary headers from the parent SEG-Y file. This is possibly incorrect and needs to be checked
-            # if the number of traces or sample ratio changes.
-            # TODO: Check if bin headers matter
+            # Copy the binary header from the parent SEG-Y file and update it with samples data of the gather.
+            # TODO: Check if other bin headers matter
             dump_handler.bin = parent_handler.bin
+            dump_handler.bin[segyio.BinField.Interval] = sample_rate
+            dump_handler.bin[segyio.BinField.Samples] = self.n_samples
+            dump_handler.bin[segyio.BinField.ExtSamples] = self.n_samples
 
             # Copy textual headers from the parent SEG-Y file.
             for i in range(spec.ext_headers + 1):
@@ -408,7 +422,7 @@ class Gather:
             for i, dump_h in trace_headers_dict.items():
                 if copy_header:
                     dump_handler.header[i].update(parent_handler.header[trace_ids[i]])
-                dump_handler.header[i].update(dump_h)
+                dump_handler.header[i].update({**dump_h, segyio.TraceField.TRACE_SAMPLE_INTERVAL: sample_rate})
         return self
 
     #------------------------------------------------------------------------#
@@ -617,7 +631,7 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", copy_src=False)
-    def pick_to_mask(self, first_breaks_col="FirstBreak"):
+    def pick_to_mask(self, first_breaks_col=HDR_FIRST_BREAK):
         """Convert first break times to a binary mask with the same shape as `gather.data` containing zeros before the
         first arrivals and ones after for each trace.
 
@@ -631,15 +645,14 @@ class Gather:
         gather : Gather
             A new `Gather` with calculated first breaks mask in its `data` attribute.
         """
-        mask = convert_times_to_mask(times=self[first_breaks_col].ravel(), sample_rate=self.sample_rate,
-                                     mask_length=self.shape[1]).astype(np.int32)
+        mask = convert_times_to_mask(times=self[first_breaks_col].ravel(), samples=self.samples).astype(np.int32)
         gather = self.copy(ignore='data')
         gather.data = mask
         return gather
 
 
     @batch_method(target='for', args_to_unpack='save_to')
-    def mask_to_pick(self, threshold=0.5, first_breaks_col="FirstBreak", save_to=None):
+    def mask_to_pick(self, threshold=0.5, first_breaks_col=HDR_FIRST_BREAK, save_to=None):
         """Convert a first break mask saved in `data` into times of first arrivals.
 
         For a given trace each value of the mask represents the probability that the corresponding index is greater
@@ -665,14 +678,14 @@ class Gather:
         self : Gather
             A gather with first break times in headers column defined by `first_breaks_col`.
         """
-        picking_times = convert_mask_to_pick(self.data, self.sample_rate, threshold)
+        picking_times = convert_mask_to_pick(mask=self.data, samples=self.samples, threshold=threshold)
         self[first_breaks_col] = picking_times
         if save_to is not None:
             save_to[first_breaks_col] = picking_times
         return self
 
     @batch_method(target='for', use_lock=True)
-    def dump_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak',
+    def dump_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col=HDR_FIRST_BREAK,
                           col_space=8, encoding="UTF-8"):
         """ Save first break picking times to a file.
 
@@ -743,7 +756,7 @@ class Gather:
             raise ValueError(f"Unknown mode {mode}")
 
         if mode == "first_breaks":
-            first_breaks_col = kwargs.pop("first_breaks_col", "FirstBreak")
+            first_breaks_col = kwargs.pop("first_breaks_col", HDR_FIRST_BREAK)
             return builder(offsets=self.offsets, times=self[first_breaks_col], **kwargs)
         return builder(**kwargs)
 
@@ -766,8 +779,8 @@ class Gather:
         self : Gather
             Muted gather.
         """
-        self.data = mute_gather(gather_data=self.data, muting_times=muter(self.offsets),
-                                sample_rate=self.sample_rate, fill_value=fill_value)
+        self.data = mute_gather(gather_data=self.data, muting_times=muter(self.offsets), samples=self.samples,
+                                fill_value=fill_value)
         return self
 
     #------------------------------------------------------------------------#
@@ -1260,7 +1273,7 @@ class Gather:
             header = kwargs.pop("headers")
             label = kwargs.pop("label", header)
             process_outliers = kwargs.pop("process_outliers", "none")
-            y_coords = self[header].ravel() / self.sample_rate
+            y_coords = times_to_indices(self[header].ravel(), self.samples, round=False)
             if process_outliers == "clip":
                 y_coords = np.clip(y_coords, 0, self.n_samples - 1)
             elif process_outliers == "discard":
