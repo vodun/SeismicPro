@@ -5,6 +5,7 @@ import warnings
 from copy import deepcopy
 from textwrap import dedent
 from functools import partial
+from collections import namedtuple
 
 import segyio
 import numpy as np
@@ -18,7 +19,7 @@ from .stacking_velocity import StackingVelocity, VelocityCube
 from .decorators import batch_method, plotter
 from .utils import normalization, correction
 from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, add_colorbar, set_ticks,
-                    as_dict, make_origins)
+                    as_dict, make_origins, get_coords_cols)
 
 class Gather:
     """A class representing a single seismic gather.
@@ -229,7 +230,7 @@ class Gather:
         """Print gather metadata including information about its survey, headers and traces."""
         print(self)
 
-    def get_coords(self, coords_columns="index"):
+    def get_coords(self, coords_columns="auto"):
         """Get spatial coordinates of the gather.
 
         Parameters
@@ -251,15 +252,19 @@ class Gather:
             If gather coordinates are non-unique or more than 2 columns were passed.
         """
         if coords_columns is None:
-            return (None, None)
-        if coords_columns == "index":
-            coords_columns = list(self.headers.index.names)
-        coords = np.unique(self.headers.reset_index()[coords_columns].values, axis=0)
+            return namedtuple("Coordinates", ["X", "Y"])(None, None)
+        if coords_columns == "auto":
+            coords_columns = get_coords_cols(self.headers.index.names)
+        coords = np.unique(self[coords_columns], axis=0)
         if coords.shape[0] != 1:
             raise ValueError("Gather coordinates are non-unique")
         if coords.shape[1] != 2:
             raise ValueError(f"Gather position must be defined by exactly two coordinates, not {coords.shape[1]}")
-        return tuple(coords[0].tolist())
+        return namedtuple("Coordinates", coords_columns)(*coords[0])
+
+    @property
+    def coords(self):
+        return self.get_coords()
 
     @batch_method(target='threads', copy_src=False)
     def copy(self, ignore=None):
@@ -859,7 +864,7 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
-    def apply_nmo(self, stacking_velocity, coords_columns="index"):
+    def apply_nmo(self, stacking_velocity, coords_columns="auto"):
         """Perform gather normal moveout correction using given stacking velocity.
 
         Notes

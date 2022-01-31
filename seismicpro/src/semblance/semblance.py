@@ -55,7 +55,7 @@ class BaseSemblance:
         """np.ndarray of floats: The distance between source and receiver for each trace. Measured in meters."""
         return self.gather.offsets  # m
 
-    def get_coords(self, coords_columns="index"):
+    def get_coords(self, coords_columns="auto"):
         """Get spatial coordinates of the semblance.
 
         The call is redirected to the underlying gather.
@@ -75,6 +75,10 @@ class BaseSemblance:
             Semblance spatial coordinates.
         """
         return self.gather.get_coords(coords_columns)
+
+    @property
+    def coords(self):
+        return self.get_coords()
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
@@ -370,7 +374,7 @@ class Semblance(BaseSemblance):
 
     @batch_method(target="for", copy_src=False)
     def calculate_stacking_velocity(self, start_velocity_range=(1400, 1800), end_velocity_range=(2500, 5000),
-                                    max_acceleration=None, n_times=25, n_velocities=25, coords_columns="index"):
+                                    max_acceleration=None, n_times=25, n_velocities=25, coords_columns="auto"):
         """Calculate stacking velocity by vertical velocity semblance.
 
         Notes
@@ -392,7 +396,7 @@ class Semblance(BaseSemblance):
         n_velocities : int, defaults to 25
             The number of evenly spaced points to split velocity range into for each time to generate graph edges.
         coords_columns : None, "index" or 2 element array-like, defaults to "index"
-            Header columns of the underlying gather to get spatial coordinates of the semblance from`. See
+            Header columns of the underlying gather to get spatial coordinates of the semblance from. See
             :func:`~Semblance.get_coords` for more details.
 
         Returns

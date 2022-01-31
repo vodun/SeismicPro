@@ -841,5 +841,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self.headers.sort_index(kind="stable", inplace=True)
         return self
 
+    #------------------------------------------------------------------------#
+    #                         Visualization methods                          #
+    #------------------------------------------------------------------------#
+
     def plot_interactive(self, sort_by=None):
         SurveyPlot(self, sort_by).plot()

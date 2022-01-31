@@ -23,6 +23,41 @@ def unique_indices_sorted(arr):
     return np.where(mask)[0]
 
 
+INDEX_TO_COORDS = {
+    # Shot index
+    "FieldRecord": ("SourceX", "SourceY"),
+    ("SourceX", "SourceY"): ("SourceX", "SourceY"),
+
+    # Receiver index
+    ("GroupX", "GroupY"): ("GroupX", "GroupY"),
+
+    # Trace index
+    "TRACE_SEQUENCE_FILE": ("CDP_X", "CDP_Y"),
+    ("FieldRecord", "TraceNumber"): ("CDP_X", "CDP_Y"),
+    ("SourceX", "SourceY", "GroupX", "GroupY"): ("CDP_X", "CDP_Y"),
+
+    # Bin index
+    "CDP": ("CDP_X", "CDP_Y"),
+    ("CDP_X", "CDP_Y"): ("CDP_X", "CDP_Y"),
+    ("INLINE_3D", "CROSSLINE_3D"): ("INLINE_3D", "CROSSLINE_3D"),
+
+    # Supergather index
+    ("SUPERGATHER_SourceX", "SUPERGATHER_SourceY"): ("SUPERGATHER_SourceX", "SUPERGATHER_SourceY"),
+    ("SUPERGATHER_GroupX", "SUPERGATHER_GroupY"): ("SUPERGATHER_GroupX", "SUPERGATHER_GroupY"),
+    ("SUPERGATHER_CDP_X", "SUPERGATHER_CDP_Y"): ("SUPERGATHER_CDP_X", "SUPERGATHER_CDP_Y"),
+    ("SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"): ("SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"),
+}
+# Ignore order of elements in each key
+INDEX_TO_COORDS = {frozenset(to_list(key)): val for key, val in INDEX_TO_COORDS.items()}
+
+
+def get_coords_cols(index_cols):
+    coords_cols = INDEX_TO_COORDS.get(frozenset(index_cols))
+    if coords_cols is None:
+        raise KeyError(f"Unknown coordinates columns for {index_cols} index")
+    return coords_cols
+
+
 @njit(nogil=True)
 def calculate_stats(trace):
     """Calculate min, max, sum and sum of squares of the trace amplitudes."""
