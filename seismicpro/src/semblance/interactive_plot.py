@@ -42,5 +42,5 @@ class SemblancePlot:
 
     def plot(self):
         display(self.box)
-        self.left.plot(display=False)
-        self.right.plot(display=False)
+        self.left.plot(display_box=False)
+        self.right.plot(display_box=False)

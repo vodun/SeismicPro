@@ -14,11 +14,11 @@ class PlottableMetric(Metric):
     def plot(self, *args, ax, **kwargs):
         raise NotImplementedError
 
-    def coords_to_args(self, coords):
+    def coords_to_args(self, x, y):
         raise NotImplementedError
 
-    def plot_on_click(self, coords, ax, **kwargs):
-        self.plot(*self.coords_to_args(coords), ax=ax, **kwargs)
+    def plot_on_click(self, x, y, ax, **kwargs):
+        self.plot(*self.coords_to_args(x, y), ax=ax, **kwargs)
 
 
 def define_metric(cls_name="MetricPlaceholder", **kwargs):

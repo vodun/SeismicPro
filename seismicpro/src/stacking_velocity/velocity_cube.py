@@ -10,7 +10,7 @@ from numba import njit, prange
 from scipy.spatial.qhull import Delaunay, QhullError  #pylint: disable=no-name-in-module
 from sklearn.neighbors import NearestNeighbors
 
-from .velocity_qc import StackingVelocityMetric, VELOCITY_QC_METRICS
+from .velocity_metrics import StackingVelocityMetric, VELOCITY_QC_METRICS
 from ..metrics import MetricsAccumulator
 from ..utils import to_list, read_vfunc, read_single_vfunc, dump_vfunc
 from ..utils.interpolation import interp1d

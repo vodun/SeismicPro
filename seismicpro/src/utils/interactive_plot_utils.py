@@ -2,6 +2,7 @@ from time import time
 
 import matplotlib.pyplot as plt
 from ipywidgets import widgets
+from IPython.display import display
 
 
 MAX_CLICK_TIME = 0.2
@@ -70,8 +71,8 @@ class InteractivePlot:
     def set_title(self, title):
         self.title.value = TITLE_TEMPLATE.format(style=TITLE_STYLE, title=title)
 
-    def plot(self, display=True):
-        if display:
+    def plot(self, display_box=True):
+        if display_box:
             display(self.box)
         self._resize(self.fig.get_figwidth() * self.fig.dpi)  # Init the width of the box
         if self.plot_fn is not None:
@@ -212,3 +213,8 @@ class OptionPlot(InteractivePlot):
 
     def select_coords(self, change):
         self.update_state(self.drop.index)
+
+    def plot(self, display_box=True):
+        if display_box:
+            display(self.box)
+        self._resize(self.fig.get_figwidth() * self.fig.dpi)  # Init the width of the box

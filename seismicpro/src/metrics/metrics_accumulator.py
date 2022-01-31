@@ -167,8 +167,8 @@ class MetricsAccumulator(Metrics):
         metrics_df = self.metrics.copy(deep=False)
         metrics_df["x_bin"] = ((metrics_df["x"] - metrics_df["x"].min()) // bin_size[0]).astype(np.int32)
         metrics_df["y_bin"] = ((metrics_df["y"] - metrics_df["y"].min()) // bin_size[1]).astype(np.int32)
-        x_bin_coords = bin_size[0] * np.arange(metrics_df["x_bin"].max() + 1) + bin_size[0] // 2
-        y_bin_coords = bin_size[1] * np.arange(metrics_df["y_bin"].max() + 1) + bin_size[1] // 2
+        x_bin_coords = metrics_df["x"].min() + bin_size[0] * np.arange(metrics_df["x_bin"].max() + 1) + bin_size[0] // 2
+        y_bin_coords = metrics_df["y"].min() + bin_size[1] * np.arange(metrics_df["y_bin"].max() + 1) + bin_size[1] // 2
         metrics_df = metrics_df.set_index(["x_bin", "y_bin", "x", "y"]).sort_index()
 
         # Group metrics by generated bins and create maps
