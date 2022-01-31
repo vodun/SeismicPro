@@ -1148,13 +1148,13 @@ class Gather:
                         **kwargs):
         """ TODO """
         data = self.data if x_tick_src=="amplitude" else self[x_tick_src]
-        counts, bins, _ = ax.hist(data.ravel(), bins=bins, **kwargs)
-        set_ticks(ax, "x", tick_labels=(bins[:-1] + np.diff(bins) / 2),
-                  **{"label": x_tick_src, 'round_to': None, **x_ticker})
-        set_ticks(ax, "y", tick_labels=np.arange(0, counts.max()), **{"label": "counts", **y_ticker})
+        counts, _, _ = ax.hist(data.ravel(), bins=bins, **kwargs)
+        set_ticks(ax, "x", tick_labels=None, **{"label": x_tick_src, 'round_to': None, **x_ticker})
+        set_ticks(ax, "y", tick_labels=np.arange(0, counts.max()+1), **{"label": "counts", **y_ticker})
 
         ax.grid(grid)
-        ax.set_yscale("log" if log else "linear")
+        if log:
+            ax.set_yscale("log")
         return ax
 
     def _plot_seismogram(self, ax, colorbar=False, qvmin=0.1, qvmax=0.9, x_ticker=None, y_ticker=None,
