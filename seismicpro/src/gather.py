@@ -1157,6 +1157,7 @@ class Gather:
             ax.set_yscale("log")
         return ax
 
+    # pylint: disable=too-many-arguments
     def _plot_seismogram(self, ax, colorbar=False, qvmin=0.1, qvmax=0.9, x_ticker=None, y_ticker=None,
                          x_tick_src=None, y_tick_src='time', event_headers=None, top_header=None, **kwargs):
         """Plot the gather as a 2d grayscale image of seismic traces."""
