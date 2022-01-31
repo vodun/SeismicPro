@@ -5,6 +5,8 @@ a particular metric visualization over a field map"""
 import numpy as np
 import pandas as pd
 
+from seismicpro.src.metrics.metric import Metric
+
 from .metric_map import MetricMap
 from ..utils import to_list
 from ...batchflow.models.metrics import Metrics
@@ -47,7 +49,7 @@ class MetricsAccumulator(Metrics):
         If given coordinates are not array-like.
         If given metrics are not array-like.
     """
-    def __init__(self, coords, metric_params, **kwargs):
+    def __init__(self, coords, *, metrics_types=None, **kwargs):
         super().__init__()
 
         if not kwargs:
@@ -79,7 +81,7 @@ class MetricsAccumulator(Metrics):
 
         self.metrics_names = sorted(kwargs.keys())
         self.metrics_list = [pd.DataFrame(metrics_dict)]
-        self.metrics_params = metric_params
+        self.metrics_types = metrics_types if metrics_types is not None else {}
 
     @property
     def metrics(self):
@@ -87,14 +89,11 @@ class MetricsAccumulator(Metrics):
             self.metrics_list = [pd.concat(self.metrics_list, ignore_index=True)]
         return self.metrics_list[0]
 
-    def update_metrics_params(self, params):
-        self.metrics_params.update(params)
-
     def append(self, other):
         """Append coordinates and metric values to the global container."""
         self.metrics_names = sorted(set(self.metrics_names + other.metrics_names))
         self.metrics_list += other.metrics_list
-        self.metrics_params.update(other.metrics_params)
+        self.metrics_types.update(other.metrics_types)
 
     def _process_metrics_agg(self, metrics, agg):
         is_single_metric = isinstance(metrics, str)
@@ -116,7 +115,7 @@ class MetricsAccumulator(Metrics):
             return metrics_vals[0]
         return metrics_vals
 
-    def construct_map(self, metrics=None, agg="mean", bin_size=500):
+    def construct_map(self, metrics=None, agg="mean", bin_size=500, metrics_types=None):
         """Calculate and optionally plot a metrics map.
 
         The map is constructed in the following way:
@@ -161,13 +160,15 @@ class MetricsAccumulator(Metrics):
         metrics, agg, is_single_metric = self._process_metrics_agg(metrics, agg)
         if isinstance(bin_size, (int, float, np.number)):
             bin_size = (bin_size, bin_size)
+        if metrics_types is None:
+            metrics_types = self.metrics_types
 
         # Binarize metrics for further aggregation into maps
         metrics_df = self.metrics.copy(deep=False)
         metrics_df["x_bin"] = ((metrics_df["x"] - metrics_df["x"].min()) // bin_size[0]).astype(np.int32)
         metrics_df["y_bin"] = ((metrics_df["y"] - metrics_df["y"].min()) // bin_size[1]).astype(np.int32)
-        x_bin_coords = np.arange(metrics_df["x_bin"].max() + 1) + bin_size[0] // 2
-        y_bin_coords = np.arange(metrics_df["y_bin"].max() + 1) + bin_size[1] // 2
+        x_bin_coords = bin_size[0] * np.arange(metrics_df["x_bin"].max() + 1) + bin_size[0] // 2
+        y_bin_coords = bin_size[1] * np.arange(metrics_df["y_bin"].max() + 1) + bin_size[1] // 2
         metrics_df = metrics_df.set_index(["x_bin", "y_bin", "x", "y"]).sort_index()
 
         # Group metrics by generated bins and create maps
@@ -185,8 +186,9 @@ class MetricsAccumulator(Metrics):
             bin_to_coords = bin_to_coords.to_frame().reset_index(level=["x", "y"]).groupby(["x_bin", "y_bin"])
 
             agg_func = agg_func.__name__ if callable(agg_func) else agg_func
-            metric_map = MetricMap(metric_map, x_bin_coords, y_bin_coords, bin_to_coords, metric, agg_func, bin_size,
-                                   **self.metrics_params.get(metric, {}))
+            metric_type = metrics_types.get(metric, Metric)
+            metric_map = MetricMap(metric_map, x_bin_coords, y_bin_coords, metric, metric_type, bin_size,
+                                   bin_to_coords, agg_func)
             metrics_maps.append(metric_map)
 
         if is_single_metric:

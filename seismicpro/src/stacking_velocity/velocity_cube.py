@@ -10,7 +10,7 @@ from numba import njit, prange
 from scipy.spatial.qhull import Delaunay, QhullError  #pylint: disable=no-name-in-module
 from sklearn.neighbors import NearestNeighbors
 
-from . import velocity_qc
+from .velocity_qc import StackingVelocityMetric, VELOCITY_QC_METRICS
 from ..metrics import MetricsAccumulator
 from ..utils import to_list, read_vfunc, read_single_vfunc, dump_vfunc
 from ..utils.interpolation import interp1d
@@ -595,7 +595,16 @@ class VelocityCube:
                 warnings.warn("Dirty interpolator is being used", RuntimeWarning)
         return self.interpolator(inline, crossline)
 
-    def qc(self, win_radius, times, coords=None, metrics_names=None, n_workers=None):  #pylint: disable=invalid-name
+    @staticmethod
+    def calculate_qc_metrics(metrics, windows, n_workers):
+        if not metrics:
+            return {}
+        with ThreadPoolExecutor(max_workers=n_workers) as executor:
+            res = executor.map(lambda window: [metric.calc(window) for metric in metrics], windows)
+        return {metric.name: np.array(values) for metric, values in zip(metrics, zip(*res))}
+
+
+    def qc(self, win_radius, times, coords=None, metrics=None, n_workers=None):  #pylint: disable=invalid-name
         """Perform quality control of the velocity cube by calculating spatial-window-based metrics for stacking
         velocities evaluated at given `times`.
 
@@ -631,80 +640,37 @@ class VelocityCube:
         metrics_map : MetricsMap
            Calculated metrics.
         """
-        if metrics_names is None:
-            metrics_names = velocity_qc.VELOCITY_QC_METRICS
-        metrics_funcs = []
-        for name in to_list(metrics_names):
-            if name in velocity_qc.VELOCITY_QC_METRICS:
-                func = getattr(velocity_qc, name)
-            elif callable(name):
-                if name.__name__ == "<lambda>":
-                    raise ValueError("Lambda expressions are not allowed")
-                func = name
-            else:
-                raise ValueError(f"Unknown metric {name}")
-            metrics_funcs.append(func)
+        if metrics is None:
+            metrics = VELOCITY_QC_METRICS
+        metrics = to_list(metrics)
+        if not all(issubclass(metric, StackingVelocityMetric) for metric in metrics):
+            raise ValueError("All passed metrics must be subclasses of StackingVelocityMetric")
 
         # Calculate stacking velocities at given times for each of coords
+        if not self.has_interpolator:
+            self.create_interpolator()
         if coords is None:
             coords = list(self.stacking_velocities_dict.keys())
         coords = np.array(coords)
-        if not self.has_interpolator:
-            self.create_interpolator()
-        velocities = self.interpolator.interpolate(coords, np.array(times))
+        times = np.array(times)
+        velocities = self.interpolator.interpolate(coords, times)
 
         # Select all neighbouring stacking velocities for each of coords
-        coords_knn = NearestNeighbors(radius=win_radius).fit(coords)
-        _, windows_indices = coords_knn.radius_neighbors(coords, return_distance=True, sort_results=True)
-
-        # Calculate requested metrics
-        def calculate_window_metrics(window_indices):
-            window_velocities = velocities[window_indices]
-            return [func(window_velocities) for func in metrics_funcs]
-
         if n_workers is None:
             n_workers = os.cpu_count()
-        with ThreadPoolExecutor(max_workers=n_workers) as executor:
-            metrics = executor.map(calculate_window_metrics, windows_indices)
-        metrics = {func.__name__: np.array(val) for func, val in zip(metrics_funcs, zip(*metrics))}
+        coords_knn = NearestNeighbors(radius=win_radius, n_jobs=n_workers).fit(coords)
+        windows_indices = coords_knn.radius_neighbors(coords, return_distance=False)
 
-        def plot_central_velocity(x, y, ax):
-            velocity_ix = coords_knn.kneighbors([[x, y]], n_neighbors=1, return_distance=False)[0, 0]
-            ax.plot(velocities[velocity_ix], times)
-            ax.invert_yaxis()
+        # Initialize metric instances
+        central_metrics = [metric(coords_knn, times, velocities) for metric in metrics if not metric.is_window_metric]
+        window_metrics = [metric(coords_knn, times, velocities) for metric in metrics if metric.is_window_metric]
 
-        def plot_neighbouring_velocities(x, y, ax):
-            _, (window_indices,) = coords_knn.radius_neighbors([[x, y]], return_distance=True, sort_results=True)
-            window_velocities = velocities[window_indices]
-            for vel in window_velocities:
-                ax.plot(vel, times)
-            ax.invert_yaxis()
+        # Calculate requested metrics
+        central_metrics_values = self.calculate_qc_metrics(central_metrics, velocities, n_workers)
+        window_generator = (velocities[window_indices] for window_indices in windows_indices)
+        window_metrics_values = self.calculate_qc_metrics(window_metrics, window_generator, n_workers)
 
-        is_decreasing_params = {
-            "click_fn": plot_central_velocity,
-            "vmin": 0,
-            "vmax": 1,
-            "is_lower_better": True,
-        }
-
-        max_standard_deviation_params = {
-            "click_fn": plot_neighbouring_velocities,
-            "vmin": 0,
-            "is_lower_better": True,
-            "vmax": coords_knn,
-        }
-
-        max_relative_variation_params = {
-            "click_fn": plot_neighbouring_velocities,
-            "vmin": 0,
-            "is_lower_better": True,
-        }
-
-        metric_params = {
-            "is_decreasing": is_decreasing_params,
-            "max_standard_deviation": max_standard_deviation_params,
-            "max_relative_variation": max_relative_variation_params,
-        }
-
-        metrics_acc = MetricsAccumulator(coords, **metrics, metric_params=metric_params)
+        metrics_types = {metric.name: metric for metric in central_metrics + window_metrics}
+        metrics_acc = MetricsAccumulator(coords, **central_metrics_values, **window_metrics_values,
+                                         metrics_types=metrics_types)
         return metrics_acc
