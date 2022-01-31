@@ -1,5 +1,6 @@
 from matplotlib import colors as mcolors
 
+from .interactive_plot import MetricMapPlot
 from ..decorators import plotter
 from ..utils import as_dict, add_colorbar, set_ticks
 
@@ -47,3 +48,6 @@ class MetricMap:
         y_ticker = {} if y_ticker is None else y_ticker
         set_ticks(ax, "x", "X coord", self.x_bin_coords, **x_ticker)
         set_ticks(ax, "y", "Y coord", self.y_bin_coords, **y_ticker)
+
+    def plot_interactive(self):
+        MetricMapPlot(self).plot()
