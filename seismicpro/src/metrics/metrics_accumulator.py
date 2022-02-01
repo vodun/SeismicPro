@@ -49,7 +49,7 @@ class MetricsAccumulator(Metrics):
         If given coordinates are not array-like.
         If given metrics are not array-like.
     """
-    def __init__(self, coords, *, metrics_types=None, **kwargs):
+    def __init__(self, coords, *, coords_cols=None, metrics_types=None, **kwargs):
         super().__init__()
 
         if not kwargs:
@@ -57,9 +57,23 @@ class MetricsAccumulator(Metrics):
 
         if not isinstance(coords, (list, tuple, np.ndarray)):
             raise TypeError(f"coords must be array-like but {type(coords)} was given.")
-        coords = np.asarray(coords)
+
+        if coords_cols is None:
+            # Try inferring coordinates columns if passed coords is an iterable of namedtuples
+            coords_cols_set = {getattr(coord, "_fields", None) for coord in coords}
+            if len(coords_cols_set) != 1:
+                raise ValueError("Coordinates from different header columns were passed")
+            coords_cols = coords_cols_set.pop()
+
+            # Fallback to a default
+            if coords_cols is None:
+                coords_cols = ["X", "Y"]
+        coords_cols = to_list(coords_cols)
+        if len(coords_cols) != 2:
+            raise ValueError("Exactly two coordinates columns must be specified")
 
         # If coords is an array of arrays, convert it to an array with numeric dtype and check its shape
+        coords = np.asarray(coords)
         coords = np.array(coords.tolist()) if coords.ndim == 1 else coords
         if coords.ndim != 2:
             raise ValueError("Coordinates array must be 2-dimensional.")
@@ -68,7 +82,7 @@ class MetricsAccumulator(Metrics):
                              f" but an array with shape {coords.shape} was given")
 
         # Create a dict with coordinates and passed metrics values
-        metrics_dict = {"x": coords[:, 0], "y": coords[:, 1]}
+        metrics_dict = dict(zip(coords_cols, coords.T))
         for metric_name, metric_values in kwargs.items():
             if not isinstance(metric_values, (list, tuple, np.ndarray)):
                 raise TypeError(f"'{metric_name}' metric value must be array-like but {type(metric_values)} received")
@@ -80,6 +94,7 @@ class MetricsAccumulator(Metrics):
             metrics_dict[metric_name] = metric_values
 
         self.metrics_names = sorted(kwargs.keys())
+        self.coords_cols = coords_cols
         self.metrics_list = [pd.DataFrame(metrics_dict)]
         self.metrics_types = metrics_types if metrics_types is not None else {}
 
@@ -91,6 +106,8 @@ class MetricsAccumulator(Metrics):
 
     def append(self, other):
         """Append coordinates and metric values to the global container."""
+        if self.coords_cols != other.coords_cols:
+            raise ValueError("Only MetricsAccumulator with the same coordinates columns can be appended")
         self.metrics_names = sorted(set(self.metrics_names + other.metrics_names))
         self.metrics_list += other.metrics_list
         self.metrics_types.update(other.metrics_types)
@@ -160,16 +177,18 @@ class MetricsAccumulator(Metrics):
         metrics, agg, is_single_metric = self._process_metrics_agg(metrics, agg)
         if isinstance(bin_size, (int, float, np.number)):
             bin_size = (bin_size, bin_size)
+        bin_size = np.array(bin_size)
         if metrics_types is None:
             metrics_types = self.metrics_types
 
         # Binarize metrics for further aggregation into maps
         metrics_df = self.metrics.copy(deep=False)
-        metrics_df["x_bin"] = ((metrics_df["x"] - metrics_df["x"].min()) // bin_size[0]).astype(np.int32)
-        metrics_df["y_bin"] = ((metrics_df["y"] - metrics_df["y"].min()) // bin_size[1]).astype(np.int32)
-        x_bin_coords = metrics_df["x"].min() + bin_size[0] * np.arange(metrics_df["x_bin"].max() + 1) + bin_size[0] // 2
-        y_bin_coords = metrics_df["y"].min() + bin_size[1] * np.arange(metrics_df["y_bin"].max() + 1) + bin_size[1] // 2
-        metrics_df = metrics_df.set_index(["x_bin", "y_bin", "x", "y"]).sort_index()
+        bin_cols = ["BIN_X", "BIN_Y"]
+        min_coords = metrics_df[self.coords_cols].min(axis=0).values
+        metrics_df[bin_cols] = (metrics_df[self.coords_cols] - min_coords) // bin_size
+        x_bin_coords = min_coords[0] + bin_size[0] * np.arange(metrics_df["BIN_X"].max() + 1) + bin_size[0] // 2
+        y_bin_coords = min_coords[1] + bin_size[1] * np.arange(metrics_df["BIN_Y"].max() + 1) + bin_size[1] // 2
+        metrics_df = metrics_df.set_index(bin_cols + self.coords_cols).sort_index()
 
         # Group metrics by generated bins and create maps
         metrics_maps = []
@@ -177,18 +196,20 @@ class MetricsAccumulator(Metrics):
             metric_map = np.full((len(x_bin_coords), len(y_bin_coords)), fill_value=np.nan)
             metric_df = metrics_df[metric].dropna().explode()
 
-            metric_agg = metric_df.groupby(["x_bin", "y_bin"]).agg(agg_func)
+            # Construct a binarized map
+            metric_agg = metric_df.groupby(bin_cols).agg(agg_func)
             x = metric_agg.index.get_level_values(0)
             y = metric_agg.index.get_level_values(1)
             metric_map[x, y] = metric_agg
 
-            bin_to_coords = metric_df.groupby(["x_bin", "y_bin", "x", "y"]).agg(agg_func)
-            bin_to_coords = bin_to_coords.to_frame().reset_index(level=["x", "y"]).groupby(["x_bin", "y_bin"])
+            # Construct a mapping from bin to its contents
+            bin_to_coords = metric_df.groupby(bin_cols + self.coords_cols).agg(agg_func)
+            bin_to_coords = bin_to_coords.to_frame().reset_index(level=self.coords_cols).groupby(bin_cols)
 
             agg_func = agg_func.__name__ if callable(agg_func) else agg_func
             metric_type = metrics_types.get(metric, Metric)
-            metric_map = MetricMap(metric_map, x_bin_coords, y_bin_coords, metric, metric_type, bin_size,
-                                   bin_to_coords, agg_func)
+            metric_map = MetricMap(metric_map, x_bin_coords, y_bin_coords, self.coords_cols, metric, metric_type,
+                                   bin_size, bin_to_coords, agg_func)
             metrics_maps.append(metric_map)
 
         if is_single_metric:

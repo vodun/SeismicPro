@@ -672,5 +672,5 @@ class VelocityCube:
 
         metrics_types = {metric.name: metric for metric in central_metrics + window_metrics}
         metrics_acc = MetricsAccumulator(coords, **central_metrics_values, **window_metrics_values,
-                                         metrics_types=metrics_types)
+                                         coords_cols=["INLINE_3D", "CROSSLINE_3D"], metrics_types=metrics_types)
         return metrics_acc

@@ -10,9 +10,9 @@ class MetricMapPlot:
         self.metric_map = metric_map
         init_func = np.nanargmax if self.metric_map.is_lower_better else np.nanargmin
         init_y, init_x = np.unravel_index(init_func(self.metric_map.metric_map), self.metric_map.metric_map.shape)
-        title = "Map"
-        self.left = ClickablePlot(figsize=figsize, plot_fn=self.metric_map.plot, click_fn=self.click,
-                                  allow_unclick=False, title=title)#, init_x=init_x, init_y=init_y)
+        title = self.metric_map.plot_title
+        self.left = ClickablePlot(figsize=figsize, plot_fn=lambda ax: self.metric_map.plot(ax=ax, title=""),
+                                  click_fn=self.click, allow_unclick=False, title=title)#, init_x=init_x, init_y=init_y)
         self.right = OptionPlot(plot_fn=self.metric_map.metric_type.plot_on_click,
                                 options=self.metric_map.get_bin_contents((init_x, init_y)))
         self.box = widgets.HBox([self.left.box, self.right.box])

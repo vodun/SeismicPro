@@ -6,11 +6,12 @@ from ..utils import as_dict, add_colorbar, set_ticks
 
 
 class MetricMap:
-    def __init__(self, metric_map, x_bin_coords, y_bin_coords, metric_name, metric_type, bin_size, bin_to_coords,
-                 agg_func):
+    def __init__(self, metric_map, x_bin_coords, y_bin_coords, coords_cols, metric_name, metric_type, bin_size,
+                 bin_to_coords, agg_func):
         self.metric_map = metric_map
         self.x_bin_coords = x_bin_coords
         self.y_bin_coords = y_bin_coords
+        self.coords_cols = coords_cols
         self.metric_name = metric_name
         self.metric_type = metric_type
         self.bin_size = bin_size
@@ -20,10 +21,14 @@ class MetricMap:
     def __getattr__(self, name):
         return getattr(self.metric_type, name)
 
+    @property
+    def plot_title(self):
+        return f"{self.agg_func}({self.metric_name}) in {self.bin_size} bins"
+
     def get_bin_contents(self, coords):
         if coords not in self.bin_to_coords.groups:
             return
-        contents = self.bin_to_coords.get_group(coords).set_index(["x", "y"])[self.metric_name]
+        contents = self.bin_to_coords.get_group(coords).set_index(self.coords_cols)[self.metric_name]
         return contents.sort_values(ascending=not self.is_lower_better)
 
     @plotter(figsize=(10, 7))
@@ -41,13 +46,13 @@ class MetricMap:
         add_colorbar(ax, img, colorbar)
 
         title = {} if title is None else as_dict(title, key="label")
-        title = {"label": f"{self.agg_func}({self.metric_name}) in {self.bin_size} bins", **title}
+        title = {"label": self.plot_title, **title}
         ax.set_title(**title)
 
         x_ticker = {} if x_ticker is None else x_ticker
         y_ticker = {} if y_ticker is None else y_ticker
-        set_ticks(ax, "x", "X coord", self.x_bin_coords, **x_ticker)
-        set_ticks(ax, "y", "Y coord", self.y_bin_coords, **y_ticker)
+        set_ticks(ax, "x", self.coords_cols[0], self.x_bin_coords, **x_ticker)
+        set_ticks(ax, "y", self.coords_cols[1], self.y_bin_coords, **y_ticker)
 
     def plot_interactive(self):
         MetricMapPlot(self).plot()
