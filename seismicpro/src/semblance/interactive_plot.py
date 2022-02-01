@@ -24,13 +24,22 @@ class SemblancePlot:
         self.right = InteractivePlot(figsize=figsize, plot_fn=plot_gather, title="Gather", toolbar_position="right")
         self.box = widgets.HBox([self.left.box, self.right.box])
 
-    def click(self, x, y):
+    def click(self, coords):
+        x, y = coords
+
+        x += 0.5  # Correction for pixel center
+        if (x < 0) or (x >= len(self.semblance.velocities)):
+            return
         click_vel = np.interp(x, np.arange(len(self.semblance.velocities)), self.semblance.velocities / 1000)
-        click_time = self.semblance.times[int(y + 0.5)]
-        self.gather["Hodograph"] = np.sqrt(click_time**2 + self.gather.offsets**2/click_vel**2)
+
+        y = round(y + 0.5)  # Correction for pixel center and click coord rounding
+        if (y < 0) or (y >= len(self.semblance.times)):
+            return
+        click_time = self.semblance.times[y]
 
         # TODO: redraw only hodograph
         self.right.ax.clear()
+        self.gather["Hodograph"] = np.sqrt(click_time**2 + self.gather.offsets**2/click_vel**2)
         self.gather.plot(ax=self.right.ax, event_headers={"headers": "Hodograph", "alpha": 0.25,
                                                           "process_outliers": "discard"})
         self.right.set_title(f"Hodograph from {click_time:.0f} ms with {click_vel:.2f} km/s velocity")

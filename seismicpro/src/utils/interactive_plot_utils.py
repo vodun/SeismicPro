@@ -81,7 +81,7 @@ class InteractivePlot:
 
 
 class ClickablePlot(InteractivePlot):
-    def __init__(self, *args, click_fn=None, allow_unclick=True, unclick_fn=None, init_x=None, init_y=None,
+    def __init__(self, *args, click_fn=None, allow_unclick=True, unclick_fn=None, init_click_coords=None,
                  color="black", marker="+", **kwargs):
         super().__init__(*args, **kwargs)
         self.click_fn = click_fn
@@ -90,19 +90,27 @@ class ClickablePlot(InteractivePlot):
         self.marker = marker
         self.click_time = None
         self.click_scatter = None
+        self.init_click_coords = init_click_coords
         self.fig.canvas.mpl_connect("button_press_event", self.on_click)
         self.fig.canvas.mpl_connect("button_release_event", self.on_release)
         if allow_unclick:
             self.fig.canvas.mpl_connect("key_press_event", self.on_press)
-        if (init_x is not None) and (init_y is not None):
-            self._click(init_x, init_y)
+        self.err_list = []
 
-    def _click(self, x, y):
+    def plot(self, display_box=True):
+        super().plot(display_box)
+        if self.init_click_coords is not None:
+            self._click(self.init_click_coords)
+
+    def _click(self, coords):
         if self.click_fn is not None:
-            x, y = self.click_fn(x, y)
+            coords = self.click_fn(coords)
+            if coords is None:
+                return
         if self.click_scatter is not None:
             self.click_scatter.remove()
-        self.click_scatter = self.ax.scatter(x, y, color=self.color, marker=self.marker)
+        self.click_scatter = self.ax.scatter(*coords, color=self.color, marker=self.marker)
+        # TODO: switch to blit
         self.fig.canvas.draw()
 
     def on_click(self, event):
@@ -116,7 +124,8 @@ class ClickablePlot(InteractivePlot):
         if not event.inaxes == self.ax:
             return
         if event.button == 1 and ((time() - self.click_time) < MAX_CLICK_TIME):
-            self._click(event.xdata, event.ydata)
+            self.click_time = 0
+            self._click((event.xdata, event.ydata))
 
     def on_press(self, event):
         if (event.inaxes != self.ax) or (event.key != "escape"):
@@ -126,6 +135,7 @@ class ClickablePlot(InteractivePlot):
                 self.unclick_fn()
             self.click_scatter.remove()
             self.click_scatter = None
+            # TODO: switch to blit
             self.fig.canvas.draw()
 
 
