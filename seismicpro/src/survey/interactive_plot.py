@@ -4,17 +4,19 @@ from sklearn.neighbors import NearestNeighbors
 from ipywidgets import widgets
 from IPython.display import display
 
+from ..utils import set_ticks, set_text_formatting
 from ..utils.interactive_plot_utils import InteractivePlot, ToggleClickablePlot
 
 
 class SurveyPlot:
-    def __init__(self, survey, sort_by=None, x_ticker=None, y_ticker=None, figsize=(4.5, 4.5)):
+    def __init__(self, survey, sort_by=None, x_ticker=None, y_ticker=None, figsize=(4.5, 4.5), **kwargs):
         self.survey = survey
         self.source_ix, self.source_x, self.source_y, self.source_knn = self._process_survey(survey, ["SourceX", "SourceY"])
         self.group_ix, self.group_x, self.group_y, self.group_knn = self._process_survey(survey, ["GroupX", "GroupY"])
         self.is_shot_view = True
         self.sort_by = sort_by
         self.affected_scatter = None
+        (self.x_ticker, self.y_ticker), kwargs = set_text_formatting(x_ticker, y_ticker, **kwargs)
 
         self.left = ToggleClickablePlot(figsize=figsize, plot_fn=self.plot_map, click_fn=self.click,
                                         unclick_fn=self.unclick, toggle_fn=self.toggle_view,
@@ -69,11 +71,11 @@ class SurveyPlot:
     
     @property
     def map_x_label(self):
-        return "Source X" if self.is_shot_view else "Group X"
+        return "SourceX" if self.is_shot_view else "GroupX"
 
     @property
     def map_y_label(self):
-        return "Source Y" if self.is_shot_view else "Group Y"
+        return "SourceY" if self.is_shot_view else "GroupY"
 
     @property
     def gather_title(self):
@@ -82,11 +84,11 @@ class SurveyPlot:
     def plot_map(self, ax):
         self.left.set_title(self.map_title)
         ax.scatter(self.coord_x, self.coord_y, color=self.main_color)
-        ax.xaxis.set_label_text(self.map_x_label)
-        ax.yaxis.set_label_text(self.map_y_label)
+        set_ticks(ax, "x", self.map_x_label, **self.x_ticker)
+        set_ticks(ax, "y", self.map_y_label, **self.y_ticker)
 
-    def click(self, x, y):
-        closest_ix = self.knn.kneighbors([[x, y]], return_distance=False).item()
+    def click(self, coords):
+        closest_ix = self.knn.kneighbors([coords], return_distance=False).item()
         x = self.coord_x[closest_ix]
         y = self.coord_y[closest_ix]
 
@@ -102,7 +104,7 @@ class SurveyPlot:
         self.affected_scatter = self.left.ax.scatter(*gather[self.affected_coords_cols].T, color=self.aux_color)
 
         self.right.ax.clear()
-        gather.plot(ax=self.right.ax)
+        gather.plot(ax=self.right.ax, x_ticker=self.x_ticker, y_ticker=self.y_ticker)
         self.right.set_title(self.gather_title + f"{x, y}")
         self.right.box.layout.visibility = "visible"
         return x, y

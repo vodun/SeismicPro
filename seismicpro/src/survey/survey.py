@@ -896,5 +896,5 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     #                         Visualization methods                          #
     #------------------------------------------------------------------------#
 
-    def plot_interactive(self, sort_by=None):
-        SurveyPlot(self, sort_by).plot()
+    def plot_interactive(self, **kwargs):
+        SurveyPlot(self, **kwargs).plot()

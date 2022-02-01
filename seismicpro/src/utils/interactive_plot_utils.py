@@ -95,7 +95,6 @@ class ClickablePlot(InteractivePlot):
         self.fig.canvas.mpl_connect("button_release_event", self.on_release)
         if allow_unclick:
             self.fig.canvas.mpl_connect("key_press_event", self.on_press)
-        self.err_list = []
 
     def plot(self, display_box=True):
         super().plot(display_box)
