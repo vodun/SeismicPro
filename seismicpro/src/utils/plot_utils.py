@@ -56,7 +56,7 @@ def set_ticks(ax, axis, label='', tick_labels=None, num=None, step_ticks=None,
         "Time": " (ms)",
         "Offset": " (m)",
     }
-    label = str.capitalize(label)
+    label = label[0].upper() + label[1:]
     label += UNITS.get(label, "")
 
     ax_obj = getattr(ax, f"{axis}axis")
