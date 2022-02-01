@@ -487,12 +487,12 @@ class SeismicBatch(Batch):
 
                 # Format subplot title
                 if title_template is not None:
-                    title = as_dict(title_template, key='label')
-                    label = title.pop("label")
+                    src_title = as_dict(title_template, key='label')
+                    label = src_title.pop("label")
                     format_names = {name for _, name, _, _ in Formatter().parse(label) if name is not None}
-                    format_kwargs = {name: title.pop(name) for name in format_names if name in title}
-                    title["label"] = label.format(src=src, index=index, **format_kwargs)
-                    kwargs["title"] = title
+                    format_kwargs = {name: src_title.pop(name) for name in format_names if name in src_title}
+                    src_title["label"] = label.format(src=src, index=index, **format_kwargs)
+                    kwargs["title"] = src_title
 
                 # Create subplotter config
                 subplot_config = {

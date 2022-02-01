@@ -28,16 +28,22 @@ def test_dump_single_gather(segy_path, tmp_path, name, copy_header, header_index
     dumped_survey = Survey(files[0], header_index=header_index, header_cols=header_cols)
     ix = 1 if header_index == 'TRACE_SEQUENCE_FILE' else dump_index
     dumped_gather = dumped_survey.get_gather(index=ix)
-    compare_gathers(expected_gather, dumped_gather, drop_cols='TRACE_SEQUENCE_FILE', check_types=True,
+    drop_columns = ["TRACE_SEQUENCE_FILE"] + list({"TRACE_SAMPLE_INTERVAL"}
+                                                  & set(tuple(expected_gather.headers.columns)))
+    compare_gathers(expected_gather, dumped_gather, drop_cols=drop_columns, check_types=True,
                     same_survey=False)
 
     if copy_header:
-        full_exp_headers = Survey(segy_path, header_index=header_index, header_cols='all').headers
+        expected_survey = Survey(segy_path, header_index=header_index, header_cols='all')
+        full_exp_headers = expected_survey.headers
         full_exp_headers = full_exp_headers.loc[dump_index:dump_index].reset_index()
         full_dump_headers = Survey(files[0], header_index=header_index, header_cols='all').headers
         full_dump_headers = full_dump_headers.reset_index()
-        full_exp_headers.drop(columns="TRACE_SEQUENCE_FILE", inplace=True)
-        full_dump_headers.drop(columns="TRACE_SEQUENCE_FILE", inplace=True)
+        sample_rates = full_dump_headers['TRACE_SAMPLE_INTERVAL']
+        assert np.unique(sample_rates) > 1
+        assert np.allclose(sample_rates[0] / 1000, expected_survey.sample_rate)
+        full_exp_headers.drop(columns=["TRACE_SEQUENCE_FILE", "TRACE_SAMPLE_INTERVAL"], inplace=True)
+        full_dump_headers.drop(columns=["TRACE_SEQUENCE_FILE", "TRACE_SAMPLE_INTERVAL"], inplace=True)
         assert full_exp_headers.equals(full_dump_headers), "Copy_header don't save all columns during the dump"
 
 
@@ -73,13 +79,15 @@ def test_aggregate_segys(segy_path, tmp_path, mode, indices):
     assert np.allclose(expected_survey.n_samples, dumped_survey.n_samples), "length of samples doesn't match"
 
     #TODO: optimize
+    drop_columns = ["TRACE_SEQUENCE_FILE"] + list({"TRACE_SAMPLE_INTERVAL"}
+                                                  & set(tuple(expected_survey.headers.columns)))
     expected_survey_headers = (expected_survey.headers.loc[indices].reset_index()
                                                                    .sort_values(['FieldRecord', 'TraceNumber'])
-                                                                   .drop(columns="TRACE_SEQUENCE_FILE")
+                                                                   .drop(columns=drop_columns)
                                                                    .reset_index(drop=True))
     dumped_survey_headers = (dumped_survey.headers.reset_index()
                                                   .sort_values(['FieldRecord', 'TraceNumber'])
-                                                  .drop(columns="TRACE_SEQUENCE_FILE")
+                                                  .drop(columns=drop_columns)
                                                   .reset_index(drop=True))
 
     assert len(expected_survey_headers) == len(dumped_survey_headers), "Length of surveys' headers don't match"
@@ -90,5 +98,5 @@ def test_aggregate_segys(segy_path, tmp_path, mode, indices):
         expected_gather.sort(by='TraceNumber')
         dumped_gather = dumped_survey.get_gather(ix)
         dumped_gather.sort(by='TraceNumber')
-        compare_gathers(expected_gather, dumped_gather, drop_cols='TRACE_SEQUENCE_FILE', check_types=True,
+        compare_gathers(expected_gather, dumped_gather, drop_cols=drop_columns, check_types=True,
                         same_survey=False)

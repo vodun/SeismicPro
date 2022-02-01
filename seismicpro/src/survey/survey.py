@@ -14,6 +14,7 @@ from scipy.interpolate import interp1d
 
 from ..gather import Gather
 from ..utils import to_list, maybe_copy, calculate_stats, create_supergather_index
+from ..const import HDR_DEAD_TRACE, HDR_FIRST_BREAK
 from .interactive_plot import SurveyPlot
 
 
@@ -38,6 +39,12 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     reconstructed. All loaded headers are stored in a `headers` attribute as a `pd.DataFrame` with `header_index`
     columns set as its index.
 
+    The survey sample rate is calculated by two values stored in:
+    * bytes 3217-3218 of the binary header, called `Interval` in `segyio`,
+    * bytes 117-118 of the trace header of the first trace in the file, called `TRACE_SAMPLE_INTERVAL` in `segyio`.
+    If both of them are present and equal or only one of them is well-defined (non-zero), it is used as a sample rate.
+    Otherwise, an error is raised.
+
     Examples
     --------
     Create a survey of common source gathers and get a randomly selected gather from it:
@@ -59,10 +66,6 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     limits : int or tuple or slice, optional
         Default time limits to be used during trace loading and survey statistics calculation. `int` or `tuple` are
         used as arguments to init a `slice` object. If not given, whole traces are used. Measured in samples.
-    collect_stats : bool, optional, defaults to False
-        Whether to calculate trace statistics for the survey, see :func:`~Survey.collect_stats` docs for more info.
-    kwargs : misc, optional
-        Additional keyword arguments to :func:`~Survey.collect_stats`.
 
     Attributes
     ----------
@@ -93,9 +96,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     quantile_interpolator : scipy.interpolate.interp1d
         Trace values quantile interpolator. Available only if trace statistics were calculated.
     n_dead_traces : int
-        The number of traces with constant value (dead traces). Available only if trace statistics were calculated.
+        The number of traces with constant value (dead traces). None until `mark_dead_traces` is called.
     """
-    def __init__(self, path, header_index, header_cols=None, name=None, limits=None, collect_stats=False, **kwargs):
+    def __init__(self, path, header_index, header_cols=None, name=None, limits=None):
         self.path = path
         basename = os.path.splitext(os.path.basename(self.path))[0]
         self.name = name if name is not None else basename
@@ -121,8 +124,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self.segy_handler.mmap()
 
         # Get attributes from the source SEG-Y file.
-        self.file_samples = self.segy_handler.samples.astype(np.float32)
-        self.file_sample_rate = np.float32(segyio.dt(self.segy_handler) / 1000)
+        self.file_sample_rate = self._infer_sample_rate()
+        self.file_samples = (np.arange(self.segy_handler.trace.shape) * self.file_sample_rate).astype(np.float32)
 
         # Set samples and sample_rate according to passed `limits`.
         self.limits = None
@@ -146,7 +149,6 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         # Preserve trace order from the file for traces from the same gather.
         self.headers = headers.sort_index(kind="stable")
 
-        # Precalculate survey statistics if needed
         self.has_stats = False
         self.min = None
         self.max = None
@@ -154,8 +156,19 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self.std = None
         self.quantile_interpolator = None
         self.n_dead_traces = None
-        if collect_stats:
-            self.collect_stats(**kwargs)
+
+    def _infer_sample_rate(self):
+        """Get sample rate from file headers"""
+        bin_sample_rate = self.segy_handler.bin[segyio.BinField.Interval]
+        trace_sample_rate = self.segy_handler.header[0][segyio.TraceField.TRACE_SAMPLE_INTERVAL]
+        # 0 means that the sample rate is undefined, so it is removed from the set of sample rate values.
+        union_sample_rate = {bin_sample_rate, trace_sample_rate} - {0}
+        if len(union_sample_rate) != 1:
+            error_msg = "Cannot infer sample rate from file headers: either both `Interval` (bytes 3217-3218 in the "\
+                        "binary header) and `TRACE_SAMPLE_INTERVAL` (bytes 117-118 in the header of the first trace) "\
+                        "are undefined or they have different values."
+            raise ValueError(error_msg)
+        return union_sample_rate.pop() / 1000 # Convert sample rate from microseconds to milliseconds
 
     @property
     def times(self):
@@ -176,6 +189,11 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     def n_file_samples(self):
         """int: Trace length in samples in the source SEG-Y file."""
         return len(self.file_samples)
+
+    @property
+    def dead_traces_marked(self):
+        """bool: `mark_dead_traces` called."""
+        return self.n_dead_traces is not None
 
     def __del__(self):
         """Close SEG-Y file handler on survey destruction."""
@@ -216,10 +234,14 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         if self.has_stats:
             msg += f"""
         Survey statistics:
-        Number of dead traces:     {self.n_dead_traces}
         mean | std:                {self.mean:>10.2f} | {self.std:<10.2f}
          min | max:                {self.min:>10.2f} | {self.max:<10.2f}
          q01 | q99:                {self.get_quantile(0.01):>10.2f} | {self.get_quantile(0.99):<10.2f}
+        """
+
+        if self.dead_traces_marked:
+            msg += f"""
+        Number of dead traces:     {self.n_dead_traces}
         """
         return dedent(msg)
 
@@ -237,9 +259,6 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         1. Min and max amplitude,
         2. Mean amplitude and trace standard deviation,
         3. Approximation of trace data quantiles with given precision.
-
-        Also, the method marks dead traces (those having constant amplitudes) by setting a value of a new `DeadTrace`
-        header to `True` and stores the overall number of dead traces in the `n_dead_traces` attribute.
 
         Since fair quantile calculation requires simultaneous loading of all traces from the file we avoid such memory
         overhead by calculating approximate quantiles for a small subset of `n_quantile_traces` traces selected
@@ -268,15 +287,19 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         Returns
         -------
         survey : Survey
-            The survey with collected stats. Sets `has_stats` flag to `True`, updates statistics attributes inplace and
-            creates a new `DeadTrace` header.
+            The survey with collected stats. Sets `has_stats` flag to `True`, and updates statistics attributes inplace.
         """
+        if not self.dead_traces_marked:
+            warn_msg = ("Dead traces detection was not performed, collected statistics may be skewed. "
+                        "Run `mark_dead_traces` to remove this warning")
+            warnings.warn(warn_msg, RuntimeWarning)
+
         headers = self.headers
         if indices is not None:
             headers = headers.loc[indices]
         n_traces = len(headers)
         traces_pos = headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
-        shuffled_indices = np.random.permutation(n_traces)
+        np.random.shuffle(traces_pos)
 
         limits = self.limits if stats_limits is None else self._process_limits(stats_limits)
         n_samples = len(self.file_samples[limits])
@@ -293,18 +316,12 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         traces_buf = np.empty((n_quantile_traces, n_samples), dtype=np.float32)
         trace = np.empty(n_samples, dtype=np.float32)
 
-        dead_indices = []
         quantile_traces_counter = 0
         # Accumulate min, max, mean and std values of survey traces
-        for i in tqdm(shuffled_indices, desc=f"Calculating statistics for survey {self.name}",
-                      total=n_traces, disable=not bar):
-            self.load_trace(buf=trace, index=traces_pos[i], limits=limits, trace_length=n_samples)
+        for pos in tqdm(traces_pos, desc=f"Calculating statistics for survey {self.name}",
+                        total=n_traces, disable=not bar):
+            self.load_trace(buf=trace, index=pos, limits=limits, trace_length=n_samples)
             trace_min, trace_max, trace_sum, trace_sq_sum = calculate_stats(trace)
-
-            # Handle dead trace case
-            if np.isclose(trace_min, trace_max):
-                dead_indices.append(i)
-                continue
 
             global_min = min(trace_min, global_min)
             global_max = max(trace_max, global_max)
@@ -317,21 +334,13 @@ class Survey:  # pylint: disable=too-many-instance-attributes
                 traces_buf[quantile_traces_counter] = trace
                 quantile_traces_counter += 1
 
-        self.n_dead_traces = len(dead_indices)
-        self.headers['DeadTrace'] = False
-        self.headers.iloc[dead_indices, self.headers.columns.get_loc('DeadTrace')] = True
 
         self.min = np.float32(global_min)
         self.max = np.float32(global_max)
         self.mean = np.float32(global_sum / traces_length)
         self.std = np.float32(np.sqrt((global_sq_sum / traces_length) - (global_sum / traces_length)**2))
 
-        # Dead traces are not used for quantiles calculation, so if there are many of them,
-        # the number of traces in `traces_buf` can be less than `n_quantiles_traces`
-        traces_buf = traces_buf[:quantile_traces_counter]
-
-        if traces_buf.size == 0:
-            # Either n_quantile_traces = 0 or if all traces are dead
+        if n_quantile_traces == 0:
             q = [0, 1]
             quantiles = [global_min, global_max]
         else:
@@ -343,6 +352,46 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self.quantile_interpolator = interp1d(q, quantiles)
 
         self.has_stats = True
+        return self
+
+    def mark_dead_traces(self, limits=None, bar=True):
+        """Mark dead traces (those having constant amplitudes) by setting a value of a new `DeadTrace`
+        header to `True` and store the overall number of dead traces in the `n_dead_traces` attribute.
+
+        Parameters
+        ----------
+        limits : int or tuple or slice or None, optional, defaults to None
+            Time range that is used to detect dead traces.
+            `int` or `tuple` are used as arguments to init a `slice` object.
+            If None, whole traces are loaded. Measured in samples.
+        bar : bool, optional, defaults to True
+            Whether to show a progress bar.
+
+        Returns
+        -------
+        survey : Survey
+            The same survey with a new `DeadTrace` header created.
+        """
+
+        limits = self.limits if limits is None else self._process_limits(limits)
+
+        traces_pos = self.headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
+        n_samples = len(self.file_samples[limits])
+
+        trace = np.empty(n_samples, dtype=np.float32)
+        dead_indices = []
+        for tr_index, pos in tqdm(enumerate(traces_pos), desc=f"Detecting dead traces for survey {self.name}",
+                                  total=len(self.headers), disable=not bar):
+            self.load_trace(buf=trace, index=pos, limits=limits, trace_length=n_samples)
+            trace_min, trace_max, *_ = calculate_stats(trace)
+
+            if np.isclose(trace_min, trace_max):
+                dead_indices.append(tr_index)
+
+        self.n_dead_traces = len(dead_indices)
+        self.headers[HDR_DEAD_TRACE] = False
+        self.headers.iloc[dead_indices, self.headers.columns.get_loc(HDR_DEAD_TRACE)] = True
+
         return self
 
     def get_quantile(self, q):
@@ -401,14 +450,13 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
         limits = self.limits if limits is None else self._process_limits(limits)
         samples = self.file_samples[limits]
-        sample_rate = np.float32(self.file_sample_rate * limits.step)
         n_samples = len(samples)
 
         data = np.empty((len(trace_indices), n_samples), dtype=np.float32)
         for i, ix in enumerate(trace_indices):
             self.load_trace(buf=data[i], index=ix, limits=limits, trace_length=n_samples)
 
-        gather = Gather(headers=headers, data=data, samples=samples, sample_rate=sample_rate, survey=self)
+        gather = Gather(headers=headers, data=data, samples=samples, survey=self)
         return gather
 
     def get_gather(self, index, limits=None, copy_headers=True):
@@ -488,7 +536,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
 
     # pylint: disable=anomalous-backslash-in-string
-    def load_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak',
+    def load_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col=HDR_FIRST_BREAK,
                           delimiter='\s+', decimal=None, encoding="UTF-8", inplace=False, **kwargs):
         """Load times of first breaks from a file and save them to a new column in headers.
 
@@ -753,16 +801,19 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             raise ValueError('Empty traces after setting limits.')
         return slice(*limits)
 
-    def remove_dead_traces(self, inplace=False, **kwargs):
-        """ Removes dead (constant) traces from survey's data.
-        Calls `collect_stats` if `self.has_stats` flag is not set.
+    def remove_dead_traces(self, limits=None, inplace=False, bar=True):
+        """ Remove dead (constant) traces from the survey.
+        Calls `mark_dead_traces` if it was not called before.
 
         Parameters
         ----------
-        inplace : bool, optional
-            Whether to remove traces inplace or return a new survey instance, by default False
-        kwargs : misc, optional
-            Additional keyword arguments to :func:`~Survey.collect_stats`.
+        limits : int or tuple or slice or None, optional, defaults to None
+            Time range that is used to detect dead traces, if needed.
+            See :meth:`Survey.mark_dead_traces` for more info.
+        inplace : bool, optional, defaults to False
+            Whether to remove traces inplace or return a new survey instance.
+        bar : bool, optional, defaults to True
+            Whether to show a progress bar.
 
         Returns
         -------
@@ -770,10 +821,10 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             Survey with no dead traces.
         """
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
-        if not self.has_stats:
-            self.collect_stats(**kwargs)
+        if not self.dead_traces_marked:
+            self.mark_dead_traces(limits=limits, bar=bar)
 
-        self.filter(lambda dt: ~dt, cols='DeadTrace', inplace=True)
+        self.filter(lambda dt: ~dt, cols=HDR_DEAD_TRACE, inplace=True)
         self.n_dead_traces = 0
 
         return self

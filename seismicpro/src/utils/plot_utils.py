@@ -4,6 +4,7 @@
 import numpy as np
 from matplotlib import ticker
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from scipy.interpolate import interp1d
 
 
 def as_dict(val, key):
@@ -16,15 +17,14 @@ def save_figure(fig, fname, dpi=100, bbox_inches="tight", pad_inches=0.1, **kwar
     fig.savefig(fname, dpi=dpi, bbox_inches=bbox_inches, pad_inches=pad_inches, **kwargs)
 
 
-def set_text_formatting(kwargs):
-    """Pop text formatting args from `kwargs` and set them as defaults for 'title', 'x_ticker' and 'y_ticker'."""
+def set_text_formatting(*args, **kwargs):
+    """Pop text formatting args from `kwargs` and set them as defaults for args transformed to dickts."""
     FORMAT_ARGS = {'fontsize', 'size', 'fontfamily', 'family', 'fontweight', 'weight'}
-    TEXT_ARGS = {'title', 'x_ticker', 'y_ticker'}
 
     global_formatting = {arg: kwargs.pop(arg) for arg in FORMAT_ARGS if arg in kwargs}
-    text_args = {arg: {**global_formatting, **as_dict(kwargs.pop(arg), key="label")}
-                 for arg in TEXT_ARGS if arg in kwargs}
-    return {**kwargs, **text_args}
+    text_args = ({**global_formatting, **({} if arg is None else as_dict(arg, key="label"))}
+                  for arg in args)
+    return text_args, kwargs
 
 
 def add_colorbar(ax, img, colorbar, divider=None):
@@ -38,7 +38,8 @@ def add_colorbar(ax, img, colorbar, divider=None):
         ax.figure.colorbar(img, cax=cax, **colorbar)
 
 
-def set_ticks(ax, axis, axis_label, tick_labels, num=None, step_ticks=None, step_labels=None, round_to=0, **kwargs):
+def set_ticks(ax, axis, label='', tick_labels=None, num=None, step_ticks=None,
+              step_labels=None, tick_range=None, round_to=0, **kwargs):
     """Set ticks and labels for `x` or `y` axis depending on the `axis`.
 
     Parameters
@@ -64,23 +65,32 @@ def set_ticks(ax, axis, axis_label, tick_labels, num=None, step_ticks=None, step
         Additional keyword arguments to control text formatting and rotation. Passed directly to
         `matplotlib.axis.Axis.set_label_text` and `matplotlib.axis.Axis.set_ticklabels`.
     """
-    locator, formatter = _process_ticks(labels=tick_labels, num=num, step_ticks=step_ticks, step_labels=step_labels,
-                                        round_to=round_to)
-    rotation_kwargs = _pop_rotation_kwargs(kwargs)
+    # Format axis label
+    UNITS = {  # pylint: disable=invalid-name
+        "Time": " (ms)",
+        "Offset": " (m)",
+    }
+    label = str.capitalize(label)
+    label += UNITS.get(label, "")
+
     ax_obj = getattr(ax, f"{axis}axis")
-    ax_obj.set_label_text(axis_label, **kwargs)
+    rotation_kwargs = _pop_rotation_kwargs(kwargs)
+    ax_obj.set_label_text(label, **kwargs)
+    tick_range = ax_obj.get_data_interval() if tick_range is None else tick_range
+    locator, formatter = _process_ticks(labels=tick_labels, num=num, step_ticks=step_ticks, step_labels=step_labels,
+                                        round_to=round_to, tick_range=tick_range)
     ax_obj.set_ticklabels([], **kwargs, **rotation_kwargs)
     ax_obj.set_major_locator(locator)
     ax_obj.set_major_formatter(formatter)
 
 
-def _process_ticks(labels, num, step_ticks, step_labels, round_to):
+def _process_ticks(labels, num, step_ticks, step_labels, round_to, tick_range):
     """Create an axis locator and formatter by given `labels` and tick layout parameters."""
     if num is not None:
         locator = ticker.LinearLocator(num)
     elif step_ticks is not None:
         locator = ticker.IndexLocator(step_ticks, 0)
-    elif step_labels is not None:
+    elif step_labels is not None and labels is not None:
         if (np.diff(labels) < 0).any():
             raise ValueError("step_labels is valid only for monotonically increasing labels.")
         candidates = np.arange(labels[0], labels[-1], step_labels)
@@ -91,19 +101,37 @@ def _process_ticks(labels, num, step_ticks, step_labels, round_to):
     else:
         locator = ticker.AutoLocator()
 
-    def formatter(label_ix, *args):
-        """Get tick label by its index in `labels` and format the resulting value."""
+    def round_formatter(label_value, *args):
         _ = args
-        if (label_ix < 0) or (label_ix > len(labels) - 1):
-            return None
-
-        label_value = labels[np.round(label_ix).astype(np.int32)]
         if round_to is not None:
             label_value = np.round(label_value, round_to)
             label_value = label_value.astype(np.int32) if round_to == 0 else label_value
         return label_value
 
-    return locator, formatter
+    if labels is None:
+        formatter = round_formatter
+    else:
+        # The object drawn can have single tick label (e.g., for single-trace `gather`) which leads to interp1d being
+        # unable to initiate since both x and y should have at least 2 entries. Repeating this single label solves the
+        # issue.
+        if len(labels) == 1:
+            labels = np.repeat(labels, 2)
+        # matplotlib does not update data interval when new artist is redrawn on the existing axes in interactive mode,
+        # which leads to incorrect tick position to label interpolation. To overcome this, call `ax.clear()` before
+        # drawing a new artist.
+        tick_interpolator = interp1d(np.linspace(*tick_range, len(labels)), labels,
+                                     kind="nearest", bounds_error=False)
+
+        def formatter(label_ix, *args):
+            """Get tick label by its index in `labels` and format the resulting value."""
+            _ = args
+
+            label_value = tick_interpolator(label_ix)
+            if np.isnan(label_value):
+                return None
+            return round_formatter(label_value)
+
+    return locator, ticker.FuncFormatter(formatter)
 
 
 def _pop_rotation_kwargs(kwargs):

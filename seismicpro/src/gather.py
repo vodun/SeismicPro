@@ -4,7 +4,6 @@ import os
 import warnings
 from copy import deepcopy
 from textwrap import dedent
-from functools import partial
 from collections import namedtuple
 
 import segyio
@@ -18,8 +17,9 @@ from .semblance import Semblance, ResidualSemblance
 from .stacking_velocity import StackingVelocity, VelocityCube
 from .decorators import batch_method, plotter
 from .utils import normalization, correction
-from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, add_colorbar, set_ticks,
-                    as_dict, make_origins, get_coords_cols)
+from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins,
+                    set_ticks, set_text_formatting, add_colorbar, get_coords_cols)
+from .const import HDR_FIRST_BREAK
 
 class Gather:
     """A class representing a single seismic gather.
@@ -51,8 +51,6 @@ class Gather:
         Trace data of the gather with (num_traces, trace_lenght) layout.
     samples : 1d np.ndarray of floats
         Recording time for each trace value. Measured in milliseconds.
-    sample_rate : float
-        Sample rate of seismic traces. Measured in milliseconds.
     survey : Survey
         A survey that generated the gather.
 
@@ -71,13 +69,20 @@ class Gather:
     sort_by : None or str
         Headers column that was used for gather sorting. If `None`, no sorting was performed.
     """
-    def __init__(self, headers, data, samples, sample_rate, survey):
+    def __init__(self, headers, data, samples, survey):
         self.headers = headers
         self.data = data
         self.samples = samples
-        self.sample_rate = sample_rate
         self.survey = survey
         self.sort_by = None
+
+    @property
+    def sample_rate(self):
+        """"float: Sample rate of seismic traces. Measured in milliseconds."""
+        sample_rate = np.unique(np.diff(self.samples))
+        if len(sample_rate) == 1:
+            return sample_rate.item()
+        raise ValueError("`sample_rate` is not defined, since `samples` are not regular.")
 
     @property
     def times(self):
@@ -344,7 +349,13 @@ class Gather:
 
         Notes
         -----
-        All binary and textual headers are copied from the parent SEG-Y file unchanged.
+        1. All textual and almost all binary headers are copied from the parent SEG-Y file unchanged except for the
+           following binary header fields that are inferred by the current gather:
+           1) Sample rate, bytes 3217-3218, called `Interval` in `segyio`,
+           2) Number of samples per data trace, bytes 3221-3222, called `Samples` in `segyio`,
+           3) Extended number of samples per data trace, bytes 3269-3272, called `ExtSamples` in `segyio`.
+        2. Bytes 117-118 of trace header (called `TRACE_SAMPLE_INTERVAL` in `segyio`) for each trace is filled with
+           sample rate of the current gather.
 
         Parameters
         ----------
@@ -385,7 +396,7 @@ class Gather:
         spec.tracecount = self.n_traces
 
         trace_headers = self.headers.reset_index()
-
+        sample_rate = np.int32(self.sample_rate * 1000) # Convert to microseconds
         # Remember ordinal numbers of traces in the parent SEG-Y file to further copy their headers
         # and reset them to start from 1 in the resulting file to match SEG-Y standard.
         trace_ids = trace_headers["TRACE_SEQUENCE_FILE"].values - 1
@@ -400,10 +411,12 @@ class Gather:
         trace_headers_dict = trace_headers.to_dict("index")
 
         with segyio.create(full_path, spec) as dump_handler:
-            # Copy binary headers from the parent SEG-Y file. This is possibly incorrect and needs to be checked
-            # if the number of traces or sample ratio changes.
-            # TODO: Check if bin headers matter
+            # Copy the binary header from the parent SEG-Y file and update it with samples data of the gather.
+            # TODO: Check if other bin headers matter
             dump_handler.bin = parent_handler.bin
+            dump_handler.bin[segyio.BinField.Interval] = sample_rate
+            dump_handler.bin[segyio.BinField.Samples] = self.n_samples
+            dump_handler.bin[segyio.BinField.ExtSamples] = self.n_samples
 
             # Copy textual headers from the parent SEG-Y file.
             for i in range(spec.ext_headers + 1):
@@ -414,7 +427,7 @@ class Gather:
             for i, dump_h in trace_headers_dict.items():
                 if copy_header:
                     dump_handler.header[i].update(parent_handler.header[trace_ids[i]])
-                dump_handler.header[i].update(dump_h)
+                dump_handler.header[i].update({**dump_h, segyio.TraceField.TRACE_SAMPLE_INTERVAL: sample_rate})
         return self
 
     #------------------------------------------------------------------------#
@@ -623,7 +636,7 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", copy_src=False)
-    def pick_to_mask(self, first_breaks_col="FirstBreak"):
+    def pick_to_mask(self, first_breaks_col=HDR_FIRST_BREAK):
         """Convert first break times to a binary mask with the same shape as `gather.data` containing zeros before the
         first arrivals and ones after for each trace.
 
@@ -637,15 +650,14 @@ class Gather:
         gather : Gather
             A new `Gather` with calculated first breaks mask in its `data` attribute.
         """
-        mask = convert_times_to_mask(times=self[first_breaks_col].ravel(), sample_rate=self.sample_rate,
-                                     mask_length=self.shape[1]).astype(np.int32)
+        mask = convert_times_to_mask(times=self[first_breaks_col].ravel(), samples=self.samples).astype(np.int32)
         gather = self.copy(ignore='data')
         gather.data = mask
         return gather
 
 
     @batch_method(target='for', args_to_unpack='save_to')
-    def mask_to_pick(self, threshold=0.5, first_breaks_col="FirstBreak", save_to=None):
+    def mask_to_pick(self, threshold=0.5, first_breaks_col=HDR_FIRST_BREAK, save_to=None):
         """Convert a first break mask saved in `data` into times of first arrivals.
 
         For a given trace each value of the mask represents the probability that the corresponding index is greater
@@ -671,14 +683,14 @@ class Gather:
         self : Gather
             A gather with first break times in headers column defined by `first_breaks_col`.
         """
-        picking_times = convert_mask_to_pick(self.data, self.sample_rate, threshold)
+        picking_times = convert_mask_to_pick(mask=self.data, samples=self.samples, threshold=threshold)
         self[first_breaks_col] = picking_times
         if save_to is not None:
             save_to[first_breaks_col] = picking_times
         return self
 
     @batch_method(target='for', use_lock=True)
-    def dump_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col='FirstBreak',
+    def dump_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col=HDR_FIRST_BREAK,
                           col_space=8, encoding="UTF-8"):
         """ Save first break picking times to a file.
 
@@ -749,7 +761,7 @@ class Gather:
             raise ValueError(f"Unknown mode {mode}")
 
         if mode == "first_breaks":
-            first_breaks_col = kwargs.pop("first_breaks_col", "FirstBreak")
+            first_breaks_col = kwargs.pop("first_breaks_col", HDR_FIRST_BREAK)
             return builder(offsets=self.offsets, times=self[first_breaks_col], **kwargs)
         return builder(**kwargs)
 
@@ -772,8 +784,8 @@ class Gather:
         self : Gather
             Muted gather.
         """
-        self.data = mute_gather(gather_data=self.data, muting_times=muter(self.offsets),
-                                sample_rate=self.sample_rate, fill_value=fill_value)
+        self.data = mute_gather(gather_data=self.data, muting_times=muter(self.offsets), samples=self.samples,
+                                fill_value=fill_value)
         return self
 
     #------------------------------------------------------------------------#
@@ -1034,9 +1046,9 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @plotter(figsize=(10, 7))
-    def plot(self, mode="seismogram", event_headers=None, top_header=None, title=None, x_ticker=None, y_ticker="time",
-             ax=None, **kwargs):
-        """Plot gather traces.
+    def plot(self, mode="seismogram", title=None, x_ticker=None, y_ticker=None, ax=None, **kwargs):
+        """ TODO
+        Plot gather traces.
 
         The traces can be displayed in a number of representations, depending on the `mode` provided. Currently, the
         following options are supported:
@@ -1135,44 +1147,52 @@ class Gather:
             If `event_headers` argument has the wrong format or given outlier processing mode is unknown.
             If `x_ticker` or `y_ticker` has the wrong format.
         """
-        # Make the axis divisible to further plot colorbar and header subplot
-        divider = make_axes_locatable(ax)
+        # Cast text-related parameters to dicts and add text formatting parameters from kwargs to each of them
+        (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
 
         # Plot the gather depending on the mode passed
         plotters_dict = {
-            "seismogram": partial(self._plot_seismogram, divider=divider),
+            "seismogram": self._plot_seismogram,
             "wiggle": self._plot_wiggle,
+            "hist": self._plot_histogram,
         }
         if mode not in plotters_dict:
             raise ValueError(f"Unknown mode {mode}")
-        plotters_dict[mode](ax, **kwargs)
-
-        # Add headers scatter plot if needed
-        if event_headers is not None:
-            self._plot_headers(ax, event_headers)
-
-        # Add a top subplot for given header if needed and set plot title
-        top_ax = ax
-        if top_header is not None:
-            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_header].ravel())
-        top_ax.set_title(**as_dict(title, key='label'))
-
-        # Set axis ticks
-        if x_ticker is None:
-            x_ticker = self.sort_by if self.sort_by is not None else "index"
-        self._set_ticks(ax, axis="x", ticker=x_ticker)
-        self._set_ticks(ax, axis="y", ticker=y_ticker)
+        ax = plotters_dict[mode](ax, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
+        ax.set_title(**{'label': None, **title})
         return self
 
-    def _plot_seismogram(self, ax, divider, colorbar=False, qvmin=0.1, qvmax=0.9, **kwargs):
+    def _plot_histogram(self, ax, bins=50, x_tick_src="amplitude", log=False, x_ticker=None, y_ticker=None, grid=False,
+                        **kwargs):
+        """ TODO """
+        data = self.data if x_tick_src=="amplitude" else self[x_tick_src]
+        counts, _, _ = ax.hist(data.ravel(), bins=bins, **kwargs)
+        set_ticks(ax, "x", tick_labels=None, **{"label": x_tick_src, 'round_to': None, **x_ticker})
+        set_ticks(ax, "y", tick_labels=np.arange(0, counts.max()+1), **{"label": "counts", **y_ticker})
+
+        ax.grid(grid)
+        if log:
+            ax.set_yscale("log")
+        return ax
+
+    # pylint: disable=too-many-arguments
+    def _plot_seismogram(self, ax, colorbar=False, qvmin=0.1, qvmax=0.9, x_ticker=None, y_ticker=None,
+                         x_tick_src=None, y_tick_src='time', event_headers=None, top_header=None, **kwargs):
         """Plot the gather as a 2d grayscale image of seismic traces."""
+        # Make the axis divisible to further plot colorbar and header subplot
+        divider = make_axes_locatable(ax)
         vmin, vmax = self.get_quantile([qvmin, qvmax])
         kwargs = {"cmap": "gray", "aspect": "auto", "vmin": vmin, "vmax": vmax, **kwargs}
         img = ax.imshow(self.data.T, **kwargs)
         add_colorbar(ax, img, colorbar, divider)
+        return self._finalize_plot(ax, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
-    def _plot_wiggle(self, ax, std=0.5, color="black"):
+    def _plot_wiggle(self, ax, std=0.5, color="black", x_ticker=None, y_ticker=None, x_tick_src=None,
+                     y_tick_src='time', event_headers=None, top_header=None, **kwargs):
         """Plot the gather as an amplitude vs time plot for each trace."""
+        # Make the axis divisible to further plot colorbar and header subplot
+        divider = make_axes_locatable(ax)
+
         color = to_list(color)
         if len(color) == 1:
             color = color * self.n_traces
@@ -1182,9 +1202,30 @@ class Gather:
         y_coords = np.arange(self.n_samples)
         traces = std * (self.data - self.data.mean(axis=1, keepdims=True)) / (np.std(self.data) + 1e-10)
         for i, (trace, col) in enumerate(zip(traces, color)):
-            ax.plot(i + trace, y_coords, color=col)
-            ax.fill_betweenx(y_coords, i, i + trace, where=(trace > 0), color=col)
+            ax.plot(i + trace, y_coords, color=col, **kwargs)
+            ax.fill_betweenx(y_coords, i, i + trace, where=(trace > 0), color=col, **kwargs)
         ax.invert_yaxis()
+
+        # Wiggle plot requires custom data interval for correct tick setting
+        x_ticker.update({"tick_range":(0, self.n_traces-1)})
+        return self._finalize_plot(ax, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
+
+    def _finalize_plot(self, ax, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src):
+        # Add headers scatter plot if needed
+        if event_headers is not None:
+            self._plot_headers(ax, event_headers)
+
+        # Add a top subplot for given header if needed and set plot title
+        top_ax = ax
+        if top_header is not None:
+            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_header].ravel())
+
+        # Set axis ticks
+        x_tick_src = (self.sort_by if self.sort_by is not None else "index") if x_tick_src is None else x_tick_src
+        self._set_ticks(ax, axis="x", tick_src=x_tick_src, ticker=x_ticker)
+        self._set_ticks(ax, axis="y", tick_src=y_tick_src, ticker=y_ticker)
+
+        return top_ax
 
     @staticmethod
     def _parse_headers_kwargs(headers_kwargs, headers_key):
@@ -1231,7 +1272,7 @@ class Gather:
             header = kwargs.pop("headers")
             label = kwargs.pop("label", header)
             process_outliers = kwargs.pop("process_outliers", "none")
-            y_coords = self[header].ravel() / self.sample_rate
+            y_coords = times_to_indices(self[header].ravel(), self.samples, round=False)
             if process_outliers == "clip":
                 y_coords = np.clip(y_coords, 0, self.n_samples - 1)
             elif process_outliers == "discard":
@@ -1268,26 +1309,13 @@ class Gather:
             return np.arange(self.n_samples)
         raise ValueError(f"y axis label must be either `time` or `samples`, not {axis_label}")
 
-    def _set_ticks(self, ax, axis, ticker):
+    def _set_ticks(self, ax, axis, tick_src, ticker):
         """Set ticks, their labels and an axis label for a given axis."""
-        ticker = as_dict(ticker, key='label')
-        axis_label = ticker.pop("label")
-        if not isinstance(axis_label, str):
-            raise ValueError(f"{axis} axis ticker must be str, but {type(axis_label)} passed")
-
         # Get tick_labels depending on axis and its label
         if axis == "x":
-            tick_labels = self._get_x_ticks(axis_label)
+            tick_labels = self._get_x_ticks(tick_src)
         elif axis == "y":
-            tick_labels = self._get_y_ticks(axis_label)
+            tick_labels = self._get_y_ticks(tick_src)
         else:
             raise ValueError(f"Unknown axis {axis}")
-
-        # Format axis label
-        UNITS = {  # pylint: disable=invalid-name
-            "time": " (ms)",
-            "offset": " (m)",
-        }
-        axis_label += UNITS.get(axis_label, "")
-        axis_label = axis_label[0].upper() + axis_label[1:]
-        set_ticks(ax, axis, axis_label, tick_labels, **ticker)
+        set_ticks(ax, axis, tick_labels=tick_labels, **{"label": tick_src, **ticker})
