@@ -35,7 +35,8 @@ class InteractivePlot:
             toolbar_position = "left"
 
         with plt.ioff():
-            self.fig, self.ax = plt.subplots(figsize=figsize, constrained_layout=True)
+            # Add tight_layout to always correctly show colorbar ticks
+            self.fig, self.ax = plt.subplots(figsize=figsize, tight_layout=True)
 
         self.fig.canvas.header_visible = False
         self.fig.canvas.toolbar_visible = toolbar_visible

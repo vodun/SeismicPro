@@ -59,7 +59,8 @@ def plotter(figsize, args_to_unpack=None):
         def plot(*args, **kwargs):
             if "ax" in kwargs:
                 return method(*args, **kwargs)
-            fig, ax = plt.subplots(1, 1, figsize=kwargs.pop("figsize", figsize))
+            # Add tight_layout to always correctly show colorbar ticks
+            fig, ax = plt.subplots(1, 1, figsize=kwargs.pop("figsize", figsize), tight_layout=True)
             save_to = kwargs.pop("save_to", None)
             output = method(*args, ax=ax, **kwargs)
             if save_to is not None:
