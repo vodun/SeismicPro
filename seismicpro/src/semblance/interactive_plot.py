@@ -1,7 +1,10 @@
+from functools import partial
+
 import numpy as np
 from ipywidgets import widgets
 from IPython.display import display
 
+from ..utils import set_text_formatting
 from ..utils.interactive_plot_utils import InteractivePlot, ClickablePlot
 
 
@@ -11,13 +14,13 @@ class SemblancePlot:
         self.semblance = semblance
         self.gather = self.semblance.gather.copy(ignore="data")
 
-        # TODO: pass x_ticker=x_ticker, y_ticker=y_ticker
-        plot_semblance = lambda ax: self.semblance.plot(ax=ax, stacking_velocity=stacking_velocity, title=None,
-                                                        **kwargs)
+        (x_ticker, y_ticker), kwargs = set_text_formatting(x_ticker, y_ticker, **kwargs)
+        plot_semblance = partial(self.semblance.plot, stacking_velocity=stacking_velocity, title=None,
+                                 x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
+        plot_gather = partial(self.gather.plot, title=None, x_ticker=x_ticker, y_ticker=y_ticker)
+
         self.left = ClickablePlot(figsize=figsize, plot_fn=plot_semblance, click_fn=self.click,
                                   unclick_fn=self.unclick, title=title)
-        # TODO: pass x_ticker=x_ticker, y_ticker=y_ticker
-        plot_gather = lambda ax: self.gather.plot(ax=ax, title=None)
         self.right = InteractivePlot(figsize=figsize, plot_fn=plot_gather, title="Gather", toolbar_position="right")
         self.box = widgets.HBox([self.left.box, self.right.box])
 

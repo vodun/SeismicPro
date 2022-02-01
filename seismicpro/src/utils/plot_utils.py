@@ -30,12 +30,14 @@ def set_text_formatting(*args, **kwargs):
 def add_colorbar(ax, img, colorbar, divider=None):
     if not isinstance(colorbar, (bool, dict)):
         raise ValueError(f"colorbar must be bool or dict but {type(colorbar)} was passed")
-    if colorbar is not False:
-        colorbar = {} if colorbar is True else colorbar
-        if divider is None:
-            divider = make_axes_locatable(ax)
-        cax = divider.append_axes("right", size="5%", pad=0.05)
-        ax.figure.colorbar(img, cax=cax, **colorbar)
+    if colorbar is False:
+        return None
+    colorbar = {} if colorbar is True else colorbar
+    if divider is None:
+        divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    cbar = ax.figure.colorbar(img, cax=cax, **colorbar)
+    return cbar
 
 
 def set_ticks(ax, axis, label='', tick_labels=None, num=None, step_ticks=None,
@@ -82,6 +84,17 @@ def set_ticks(ax, axis, label='', tick_labels=None, num=None, step_ticks=None,
     ax_obj.set_ticklabels([], **kwargs, **rotation_kwargs)
     ax_obj.set_major_locator(locator)
     ax_obj.set_major_formatter(formatter)
+
+
+def set_colorbar_ticks(cbar, fontsize=None, size=None, fontfamily=None, family=None, fontweight=None, weight=None,
+                       **kwargs):
+    _ = kwargs
+    if cbar is None:
+        return
+    for tick in cbar.ax.get_yticklabels():
+        tick.set_fontsize(fontsize or size)
+        tick.set_fontfamily(fontfamily or family)
+        tick.set_fontweight(fontweight or weight)
 
 
 def _process_ticks(labels, num, step_ticks, step_labels, round_to, tick_range):
