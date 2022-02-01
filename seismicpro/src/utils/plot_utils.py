@@ -16,16 +16,15 @@ def save_figure(fig, fname, dpi=100, bbox_inches="tight", pad_inches=0.1, **kwar
     fig.savefig(fname, dpi=dpi, bbox_inches=bbox_inches, pad_inches=pad_inches, **kwargs)
 
 def set_text_formatting(*args, **kwargs):
-    """Pop text formatting args from `kwargs` and set them as defaults for args transformed to dickts."""
+    """Pop text formatting parameters from `kwargs` and set them as defaults for each of `args` tranformed to dict."""
     FORMAT_ARGS = {'fontsize', 'size', 'fontfamily', 'family', 'fontweight', 'weight'}
 
     global_formatting = {arg: kwargs.pop(arg) for arg in FORMAT_ARGS if arg in kwargs}
-    text_args = ({**global_formatting, **({} if arg is None else as_dict(arg, key="label"))}
-                  for arg in args)
+    text_args = ({**global_formatting, **({} if arg is None else as_dict(arg, key="label"))} for arg in args)
     return text_args, kwargs
 
-def set_ticks(ax, axis, label='', tick_labels=None, num=None, step_ticks=None,
-              step_labels=None, tick_range=None, round_to=0, **kwargs):
+def set_ticks(ax, axis, label='', tick_labels=None, tick_range=None, num=None, step_ticks=None,
+              step_labels=None, round_to=0, **kwargs):
     """Set ticks and labels for `x` or `y` axis depending on the `axis`.
 
     Parameters
@@ -61,10 +60,10 @@ def set_ticks(ax, axis, label='', tick_labels=None, num=None, step_ticks=None,
 
     ax_obj = getattr(ax, f"{axis}axis")
     rotation_kwargs = _pop_rotation_kwargs(kwargs)
-    ax_obj.set_label_text(label, **kwargs)
     tick_range = ax_obj.get_data_interval() if tick_range is None else tick_range
     locator, formatter = _process_ticks(labels=tick_labels, num=num, step_ticks=step_ticks, step_labels=step_labels,
                                         round_to=round_to, tick_range=tick_range)
+    ax_obj.set_label_text(label, **kwargs)
     ax_obj.set_ticklabels([], **kwargs, **rotation_kwargs)
     ax_obj.set_major_locator(locator)
     ax_obj.set_major_formatter(formatter)
@@ -94,6 +93,15 @@ def _process_ticks(labels, num, step_ticks, step_labels, round_to, tick_range):
             label_value = label_value.astype(np.int32) if round_to == 0 else label_value
         return label_value
 
+    def formatter(label_loc, *args):
+        """Get tick label by its index in `labels` and format the resulting value."""
+        _ = args
+
+        label_value = tick_interpolator(label_loc)
+        if np.isnan(label_value):
+            return None
+        return round_formatter(label_value)
+
     if labels is None:
         formatter = round_formatter
     else:
@@ -108,14 +116,6 @@ def _process_ticks(labels, num, step_ticks, step_labels, round_to, tick_range):
         tick_interpolator = interp1d(np.linspace(*tick_range, len(labels)), labels,
                                      kind="nearest", bounds_error=False)
 
-        def formatter(label_ix, *args):
-            """Get tick label by its index in `labels` and format the resulting value."""
-            _ = args
-
-            label_value = tick_interpolator(label_ix)
-            if np.isnan(label_value):
-                return None
-            return round_formatter(label_value)
 
     return locator, ticker.FuncFormatter(formatter)
 
