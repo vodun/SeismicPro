@@ -23,7 +23,7 @@ class MetricMap:
 
     @property
     def plot_title(self):
-        return f"{self.agg_func}({self.metric_name}) in {self.bin_size} bins"
+        return f"{self.agg_func}({self.metric_name}) in {self.bin_size[0]}x{self.bin_size[1]} bins"
 
     def get_bin_contents(self, coords):
         if coords not in self.bin_to_coords.groups:

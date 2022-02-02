@@ -32,7 +32,7 @@ class SemblancePlot:
             return
         click_vel = np.interp(x, np.arange(len(self.semblance.velocities)), self.semblance.velocities / 1000)
 
-        y = round(y + 0.5)  # Correction for pixel center and click coord rounding
+        y = int(y + 0.5)  # Correction for pixel center and click coord rounding
         if (y < 0) or (y >= len(self.semblance.times)):
             return
         click_time = self.semblance.times[y]
