@@ -46,7 +46,7 @@ class MetricMap:
         img = ax.imshow(self.metric_map.T, origin=origin, aspect=aspect, cmap=cmap, interpolation=interpolation,
                         vmin=vmin, vmax=vmax, **kwargs)
         ax.set_title(**{"label": self.plot_title, **title})
-        add_colorbar(ax, img, colorbar, y_ticker)
+        add_colorbar(ax, img, colorbar, y_ticker=y_ticker)
         set_ticks(ax, "x", self.coords_cols[0], self.x_bin_coords, **x_ticker)
         set_ticks(ax, "y", self.coords_cols[1], self.y_bin_coords, **y_ticker)
 

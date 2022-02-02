@@ -179,7 +179,7 @@ class BaseSemblance:
         x_grid, y_grid = np.meshgrid(np.arange(0, semblance.shape[1]), np.arange(0, semblance.shape[0]))
         ax.contour(x_grid, y_grid, semblance, levels, colors='k', linewidths=.5, alpha=.5)
         img = ax.imshow(semblance, norm=norm, aspect='auto', cmap='seismic')
-        add_colorbar(ax, img, colorbar, y_ticker)
+        add_colorbar(ax, img, colorbar, y_ticker=y_ticker)
         ax.set_title(**{"label": None, **title})
 
         # Change markers of stacking velocity points if they are far enough apart

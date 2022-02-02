@@ -183,7 +183,7 @@ class OptionPlot(InteractivePlot):
 
     def redraw(self):
         self.ax.clear()
-        self.plot_fn(*self.options.index[self.curr_option], ax=self.ax)
+        self.plot_fn(self.options.index[self.curr_option], ax=self.ax)
 
     def gen_drop_options(self, options):
         return [f"({x}, {y}) - {metric:.05f}" for (x, y), metric in options.iteritems()]
