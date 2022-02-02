@@ -20,7 +20,7 @@ class MetricMapPlot:
         if title is None:
             title = self.metric_map.plot_title
 
-        plot_map = partial(self.metric_map.plot, title=None, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
+        plot_map = partial(self.metric_map.plot, title="", x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
         if plot_on_click is None:
             plot_on_click = self.metric_map.metric_type.plot_on_click
         plot_on_click = partial(plot_on_click, x_ticker=x_ticker, y_ticker=y_ticker)

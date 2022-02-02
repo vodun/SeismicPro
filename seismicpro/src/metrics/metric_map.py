@@ -2,7 +2,7 @@ from matplotlib import colors as mcolors
 
 from .interactive_plot import MetricMapPlot
 from ..decorators import plotter
-from ..utils import as_dict, add_colorbar, set_ticks
+from ..utils import add_colorbar, set_ticks, set_text_formatting
 
 
 class MetricMap:
@@ -34,6 +34,8 @@ class MetricMap:
     @plotter(figsize=(10, 7))
     def plot(self, title=None, interpolation="none", origin="lower", aspect="auto", cmap=None, x_ticker=None,
              y_ticker=None, colorbar=True, vmin=None, vmax=None, is_lower_better=True, ax=None, **kwargs):
+        # Cast text-related parameters to dicts and add text formatting parameters from kwargs to each of them
+        (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
         if cmap is None:
             colors = ((0.0, 0.6, 0.0), (.66, 1, 0), (0.9, 0.0, 0.0))
             if not is_lower_better:
@@ -43,14 +45,8 @@ class MetricMap:
         vmax = self.vmax if vmax is None else vmax
         img = ax.imshow(self.metric_map.T, origin=origin, aspect=aspect, cmap=cmap, interpolation=interpolation,
                         vmin=vmin, vmax=vmax, **kwargs)
+        ax.set_title(**{"label": self.plot_title, **title})
         add_colorbar(ax, img, colorbar)
-
-        title = {} if title is None else as_dict(title, key="label")
-        title = {"label": self.plot_title, **title}
-        ax.set_title(**title)
-
-        x_ticker = {} if x_ticker is None else x_ticker
-        y_ticker = {} if y_ticker is None else y_ticker
         set_ticks(ax, "x", self.coords_cols[0], self.x_bin_coords, **x_ticker)
         set_ticks(ax, "y", self.coords_cols[1], self.y_bin_coords, **y_ticker)
 
