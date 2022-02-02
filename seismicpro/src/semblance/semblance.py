@@ -7,7 +7,7 @@ from matplotlib import colors as mcolors
 
 from ..decorators import batch_method, plotter
 from ..stacking_velocity import StackingVelocity, calculate_stacking_velocity
-from ..utils import add_colorbar, set_ticks, set_colorbar_ticks, set_text_formatting
+from ..utils import add_colorbar, set_ticks, set_text_formatting
 from ..utils.correction import get_hodograph
 from .interactive_plot import SemblancePlot
 
@@ -179,7 +179,7 @@ class BaseSemblance:
         x_grid, y_grid = np.meshgrid(np.arange(0, semblance.shape[1]), np.arange(0, semblance.shape[0]))
         ax.contour(x_grid, y_grid, semblance, levels, colors='k', linewidths=.5, alpha=.5)
         img = ax.imshow(semblance, norm=norm, aspect='auto', cmap='seismic')
-        cbar = add_colorbar(ax, img, colorbar)
+        add_colorbar(ax, img, colorbar, y_ticker)
         ax.set_title(**{"label": None, **title})
 
         # Change markers of stacking velocity points if they are far enough apart
@@ -192,7 +192,6 @@ class BaseSemblance:
 
         set_ticks(ax, "x", x_label, x_ticklabels, **x_ticker)
         set_ticks(ax, "y", "Time", y_ticklabels, **y_ticker)
-        set_colorbar_ticks(cbar, **y_ticker)
 
 
 class Semblance(BaseSemblance):

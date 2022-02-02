@@ -18,8 +18,9 @@ from .stacking_velocity import StackingVelocity, VelocityCube
 from .decorators import batch_method, plotter
 from .utils import normalization, correction
 from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins,
-                    set_ticks, set_text_formatting, add_colorbar, get_coords_cols)
+                    set_ticks, set_subplot_ticks, set_text_formatting, add_colorbar, get_coords_cols)
 from .const import HDR_FIRST_BREAK
+
 
 class Gather:
     """A class representing a single seismic gather.
@@ -1184,7 +1185,7 @@ class Gather:
         vmin, vmax = self.get_quantile([qvmin, qvmax])
         kwargs = {"cmap": "gray", "aspect": "auto", "vmin": vmin, "vmax": vmax, **kwargs}
         img = ax.imshow(self.data.T, **kwargs)
-        add_colorbar(ax, img, colorbar, divider)
+        add_colorbar(ax, img, colorbar, divider, y_ticker)
         return self._finalize_plot(ax, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
     def _plot_wiggle(self, ax, std=0.5, color="black", x_ticker=None, y_ticker=None, x_tick_src=None,
@@ -1218,7 +1219,8 @@ class Gather:
         # Add a top subplot for given header if needed and set plot title
         top_ax = ax
         if top_header is not None:
-            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_header].ravel())
+            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_header].ravel(),
+                                            y_ticker=y_ticker)
 
         # Set axis ticks
         x_tick_src = (self.sort_by if self.sort_by is not None else "index") if x_tick_src is None else x_tick_src
@@ -1284,13 +1286,14 @@ class Gather:
         if headers_kwargs:
             ax.legend()
 
-    def _plot_top_subplot(self, ax, divider, header_values, **kwargs):
+    def _plot_top_subplot(self, ax, divider, header_values, y_ticker, **kwargs):
         """Add a scatter plot of given header values on top of the main gather plot."""
         top_ax = divider.append_axes("top", sharex=ax, size="12%", pad=0.05)
         top_ax.scatter(np.arange(self.n_traces), header_values, **{"s": 5, "color": "black", **kwargs})
         top_ax.xaxis.set_visible(False)
         top_ax.yaxis.tick_right()
         top_ax.invert_yaxis()
+        set_subplot_ticks(top_ax, **y_ticker)
         return top_ax
 
     def _get_x_ticks(self, axis_label):
