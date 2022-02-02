@@ -1,11 +1,20 @@
 import numpy as np
 import pandas as pd
 from sklearn.neighbors import NearestNeighbors
-from ipywidgets import widgets
-from IPython.display import display
 
-from ..utils import set_ticks, set_text_formatting
+from ..utils import set_ticks, set_text_formatting, MissingModule
 from ..utils.interactive_plot_utils import InteractivePlot, ToggleClickablePlot
+
+# Safe import of modules for interactive plotting
+try:
+    from ipywidgets import widgets
+except ImportError:
+    widgets = MissingModule("ipywidgets")
+
+try:
+    from IPython.display import display
+except ImportError:
+    display = MissingModule("IPython.display")
 
 
 class SurveyPlot:

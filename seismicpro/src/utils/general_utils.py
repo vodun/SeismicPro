@@ -381,3 +381,11 @@ def _make_grid_origins(data_shape, crop_shape, stride):
     """
     max_origin = max(data_shape - crop_shape, 0)
     return np.array(list(range(0, max_origin, stride)) + [max_origin], dtype=np.int32)
+
+
+class MissingModule:
+    def __init__(self, module_name):
+        self._module_name = module_name
+
+    def __getattr__(self, name):
+        raise ImportError(f"No module named {self._module_name}")

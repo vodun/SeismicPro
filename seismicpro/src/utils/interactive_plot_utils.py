@@ -1,8 +1,19 @@
 from time import time
 
 import matplotlib.pyplot as plt
-from ipywidgets import widgets
-from IPython.display import display
+
+from .general_utils import MissingModule
+
+# Safe import of modules for interactive plotting
+try:
+    from ipywidgets import widgets
+except ImportError:
+    widgets = MissingModule("ipywidgets")
+
+try:
+    from IPython.display import display
+except ImportError:
+    display = MissingModule("IPython.display")
 
 
 MAX_CLICK_TIME = 0.2
