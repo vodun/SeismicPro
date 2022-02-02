@@ -54,5 +54,5 @@ class MetricMap:
         set_ticks(ax, "x", self.coords_cols[0], self.x_bin_coords, **x_ticker)
         set_ticks(ax, "y", self.coords_cols[1], self.y_bin_coords, **y_ticker)
 
-    def plot_interactive(self, plot_fn):
-        MetricMapPlot(self, plot_fn=plot_fn).plot()
+    def plot_interactive(self, plot_on_click=None, **kwargs):
+        MetricMapPlot(self, plot_on_click=plot_on_click, **kwargs).plot()

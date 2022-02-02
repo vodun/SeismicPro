@@ -13,6 +13,7 @@ import numpy as np
 from numba import njit
 
 from ..metrics import PlottableMetric
+from ..utils import set_ticks
 
 
 class StackingVelocityMetric(PlottableMetric):
@@ -23,6 +24,8 @@ class StackingVelocityMetric(PlottableMetric):
         self.nearest_neighbors = nearest_neighbors
         self.times = times
         self.velocities = velocities
+        self.min_vel = self.velocities.min()
+        self.max_vel = self.velocities.max()
 
     def coords_to_args(self, x, y):
         window_indices = self.nearest_neighbors.radius_neighbors([[x, y]], return_distance=False)[0]
@@ -30,12 +33,15 @@ class StackingVelocityMetric(PlottableMetric):
             window_indices = window_indices[0]
         return (self.velocities[window_indices],)
 
-    def plot(self, window, ax):
+    def plot(self, window, ax, x_ticker, y_ticker):
         if not self.is_window_metric:
             window = window.reshape(1, -1)
         for vel in window:
             ax.plot(vel, self.times)
         ax.invert_yaxis()
+        set_ticks(ax, "x", "Stacking velocity (m/s)", **x_ticker)
+        set_ticks(ax, "y", "Time", self.times, **y_ticker)
+        ax.set_xlim(self.min_vel, self.max_vel)
 
 
 class IsDecreasing(StackingVelocityMetric):

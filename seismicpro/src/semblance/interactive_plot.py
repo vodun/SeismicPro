@@ -10,11 +10,11 @@ from ..utils.interactive_plot_utils import InteractivePlot, ClickablePlot
 
 class SemblancePlot:
     def __init__(self, semblance, stacking_velocity=None, title="Semblance", x_ticker=None, y_ticker=None,
-                 figsize=(4.5, 4.5), **kwargs):
+                 figsize=(4.5, 4.5), fontsize=8, **kwargs):
         self.semblance = semblance
         self.gather = self.semblance.gather.copy(ignore="data")
 
-        (x_ticker, y_ticker), kwargs = set_text_formatting(x_ticker, y_ticker, **kwargs)
+        (x_ticker, y_ticker), kwargs = set_text_formatting(x_ticker, y_ticker, fontsize=fontsize, **kwargs)
         plot_semblance = partial(self.semblance.plot, stacking_velocity=stacking_velocity, title=None,
                                  x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
         self.plot_gather = partial(self.gather.plot, title=None, x_ticker=x_ticker, y_ticker=y_ticker)

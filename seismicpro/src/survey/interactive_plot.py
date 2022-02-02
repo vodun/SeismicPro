@@ -9,14 +9,14 @@ from ..utils.interactive_plot_utils import InteractivePlot, ToggleClickablePlot
 
 
 class SurveyPlot:
-    def __init__(self, survey, sort_by=None, x_ticker=None, y_ticker=None, figsize=(4.5, 4.5), **kwargs):
+    def __init__(self, survey, sort_by=None, x_ticker=None, y_ticker=None, figsize=(4.5, 4.5), fontsize=8, **kwargs):
         self.survey = survey
         self.source_ix, self.source_x, self.source_y, self.source_knn = self._process_survey(survey, ["SourceX", "SourceY"])
         self.group_ix, self.group_x, self.group_y, self.group_knn = self._process_survey(survey, ["GroupX", "GroupY"])
         self.is_shot_view = True
         self.sort_by = sort_by
         self.affected_scatter = None
-        (self.x_ticker, self.y_ticker), kwargs = set_text_formatting(x_ticker, y_ticker, **kwargs)
+        (self.x_ticker, self.y_ticker), kwargs = set_text_formatting(x_ticker, y_ticker, fontsize=fontsize, **kwargs)
 
         self.left = ToggleClickablePlot(figsize=figsize, plot_fn=self.plot_map, click_fn=self.click,
                                         unclick_fn=self.unclick, toggle_fn=self.toggle_view,

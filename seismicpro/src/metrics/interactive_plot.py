@@ -1,22 +1,33 @@
+from functools import partial
+
 import numpy as np
 from ipywidgets import widgets
 from IPython.display import display
 
+from ..utils import set_text_formatting
 from ..utils.interactive_plot_utils import ClickablePlot, OptionPlot
 
 
 class MetricMapPlot:
-    def __init__(self, metric_map, plot_fn=None, figsize=(4.5, 4.5)):
+    def __init__(self, metric_map, plot_on_click=None, title=None, x_ticker=None, y_ticker=None, figsize=(4.5, 4.5),
+                 fontsize=8, **kwargs):
         self.metric_map = metric_map
-        init_func = np.nanargmax if self.metric_map.is_lower_better else np.nanargmin
-        self.init_click_coords = np.unravel_index(init_func(self.metric_map.metric_map),
-                                                  self.metric_map.metric_map.shape)
-        title = self.metric_map.plot_title
-        if plot_fn is None:
-            plot_fn = self.metric_map.metric_type.plot_on_click
-        self.left = ClickablePlot(figsize=figsize, plot_fn=lambda ax: self.metric_map.plot(ax=ax, title=""),
-                                  click_fn=self.click, allow_unclick=False, title=title)
-        self.right = OptionPlot(plot_fn=plot_fn, options=self.metric_map.get_bin_contents(self.init_click_coords))
+        find_worst = np.nanargmax if self.metric_map.is_lower_better else np.nanargmin
+        init_click_coords = np.unravel_index(find_worst(metric_map.metric_map), metric_map.metric_map.shape)
+        init_options = metric_map.get_bin_contents(init_click_coords)
+
+        (x_ticker, y_ticker), kwargs = set_text_formatting(x_ticker, y_ticker, fontsize=fontsize, **kwargs)
+        if title is None:
+            title = self.metric_map.plot_title
+
+        plot_map = partial(self.metric_map.plot, title=None, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
+        if plot_on_click is None:
+            plot_on_click = self.metric_map.metric_type.plot_on_click
+        plot_on_click = partial(plot_on_click, x_ticker=x_ticker, y_ticker=y_ticker)
+
+        self.left = ClickablePlot(figsize=figsize, plot_fn=plot_map, click_fn=self.click, allow_unclick=False,
+                                  title=title)
+        self.right = OptionPlot(plot_fn=plot_on_click, options=init_options, toolbar_position="right")
         self.box = widgets.HBox([self.left.box, self.right.box])
         self.click_list = []
 

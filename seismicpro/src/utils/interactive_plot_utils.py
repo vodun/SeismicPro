@@ -152,18 +152,15 @@ class ToggleClickablePlot(ClickablePlot):
 
 
 class OptionPlot(InteractivePlot):
-    def __init__(self, *args, options, is_lower_better=True, **kwargs):
+    def __init__(self, *args, options=None, is_lower_better=True, **kwargs):
         self.is_desc = is_lower_better
         self.options = None
         self.curr_option = None
 
-        text_layout = widgets.Layout(height="28px", display="flex", width="100%", justify_content="center", align_items="center")
-        button_layout = widgets.Layout(height="28px", width="35px", min_width="35px")
-
-        self.sort = widgets.Button(icon=self.sort_icon, layout=button_layout)
-        self.prev = widgets.Button(icon="angle-left", layout=button_layout)
-        self.drop = widgets.Dropdown(layout=text_layout)
-        self.next = widgets.Button(icon="angle-right", layout=button_layout)
+        self.sort = widgets.Button(icon=self.sort_icon, layout=widgets.Layout(**BUTTON_LAYOUT))
+        self.prev = widgets.Button(icon="angle-left", layout=widgets.Layout(**BUTTON_LAYOUT))
+        self.drop = widgets.Dropdown(layout=widgets.Layout(**TEXT_LAYOUT))
+        self.next = widgets.Button(icon="angle-right", layout=widgets.Layout(**BUTTON_LAYOUT))
 
         # Handler definition
         self.sort.on_click(self.reverse_coords)
@@ -172,10 +169,12 @@ class OptionPlot(InteractivePlot):
         self.next.on_click(self.next_coords)
 
         super().__init__(*args, **kwargs)
-
-        self.update_state(0, options)
+        if options is not None:
+            self.update_state(0, options)
 
     def create_header(self):
+        if self.fig.canvas.toolbar_position == "right":
+            return widgets.HBox([self.prev, self.drop, self.next, self.sort])
         return widgets.HBox([self.sort, self.prev, self.drop, self.next])
 
     @property
@@ -205,7 +204,7 @@ class OptionPlot(InteractivePlot):
         self.toggle_prev_next_buttons()
         if redraw:
             self.redraw()
-    
+
     def reverse_coords(self, event):
         self.is_desc = not self.is_desc
         self.sort.icon = self.sort_icon
