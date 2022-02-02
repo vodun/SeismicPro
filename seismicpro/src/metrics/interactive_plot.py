@@ -6,16 +6,17 @@ from ..utils.interactive_plot_utils import ClickablePlot, OptionPlot
 
 
 class MetricMapPlot:
-    def __init__(self, metric_map, figsize=(4.5, 4.5)):
+    def __init__(self, metric_map, plot_fn=None, figsize=(4.5, 4.5)):
         self.metric_map = metric_map
         init_func = np.nanargmax if self.metric_map.is_lower_better else np.nanargmin
         self.init_click_coords = np.unravel_index(init_func(self.metric_map.metric_map),
                                                   self.metric_map.metric_map.shape)
         title = self.metric_map.plot_title
+        if plot_fn is None:
+            plot_fn = self.metric_map.metric_type.plot_on_click
         self.left = ClickablePlot(figsize=figsize, plot_fn=lambda ax: self.metric_map.plot(ax=ax, title=""),
                                   click_fn=self.click, allow_unclick=False, title=title)
-        self.right = OptionPlot(plot_fn=self.metric_map.metric_type.plot_on_click,
-                                options=self.metric_map.get_bin_contents(self.init_click_coords))
+        self.right = OptionPlot(plot_fn=plot_fn, options=self.metric_map.get_bin_contents(self.init_click_coords))
         self.box = widgets.HBox([self.left.box, self.right.box])
         self.click_list = []
 
