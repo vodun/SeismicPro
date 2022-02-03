@@ -4,19 +4,27 @@ from functools import partial
 
 import cv2
 import PIL
-from scipy import signal
 import numpy as np
+import numba
+from scipy import signal
 
 
-def sinc_resize(image, new_shape):
+def sinc_resize(image, samples, new_samples):
     """ functional form for pillow sinc resize. """
     img = PIL.Image.fromarray(image, mode='F')
-    new_img = img.resize(new_shape, resample=PIL.Image.LANCZOS)
+    new_img = img.resize((len(new_samples), image.shape[0]), resample=PIL.Image.LANCZOS)
     return np.array(new_img)
 
-def fft_resize(image, new_shape):
+def fft_resize(image, samples, new_samples):
     """ functional form for scipy fft resize. """
-    return signal.resample(image, new_shape[0], axis=1)
+    return signal.resample(image, len(new_samples), axis=1)
+
+@numba.njit(nogil=True, fastmath=True, parallel=True)
+def linear_resize(data, samples, new_samples):
+    res = np.empty((len(data), len(new_samples)), dtype=np.float32)
+    for i in numba.prange(len(data)):
+        res[i] = np.interp(new_samples, samples, data[i])
+    return res
 
 
 INTERPOLATORS = {

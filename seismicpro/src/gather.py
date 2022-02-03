@@ -1303,27 +1303,17 @@ class Gather:
 
 
     @batch_method(target="t")
-    def bandpass(self, cutoff, n, window='hamm'):
-        fir = scipy.firwin(n, cutoff, window=window, fs=1000 / gather.sample_rate, pass_zero='bandpass', **kwargs)
-        self.data = cv2.filter2D(gather.data, ddepth=-1, kernel=kernel.reshape(1, -1))
-        return self
+    def bandpass(self, n, low=None, high=None, window='hamm', **kwargs):
+        if low is not None and high is not None:
+            fir = scipy.firwin(numtaps, [low, high], window=window, fs=1000 / self.sample_rate, pass_zero='bandpass', **kwargs)
+        elif low is not None:
+            fir = scipy.firwin(numtaps, low, window=window, fs=1000 / self.sample_rate, pass_zero='highpass', **kwargs)
+        elif high is not None:
+            fir = scipy.firwin(numtaps, high, window=window, fs=1000 / self.sample_rate, pass_zero='lowpass', **kwargs)
+        else:
+            raise ValueError('At least one of low and high must be provided')
 
-    @batch_method(target="t")
-    def lowpass(self, cutoff, n, window='hamm'):
-        fir = scipy.firwin(n, cutoff, window=window, fs=1000 / gather.sample_rate, pass_zero='lowpass', **kwargs)
-        self.data = cv2.filter2D(gather.data, ddepth=-1, kernel=kernel.reshape(1, -1))
-        return self
-
-    @batch_method(target="t")
-    def highpass(self, cutoff, n, window='hamm'):
-        kernel = scipy.firwin(n, cutoff, window=window, fs=1000 / gather.sample_rate, pass_zero='highpass', **kwargs)
-        self.data = cv2.filter2D(gather.data, ddepth=-1, kernel=kernel.reshape(1, -1))
-        return self
-
-    @batch_method(target="t")
-    def apply_fir_filter(self, type, n, cutoff, window='hamm', **kwargs):
-        fir = scipy.firwin(numtaps, cutoff, window=window, fs=1000 / gather.sample_rate, pass_zero=type, **kwargs)
-        self.data = cv2.filter2D(gather.data, ddepth=-1, kernel=kernel.reshape(1, -1))
+        self.data = cv2.filter2D(gather.data, ddepth=-1, fir=kernel.reshape(1, -1))
         return self
     
     @batch_method(target="t")
@@ -1335,7 +1325,7 @@ class Gather:
             factor = new_sample_rate / current_sample_rate
             n = int(2 * 10 * factor)
             nyq = 1000 / (2 * new_sample_rate)
-            self.lowpass(0.8 * nyq, n)
+            self.bandpass(n, high=0.8 * nyq)
 
         data = self.data
         new_samples = np.arange(self.samples[0], self.samples[-1] + new_sample_rate, new_sample_rate)
