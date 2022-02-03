@@ -41,6 +41,8 @@ TITLE_TEMPLATE = "{style} <b><p>{title}</p></b>"
 
 class InteractivePlot:
     def __init__(self, title="", plot_fn=None, figsize=(4.5, 4.5), toolbar_position="left"):
+        self.plot_fn = plot_fn
+
         toolbar_visible = (toolbar_position is not None)
         if toolbar_position is None:
             toolbar_position = "left"
@@ -59,8 +61,6 @@ class InteractivePlot:
 
         self.header = self.create_header()
         self.box = widgets.VBox([self.header, self.fig.canvas])
-
-        self.plot_fn = plot_fn
 
     def create_header(self):
         placeholder = widgets.HTML(layout=widgets.Layout(**BUTTON_LAYOUT))
@@ -93,12 +93,12 @@ class InteractivePlot:
 
 class ClickablePlot(InteractivePlot):
     def __init__(self, *args, click_fn=None, allow_unclick=True, unclick_fn=None, init_click_coords=None,
-                 color="black", marker="+", **kwargs):
+                 marker_params=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.click_fn = click_fn
         self.unclick_fn = unclick_fn
-        self.color = color
-        self.marker = marker
+        marker_params = {} if marker_params is None else marker_params
+        self.marker_params = {"color": "black", "marker": "+", **marker_params}
         self.click_time = None
         self.click_scatter = None
         self.init_click_coords = init_click_coords
@@ -115,13 +115,13 @@ class ClickablePlot(InteractivePlot):
     def _click(self, coords):
         if self.click_fn is not None:
             coords = self.click_fn(coords)
-            if coords is None:
+            if coords is None:  # Skip click processing
                 return
         if self.click_scatter is not None:
             self.click_scatter.remove()
-        self.click_scatter = self.ax.scatter(*coords, color=self.color, marker=self.marker)
+        self.click_scatter = self.ax.scatter(*coords, **self.marker_params)
         # TODO: switch to blit
-        self.fig.canvas.draw()
+        self.fig.canvas.draw_idle()
 
     def on_click(self, event):
         # Discard clicks outside the main axes
@@ -146,7 +146,7 @@ class ClickablePlot(InteractivePlot):
             self.click_scatter.remove()
             self.click_scatter = None
             # TODO: switch to blit
-            self.fig.canvas.draw()
+            self.fig.canvas.draw_idle()
 
 
 class ToggleClickablePlot(ClickablePlot):
