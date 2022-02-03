@@ -6,7 +6,6 @@ from functools import partial
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import ticker, colors as mcolors
-from scipy.interpolate import interp1d
 
 def as_dict(val, key):
     """Construct a dict with a {`key`: `val`} structure if given `val` is not a `dict`, or copy `val` otherwise."""
@@ -79,7 +78,9 @@ def _process_ticks(labels, num, step_ticks, step_labels, round_to):
         locator = ticker.LinearLocator(num)
     elif step_ticks is not None:
         locator = ticker.IndexLocator(step_ticks, 0)
-    elif step_labels is not None and labels is not None:
+    elif step_labels is not None:
+        if labels is None:
+            raise ValueError("step_labels cannot be used: plotter does not provide labels.")
         if (np.diff(labels) < 0).any():
             raise ValueError("step_labels is valid only for monotonically increasing labels.")
         candidates = np.arange(labels[0], labels[-1], step_labels)
@@ -93,14 +94,13 @@ def _process_ticks(labels, num, step_ticks, step_labels, round_to):
     def round_tick(tick_loc, *args, round_to):
         _ = args
         if round_to is not None:
-            label_value = np.round(tick_loc, round_to)
-            label_value = label_value.astype(np.int32) if round_to == 0 else label_value
-        return label_value
+            return f'{tick_loc:.{round_to}f}'
+        return tick_loc
 
     def interpolate_tick(tick_loc, *args, labels, round_to):
         """Get tick label by its index in `labels` and format the resulting value."""
         _ = args
-        if tick_loc < 0 or tick_loc >= len(labels):
+        if (tick_loc < 0) or (tick_loc > len(labels)-1):
             return None
         label_value = labels[np.round(tick_loc).astype(np.int32)]
         return round_tick(label_value, round_to=round_to)
