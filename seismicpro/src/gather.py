@@ -1161,9 +1161,9 @@ class Gather:
                         grid=True, **kwargs):
         """ TODO """
         data = self.data if x_tick_src=="amplitude" else self[x_tick_src]
-        counts, _, _ = ax.hist(data.ravel(), bins=bins, **kwargs)
+        _ = ax.hist(data.ravel(), bins=bins, **kwargs)
         set_ticks(ax, "x", tick_labels=None, **{"label": x_tick_src, 'round_to': None, **x_ticker})
-        set_ticks(ax, "y", tick_labels=np.arange(0, counts.max()+1), **{"label": "counts", **y_ticker})
+        set_ticks(ax, "y", tick_labels=None, **{"label": "counts", **y_ticker})
 
         ax.grid(grid)
         if log:
