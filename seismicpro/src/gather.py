@@ -1204,7 +1204,7 @@ class Gather:
         traces = std * (self.data - self.data.mean(axis=1, keepdims=True)) / (np.std(self.data) + 1e-10)
         for i, (trace, col) in enumerate(zip(traces, color)):
             ax.plot(i + trace, y_coords, color=col, **kwargs)
-            ax.fill_betweenx(y_coords, i, i + trace, where=(trace > 0), color=col, **kwargs)
+            ax.fill_betweenx(y_coords, i, i + trace, where=(trace > 0), color=col)
         ax.invert_yaxis()
 
         # Wiggle plot requires custom data interval for correct tick setting
