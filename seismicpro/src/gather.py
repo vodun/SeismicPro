@@ -1157,8 +1157,8 @@ class Gather:
         ax.set_title(**{'label': None, **title})
         return self
 
-    def _plot_histogram(self, ax, bins=50, x_tick_src="amplitude", log=False, x_ticker=None, y_ticker=None, grid=False,
-                        **kwargs):
+    def _plot_histogram(self, ax, bins=None, x_tick_src="amplitude", log=False, x_ticker=None, y_ticker=None,
+                        grid=True, **kwargs):
         """ TODO """
         data = self.data if x_tick_src=="amplitude" else self[x_tick_src]
         counts, _, _ = ax.hist(data.ravel(), bins=bins, **kwargs)
@@ -1206,9 +1206,6 @@ class Gather:
             ax.plot(i + trace, y_coords, color=col, **kwargs)
             ax.fill_betweenx(y_coords, i, i + trace, where=(trace > 0), color=col)
         ax.invert_yaxis()
-
-        # Wiggle plot requires custom data interval for correct tick setting
-        x_ticker.update({"tick_range":(0, self.n_traces-1)})
         return self._finalize_plot(ax, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
     def _finalize_plot(self, ax, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src):
@@ -1222,7 +1219,7 @@ class Gather:
             top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_header].ravel())
 
         # Set axis ticks
-        x_tick_src = (self.sort_by if self.sort_by is not None else "index") if x_tick_src is None else x_tick_src
+        x_tick_src = x_tick_src or self.sort_by or "index"
         self._set_ticks(ax, axis="x", tick_src=x_tick_src, ticker=x_ticker)
         self._set_ticks(ax, axis="y", tick_src=y_tick_src, ticker=y_ticker)
 

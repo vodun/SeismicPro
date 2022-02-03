@@ -25,7 +25,7 @@ def set_text_formatting(*args, **kwargs):
     text_args = ({**global_formatting, **({} if arg is None else as_dict(arg, key="label"))} for arg in args)
     return text_args, kwargs
 
-def set_ticks(ax, axis, label='', tick_labels=None, tick_range=None, num=None, step_ticks=None,
+def set_ticks(ax, axis, label='', tick_labels=None, num=None, step_ticks=None,
               step_labels=None, round_to=0, **kwargs):
     """Set ticks and labels for `x` or `y` axis depending on the `axis`.
 
@@ -64,8 +64,7 @@ def set_ticks(ax, axis, label='', tick_labels=None, tick_range=None, num=None, s
     # matplotlib does not update data interval when new artist is redrawn on the existing axes in interactive mode,
     # which leads to incorrect tick position to label interpolation (see _process_ticks logic). To overcome this, call
     # `ax.clear()` before drawing a new artist.
-    tick_range = ax_obj.get_data_interval() if tick_range is None else tick_range
-    locator, formatter = _process_ticks(labels=tick_labels, tick_range=tick_range, num=num, step_ticks=step_ticks,
+    locator, formatter = _process_ticks(labels=tick_labels, num=num, step_ticks=step_ticks,
                                         step_labels=step_labels, round_to=round_to)
     rotation_kwargs = _pop_rotation_kwargs(kwargs)
     ax_obj.set_label_text(label, **kwargs)
@@ -74,7 +73,7 @@ def set_ticks(ax, axis, label='', tick_labels=None, tick_range=None, num=None, s
     ax_obj.set_major_formatter(formatter)
 
 
-def _process_ticks(labels, tick_range, num, step_ticks, step_labels, round_to):
+def _process_ticks(labels, num, step_ticks, step_labels, round_to):
     """Create an axis locator and formatter by given `labels` and tick layout parameters."""
     if num is not None:
         locator = ticker.LinearLocator(num)
@@ -98,25 +97,18 @@ def _process_ticks(labels, tick_range, num, step_ticks, step_labels, round_to):
             label_value = label_value.astype(np.int32) if round_to == 0 else label_value
         return label_value
 
-    def interpolate_tick(tick_loc, *args, tick_interpolator, round_to):
+    def interpolate_tick(tick_loc, *args, labels, round_to):
         """Get tick label by its index in `labels` and format the resulting value."""
         _ = args
-        label_value = tick_interpolator(tick_loc)
-        if np.isnan(label_value):
+        if tick_loc < 0 or tick_loc >= len(labels):
             return None
+        label_value = labels[np.round(tick_loc).astype(np.int32)]
         return round_tick(label_value, round_to=round_to)
 
     if labels is None:
         formatter = partial(round_tick, round_to=round_to)
     else:
-        # The object drawn can have single tick label (e.g., for single-trace `gather`) which leads to interp1d being
-        # unable to initiate since both x and y should have at least 2 entries. Repeating this single label solves the
-        # issue.
-        if len(labels) == 1:
-            labels = np.repeat(labels, 2)
-        tick_interpolator = interp1d(np.linspace(*tick_range, len(labels)), labels,
-                                     kind="nearest", bounds_error=False)
-        formatter = partial(interpolate_tick, tick_interpolator=tick_interpolator, round_to=round_to)
+        formatter = partial(interpolate_tick, labels=labels, round_to=round_to)
 
     return locator, ticker.FuncFormatter(formatter)
 
