@@ -25,9 +25,7 @@ def plotter(figsize, args_to_unpack=None):
     """Expand the functionality of a plotting method by defining figure creation and saving.
 
     The decorated method is supposed to accept an `ax` argument. If it's not passed during the call, the decorator
-    creates it with the `figsize` provided. Before calling the decorated method, `kwargs` are processed as follows: all
-    text formatting arguments are popped from `kwargs` and set as defaults for 'title', 'x_ticker' and 'y_ticker'.
-
+    creates it with the `figsize` provided.
     A new argument is added for the decorated method:
     save_to : str or dict, optional, defaults to None
         If `str`, a path to save the figure to.

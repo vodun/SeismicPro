@@ -1058,46 +1058,37 @@ class Gather:
             * `std`: amplitude scaling factor. Higher values result in higher plot oscillations (defaults to 0.5),
             * `color`: defines a color for each trace. If a single color is given, it is applied to all the traces
               (defaults to black).
+        - `hist`: a histogram of the trace data amplitudes or header values. The mode supports following `kwargs`:
+            * `bins`: number of equal-width bins if an integer; bin edges, including the left edge of the first bin and
+              the right edge of the last bin if a sequence.
+            * `grid`: whether to show the grid lines.
+            * `log`: set y-axis to log scale. If True, formatting defined in `y_ticker` is discarded.
 
         Trace headers, whose values are measured in milliseconds (e.g. first break times) may be displayed over the
-        gather plot if passed as `event_headers`. If `top_header` is passed, an auxiliary scatter plot of values of
-        this header will be shown on top of the gather plot.
+        seismigram or wiggle plot if passed as `event_headers`. If `top_header` is passed, an auxiliary scatter plot of
+        values of this header will be shown on top of the gather plot.
 
         Ticks and their labels for both `x` and `y` axes can be controlled via `x_ticker` and `y_ticker` parameters
         respectively. In the most general form, each of them is a `dict` with the following most commonly used keys:
-        - `label`: source to get tick labels from. Can be either any gather header name or "index" (ordinal numbers of
-          traces) for `x` axis and "times" or "samples" for `y` axis.
+        - `label`: axis label. Can be any string.
         - `round_to`: the number of decimal places to round tick labels to (defaults to 0).
         - `rotation`: the rotation angle of tick labels in degrees (defaults to 0).
         - One of the following keys, defining the way to place ticks:
             * `num`: place a given number of evenly-spaced ticks,
-            * `step_ticks`: place ticks with a given step between two adjacent ones in samples (e.g. place a tick for
-              every hundredth value in labels),
+            * `step_ticks`: place ticks with a given step between two adjacent ones,
             * `step_labels`: place ticks with a given step between two adjacent ones in the units of the corresponding
-              labels (e.g. place a tick every 200ms for `y` axis or every 300m offset for `x` axis).
+              labels (e.g. place a tick every 200ms for `y` axis or every 300m offset for `x` axis). This option is
+              valid only for "seismogram" and "wiggle" modes.
         A short argument form allows defining both tickers as a single `str`, which will be treated as the value for
         the `label` key. See :func:`~plot_utils.set_ticks` for more details on the ticker parameters.
 
         Parameters
         ----------
-        mode : "seismogram" or "wiggle", optional, defaults to "seismogram"
+        mode : "seismogram", "wiggle" or "hist", optional, defaults to "seismogram"
             A type of the gather representation to display:
-            - "seismogram": a 2d grayscale image of seismic traces,
-            - "wiggle": an amplitude vs time plot for each trace of the gather.
-        event_headers : str, array-like or dict, optional, defaults to None
-            Headers, whose values will be displayed over the gather plot. Must be measured in milliseconds.
-            If `dict`, allows controlling scatter plot options and handling outliers (header values falling out the `y`
-            axis range). The following keys are supported:
-            - `headers`: header names, can be either `str` or an array-like.
-            - `process_outliers`: an approach for outliers processing. Available options are:
-                * `clip`: clip outliers to fit the range of `y` axis,
-                * `discard`: do not display outliers,
-                * `none`: plot all the header values (default behavior).
-            - Any additional arguments for `matplotlib.axes.Axes.scatter`.
-            If any dictionary value is array-like, each its element will be associated with the corresponding header.
-            Otherwise, the single value will be used for all the scatter plots.
-        top_header : str, optional, defaults to None
-            A header name to plot on top of the gather plot.
+            - "seismogram": a 2d grayscale image of seismic traces;
+            - "wiggle": an amplitude vs time plot for each trace of the gather;
+            - "hist": histogram of the data amplitudes or some header values.
         title : str or dict, optional, defaults to None
             If `str`, a title of the plot.
             If `dict`, should contain keyword arguments to pass to `matplotlib.axes.Axes.set_title`. In this case, the
@@ -1118,6 +1109,30 @@ class Gather:
             formatting and layout, see :func:`~plot_utils.set_ticks` for more details.
         ax : matplotlib.axes.Axes, optional, defaults to None
             An axis of the figure to plot on. If not given, it will be created automatically.
+        x_tick_src : str, optional
+            Source of the labels to be plotted on x axis. For "seismogram" and "wiggle" can be either "index" (default if
+            gather is not sorted) or any header; for "hist" it also defines the data source and can be either
+            "amplitude" (default) or any header.
+            Also serves as a default for axis label.
+        y_tick_src : str, optional
+            Source of the data to be plotted on y axis. For "seismogram" and "wiggle" can be either "time" (default) or
+            "samples"; has no effect in "hist" mode. Also serves as a default for axis label.
+        event_headers : str, array-like or dict, optional, defaults to None
+            Only for "seismogram" and "wiggle" modes.
+            Headers, whose values will be displayed over the gather plot. Must be measured in milliseconds.
+            If `dict`, allows controlling scatter plot options and handling outliers (header values falling out the `y`
+            axis range). The following keys are supported:
+            - `headers`: header names, can be either `str` or an array-like.
+            - `process_outliers`: an approach for outliers processing. Available options are:
+                * `clip`: clip outliers to fit the range of `y` axis,
+                * `discard`: do not display outliers,
+                * `none`: plot all the header values (default behavior).
+            - Any additional arguments for `matplotlib.axes.Axes.scatter`.
+            If any dictionary value is array-like, each its element will be associated with the corresponding header.
+            Otherwise, the single value will be used for all the scatter plots.
+        top_header : str, optional, defaults to None
+            Only for "seismogram" and "wiggle" modes.
+            A header name to plot on top of the gather plot.
         figsize : tuple, optional, defaults to (10, 7)
             Size of the figure to create if `ax` is not given. Measured in inches.
         save_to : str or dict, optional, defaults to None
@@ -1138,7 +1153,7 @@ class Gather:
         ValueError
             If given `mode` is unknown.
             If `colorbar` is not `bool` or `dict`.
-            If the number of `colors` doesn't match the number of traces.
+            If length of `color` doesn't match the number of traces in gather.
             If `event_headers` argument has the wrong format or given outlier processing mode is unknown.
             If `x_ticker` or `y_ticker` has the wrong format.
         """
@@ -1159,7 +1174,7 @@ class Gather:
 
     def _plot_histogram(self, ax, bins=None, x_tick_src="amplitude", log=False, x_ticker=None, y_ticker=None,
                         grid=True, **kwargs):
-        """ TODO """
+        """Plot histogram of the data scpecified by x_tick_src."""
         data = self.data if x_tick_src=="amplitude" else self[x_tick_src]
         _ = ax.hist(data.ravel(), bins=bins, **kwargs)
         set_ticks(ax, "x", tick_labels=None, **{"label": x_tick_src, 'round_to': None, **x_ticker})
@@ -1209,6 +1224,7 @@ class Gather:
         return self._finalize_plot(ax, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
     def _finalize_plot(self, ax, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src):
+        """TODO"""
         # Add headers scatter plot if needed
         if event_headers is not None:
             self._plot_headers(ax, event_headers)
