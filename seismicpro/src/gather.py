@@ -1168,8 +1168,7 @@ class Gather:
         }
         if mode not in plotters_dict:
             raise ValueError(f"Unknown mode {mode}")
-        ax = plotters_dict[mode](ax, title=title, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
-        ax.set_title(**{'label': None, **title})
+        plotters_dict[mode](ax, title=title, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
         return self
 
     def _plot_histogram(self, ax, title=None, x_ticker=None, y_ticker=None, x_tick_src="amplitude", bins=None,
