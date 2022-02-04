@@ -1,8 +1,8 @@
 class Metric:
     name = None
-    is_lower_better = True
     vmin = None
     vmax = None
+    is_lower_better = None
 
     @staticmethod
     def calc(*args, **kwargs):

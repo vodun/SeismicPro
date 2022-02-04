@@ -18,7 +18,10 @@ except ImportError:
     display = MissingModule("IPython.display")
 
 
-class MetricMapPlot:
+class ScatterMapPlot:
+    pass
+
+class BinarizedMapPlot:
     def __init__(self, metric_map, plot_on_click=None, title=None, x_ticker=None, y_ticker=None, figsize=(4.5, 4.5),
                  fontsize=8, **kwargs):
         self.metric_map = metric_map
@@ -38,6 +41,7 @@ class MetricMapPlot:
 
         self.left = ClickablePlot(figsize=figsize, plot_fn=plot_map, click_fn=self.click, allow_unclick=False,
                                   title=title, init_click_coords=init_click_coords)
+        self.left.ax.ticklabel_format(style="plain", useOffset=False)
         self.right = OptionPlot(plot_fn=plot_on_click, toolbar_position="right")
         self.box = widgets.HBox([self.left.box, self.right.box])
 

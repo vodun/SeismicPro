@@ -659,7 +659,7 @@ class VelocityCube:
         if n_workers is None:
             n_workers = os.cpu_count()
         coords_knn = NearestNeighbors(radius=win_radius, n_jobs=n_workers).fit(coords)
-        windows_indices = coords_knn.radius_neighbors(coords, return_distance=False)
+        windows_indices = coords_knn.radius_neighbors(coords, return_distance=False)  # TODO: sort!
 
         # Initialize metric instances
         central_metrics = [metric(coords_knn, times, velocities) for metric in metrics if not metric.is_window_metric]

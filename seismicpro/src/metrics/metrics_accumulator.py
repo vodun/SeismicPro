@@ -5,9 +5,9 @@ a particular metric visualization over a field map"""
 import numpy as np
 import pandas as pd
 
-from seismicpro.src.metrics.metric import Metric
-
+from .metric import Metric
 from .metric_map import MetricMap
+from .utils import parse_accumulator_inputs
 from ..utils import to_list
 from ...batchflow.models.metrics import Metrics
 
@@ -49,53 +49,10 @@ class MetricsAccumulator(Metrics):
         If given coordinates are not array-like.
         If given metrics are not array-like.
     """
-    def __init__(self, coords, *, coords_cols=None, metrics_types=None, **kwargs):
+    def __init__(self, coords, *, coords_cols=None, metrics_types=None, **metrics):
         super().__init__()
-
-        if not kwargs:
-            raise ValueError("At least one metric should be passed.")
-
-        if not isinstance(coords, (list, tuple, np.ndarray)):
-            raise TypeError(f"coords must be array-like but {type(coords)} was given.")
-
-        if coords_cols is None:
-            # Try inferring coordinates columns if passed coords is an iterable of namedtuples
-            coords_cols_set = {getattr(coord, "_fields", None) for coord in coords}
-            if len(coords_cols_set) != 1:
-                raise ValueError("Coordinates from different header columns were passed")
-            coords_cols = coords_cols_set.pop()
-
-            # Fallback to a default
-            if coords_cols is None:
-                coords_cols = ["X", "Y"]
-        coords_cols = to_list(coords_cols)
-        if len(coords_cols) != 2:
-            raise ValueError("Exactly two coordinates columns must be specified")
-
-        # If coords is an array of arrays, convert it to an array with numeric dtype and check its shape
-        coords = np.asarray(coords)
-        coords = np.array(coords.tolist()) if coords.ndim == 1 else coords
-        if coords.ndim != 2:
-            raise ValueError("Coordinates array must be 2-dimensional.")
-        if coords.shape[1] != 2:
-            raise ValueError("Coordinates array must have shape (N, 2), where N is the number of elements"
-                             f" but an array with shape {coords.shape} was given")
-
-        # Create a dict with coordinates and passed metrics values
-        metrics_dict = dict(zip(coords_cols, coords.T))
-        for metric_name, metric_values in kwargs.items():
-            if not isinstance(metric_values, (list, tuple, np.ndarray)):
-                raise TypeError(f"'{metric_name}' metric value must be array-like but {type(metric_values)} received")
-            metric_values = np.asarray(metric_values)
-
-            if len(metric_values) != len(coords):
-                raise ValueError(f"The length of {metric_name} metric array must match the length of coordinates "
-                                 f"array ({len(coords)}) but equals {len(metric_values)}")
-            metrics_dict[metric_name] = metric_values
-
-        self.metrics_names = sorted(kwargs.keys())
-        self.coords_cols = coords_cols
-        self.metrics_list = [pd.DataFrame(metrics_dict)]
+        metrics, self.coords_cols, self.metrics_names = parse_accumulator_inputs(coords, metrics, coords_cols)
+        self.metrics_list = [metrics]
         self.metrics_types = metrics_types if metrics_types is not None else {}
 
     @property
@@ -112,7 +69,7 @@ class MetricsAccumulator(Metrics):
         self.metrics_list += other.metrics_list
         self.metrics_types.update(other.metrics_types)
 
-    def _process_metrics_agg(self, metrics, agg):
+    def evaluate(self, metrics=None, agg="mean"):
         is_single_metric = isinstance(metrics, str)
         metrics = to_list(metrics) if metrics is not None else self.metrics_names
 
@@ -122,17 +79,13 @@ class MetricsAccumulator(Metrics):
         if len(agg) != len(metrics):
             raise ValueError("The number of aggregation functions must match the length of metrics to calculate")
 
-        return metrics, agg, is_single_metric
-
-    def evaluate(self, metrics=None, agg="mean"):
-        metrics, agg, is_single_metric = self._process_metrics_agg(metrics, agg)
         metrics_vals = [self.metrics[metric].dropna().explode().agg(agg_func)
                         for metric, agg_func in zip(metrics, agg)]
         if is_single_metric:
             return metrics_vals[0]
         return metrics_vals
 
-    def construct_map(self, metrics=None, agg="mean", bin_size=500, metrics_types=None):
+    def construct_maps(self, metrics=None, map_params=None, agg=None, bin_size=None, metric_type=None):
         """Calculate and optionally plot a metrics map.
 
         The map is constructed in the following way:
@@ -174,43 +127,17 @@ class MetricsAccumulator(Metrics):
             If `agg_func` is `str` and is not in DEFAULT_METRICS.
             If `agg_func` is not wrapped with `njit` decorator.
         """
-        metrics, agg, is_single_metric = self._process_metrics_agg(metrics, agg)
-        if isinstance(bin_size, (int, float, np.number)):
-            bin_size = (bin_size, bin_size)
-        bin_size = np.array(bin_size)
-        if metrics_types is None:
-            metrics_types = self.metrics_types
+        is_single_metric = isinstance(metrics, str)
+        metrics = to_list(metrics) if metrics is not None else self.metrics_names
+        if map_params is None:
+            map_params = {}
 
-        # Binarize metrics for further aggregation into maps
-        metrics_df = self.metrics.copy(deep=False)
-        bin_cols = ["BIN_X", "BIN_Y"]
-        min_coords = metrics_df[self.coords_cols].min(axis=0).values
-        metrics_df[bin_cols] = (metrics_df[self.coords_cols] - min_coords) // bin_size
-        x_bin_coords = min_coords[0] + bin_size[0] * np.arange(metrics_df["BIN_X"].max() + 1) + bin_size[0] // 2
-        y_bin_coords = min_coords[1] + bin_size[1] * np.arange(metrics_df["BIN_Y"].max() + 1) + bin_size[1] // 2
-        metrics_df = metrics_df.set_index(bin_cols + self.coords_cols).sort_index()
-
-        # Group metrics by generated bins and create maps
         metrics_maps = []
-        for metric, agg_func in zip(metrics, agg):
-            metric_map = np.full((len(x_bin_coords), len(y_bin_coords)), fill_value=np.nan)
-            metric_df = metrics_df[metric].dropna().explode()
-
-            # Construct a binarized map
-            metric_agg = metric_df.groupby(bin_cols).agg(agg_func)
-            x = metric_agg.index.get_level_values(0)
-            y = metric_agg.index.get_level_values(1)
-            metric_map[x, y] = metric_agg
-
-            # Construct a mapping from bin to its contents
-            bin_to_coords = metric_df.groupby(bin_cols + self.coords_cols).agg(agg_func)
-            bin_to_coords = bin_to_coords.to_frame().reset_index(level=self.coords_cols).groupby(bin_cols)
-
-            agg_func = agg_func.__name__ if callable(agg_func) else agg_func
-            metric_type = metrics_types.get(metric, Metric)
-            metric_map = MetricMap(metric_map, x_bin_coords, y_bin_coords, self.coords_cols, metric, metric_type,
-                                   bin_size, bin_to_coords, agg_func)
-            metrics_maps.append(metric_map)
+        for metric in metrics:
+            metric_map_params = {"metric_type": self.metrics_types.get(metric, metric_type), "agg": agg,
+                                 "bin_size": bin_size, **map_params.get(metric, {}), metric: self.metrics[metric],
+                                 "coords": self.metrics[self.coords_cols]}
+            metrics_maps.append(MetricMap(**metric_map_params))
 
         if is_single_metric:
             return metrics_maps[0]
