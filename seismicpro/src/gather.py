@@ -1110,8 +1110,8 @@ class Gather:
         ax : matplotlib.axes.Axes, optional, defaults to None
             An axis of the figure to plot on. If not given, it will be created automatically.
         x_tick_src : str, optional
-            Source of the labels to be plotted on x axis. For "seismogram" and "wiggle" can be either "index" (default if
-            gather is not sorted) or any header; for "hist" it also defines the data source and can be either
+            Source of the labels to be plotted on x axis. For "seismogram" and "wiggle" can be either "index" (default
+            if gather is not sorted) or any header; for "hist" it also defines the data source and can be either
             "amplitude" (default) or any header.
             Also serves as a default for axis label.
         y_tick_src : str, optional
@@ -1168,12 +1168,12 @@ class Gather:
         }
         if mode not in plotters_dict:
             raise ValueError(f"Unknown mode {mode}")
-        ax = plotters_dict[mode](ax, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
+        ax = plotters_dict[mode](ax, title=title, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
         ax.set_title(**{'label': None, **title})
         return self
 
-    def _plot_histogram(self, ax, bins=None, x_tick_src="amplitude", log=False, x_ticker=None, y_ticker=None,
-                        grid=True, **kwargs):
+    def _plot_histogram(self, ax, title=None, x_ticker=None, y_ticker=None, x_tick_src="amplitude", bins=None,
+                        log=False, grid=True, **kwargs):
         """Plot histogram of the data scpecified by x_tick_src."""
         data = self.data if x_tick_src=="amplitude" else self[x_tick_src]
         _ = ax.hist(data.ravel(), bins=bins, **kwargs)
@@ -1183,11 +1183,11 @@ class Gather:
         ax.grid(grid)
         if log:
             ax.set_yscale("log")
-        return ax
+        ax.set_title(**{'label': None, **title})
 
     # pylint: disable=too-many-arguments
-    def _plot_seismogram(self, ax, colorbar=False, qvmin=0.1, qvmax=0.9, x_ticker=None, y_ticker=None,
-                         x_tick_src=None, y_tick_src='time', event_headers=None, top_header=None, **kwargs):
+    def _plot_seismogram(self, ax, title=None, x_ticker=None, y_ticker=None, x_tick_src=None, y_tick_src='time',
+                         colorbar=False, qvmin=0.1, qvmax=0.9, event_headers=None, top_header=None, **kwargs):
         """Plot the gather as a 2d grayscale image of seismic traces."""
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
@@ -1201,10 +1201,10 @@ class Gather:
             colorbar = {} if colorbar is True else colorbar
             cax = divider.append_axes("right", size="5%", pad=0.05)
             ax.figure.colorbar(img, cax=cax, **colorbar)
-        return self._finalize_plot(ax, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
+        self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
-    def _plot_wiggle(self, ax, std=0.5, color="black", x_ticker=None, y_ticker=None, x_tick_src=None,
-                     y_tick_src='time', event_headers=None, top_header=None, **kwargs):
+    def _plot_wiggle(self, ax, title='', x_ticker=None, y_ticker=None, x_tick_src=None, y_tick_src='time',
+                     std=0.5, color="black", event_headers=None, top_header=None, **kwargs):
         """Plot the gather as an amplitude vs time plot for each trace."""
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
@@ -1221,10 +1221,11 @@ class Gather:
             ax.plot(i + trace, y_coords, color=col, **kwargs)
             ax.fill_betweenx(y_coords, i, i + trace, where=(trace > 0), color=col)
         ax.invert_yaxis()
-        return self._finalize_plot(ax, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
+        self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
-    def _finalize_plot(self, ax, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src):
-        """TODO"""
+    def _finalize_plot(self, ax, title, divider, event_headers, top_header,
+                       x_ticker, y_ticker, x_tick_src, y_tick_src):
+        """Plot optional artists and set ticks on the ax. Utilily method for 'seismogram' and 'wiggle' modes."""
         # Add headers scatter plot if needed
         if event_headers is not None:
             self._plot_headers(ax, event_headers)
@@ -1239,7 +1240,7 @@ class Gather:
         self._set_ticks(ax, axis="x", tick_src=x_tick_src, ticker=x_ticker)
         self._set_ticks(ax, axis="y", tick_src=y_tick_src, ticker=y_ticker)
 
-        return top_ax
+        top_ax.set_title(**{'label': None, **title})
 
     @staticmethod
     def _parse_headers_kwargs(headers_kwargs, headers_key):
