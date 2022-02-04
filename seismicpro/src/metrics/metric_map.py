@@ -9,14 +9,15 @@ from ..utils import add_colorbar, set_ticks, set_text_formatting
 
 
 class MetricMap:
-    def __new__(self, coords, *, agg=None, bin_size=None, metric_type=None, **metric):
+    def __new__(self, coords, *, agg=None, bin_size=None, coords_cols=None, metric_type=None, **metric):
+        _ = coords, agg, coords_cols, metric_type, metric
         metric_cls = ScatterMap if bin_size is None else BinarizedMap
         return super().__new__(metric_cls)
 
-    def __init__(self, coords, *, metric_type=None, agg=None, bin_size=None, **metric):
+    def __init__(self, coords, *, agg=None, bin_size=None, coords_cols=None, metric_type=None, **metric):
         if len(metric) != 1:
             raise ValueError("Exactly one metric must be passed to construct a map")
-        metric, self.coords_cols, (self.metric_name,) = parse_accumulator_inputs(coords, metric)
+        metric, self.coords_cols, (self.metric_name,) = parse_accumulator_inputs(coords, metric, coords_cols)
         self.metric = metric.dropna()
 
         if metric_type is None:
@@ -83,16 +84,15 @@ class MetricMap:
         return self.interactive_plot_class(self, plot_on_click=plot_on_click, **kwargs).plot()
 
     def aggregate(self, agg=None, bin_size=None):
-        if (agg is None) and (bin_size is None):
-            return self
         map_params = {"coords": self.metric[self.coords_cols], self.metric_name: self.metric[self.metric_name],
                       "metric_type": self.metric_type, "agg": agg, "bin_size": bin_size}
         return MetricMap(**map_params)
 
 
 class ScatterMap(MetricMap):
-    def __init__(self, coords, *, agg=None, bin_size=None, metric_type=None, **metric):
-        super().__init__(coords, agg=agg, bin_size=bin_size, metric_type=metric_type, **metric)
+    def __init__(self, coords, *, agg=None, bin_size=None, coords_cols=None, metric_type=None, **metric):
+        super().__init__(coords, agg=agg, bin_size=bin_size, coords_cols=coords_cols, metric_type=metric_type,
+                         **metric)
         self.map_data = self.metric.explode(self.metric_name).groupby(self.coords_cols).agg(self.agg)[self.metric_name]
         self.interactive_plot_class = ScatterMapPlot
 
@@ -107,8 +107,9 @@ class ScatterMap(MetricMap):
 
 
 class BinarizedMap(MetricMap):
-    def __init__(self, coords, *, agg=None, bin_size=None, metric_type=None, **metric):
-        super().__init__(coords, agg=agg, bin_size=bin_size, metric_type=metric_type, **metric)
+    def __init__(self, coords, *, agg=None, bin_size=None, coords_cols=None, metric_type=None, **metric):
+        super().__init__(coords, agg=agg, bin_size=bin_size, coords_cols=coords_cols, metric_type=metric_type,
+                         **metric)
         metric = self.metric.copy(deep=False)
 
         # Binarize map coordinates

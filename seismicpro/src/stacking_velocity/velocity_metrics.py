@@ -20,15 +20,16 @@ class StackingVelocityMetric(PlottableMetric):
     name = None
     is_window_metric = True
 
-    def __init__(self, nearest_neighbors, times, velocities):
-        self.nearest_neighbors = nearest_neighbors
+    def __init__(self, times, velocities, nearest_neighbors):
         self.times = times
         self.velocities = velocities
         self.min_vel = self.velocities.min()
         self.max_vel = self.velocities.max()
+        self.nearest_neighbors = nearest_neighbors
 
     def coords_to_args(self, coords):
-        window_indices = self.nearest_neighbors.radius_neighbors([coords], return_distance=False)[0]
+        _, window_indices = self.nearest_neighbors.radius_neighbors([coords], return_distance=True, sort_results=True)
+        window_indices = window_indices[0]
         if not self.is_window_metric:
             window_indices = window_indices[0]
         return (self.velocities[window_indices],)

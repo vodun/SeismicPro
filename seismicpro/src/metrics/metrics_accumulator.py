@@ -2,10 +2,8 @@
 a particular metric visualization over a field map"""
 
 # pylint: disable=no-name-in-module, import-error
-import numpy as np
 import pandas as pd
 
-from .metric import Metric
 from .metric_map import MetricMap
 from .utils import parse_accumulator_inputs
 from ..utils import to_list

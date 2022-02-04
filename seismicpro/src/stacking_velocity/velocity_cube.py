@@ -2,16 +2,18 @@
 
 import os
 import warnings
+from itertools import repeat
 from concurrent.futures import ThreadPoolExecutor
 
 import cv2
 import numpy as np
+from tqdm.auto import tqdm
 from numba import njit, prange
 from scipy.spatial.qhull import Delaunay, QhullError  #pylint: disable=no-name-in-module
 from sklearn.neighbors import NearestNeighbors
 
 from .velocity_metrics import StackingVelocityMetric, VELOCITY_QC_METRICS
-from ..metrics import MetricsAccumulator
+from ..metrics import MetricMap
 from ..utils import to_list, read_vfunc, read_single_vfunc, dump_vfunc
 from ..utils.interpolation import interp1d
 
@@ -596,15 +598,25 @@ class VelocityCube:
         return self.interpolator(inline, crossline)
 
     @staticmethod
-    def calculate_qc_metrics(metrics, windows, n_workers):
-        if not metrics:
-            return {}
-        with ThreadPoolExecutor(max_workers=n_workers) as executor:
-            res = executor.map(lambda window: [metric.calc(window) for metric in metrics], windows)
-        return {metric.name: np.array(values) for metric, values in zip(metrics, zip(*res))}
+    def calculate_qc_metrics(metrics, data_generator, n_workers, bar, total):
+        def calc_metric(metrics, central_velocity, window):
+            metrics_values = []
+            for metric in metrics:
+                arg = window if metric.is_window_metric else central_velocity
+                metrics_values.append(metric.calc(arg))
+            return metrics_values
 
+        with tqdm(desc="Coordinates processed", total=total, disable=not bar) as pbar:
+            with ThreadPoolExecutor(max_workers=n_workers) as executor:
+                futures = []
+                for central_velocity, window in data_generator:
+                    future = executor.submit(calc_metric, metrics, central_velocity, window)
+                    future.add_done_callback(lambda _: pbar.update())
+                    futures.append(future)
+        results = [future.result() for future in futures]
+        return [np.array(metric_values) for metric_values in zip(*results)]
 
-    def qc(self, win_radius, times, coords=None, metrics=None, n_workers=None):  #pylint: disable=invalid-name
+    def qc(self, win_radius, times, coords=None, metrics=None, n_workers=None, bar=True): #pylint: disable=invalid-name
         """Perform quality control of the velocity cube by calculating spatial-window-based metrics for stacking
         velocities evaluated at given `times`.
 
@@ -640,10 +652,13 @@ class VelocityCube:
         metrics_map : MetricsMap
            Calculated metrics.
         """
+        is_single_metric = isinstance(metrics, type) and issubclass(metrics, StackingVelocityMetric)
         if metrics is None:
             metrics = VELOCITY_QC_METRICS
         metrics = to_list(metrics)
-        if not all(issubclass(metric, StackingVelocityMetric) for metric in metrics):
+        if not metrics:
+            raise ValueError("At least one metric should be passed")
+        if not all(isinstance(metric, type) and  issubclass(metric, StackingVelocityMetric) for metric in metrics):
             raise ValueError("All passed metrics must be subclasses of StackingVelocityMetric")
 
         # Calculate stacking velocities at given times for each of coords
@@ -658,19 +673,25 @@ class VelocityCube:
         # Select all neighbouring stacking velocities for each of coords
         if n_workers is None:
             n_workers = os.cpu_count()
-        coords_knn = NearestNeighbors(radius=win_radius, n_jobs=n_workers).fit(coords)
-        windows_indices = coords_knn.radius_neighbors(coords, return_distance=False)  # TODO: sort!
+        coords_neighbors = NearestNeighbors(radius=win_radius, n_jobs=n_workers).fit(coords)
+        _, windows_indices = coords_neighbors.radius_neighbors(coords, return_distance=True, sort_results=True)
 
-        # Initialize metric instances
-        central_metrics = [metric(coords_knn, times, velocities) for metric in metrics if not metric.is_window_metric]
-        window_metrics = [metric(coords_knn, times, velocities) for metric in metrics if metric.is_window_metric]
+        # Prepare data generator
+        if any(metric.is_window_metric for metric in metrics):
+            window_generator = (velocities[window_indices] for window_indices in windows_indices)
+        else:
+            window_generator = repeat(None)  # Avoid expensive indexation if window metrics were not requested
+        data_generator = zip(velocities, window_generator)
 
-        # Calculate requested metrics
-        central_metrics_values = self.calculate_qc_metrics(central_metrics, velocities, n_workers)
-        window_generator = (velocities[window_indices] for window_indices in windows_indices)
-        window_metrics_values = self.calculate_qc_metrics(window_metrics, window_generator, n_workers)
+        # Initialize metrics and calculate them
+        metrics = [metric(times, velocities, coords_neighbors) for metric in metrics]
+        metrics_values = self.calculate_qc_metrics(metrics, data_generator, n_workers, bar, total=len(coords))
 
-        metrics_types = {metric.name: metric for metric in central_metrics + window_metrics}
-        metrics_acc = MetricsAccumulator(coords, **central_metrics_values, **window_metrics_values,
-                                         coords_cols=["INLINE_3D", "CROSSLINE_3D"], metrics_types=metrics_types)
-        return metrics_acc
+        metrics_maps = []
+        for metric, metric_values in zip(metrics, metrics_values):
+            metrics_maps.append(MetricMap(coords, **{"coords_cols": ["INLINE_3D", "CROSSLINE_3D"],
+                                                     "metric_type": metric, metric.name: metric_values}))
+
+        if is_single_metric:
+            return metrics_maps[0]
+        return metrics_maps
