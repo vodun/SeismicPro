@@ -32,13 +32,13 @@ class StackingVelocityMetric(PlottableMetric):
         window_indices = window_indices[0]
         if not self.is_window_metric:
             window_indices = window_indices[0]
-        return (self.velocities[window_indices],)
+        return (self.times, self.velocities[window_indices])
 
-    def plot(self, window, ax, x_ticker, y_ticker):
+    def plot(self, times, window, ax, x_ticker, y_ticker):
         if not self.is_window_metric:
             window = window.reshape(1, -1)
         for vel in window:
-            ax.plot(vel, self.times)
+            ax.plot(vel, times)
         ax.invert_yaxis()
         set_ticks(ax, "x", "Stacking velocity (m/s)", **x_ticker)
         set_ticks(ax, "y", "Time", **y_ticker)
@@ -54,24 +54,50 @@ class IsDecreasing(StackingVelocityMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def calc(stacking_velocity):
+    def calc(times, stacking_velocity):
         """Return whether the central stacking velocity of the window decreases at some time."""
+        _ = times
         for cur_vel, next_vel in zip(stacking_velocity[:-1], stacking_velocity[1:]):
             if cur_vel > next_vel:
                 return True
         return False
 
-    def plot(self, stacking_velocity, ax, x_ticker, y_ticker):
-        super().plot(stacking_velocity, ax, x_ticker, y_ticker)
+    def plot(self, times, stacking_velocity, ax, x_ticker, y_ticker):
+        super().plot(times, stacking_velocity, ax, x_ticker, y_ticker)
 
         # Highlight decreasing sections
         decreasing_pos = np.where(np.diff(stacking_velocity) < 0)[0]
         if len(decreasing_pos):
             # Process each continuous decreasing section independently
             for section in np.split(decreasing_pos, np.where(np.diff(decreasing_pos) != 1)[0] + 1):
-                times = self.times[section[0] : section[-1] + 2]
-                vels = stacking_velocity[section[0] : section[-1] + 2]
-                ax.plot(vels, times, color="red")
+                section_slice = slice(section[0], section[-1] + 2)
+                ax.plot(stacking_velocity[section_slice], times[section_slice], color="red")
+
+
+class MaxAccelerationDeviation(StackingVelocityMetric):
+    name = "max_acceleration_deviation"
+    is_lower_better = True
+    is_window_metric = False
+    vmin = 0
+    vmax = None
+
+    @staticmethod
+    @njit(nogil=True)
+    def calc(times, stacking_velocity):
+        mean_acc = (stacking_velocity[-1] - stacking_velocity[0]) / (times[-1] - times[0])
+        max_deviation = 0
+        for i in range(len(times) - 1):
+            instant_acc = (stacking_velocity[i + 1] - stacking_velocity[i]) / (times[i + 1] - times[i])
+            deviation = abs(instant_acc - mean_acc)
+            if deviation > max_deviation:
+                max_deviation = deviation
+        return max_deviation
+
+    def plot(self, times, stacking_velocity, ax, x_ticker, y_ticker):
+        super().plot(times, stacking_velocity, ax, x_ticker, y_ticker)
+
+        # Plot a mean-acceleration line
+        ax.plot([stacking_velocity[0], stacking_velocity[-1]], [times[0], times[-1]], "--")
 
 
 class MaxStandardDeviation(StackingVelocityMetric):
@@ -83,8 +109,9 @@ class MaxStandardDeviation(StackingVelocityMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def calc(window):
+    def calc(times, window):
         """Return the maximal spatial velocity standard deviation in a window over all the times."""
+        _ = times
         max_std = 0
         for i in range(window.shape[1]):
             current_std = window[:, i].std()
@@ -101,9 +128,10 @@ class MaxRelativeVariation(StackingVelocityMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def calc(window):
+    def calc(times, window):
         """Return the maximal absolute relative difference between central stacking velocity and the average of all
         remaining velocities in the window over all the times."""
+        _ = times
         max_rel_var = 0
         for i in range(window.shape[1]):
             current_rel_var = abs(np.mean(window[1:, i]) - window[0, i]) / window[0, i]
@@ -111,4 +139,4 @@ class MaxRelativeVariation(StackingVelocityMetric):
         return max_rel_var
 
 
-VELOCITY_QC_METRICS = [IsDecreasing, MaxStandardDeviation, MaxRelativeVariation]
+VELOCITY_QC_METRICS = [IsDecreasing, MaxAccelerationDeviation, MaxStandardDeviation, MaxRelativeVariation]
