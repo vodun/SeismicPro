@@ -1058,12 +1058,12 @@ class Gather:
             * `color`: defines a color for each trace. If a single color is given, it is applied to all the traces
               (defaults to black).
         - `hist`: a histogram of the trace data amplitudes or header values. The mode supports following `kwargs`:
-            * `bins`: number of equal-width bins if an integer; bin edges, including the left edge of the first bin and
-              the right edge of the last bin if a sequence.
+            * `bins`: if integer, number of equal-width bins; if sequence, bin edges that include the left edge of the
+              first bin and the right edge of the last bin.
             * `grid`: whether to show the grid lines.
             * `log`: set y-axis to log scale. If True, formatting defined in `y_ticker` is discarded.
 
-        Trace headers, whose values are measured in milliseconds (e.g. first break times) may be displayed over the
+        Trace headers, whose values are measured in milliseconds (e.g. first break times) may be displayed over a
         seismigram or wiggle plot if passed as `event_headers`. If `top_header` is passed, an auxiliary scatter plot of
         values of this header will be shown on top of the gather plot.
 
@@ -1078,8 +1078,8 @@ class Gather:
             * `step_labels`: place ticks with a given step between two adjacent ones in the units of the corresponding
               labels (e.g. place a tick every 200ms for `y` axis or every 300m offset for `x` axis). This option is
               valid only for "seismogram" and "wiggle" modes.
-        A short argument form allows defining both tickers as a single `str`, which will be treated as the value for
-        the `label` key. See :func:`~plot_utils.set_ticks` for more details on the ticker parameters.
+        A short argument form allows defining both tickers labels as a single `str`, which will be treated as the value
+        for the `label` key. See :func:`~plot_utils.set_ticks` for more details on the ticker parameters.
 
         Parameters
         ----------
@@ -1109,15 +1109,15 @@ class Gather:
         ax : matplotlib.axes.Axes, optional, defaults to None
             An axis of the figure to plot on. If not given, it will be created automatically.
         x_tick_src : str, optional
-            Source of the labels to be plotted on x axis. For "seismogram" and "wiggle" can be either "index" (default
+            Source of the tick labels to be plotted on x axis. For "seismogram" and "wiggle" can be either "index" (default
             if gather is not sorted) or any header; for "hist" it also defines the data source and can be either
             "amplitude" (default) or any header.
             Also serves as a default for axis label.
         y_tick_src : str, optional
-            Source of the data to be plotted on y axis. For "seismogram" and "wiggle" can be either "time" (default) or
+            Source of the tick labels to be plotted on y axis. For "seismogram" and "wiggle" can be either "time" (default) or
             "samples"; has no effect in "hist" mode. Also serves as a default for axis label.
         event_headers : str, array-like or dict, optional, defaults to None
-            Only for "seismogram" and "wiggle" modes.
+            Valid only for "seismogram" and "wiggle" modes.
             Headers, whose values will be displayed over the gather plot. Must be measured in milliseconds.
             If `dict`, allows controlling scatter plot options and handling outliers (header values falling out the `y`
             axis range). The following keys are supported:
@@ -1127,11 +1127,11 @@ class Gather:
                 * `discard`: do not display outliers,
                 * `none`: plot all the header values (default behavior).
             - Any additional arguments for `matplotlib.axes.Axes.scatter`.
-            If any dictionary value is array-like, each its element will be associated with the corresponding header.
+            If some dictionary value is array-like, each its element will be associated with the corresponding header.
             Otherwise, the single value will be used for all the scatter plots.
         top_header : str, optional, defaults to None
-            Only for "seismogram" and "wiggle" modes.
-            A header name to plot on top of the gather plot.
+            Valid only for "seismogram" and "wiggle" modes.
+            The name of a header whose values will be plotted on top of the gather plot.
         figsize : tuple, optional, defaults to (10, 7)
             Size of the figure to create if `ax` is not given. Measured in inches.
         save_to : str or dict, optional, defaults to None
@@ -1170,7 +1170,7 @@ class Gather:
         plotters_dict[mode](ax, title=title, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
         return self
 
-    def _plot_histogram(self, ax, title=None, x_ticker=None, y_ticker=None, x_tick_src="amplitude", bins=None,
+    def _plot_histogram(self, ax, title, x_ticker, y_ticker, x_tick_src="amplitude", bins=None,
                         log=False, grid=True, **kwargs):
         """Plot histogram of the data scpecified by x_tick_src."""
         data = self.data if x_tick_src=="amplitude" else self[x_tick_src]
@@ -1184,7 +1184,7 @@ class Gather:
         ax.set_title(**{'label': None, **title})
 
     # pylint: disable=too-many-arguments
-    def _plot_seismogram(self, ax, title=None, x_ticker=None, y_ticker=None, x_tick_src=None, y_tick_src='time',
+    def _plot_seismogram(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src='time',
                          colorbar=False, qvmin=0.1, qvmax=0.9, event_headers=None, top_header=None, **kwargs):
         """Plot the gather as a 2d grayscale image of seismic traces."""
         # Make the axis divisible to further plot colorbar and header subplot
@@ -1201,7 +1201,7 @@ class Gather:
             ax.figure.colorbar(img, cax=cax, **colorbar)
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
-    def _plot_wiggle(self, ax, title='', x_ticker=None, y_ticker=None, x_tick_src=None, y_tick_src='time',
+    def _plot_wiggle(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src='time',
                      std=0.5, color="black", event_headers=None, top_header=None, **kwargs):
         """Plot the gather as an amplitude vs time plot for each trace."""
         # Make the axis divisible to further plot colorbar and header subplot
