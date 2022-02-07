@@ -17,11 +17,13 @@ except ImportError:
     display = MissingModule("IPython.display")
 
 
-class SurveyPlot:
+class GeometryPlot:
     def __init__(self, survey, sort_by=None, x_ticker=None, y_ticker=None, figsize=(4.5, 4.5), fontsize=8, **kwargs):
         self.survey = survey
-        self.source_ix, self.source_x, self.source_y, self.source_knn = self._process_survey(survey, ["SourceX", "SourceY"])
-        self.group_ix, self.group_x, self.group_y, self.group_knn = self._process_survey(survey, ["GroupX", "GroupY"])
+        source_params = self._process_survey(survey, ["SourceX", "SourceY"])
+        self.source_ix, self.source_x, self.source_y, self.source_neighbors = source_params
+        group_params = self._process_survey(survey, ["GroupX", "GroupY"])
+        self.group_ix, self.group_x, self.group_y, self.group_neighbors = group_params
         self.is_shot_view = True
         self.sort_by = sort_by
         self.affected_scatter = None
@@ -30,7 +32,6 @@ class SurveyPlot:
         self.left = ToggleClickablePlot(figsize=figsize, plot_fn=self.plot_map, click_fn=self.click,
                                         unclick_fn=self.unclick, toggle_fn=self.toggle_view,
                                         toggle_icon=self.toggle_icon)
-        self.left.ax.ticklabel_format(style="plain", useOffset=False)
         self.right = InteractivePlot(figsize=figsize, toolbar_position="right")
         self.box = widgets.HBox([self.left.box, self.right.box])
 
@@ -39,8 +40,8 @@ class SurveyPlot:
         from ..index import SeismicIndex
         index = SeismicIndex(surveys=survey.reindex(coord_cols))
         coords = np.stack(index.indices.values)[:, 1:]
-        knn = NearestNeighbors(n_neighbors=1).fit(coords)
-        return index, coords[:, 0], coords[:, 1], knn
+        coords_neighbors = NearestNeighbors(n_neighbors=1).fit(coords)
+        return index, coords[:, 0], coords[:, 1], coords_neighbors
 
     @property
     def index(self):
@@ -55,8 +56,8 @@ class SurveyPlot:
         return self.source_y if self.is_shot_view else self.group_y
 
     @property
-    def knn(self):
-        return self.source_knn if self.is_shot_view else self.group_knn
+    def coords_neighbors(self):
+        return self.source_neighbors if self.is_shot_view else self.group_neighbors
     
     @property
     def affected_coords_cols(self):
@@ -77,7 +78,7 @@ class SurveyPlot:
     @property
     def map_title(self):
         return "Shot map" if self.is_shot_view else "Receiver map"
-    
+
     @property
     def map_x_label(self):
         return "SourceX" if self.is_shot_view else "GroupX"
@@ -93,11 +94,12 @@ class SurveyPlot:
     def plot_map(self, ax):
         self.left.set_title(self.map_title)
         ax.scatter(self.coord_x, self.coord_y, color=self.main_color)
+        ax.ticklabel_format(style="plain", useOffset=False)
         set_ticks(ax, "x", self.map_x_label, **self.x_ticker)
         set_ticks(ax, "y", self.map_y_label, **self.y_ticker)
 
     def click(self, coords):
-        closest_ix = self.knn.kneighbors([coords], return_distance=False).item()
+        closest_ix = self.coords_neighbors.kneighbors([coords], return_distance=False).item()
         x = self.coord_x[closest_ix]
         y = self.coord_y[closest_ix]
 
@@ -128,7 +130,6 @@ class SurveyPlot:
     def toggle_view(self, event):
         self.is_shot_view = not self.is_shot_view
         self.left.ax.clear()
-        self.left.ax.ticklabel_format(style="plain", useOffset=False)
         self.right.ax.clear()
         self.right.box.layout.visibility = "hidden"
         self.plot_map(ax=self.left.ax)

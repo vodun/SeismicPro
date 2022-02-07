@@ -15,7 +15,7 @@ from scipy.interpolate import interp1d
 from ..gather import Gather
 from ..utils import to_list, maybe_copy, calculate_stats, create_supergather_index
 from ..const import HDR_DEAD_TRACE, HDR_FIRST_BREAK
-from .interactive_plot import SurveyPlot
+from .interactive_plot import GeometryPlot
 
 
 class Survey:  # pylint: disable=too-many-instance-attributes
@@ -896,5 +896,5 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     #                         Visualization methods                          #
     #------------------------------------------------------------------------#
 
-    def plot_interactive(self, **kwargs):
-        SurveyPlot(self, **kwargs).plot()
+    def plot_geometry(self, **kwargs):
+        GeometryPlot(self, **kwargs).plot()
