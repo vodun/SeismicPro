@@ -73,6 +73,7 @@ class MetricMap:
 
         res = self._plot_map(ax, is_lower_better=is_lower_better, cmap=cmap, vmin=vmin, vmax=vmax, **kwargs)
         add_colorbar(ax, res, colorbar, y_ticker=y_ticker)
+        ax.ticklabel_format(style="plain", useOffset=False)
 
         x_tick_labels, y_tick_labels = self._get_tick_labels()
         set_ticks(ax, "x", self.coords_cols[0], x_tick_labels, **x_ticker)
