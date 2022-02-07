@@ -18,7 +18,7 @@ def save_figure(fig, fname, dpi=100, bbox_inches="tight", pad_inches=0.1, **kwar
 
 def set_text_formatting(*args, **kwargs):
     """Pop text formatting parameters from `kwargs` and set them as defaults for each of `args` tranformed to dict."""
-    FORMAT_ARGS = {'fontsize', 'size', 'fontfamily', 'family', 'fontweight', 'weight'}
+    FORMAT_ARGS = {'fontsize', 'fontfamily', 'fontweight'}
 
     global_formatting = {arg: kwargs.pop(arg) for arg in FORMAT_ARGS if arg in kwargs}
     text_args = ({**global_formatting, **({} if arg is None else as_dict(arg, key="label"))} for arg in args)
@@ -68,10 +68,10 @@ def set_ticks(ax, axis, label='', tick_labels=None, num=None, step_ticks=None, s
     label = label[0].upper() + label[1:]
     label += UNITS.get(label, "")
 
-    ax_obj = getattr(ax, f"{axis}axis")
     locator, formatter = _process_ticks(labels=tick_labels, num=num, step_ticks=step_ticks,
                                         step_labels=step_labels, round_to=round_to)
     rotation_kwargs = _pop_rotation_kwargs(kwargs)
+    ax_obj = getattr(ax, f"{axis}axis")
     ax_obj.set_label_text(label, **kwargs)
     ax_obj.set_ticklabels([], **kwargs, **rotation_kwargs)
     ax_obj.set_major_locator(locator)
