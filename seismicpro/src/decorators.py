@@ -6,7 +6,7 @@ from collections import defaultdict
 
 import matplotlib.pyplot as plt
 
-from .utils import to_list, save_figure, set_text_formatting, as_dict
+from .utils import to_list, save_figure, as_dict
 from ..batchflow import action, inbatch_parallel
 
 
@@ -25,9 +25,7 @@ def plotter(figsize, args_to_unpack=None):
     """Expand the functionality of a plotting method by defining figure creation and saving.
 
     The decorated method is supposed to accept an `ax` argument. If it's not passed during the call, the decorator
-    creates it with the `figsize` provided. Before calling the decorated method, `kwargs` are processed as follows: all
-    text formatting arguments are popped from `kwargs` and set as defaults for 'title', 'x_ticker' and 'y_ticker'.
-
+    creates it with the `figsize` provided.
     A new argument is added for the decorated method:
     save_to : str or dict, optional, defaults to None
         If `str`, a path to save the figure to.
@@ -57,7 +55,6 @@ def plotter(figsize, args_to_unpack=None):
     def decorator(method):
         @wraps(method)
         def plot(*args, **kwargs):
-            kwargs = set_text_formatting(kwargs)
             if "ax" in kwargs:
                 return method(*args, **kwargs)
             fig, ax = plt.subplots(1, 1, figsize=kwargs.pop("figsize", figsize))
