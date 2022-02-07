@@ -17,7 +17,6 @@ from ..utils import set_ticks
 
 
 class StackingVelocityMetric(PlottableMetric):
-    name = None
     is_window_metric = True
 
     def __init__(self, times, velocities, nearest_neighbors):
@@ -47,10 +46,10 @@ class StackingVelocityMetric(PlottableMetric):
 
 class IsDecreasing(StackingVelocityMetric):
     name = "is_decreasing"
-    is_lower_better = True
-    is_window_metric = False
     vmin = 0
     vmax = 1
+    is_lower_better = True
+    is_window_metric = False
 
     @staticmethod
     @njit(nogil=True)
@@ -76,10 +75,10 @@ class IsDecreasing(StackingVelocityMetric):
 
 class MaxAccelerationDeviation(StackingVelocityMetric):
     name = "max_acceleration_deviation"
-    is_lower_better = True
-    is_window_metric = False
     vmin = 0
     vmax = None
+    is_lower_better = None
+    is_window_metric = False
 
     @staticmethod
     @njit(nogil=True)
@@ -102,10 +101,10 @@ class MaxAccelerationDeviation(StackingVelocityMetric):
 
 class MaxStandardDeviation(StackingVelocityMetric):
     name = "max_standard_deviation"
-    is_lower_better = True
-    is_window_metric = True
     vmin = 0
     vmax = None
+    is_lower_better = True
+    is_window_metric = True
 
     @staticmethod
     @njit(nogil=True)
@@ -121,10 +120,10 @@ class MaxStandardDeviation(StackingVelocityMetric):
 
 class MaxRelativeVariation(StackingVelocityMetric):
     name = "max_relative_variation"
-    is_lower_better = True
-    is_window_metric = True
     vmin = 0
     vmax = None
+    is_lower_better = True
+    is_window_metric = True
 
     @staticmethod
     @njit(nogil=True)

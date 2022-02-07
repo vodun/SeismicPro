@@ -98,12 +98,11 @@ class ScatterMap(MetricMap):
         self.interactive_plot_class = ScatterMapPlot
 
     def _plot_map(self, ax, is_lower_better, **kwargs):
-        map_data = self.map_data
         if is_lower_better is None:
-            global_agg = map_data.agg(self.agg)
-            map_data = (map_data - global_agg).abs().sort_values(ascending=True)
+            global_agg = self.map_data.agg(self.agg)
+            map_data = self.map_data.iloc[(self.map_data - global_agg).abs().argsort()]
         else:
-            map_data = map_data.sort_values(ascending=is_lower_better)
+            map_data = self.map_data.sort_values(ascending=is_lower_better)
         return ax.scatter(*np.stack(map_data.index.values).T, c=map_data.values, **kwargs)
 
 

@@ -125,13 +125,14 @@ class ClickablePlot(InteractivePlot):
 
     def on_click(self, event):
         # Discard clicks outside the main axes
-        if not event.inaxes == self.ax:
+        if event.inaxes != self.ax:
             return
         if event.button == 1:
             self.click_time = time()
 
     def on_release(self, event):
-        if not event.inaxes == self.ax:
+        # Discard clicks outside the main axes
+        if event.inaxes != self.ax:
             return
         if event.button == 1 and ((time() - self.click_time) < MAX_CLICK_TIME):
             self.click_time = 0
