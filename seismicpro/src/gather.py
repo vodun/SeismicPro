@@ -1067,8 +1067,9 @@ class Gather:
         seismigram or wiggle plot if passed as `event_headers`. If `top_header` is passed, an auxiliary scatter plot of
         values of this header will be shown on top of the gather plot.
 
-        Ticks and their labels for both `x` and `y` axes can be controlled via `x_ticker` and `y_ticker` parameters
-        respectively. In the most general form, each of them is a `dict` with the following most commonly used keys:
+        While the source of label ticks for both `x` and `y` is defined by `x_tick_src` and `y_tick_src`, ticker
+        appearence can be controlled via `x_ticker` and `y_ticker` parameters respectively. In the most general form,
+        each of them is a `dict` with the following most commonly used keys:
         - `label`: axis label. Can be any string.
         - `round_to`: the number of decimal places to round tick labels to (defaults to 0).
         - `rotation`: the rotation angle of tick labels in degrees (defaults to 0).
@@ -1093,29 +1094,27 @@ class Gather:
             If `dict`, should contain keyword arguments to pass to `matplotlib.axes.Axes.set_title`. In this case, the
             title string is stored under the `label` key.
         x_ticker : str or dict, optional, defaults to None
-            Source to get `x` tick labels from and additional parameters to control their formatting and layout.
-            If `str`, either any gather header name to use its values as labels or "index" to use ordinal numbers of
-            traces in the gather.
-            If `dict`, the source is specified under the "labels" key and the rest keys define labels formatting and
-            layout, see :func:`~plot_utils.set_ticks` for more details.
-            If not given, but the gather is sorted, `self.sort_by` will be passed as `x_ticker`. Otherwise, "index"
-            will be passed.
-        y_ticker : "time", "samples" or dict, optional, defaults to "time"
-            Source to get `y` tick labels from and additional parameters to control their formatting and layout.
-            If "time", the labels are the times of gather samples in milliseconds, if "samples" - ordinal numbers of
-            gather samples.
-            If `dict`, stores either "time" or "samples" under the "labels" key and the rest keys define labels
-            formatting and layout, see :func:`~plot_utils.set_ticks` for more details.
+            Parameters to control `x` axis label and ticker formatting and layout.
+            If `str`, it will be displayed as axis label.
+            If `dict`, the axis label is specified under the "label" key and the rest of keys define labels formatting
+            and layout, see :func:`~plot_utils.set_ticks` for more details.
+            If not given, axis label is defined by `x_tick_src`.
+        y_ticker : str or dict, optional, defaults to None
+            Parameters to control `y` axis label and ticker formatting and layout.
+            If `str`, it will be displayed as axis label.
+            If `dict`, the axis label is specified under the "label" key and the rest of keys define labels formatting
+            and layout, see :func:`~plot_utils.set_ticks` for more details.
+            If not given, axis label is defined by `y_tick_src`.
         ax : matplotlib.axes.Axes, optional, defaults to None
             An axis of the figure to plot on. If not given, it will be created automatically.
         x_tick_src : str, optional
-            Source of the tick labels to be plotted on x axis. For "seismogram" and "wiggle" can be either "index" (default
-            if gather is not sorted) or any header; for "hist" it also defines the data source and can be either
-            "amplitude" (default) or any header.
+            Source of the tick labels to be plotted on x axis. For "seismogram" and "wiggle" can be either "index"
+            (default if gather is not sorted) or any header; for "hist" it also defines the data source and can be
+            either "amplitude" (default) or any header.
             Also serves as a default for axis label.
         y_tick_src : str, optional
-            Source of the tick labels to be plotted on y axis. For "seismogram" and "wiggle" can be either "time" (default) or
-            "samples"; has no effect in "hist" mode. Also serves as a default for axis label.
+            Source of the tick labels to be plotted on y axis. For "seismogram" and "wiggle" can be either "time"
+            (default) or "samples"; has no effect in "hist" mode. Also serves as a default for axis label.
         event_headers : str, array-like or dict, optional, defaults to None
             Valid only for "seismogram" and "wiggle" modes.
             Headers, whose values will be displayed over the gather plot. Must be measured in milliseconds.
