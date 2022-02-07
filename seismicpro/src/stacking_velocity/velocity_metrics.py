@@ -41,7 +41,7 @@ class StackingVelocityMetric(PlottableMetric):
             ax.plot(vel, self.times)
         ax.invert_yaxis()
         set_ticks(ax, "x", "Stacking velocity (m/s)", **x_ticker)
-        set_ticks(ax, "y", "Time", self.times, **y_ticker)
+        set_ticks(ax, "y", "Time", **y_ticker)
         ax.set_xlim(self.min_vel, self.max_vel)
 
 
@@ -60,6 +60,18 @@ class IsDecreasing(StackingVelocityMetric):
             if cur_vel > next_vel:
                 return True
         return False
+
+    def plot(self, stacking_velocity, ax, x_ticker, y_ticker):
+        super().plot(stacking_velocity, ax, x_ticker, y_ticker)
+
+        # Highlight decreasing sections
+        decreasing_pos = np.where(np.diff(stacking_velocity) < 0)[0]
+        if len(decreasing_pos):
+            # Process each continuous decreasing section independently
+            for section in np.split(decreasing_pos, np.where(np.diff(decreasing_pos) != 1)[0] + 1):
+                times = self.times[section[0] : section[-1] + 2]
+                vels = stacking_velocity[section[0] : section[-1] + 2]
+                ax.plot(vels, times, color="red")
 
 
 class MaxStandardDeviation(StackingVelocityMetric):
