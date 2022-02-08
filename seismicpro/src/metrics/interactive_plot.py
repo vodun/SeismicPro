@@ -5,7 +5,7 @@ from sklearn.neighbors import NearestNeighbors
 
 from ..metrics import PlottableMetric
 from ..utils import set_text_formatting, MissingModule
-from ..utils.interactive_plot_utils import InteractivePlot, ClickablePlot, OptionPlot
+from ..utils.interactive_plot_utils import InteractivePlot, ClickablePlot, TEXT_LAYOUT, BUTTON_LAYOUT
 
 # Safe import of modules for interactive plotting
 try:
@@ -46,8 +46,8 @@ class ScatterMapPlot:
 
     def click(self, coords):
         coords_ix = self.coords_neighbors.kneighbors([coords], return_distance=False).item()
-        coords = self.coords[coords_ix]
-        self.right.set_title(coords)
+        coords = tuple(self.coords[coords_ix])
+        self.right.set_title(f"{self.metric_map.map_data[coords]:.05f} metric at {coords}")
         self.right.ax.clear()
         self.plot_on_click(coords, ax=self.right.ax)
         return coords
@@ -56,6 +56,91 @@ class ScatterMapPlot:
         display(self.box)
         self.left.plot(display_box=False)
         self.right.plot(display_box=False)
+
+
+class MapBinPlot(InteractivePlot):
+    def __init__(self, *args, options=None, is_lower_better=True, **kwargs):
+        self.is_desc = is_lower_better
+        self.options = None
+        self.curr_option = None
+
+        self.sort = widgets.Button(icon=self.sort_icon, disabled=True, layout=widgets.Layout(**BUTTON_LAYOUT))
+        self.prev = widgets.Button(icon="angle-left", disabled=True, layout=widgets.Layout(**BUTTON_LAYOUT))
+        self.drop = widgets.Dropdown(layout=widgets.Layout(**TEXT_LAYOUT))
+        self.next = widgets.Button(icon="angle-right", disabled=True, layout=widgets.Layout(**BUTTON_LAYOUT))
+
+        # Handler definition
+        self.sort.on_click(self.reverse_coords)
+        self.prev.on_click(self.prev_coords)
+        self.drop.observe(self.select_coords, names="value")
+        self.next.on_click(self.next_coords)
+
+        super().__init__(*args, **kwargs)
+        if options is not None:
+            self.update_state(0, options)
+
+    def create_header(self):
+        if self.fig.canvas.toolbar_position == "right":
+            return widgets.HBox([self.prev, self.drop, self.next, self.sort])
+        return widgets.HBox([self.sort, self.prev, self.drop, self.next])
+
+    @property
+    def sort_icon(self):
+        return "sort-amount-desc" if self.is_desc else "sort-amount-asc"
+
+    @property
+    def drop_options(self):
+        return [f"{metric:.05f} metric at ({x}, {y})" for (x, y), metric in self.options.iteritems()]
+
+    def update_state(self, option_ix, options=None, redraw=True):
+        new_options = self.options if options is None else options
+        if (new_options is None) or (option_ix < 0) or (option_ix >= len(new_options)):
+            return
+        self.options = new_options
+        self.curr_option = option_ix
+
+        # Unobserve dropdown widget to simultaneously update both options and the currently selected option
+        self.drop.unobserve(self.select_coords, names="value")
+        with self.drop.hold_sync():
+            self.drop.options = self.drop_options
+            self.drop.index = self.curr_option
+        self.drop.observe(self.select_coords, names="value")
+
+        self.sort.disabled = False
+        self.prev.disabled = (self.curr_option == 0)
+        self.next.disabled = (self.curr_option == (len(self.options) - 1))
+
+        if redraw:
+            self._plot()
+
+    def reverse_coords(self, event):
+        _ = event
+        self.is_desc = not self.is_desc
+        self.sort.icon = self.sort_icon
+        self.update_state(len(self.options) - self.curr_option - 1, self.options.iloc[::-1], redraw=False)
+
+    def next_coords(self, event):
+        _ = event
+        self.update_state(min(self.curr_option + 1, len(self.options) - 1))
+
+    def prev_coords(self, event):
+        _ = event
+        self.update_state(max(self.curr_option - 1, 0))
+
+    def select_coords(self, change):
+        _ = change
+        self.update_state(self.drop.index)
+
+    def _plot(self):
+        if self.plot_fn is not None:
+            self.ax.clear()
+            self.plot_fn(self.options.index[self.curr_option], ax=self.ax)
+
+    def plot(self, display_box=True):
+        if display_box:
+            display(self.box)
+        self._resize(self.fig.get_figwidth() * self.fig.dpi)  # Init the width of the box
+        self._plot()
 
 
 class BinarizedMapPlot:
@@ -78,7 +163,7 @@ class BinarizedMapPlot:
 
         self.left = ClickablePlot(figsize=figsize, plot_fn=plot_map, click_fn=self.click, allow_unclick=False,
                                   title=title, init_click_coords=init_click_coords)
-        self.right = OptionPlot(plot_fn=plot_on_click, toolbar_position="right")
+        self.right = MapBinPlot(plot_fn=plot_on_click, toolbar_position="right")
         self.box = widgets.HBox([self.left.box, self.right.box])
 
     def click(self, coords):
