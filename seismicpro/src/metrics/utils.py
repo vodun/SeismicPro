@@ -4,10 +4,7 @@ import pandas as pd
 from ..utils import to_list
 
 
-def parse_accumulator_inputs(coords, metrics_dict, coords_cols=None):
-    if not metrics_dict:
-        raise ValueError("At least one metric should be passed.")
-
+def parse_coords(coords, coords_cols=None):
     default_coords_cols = ("X", "Y") if coords_cols is None else coords_cols
     if isinstance(coords, pd.DataFrame):
         coords_cols = coords.columns
@@ -35,22 +32,4 @@ def parse_accumulator_inputs(coords, metrics_dict, coords_cols=None):
     if coords.shape[1] != 2:
         raise ValueError("Coordinates array must have shape (N, 2), where N is the number of elements"
                          f" but an array with shape {coords.shape} was given")
-
-    # Create a dict with coordinates and passed metrics values
-    res_metrics = dict(zip(coords_cols, coords.T))
-    for metric_name, metric_values in metrics_dict.items():
-        if isinstance(metric_values, pd.Series):
-            metric_values = metric_values.values
-        elif isinstance(metric_values, (list, tuple, np.ndarray)):
-            metric_values = np.asarray(metric_values)
-        else:
-            raise TypeError(f"{metric_name} metric value must be array-like but {type(metric_values)} received")
-
-        if len(metric_values) != len(coords):
-            raise ValueError(f"The length of {metric_name} metric array must match the length of coordinates "
-                                f"array ({len(coords)}) but equals {len(metric_values)}")
-        res_metrics[metric_name] = metric_values
-
-    metrics_cols = sorted(metrics_dict.keys())
-    metrics = pd.DataFrame(res_metrics)[coords_cols + metrics_cols]
-    return metrics, coords_cols, metrics_cols
+    return coords, coords_cols

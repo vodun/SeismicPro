@@ -1,7 +1,9 @@
 """Implements SeismicBatch class for processing a small subset of seismic gathers"""
 
 from string import Formatter
+from itertools import repeat
 from functools import partial
+from inspect import signature
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -9,6 +11,7 @@ import matplotlib.pyplot as plt
 from .gather import Gather
 from .cropped_gather import CroppedGather
 from .semblance import Semblance, ResidualSemblance
+from .metrics import define_metric, Metric, PipelineMetric, MetricAccumulator
 from .decorators import create_batch_methods, apply_to_each_component
 from .utils import to_list, as_dict, save_figure, make_origins
 from ..batchflow import action, inbatch_parallel, Batch, DatasetIndex, NamedExpression
@@ -61,6 +64,10 @@ class SeismicBatch(Batch):
     components : tuple
         Names of the created components. Each of them can be accessed as a usual attribute.
     """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._calculated_metrics = 0
+
     @property
     def nested_indices(self):
         """list: indices of the batch each additionally wrapped into a list. If used as an `init` function in
@@ -384,6 +391,68 @@ class SeismicBatch(Batch):
             src_cropped = src_obj.crop(origins, crop_shape, n_crops, stride, **kwargs)
             setattr(self[pos], dst, src_cropped)
 
+        return self
+
+    def _define_metric(self, metric):
+        is_metric_type = isinstance(metric, type) and issubclass(metric, PipelineMetric)
+        is_callable = not isinstance(metric, type) and callable(metric)
+
+        if not (is_metric_type or is_callable):
+            raise ValueError("metric must be either a subclass of PipelineMetric or a callable "
+                             f"but {type(metric)} given")
+        if is_callable:
+            metric = define_metric(base_cls=PipelineMetric, name=metric.__name__, calc=staticmethod(metric))
+        return metric(self.pipeline, self._calculated_metrics)
+
+    def _unpack_metric_args(self, metric, *args, **kwargs):
+        sign = signature(metric.calc)
+        bound_args = sign.bind(*args, **kwargs)
+
+        # Determine the metric.calc arguments to unpack
+        if metric.args_to_unpack is None:
+            args_to_unpack = set()
+        elif metric.args_to_unpack == "all":
+            args_to_unpack = {name for name, param in sign.parameters.items()
+                                   if param.kind not in {param.VAR_POSITIONAL, param.VAR_KEYWORD}}
+        else:
+            args_to_unpack = set(to_list(metric.args_to_unpack))
+
+        # Convert the value of each argument to an array-like matching the length of the batch
+        packed_args = {}
+        for arg, val in bound_args.arguments.items():
+            if arg in args_to_unpack:
+                if isinstance(val, str):
+                    packed_args[arg] = getattr(self, val)
+                elif isinstance(val, (tuple, list, np.ndarray)) and len(val) == len(self):
+                    packed_args[arg] = val
+                else:
+                    packed_args[arg] = [val] * len(self)
+            else:
+                packed_args[arg] = [val] * len(self)
+
+        # Extract the values of the first calc argument to use them as a default source for coordinates calculation
+        first_arg = packed_args[list(sign.parameters.keys())[0]]
+
+        # Convert packed args to a list of calc args and kwargs for each of the batch items
+        unpacked_args = []
+        for values in zip(*packed_args.values()):
+            bound_args.arguments = dict(zip(packed_args.keys(), values))
+            unpacked_args.append((bound_args.args, bound_args.kwargs))
+        return unpacked_args, first_arg
+
+    @action(no_eval="save_to")
+    def calculate_metric(self, metric, *args, coords_component=None, coords_cols="auto", save_to=None, **kwargs):
+        metric = self._define_metric(metric)
+        unpacked_args, first_arg = self._unpack_metric_args(metric, *args, **kwargs)
+
+        coords_items = first_arg if coords_component is None else getattr(self, coords_component)
+        coords = [item.get_coords(coords_cols) for item in coords_items]
+        metric_values = [metric.calc(*args, **kwargs) for args, kwargs in unpacked_args]
+        accumulator = MetricAccumulator(coords, metric_values, metric_type=metric, indices=self.indices)
+
+        if save_to is not None:
+            self.pipeline._save_output(self, None, accumulator, save_to)
+        self._calculated_metrics += 1
         return self
 
     @action
