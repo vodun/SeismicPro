@@ -31,7 +31,7 @@ class StackingVelocityMetric(PlottableMetric):
         window_indices = window_indices[0]
         if not self.is_window_metric:
             window_indices = window_indices[0]
-        return (self.times, self.velocities[window_indices])
+        return (self.times, self.velocities[window_indices]), {}
 
     def plot(self, times, window, ax, x_ticker, y_ticker):
         if not self.is_window_metric:
