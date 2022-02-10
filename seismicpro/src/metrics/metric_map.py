@@ -51,10 +51,17 @@ class MetricMap:
 
     @plotter(figsize=(10, 7))
     def _plot(self, title=None, cmap=None, x_ticker=None, y_ticker=None, colorbar=True, is_lower_better=None,
-              vmin=None, vmax=None, ax=None, **kwargs):
+              vmin=None, vmax=None, center_cbar=True, ax=None, **kwargs):
         is_lower_better = self.is_lower_better if is_lower_better is None else is_lower_better
         vmin = self.vmin if vmin is None else vmin
         vmax = self.vmax if vmax is None else vmax
+
+        if is_lower_better is None and center_cbar:
+            global_agg = self.map_data[self.metric_name].agg(self.agg)
+            threshold = (self.map_data[self.metric_name] - global_agg).abs().quantile(0.95)
+            norm = mcolors.CenteredNorm(self.metric_data[self.metric_name].agg(self.agg), threshold)
+        else:
+            norm = mcolors.Normalize(vmin, vmax)
 
         if cmap is None:
             if is_lower_better is None:
@@ -64,10 +71,11 @@ class MetricMap:
                 if not is_lower_better:
                     colors = colors[::-1]
                 cmap = mcolors.LinearSegmentedColormap.from_list("cmap", colors)
+
         (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
         ax.set_title(**{"label": self.plot_title, **title})
 
-        res = self._plot_map(ax, is_lower_better=is_lower_better, cmap=cmap, vmin=vmin, vmax=vmax, **kwargs)
+        res = self._plot_map(ax, is_lower_better=is_lower_better, cmap=cmap, norm=norm, **kwargs)
         add_colorbar(ax, res, colorbar, y_ticker=y_ticker)
         ax.ticklabel_format(style="plain", useOffset=False)
 
