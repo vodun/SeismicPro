@@ -6,8 +6,9 @@ from copy import deepcopy
 from textwrap import dedent
 from functools import partial
 
-import segyio
+import cv2
 import scipy
+import segyio
 import numpy as np
 import pandas as pd
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -1319,20 +1320,31 @@ class Gather:
 
     @batch_method(target="f")
     def resample(self, new_sample_rate, mode=3, anti_aliasing=True):
-        """ docs """
+        """ if type(mode) == int, perform piecewise polynomial interpolation with polynomial degree = mode
+            if type(mode) == str, deligate interpolation to scipy.interpolate.intep1d.  
+        """
         current_sample_rate = self.sample_rate
 
+        # in case new sample rate becomes more, i.e. performing downsample, 
+        # anti-aliasing filter is applied to preserve signal frequencies 
         if new_sample_rate > current_sample_rate and anti_aliasing:
             nyq = 1000 / (2 * new_sample_rate)
+
+            # estimate parameters for filter
             n = int(10000 / (nyq * current_sample_rate))
+            freq_cutoff = 0.8
+
+            # perform filerting
             self.bandpass(n, high=0.8 * nyq)
 
         new_samples = np.arange(self.samples[0], self.samples[-1] + 1e-6, new_sample_rate, np.float32)
 
         if isinstance(mode, int):
+            # for given n, n + 1 points is required to construct polynomial, find the index of leftmsot one
             indices = times_to_indices(new_samples, self.samples, False)
             indices = np.ceil(indices).astype(np.int32)
-            resampled = piecewise_polynomial(mode, new_samples, self.samples, indices, self.data)
+            leftmost_indices = np.clip(indices - (n + 1) / 2, 0, len(self..samples) - n - 1)
+            resampled = piecewise_polynomial(mode, new_samples, self.samples, leftmost_indices, self.data)
         elif isinstance(mode, str):
             resampled = scipy.interpolate.interp1d(self.samples, self.data.T, axis=0, kind=mode)(new_samples).T
 

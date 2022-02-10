@@ -77,21 +77,16 @@ def binomial(n, r):
 
 @njit(nogil=True, parallel=True, fastmath=True)
 def piecewise_polynomial(n, new_samples, old_samples, indices, data):
+    """" docs """
     res = np.empty((len(data), len(new_samples)), dtype=data.dtype)
     L = np.empty((len(new_samples), n + 1))
 
-    for j in prange(len(data)):
-        for i in range(len(new_samples)):
-            # the index of the closest value from old_samples to the given interpolation point
-            ix = indices[i]
-
-            # for given n, n + 1 points is required to construct polynom, find the index of leftmsot one
-            ix_0 = max(ix - (n + 1) // 2, 0)
-            ix_0 = min(ix_0, len(old_samples) - n - 1)
-
+    for j in prange(len(data)):  # pylint: disable=not-an-iterable
+        for i, (ix, it) in enumerate(zip(indices, new_samples)):
+    
             # calculate Lagrange polynomials only once: they are the same at given position for all the traces
             if j == 0:
-                y = (new_samples[i] - old_samples[ix_0]) / (old_samples[1] - old_samples[0])
+                y = (it - old_samples[ix]) / (old_samples[1] - old_samples[0])
 
                 common_multiplier = y
                 for k in range(1, n + 1):
@@ -103,6 +98,6 @@ def piecewise_polynomial(n, new_samples, old_samples, indices, data):
                     else:
                         L[i, k] = common_multiplier * binomial(n, k) * (-1) ** (n - k)  / (y - k)
 
-            # perform the interpolation at given point: multiply and sum Lagrange polynomials and correspondoing function values
-            res[j, i] = np.sum(data[j, ix_0: ix_0 + n + 1] * L[i])
+            # interpolate at given point: multiply Lagrange polynomials and correspondoing function values and sum
+            res[j, i] = np.sum(L[i] * data[j, ix: ix + n + 1])
     return res
