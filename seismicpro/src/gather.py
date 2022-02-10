@@ -8,9 +8,9 @@ from functools import partial
 
 import cv2
 import segyio
+import scipy
 import numpy as np
 import pandas as pd
-from scipy import signal
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .cropped_gather import CroppedGather
@@ -18,9 +18,9 @@ from .muting import Muter
 from .semblance import Semblance, ResidualSemblance
 from .velocity_cube import StackingVelocity, VelocityCube
 from .decorators import batch_method, plotter
-from .utils import normalization, correction, resize
+from .utils import normalization, correction
 from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, mute_gather, set_ticks, as_dict,
-                    make_origins, times_to_indices, indices_to_times)
+                    make_origins, times_to_indices, indices_to_times, piecewise_polynomial)
 
 
 class Gather:
@@ -1305,32 +1305,35 @@ class Gather:
     @batch_method(target="t")
     def bandpass(self, n, low=None, high=None, window='hamm', **kwargs):
         if low is not None and high is not None:
-            fir = scipy.firwin(numtaps, [low, high], window=window, fs=1000 / self.sample_rate, pass_zero='bandpass', **kwargs)
+            fir = scipy.signal.firwin(n, [low, high], window=window, fs=1000 / self.sample_rate, pass_zero='bandpass', **kwargs)
         elif low is not None:
-            fir = scipy.firwin(numtaps, low, window=window, fs=1000 / self.sample_rate, pass_zero='highpass', **kwargs)
+            fir = scipy.signal.firwib(n, low, window=window, fs=1000 / self.sample_rate, pass_zero='highpass', **kwargs)
         elif high is not None:
-            fir = scipy.firwin(numtaps, high, window=window, fs=1000 / self.sample_rate, pass_zero='lowpass', **kwargs)
+            fir = scipy.signal.firwin(n, high, window=window, fs=1000 / self.sample_rate, pass_zero='lowpass', **kwargs)
         else:
             raise ValueError('At least one of low and high must be provided')
 
-        self.data = cv2.filter2D(gather.data, ddepth=-1, fir=kernel.reshape(1, -1))
+        self.data = cv2.filter2D(self.data, ddepth=-1, kernel=fir.reshape(1, -1))
         return self
     
-    @batch_method(target="t")
-    def resample(self, new_sample_rate, mode='cubic', anti_aliasing=True):
+    @batch_method(target="f")
+    def resample(self, new_sample_rate, mode=3, anti_aliasing=True):
         """ docs """
         current_sample_rate = self.sample_rate
 
         if new_sample_rate > current_sample_rate and anti_aliasing:
-            factor = new_sample_rate / current_sample_rate
-            n = int(2 * 10 * factor)
             nyq = 1000 / (2 * new_sample_rate)
+            n = int(10000 / (nyq * current_sample_rate))
             self.bandpass(n, high=0.8 * nyq)
 
-        data = self.data
-        new_samples = np.arange(self.samples[0], self.samples[-1] + new_sample_rate, new_sample_rate)
-        func = resize.INTERPOLATORS[mode]
-        resampled = func(data, (len(new_samples), self.shape[0]))
+        new_samples = np.arange(self.samples[0], self.samples[-1] + 1e-6, new_sample_rate, np.float32)
+
+        if isinstance(mode, int):
+            indices = times_to_indices(new_samples, self.samples, False)
+            indices = np.ceil(indices).astype(np.int32)
+            resampled = piecewise_polynomial(mode, new_samples, self.samples, indices, self.data)
+        elif isinstance(mode, str):
+            resampled = scipy.interpolate.interp1d(self.samples, self.data.T, axis=0, kind=mode)(new_samples).T
 
         self.data = resampled
         self.samples = new_samples
