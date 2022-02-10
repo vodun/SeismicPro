@@ -1319,9 +1319,9 @@ class Gather:
         return self
 
     @batch_method(target="f")
-    def resample(self, new_sample_rate, mode=3, anti_aliasing=True):
-        """ if type(mode) == int, perform piecewise polynomial interpolation with polynomial degree = mode
-            if type(mode) == str, deligate interpolation to scipy.interpolate.intep1d.  
+    def resample(self, new_sample_rate, kind=3, anti_aliasing=True):
+        """ if type(kind) == int, perform piecewise polynomial interpolation with polynomial degree = mode
+            if type(kind) == str, deligate interpolation to scipy.interpolate.intep1d.  
         """
         current_sample_rate = self.sample_rate
 
@@ -1339,14 +1339,14 @@ class Gather:
 
         new_samples = np.arange(self.samples[0], self.samples[-1] + 1e-6, new_sample_rate, np.float32)
 
-        if isinstance(mode, int):
+        if isinstance(kind, int):
             # for given n, n + 1 points is required to construct polynomial, find the index of leftmsot one
-            indices = times_to_indices(new_samples, self.samples, False)
-            indices = np.ceil(indices).astype(np.int32)
-            leftmost_indices = np.clip(indices - (n + 1) / 2, 0, len(self..samples) - n - 1)
-            resampled = piecewise_polynomial(mode, new_samples, self.samples, leftmost_indices, self.data)
-        elif isinstance(mode, str):
-            resampled = scipy.interpolate.interp1d(self.samples, self.data.T, axis=0, kind=mode)(new_samples).T
+            indices = np.ceil(times_to_indices(new_samples, self.samples, False))
+            leftmost_indices = np.clip(indices - (kind + 1) / 2, 0, len(self.samples) - kind - 1).astype(np.int32)
+
+            resampled = piecewise_polynomial(kind, new_samples, self.samples, leftmost_indices, self.data)
+        elif isinstance(kind, str):
+            resampled = scipy.interpolate.interp1d(self.samples, self.data.T, axis=0, kind=kind)(new_samples).T
 
         self.data = resampled
         self.samples = new_samples
