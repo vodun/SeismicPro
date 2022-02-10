@@ -1335,7 +1335,7 @@ class Gather:
             freq_cutoff = 0.8
 
             # perform filerting
-            self.bandpass(n, high=0.8 * nyq)
+            self.bandpass(n, high=freq_cutoff * nyq)
 
         new_samples = np.arange(self.samples[0], self.samples[-1] + 1e-6, new_sample_rate, np.float32)
 
