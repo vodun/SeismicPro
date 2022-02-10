@@ -2,65 +2,93 @@
 a particular metric visualization over a field map"""
 
 # pylint: disable=no-name-in-module, import-error
+from functools import partial
+
 import pandas as pd
 
+from .metric import Metric
 from .metric_map import MetricMap
 from .utils import parse_coords
+from ..utils import to_list
 from ...batchflow.models.metrics import Metrics
 
 
 class MetricAccumulator(Metrics):
-    def __init__(self, coords, metric, *, coords_cols=None, metric_type=None, metric_name=None, indices=None):
+    def __init__(self, coords, *, coords_cols=None, indices=None, **kwargs):
         super().__init__()
-        if metric_name is None and metric_type is not None:
-            metric_name = metric_type.name
-        else:
-            metric_name = "metric"
         coords, coords_cols = parse_coords(coords, coords_cols)
-        metric_df = pd.DataFrame(coords, columns=coords_cols)
-        metric_df[metric_name] = metric
+        metrics_df = pd.DataFrame(coords, columns=coords_cols, index=indices)
 
-        coords_to_indices = {}
-        if indices is not None:
-            coords_to_indices = {tuple(coords): ix for coords, ix in zip(coords, indices)}
-            if len(coords_to_indices) != len(coords):  # TODO: fix by grouping them into a list
-                raise ValueError("The same coordinates were returned for different indices")
+        metrics_types = {}
+        metrics_names = []
+        for metric_name, metric_val in kwargs.items():
+            if not isinstance(metric_val, dict):
+                metric_val = {"values": metric_val}
+            metric_val = {"metric_type": Metric, **metric_val}
+            metric_values = metric_val.pop("values")
+            metric_type = metric_val.pop("metric_type")
+            metrics_df[metric_name] = metric_values
+            metrics_types[metric_name] = partial(metric_type, **metric_val)
+            metrics_names.append(metric_name)
 
         self.coords_cols = coords_cols
-        self.metric_name = metric_name
-        self.metric_type = metric_type
-        self.metric_list = [metric_df]
-        self.coords_to_indices_list = [coords_to_indices]
+        self.metrics_list = [metrics_df]
+        self.metrics_names = metrics_names
+        self.metrics_types = metrics_types
+        self.stores_indices = indices is not None
 
     @property
-    def metric(self):
-        if len(self.metric_list) > 1:
-            self.metric_list = [pd.concat(self.metric_list, ignore_index=True)]
-        return self.metric_list[0]
-
-    @property
-    def coords_to_indices(self):
-        if len(self.coords_to_indices_list) > 1:
-            mereged_dict = {key: val for dct in self.coords_to_indices_list for key, val in dct.items()}
-            if len(mereged_dict) != sum(len(dct) for dct in self.coords_to_indices_list):
-                raise ValueError("The same coordinates were returned for different indices")
-            self.coords_to_indices_list = [mereged_dict]
-        return self.coords_to_indices_list[0]
+    def metrics(self):
+        if len(self.metrics_list) > 1:
+            self.metrics_list = [pd.concat(self.metrics_list)]
+        return self.metrics_list[0]
 
     def append(self, other):
         """Append coordinates and metric values to the global container."""
-        if self.coords_cols != other.coords_cols:
-            raise ValueError("Only MetricAccumulator with the same coordinates columns can be appended")
-        if self.metric_name != other.metric_name:
-            raise ValueError("Only MetricAccumulator with the same metric can be appended")
-        self.metric_type = other.metric_type
-        self.metric_list += other.metric_list
-        self.coords_to_indices_list += other.coords_to_indices_list
+        # TODO: allow for accumulation of different metrics
+        if (set(self.coords_cols) != set(other.coords_cols)) or (set(self.metrics_names) != set(other.metrics_names)):
+            raise ValueError("Only MetricAccumulator with the same coordinates columns and metrics can be appended")
+        if ((self.stores_indices != self.stores_indices) or
+            (self.metrics_list[0].index.names != other.metrics_list[0].index.names)):
+            raise ValueError("Both accumulators must store the same types of indices")
+        self.metrics_list += other.metrics_list
+        self.metrics_types = other.metrics_types
 
-    def evaluate(self, agg="mean"):
-        return self.metric[self.metric_name].agg(agg)
+    def _process_aggregation_args(self, metrics, *args):
+        is_single_metric = isinstance(metrics, str) or metrics is None and len(self.metrics_names) == 1
+        metrics = to_list(metrics) if metrics is not None else self.metrics_names
+        processed_args = []
+        for arg in args:
+            arg = to_list(arg)
+            if len(arg) == 1:
+                arg *= len(metrics)
+            if len(arg) != len(metrics):
+                raise ValueError("Lengths of all passed arguments must match the length of metrics to calculate")
+            processed_args.append(arg)
+        return metrics, *processed_args, is_single_metric
 
-    def construct_map(self, agg=None, bin_size=None):
-        self.metric_type.finalize(self.coords_to_indices)
-        return MetricMap(self.metric[self.coords_cols], self.metric[self.metric_name], coords_cols=self.coords_cols,
-                         metric_type=self.metric_type, metric_name=self.metric_name, agg=agg, bin_size=bin_size)
+    def evaluate(self, metrics=None, agg="mean"):
+        metrics, agg, is_single_metric = self._process_aggregation_args(metrics, agg)
+        metrics_vals = [self.metrics[metric].dropna().explode().agg(metric_agg)
+                        for metric, metric_agg in zip(metrics, agg)]
+        if is_single_metric:
+            return metrics_vals[0]
+        return metrics_vals
+
+    def construct_map(self, metrics=None, agg=None, bin_size=None):
+        metrics, agg, bin_size, is_single_metric = self._process_aggregation_args(metrics, agg, bin_size)
+
+        coords_to_indices = None
+        if self.stores_indices:
+            coords_to_indices = self.metrics.groupby(by=self.coords_cols).groups
+
+        metrics_maps = []
+        for metric, metric_agg, metric_bin_size in zip(metrics, agg, bin_size):
+            metric_obj = self.metrics_types[metric](name=metric, coords_to_indices=coords_to_indices)
+            metric_map = MetricMap(self.metrics[self.coords_cols], self.metrics[metric].values, metric=metric_obj,
+                                   agg=metric_agg, bin_size=metric_bin_size)
+            metrics_maps.append(metric_map)
+
+        if is_single_metric:
+            return metrics_maps[0]
+        return metrics_maps

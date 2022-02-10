@@ -16,10 +16,9 @@ class Metric:
         raise NotImplementedError
 
     def __init__(self, *args, **kwargs):
-        _ = args, kwargs
-
-    def finalize(self, *args, **kwargs):
-        _ = args, kwargs
+        _ = args
+        for key, val in kwargs.items():
+            setattr(self, key, val)
 
 
 class PlottableMetric(Metric):
@@ -38,26 +37,26 @@ class PlottableMetric(Metric):
 class PipelineMetric(PlottableMetric):
     args_to_unpack = "all"
 
-    def __init__(self, pipeline, calculate_metric_index):
-        self.pipeline = pipeline
-        self.calculate_metric_index = calculate_metric_index
+    def __init__(self, pipeline, calculate_metric_index, coords_to_indices, **kwargs):
+        super().__init__(**kwargs)
+        self.dataset = pipeline.dataset
 
-    def finalize(self, coords_to_indices):
+        if not isinstance(coords_to_indices, dict) or any(len(indices) > 1 for indices in coords_to_indices.values()):
+            # TODO: fallback to filtering the dataset by given coordinates and MapBinPlot
+            raise ValueError("Duplicated dataset indices found for some coordinates")
         self.coords_to_indices = coords_to_indices
-        calculate_metric_indices = [i for i, action in enumerate(self.pipeline._actions)
+
+        # Slice the pipeline in which the metric was calculated up to its calculate_metric call
+        calculate_metric_indices = [i for i, action in enumerate(pipeline._actions)
                                       if action["name"] == "calculate_metric"]
-        calculate_metric_action_index = calculate_metric_indices[self.calculate_metric_index]
-        actions = self.pipeline._actions[:calculate_metric_action_index]
-        self.plot_pipeline = Pipeline(pipeline=self.pipeline, actions=actions)
-        self.calculate_metric_params = self.pipeline._actions[calculate_metric_action_index]
+        calculate_metric_action_index = calculate_metric_indices[calculate_metric_index]
+        actions = pipeline._actions[:calculate_metric_action_index]
+        self.plot_pipeline = Pipeline(pipeline=pipeline, actions=actions)
 
-    def coords_to_args(self, coords):
-        subset_index = pd.MultiIndex.from_tuples([self.coords_to_indices[coords],])
-        batch = (self.pipeline.dataset.create_subset(subset_index) >> self.plot_pipeline).next_batch(1, shuffle=False)
-        return (batch,), {}
+        # Get args and kwargs of the calculate_metric call with possible named expressions in them
+        self.calculate_metric_args = pipeline._actions[calculate_metric_action_index]["args"]
+        self.calculate_metric_kwargs = pipeline._actions[calculate_metric_action_index]["kwargs"]
 
-
-class PrecalculatedMetric(PipelineMetric):
     @staticmethod
     def calc(metric):
         return metric
@@ -67,17 +66,22 @@ class PrecalculatedMetric(PipelineMetric):
         item = getattr(batch, plot_component)[0]
         item.plot(ax=ax, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
 
+    def coords_to_args(self, coords):
+        subset = self.dataset.create_subset(self.coords_to_indices[coords])
+        batch = (subset >> self.plot_pipeline).next_batch(1, shuffle=False)
+        return (batch,), {}
+
 
 class UnpackingMetric(PipelineMetric):
     def coords_to_args(self, coords):
         (batch,), _ = super().coords_to_args(coords)
 
-        # Get _unpack_metric_args params with possible named expressions and evaluate them
+        # Get params passed to Metric.calc with possible named expressions and evaluate them
         sign = signature(batch.calculate_metric)
-        bound_args = sign.bind(*self.calculate_metric_params["args"], **self.calculate_metric_params["kwargs"])
+        bound_args = sign.bind(*self.calculate_metric_args, **self.calculate_metric_kwargs)
         bound_args.apply_defaults()
-        calc_args = self.pipeline._eval_expr(bound_args.arguments["args"], batch=batch)
-        calc_kwargs = self.pipeline._eval_expr(bound_args.arguments["kwargs"], batch=batch)
+        calc_args = self.plot_pipeline._eval_expr(bound_args.arguments["args"], batch=batch)
+        calc_kwargs = self.plot_pipeline._eval_expr(bound_args.arguments["kwargs"], batch=batch)
 
         args, _ = batch._unpack_metric_args(self, *calc_args, **calc_kwargs)
         return args[0]

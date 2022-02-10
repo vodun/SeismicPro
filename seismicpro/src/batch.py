@@ -393,16 +393,20 @@ class SeismicBatch(Batch):
 
         return self
 
-    def _define_metric(self, metric):
+    def _define_metric(self, metric, metric_name):
         is_metric_type = isinstance(metric, type) and issubclass(metric, PipelineMetric)
         is_callable = not isinstance(metric, type) and callable(metric)
-
         if not (is_metric_type or is_callable):
             raise ValueError("metric must be either a subclass of PipelineMetric or a callable "
                              f"but {type(metric)} given")
         if is_callable:
-            metric = define_metric(base_cls=PipelineMetric, name=metric.__name__, calc=staticmethod(metric))
-        return metric(self.pipeline, self._calculated_metrics)
+            metric_name = metric_name or metric.__name__
+            if metric_name == "<lambda>":
+                raise ValueError("metric_name must be passed for lambda metrics")
+            metric = define_metric(base_cls=PipelineMetric, name=metric_name, calc=staticmethod(metric))
+        else:
+            metric_name = metric_name or metric.name
+        return metric, metric_name
 
     def _unpack_metric_args(self, metric, *args, **kwargs):
         sign = signature(metric.calc)
@@ -441,14 +445,20 @@ class SeismicBatch(Batch):
         return unpacked_args, first_arg
 
     @action(no_eval="save_to")
-    def calculate_metric(self, metric, *args, coords_component=None, coords_cols="auto", save_to=None, **kwargs):
-        metric = self._define_metric(metric)
+    def calculate_metric(self, metric, *args, metric_name=None, coords_component=None, coords_cols="auto",
+                         save_to=None, **kwargs):
+        metric, metric_name = self._define_metric(metric, metric_name)
         unpacked_args, first_arg = self._unpack_metric_args(metric, *args, **kwargs)
 
         coords_items = first_arg if coords_component is None else getattr(self, coords_component)
         coords = [item.get_coords(coords_cols) for item in coords_items]
-        metric_values = [metric.calc(*args, **kwargs) for args, kwargs in unpacked_args]
-        accumulator = MetricAccumulator(coords, metric_values, metric_type=metric, indices=self.indices)
+        metric_params = {
+            "values": [metric.calc(*args, **kwargs) for args, kwargs in unpacked_args],
+            "metric_type": metric,
+            "pipeline": self.pipeline,
+            "calculate_metric_index": self._calculated_metrics,
+        }
+        accumulator = MetricAccumulator(coords, indices=self.indices, **{metric_name: metric_params})
 
         if save_to is not None:
             self.pipeline._save_output(self, None, accumulator, save_to)
