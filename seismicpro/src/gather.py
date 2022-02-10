@@ -6,7 +6,6 @@ from copy import deepcopy
 from textwrap import dedent
 from functools import partial
 
-import cv2
 import segyio
 import scipy
 import numpy as np
@@ -1304,18 +1303,20 @@ class Gather:
 
     @batch_method(target="t")
     def bandpass(self, n, low=None, high=None, window='hamm', **kwargs):
+        """ docs """
+        fs = 1000 / self.sample_rate
         if low is not None and high is not None:
-            fir = scipy.signal.firwin(n, [low, high], window=window, fs=1000 / self.sample_rate, pass_zero='bandpass', **kwargs)
+            fir = scipy.signal.firwin(n, [low, high], window=window, fs=fs, pass_zero='bandpass', **kwargs)
         elif low is not None:
-            fir = scipy.signal.firwib(n, low, window=window, fs=1000 / self.sample_rate, pass_zero='highpass', **kwargs)
+            fir = scipy.signal.firwib(n, low, window=window, fs=fs, pass_zero='highpass', **kwargs)
         elif high is not None:
-            fir = scipy.signal.firwin(n, high, window=window, fs=1000 / self.sample_rate, pass_zero='lowpass', **kwargs)
+            fir = scipy.signal.firwin(n, high, window=window, fs=fs, pass_zero='lowpass', **kwargs)
         else:
             raise ValueError('At least one of low and high must be provided')
 
         self.data = cv2.filter2D(self.data, ddepth=-1, kernel=fir.reshape(1, -1))
         return self
-    
+
     @batch_method(target="f")
     def resample(self, new_sample_rate, mode=3, anti_aliasing=True):
         """ docs """
