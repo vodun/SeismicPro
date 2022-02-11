@@ -97,20 +97,17 @@ class ScatterMap(MetricMap):
     def __init__(self, coords, metric_values, *, coords_cols=None, metric=None, agg=None, bin_size=None):
         super().__init__(coords, metric_values, coords_cols=coords_cols, metric=metric, agg=agg, bin_size=bin_size)
         exploded = self.metric_data.explode(self.metric_name)
-        self.map_data = exploded.groupby(self.coords_cols, as_index=False).agg(self.agg)
+        self.map_data = exploded.groupby(self.coords_cols).agg(self.agg)[self.metric_name]
         self.interactive_plot_class = ScatterMapPlot
 
     def _plot_map(self, ax, is_lower_better, **kwargs):
         key = None
         if is_lower_better is None:
             is_lower_better = True
-            global_agg = self.map_data[self.metric_name].agg(self.agg)
+            global_agg = self.map_data.agg(self.agg)
             key = lambda col: (col - global_agg).abs()
-        map_data = self.map_data.sort_values(by=self.metric_name, ascending=is_lower_better, key=key)
-        x = map_data[self.coords_cols[0]]
-        y = map_data[self.coords_cols[1]]
-        c = map_data[self.metric_name]
-        return ax.scatter(x, y, c=c, **kwargs)
+        map_data = self.map_data.sort_values(ascending=is_lower_better, key=key)
+        return ax.scatter(*map_data.index.to_frame().values.T, c=map_data, **kwargs)
 
 
 class BinarizedMap(MetricMap):

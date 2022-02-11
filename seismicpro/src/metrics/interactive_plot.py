@@ -25,10 +25,10 @@ class ScatterMapPlot:
         self.metric_map = metric_map
         (x_ticker, y_ticker), kwargs = set_text_formatting(x_ticker, y_ticker, fontsize=fontsize, **kwargs)
         if plot_on_click is None:
-            if not isinstance(metric_map.metric_type, PlottableMetric):
+            if not isinstance(metric_map.metric, PlottableMetric):
                 raise ValueError("Either plot_on_click should be passed explicitly or it should be defined "
                                  "in the metric class")
-            plot_on_click = metric_map.metric_type.plot_on_click
+            plot_on_click = metric_map.metric.plot_on_click
         self.plot_on_click = partial(plot_on_click, x_ticker=x_ticker, y_ticker=y_ticker)
         plot_map = partial(metric_map.plot, title="", x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
         if title is None:
@@ -36,6 +36,7 @@ class ScatterMapPlot:
 
         self.coords = metric_map.map_data.index.to_frame().values
         self.coords_neighbors = NearestNeighbors(n_neighbors=1).fit(self.coords)
+        # TODO: handle None case
         worst_ix = metric_map.map_data.argmax() if metric_map.is_lower_better else metric_map.map_data.argmin()
         init_click_coords = metric_map.map_data.index[worst_ix]
 
@@ -149,10 +150,10 @@ class BinarizedMapPlot:
         self.metric_map = metric_map
         (x_ticker, y_ticker), kwargs = set_text_formatting(x_ticker, y_ticker, fontsize=fontsize, **kwargs)
         if plot_on_click is None:
-            if not isinstance(metric_map.metric_type, PlottableMetric):
+            if not isinstance(metric_map.metric, PlottableMetric):
                 raise ValueError("Either plot_on_click should be passed explicitly or it should be defined "
                                  "in the metric class")
-            plot_on_click = metric_map.metric_type.plot_on_click
+            plot_on_click = metric_map.metric.plot_on_click
         plot_on_click = partial(plot_on_click, x_ticker=x_ticker, y_ticker=y_ticker)
         plot_map = partial(metric_map.plot, title="", x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
         if title is None:
