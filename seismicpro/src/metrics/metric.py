@@ -1,7 +1,5 @@
 from inspect import signature
 
-import pandas as pd
-
 from ...batchflow import Pipeline
 
 

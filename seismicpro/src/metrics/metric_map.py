@@ -51,14 +51,14 @@ class MetricMap:
 
     @plotter(figsize=(10, 7))
     def _plot(self, title=None, cmap=None, x_ticker=None, y_ticker=None, colorbar=True, is_lower_better=None,
-              vmin=None, vmax=None, center_cbar=True, ax=None, **kwargs):
+              vmin=None, vmax=None, center_cbar=True, threshold_quantile=0.95, ax=None, **kwargs):
         is_lower_better = self.is_lower_better if is_lower_better is None else is_lower_better
         vmin = self.vmin if vmin is None else vmin
         vmax = self.vmax if vmax is None else vmax
 
         if is_lower_better is None and center_cbar:
-            global_agg = self.map_data[self.metric_name].agg(self.agg)
-            threshold = (self.map_data[self.metric_name] - global_agg).abs().quantile(0.95)
+            global_agg = self.metric_data[self.metric_name].agg(self.agg)
+            threshold = (self.metric_data[self.metric_name] - global_agg).abs().quantile(threshold_quantile)
             norm = mcolors.CenteredNorm(self.metric_data[self.metric_name].agg(self.agg), threshold)
         else:
             norm = mcolors.Normalize(vmin, vmax)
@@ -101,13 +101,12 @@ class ScatterMap(MetricMap):
         self.interactive_plot_class = ScatterMapPlot
 
     def _plot_map(self, ax, is_lower_better, **kwargs):
-        ascending = is_lower_better
         key = None
         if is_lower_better is None:
+            is_lower_better = True
             global_agg = self.map_data[self.metric_name].agg(self.agg)
-            ascending = True
             key = lambda col: (col - global_agg).abs()
-        map_data = self.map_data.sort_values(by=self.metric_name, ascending=ascending, key=key)
+        map_data = self.map_data.sort_values(by=self.metric_name, ascending=is_lower_better, key=key)
         x = map_data[self.coords_cols[0]]
         y = map_data[self.coords_cols[1]]
         c = map_data[self.metric_name]
