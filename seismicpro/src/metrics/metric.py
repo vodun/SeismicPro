@@ -1,5 +1,6 @@
 from inspect import signature
 
+from .interactive_plot import ScatterMapPlot, BinarizedMapPlot, ScatterPipelineMapPlot, BinarizedPipelineMapPlot
 from ...batchflow import Pipeline
 
 
@@ -8,6 +9,8 @@ class Metric:
     min_value = None
     max_value = None
     is_lower_better = None
+    interactive_scatter_map_class = ScatterMapPlot
+    interactive_binarized_map_class = BinarizedMapPlot
 
     @staticmethod
     def calc(*args, **kwargs):
@@ -23,28 +26,23 @@ class PlottableMetric(Metric):
     vmin = None
     vmax = None
 
-    @staticmethod
-    def plot(*args, ax, x_ticker, y_ticker, **kwargs):
-        raise NotImplementedError
-
-    def coords_to_args(self, coords):
-        raise NotImplementedError
-
     def plot_on_click(self, coords, ax, x_ticker, y_ticker, **kwargs):
-        coords_args, coords_kwargs = self.coords_to_args(coords)
-        self.plot(*coords_args, ax=ax, x_ticker=x_ticker, y_ticker=y_ticker, **coords_kwargs, **kwargs)
+        raise NotImplementedError
 
 
 class PipelineMetric(PlottableMetric):
     args_to_unpack = "all"
+    interactive_scatter_map_class = ScatterPipelineMapPlot
+    interactive_binarized_map_class = BinarizedPipelineMapPlot
 
-    def __init__(self, pipeline, calculate_metric_index, coords_to_indices, **kwargs):
+    def __init__(self, pipeline, calculate_metric_index, coords_cols, coords_to_indices, **kwargs):
         super().__init__(**kwargs)
         self.dataset = pipeline.dataset
+        self.coords_cols = coords_cols
 
         if not isinstance(coords_to_indices, dict) or any(len(indices) > 1 for indices in coords_to_indices.values()):
-            # TODO: fallback to filtering the dataset by given coordinates and MapBinPlot
-            raise ValueError("Duplicated dataset indices found for some coordinates")
+            # TODO: duplicated indices or coords_to_indices is None, decide what to do
+            raise ValueError
         self.coords_to_indices = coords_to_indices
 
         # Slice the pipeline in which the metric was calculated up to its calculate_metric call
@@ -86,8 +84,8 @@ class PipelineMetric(PlottableMetric):
         return args[0]
 
     @staticmethod
-    def plot_calc_args(*args, ax, x_ticker, y_ticker, **kwargs):
-        raise NotImplementedError("Specify plot_component argument since plot_calc_args method is not overridden")
+    def plot(*args, ax, x_ticker, y_ticker, **kwargs):
+        raise NotImplementedError("Specify plot_component argument since plot method is not overridden")
 
     def plot_on_click(self, coords, ax, x_ticker, y_ticker, batch_src="index", pipeline=None, plot_component=None,
                       **kwargs):
@@ -99,7 +97,7 @@ class PipelineMetric(PlottableMetric):
             self.plot_component(batch, plot_component, ax, x_ticker, y_ticker, **kwargs)
         else:
             coords_args, coords_kwargs = self.get_calc_args(batch)
-            self.plot_calc_args(*coords_args, ax=ax, x_ticker=x_ticker, y_ticker=y_ticker, **coords_kwargs, **kwargs)
+            self.plot(*coords_args, ax=ax, x_ticker=x_ticker, y_ticker=y_ticker, **coords_kwargs, **kwargs)
 
 
 def define_metric(cls_name="MetricPlaceholder", base_cls=Metric, **kwargs):

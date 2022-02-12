@@ -2,8 +2,7 @@ import numpy as np
 import pandas as pd
 from matplotlib import colors as mcolors
 
-from .metric import Metric
-from .interactive_plot import ScatterMapPlot, BinarizedMapPlot, ScatterPipelineMapPlot, BinarizedPipelineMapPlot
+from .metric import Metric, PlottableMetric
 from .utils import parse_coords
 from ..decorators import plotter
 from ..utils import add_colorbar, set_ticks, set_text_formatting
@@ -16,12 +15,13 @@ class MetricMap:
         return super().__new__(metric_cls)
 
     def __init__(self, coords, metric_values, *, coords_cols=None, metric=None, agg=None, bin_size=None):
-        if metric is None:
-            metric = Metric()
-        self.metric = metric
-        self.metric_name = self.metric.name or "metric"
-
         coords, coords_cols = parse_coords(coords, coords_cols)
+        if metric is None:
+            metric = Metric(name="metric", coords_cols=coords_cols)
+        if not isinstance(metric, Metric):
+            raise ValueError("metric must be of a Metric type")
+        self.metric = metric
+        self.metric_name = self.metric.name
         metric_data = pd.DataFrame(coords, columns=coords_cols)
         metric_data[self.metric_name] = metric_values
         self.metric_data = metric_data.dropna()
@@ -53,8 +53,8 @@ class MetricMap:
     def _plot(self, title=None, x_ticker=None, y_ticker=None, is_lower_better=None, vmin=None, vmax=None, cmap=None,
               colorbar=True, center_colorbar=True, threshold_quantile=0.95, ax=None, **kwargs):
         is_lower_better = self.is_lower_better if is_lower_better is None else is_lower_better
-        vmin = self.vmin if vmin is None else vmin
-        vmax = self.vmax if vmax is None else vmax
+        vmin = vmin or self.vmin or self.min_value
+        vmax = vmax or self.vmax or self.max_value
 
         if is_lower_better is None and center_colorbar:
             global_agg = self.metric_data[self.metric_name].agg(self.agg)
@@ -83,10 +83,12 @@ class MetricMap:
         set_ticks(ax, "x", self.coords_cols[0], x_tick_labels, **x_ticker)
         set_ticks(ax, "y", self.coords_cols[1], y_tick_labels, **y_ticker)
 
-    def plot(self, *args, interactive=False, **kwargs):
+    def plot(self, *args, interactive=False, plot_on_click=None, **kwargs):
         if not interactive:
             return self._plot(*args, **kwargs)
-        return self.interactive_plot_class(self, *args, **kwargs).plot()
+        if plot_on_click is None and not isinstance(self.metric, PlottableMetric):
+            raise ValueError("plot_on_click must be passed if it's not defined in the metric class")
+        return self.interactive_map_class(self, *args, **kwargs).plot()
 
     def aggregate(self, agg=None, bin_size=None):
         return MetricMap(self.metric_data[self.coords_cols], self.metric_data[self.metric_name],
@@ -98,7 +100,7 @@ class ScatterMap(MetricMap):
         super().__init__(coords, metric_values, coords_cols=coords_cols, metric=metric, agg=agg, bin_size=bin_size)
         exploded = self.metric_data.explode(self.metric_name)
         self.map_data = exploded.groupby(self.coords_cols).agg(self.agg)[self.metric_name]
-        self.interactive_plot_class = ScatterPipelineMapPlot
+        self.interactive_map_class = self.metric.interactive_scatter_map_class
 
     def _plot_map(self, ax, is_lower_better, **kwargs):
         key = None
@@ -145,7 +147,7 @@ class BinarizedMap(MetricMap):
         bin_to_coords = metric_data.groupby(bin_cols + self.coords_cols).agg(self.agg)
         self.bin_to_coords = bin_to_coords.to_frame().reset_index(level=self.coords_cols).groupby(bin_cols)
 
-        self.interactive_plot_class = BinarizedPipelineMapPlot
+        self.interactive_map_class = self.metric.interactive_binarized_map_class
 
     @property
     def plot_title(self):

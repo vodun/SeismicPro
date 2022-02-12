@@ -3,7 +3,6 @@ from functools import partial
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
-from ..metrics import PlottableMetric
 from ..utils import set_text_formatting, MissingModule
 from ..utils.interactive_plot_utils import InteractivePlot, ClickablePlot, PairedPlot, TEXT_LAYOUT, BUTTON_LAYOUT
 
@@ -114,9 +113,6 @@ class MetricMapPlot(PairedPlot):
         self.figsize = figsize
 
         if plot_on_click is None:
-            if not isinstance(metric_map.metric, PlottableMetric):
-                raise ValueError("Either plot_on_click should be passed explicitly or it should be defined "
-                                 "in the metric class")
             plot_on_click = metric_map.metric.plot_on_click
         self.plot_on_click = partial(plot_on_click, x_ticker=x_ticker, y_ticker=y_ticker)
         self.plot_map = partial(metric_map.plot, "", x_ticker, y_ticker, is_lower_better, *args, **kwargs)

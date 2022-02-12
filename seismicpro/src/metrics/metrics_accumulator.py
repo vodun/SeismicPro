@@ -81,10 +81,12 @@ class MetricAccumulator(Metrics):
         coords_to_indices = None
         if self.stores_indices:
             coords_to_indices = self.metrics.groupby(by=self.coords_cols).groups
+            coords_to_indices = {coords: indices.unique() for coords, indices in coords_to_indices.items()}
 
         metrics_maps = []
         for metric, metric_agg, metric_bin_size in zip(metrics, agg, bin_size):
-            metric_obj = self.metrics_types[metric](name=metric, coords_to_indices=coords_to_indices)
+            metric_obj = self.metrics_types[metric](name=metric, coords_cols=self.coords_cols,
+                                                    coords_to_indices=coords_to_indices)
             metric_map = MetricMap(self.metrics[self.coords_cols], self.metrics[metric].values, metric=metric_obj,
                                    agg=metric_agg, bin_size=metric_bin_size)
             metrics_maps.append(metric_map)

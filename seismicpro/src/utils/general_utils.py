@@ -389,3 +389,6 @@ class MissingModule:
 
     def __getattr__(self, name):
         raise ImportError(f"No module named {self._module_name}")
+
+    def __call__(self, *args, **kwargs):
+        raise ImportError(f"No module named {self._module_name}")
