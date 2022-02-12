@@ -162,3 +162,20 @@ class BinarizedMapPlot(MetricMapPlot):
             return None
         self.right.update_state(0, contents)
         return bin_coords
+
+
+class PipelineMapMixin:
+    def __init__(self, metric_map, *args, plot_on_click=None, batch_src="index", pipeline=None, plot_component=None,
+                 **kwargs):
+        if plot_on_click is None:
+            plot_on_click = partial(metric_map.metric.plot_on_click, batch_src=batch_src, pipeline=pipeline,
+                                    plot_component=plot_component)
+        super().__init__(metric_map, *args, plot_on_click=plot_on_click, **kwargs)
+
+
+class ScatterPipelineMapPlot(PipelineMapMixin, ScatterMapPlot):
+    pass
+
+
+class BinarizedPipelineMapPlot(PipelineMapMixin, BinarizedMapPlot):
+    pass

@@ -3,7 +3,7 @@ import pandas as pd
 from matplotlib import colors as mcolors
 
 from .metric import Metric
-from .interactive_plot import ScatterMapPlot, BinarizedMapPlot
+from .interactive_plot import ScatterMapPlot, BinarizedMapPlot, ScatterPipelineMapPlot, BinarizedPipelineMapPlot
 from .utils import parse_coords
 from ..decorators import plotter
 from ..utils import add_colorbar, set_ticks, set_text_formatting
@@ -98,7 +98,7 @@ class ScatterMap(MetricMap):
         super().__init__(coords, metric_values, coords_cols=coords_cols, metric=metric, agg=agg, bin_size=bin_size)
         exploded = self.metric_data.explode(self.metric_name)
         self.map_data = exploded.groupby(self.coords_cols).agg(self.agg)[self.metric_name]
-        self.interactive_plot_class = ScatterMapPlot
+        self.interactive_plot_class = ScatterPipelineMapPlot
 
     def _plot_map(self, ax, is_lower_better, **kwargs):
         key = None
@@ -145,7 +145,7 @@ class BinarizedMap(MetricMap):
         bin_to_coords = metric_data.groupby(bin_cols + self.coords_cols).agg(self.agg)
         self.bin_to_coords = bin_to_coords.to_frame().reset_index(level=self.coords_cols).groupby(bin_cols)
 
-        self.interactive_plot_class = BinarizedMapPlot
+        self.interactive_plot_class = BinarizedPipelineMapPlot
 
     @property
     def plot_title(self):
