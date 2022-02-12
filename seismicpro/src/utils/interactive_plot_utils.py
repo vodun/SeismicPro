@@ -84,11 +84,11 @@ class InteractivePlot:
         self.title.value = TITLE_TEMPLATE.format(style=TITLE_STYLE, title=title)
 
     def plot(self, display_box=True):
-        if display_box:
-            display(self.box)
         self._resize(self.fig.get_figwidth() * self.fig.dpi)  # Init the width of the box
         if self.plot_fn is not None:
             self.plot_fn(ax=self.ax)
+        if display_box:
+            display(self.box)
 
 
 class ClickablePlot(InteractivePlot):
@@ -121,7 +121,7 @@ class ClickablePlot(InteractivePlot):
             self.click_scatter.remove()
         self.click_scatter = self.ax.scatter(*coords, **self.marker_params)
         # TODO: switch to blit
-        self.fig.canvas.draw_idle()
+        self.fig.canvas.draw_idle()  # TODO: revert to pure draw when cursor handling is fixed in ipympl
 
     def on_click(self, event):
         # Discard clicks outside the main axes
@@ -161,3 +161,22 @@ class ToggleClickablePlot(ClickablePlot):
         if self.fig.canvas.toolbar_position == "right":
             return widgets.HBox([self.button, placeholder])
         return widgets.HBox([self.button, self.title])
+
+
+class PairedPlot:
+    def __init__(self, *args, **kwargs):
+        _ = args, kwargs
+        self.left = self.construct_left_plot()
+        self.right = self.construct_right_plot()
+        self.box = widgets.HBox([self.left.box, self.right.box])
+
+    def construct_left_plot(self):
+        raise NotImplementedError
+
+    def construct_right_plot(self):
+        raise NotImplementedError
+
+    def plot(self):
+        self.left.plot(display_box=False)
+        self.right.plot(display_box=False)
+        display(self.box)

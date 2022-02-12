@@ -5,7 +5,7 @@ from sklearn.neighbors import NearestNeighbors
 
 from ..metrics import PlottableMetric
 from ..utils import set_text_formatting, MissingModule
-from ..utils.interactive_plot_utils import InteractivePlot, ClickablePlot, TEXT_LAYOUT, BUTTON_LAYOUT
+from ..utils.interactive_plot_utils import InteractivePlot, ClickablePlot, PairedPlot, TEXT_LAYOUT, BUTTON_LAYOUT
 
 # Safe import of modules for interactive plotting
 try:
@@ -17,46 +17,6 @@ try:
     from IPython.display import display
 except ImportError:
     display = MissingModule("IPython.display")
-
-
-class ScatterMapPlot:
-    def __init__(self, metric_map, plot_on_click=None, title=None, x_ticker=None, y_ticker=None, figsize=(4.5, 4.5),
-                 fontsize=8, **kwargs):
-        self.metric_map = metric_map
-        (x_ticker, y_ticker), kwargs = set_text_formatting(x_ticker, y_ticker, fontsize=fontsize, **kwargs)
-        if plot_on_click is None:
-            if not isinstance(metric_map.metric, PlottableMetric):
-                raise ValueError("Either plot_on_click should be passed explicitly or it should be defined "
-                                 "in the metric class")
-            plot_on_click = metric_map.metric.plot_on_click
-        self.plot_on_click = partial(plot_on_click, x_ticker=x_ticker, y_ticker=y_ticker)
-        plot_map = partial(metric_map.plot, title="", x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
-        if title is None:
-            title = metric_map.plot_title
-
-        self.coords = metric_map.map_data.index.to_frame().values
-        self.coords_neighbors = NearestNeighbors(n_neighbors=1).fit(self.coords)
-        # TODO: handle None case
-        worst_ix = metric_map.map_data.argmax() if metric_map.is_lower_better else metric_map.map_data.argmin()
-        init_click_coords = metric_map.map_data.index[worst_ix]
-
-        self.left = ClickablePlot(figsize=figsize, plot_fn=plot_map, click_fn=self.click, allow_unclick=False,
-                                  title=title, init_click_coords=init_click_coords)
-        self.right = InteractivePlot(toolbar_position="right")
-        self.box = widgets.HBox([self.left.box, self.right.box])
-
-    def click(self, coords):
-        coords_ix = self.coords_neighbors.kneighbors([coords], return_distance=False).item()
-        coords = tuple(self.coords[coords_ix])
-        self.right.set_title(f"{self.metric_map.map_data[coords]:.05f} metric at {coords}")
-        self.right.ax.clear()
-        self.plot_on_click(coords, ax=self.right.ax)
-        return coords
-
-    def plot(self):
-        display(self.box)
-        self.left.plot(display_box=False)
-        self.right.plot(display_box=False)
 
 
 class MapBinPlot(InteractivePlot):
@@ -138,34 +98,62 @@ class MapBinPlot(InteractivePlot):
             self.plot_fn(self.options.index[self.curr_option], ax=self.ax)
 
     def plot(self, display_box=True):
-        if display_box:
-            display(self.box)
         self._resize(self.fig.get_figwidth() * self.fig.dpi)  # Init the width of the box
         self._plot()
+        if display_box:
+            display(self.box)
 
 
-class BinarizedMapPlot:
-    def __init__(self, metric_map, plot_on_click=None, title=None, x_ticker=None, y_ticker=None, figsize=(4.5, 4.5),
-                 fontsize=8, **kwargs):
+class MetricMapPlot(PairedPlot):
+    def __init__(self, metric_map, title=None, x_ticker=None, y_ticker=None, is_lower_better=None, *args,
+                 plot_on_click=None, figsize=(4.5, 4.5), fontsize=8, **kwargs):
         self.metric_map = metric_map
+
         (x_ticker, y_ticker), kwargs = set_text_formatting(x_ticker, y_ticker, fontsize=fontsize, **kwargs)
+        self.title = metric_map.plot_title if title is None else title
+        self.figsize = figsize
+
         if plot_on_click is None:
             if not isinstance(metric_map.metric, PlottableMetric):
                 raise ValueError("Either plot_on_click should be passed explicitly or it should be defined "
                                  "in the metric class")
             plot_on_click = metric_map.metric.plot_on_click
-        plot_on_click = partial(plot_on_click, x_ticker=x_ticker, y_ticker=y_ticker)
-        plot_map = partial(metric_map.plot, title="", x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
-        if title is None:
-            title = metric_map.plot_title
+        self.plot_on_click = partial(plot_on_click, x_ticker=x_ticker, y_ticker=y_ticker)
+        self.plot_map = partial(metric_map.plot, "", x_ticker, y_ticker, is_lower_better, *args, **kwargs)
 
-        find_worst = np.nanargmax if metric_map.is_lower_better else np.nanargmin
-        init_click_coords = np.unravel_index(find_worst(metric_map.map_data), metric_map.map_data.shape)
+        is_lower_better = metric_map.is_lower_better if is_lower_better is None else is_lower_better
+        self.init_click_coords = metric_map.get_worst_coords(is_lower_better)
+        super().__init__()
 
-        self.left = ClickablePlot(figsize=figsize, plot_fn=plot_map, click_fn=self.click, allow_unclick=False,
-                                  title=title, init_click_coords=init_click_coords)
-        self.right = MapBinPlot(plot_fn=plot_on_click, toolbar_position="right")
-        self.box = widgets.HBox([self.left.box, self.right.box])
+    def construct_left_plot(self):
+        return ClickablePlot(figsize=self.figsize, plot_fn=self.plot_map, click_fn=self.click, allow_unclick=False,
+                             title=self.title, init_click_coords=self.init_click_coords)
+
+    def click():
+        raise NotImplementedError
+
+
+class ScatterMapPlot(MetricMapPlot):
+    def __init__(self, metric_map, *args, **kwargs):
+        self.coords = metric_map.map_data.index.to_frame().values
+        self.coords_neighbors = NearestNeighbors(n_neighbors=1).fit(self.coords)
+        super().__init__(metric_map, *args, **kwargs)
+
+    def construct_right_plot(self):
+        return InteractivePlot(toolbar_position="right")
+
+    def click(self, coords):
+        coords_ix = self.coords_neighbors.kneighbors([coords], return_distance=False).item()
+        coords = tuple(self.coords[coords_ix])
+        self.right.set_title(f"{self.metric_map.map_data[coords]:.05f} metric at {coords}")
+        self.right.ax.clear()
+        self.plot_on_click(coords, ax=self.right.ax)
+        return coords
+
+
+class BinarizedMapPlot(MetricMapPlot):
+    def construct_right_plot(self):
+        return MapBinPlot(plot_fn=self.plot_on_click, toolbar_position="right")
 
     def click(self, coords):
         bin_coords = (int(coords[0] + 0.5), int(coords[1] + 0.5))
@@ -174,8 +162,3 @@ class BinarizedMapPlot:
             return None
         self.right.update_state(0, contents)
         return bin_coords
-
-    def plot(self):
-        display(self.box)
-        self.left.plot(display_box=False)
-        self.right.plot(display_box=False)

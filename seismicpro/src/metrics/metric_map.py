@@ -50,13 +50,13 @@ class MetricMap:
         return None, None
 
     @plotter(figsize=(10, 7))
-    def _plot(self, title=None, cmap=None, x_ticker=None, y_ticker=None, colorbar=True, is_lower_better=None,
-              vmin=None, vmax=None, center_cbar=True, threshold_quantile=0.95, ax=None, **kwargs):
+    def _plot(self, title=None, x_ticker=None, y_ticker=None, is_lower_better=None, vmin=None, vmax=None, cmap=None,
+              colorbar=True, center_colorbar=True, threshold_quantile=0.95, ax=None, **kwargs):
         is_lower_better = self.is_lower_better if is_lower_better is None else is_lower_better
         vmin = self.vmin if vmin is None else vmin
         vmax = self.vmax if vmax is None else vmax
 
-        if is_lower_better is None and center_cbar:
+        if is_lower_better is None and center_colorbar:
             global_agg = self.metric_data[self.metric_name].agg(self.agg)
             threshold = (self.metric_data[self.metric_name] - global_agg).abs().quantile(threshold_quantile)
             norm = mcolors.CenteredNorm(self.metric_data[self.metric_name].agg(self.agg), threshold)
@@ -83,10 +83,10 @@ class MetricMap:
         set_ticks(ax, "x", self.coords_cols[0], x_tick_labels, **x_ticker)
         set_ticks(ax, "y", self.coords_cols[1], y_tick_labels, **y_ticker)
 
-    def plot(self, interactive=False, plot_on_click=None, **kwargs):
+    def plot(self, *args, interactive=False, **kwargs):
         if not interactive:
-            return self._plot(**kwargs)
-        return self.interactive_plot_class(self, plot_on_click=plot_on_click, **kwargs).plot()
+            return self._plot(*args, **kwargs)
+        return self.interactive_plot_class(self, *args, **kwargs).plot()
 
     def aggregate(self, agg=None, bin_size=None):
         return MetricMap(self.metric_data[self.coords_cols], self.metric_data[self.metric_name],
@@ -108,6 +108,15 @@ class ScatterMap(MetricMap):
             key = lambda col: (col - global_agg).abs()
         map_data = self.map_data.sort_values(ascending=is_lower_better, key=key)
         return ax.scatter(*map_data.index.to_frame().values.T, c=map_data, **kwargs)
+
+    def get_worst_coords(self, is_lower_better):
+        if is_lower_better is None:
+            data = (self.map_data - self.metric_data[self.metric_name].agg(self.agg)).abs()
+        elif is_lower_better:
+            data = self.map_data
+        else:
+            data = -self.map_data
+        return self.map_data.index[data.argmax()]
 
 
 class BinarizedMap(MetricMap):
@@ -149,6 +158,15 @@ class BinarizedMap(MetricMap):
         _ = is_lower_better
         kwargs = {"interpolation": "none", "origin": "lower", "aspect": "auto", **kwargs}
         return ax.imshow(self.map_data.T, **kwargs)
+
+    def get_worst_coords(self, is_lower_better):
+        if is_lower_better is None:
+            data = np.abs(self.map_data - self.metric_data[self.metric_name].agg(self.agg))
+        elif is_lower_better:
+            data = self.map_data
+        else:
+            data = -self.map_data
+        return np.unravel_index(np.nanargmax(data), self.map_data.shape)
 
     def get_bin_contents(self, coords):
         if coords not in self.bin_to_coords.groups:
