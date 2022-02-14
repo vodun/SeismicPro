@@ -1,30 +1,7 @@
-''' Utility funcitons for tutorials '''
+"""Utility funcitons for tutorials"""
 
 import numpy as np
 from scipy import signal
-import matplotlib.pyplot as plt
-
-def plot_histogram(gathers, bins=60):
-    """Plot data historgams for each gather in `gather_list`.
-
-    Parameters
-    ----------
-    gather_list : tuple of iterables
-        Tuple of iterables, each of lenght 2, where first element is the
-        gather and the second one is the title for histogram.
-
-    Examples
-    --------
-    >>> plot_histogram(([gather1, 'gather1 description'], [g2, '']))
-    """
-    n_plots = len(gathers)
-    _, ax = plt.subplots(1, n_plots, figsize=(6 * n_plots, 4))
-    for i, (gather, title) in enumerate(gathers):
-        ax[i].set_title(title)
-        ax[i].set_xlabel('Amplitude')
-        ax[i].set_ylabel('Counts')
-        _ = ax[i].hist(gather.data.ravel(), bins=bins)
-    plt.show()
 
 def generate_trace(reflection_event_time=(10,700,1200), reflection_event_amplitude=(6,-12,8),
                     nmo_velocity=(1.6,2.,2.4), wavelet_lenght=50, wavelet_width=5, **kwargs):
