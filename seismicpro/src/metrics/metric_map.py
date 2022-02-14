@@ -12,7 +12,7 @@ from ..utils import add_colorbar, set_ticks, set_text_formatting
 class MetricMap:
     def __new__(self, coords, metric_values, *, coords_cols=None, metric=None, metric_name=None, agg=None,
                 bin_size=None):
-        _ = coords, metric_values, coords_cols, metric, agg
+        _ = coords, metric_values, coords_cols, metric, metric_name, agg
         metric_cls = ScatterMap if bin_size is None else BinarizedMap
         return super().__new__(metric_cls)
 
@@ -118,8 +118,10 @@ class MetricMap:
 
 
 class ScatterMap(MetricMap):
-    def __init__(self, coords, metric_values, *, coords_cols=None, metric=None, agg=None, bin_size=None):
-        super().__init__(coords, metric_values, coords_cols=coords_cols, metric=metric, agg=agg, bin_size=bin_size)
+    def __init__(self, coords, metric_values, *, coords_cols=None, metric=None, metric_name=None, agg=None,
+                 bin_size=None):
+        super().__init__(coords, metric_values, coords_cols=coords_cols, metric=metric, metric_name=metric_name,
+                         agg=agg, bin_size=bin_size)
         exploded = self.metric_data.explode(self.metric_name)
         self.map_data = exploded.groupby(self.coords_cols).agg(self.agg)[self.metric_name]
 
@@ -148,8 +150,10 @@ class ScatterMap(MetricMap):
 
 
 class BinarizedMap(MetricMap):
-    def __init__(self, coords, metric_values, *, coords_cols=None, metric=None, agg=None, bin_size=None):
-        super().__init__(coords, metric_values, coords_cols=coords_cols, metric=metric, agg=agg, bin_size=bin_size)
+    def __init__(self, coords, metric_values, *, coords_cols=None, metric=None, metric_name=None, agg=None,
+                 bin_size=None):
+        super().__init__(coords, metric_values, coords_cols=coords_cols, metric=metric, metric_name=metric_name,
+                         agg=agg, bin_size=bin_size)
         metric_data = self.metric_data.copy(deep=False)
 
         # Binarize map coordinates
