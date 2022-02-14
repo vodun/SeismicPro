@@ -1,5 +1,6 @@
 import warnings
 from inspect import signature
+from functools import partial
 
 import pandas as pd
 
@@ -65,6 +66,9 @@ class PipelineMetric(PlottableMetric):
         if batch_src not in {"index", "coords"}:
             raise ValueError("Unknown source to get the batch from. Available options are 'index' and 'coords'.")
         if batch_src == "index":
+            if self.coords_to_indices is None:
+                raise ValueError("Unable to use indices to get the batch by coordinates since they were not passed "
+                                 "during metric instantiation. Please specify batch_src='coords'.")
             subset = self.dataset.create_subset(self.coords_to_indices[coords])
         else:
             indices = []
@@ -118,6 +122,25 @@ class PipelineMetric(PlottableMetric):
         else:
             coords_args, coords_kwargs = self.get_calc_args(batch)
             self.plot(*coords_args, ax=ax, x_ticker=x_ticker, y_ticker=y_ticker, **coords_kwargs, **kwargs)
+
+
+class PartialMetric:
+    def __init__(self, metric, *args, **kwargs):
+        if not(isinstance(metric, PartialMetric) or isinstance(metric, type) and issubclass(metric, Metric)):
+            raise ValueError("metric must be either an instance of PartialMetric or a subclass of Metric")
+        self.metric = partial(metric, *args, **kwargs)
+
+    def __getattr__(self, name):
+        if name in self.metric.keywords:
+            return self.metric.keywords[name]
+        return getattr(self.metric.func, name)
+
+    def __call__(self, *args, **kwargs):
+        return self.metric(*args, **kwargs)
+
+
+def is_metric(obj):
+    return isinstance(obj, (Metric, PartialMetric)) or isinstance(obj, type) and issubclass(obj, Metric)
 
 
 def define_metric(cls_name="MetricPlaceholder", base_cls=Metric, **kwargs):

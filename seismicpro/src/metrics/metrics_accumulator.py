@@ -2,11 +2,9 @@
 a particular metric visualization over a field map"""
 
 # pylint: disable=no-name-in-module, import-error
-from functools import partial
-
 import pandas as pd
 
-from .metric import Metric
+from .metric import Metric, PartialMetric
 from .metric_map import MetricMap
 from .utils import parse_coords
 from ..utils import to_list
@@ -28,7 +26,7 @@ class MetricAccumulator(Metrics):
             metric_values = metric_val.pop("values")
             metric_type = metric_val.pop("metric_type")
             metrics_df[metric_name] = metric_values
-            metrics_types[metric_name] = partial(metric_type, **metric_val)
+            metrics_types[metric_name] = PartialMetric(metric_type, **metric_val)
             metrics_names.append(metric_name)
 
         self.coords_cols = coords_cols
@@ -85,9 +83,8 @@ class MetricAccumulator(Metrics):
 
         metrics_maps = []
         for metric, metric_agg, metric_bin_size in zip(metrics, agg, bin_size):
-            metric_obj = self.metrics_types[metric](name=metric, coords_cols=self.coords_cols,
-                                                    coords_to_indices=coords_to_indices)
-            metric_map = MetricMap(self.metrics[self.coords_cols], self.metrics[metric].values, metric=metric_obj,
+            metric_type = PartialMetric(self.metrics_types[metric], coords_to_indices=coords_to_indices)
+            metric_map = MetricMap(self.metrics[self.coords_cols], self.metrics[metric], metric=metric_type,
                                    agg=metric_agg, bin_size=metric_bin_size)
             metrics_maps.append(metric_map)
 

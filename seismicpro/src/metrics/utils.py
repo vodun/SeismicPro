@@ -33,3 +33,24 @@ def parse_coords(coords, coords_cols=None):
         raise ValueError("Coordinates array must have shape (N, 2), where N is the number of elements"
                          f" but an array with shape {coords.shape} was given")
     return coords, coords_cols
+
+
+def parse_metric_values(metric_values, metric_name, metric_type):
+    err_msg = "Metric values must be a 1-dimensional array-like."
+    if isinstance(metric_values, pd.DataFrame):
+        columns = metric_values.columns
+        if len(columns) != 1:
+            raise ValueError(err_msg)
+        data_metric_name = columns[0]
+        metric_values = metric_values.values[:, 0]
+    elif isinstance(metric_values, pd.Series):
+        data_metric_name = metric_values.name
+        metric_values = metric_values.values
+    else:
+        data_metric_name = None
+        metric_values = np.array(metric_values)
+
+    if metric_values.ndim != 1:
+        raise ValueError(err_msg)
+    metric_name = metric_name or data_metric_name or metric_type.name or "metric"
+    return metric_values, metric_name

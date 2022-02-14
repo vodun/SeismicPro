@@ -2,30 +2,41 @@ import numpy as np
 import pandas as pd
 from matplotlib import colors as mcolors
 
-from .metric import Metric, PlottableMetric
-from .utils import parse_coords
+from .metric import is_metric, Metric, PlottableMetric, PartialMetric
+from .utils import parse_coords, parse_metric_values
 from ..decorators import plotter
 from ..utils import add_colorbar, set_ticks, set_text_formatting
 
 
 class MetricMap:
-    def __new__(self, coords, metric_values, *, coords_cols=None, metric=None, agg=None, bin_size=None):
+    def __new__(self, coords, metric_values, *, coords_cols=None, metric=None, metric_name=None, agg=None,
+                bin_size=None):
         _ = coords, metric_values, coords_cols, metric, agg
         metric_cls = ScatterMap if bin_size is None else BinarizedMap
         return super().__new__(metric_cls)
 
-    def __init__(self, coords, metric_values, *, coords_cols=None, metric=None, agg=None, bin_size=None):
-        coords, coords_cols = parse_coords(coords, coords_cols)
+    def __init__(self, coords, metric_values, *, coords_cols=None, metric=None, metric_name=None, agg=None,
+                 bin_size=None):
         if metric is None:
-            metric = Metric(name="metric", coords_cols=coords_cols)
-        if not isinstance(metric, Metric):
-            raise ValueError("metric must be of a Metric type")
-        self.metric = metric
-        self.metric_name = self.metric.name
+            metric = Metric
+        if not is_metric(metric):
+            raise ValueError("metric must be either of a Metric type or a subclass of Metric")
+
+        coords, coords_cols = parse_coords(coords, coords_cols)
+        metric_values, metric_name = parse_metric_values(metric_values, metric_name, metric)
         metric_data = pd.DataFrame(coords, columns=coords_cols)
-        metric_data[self.metric_name] = metric_values
+        metric_data[metric_name] = metric_values
+
         self.metric_data = metric_data.dropna()
         self.coords_cols = coords_cols
+        self.metric_name = metric_name
+
+        if isinstance(metric, Metric):
+            self.metric = metric
+            self.metric.name = metric_name
+            self.metric.coords_cols = coords_cols
+        else:
+            self.metric = PartialMetric(metric, name=metric_name, coords_cols=coords_cols)
 
         if agg is None:
             default_agg = {True: "max", False: "min", None: "mean"}
@@ -46,8 +57,13 @@ class MetricMap:
         agg_name = self.agg.__name__ if callable(self.agg) else self.agg
         return f"{agg_name}({self.metric_name})"
 
-    def _get_tick_labels(self):
-        return None, None
+    @property
+    def x_tick_labels(self):
+        return None
+
+    @property
+    def y_tick_labels(self):
+        return None
 
     @plotter(figsize=(10, 7))
     def _plot(self, title=None, x_ticker=None, y_ticker=None, is_lower_better=None, vmin=None, vmax=None, cmap=None,
@@ -73,22 +89,25 @@ class MetricMap:
                 cmap = mcolors.LinearSegmentedColormap.from_list("cmap", colors)
 
         (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
-        ax.set_title(**{"label": self.plot_title, **title})
-
         res = self._plot_map(ax, is_lower_better=is_lower_better, cmap=cmap, norm=norm, **kwargs)
-        add_colorbar(ax, res, colorbar, y_ticker=y_ticker)
+        ax.set_title(**{"label": self.plot_title, **title})
         ax.ticklabel_format(style="plain", useOffset=False)
-
-        x_tick_labels, y_tick_labels = self._get_tick_labels()
-        set_ticks(ax, "x", self.coords_cols[0], x_tick_labels, **x_ticker)
-        set_ticks(ax, "y", self.coords_cols[1], y_tick_labels, **y_ticker)
+        add_colorbar(ax, res, colorbar, y_ticker=y_ticker)
+        set_ticks(ax, "x", self.coords_cols[0], self.x_tick_labels, **x_ticker)
+        set_ticks(ax, "y", self.coords_cols[1], self.y_tick_labels, **y_ticker)
 
     def plot(self, *args, interactive=False, plot_on_click=None, **kwargs):
         if not interactive:
             return self._plot(*args, **kwargs)
+
+        # Instantiate the metric if it hasn't been done yet
+        if isinstance(self.metric, (type, PartialMetric)):
+            self.metric = self.metric()
         if plot_on_click is None and not isinstance(self.metric, PlottableMetric):
-            raise ValueError("plot_on_click must be passed if it's not defined in the metric class")
-        return self.interactive_map_class(self, *args, **kwargs).plot()
+            raise ValueError("plot_on_click must be passed if not defined in the metric class")
+        if plot_on_click is None:
+            plot_on_click = self.plot_on_click
+        return self.interactive_map_class(self, plot_on_click, *args, **kwargs).plot()
 
     def aggregate(self, agg=None, bin_size=None):
         return MetricMap(self.metric_data[self.coords_cols], self.metric_data[self.metric_name],
@@ -111,7 +130,8 @@ class ScatterMap(MetricMap):
         map_data = self.map_data.sort_values(ascending=is_lower_better, key=key)
         return ax.scatter(*map_data.index.to_frame().values.T, c=map_data, **kwargs)
 
-    def get_worst_coords(self, is_lower_better):
+    def get_worst_coords(self, is_lower_better=None):
+        is_lower_better = self.is_lower_better if is_lower_better is None else is_lower_better
         if is_lower_better is None:
             data = (self.map_data - self.metric_data[self.metric_name].agg(self.agg)).abs()
         elif is_lower_better:
@@ -153,8 +173,13 @@ class BinarizedMap(MetricMap):
     def plot_title(self):
         return super().plot_title + f" in {self.bin_size[0]}x{self.bin_size[1]} bins"
 
-    def _get_tick_labels(self):
-        return self.x_bin_coords, self.y_bin_coords
+    @property
+    def x_tick_labels(self):
+        return self.x_bin_coords
+
+    @property
+    def y_tick_labels(self):
+        return self.y_bin_coords
 
     def _plot_map(self, ax, is_lower_better, **kwargs):
         _ = is_lower_better
@@ -162,6 +187,7 @@ class BinarizedMap(MetricMap):
         return ax.imshow(self.map_data.T, **kwargs)
 
     def get_worst_coords(self, is_lower_better):
+        is_lower_better = self.is_lower_better if is_lower_better is None else is_lower_better
         if is_lower_better is None:
             data = np.abs(self.map_data - self.metric_data[self.metric_name].agg(self.agg))
         elif is_lower_better:

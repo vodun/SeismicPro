@@ -1,6 +1,5 @@
 from functools import partial
 
-import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
 from ..utils import set_text_formatting, MissingModule
@@ -104,20 +103,14 @@ class MapBinPlot(InteractivePlot):
 
 
 class MetricMapPlot(PairedPlot):
-    def __init__(self, metric_map, title=None, x_ticker=None, y_ticker=None, is_lower_better=None, *args,
-                 plot_on_click=None, figsize=(4.5, 4.5), fontsize=8, **kwargs):
-        self.metric_map = metric_map
-
+    def __init__(self, metric_map, plot_on_click, title=None, x_ticker=None, y_ticker=None, is_lower_better=None,
+                 *args, figsize=(4.5, 4.5), fontsize=8, **kwargs):
         (x_ticker, y_ticker), kwargs = set_text_formatting(x_ticker, y_ticker, fontsize=fontsize, **kwargs)
+        self.metric_map = metric_map
         self.title = metric_map.plot_title if title is None else title
         self.figsize = figsize
-
-        if plot_on_click is None:
-            plot_on_click = metric_map.metric.plot_on_click
         self.plot_on_click = partial(plot_on_click, x_ticker=x_ticker, y_ticker=y_ticker)
         self.plot_map = partial(metric_map.plot, "", x_ticker, y_ticker, is_lower_better, *args, **kwargs)
-
-        is_lower_better = metric_map.is_lower_better if is_lower_better is None else is_lower_better
         self.init_click_coords = metric_map.get_worst_coords(is_lower_better)
         super().__init__()
 
@@ -161,12 +154,11 @@ class BinarizedMapPlot(MetricMapPlot):
 
 
 class PipelineMapMixin:
-    def __init__(self, metric_map, *args, plot_on_click=None, batch_src="index", pipeline=None, plot_component=None,
+    def __init__(self, metric_map, plot_on_click, *args, batch_src="index", pipeline=None, plot_component=None,
                  **kwargs):
-        if plot_on_click is None:
-            plot_on_click = partial(metric_map.metric.plot_on_click, batch_src=batch_src, pipeline=pipeline,
-                                    plot_component=plot_component)
-        super().__init__(metric_map, *args, plot_on_click=plot_on_click, **kwargs)
+        plot_on_click = partial(metric_map.metric.plot_on_click, batch_src=batch_src, pipeline=pipeline,
+                                plot_component=plot_component)
+        super().__init__(metric_map, plot_on_click, *args, **kwargs)
 
 
 class ScatterPipelineMapPlot(PipelineMapMixin, ScatterMapPlot):
