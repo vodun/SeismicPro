@@ -68,7 +68,7 @@ class MetricMap:
 
     @plotter(figsize=(10, 7))
     def _plot(self, title=None, x_ticker=None, y_ticker=None, is_lower_better=None, vmin=None, vmax=None, cmap=None,
-              colorbar=True, center_colorbar=True, threshold_quantile=0.95, ax=None, **kwargs):
+              colorbar=True, center_colorbar=True, threshold_quantile=0.95, keep_aspect=False, ax=None, **kwargs):
         is_lower_better = self.is_lower_better if is_lower_better is None else is_lower_better
         vmin = vmin or self.vmin or self.min_value
         vmax = vmax or self.vmax or self.max_value
@@ -93,6 +93,8 @@ class MetricMap:
         res = self._plot_map(ax, is_lower_better=is_lower_better, cmap=cmap, norm=norm, **kwargs)
         ax.set_title(**{"label": self.plot_title, **title})
         ax.ticklabel_format(style="plain", useOffset=False)
+        if keep_aspect:
+            ax.set_aspect("equal", adjustable="box")
         add_colorbar(ax, res, colorbar, y_ticker=y_ticker)
         set_ticks(ax, "x", self.coords_cols[0], self.x_tick_labels, **x_ticker)
         set_ticks(ax, "y", self.coords_cols[1], self.y_tick_labels, **y_ticker)
