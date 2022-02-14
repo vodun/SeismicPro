@@ -41,7 +41,7 @@ setup(
         'multiprocess>=0.70.11',
         'requests>=2.24',
         'psutil>=5.7.2',
-        'batchflow @ git+https://github.com/analysiscenter/batchflow.git@cd56b9e#egg=batchflow',
+        'batchflow @ git+https://github.com/analysiscenter/batchflow.git@997f2a7#egg=batchflow',
     ],
     classifiers=[
         'Development Status :: 4 - Beta',
@@ -49,8 +49,6 @@ setup(
         'Intended Audience :: Science/Research',
         'License :: OSI Approved :: Apache Software License',
         'Operating System :: OS Independent',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
         'Topic :: Scientific/Engineering',
