@@ -4,7 +4,7 @@ from functools import partial
 
 import pandas as pd
 
-from .interactive_plot import ScatterMapPlot, BinarizedMapPlot, ScatterPipelineMapPlot, BinarizedPipelineMapPlot
+from .interactive_plot import ScatterMapPlot, BinarizedMapPlot
 from ...batchflow import Pipeline
 
 
@@ -13,8 +13,6 @@ class Metric:
     min_value = None
     max_value = None
     is_lower_better = None
-    interactive_scatter_map_class = ScatterMapPlot
-    interactive_binarized_map_class = BinarizedMapPlot
 
     @staticmethod
     def calc(*args, **kwargs):
@@ -29,6 +27,8 @@ class Metric:
 class PlottableMetric(Metric):
     vmin = None
     vmax = None
+    interactive_scatter_map_class = ScatterMapPlot
+    interactive_binarized_map_class = BinarizedMapPlot
 
     def plot_on_click(self, coords, ax, x_ticker, y_ticker, **kwargs):
         raise NotImplementedError
@@ -36,8 +36,6 @@ class PlottableMetric(Metric):
 
 class PipelineMetric(PlottableMetric):
     args_to_unpack = "all"
-    interactive_scatter_map_class = ScatterPipelineMapPlot
-    interactive_binarized_map_class = BinarizedPipelineMapPlot
 
     def __init__(self, pipeline, calculate_metric_index, coords_cols, coords_to_indices, **kwargs):
         super().__init__(**kwargs)

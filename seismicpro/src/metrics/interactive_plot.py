@@ -104,13 +104,18 @@ class MapBinPlot(InteractivePlot):
 
 class MetricMapPlot(PairedPlot):
     def __init__(self, metric_map, plot_on_click, title=None, x_ticker=None, y_ticker=None, is_lower_better=None,
-                 *args, figsize=(4.5, 4.5), fontsize=8, **kwargs):
+                 *args, figsize=(4.5, 4.5), fontsize=8, right_plot_kwargs=None, **kwargs):
         (x_ticker, y_ticker), kwargs = set_text_formatting(x_ticker, y_ticker, fontsize=fontsize, **kwargs)
+        if right_plot_kwargs is None:
+            right_plot_kwargs = {}
+        right_plot_kwargs["x_ticker"] = {**x_ticker, **right_plot_kwargs.get("x_ticker", {})}
+        right_plot_kwargs["y_ticker"] = {**y_ticker, **right_plot_kwargs.get("y_ticker", {})}
+
         self.metric_map = metric_map
-        self.title = metric_map.plot_title if title is None else title
         self.figsize = figsize
-        self.plot_on_click = partial(plot_on_click, x_ticker=x_ticker, y_ticker=y_ticker)
+        self.title = metric_map.plot_title if title is None else title
         self.plot_map = partial(metric_map.plot, "", x_ticker, y_ticker, is_lower_better, *args, **kwargs)
+        self.plot_on_click = partial(plot_on_click, **right_plot_kwargs)
         self.init_click_coords = metric_map.get_worst_coords(is_lower_better)
         super().__init__()
 
@@ -151,19 +156,3 @@ class BinarizedMapPlot(MetricMapPlot):
             return None
         self.right.update_state(0, contents)
         return bin_coords
-
-
-class PipelineMapMixin:
-    def __init__(self, metric_map, plot_on_click, *args, batch_src="index", pipeline=None, plot_component=None,
-                 **kwargs):
-        plot_on_click = partial(metric_map.metric.plot_on_click, batch_src=batch_src, pipeline=pipeline,
-                                plot_component=plot_component)
-        super().__init__(metric_map, plot_on_click, *args, **kwargs)
-
-
-class ScatterPipelineMapPlot(PipelineMapMixin, ScatterMapPlot):
-    pass
-
-
-class BinarizedPipelineMapPlot(PipelineMapMixin, BinarizedMapPlot):
-    pass
