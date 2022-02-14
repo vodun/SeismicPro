@@ -1307,20 +1307,20 @@ class Gather:
         """ docs """
         fs = 1000 / self.sample_rate
         if low is not None and high is not None:
-            fir = scipy.signal.firwin(n, [low, high], window=window, fs=fs, pass_zero='bandpass', **kwargs)
+            kernel = scipy.signal.firwin(n, [low, high], window=window, fs=fs, pass_zero='bandpass', **kwargs)
         elif low is not None:
-            fir = scipy.signal.firwib(n, low, window=window, fs=fs, pass_zero='highpass', **kwargs)
+            kernel = scipy.signal.firwin(n, low, window=window, fs=fs, pass_zero='highpass', **kwargs)
         elif high is not None:
-            fir = scipy.signal.firwin(n, high, window=window, fs=fs, pass_zero='lowpass', **kwargs)
+            kernel = scipy.signal.firwin(n, high, window=window, fs=fs, pass_zero='lowpass', **kwargs)
         else:
             raise ValueError('At least one of low and high must be provided')
 
-        self.data = cv2.filter2D(self.data, ddepth=-1, kernel=fir.reshape(1, -1))
+        self.data = cv2.filter2D(self.data, ddepth=-1, kernel=kernel.reshape(1, -1))
         return self
 
     @batch_method(target="f")
     def resample(self, new_sample_rate, kind=3, anti_aliasing=True):
-        """ if type(kind) == int, perform piecewise polynomial interpolation with polynomial degree = mode
+        """ if type(kind) == int, perform piecewise polynomial interpolation with polynomial degree = kind
             if type(kind) == str, deligate interpolation to scipy.interpolate.intep1d.  
         """
         current_sample_rate = self.sample_rate
@@ -1328,16 +1328,16 @@ class Gather:
         # in case new sample rate becomes more, i.e. performing downsample, 
         # anti-aliasing filter is applied to preserve signal frequencies 
         if new_sample_rate > current_sample_rate and anti_aliasing:
-            nyq = 1000 / (2 * new_sample_rate)
+            nyquist_frequency = 1000 / (2 * new_sample_rate)
 
             # estimate parameters for filter
-            n = int(10000 / (nyq * current_sample_rate))
-            freq_cutoff = 0.8
+            n = int(10000 / (nyquist_frequency * current_sample_rate))
+            cutoff_ratio = 0.8
 
             # perform filerting
-            self.bandpass(n, high=freq_cutoff * nyq)
+            self.bandpass(n, high=cutoff_ratio * nyquist_frequency)
 
-        new_samples = np.arange(self.samples[0], self.samples[-1] + 1e-6, new_sample_rate, np.float32)
+        new_samples = np.arange(self.samples[0], self.samples[-1] + 1e-6, new_sample_rate, self.samples.dtype)
 
         if isinstance(kind, int):
             # for given n, n + 1 points is required to construct polynomial, find the index of leftmsot one

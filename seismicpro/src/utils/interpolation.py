@@ -76,11 +76,12 @@ def binomial(n, r):
 
 
 @njit(nogil=True, fastmath=True)
-def calculate_lagrange_polynomials(n, new_samples, old_samples, indices):
+def calculate_lagrange_polynomials(n, new_samples, old_samples, leftmost_indices):
     L = np.empty((len(new_samples), n + 1))
+    binomials = [binomial(n, k) for k in range(n+1)]
 
     sample_rate = old_samples[1] - old_samples[0]
-    for i, (ix, it) in enumerate(zip(indices, new_samples)):
+    for i, (ix, it) in enumerate(zip(leftmost_indices, new_samples)):
         y = (it - old_samples[ix]) / sample_rate
 
         common_multiplier = y
@@ -91,20 +92,20 @@ def calculate_lagrange_polynomials(n, new_samples, old_samples, indices):
             if y == k:
                 L[i, k] = 1
             else:
-                L[i, k] = common_multiplier * binomial(n, k) * (-1) ** (n - k)  / (y - k)
+                L[i, k] = common_multiplier * binomials[k] * (-1) ** (n - k)  / (y - k)
     return L
 
 
 @njit(nogil=True, parallel=True, fastmath=True)
-def piecewise_polynomial(n, new_samples, old_samples, indices, data):
+def piecewise_polynomial(n, new_samples, old_samples, leftmost_indices, data):
     """" docs """
     res = np.empty((len(data), len(new_samples)), dtype=data.dtype)
 
     # calculate Lagrange polynomials only once: they are the same at given position for all the traces
-    L = calculate_lagrange_polynomials(n, new_samples, old_samples, indices)
+    L = calculate_lagrange_polynomials(n, new_samples, old_samples, leftmost_indices)
 
     for j in prange(len(data)):  # pylint: disable=not-an-iterable
-        for i, ix in enumerate(indices):
+        for i, ix in enumerate(leftmost_indices):
             # interpolate at given point: multiply Lagrange polynomials and correspondoing function values and sum
             res[j, i] = np.sum(L[i] * data[j, ix: ix + n + 1])
     return res
