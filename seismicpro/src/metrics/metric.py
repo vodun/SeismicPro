@@ -1,4 +1,7 @@
+import warnings
 from inspect import signature
+
+import pandas as pd
 
 from .interactive_plot import ScatterMapPlot, BinarizedMapPlot, ScatterPipelineMapPlot, BinarizedPipelineMapPlot
 from ...batchflow import Pipeline
@@ -38,11 +41,9 @@ class PipelineMetric(PlottableMetric):
     def __init__(self, pipeline, calculate_metric_index, coords_cols, coords_to_indices, **kwargs):
         super().__init__(**kwargs)
         self.dataset = pipeline.dataset
-        self.coords_cols = coords_cols
+        self.coords_dataset = self.dataset.copy().reindex(coords_cols)
 
-        if not isinstance(coords_to_indices, dict) or any(len(indices) > 1 for indices in coords_to_indices.values()):
-            # TODO: duplicated indices or coords_to_indices is None, decide what to do
-            raise ValueError
+        self.coords_cols = coords_cols
         self.coords_to_indices = coords_to_indices
 
         # Slice the pipeline in which the metric was calculated up to its calculate_metric call
@@ -61,12 +62,22 @@ class PipelineMetric(PlottableMetric):
         return metric
 
     def gen_batch(self, coords, batch_src):
+        if batch_src not in {"index", "coords"}:
+            raise ValueError("Unknown source to get the batch from. Available options are 'index' and 'coords'.")
         if batch_src == "index":
-            return self.dataset.create_subset(self.coords_to_indices[coords]).next_batch(1, shuffle=False)
-        if batch_src == "coords":
-            # TODO: get the gather corresponding to the coords from the reindexed dataset
-            raise ValueError
-        raise ValueError("Unknown source to get the batch from")
+            subset = self.dataset.create_subset(self.coords_to_indices[coords])
+        else:
+            indices = []
+            for concat_id in range(self.coords_dataset.index.next_concat_id):
+                index_candidate = (concat_id,) + coords
+                if index_candidate in self.coords_dataset.index.index_to_headers_pos:
+                    indices.append(index_candidate)
+            subset = self.coords_dataset.create_subset(pd.MultiIndex.from_tuples(indices))
+
+        if len(subset) > 1:
+            # TODO: try moving to MapBinPlot in this case
+            warnings.warn("Multiple gathers exist for given coordinates, only the first one is shown", RuntimeWarning)
+        return subset.next_batch(1, shuffle=False)
 
     @staticmethod
     def plot_component(batch, plot_component, ax, x_ticker, y_ticker, **kwargs):
@@ -89,10 +100,19 @@ class PipelineMetric(PlottableMetric):
 
     def plot_on_click(self, coords, ax, x_ticker, y_ticker, batch_src="index", pipeline=None, plot_component=None,
                       **kwargs):
+        # Generate a batch by given coordinated and source
         batch = self.gen_batch(coords, batch_src)
+
+        # Execute passed pipeline for the batch
+        default_pipelines = {
+            "index": self.plot_pipeline,
+            "coords": Pipeline().load(src=plot_component)
+        }
         if pipeline is None:
-            pipeline = self.plot_pipeline
+            pipeline = default_pipelines[batch_src]
         batch = pipeline.execute_for(batch)
+
+        # Plot either passed component or args used for metric calculation
         if plot_component is not None:
             self.plot_component(batch, plot_component, ax, x_ticker, y_ticker, **kwargs)
         else:
