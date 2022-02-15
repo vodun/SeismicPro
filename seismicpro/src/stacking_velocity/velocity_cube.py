@@ -10,8 +10,7 @@ from tqdm.contrib.concurrent import thread_map
 from scipy.spatial.qhull import Delaunay, QhullError  #pylint: disable=no-name-in-module
 from sklearn.neighbors import NearestNeighbors
 
-from .velocity_metrics import StackingVelocityMetric, VELOCITY_QC_METRICS
-from ..metrics import MetricMap
+from .velocity_metrics import VELOCITY_QC_METRICS, StackingVelocityMetric, SVMetricMap
 from ..utils import to_list, read_vfunc, read_single_vfunc, dump_vfunc
 from ..utils.interpolation import interp1d
 
@@ -660,10 +659,10 @@ class VelocityCube:
             window = velocities[window_indices]
             return [metric.calc(times, window if metric.is_window_metric else window[0]) for metric in metrics]
 
-        metrics = [metric(times, velocities, coords_neighbors) for metric in metrics]
+        metrics = [metric(times, velocities, coords_neighbors, self) for metric in metrics]
         results = thread_map(calc_metrics, windows_indices, max_workers=n_workers,
                              desc="Coordinates processed", disable=not bar)
-        metrics_maps = [MetricMap(coords, metric_values, coords_cols=["INLINE_3D", "CROSSLINE_3D"], metric=metric)
+        metrics_maps = [SVMetricMap(coords, metric_values, coords_cols=["INLINE_3D", "CROSSLINE_3D"], metric=metric)
                         for metric, metric_values in zip(metrics, zip(*results))]
         if is_single_metric:
             return metrics_maps[0]

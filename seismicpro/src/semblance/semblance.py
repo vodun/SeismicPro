@@ -304,8 +304,8 @@ class Semblance(BaseSemblance):
         return semblance
 
     @plotter(figsize=(10, 9), args_to_unpack="stacking_velocity")
-    def plot(self, stacking_velocity=None, title="Semblance", x_ticker=None, y_ticker=None, grid=False, colorbar=True,
-             ax=None, **kwargs):
+    def plot(self, stacking_velocity=None, *, title="Semblance", x_ticker=None, y_ticker=None, grid=False,
+             colorbar=True, ax=None, **kwargs):
         """Plot vertical velocity semblance.
 
         Parameters
@@ -573,7 +573,7 @@ class ResidualSemblance(BaseSemblance):
         return residual_semblance
 
     @plotter(figsize=(10, 9))
-    def plot(self, title="Residual semblance", x_ticker=None, y_ticker=None, grid=False, colorbar=True, ax=None,
+    def plot(self, *, title="Residual semblance", x_ticker=None, y_ticker=None, grid=False, colorbar=True, ax=None,
              **kwargs):
         """Plot residual vertical velocity semblance. The plot always has a vertical line in the middle, representing
         the stacking velocity it was calculated for.

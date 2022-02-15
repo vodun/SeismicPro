@@ -1047,7 +1047,7 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @plotter(figsize=(10, 7))
-    def plot(self, mode="seismogram", title=None, x_ticker=None, y_ticker=None, ax=None, **kwargs):
+    def plot(self, mode="seismogram", *, title=None, x_ticker=None, y_ticker=None, ax=None, **kwargs):
         """Plot gather traces.
 
         The traces can be displayed in a number of representations, depending on the `mode` provided. Currently, the

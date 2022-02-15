@@ -1,3 +1,5 @@
+from functools import partial
+
 import numpy as np
 import pandas as pd
 from matplotlib import colors as mcolors
@@ -9,15 +11,18 @@ from ..decorators import plotter
 from ..utils import add_colorbar, set_ticks, set_text_formatting
 
 
-class MetricMap:
-    def __new__(self, coords, metric_values, *, coords_cols=None, metric=None, metric_name=None, agg=None,
-                bin_size=None):
+class BaseMetricMap:
+    def __new__(cls, coords, metric_values, *, coords_cols=None, metric=None, metric_name=None, agg=None,
+                bin_size=None, scatter_map_class=None, binarized_map_class=None):
         _ = coords, metric_values, coords_cols, metric, metric_name, agg
-        metric_cls = ScatterMap if bin_size is None else BinarizedMap
+        metric_cls = scatter_map_class if bin_size is None else binarized_map_class
         return super().__new__(metric_cls)
 
     def __init__(self, coords, metric_values, *, coords_cols=None, metric=None, metric_name=None, agg=None,
-                 bin_size=None):
+                 bin_size=None, scatter_map_class=None, binarized_map_class=None):
+        self.scatter_map_class = scatter_map_class
+        self.binarized_map_class = binarized_map_class
+
         if metric is None:
             metric = Metric
         if not is_metric(metric):
@@ -67,7 +72,7 @@ class MetricMap:
         return None
 
     @plotter(figsize=(10, 7))
-    def _plot(self, title=None, x_ticker=None, y_ticker=None, is_lower_better=None, vmin=None, vmax=None, cmap=None,
+    def _plot(self, *, title=None, x_ticker=None, y_ticker=None, is_lower_better=None, vmin=None, vmax=None, cmap=None,
               colorbar=True, center_colorbar=True, threshold_quantile=0.95, keep_aspect=False, ax=None, **kwargs):
         is_lower_better = self.is_lower_better if is_lower_better is None else is_lower_better
         vmin = vmin or self.vmin or self.min_value
@@ -99,9 +104,9 @@ class MetricMap:
         set_ticks(ax, "x", self.coords_cols[0], self.x_tick_labels, **x_ticker)
         set_ticks(ax, "y", self.coords_cols[1], self.y_tick_labels, **y_ticker)
 
-    def plot(self, *args, interactive=False, plot_on_click=None, **kwargs):
+    def plot(self, *, interactive=False, plot_on_click=None, **kwargs):
         if not interactive:
-            return self._plot(*args, **kwargs)
+            return self._plot(**kwargs)
 
         # Instantiate the metric if it hasn't been done yet
         if isinstance(self.metric, (type, PartialMetric)):
@@ -110,18 +115,20 @@ class MetricMap:
             raise ValueError("plot_on_click must be passed if not defined in the metric class")
         if plot_on_click is None:
             plot_on_click = self.plot_on_click
-        return self.interactive_map_class(self, plot_on_click, *args, **kwargs).plot()
+        return self.interactive_map_class(self, plot_on_click, **kwargs).plot()
 
     def aggregate(self, agg=None, bin_size=None):
-        return MetricMap(self.metric_data[self.coords_cols], self.metric_data[self.metric_name],
-                         coords_cols=self.coords_cols, metric=self.metric, agg=agg, bin_size=bin_size)
+        metric_cls = self.scatter_map_class if bin_size is None else self.binarized_map_class
+        return metric_cls(self.metric_data[self.coords_cols], self.metric_data[self.metric_name], metric=self.metric,
+                          agg=agg, bin_size=bin_size, scatter_map_class=self.scatter_map_class,
+                          binarized_map_class=self.binarized_map_class)
 
 
-class ScatterMap(MetricMap):
+class ScatterMap(BaseMetricMap):
     def __init__(self, coords, metric_values, *, coords_cols=None, metric=None, metric_name=None, agg=None,
-                 bin_size=None):
+                 bin_size=None, **kwargs):
         super().__init__(coords, metric_values, coords_cols=coords_cols, metric=metric, metric_name=metric_name,
-                         agg=agg, bin_size=bin_size)
+                         agg=agg, bin_size=bin_size, **kwargs)
         exploded = self.metric_data.explode(self.metric_name)
         self.map_data = exploded.groupby(self.coords_cols).agg(self.agg)[self.metric_name]
 
@@ -136,7 +143,12 @@ class ScatterMap(MetricMap):
             global_agg = self.map_data.agg(self.agg)
             key = lambda col: (col - global_agg).abs()
         map_data = self.map_data.sort_values(ascending=is_lower_better, key=key)
-        return ax.scatter(*map_data.index.to_frame().values.T, c=map_data, **kwargs)
+        coords_x, coords_y = map_data.index.to_frame().values.T
+        x_margin = 0.05 * coords_x.ptp()
+        y_margin = 0.05 * coords_y.ptp()
+        ax.set_xlim(coords_x.min() - x_margin, coords_x.max() + x_margin)
+        ax.set_ylim(coords_y.min() - y_margin, coords_y.max() + y_margin)
+        return ax.scatter(coords_x, coords_y, c=map_data, **kwargs)
 
     def get_worst_coords(self, is_lower_better=None):
         is_lower_better = self.is_lower_better if is_lower_better is None else is_lower_better
@@ -149,11 +161,11 @@ class ScatterMap(MetricMap):
         return self.map_data.index[data.argmax()]
 
 
-class BinarizedMap(MetricMap):
+class BinarizedMap(BaseMetricMap):
     def __init__(self, coords, metric_values, *, coords_cols=None, metric=None, metric_name=None, agg=None,
-                 bin_size=None):
+                 bin_size=None, **kwargs):
         super().__init__(coords, metric_values, coords_cols=coords_cols, metric=metric, metric_name=metric_name,
-                         agg=agg, bin_size=bin_size)
+                         agg=agg, bin_size=bin_size, **kwargs)
         metric_data = self.metric_data.copy(deep=False)
 
         # Binarize map coordinates
@@ -210,6 +222,9 @@ class BinarizedMap(MetricMap):
 
     def get_bin_contents(self, coords):
         if coords not in self.bin_to_coords.groups:
-            return
+            return None
         contents = self.bin_to_coords.get_group(coords).set_index(self.coords_cols)[self.metric_name]
         return contents.sort_values(ascending=not self.is_lower_better)
+
+
+MetricMap = partial(BaseMetricMap, scatter_map_class=ScatterMap, binarized_map_class=BinarizedMap)
