@@ -21,7 +21,7 @@ jobs:
       run: pip3 install -U pylint
 
     - name: Check pylint
-      run: pylint -rn --persistent=n --rcfile pylintrc seismicpro
+      run: pylint -rn --rcfile pylintrc seismicpro
 
     - name: Run tests
       run: pytest -m "not slow" --disable-pytest-warnings -v seismicpro/src/tests

@@ -10,10 +10,13 @@ from seismicpro import Survey, make_prestack_segy
 
 
 @pytest.fixture(scope='module',
-                params=[dict(origin=(0,0), n_samples=1500),
-                        dict(origin=(100,100), n_samples=100),
-                        dict(origin=(-100,-100), n_samples=1000)])
-def create_segy(request):
+                params=[dict(survey_area=(500,500), activation_dist=(500,500), bin_size=(50,50), samples=1500,
+                             sources_step=(300,50), recievers_step=(100,25)),
+                        dict(survey_area=(1200,1200), activation_dist=(300,300), bin_size=(30,30), samples=100,
+                             sources_step=(200,50), recievers_step=(100,25)),
+                        dict(survey_area=(100,100), activation_dist=(100,100), bin_size=(100,100), samples=1000,
+                             sources_step=(300,50), recievers_step=(200,50))])
+def segy_path(request):
     """ Fixture that creates segy file """
     folder = 'test_tmp'
 
@@ -25,15 +28,12 @@ def create_segy(request):
         shutil.rmtree(folder)
 
     request.addfinalizer(fin)
-    return path, request.param['origin'], request.param['n_samples']
+    return path
 
 @pytest.mark.parametrize('header_index',
                          ('FieldRecord', ['INLINE_3D', 'CROSSLINE_3D'], ['GroupX', 'GroupY'], ['SourceX', 'SourceY']))
-def test_generated_segy_loading(create_segy, header_index):
-    segy_path, origin, n_samples = create_segy
+def test_generated_segy_loading(segy_path, header_index):
     s = Survey(segy_path, header_index=header_index, header_cols=['FieldRecord', 'TraceNumber', 'SourceX', 'SourceY',
                                                                   'GroupX', 'GroupY', 'offset', 'CDP_X', 'CDP_Y',
                                                                   'INLINE_3D', 'CROSSLINE_3D'])
     assert s.sample_gather()
-    assert s.samples_length == n_samples
-    assert s.headers.reset_index().GroupX.min() == origin[0]
