@@ -35,7 +35,7 @@ def parse_coords(coords, coords_cols=None):
     return coords, coords_cols
 
 
-def parse_metric_values(metric_values, metric_name, metric_type):
+def parse_metric_values(metric_values, metric_name=None, metric_type=None):
     err_msg = "Metric values must be a 1-dimensional array-like."
     if isinstance(metric_values, pd.DataFrame):
         columns = metric_values.columns
@@ -52,5 +52,5 @@ def parse_metric_values(metric_values, metric_name, metric_type):
 
     if metric_values.ndim != 1:
         raise ValueError(err_msg)
-    metric_name = metric_name or data_metric_name or metric_type.name or "metric"
+    metric_name = metric_name or data_metric_name or getattr(metric_type, "name", "metric")
     return metric_values, metric_name

@@ -2,9 +2,11 @@ import warnings
 from inspect import signature
 from functools import partial
 
+import numpy as np
 import pandas as pd
 
 from .interactive_plot import ScatterMapPlot, BinarizedMapPlot
+from ..utils import to_list
 from ...batchflow import Pipeline
 
 
@@ -60,6 +62,35 @@ class PipelineMetric(PlottableMetric):
     def calc(metric):
         return metric
 
+    @staticmethod
+    def plot(*args, ax, **kwargs):
+        raise NotImplementedError("Specify plot_component argument since plot method is not overridden")
+
+    @staticmethod
+    def plot_component(batch, plot_component, ax, **kwargs):
+        item = getattr(batch, plot_component)[0]
+        item.plot(ax=ax, **kwargs)
+
+    def plot_on_click(self, coords, ax, batch_src="index", pipeline=None, plot_component=None, **kwargs):
+        # Generate a batch by given coordinated and source
+        batch = self.gen_batch(coords, batch_src)
+
+        # Execute passed pipeline for the batch
+        default_pipelines = {
+            "index": self.plot_pipeline,
+            "coords": Pipeline().load(src=plot_component)
+        }
+        if pipeline is None:
+            pipeline = default_pipelines[batch_src]
+        batch = pipeline.execute_for(batch)
+
+        # Plot either passed component or args used for metric calculation
+        if plot_component is not None:
+            self.plot_component(batch, plot_component, ax, **kwargs)
+        else:
+            coords_args, coords_kwargs = self.eval_calc_args(batch)
+            self.plot(*coords_args, ax=ax, **coords_kwargs, **kwargs)
+
     def gen_batch(self, coords, batch_src):
         if batch_src not in {"index", "coords"}:
             raise ValueError("Unknown source to get the batch from. Available options are 'index' and 'coords'.")
@@ -81,45 +112,52 @@ class PipelineMetric(PlottableMetric):
             warnings.warn("Multiple gathers exist for given coordinates, only the first one is shown", RuntimeWarning)
         return subset.next_batch(1, shuffle=False)
 
-    @staticmethod
-    def plot_component(batch, plot_component, ax, x_ticker, y_ticker, **kwargs):
-        item = getattr(batch, plot_component)[0]
-        item.plot(ax=ax, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
+    @classmethod
+    def unpack_calc_args(cls, batch, *args, **kwargs):
+        sign = signature(cls.calc)
+        bound_args = sign.bind(*args, **kwargs)
 
-    def get_calc_args(self, batch):
+        # Determine metric.calc arguments to unpack
+        if cls.args_to_unpack is None:
+            args_to_unpack = set()
+        elif cls.args_to_unpack == "all":
+            args_to_unpack = {name for name, param in sign.parameters.items()
+                                   if param.kind not in {param.VAR_POSITIONAL, param.VAR_KEYWORD}}
+        else:
+            args_to_unpack = set(to_list(cls.args_to_unpack))
+
+        # Convert the value of each argument to an array-like matching the length of the batch
+        packed_args = {}
+        for arg, val in bound_args.arguments.items():
+            if arg in args_to_unpack:
+                if isinstance(val, str):
+                    packed_args[arg] = getattr(batch, val)
+                elif isinstance(val, (tuple, list, np.ndarray)) and len(val) == len(batch):
+                    packed_args[arg] = val
+                else:
+                    packed_args[arg] = [val] * len(batch)
+            else:
+                packed_args[arg] = [val] * len(batch)
+
+        # Extract the values of the first calc argument to use them as a default source for coordinates calculation
+        first_arg = packed_args[list(sign.parameters.keys())[0]]
+
+        # Convert packed args to a list of calc args and kwargs for each of the batch items
+        unpacked_args = []
+        for values in zip(*packed_args.values()):
+            bound_args.arguments = dict(zip(packed_args.keys(), values))
+            unpacked_args.append((bound_args.args, bound_args.kwargs))
+        return unpacked_args, first_arg
+
+    def eval_calc_args(self, batch):
         # Get params passed to Metric.calc with possible named expressions and evaluate them
         sign = signature(batch.calculate_metric)
         bound_args = sign.bind(*self.calculate_metric_args, **self.calculate_metric_kwargs)
         bound_args.apply_defaults()
         calc_args = self.plot_pipeline._eval_expr(bound_args.arguments["args"], batch=batch)
         calc_kwargs = self.plot_pipeline._eval_expr(bound_args.arguments["kwargs"], batch=batch)
-        args, _ = batch._unpack_metric_args(self, *calc_args, **calc_kwargs)
+        args, _ = self.unpack_calc_args(batch, *calc_args, **calc_kwargs)
         return args[0]
-
-    @staticmethod
-    def plot(*args, ax, x_ticker, y_ticker, **kwargs):
-        raise NotImplementedError("Specify plot_component argument since plot method is not overridden")
-
-    def plot_on_click(self, coords, ax, x_ticker, y_ticker, batch_src="index", pipeline=None, plot_component=None,
-                      **kwargs):
-        # Generate a batch by given coordinated and source
-        batch = self.gen_batch(coords, batch_src)
-
-        # Execute passed pipeline for the batch
-        default_pipelines = {
-            "index": self.plot_pipeline,
-            "coords": Pipeline().load(src=plot_component)
-        }
-        if pipeline is None:
-            pipeline = default_pipelines[batch_src]
-        batch = pipeline.execute_for(batch)
-
-        # Plot either passed component or args used for metric calculation
-        if plot_component is not None:
-            self.plot_component(batch, plot_component, ax, x_ticker, y_ticker, **kwargs)
-        else:
-            coords_args, coords_kwargs = self.get_calc_args(batch)
-            self.plot(*coords_args, ax=ax, x_ticker=x_ticker, y_ticker=y_ticker, **coords_kwargs, **kwargs)
 
 
 class PartialMetric:

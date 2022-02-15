@@ -2,7 +2,6 @@
 
 from string import Formatter
 from functools import partial
-from inspect import signature
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -407,47 +406,11 @@ class SeismicBatch(Batch):
             metric_name = metric_name or metric.name
         return metric, metric_name
 
-    def _unpack_metric_args(self, metric, *args, **kwargs):
-        sign = signature(metric.calc)
-        bound_args = sign.bind(*args, **kwargs)
-
-        # Determine the metric.calc arguments to unpack
-        if metric.args_to_unpack is None:
-            args_to_unpack = set()
-        elif metric.args_to_unpack == "all":
-            args_to_unpack = {name for name, param in sign.parameters.items()
-                                   if param.kind not in {param.VAR_POSITIONAL, param.VAR_KEYWORD}}
-        else:
-            args_to_unpack = set(to_list(metric.args_to_unpack))
-
-        # Convert the value of each argument to an array-like matching the length of the batch
-        packed_args = {}
-        for arg, val in bound_args.arguments.items():
-            if arg in args_to_unpack:
-                if isinstance(val, str):
-                    packed_args[arg] = getattr(self, val)
-                elif isinstance(val, (tuple, list, np.ndarray)) and len(val) == len(self):
-                    packed_args[arg] = val
-                else:
-                    packed_args[arg] = [val] * len(self)
-            else:
-                packed_args[arg] = [val] * len(self)
-
-        # Extract the values of the first calc argument to use them as a default source for coordinates calculation
-        first_arg = packed_args[list(sign.parameters.keys())[0]]
-
-        # Convert packed args to a list of calc args and kwargs for each of the batch items
-        unpacked_args = []
-        for values in zip(*packed_args.values()):
-            bound_args.arguments = dict(zip(packed_args.keys(), values))
-            unpacked_args.append((bound_args.args, bound_args.kwargs))
-        return unpacked_args, first_arg
-
     @action(no_eval="save_to")
     def calculate_metric(self, metric, *args, metric_name=None, coords_component=None, coords_cols="auto",
                          save_to=None, **kwargs):
         metric, metric_name = self._define_metric(metric, metric_name)
-        unpacked_args, first_arg = self._unpack_metric_args(metric, *args, **kwargs)
+        unpacked_args, first_arg = metric.unpack_calc_args(self, *args, **kwargs)
 
         coords_items = first_arg if coords_component is None else getattr(self, coords_component)
         coords = [item.get_coords(coords_cols) for item in coords_items]
