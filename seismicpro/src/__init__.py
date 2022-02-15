@@ -9,5 +9,5 @@ from .cropped_gather import CroppedGather
 from .semblance import Semblance, ResidualSemblance
 from .stacking_velocity import StackingVelocity, VelocityCube
 from .muting import Muter
-from .metrics import Metric, MetricMap, MetricAccumulator
+from .metrics import Metric, MetricMap, MetricsAccumulator
 from .utils import aggregate_segys, make_prestack_segy

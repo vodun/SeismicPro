@@ -9,53 +9,17 @@ In order for a function to be available in the :func:`~velocity_cube.VelocityCub
 appended to a `VELOCITY_QC_METRICS` list.
 """
 
-from functools import partial
-
 import numpy as np
 from numba import njit
-from matplotlib import patches
 
-from ..metrics import PlottableMetric, MetricMap, ScatterMap, BinarizedMap, ScatterMapPlot
+from .qc_maps import StackingVelocityScatterMapPlot
+from ..metrics import PlottableMetric
 from ..utils import set_ticks
-
-
-class SVScatterMap(ScatterMap):
-    def _plot_map(self, ax, *args, plot_tri=False, **kwargs):
-        if plot_tri:
-            coords_x, coords_y = self.velocity_cube.interpolator.coords.T
-            simplices = self.velocity_cube.interpolator.tri.simplices
-            ax.triplot(coords_x, coords_y, simplices, color="black", linewidth=0.3)
-        return super()._plot_map(ax, *args, **kwargs)
-
-
-class SVBinarizedMap(BinarizedMap):
-    def _plot_map(self, ax, *args, plot_tri=False, **kwargs):
-        _ = plot_tri
-        return super()._plot_map(ax, *args, **kwargs)
-
-
-SVMetricMap = partial(MetricMap, scatter_map_class=SVScatterMap, binarized_map_class=SVBinarizedMap)
-
-
-class SVScatterMapPlot(ScatterMapPlot):
-    def __init__(self, *args, plot_window=False, **kwargs):
-        self.plot_window = plot_window
-        self.window = None
-        super().__init__(*args, **kwargs)
-
-    def click(self, coords):
-        coords = super().click(coords)
-        if self.window is not None:
-            self.window.remove()
-        if self.metric_map.is_window_metric and self.plot_window:
-            self.window = patches.Circle(coords, self.metric_map.nearest_neighbors.radius, color="blue", alpha=0.3)
-            self.left.ax.add_patch(self.window)
-        return coords
 
 
 class StackingVelocityMetric(PlottableMetric):
     is_window_metric = True
-    interactive_scatter_map_class = SVScatterMapPlot
+    interactive_scatter_map_class = StackingVelocityScatterMapPlot
 
     def __init__(self, times, velocities, nearest_neighbors, velocity_cube):
         self.times = times
