@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 from matplotlib import colors as mcolors
 
-from .metric import is_metric, Metric, PlottableMetric, PartialMetric
-from .interactive_plot import ScatterMapPlot, BinarizedMapPlot
+from .metric import Metric, PlottableMetric, PartialMetric
+from .interactive_map import ScatterMapPlot, BinarizedMapPlot
 from .utils import parse_coords, parse_metric_values
 from ..decorators import plotter
 from ..utils import add_colorbar, set_ticks, set_text_formatting
@@ -25,7 +25,8 @@ class BaseMetricMap:
 
         if metric is None:
             metric = Metric
-        if not is_metric(metric):
+        if not (isinstance(metric, (Metric, PartialMetric)) or
+                isinstance(metric, type) and issubclass(metric, Metric)):
             raise ValueError("metric must be either of a Metric type or a subclass of Metric")
 
         coords, coords_cols = parse_coords(coords, coords_cols)
@@ -81,7 +82,7 @@ class BaseMetricMap:
         if is_lower_better is None and center_colorbar:
             global_agg = self.metric_data[self.metric_name].agg(self.agg)
             threshold = (self.metric_data[self.metric_name] - global_agg).abs().quantile(threshold_quantile)
-            norm = mcolors.CenteredNorm(self.metric_data[self.metric_name].agg(self.agg), threshold)
+            norm = mcolors.CenteredNorm(global_agg, threshold)
         else:
             norm = mcolors.Normalize(vmin, vmax)
 
@@ -95,12 +96,12 @@ class BaseMetricMap:
                 cmap = mcolors.LinearSegmentedColormap.from_list("cmap", colors)
 
         (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
-        res = self._plot_map(ax, is_lower_better=is_lower_better, cmap=cmap, norm=norm, **kwargs)
+        map_obj = self._plot_map(ax, is_lower_better=is_lower_better, cmap=cmap, norm=norm, **kwargs)
         ax.set_title(**{"label": self.plot_title, **title})
         ax.ticklabel_format(style="plain", useOffset=False)
         if keep_aspect:
             ax.set_aspect("equal", adjustable="box")
-        add_colorbar(ax, res, colorbar, y_ticker=y_ticker)
+        add_colorbar(ax, map_obj, colorbar, y_ticker=y_ticker)
         set_ticks(ax, "x", self.coords_cols[0], self.x_tick_labels, **x_ticker)
         set_ticks(ax, "y", self.coords_cols[1], self.y_tick_labels, **y_ticker)
 
@@ -120,15 +121,13 @@ class BaseMetricMap:
     def aggregate(self, agg=None, bin_size=None):
         metric_cls = self.scatter_map_class if bin_size is None else self.binarized_map_class
         return metric_cls(self.metric_data[self.coords_cols], self.metric_data[self.metric_name], metric=self.metric,
-                          agg=agg, bin_size=bin_size, scatter_map_class=self.scatter_map_class,
-                          binarized_map_class=self.binarized_map_class)
+                          scatter_map_class=self.scatter_map_class, binarized_map_class=self.binarized_map_class,
+                          agg=agg, bin_size=bin_size)
 
 
 class ScatterMap(BaseMetricMap):
-    def __init__(self, coords, metric_values, *, coords_cols=None, metric=None, metric_name=None, agg=None,
-                 bin_size=None, **kwargs):
-        super().__init__(coords, metric_values, coords_cols=coords_cols, metric=metric, metric_name=metric_name,
-                         agg=agg, bin_size=bin_size, **kwargs)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         exploded = self.metric_data.explode(self.metric_name)
         self.map_data = exploded.groupby(self.coords_cols).agg(self.agg)[self.metric_name]
 
@@ -137,12 +136,13 @@ class ScatterMap(BaseMetricMap):
         return getattr(self, "interactive_scatter_map_class", ScatterMapPlot)
 
     def _plot_map(self, ax, is_lower_better, **kwargs):
-        key = None
+        sort_key = None
         if is_lower_better is None:
             is_lower_better = True
             global_agg = self.map_data.agg(self.agg)
-            key = lambda col: (col - global_agg).abs()
-        map_data = self.map_data.sort_values(ascending=is_lower_better, key=key)
+            sort_key = lambda col: (col - global_agg).abs()
+        # Guarantee that extreme values are always displayed on top of the others
+        map_data = self.map_data.sort_values(ascending=is_lower_better, key=sort_key)
         coords_x, coords_y = map_data.index.to_frame().values.T
         x_margin = 0.05 * coords_x.ptp()
         y_margin = 0.05 * coords_y.ptp()
@@ -162,10 +162,9 @@ class ScatterMap(BaseMetricMap):
 
 
 class BinarizedMap(BaseMetricMap):
-    def __init__(self, coords, metric_values, *, coords_cols=None, metric=None, metric_name=None, agg=None,
-                 bin_size=None, **kwargs):
-        super().__init__(coords, metric_values, coords_cols=coords_cols, metric=metric, metric_name=metric_name,
-                         agg=agg, bin_size=bin_size, **kwargs)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Perform a shallow copy of the metric data since new colums are going to be appended
         metric_data = self.metric_data.copy(deep=False)
 
         # Binarize map coordinates
@@ -210,7 +209,7 @@ class BinarizedMap(BaseMetricMap):
         kwargs = {"interpolation": "none", "origin": "lower", "aspect": "auto", **kwargs}
         return ax.imshow(self.map_data.T, **kwargs)
 
-    def get_worst_coords(self, is_lower_better):
+    def get_worst_coords(self, is_lower_better=None):
         is_lower_better = self.is_lower_better if is_lower_better is None else is_lower_better
         if is_lower_better is None:
             data = np.abs(self.map_data - self.metric_data[self.metric_name].agg(self.agg))

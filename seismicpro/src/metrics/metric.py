@@ -5,7 +5,7 @@ from functools import partial
 import numpy as np
 import pandas as pd
 
-from .interactive_plot import ScatterMapPlot, BinarizedMapPlot
+from .interactive_map import ScatterMapPlot, BinarizedMapPlot
 from ..utils import to_list
 from ...batchflow import Pipeline
 
@@ -20,8 +20,7 @@ class Metric:
     def calc(*args, **kwargs):
         raise NotImplementedError
 
-    def __init__(self, *args, **kwargs):
-        _ = args
+    def __init__(self, **kwargs):
         for key, val in kwargs.items():
             setattr(self, key, val)
 
@@ -32,7 +31,7 @@ class PlottableMetric(Metric):
     interactive_scatter_map_class = ScatterMapPlot
     interactive_binarized_map_class = BinarizedMapPlot
 
-    def plot_on_click(self, coords, ax, x_ticker, y_ticker, **kwargs):
+    def plot_on_click(self, coords, ax, **kwargs):
         raise NotImplementedError
 
 
@@ -117,7 +116,7 @@ class PipelineMetric(PlottableMetric):
         sign = signature(cls.calc)
         bound_args = sign.bind(*args, **kwargs)
 
-        # Determine metric.calc arguments to unpack
+        # Determine Metric.calc arguments to unpack
         if cls.args_to_unpack is None:
             args_to_unpack = set()
         elif cls.args_to_unpack == "all":
@@ -142,7 +141,7 @@ class PipelineMetric(PlottableMetric):
         # Extract the values of the first calc argument to use them as a default source for coordinates calculation
         first_arg = packed_args[list(sign.parameters.keys())[0]]
 
-        # Convert packed args to a list of calc args and kwargs for each of the batch items
+        # Convert packed args dict to a list of calc args and kwargs for each of the batch items
         unpacked_args = []
         for values in zip(*packed_args.values()):
             bound_args.arguments = dict(zip(packed_args.keys(), values))
@@ -173,10 +172,6 @@ class PartialMetric:
 
     def __call__(self, *args, **kwargs):
         return self.metric(*args, **kwargs)
-
-
-def is_metric(obj):
-    return isinstance(obj, (Metric, PartialMetric)) or isinstance(obj, type) and issubclass(obj, Metric)
 
 
 def define_metric(cls_name="MetricPlaceholder", base_cls=Metric, **kwargs):

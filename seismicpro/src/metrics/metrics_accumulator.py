@@ -11,7 +11,7 @@ from ..utils import to_list
 from ...batchflow.models.metrics import Metrics
 
 
-class MetricAccumulator(Metrics):
+class MetricsAccumulator(Metrics):
     def __init__(self, coords, *, coords_cols=None, indices=None, **kwargs):
         super().__init__()
         coords, coords_cols = parse_coords(coords, coords_cols)
@@ -45,7 +45,7 @@ class MetricAccumulator(Metrics):
         """Append coordinates and metric values to the global container."""
         # TODO: allow for accumulation of different metrics
         if (set(self.coords_cols) != set(other.coords_cols)) or (set(self.metrics_names) != set(other.metrics_names)):
-            raise ValueError("Only MetricAccumulator with the same coordinates columns and metrics can be appended")
+            raise ValueError("Only MetricsAccumulator with the same coordinates columns and metrics can be appended")
         if ((self.stores_indices != self.stores_indices) or
             (self.metrics_list[0].index.names != other.metrics_list[0].index.names)):
             raise ValueError("Both accumulators must store the same types of indices")

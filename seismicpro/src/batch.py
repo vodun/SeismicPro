@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from .gather import Gather
 from .cropped_gather import CroppedGather
 from .semblance import Semblance, ResidualSemblance
-from .metrics import define_metric, PipelineMetric, MetricAccumulator
+from .metrics import define_metric, PipelineMetric, MetricsAccumulator
 from .decorators import create_batch_methods, apply_to_each_component
 from .utils import to_list, as_dict, save_figure, make_origins
 from ..batchflow import action, inbatch_parallel, save_data_to, Batch, DatasetIndex, NamedExpression
@@ -420,7 +420,7 @@ class SeismicBatch(Batch):
             "pipeline": self.pipeline,
             "calculate_metric_index": self._calculated_metrics,
         }
-        accumulator = MetricAccumulator(coords, indices=self.indices, **{metric_name: metric_params})
+        accumulator = MetricsAccumulator(coords, indices=self.indices, **{metric_name: metric_params})
 
         if save_to is not None:
             save_data_to(data=accumulator, dst=save_to, batch=self)
