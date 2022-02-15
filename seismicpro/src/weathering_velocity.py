@@ -3,16 +3,17 @@
 import warnings
 
 import numpy as np
-from sklearn.linear_model import SGDRegressor, HuberRegressor
+from sklearn.linear_model import SGDRegressor
 from scipy import optimize
 
 from .decorators import plotter
+from .utils import set_ticks
 
 
 class WeatheringVelocity:
     """ A class calculate and store parameters of a weathering and some subweathering layers based on gather's offsets
     and times of a first break picking.
-    
+
     `WeatheringVelocity` object use next parameters:
         `t0`: double travel time to the weathering layer's base
         `x1`: offsets where refracted wave from first subweathering layer comes at same time with reflected wave.
@@ -22,16 +23,18 @@ class WeatheringVelocity:
         `v{i}`: velocity of a i-th layer. Subweathering layers start with second number.
     All parameters stores in `params` attribute as dict with a stated above keys.
 
-    Class could be initialize with a `init`, `bounds`, `n_layers` or by mix of it.
-    `init` should be dict with an early discussed keys and estimate values and took as based params to futher calculation.
-    `bounds` should be dict with a same keys and lists with lower and upper bounds. Resulting parameters could not be out
-    of a bounds.
-    `n_layers` is proir information about total weathering and subwethering layers and could be usefull if you haven't
-    information about `init` or `bounds`.
-    
-    In case when you have partial information about `init` and `bounds` you could pass part of params in an `init` dict 
+    Class could be initialize with an `init`, `bounds`, `n_layers` or by mix of it.
+    `init` should be dict with an before discussed keys and estimate values and took as based params. Used for 
+    calculate bounds. Lower bounds is init / 2 and upper bounds is init * 2.
+    `bounds` should be dict with a same keys and lists with lower and upper bounds. Resulting parameters could not be
+    out of a bounds. If a some part of `init` is not defined a `bounds` used for calculate missing `init` values.
+    `n_layers` is number of total weathering and subwethering layers and could be usefull if you haven't information
+    about `init` or `bounds`. Used for calculate `init` and `bounds`.
+
+    In case when you have partial information about `init` and `bounds` you could pass part of params in an `init` dict
     and a remaininig part in a `bounds`. Be sure that you pass all needed keys.
 
+    All passed parameters have the greater priority than calculated parameters.
 
     Examples
     --------
@@ -55,11 +58,13 @@ class WeatheringVelocity:
         offsets of a traces
     picking_times : 1d ndarray
         picking times of a traces
-    init : dict
-        inital values for fitting a piecewise function. Used to calculate `bounds` and `n_layers` if these params not enough.
-    bounds : Dict[List]
-        left and right bounds for any parameter of a piecewise function. Used to calculate `init` and `n_layers` if these params not enough.
-    n_layers : int
+    init : dict, defaults to None
+        inital values for fitting a piecewise function. Used to calculate `bounds` and `n_layers` if these params
+        not enough.
+    bounds : Dict[List], defaults to None
+        left and right bounds for any parameter of a piecewise function. Used to calculate `init` and `n_layers`
+        if these params not enough.
+    n_layers : int, defualts to None
         prior quantity of a layers of a weathering model. Interpreting like a quantity piece of a piecewise funtion.
         Used for calculate `init` and `bounds` if these params not enough.
 
@@ -76,8 +81,7 @@ class WeatheringVelocity:
     bounds : Dict[List]
         left and right bounds used for fitting a piecewise function.
     n_layers : int
-        quantity piece of a fitted piecewise funtion.
-        # check naming with Dan
+        quantity piece of a fitted piecewise function.
     params : dict
         contains fitted values of a piecewise function.
     _n_iters : int
@@ -90,6 +94,7 @@ class WeatheringVelocity:
         if any `bounds` values is negative
         if left bound greater than right bound
         if passed `init` and/or `bounds` keys are insufficient or excess
+        if n
 
     """
 
@@ -117,19 +122,19 @@ class WeatheringVelocity:
         # Piecewise linear regression minimization
         constraints = {"type": "ineq", "fun": lambda x: (np.diff(x[1:self.n_layers]) >= 0).all(out=np.array(0))}
         minimizer_kwargs = {'method': 'SLSQP', 'constraints': constraints, **kwargs}
-        model_params = optimize.minimize(self.piecewise_linear, x0=self._stack_values(self.init),
+        model_params = optimize.minimize(self.loss_piecewise_linear, x0=self._stack_values(self.init),
                                          bounds=self._stack_values(self.bounds), **minimizer_kwargs)
         self._model_params = model_params
         self.params = dict(zip(self._get_valid_keys(), model_params.x))
 
     def __call__(self, offsets):
-        ''' return a predicted times using the fitted crossovers and velocities. '''
+        ''' Return a predicted times using the fitted crossovers and velocities. '''
         return np.interp(offsets, self._piecewise_offsets, self._piecewise_times)
 
     def __getattr__(self, key):
         return self.params[key]
 
-    def piecewise_linear(self, *args):
+    def loss_piecewise_linear(self, *args):
         '''
         args = [t0, *crossovers, *velocities]
         '''
@@ -140,10 +145,11 @@ class WeatheringVelocity:
             self._piecewise_times[i+1] = ((self._piecewise_offsets[i + 1] - self._piecewise_offsets[i]) /
                                            args[self.n_layers + i]) + self._piecewise_times[i]
         # TODO: add different loss function
-        return np.abs(np.interp(self.offsets, self._piecewise_offsets, self._piecewise_times) - 
+        return np.abs(np.interp(self.offsets, self._piecewise_offsets, self._piecewise_times) -
                      self.picking_times).mean()
 
     def _get_valid_keys(self, n_layers=None):
+        '''Return valid list with keys based on `n_layers` or `self.n_layers`.'''
         n_layers = self.n_layers if n_layers is None else n_layers
         return ['t0'] + [f'x{i+1}' for i in range(n_layers - 1)] + [f'v{i+1}' for i in range(n_layers)]
 
@@ -163,48 +169,42 @@ class WeatheringVelocity:
         if n_layers is None:
             return {}
 
-        # cross offsets makes equal interval
+        # default cross offsets makes by an equal intervals
         cross_offsets = np.linspace(0, self.max_offset, num=n_layers+1)
         times = np.empty(n_layers)
         slopes = np.empty(n_layers)
 
-        min_picking = self.picking_times.min()
-        start_slope = 2/3 # * (self.max_offset / max_picking)
-        start_time = self.picking_times.min() / min_picking # max_picking
-        # print('start: ', start_slope, start_time)
-        # print('slope norm: ', self.max_offset / min_picking)
+        min_picking = self.picking_times.min()  # normalization parameter
+        start_time = 1  # base time, same as minimum picking times with `min_picking` normalization
+        start_slope = 2/3  # base slope, corresponding velocity is 1,5 km/s ( v = 1 / slope )
         for i in range(n_layers):
             mask = (self.offsets > cross_offsets[i]) & (self.offsets <= cross_offsets[i + 1])
-            if mask.sum() > 1: # at least 2 point to fit
+            if mask.sum() > 1:  # at least 2 point to fit
                 slopes[i], times[i] = self._fit_regressor(self.offsets[mask].reshape(-1, 1) / min_picking,
                                                         self.picking_times[mask] / min_picking,
                                                         start_slope, start_time, fit_intercept=(i==0))
             else:
                 slopes[i], times[i] = start_slope, start_time
                 warnings.warn("Not enough first break points to fit a init params. Using a base estimation.")
-            # print('regr: ', slopes[i], times[i])
             start_slope = slopes[i] * (n_layers / (n_layers + 1))
             start_time = times[i] + (slopes[i] - start_slope) * (cross_offsets[i + 1] / min_picking)
-            # print('new start: ', start_slope, start_time)
-        velocities = 1 / (slopes) # * (max_picking / self.max_offset))
+        velocities = 1 / slopes
 
         init = np.hstack((times[0] * min_picking, cross_offsets[1:-1], velocities))
-        # init = np.hstack((times[0] * max_picking, cross_offsets[1:-1], velocities))
         init = dict(zip(self._get_valid_keys(n_layers), init))
-        # print(init)
         return init
 
     def _calc_init_by_bounds(self, bounds):
-        ''' docstring '''
+        '''Return dict with a calculated init from a bounds dict.'''
         return {key: val1 + (val2 - val1) / 3 for key, (val1, val2) in bounds.items()}
 
     def _calc_bounds_by_init(self, init):
-        ''' calc bounds based on init or calc init based on bounds '''
+        '''Return dict with a calcualated bounds from a init dict.'''
         # t0 bounds could be too narrow
         return {key: [val / 2, val * 2] for key, val in init.items()}
 
     def _check_values(self, init, bounds):
-        '''Checking values of input dicts'''
+        '''Checking values of an input dicts'''
         negative_init = {key: val for key, val in init.items() if val < 0}
         if negative_init:
             raise ValueError(f"Init parameters {list(negative_init.keys())} contain ",
@@ -231,15 +231,15 @@ class WeatheringVelocity:
             raise ValueError(f"Excessive parameters to fit a weathering velocity curve. Remove {excessive_keys}.")
 
     @plotter(figsize=(10, 5))
-    def plot(self, ax, title=None, show_params=True, threshold_times=None):
-        ''' Plot input data and fitted curve.
+    def plot(self, ax, title=None, show_params=True, threshold_time=None):
+        ''' Plot input data, fitted curve, crossoffset and some additional information.
 
         Parameters
         ----------
-        show_params : bool, optional, defaults to False
-            show a weathering velocity parameters on a plot.
+        show_params : bool, optional, defaults to True
+            shows a t0, cross offsets and velocities on a plot.
         threshold_times : int or float, optional. Defaults to None.
-            gap for plotting two outlines. If None additional plot doesn't show.
+            gap for plotting two outlines. If None additional outlines doesn't show.
 
         Returns
         -------
@@ -248,10 +248,13 @@ class WeatheringVelocity:
 
         '''
         # TODO: add ticks and ticklabels and labels
+        set_ticks(ax, 'x', axis_label='x', tick_labels=['offset, m'])
+        set_ticks(ax, 'y', axis_label='y', tick_labels=['time, ms'])
+
         ax.scatter(self.offsets, self.picking_times, s=1, color='black', label='fbp points')
         ax.plot(self._piecewise_offsets, self._piecewise_times, '-', color='red', label='fitted linear function')
         for i in range(self.n_layers-1):
-            ax.axvline(self._piecewise_offsets[i+1], 0, self.picking_times.max(), ls='--', c='blue', 
+            ax.axvline(self._piecewise_offsets[i+1], 0, self.picking_times.max(), ls='--', c='blue',
                        label='crossover point')
         if show_params:
             params = [self.params[key] for key in self._get_valid_keys()]
@@ -262,9 +265,9 @@ class WeatheringVelocity:
 
             ax.text(0.03, .94, title, fontsize=15, va='top', transform=ax.transAxes)
 
-        if threshold_times is not None:
-            ax.plot(self._piecewise_offsets, self._piecewise_times + threshold_times, '--', color='red', 
-                    label=f'+/- {threshold_times}ms window')
-            ax.plot(self._piecewise_offsets, self._piecewise_times - threshold_times, '--', color='red')
+        if threshold_time is not None:
+            ax.plot(self._piecewise_offsets, self._piecewise_times + threshold_time, '--', color='red',
+                    label=f'+/- {threshold_time}ms window')
+            ax.plot(self._piecewise_offsets, self._piecewise_times - threshold_time, '--', color='red')
         ax.legend(loc='lower right')
         return self

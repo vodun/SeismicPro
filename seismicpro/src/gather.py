@@ -718,9 +718,9 @@ class Gather:
                                   n_layers=n_layers, init=init, bounds=bounds, **kwargs)
 
     @batch_method(target='for', args_to_unpack='weathering_velocity')
-    def calculate_weathering_metrics(self, weathering_velocity, first_breaks_col='FirstBreak', threshold_times=50):
+    def calculate_weathering_metrics(self, weathering_velocity, first_breaks_col='FirstBreak', threshold_time=50):
         ''' TODO: docstring '''
-        metric = np.mean(np.abs(weathering_velocity(self.offsets) - self[first_breaks_col].ravel()) > threshold_times)
+        metric = np.mean(np.abs(weathering_velocity(self.offsets) - self[first_breaks_col].ravel()) > threshold_time)
         return metric
 
     #------------------------------------------------------------------------#
