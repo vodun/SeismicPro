@@ -8,7 +8,7 @@ from matplotlib import colors as mcolors
 from .decorators import batch_method, plotter
 from .velocity_model import calculate_stacking_velocity
 from .velocity_cube import StackingVelocity
-from .utils import set_ticks, as_dict
+from .utils import as_dict, set_ticks, set_text_formatting
 from .utils.correction import get_hodograph
 
 
@@ -161,6 +161,9 @@ class BaseSemblance:
         kwargs : misc, optional
             Additional common keyword arguments for `x_ticker` and `y_tickers`.
         """
+        # Cast text-related parameters to dicts and add text formatting parameters from kwargs to each of them
+        (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
+
         # Split the range of semblance amplitudes into 16 levels on a log scale,
         # that will further be used as colormap bins
         max_val = np.max(semblance)
@@ -184,10 +187,8 @@ class BaseSemblance:
         if grid:
             ax.grid(c='k')
 
-        x_ticker = kwargs if x_ticker is None else {**kwargs, **x_ticker}
-        y_ticker = kwargs if y_ticker is None else {**kwargs, **y_ticker}
         set_ticks(ax, "x", x_label, x_ticklabels, **x_ticker)
-        set_ticks(ax, "y", "Time (ms)", y_ticklabels, **y_ticker)
+        set_ticks(ax, "y", "Time", y_ticklabels, **y_ticker)
 
 
 class Semblance(BaseSemblance):
