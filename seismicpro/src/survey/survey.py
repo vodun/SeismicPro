@@ -13,11 +13,11 @@ from tqdm.auto import tqdm
 from scipy.interpolate import interp1d
 
 from .metrics import SurveyAttribute
+from .plot_geometry import SurveyGeometryPlot
 from ..gather import Gather
 from ..metrics import MetricMap, PartialMetric
 from ..utils import to_list, maybe_copy, get_columns, calculate_stats, create_supergather_index
 from ..const import HDR_DEAD_TRACE, HDR_FIRST_BREAK
-from .plot_geometry import SurveyGeometryPlot
 
 
 class Survey:  # pylint: disable=too-many-instance-attributes
