@@ -80,6 +80,10 @@ class BaseSemblance:
     def coords(self):
         return self.get_coords()
 
+    def get_time_velocity(self, time_ix, velocity_ix):
+        _ = time_ix, velocity_ix
+        raise NotImplementedError
+
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def calc_single_velocity_semblance(nmo_func, gather_data, times, offsets, velocity, sample_rate, win_size,
@@ -133,9 +137,9 @@ class BaseSemblance:
         return semblance_slice
 
     @staticmethod
-    def plot(semblance, title=None, x_label=None, x_ticklabels=None,  # pylint: disable=too-many-arguments
-             x_ticker=None, y_ticklabels=None, y_ticker=None, grid=False, stacking_times_ix=None,
-             stacking_velocities_ix=None, colorbar=True, ax=None, **kwargs):
+    def _plot(semblance, title=None, x_label=None, x_ticklabels=None,  # pylint: disable=too-many-arguments
+              x_ticker=None, y_ticklabels=None, y_ticker=None, grid=False, stacking_times_ix=None,
+              stacking_velocities_ix=None, colorbar=True, ax=None, **kwargs):
         """Plot vertical velocity semblance and, optionally, stacking velocity.
 
         Parameters
@@ -192,6 +196,12 @@ class BaseSemblance:
 
         set_ticks(ax, "x", x_label, x_ticklabels, **x_ticker)
         set_ticks(ax, "y", "Time", y_ticklabels, **y_ticker)
+
+    def plot(self, *args, interactive=False, **kwargs):
+        kwargs = {"title": self.name, **kwargs}
+        if not interactive:
+            return self._plot(*args, **kwargs)
+        return SemblancePlot(self, *args, **kwargs).plot()
 
 
 class Semblance(BaseSemblance):
@@ -269,12 +279,27 @@ class Semblance(BaseSemblance):
     """
     def __init__(self, gather, velocities, win_size=25):
         super().__init__(gather, win_size=win_size)
+        self.name = "Semblance"
         self.velocities = velocities  # m/s
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
         self.semblance = self._calc_semblance_numba(semblance_func=self.calc_single_velocity_semblance,
                                                     nmo_func=get_hodograph, gather_data=self.gather_data,
                                                     times=self.times, offsets=self.offsets, velocities=velocities_ms,
                                                     sample_rate=self.sample_rate, win_size=self.win_size)
+
+    def get_time_velocity(self, time_ix, velocity_ix):
+        if (time_ix < 0) or (time_ix >= len(self.times)):
+            time = None
+        else:
+            time = np.interp(time_ix, np.arange(len(self.times)), self.times)
+
+        if (velocity_ix < 0) or (velocity_ix >= len(self.velocities)):
+            velocity = None
+        else:
+            velocity = np.interp(velocity_ix, np.arange(len(self.velocities)), self.velocities)
+            velocity /= 1000  # from m/s to m/ms
+
+        return time, velocity
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
@@ -304,8 +329,8 @@ class Semblance(BaseSemblance):
         return semblance
 
     @plotter(figsize=(10, 9), args_to_unpack="stacking_velocity")
-    def plot(self, stacking_velocity=None, *, title="Semblance", x_ticker=None, y_ticker=None, grid=False,
-             colorbar=True, ax=None, **kwargs):
+    def _plot(self, stacking_velocity=None, *, title="Semblance", x_ticker=None, y_ticker=None, grid=False,
+              colorbar=True, ax=None, **kwargs):
         """Plot vertical velocity semblance.
 
         Parameters
@@ -340,14 +365,11 @@ class Semblance(BaseSemblance):
             stacking_velocities_ix = ((stacking_velocities - self.velocities[0]) /
                                       (self.velocities[-1] - self.velocities[0]) * self.semblance.shape[1])
 
-        super().plot(self.semblance, title=title, x_label="Velocity (m/s)", x_ticklabels=self.velocities,
-                     x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax, grid=grid,
-                     stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
-                     colorbar=colorbar, **kwargs)
+        super()._plot(self.semblance, title=title, x_label="Velocity (m/s)", x_ticklabels=self.velocities,
+                      x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax, grid=grid,
+                      stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
+                      colorbar=colorbar, **kwargs)
         return self
-
-    def plot_interactive(self, stacking_velocity=None, title="Semblance", x_ticker=None, y_ticker=None, **kwargs):
-        SemblancePlot(self, stacking_velocity, title, x_ticker, y_ticker, **kwargs).plot()
 
     @batch_method(target="for", args_to_unpack="other")
     def calculate_signal_leakage(self, other):
@@ -489,6 +511,7 @@ class ResidualSemblance(BaseSemblance):
     """
     def __init__(self, gather, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2):
         super().__init__(gather, win_size)
+        self.name = "Residual semblance"
         self.stacking_velocity = stacking_velocity
         self.relative_margin = relative_margin
 
@@ -506,6 +529,17 @@ class ResidualSemblance(BaseSemblance):
                                                                  left_bound_ix=left_bound_ix,
                                                                  right_bound_ix=right_bound_ix,
                                                                  sample_rate=self.sample_rate, win_size=self.win_size)
+
+    def get_time_velocity(self, time_ix, velocity_ix):
+        if (time_ix < 0) or (time_ix >= len(self.times)):
+            return None, None
+        time = np.interp(time_ix, np.arange(len(self.times)), self.times)
+        center_velocity = self.stacking_velocity(time) / 1000  # from m/s to m/ms
+
+        if (velocity_ix < 0) or (velocity_ix >= self.residual_semblance.shape[1]):
+            return time, None
+        margin = self.relative_margin * (2 * velocity_ix / (self.residual_semblance.shape[1] - 1) - 1)
+        return time, center_velocity * (1 + margin)
 
     def _calc_velocity_bounds(self):
         """Calculate velocity boundaries for each time within which residual semblance will be calculated.
@@ -573,8 +607,8 @@ class ResidualSemblance(BaseSemblance):
         return residual_semblance
 
     @plotter(figsize=(10, 9))
-    def plot(self, *, title="Residual semblance", x_ticker=None, y_ticker=None, grid=False, colorbar=True, ax=None,
-             **kwargs):
+    def _plot(self, *, title="Residual semblance", x_ticker=None, y_ticker=None, grid=False, colorbar=True, ax=None,
+              **kwargs):
         """Plot residual vertical velocity semblance. The plot always has a vertical line in the middle, representing
         the stacking velocity it was calculated for.
 
@@ -604,8 +638,8 @@ class ResidualSemblance(BaseSemblance):
         stacking_times_ix = stacking_times / self.sample_rate
         stacking_velocities_ix = np.full_like(stacking_times_ix, self.residual_semblance.shape[1] / 2)
 
-        super().plot(self.residual_semblance, title=title, x_label="Relative velocity margin (%)",
-                     x_ticklabels=x_ticklabels, x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax,
-                     grid=grid, stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
-                     colorbar=colorbar, **kwargs)
+        super()._plot(self.residual_semblance, title=title, x_label="Relative velocity margin (%)",
+                      x_ticklabels=x_ticklabels, x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax,
+                      grid=grid, stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
+                      colorbar=colorbar, **kwargs)
         return self
