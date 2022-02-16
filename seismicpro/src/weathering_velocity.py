@@ -24,17 +24,18 @@ class WeatheringVelocity:
     All parameters stores in `params` attribute as dict with a stated above keys.
 
     Class could be initialize with an `init`, `bounds`, `n_layers` or by mix of it.
-    `init` should be dict with an before discussed keys and estimate values and took as based params. Used for 
-    calculate bounds. Lower bounds is init / 2 and upper bounds is init * 2.
-    `bounds` should be dict with a same keys and lists with lower and upper bounds. Resulting parameters could not be
-    out of a bounds. If a some part of `init` is not defined a `bounds` used for calculate missing `init` values.
+    `init` should be dict with an before discussed keys and estimate values and took as based params. When bounds are
+    not defined (or anyone of bounds keys) init value used for calculate bounds. Lower bounds is init / 2 and upper 
+    bounds is init * 2.
+    `bounds` should be dict with a same keys and lists with lower and upper bounds. Fitted values could not be out of
+    a bounds. When init are not define (or anyone of init keys) missing `init` key's values.
     `n_layers` is number of total weathering and subwethering layers and could be usefull if you haven't information
     about `init` or `bounds`. Used for calculate `init` and `bounds`.
 
     In case when you have partial information about `init` and `bounds` you could pass part of params in an `init` dict
     and a remaininig part in a `bounds`. Be sure that you pass all needed keys.
 
-    All passed parameters have the greater priority than calculated parameters.
+    All passed parameters have a greater priority than any calculated parameters.
 
     Examples
     --------
@@ -99,7 +100,6 @@ class WeatheringVelocity:
     """
 
     def __init__(self, offsets, picking_times, n_layers=None, init=None, bounds=None, **kwargs):
-
         init = {} if init is None else init
         bounds = {} if bounds is None else bounds
 
@@ -113,6 +113,7 @@ class WeatheringVelocity:
         self.bounds = {**self._calc_bounds_by_init(self.init), **bounds}
         self._check_keys()
         self.n_layers = len(self.bounds) // 2
+        self.valid_keys = self._get_valid_keys()
 
         # piecewise func variables
         self._piecewise_times = np.empty(self.n_layers + 1)
@@ -125,7 +126,7 @@ class WeatheringVelocity:
         model_params = optimize.minimize(self.loss_piecewise_linear, x0=self._stack_values(self.init),
                                          bounds=self._stack_values(self.bounds), **minimizer_kwargs)
         self._model_params = model_params
-        self.params = dict(zip(self._get_valid_keys(), model_params.x))
+        self.params = dict(zip(self.valid_keys, model_params.x))
 
     def __call__(self, offsets):
         ''' Return a predicted times using the fitted crossovers and velocities. '''
@@ -155,12 +156,12 @@ class WeatheringVelocity:
 
     def _stack_values(self, params_dict): # reshuffle params
         ''' docstring '''
-        return np.stack([params_dict[key] for key in self._get_valid_keys()], axis=0)
+        return np.stack([params_dict[key] for key in self.valid_keys], axis=0)
 
     def _fit_regressor(self, x, y, start_slope, start_time, fit_intercept):
         ''' docstring '''
-        lin_reg = SGDRegressor(loss='huber', early_stopping=True, penalty=None, shuffle=True, epsilon=0.01,
-                               eta0=.03, alpha=0, tol=1e-5, fit_intercept=fit_intercept)
+        lin_reg = SGDRegressor(loss='huber', early_stopping=True, penalty=None, shuffle=True, epsilon=0.1,
+                               eta0=.05, alpha=0, tol=1e-4, fit_intercept=fit_intercept)
         lin_reg.fit(x, y, coef_init=start_slope, intercept_init=start_time)
         return lin_reg.coef_[0], lin_reg.intercept_
 
@@ -175,21 +176,20 @@ class WeatheringVelocity:
         slopes = np.empty(n_layers)
 
         min_picking = self.picking_times.min()  # normalization parameter
-        start_time = 1  # base time, same as minimum picking times with `min_picking` normalization
+        start_time = 1  # base time, equal to minimum picking times with `min_picking` normalization
         start_slope = 2/3  # base slope, corresponding velocity is 1,5 km/s ( v = 1 / slope )
         for i in range(n_layers):
             mask = (self.offsets > cross_offsets[i]) & (self.offsets <= cross_offsets[i + 1])
-            if mask.sum() > 1:  # at least 2 point to fit
+            if mask.sum() > 1:  # at least two point to fit
                 slopes[i], times[i] = self._fit_regressor(self.offsets[mask].reshape(-1, 1) / min_picking,
                                                         self.picking_times[mask] / min_picking,
                                                         start_slope, start_time, fit_intercept=(i==0))
             else:
                 slopes[i], times[i] = start_slope, start_time
                 warnings.warn("Not enough first break points to fit a init params. Using a base estimation.")
-            start_slope = slopes[i] * (n_layers / (n_layers + 1))
+            start_slope = slopes[i] * (n_layers / (n_layers + 1)) # raise base velocity for next layers (v = 1 / slope)
             start_time = times[i] + (slopes[i] - start_slope) * (cross_offsets[i + 1] / min_picking)
         velocities = 1 / slopes
-
         init = np.hstack((times[0] * min_picking, cross_offsets[1:-1], velocities))
         init = dict(zip(self._get_valid_keys(n_layers), init))
         return init
@@ -207,12 +207,10 @@ class WeatheringVelocity:
         '''Checking values of an input dicts'''
         negative_init = {key: val for key, val in init.items() if val < 0}
         if negative_init:
-            raise ValueError(f"Init parameters {list(negative_init.keys())} contain ",
-                             f"negative values {list(negative_init.values())}")
+            raise ValueError(f"Init parameters contain negative values {str(negative_init)[1:-1]}")
         negative_bounds = {key: val for key, val in bounds.items() if min(val) < 0}
         if negative_bounds:
-            raise ValueError(f"Bounds parameters {list(negative_bounds.keys())} contain ",
-                             f"negative values {list(negative_bounds.values())}")
+            raise ValueError(f"Bounds parameters contain negative values {str(negative_bounds)[1:-1]}")
         reversed_bounds = {key: [left, right] for key, [left, right] in bounds.items() if left > right}
         if reversed_bounds:
             raise ValueError(f"Left bound is greater than right bound for {list(reversed_bounds.keys())} key(s).")
@@ -231,25 +229,23 @@ class WeatheringVelocity:
             raise ValueError(f"Excessive parameters to fit a weathering velocity curve. Remove {excessive_keys}.")
 
     @plotter(figsize=(10, 5))
-    def plot(self, ax, title=None, show_params=True, threshold_time=None):
+    def plot(self, ax, title=None, show_params=True, threshold_time=None, x_label="offset, m", y_label="time, ms"):
         ''' Plot input data, fitted curve, crossoffset and some additional information.
 
         Parameters
         ----------
         show_params : bool, optional, defaults to True
             shows a t0, cross offsets and velocities on a plot.
-        threshold_times : int or float, optional. Defaults to None.
+        threshold_time : int or float, optional. Defaults to None.
             gap for plotting two outlines. If None additional outlines doesn't show.
 
         Returns
         -------
         self : WeatheringVelocity
             WeatheringVelocity without changes.
-
         '''
-        # TODO: add ticks and ticklabels and labels
-        set_ticks(ax, 'x', axis_label='x', tick_labels=['offset, m'])
-        set_ticks(ax, 'y', axis_label='y', tick_labels=['time, ms'])
+        ax.set_xlabel(x_label)
+        ax.set_ylabel(y_label)
 
         ax.scatter(self.offsets, self.picking_times, s=1, color='black', label='fbp points')
         ax.plot(self._piecewise_offsets, self._piecewise_times, '-', color='red', label='fitted linear function')
@@ -257,7 +253,7 @@ class WeatheringVelocity:
             ax.axvline(self._piecewise_offsets[i+1], 0, self.picking_times.max(), ls='--', c='blue',
                        label='crossover point')
         if show_params:
-            params = [self.params[key] for key in self._get_valid_keys()]
+            params = [self.params[key] for key in self.valid_keys]
             title = f"t0 : {params[0]:.2f} ms"
             if self.n_layers > 1:
                 title += '\ncrossover offsets : ' + ', '.join(f"{round(x)}" for x in params[1:self.n_layers]) + ' m'
