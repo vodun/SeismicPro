@@ -4,7 +4,7 @@ a particular metric visualization over a field map"""
 # pylint: disable=no-name-in-module, import-error
 import pandas as pd
 
-from .metric import Metric, PartialMetric
+from .metrics import Metric, PartialMetric
 from .metric_map import MetricMap
 from .utils import parse_coords
 from ..utils import to_list

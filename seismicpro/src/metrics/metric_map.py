@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from matplotlib import colors as mcolors
 
-from .metric import Metric, PlottableMetric, PartialMetric
+from .metrics import Metric, PlottableMetric, PartialMetric
 from .interactive_map import ScatterMapPlot, BinarizedMapPlot
 from .utils import parse_coords, parse_metric_values
 from ..decorators import plotter
@@ -74,15 +74,15 @@ class BaseMetricMap:
 
     @plotter(figsize=(10, 7))
     def _plot(self, *, title=None, x_ticker=None, y_ticker=None, is_lower_better=None, vmin=None, vmax=None, cmap=None,
-              colorbar=True, center_colorbar=True, threshold_quantile=0.95, keep_aspect=False, ax=None, **kwargs):
+              colorbar=True, center_colorbar=True, clip_threshold_quantile=0.95, keep_aspect=False, ax=None, **kwargs):
         is_lower_better = self.is_lower_better if is_lower_better is None else is_lower_better
         vmin = vmin or self.vmin or self.min_value
         vmax = vmax or self.vmax or self.max_value
 
         if is_lower_better is None and center_colorbar:
-            global_agg = self.metric_data[self.metric_name].agg(self.agg)
-            threshold = (self.metric_data[self.metric_name] - global_agg).abs().quantile(threshold_quantile)
-            norm = mcolors.CenteredNorm(global_agg, threshold)
+            global_mean = self.metric_data[self.metric_name].agg("mean")
+            clip_threshold = (self.metric_data[self.metric_name] - global_mean).abs().quantile(clip_threshold_quantile)
+            norm = mcolors.CenteredNorm(global_mean, clip_threshold)
         else:
             norm = mcolors.Normalize(vmin, vmax)
 

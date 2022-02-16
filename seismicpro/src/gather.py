@@ -17,8 +17,9 @@ from .semblance import Semblance, ResidualSemblance
 from .stacking_velocity import StackingVelocity, VelocityCube
 from .decorators import batch_method, plotter
 from .utils import normalization, correction
-from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins,
-                    set_ticks, set_subplot_ticks, set_text_formatting, add_colorbar, get_coords_cols)
+from .utils import (to_list, get_columns, validate_columns_exist, convert_times_to_mask, convert_mask_to_pick,
+                    times_to_indices, mute_gather, make_origins, set_ticks, set_subplot_ticks, set_text_formatting,
+                    add_colorbar, get_coords_cols)
 from .const import HDR_FIRST_BREAK
 
 
@@ -141,14 +142,7 @@ class Gather:
         # If key is str or array of str, treat it as names of headers columns
         keys_array = np.array(to_list(key))
         if keys_array.dtype.type == np.str_:
-            self.validate(required_header_cols=keys_array)
-            # Avoid using direct pandas indexing to speed up multiple headers selection from gathers with a small
-            # number of traces
-            headers = []
-            for col in keys_array:
-                header = self.headers[col] if col in self.headers.columns else self.headers.index.get_level_values(col)
-                headers.append(header.values)
-            return np.column_stack(headers)
+            return get_columns(self.headers, keys_array)
 
         # Perform traces and samples selection
         key = (key, ) if not isinstance(key, tuple) else key
@@ -236,15 +230,15 @@ class Gather:
         """Print gather metadata including information about its survey, headers and traces."""
         print(self)
 
-    def get_coords(self, coords_columns="auto"):
+    def get_coords(self, coords_cols="auto"):
         """Get spatial coordinates of the gather.
 
         Parameters
         ----------
-        coords_columns : None, "index" or 2 element array-like, defaults to "index"
+        coords_cols : None, "index" or 2 element array-like, defaults to "index"
             - If `None`, (`None`, `None`) tuple is returned.
             - If "index", unique index value is used to define gather coordinates
-            - If 2 element array-like, `coords_columns` define gather headers to get x and y coordinates from.
+            - If 2 element array-like, `coords_cols` define gather headers to get x and y coordinates from.
             In the last two cases index or column values are supposed to be unique for all traces in the gather.
 
         Returns
@@ -257,16 +251,16 @@ class Gather:
         ValueError
             If gather coordinates are non-unique or more than 2 columns were passed.
         """
-        if coords_columns is None:
+        if coords_cols is None:
             return namedtuple("Coordinates", ["X", "Y"])(None, None)
-        if coords_columns == "auto":
-            coords_columns = get_coords_cols(self.headers.index.names)
-        coords = np.unique(self[coords_columns], axis=0)
+        if coords_cols == "auto":
+            coords_cols = get_coords_cols(self.headers.index.names)
+        coords = np.unique(self[coords_cols], axis=0)
         if coords.shape[0] != 1:
             raise ValueError("Gather coordinates are non-unique")
         if coords.shape[1] != 2:
             raise ValueError(f"Gather position must be defined by exactly two coordinates, not {coords.shape[1]}")
-        return namedtuple("Coordinates", coords_columns)(*coords[0])
+        return namedtuple("Coordinates", coords_cols)(*coords[0])
 
     @property
     def coords(self):
@@ -299,19 +293,6 @@ class Gather:
         """An interface for `self.__getitem__` method."""
         return self[args if len(args) > 1 else args[0]]
 
-    def _validate_header_cols(self, required_header_cols):
-        """Check if the gather headers contain all columns from `required_header_cols`."""
-        header_cols = set(self.headers.columns) | set(self.headers.index.names)
-        missing_headers = set(to_list(required_header_cols)) - header_cols
-        if missing_headers:
-            err_msg = "The following headers must be preloaded: {}"
-            raise ValueError(err_msg.format(", ".join(missing_headers)))
-
-    def _validate_sorting(self, required_sorting):
-        """Check if the gather is sorted by `required_sorting` header."""
-        if self.sort_by != required_sorting:
-            raise ValueError(f"Gather should be sorted by {required_sorting} not {self.sort_by}")
-
     def validate(self, required_header_cols=None, required_sorting=None):
         """Perform the following checks for a gather:
             1. Its header contains all columns from `required_header_cols`,
@@ -335,9 +316,9 @@ class Gather:
             If any of checks above failed.
         """
         if required_header_cols is not None:
-            self._validate_header_cols(required_header_cols)
-        if required_sorting is not None:
-            self._validate_sorting(required_sorting)
+            validate_columns_exist(self.headers, required_header_cols)
+        if (required_sorting is not None) and (self.sort_by != required_sorting):
+            raise ValueError(f"Gather should be sorted by {required_sorting} not {self.sort_by}")
         return self
 
     #------------------------------------------------------------------------#
@@ -877,7 +858,7 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
-    def apply_nmo(self, stacking_velocity, coords_columns="auto"):
+    def apply_nmo(self, stacking_velocity, coords_cols="auto"):
         """Perform gather normal moveout correction using given stacking velocity.
 
         Notes
@@ -890,7 +871,7 @@ class Gather:
             Stacking velocities to perform NMO correction with. `StackingVelocity` instance is used directly. If
             `VelocityCube` instance is passed, a `StackingVelocity` corresponding to gather coordinates is fetched
             from it.
-        coords_columns : None, "index" or 2 element array-like, defaults to "index"
+        coords_cols : None, "index" or 2 element array-like, defaults to "index"
             Header columns to get spatial coordinates of the gather from to fetch `StackingVelocity` from
             `VelocityCube`. See :func:`~Gather.get_coords` for more details.
 
@@ -905,7 +886,7 @@ class Gather:
             If `stacking_velocity` is not a `StackingVelocity` or `VelocityCube` instance.
         """
         if isinstance(stacking_velocity, VelocityCube):
-            stacking_velocity = stacking_velocity(*self.get_coords(coords_columns), create_interpolator=False)
+            stacking_velocity = stacking_velocity(*self.get_coords(coords_cols), create_interpolator=False)
         if not isinstance(stacking_velocity, StackingVelocity):
             raise ValueError("Only VelocityCube or StackingVelocity instances can be passed as a stacking_velocity")
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms

@@ -12,8 +12,10 @@ import pandas as pd
 from tqdm.auto import tqdm
 from scipy.interpolate import interp1d
 
+from .metrics import SurveyAttribute
 from ..gather import Gather
-from ..utils import to_list, maybe_copy, calculate_stats, create_supergather_index
+from ..metrics import MetricMap, PartialMetric
+from ..utils import to_list, maybe_copy, get_columns, calculate_stats, create_supergather_index
 from ..const import HDR_DEAD_TRACE, HDR_FIRST_BREAK
 from .plot_geometry import SurveyGeometryPlot
 
@@ -194,6 +196,26 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     def dead_traces_marked(self):
         """bool: `mark_dead_traces` called."""
         return self.n_dead_traces is not None
+
+    def __getitem__(self, key):
+        keys_array = np.array(to_list(key))
+        if keys_array.dtype.type != np.str_:
+            raise ValueError("Passed keys must be either str or array-like of str")
+        return get_columns(self.headers, keys_array)
+
+    def __setitem__(self, key, value):
+        """Set given values to selected survey headers.
+
+        Parameters
+        ----------
+        key : str or list of str
+            Survey headers to set values for.
+        value : np.ndarray
+            Headers values to set.
+        """
+        key = to_list(key)
+        val = pd.DataFrame(value, columns=key, index=self.headers.index)
+        self.headers[key] = val
 
     def __del__(self):
         """Close SEG-Y file handler on survey destruction."""
@@ -898,3 +920,18 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
     def plot_geometry(self, *, sort_by=None, x_ticker=None, y_ticker=None, figsize=(4.5, 4.5), **kwargs):
         SurveyGeometryPlot(self, sort_by, x_ticker, y_ticker, figsize, **kwargs).plot()
+
+    def construct_attribute_map(self, attribute, by, agg=None, bin_size=None):
+        if by not in {"shot", "receiver", "midpoint"}:
+            raise ValueError(f"by must be one of 'shot', 'receiver' or 'midpoint' but {by} given.")
+        by_to_coords_cols = {
+            "shot": ["SourceX", "SourceY"],
+            "receiver": ["GroupX", "GroupY"],
+            "midpoint": ["CDP_X", "CDP_Y"],
+        }
+        coords_cols = by_to_coords_cols[by]
+        coords = self[coords_cols]
+        attribute_values = self[attribute].ravel()
+        metric = PartialMetric(SurveyAttribute, survey=self)
+        return MetricMap(coords, attribute_values, coords_cols=coords_cols, metric=metric, metric_name=attribute,
+                         agg=agg, bin_size=bin_size)

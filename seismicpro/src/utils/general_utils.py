@@ -60,6 +60,26 @@ def get_coords_cols(index_cols):
     return coords_cols
 
 
+def validate_columns_exist(df, columns):
+    """Check if the dataframe contains all columns from `columns_list`."""
+    df_cols = set(df.columns) | set(df.index.names)
+    missing_cols = set(to_list(columns)) - df_cols
+    if missing_cols:
+        err_msg = "The following headers must be preloaded: {}"
+        raise ValueError(err_msg.format(", ".join(missing_cols)))
+
+
+def get_columns(df, columns_list):
+    validate_columns_exist(df, columns_list)
+    # Avoid using direct pandas indexing to speed up multiple column selection from dataframes with a small
+    # number of rows
+    res = []
+    for col in columns_list:
+        col_values = df[col] if col in df.columns else df.index.get_level_values(col)
+        res.append(col_values.values)
+    return np.column_stack(res)
+
+
 @njit(nogil=True)
 def calculate_stats(trace):
     """Calculate min, max, sum and sum of squares of the trace amplitudes."""

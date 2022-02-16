@@ -55,17 +55,17 @@ class BaseSemblance:
         """np.ndarray of floats: The distance between source and receiver for each trace. Measured in meters."""
         return self.gather.offsets  # m
 
-    def get_coords(self, coords_columns="auto"):
+    def get_coords(self, coords_cols="auto"):
         """Get spatial coordinates of the semblance.
 
         The call is redirected to the underlying gather.
 
         Parameters
         ----------
-        coords_columns : None, "index" or 2 element array-like, defaults to "index"
+        coords_cols : None, "index" or 2 element array-like, defaults to "index"
             - If `None`, (`None`, `None`) tuple is returned.
             - If "index", unique underlying gather index value is used to define semblance coordinates.
-            - If 2 element array-like, `coords_columns` define gather headers to get x and y coordinates from.
+            - If 2 element array-like, `coords_cols` define gather headers to get x and y coordinates from.
             In the last two cases index or column values are supposed to be unique for all traces in the underlying
             gather.
 
@@ -74,7 +74,7 @@ class BaseSemblance:
         coords : tuple with 2 elements
             Semblance spatial coordinates.
         """
-        return self.gather.get_coords(coords_columns)
+        return self.gather.get_coords(coords_cols)
 
     @property
     def coords(self):
@@ -374,7 +374,7 @@ class Semblance(BaseSemblance):
 
     @batch_method(target="for", copy_src=False)
     def calculate_stacking_velocity(self, start_velocity_range=(1400, 1800), end_velocity_range=(2500, 5000),
-                                    max_acceleration=None, n_times=25, n_velocities=25, coords_columns="auto"):
+                                    max_acceleration=None, n_times=25, n_velocities=25, coords_cols="auto"):
         """Calculate stacking velocity by vertical velocity semblance.
 
         Notes
@@ -395,7 +395,7 @@ class Semblance(BaseSemblance):
             The number of evenly spaced points to split time range into to generate graph edges.
         n_velocities : int, defaults to 25
             The number of evenly spaced points to split velocity range into for each time to generate graph edges.
-        coords_columns : None, "index" or 2 element array-like, defaults to "index"
+        coords_cols : None, "index" or 2 element array-like, defaults to "index"
             Header columns of the underlying gather to get spatial coordinates of the semblance from. See
             :func:`~Semblance.get_coords` for more details.
 
@@ -409,7 +409,7 @@ class Semblance(BaseSemblance):
         ValueError
             If no stacking velocity was found for given parameters.
         """
-        inline, crossline = self.get_coords(coords_columns)
+        inline, crossline = self.get_coords(coords_cols)
         times, velocities, _ = calculate_stacking_velocity(self.semblance, self.times, self.velocities,
                                                            start_velocity_range, end_velocity_range, max_acceleration,
                                                            n_times, n_velocities)
