@@ -14,9 +14,10 @@ from scipy.interpolate import interp1d
 
 from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
+from .utils import calculate_stats, create_supergather_index
 from ..gather import Gather
 from ..metrics import MetricMap, PartialMetric
-from ..utils import to_list, maybe_copy, get_columns, calculate_stats, create_supergather_index
+from ..utils import to_list, maybe_copy, get_columns
 from ..const import HDR_DEAD_TRACE, HDR_FIRST_BREAK
 
 
