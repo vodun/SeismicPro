@@ -19,8 +19,8 @@ except ImportError:
 
 
 class SurveyGeometryPlot(PairedPlot):
-    def __init__(self, survey, sort_by=None, x_ticker=None, y_ticker=None, figsize=(4.5, 4.5), fontsize=8,
-                 gather_plot_kwargs=None, **kwargs):
+    def __init__(self, survey, sort_by=None, keep_aspect=False, x_ticker=None, y_ticker=None, figsize=(4.5, 4.5),
+                 fontsize=8, gather_plot_kwargs=None, **kwargs):
         (x_ticker, y_ticker), self.map_kwargs = set_text_formatting(x_ticker, y_ticker, fontsize=fontsize, **kwargs)
         if gather_plot_kwargs is None:
             gather_plot_kwargs = {}
@@ -42,8 +42,8 @@ class SurveyGeometryPlot(PairedPlot):
         # Calculate axes limits to fix them to avoid map plot shifting on view toggle
         x_lim = self._get_limits(self.source_x, self.group_x)
         y_lim = self._get_limits(self.source_y, self.group_y)
-        self.plot_map = partial(self._plot_map, x_lim=x_lim, y_lim=y_lim, x_ticker=x_ticker, y_ticker=y_ticker,
-                                **self.map_kwargs)
+        self.plot_map = partial(self._plot_map, keep_aspect=keep_aspect, x_lim=x_lim, y_lim=y_lim, x_ticker=x_ticker,
+                                y_ticker=y_ticker, **self.map_kwargs)
 
         self.is_shot_view = True
         self.affected_scatter = None
@@ -74,12 +74,14 @@ class SurveyGeometryPlot(PairedPlot):
         margin = 0.05 * (max_coord - min_coord)
         return [min_coord - margin, max_coord + margin]
 
-    def _plot_map(self, ax, x_lim, y_lim, x_ticker, y_ticker, **kwargs):
+    def _plot_map(self, ax, keep_aspect, x_lim, y_lim, x_ticker, y_ticker, **kwargs):
         self.left.set_title(self.map_title)
         ax.scatter(self.coord_x, self.coord_y, color=self.main_color, **kwargs)
         ax.set_xlim(*x_lim)
         ax.set_ylim(*y_lim)
         ax.ticklabel_format(style="plain", useOffset=False)
+        if keep_aspect:
+            ax.set_aspect("equal", adjustable="box")
         set_ticks(ax, "x", self.map_x_label, **x_ticker)
         set_ticks(ax, "y", self.map_y_label, **y_ticker)
 

@@ -919,8 +919,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     #                         Visualization methods                          #
     #------------------------------------------------------------------------#
 
-    def plot_geometry(self, *, sort_by=None, x_ticker=None, y_ticker=None, figsize=(4.5, 4.5), **kwargs):
-        SurveyGeometryPlot(self, sort_by, x_ticker, y_ticker, figsize, **kwargs).plot()
+    def plot_geometry(self, **kwargs):
+        SurveyGeometryPlot(self, **kwargs).plot()
 
     def construct_attribute_map(self, attribute, by, agg=None, bin_size=None):
         if by not in {"shot", "receiver", "midpoint"}:
