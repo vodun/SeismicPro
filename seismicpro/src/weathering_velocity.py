@@ -113,7 +113,7 @@ class WeatheringVelocity:
         self.bounds = {**self._calc_bounds_by_init(self.init), **bounds}
         self._check_keys()
         self.n_layers = len(self.bounds) // 2
-        self.valid_keys = self._get_valid_keys()
+        self._valid_keys = self._get_valid_keys()
 
         # piecewise func variables
         self._piecewise_times = np.empty(self.n_layers + 1)
@@ -126,7 +126,7 @@ class WeatheringVelocity:
         model_params = optimize.minimize(self.loss_piecewise_linear, x0=self._stack_values(self.init),
                                          bounds=self._stack_values(self.bounds), **minimizer_kwargs)
         self._model_params = model_params
-        self.params = dict(zip(self.valid_keys, model_params.x))
+        self.params = dict(zip(self._valid_keys, model_params.x))
 
     def __call__(self, offsets):
         ''' Return a predicted times using the fitted crossovers and velocities. '''
@@ -150,47 +150,50 @@ class WeatheringVelocity:
                      self.picking_times).mean()
 
     def _get_valid_keys(self, n_layers=None):
-        '''Return valid list with keys based on `n_layers` or `self.n_layers`.'''
+        '''Returns valid list with keys based on `n_layers` or `self.n_layers`.'''
         n_layers = self.n_layers if n_layers is None else n_layers
         return ['t0'] + [f'x{i+1}' for i in range(n_layers - 1)] + [f'v{i+1}' for i in range(n_layers)]
 
     def _stack_values(self, params_dict): # reshuffle params
-        ''' docstring '''
-        return np.stack([params_dict[key] for key in self.valid_keys], axis=0)
+        '''Returns values of the sorted input dict. Dict sorted by order stored in `_valid_keys` attribute.'''
+        return np.stack([params_dict[key] for key in self._valid_keys], axis=0)
 
     def _fit_regressor(self, x, y, start_slope, start_time, fit_intercept):
-        ''' docstring '''
+        '''Returns parameters of fitted linear regression. '''
         lin_reg = SGDRegressor(loss='huber', early_stopping=True, penalty=None, shuffle=True, epsilon=0.1,
                                eta0=.05, alpha=0, tol=1e-4, fit_intercept=fit_intercept)
         lin_reg.fit(x, y, coef_init=start_slope, intercept_init=start_time)
         return lin_reg.coef_[0], lin_reg.intercept_
 
     def _calc_init_by_layers(self, n_layers):
-        ''' n regressions '''
+        '''Calculate `init` dict by a given `n_layers`.
+        
+        Method split data on `n_layers` part by cross offset and fit one linear regression on each part.
+        '''
         if n_layers is None:
             return {}
 
-        # default cross offsets makes by an equal intervals
+        # split cross offsets on an equal intervals
         cross_offsets = np.linspace(0, self.max_offset, num=n_layers+1)
         times = np.empty(n_layers)
         slopes = np.empty(n_layers)
 
-        min_picking = self.picking_times.min()  # normalization parameter
+        min_picking_times = self.picking_times.min()  # normalization parameter. only the picking time are normalized
         start_time = 1  # base time, equal to minimum picking times with `min_picking` normalization
-        start_slope = 2/3  # base slope, corresponding velocity is 1,5 km/s ( v = 1 / slope )
+        start_slope = 2/3  # base slope, corresponding velocity is 1,5 km/s (v = 1 / slope)
         for i in range(n_layers):
             mask = (self.offsets > cross_offsets[i]) & (self.offsets <= cross_offsets[i + 1])
             if mask.sum() > 1:  # at least two point to fit
-                slopes[i], times[i] = self._fit_regressor(self.offsets[mask].reshape(-1, 1) / min_picking,
-                                                        self.picking_times[mask] / min_picking,
-                                                        start_slope, start_time, fit_intercept=(i==0))
+                slopes[i], times[i] = self._fit_regressor(self.offsets[mask].reshape(-1, 1) / min_picking_times,
+                                                          self.picking_times[mask] / min_picking_times,
+                                                          start_slope, start_time, fit_intercept=(i==0))
             else:
                 slopes[i], times[i] = start_slope, start_time
                 warnings.warn("Not enough first break points to fit a init params. Using a base estimation.")
             start_slope = slopes[i] * (n_layers / (n_layers + 1)) # raise base velocity for next layers (v = 1 / slope)
-            start_time = times[i] + (slopes[i] - start_slope) * (cross_offsets[i + 1] / min_picking)
+            start_time = times[i] + (slopes[i] - start_slope) * (cross_offsets[i + 1] / min_picking_times)
         velocities = 1 / slopes
-        init = np.hstack((times[0] * min_picking, cross_offsets[1:-1], velocities))
+        init = np.hstack((times[0] * min_picking_times, cross_offsets[1:-1], velocities))
         init = dict(zip(self._get_valid_keys(n_layers), init))
         return init
 
@@ -238,6 +241,10 @@ class WeatheringVelocity:
             shows a t0, cross offsets and velocities on a plot.
         threshold_time : int or float, optional. Defaults to None.
             gap for plotting two outlines. If None additional outlines doesn't show.
+        x_label : str, optional. Defaults to "offset, m".
+            label for `x` axis of a plot.
+        y_label : str, optional. Defaults to "time, ms".
+            label for `y` axis of a plot.
 
         Returns
         -------
@@ -253,7 +260,7 @@ class WeatheringVelocity:
             ax.axvline(self._piecewise_offsets[i+1], 0, self.picking_times.max(), ls='--', c='blue',
                        label='crossover point')
         if show_params:
-            params = [self.params[key] for key in self.valid_keys]
+            params = [self.params[key] for key in self._valid_keys]
             title = f"t0 : {params[0]:.2f} ms"
             if self.n_layers > 1:
                 title += '\ncrossover offsets : ' + ', '.join(f"{round(x)}" for x in params[1:self.n_layers]) + ' m'
