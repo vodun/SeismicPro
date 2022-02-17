@@ -11,29 +11,33 @@ from .utils import set_ticks
 
 
 class WeatheringVelocity:
-    """ A class calculate and store parameters of a weathering and some subweathering layers based on gather's offsets
+    """A class fitted and store parameters of a weathering and some subweathering layers based on gather's offsets
     and times of a first break picking.
 
-    `WeatheringVelocity` object use next parameters:
-        `t0`: double travel time to the weathering layer's base
-        `x1`: offsets where refracted wave from first subweathering layer comes at same time with reflected wave.
-        `x{i}`: offset where refracted wave from i-th subweathering layer comes at same time with refracted wave from
-                previous layer.
-        `v1`: velocity of a weathering layer
-        `v{i}`: velocity of a i-th layer. Subweathering layers start with second number.
-    All parameters stores in `params` attribute as dict with a stated above keys.
+    A class could be initialized with data and weathering model params. Data is a first breaking points times and
+    respective offsets. Model params could be passed by `init`, `bounds`, `n_layers`, or by a mix of it.
 
-    Class could be initialize with an `init`, `bounds`, `n_layers` or by mix of it.
-    `init` should be dict with an before discussed keys and estimate values and took as based params. When bounds are
-    not defined (or anyone of bounds keys) init value used for calculate bounds. Lower bounds is init / 2 and upper 
-    bounds is init * 2.
-    `bounds` should be dict with a same keys and lists with lower and upper bounds. Fitted values could not be out of
-    a bounds. When init are not define (or anyone of init keys) missing `init` key's values.
-    `n_layers` is number of total weathering and subwethering layers and could be usefull if you haven't information
-    about `init` or `bounds`. Used for calculate `init` and `bounds`.
+    `init` should be dict with explained below keys and estimate values of model parameters. When bounds are not
+    defined (or anyone of bounds keys) init value is used to calculate bounds. The lower bound is init / 2 and
+    the upper bound is init * 2.
+    `bounds` should be dict with the same keys and lists with lower and upper bounds. Fitted values could not be out of
+    bounds. When init are not defined (or anyone of init keys) missing `init` key's values are calculated from bounds as
+    lower bound + (upper bounds - lower bounds) / 3.
 
-    In case when you have partial information about `init` and `bounds` you could pass part of params in an `init` dict
-    and a remaininig part in a `bounds`. Be sure that you pass all needed keys.
+    WeatheringVelocity used the next key notation for `init` and `bounds`:
+        `t0`: a double wave travel time to the weathering layer's base.
+        `x1`: offsets where refracted wave from first subweathering layer comes at the same time with a reflected wave.
+        `x{i}`: offset where refracted wave from i-th subweathering layer comes at the same time with a refracted wave
+                from the previous layer.
+        `v1`: velocity of a weathering layer.
+        `v{i}`: velocity of an i-th layer. Subweathering layers start with the second number.
+    Fitted parameters are stored in the `params` attribute as a dict with a stated above keys.
+
+    `n_layers` is the estimated number of total weathering and subwethering layers and could be useful if you haven't
+    information about `init` or `bounds`. Used for a calculation reasonable estimation of an `init` and `bounds`.
+
+    In case you have partial information about `init` and `bounds` you could pass part of params in an `init` dict
+    and a remaining  part in a `bounds` dict. Be sure that you pass all the needed keys.
 
     All passed parameters have a greater priority than any calculated parameters.
 
@@ -51,7 +55,7 @@ class WeatheringVelocity:
     Also mixing parameters possible
     >>> weathering_velocity = gather.calculate_weathering_velocity(init={'t0': 100, 'x1': 1500},
                                                                    bounds={'v1': [1, 3], 'v2': [1, 5]})
-    Note: follow closely for keys fullness of dicts unions.
+    Note: follow closely for keys unions fullness of a passed dicts.
 
     Parameters
     ----------
@@ -60,14 +64,15 @@ class WeatheringVelocity:
     picking_times : 1d ndarray
         picking times of a traces
     init : dict, defaults to None
-        inital values for fitting a piecewise function. Used to calculate `bounds` and `n_layers` if these params
-        not enough.
+        initial  values for fitting a piecewise function. Used to calculate `bounds` if these params not enough.
     bounds : Dict[List], defaults to None
         left and right bounds for any parameter of a piecewise function. Used to calculate `init` and `n_layers`
-        if these params not enough.
-    n_layers : int, defualts to None
+        if these params are not enough.
+    n_layers : int, defaults to None
         prior quantity of a layers of a weathering model. Interpreting like a quantity piece of a piecewise funtion.
         Used for calculate `init` and `bounds` if these params not enough.
+    kwargs : dict, optional
+        Additional keyword arguments to `scipy.optimize.minimize`.
 
     Attributes
     ----------
@@ -78,15 +83,14 @@ class WeatheringVelocity:
     picking_times : ndarray
         picking times of a traces.
     init : dict
-        inital values used for fitting a piecewise function.
+        inital values are used for fitting a piecewise function. Include the calculated unpassed keys and values.
     bounds : Dict[List]
-        left and right bounds used for fitting a piecewise function.
+        left and right bounds are used for fitting a piecewise function. Include the calculated unpassed keys and 
+        values.
     n_layers : int
         quantity piece of a fitted piecewise function.
     params : dict
         contains fitted values of a piecewise function.
-    _n_iters : int
-        quantity of iteration for fitting a piecewise function.
 
     Raises
     ------
@@ -94,9 +98,8 @@ class WeatheringVelocity:
         if any `init` values is negative
         if any `bounds` values is negative
         if left bound greater than right bound
-        if passed `init` and/or `bounds` keys are insufficient or excess
-        if n
-
+        if passed `init` and/or `bounds` keys are insufficient or excessive
+        if an union of a `init` and `bounds` keys cannot be interpretable as n-layers model
     """
 
     def __init__(self, offsets, picking_times, n_layers=None, init=None, bounds=None, **kwargs):
@@ -120,16 +123,15 @@ class WeatheringVelocity:
         self._piecewise_offsets = np.zeros(self.n_layers + 1)
         self._piecewise_offsets[-1] = self.max_offset
 
-        # Piecewise linear regression minimization
+        # Fitting piecewise linear regression
         constraints = {"type": "ineq", "fun": lambda x: (np.diff(x[1:self.n_layers]) >= 0).all(out=np.array(0))}
         minimizer_kwargs = {'method': 'SLSQP', 'constraints': constraints, **kwargs}
-        model_params = optimize.minimize(self.loss_piecewise_linear, x0=self._stack_values(self.init),
-                                         bounds=self._stack_values(self.bounds), **minimizer_kwargs)
-        self._model_params = model_params
-        self.params = dict(zip(self._valid_keys, model_params.x))
+        self._model_params = optimize.minimize(self.loss_piecewise_linear, x0=self._stack_values(self.init),
+                                               bounds=self._stack_values(self.bounds), **minimizer_kwargs)
+        self.params = dict(zip(self._valid_keys, self._model_params.x))
 
     def __call__(self, offsets):
-        ''' Return a predicted times using the fitted crossovers and velocities. '''
+        ''' Return a predicted times using the fitted crossovers and velocities.'''
         return np.interp(offsets, self._piecewise_offsets, self._piecewise_times)
 
     def __getattr__(self, key):
@@ -178,9 +180,9 @@ class WeatheringVelocity:
         times = np.empty(n_layers)
         slopes = np.empty(n_layers)
 
-        min_picking_times = self.picking_times.min()  # normalization parameter. only the picking time are normalized
-        start_time = 1  # base time, equal to minimum picking times with `min_picking` normalization
-        start_slope = 2/3  # base slope, corresponding velocity is 1,5 km/s (v = 1 / slope)
+        min_picking_times = self.picking_times.min()  # normalization parameter.
+        start_time = 1  # base time. equal to minimum picking times with the `min_picking` normalization.
+        start_slope = 2/3  # base slope corresponding velocity is 1,5 km/s (v = 1 / slope)
         for i in range(n_layers):
             mask = (self.offsets > cross_offsets[i]) & (self.offsets <= cross_offsets[i + 1])
             if mask.sum() > 1:  # at least two point to fit
@@ -189,7 +191,7 @@ class WeatheringVelocity:
                                                           start_slope, start_time, fit_intercept=(i==0))
             else:
                 slopes[i], times[i] = start_slope, start_time
-                warnings.warn("Not enough first break points to fit a init params. Using a base estimation.")
+                warnings.warn("Not enough first break points to fit an init params. Using a base estimation.")
             start_slope = slopes[i] * (n_layers / (n_layers + 1)) # raise base velocity for next layers (v = 1 / slope)
             start_time = times[i] + (slopes[i] - start_slope) * (cross_offsets[i + 1] / min_picking_times)
         velocities = 1 / slopes
@@ -203,11 +205,10 @@ class WeatheringVelocity:
 
     def _calc_bounds_by_init(self, init):
         '''Return dict with a calcualated bounds from a init dict.'''
-        # t0 bounds could be too narrow
         return {key: [val / 2, val * 2] for key, val in init.items()}
 
     def _check_values(self, init, bounds):
-        '''Checking values of an input dicts'''
+        '''Checking values of an `init` and `bounds` dicts'''
         negative_init = {key: val for key, val in init.items() if val < 0}
         if negative_init:
             raise ValueError(f"Init parameters contain negative values {str(negative_init)[1:-1]}")
@@ -219,7 +220,7 @@ class WeatheringVelocity:
             raise ValueError(f"Left bound is greater than right bound for {list(reversed_bounds.keys())} key(s).")
 
     def _check_keys(self):
-        '''Checking keys of `self.bounds` for excessive and insufficient and `n_layers` for possitive.'''
+        '''Checking keys of `self.bounds` for excessive and insufficient and bounds keys for fullness.'''
         expected_layers = len(self.bounds) // 2
         if expected_layers < 1:
             raise ValueError("Insufficient parameters to fit a weathering velocity curve.")
