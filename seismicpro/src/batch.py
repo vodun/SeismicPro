@@ -580,5 +580,5 @@ class SeismicBatch(Batch):
         if save_to is not None:
             save_kwargs = as_dict(save_to, key="fname")
             save_figure(fig, **save_kwargs)
-        plt.show()
+        fig.show()
         return self
