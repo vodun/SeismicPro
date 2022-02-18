@@ -107,11 +107,11 @@ class SurveyGeometryPlot(PairedPlot):
 
     @property
     def main_color(self):
-        return "red" if self.is_shot_view else "blue"
+        return "tab:red" if self.is_shot_view else "tab:blue"
 
     @property
     def aux_color(self):
-        return "blue" if self.is_shot_view else "red"
+        return "tab:blue" if self.is_shot_view else "tab:red"
 
     @property
     def toggle_icon(self):
