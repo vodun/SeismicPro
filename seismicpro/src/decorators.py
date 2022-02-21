@@ -64,7 +64,6 @@ def plotter(figsize, args_to_unpack=None):
             if save_to is not None:
                 save_kwargs = as_dict(save_to, key="fname")
                 save_figure(fig, **save_kwargs)
-            fig.show()
             return output
         return _update_method_params(plot, "plotter", figsize=figsize, args_to_unpack=args_to_unpack)
     return decorator
