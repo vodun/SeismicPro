@@ -726,13 +726,52 @@ class Gather:
     @batch_method(target='for')
     def calculate_weathering_velocity(self, first_breaks_col='FirstBreak', n_layers=None, init=None, bounds=None,
                                       **kwargs):
-        ''' TODO: docsting'''
+        '''Return the WeatheringVelocity instance based on the `offsets` and `picking_times` of the current gather.
+
+        Read the WeatheringVelocity docs for more information.
+
+        Parameters
+        ----------
+        first_breaks_col : str, defaults to 'FirstBreak'
+            Column name  from `self.headers` where first breaking times are stored.
+        n_layers : int or None, defaults to None
+            Number of weathering model layers.
+        init : dict or None, defaults to None
+            Initial value for a weathering model.
+        bounds : dict or None, defaults to None
+            Bounds for each parameter of a weathering model.
+        kwargs : dict, optional
+            Additional keyword arguments to `scipy.optimize.minimize`.
+
+        Returns
+        -------
+        wv : WeatheringVelocity
+            Calculated WeatheringVelocity instance.
+        '''
         return WeatheringVelocity(offsets=self.offsets, picking_times=self[first_breaks_col].ravel(),
                                   n_layers=n_layers, init=init, bounds=bounds, **kwargs)
 
     @batch_method(target='for', args_to_unpack='weathering_velocity')
     def calculate_weathering_metrics(self, weathering_velocity, first_breaks_col='FirstBreak', threshold_time=50):
-        ''' TODO: docstring '''
+        '''Return weathering metric value.
+
+        Weathering metric calculated as fraction of first breaking times that stands out from a weathering velocity curve
+        (piecewise linear function) more that `threshold_times` relative to the total number of first breaking times.
+
+        Parameters
+        ----------
+        weathering_velocity : WeatheringVelocity
+            Calculated WeatheringVelocity. Use `calculate_weathering_velocity` to calculate it.
+        first_breaks_col : str, defaults to 'FirstBreak'
+            Column name  from `self.headers` where first breaking time are stored.
+        threshold_time: int or float, defaults to 50
+            Threshold for weathering metric calculation.
+
+        Returns
+        -------
+        metric : float
+            weathering metric
+        '''
         metric = np.mean(np.abs(weathering_velocity(self.offsets) - self[first_breaks_col].ravel()) > threshold_time)
         return metric
 
