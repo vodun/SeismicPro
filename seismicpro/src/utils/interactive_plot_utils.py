@@ -51,6 +51,7 @@ class InteractivePlot:
             # Add tight_layout to always correctly show colorbar ticks
             self.fig, self.ax = plt.subplots(figsize=figsize, tight_layout=True)
 
+        self.fig.interactive_plotter = self  # Always keep reference to self for all plots to remain interactive
         self.fig.canvas.header_visible = False
         self.fig.canvas.toolbar_visible = toolbar_visible
         self.fig.canvas.toolbar_position = toolbar_position
@@ -61,6 +62,10 @@ class InteractivePlot:
 
         self.header = self.create_header()
         self.box = widgets.VBox([self.header, self.fig.canvas])
+
+    def __del__(self):
+        del self.fig.interactive_plotter
+        plt.close(self.fig)
 
     def create_header(self):
         placeholder = widgets.HTML(layout=widgets.Layout(**BUTTON_LAYOUT))
