@@ -10,7 +10,7 @@ class StackingVelocityScatterMap(ScatterMap):
         if plot_tri:
             coords_x, coords_y = self.velocity_cube.interpolator.coords.T
             simplices = self.velocity_cube.interpolator.tri.simplices
-            ax.triplot(coords_x, coords_y, simplices, color="black", linewidth=0.3)
+            ax.triplot(coords_x, coords_y, simplices, color="black", linewidth=0.3, zorder=0)
         return super()._plot_map(ax, **kwargs)
 
 
