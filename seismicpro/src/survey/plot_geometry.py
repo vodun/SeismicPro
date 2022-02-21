@@ -76,7 +76,7 @@ class SurveyGeometryPlot(PairedPlot):
 
     def _plot_map(self, ax, keep_aspect, x_lim, y_lim, x_ticker, y_ticker, **kwargs):
         self.left.set_title(self.map_title)
-        ax.scatter(self.coord_x, self.coord_y, color=self.main_color, **kwargs)
+        ax.scatter(self.coord_x, self.coord_y, color=self.main_color, marker=self.main_marker, **kwargs)
         ax.set_xlim(*x_lim)
         ax.set_ylim(*y_lim)
         ax.ticklabel_format(style="plain", useOffset=False)
@@ -110,8 +110,16 @@ class SurveyGeometryPlot(PairedPlot):
         return "tab:red" if self.is_shot_view else "tab:blue"
 
     @property
+    def main_marker(self):
+        return "*" if self.is_shot_view else "v"
+
+    @property
     def aux_color(self):
         return "tab:blue" if self.is_shot_view else "tab:red"
+
+    @property
+    def aux_marker(self):
+        return "v" if self.is_shot_view else "*"
 
     @property
     def toggle_icon(self):
@@ -148,7 +156,7 @@ class SurveyGeometryPlot(PairedPlot):
         if self.affected_scatter is not None:
             self.affected_scatter.remove()
         self.affected_scatter = self.left.ax.scatter(*gather[self.affected_coords_cols].T, color=self.aux_color,
-                                                     **self.map_kwargs)
+                                                     marker=self.aux_marker, **self.map_kwargs)
 
         self.right.box.layout.visibility = "visible"
         self.right.set_title(self.gather_title + f"{x, y}")
