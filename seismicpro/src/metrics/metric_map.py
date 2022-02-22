@@ -11,22 +11,7 @@ from ..decorators import plotter
 from ..utils import add_colorbar, set_ticks, set_text_formatting
 
 
-class MetricMapMeta(type):
-    def __call__(cls, *args, bin_size=None, **kwargs):
-        metric_cls = cls.scatter_map_class
-        if bin_size is not None:
-            metric_cls = cls.binarized_map_class
-            kwargs["bin_size"] = bin_size
-        instance = object.__new__(metric_cls)
-        instance.__init__(*args, **kwargs)
-        instance.base_map_cls = cls
-        return instance
-
-
-class BaseMetricMap(metaclass=MetricMapMeta):
-    scatter_map_class = None
-    binarized_map_class = None
-
+class BaseMetricMap:
     def __init__(self, coords, metric_values, *, coords_cols=None, metric=None, metric_name=None, agg=None):
         if metric is None:
             metric = Metric
@@ -230,6 +215,18 @@ class BinarizedMap(BaseMetricMap):
         return contents.sort_values(ascending=not self.is_lower_better)
 
 
-class MetricMap(BaseMetricMap):
+class MetricMapMeta(type):
+    def __call__(cls, *args, bin_size=None, **kwargs):
+        metric_cls = cls.scatter_map_class
+        if bin_size is not None:
+            metric_cls = cls.binarized_map_class
+            kwargs["bin_size"] = bin_size
+        instance = object.__new__(metric_cls)
+        instance.__init__(*args, **kwargs)
+        instance.base_map_cls = cls
+        return instance
+
+
+class MetricMap(metaclass=MetricMapMeta):
     scatter_map_class = ScatterMap
     binarized_map_class = BinarizedMap
