@@ -11,7 +11,7 @@ from ..decorators import plotter
 from ..utils import add_colorbar, set_ticks, set_text_formatting
 
 
-class MapMeta(type):
+class MetricMapMeta(type):
     def __call__(cls, *args, bin_size=None, **kwargs):
         metric_cls = cls.scatter_map_class
         if bin_size is not None:
@@ -19,11 +19,11 @@ class MapMeta(type):
             kwargs["bin_size"] = bin_size
         instance = object.__new__(metric_cls)
         instance.__init__(*args, **kwargs)
-        instance.base = cls
+        instance.base_map_cls = cls
         return instance
 
 
-class BaseMetricMap(metaclass=MapMeta):
+class BaseMetricMap(metaclass=MetricMapMeta):
     scatter_map_class = None
     binarized_map_class = None
 
@@ -118,8 +118,8 @@ class BaseMetricMap(metaclass=MapMeta):
         return self.interactive_map_class(self, plot_on_click, **kwargs).plot()
 
     def aggregate(self, agg=None, bin_size=None):
-        return self.base(self.metric_data[self.coords_cols], self.metric_data[self.metric_name], metric=self.metric,
-                         agg=agg, bin_size=bin_size)
+        return self.base_map_cls(self.metric_data[self.coords_cols], self.metric_data[self.metric_name],
+                                 metric=self.metric, agg=agg, bin_size=bin_size)
 
 
 class ScatterMap(BaseMetricMap):
