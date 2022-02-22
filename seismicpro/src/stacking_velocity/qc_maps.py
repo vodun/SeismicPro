@@ -1,5 +1,3 @@
-from functools import partial
-
 from matplotlib import patches
 
 from ..metrics import MetricMap, ScatterMap, BinarizedMap, ScatterMapPlot
@@ -21,8 +19,9 @@ class StackingVelocityBinarizedMap(BinarizedMap):
         return super()._plot_map(ax, **kwargs)
 
 
-StackingVelocityMetricMap = partial(MetricMap, scatter_map_class=StackingVelocityScatterMap,
-                                    binarized_map_class=StackingVelocityBinarizedMap)
+class StackingVelocityMetricMap(MetricMap):
+    scatter_map_class = StackingVelocityScatterMap
+    binarized_map_class = StackingVelocityBinarizedMap
 
 
 class StackingVelocityScatterMapPlot(ScatterMapPlot):

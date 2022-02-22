@@ -1,4 +1,4 @@
-from functools import partial
+"""Implements MetricMap class for metric visualization over a field map"""
 
 import numpy as np
 import pandas as pd
@@ -11,18 +11,23 @@ from ..decorators import plotter
 from ..utils import add_colorbar, set_ticks, set_text_formatting
 
 
-class BaseMetricMap:
-    def __new__(cls, coords, metric_values, *, coords_cols=None, metric=None, metric_name=None, agg=None,
-                bin_size=None, scatter_map_class=None, binarized_map_class=None):
-        _ = coords, metric_values, coords_cols, metric, metric_name, agg
-        metric_cls = scatter_map_class if bin_size is None else binarized_map_class
-        return super().__new__(metric_cls)
+class MapMeta(type):
+    def __call__(cls, *args, bin_size=None, **kwargs):
+        metric_cls = cls.scatter_map_class
+        if bin_size is not None:
+            metric_cls = cls.binarized_map_class
+            kwargs["bin_size"] = bin_size
+        instance = object.__new__(metric_cls)
+        instance.__init__(*args, **kwargs)
+        instance.base = cls
+        return instance
 
-    def __init__(self, coords, metric_values, *, coords_cols=None, metric=None, metric_name=None, agg=None,
-                 bin_size=None, scatter_map_class=None, binarized_map_class=None):
-        self.scatter_map_class = scatter_map_class
-        self.binarized_map_class = binarized_map_class
 
+class BaseMetricMap(metaclass=MapMeta):
+    scatter_map_class = None
+    binarized_map_class = None
+
+    def __init__(self, coords, metric_values, *, coords_cols=None, metric=None, metric_name=None, agg=None):
         if metric is None:
             metric = Metric
         if not (isinstance(metric, (Metric, PartialMetric)) or
@@ -49,12 +54,6 @@ class BaseMetricMap:
             default_agg = {True: "max", False: "min", None: "mean"}
             agg = default_agg[self.metric.is_lower_better]
         self.agg = agg
-
-        if bin_size is not None:
-            if isinstance(bin_size, (int, float, np.number)):
-                bin_size = (bin_size, bin_size)
-            bin_size = np.array(bin_size)
-        self.bin_size = bin_size
 
     def __getattr__(self, name):
         return getattr(self.metric, name)
@@ -119,10 +118,8 @@ class BaseMetricMap:
         return self.interactive_map_class(self, plot_on_click, **kwargs).plot()
 
     def aggregate(self, agg=None, bin_size=None):
-        metric_cls = self.scatter_map_class if bin_size is None else self.binarized_map_class
-        return metric_cls(self.metric_data[self.coords_cols], self.metric_data[self.metric_name], metric=self.metric,
-                          scatter_map_class=self.scatter_map_class, binarized_map_class=self.binarized_map_class,
-                          agg=agg, bin_size=bin_size)
+        return self.base(self.metric_data[self.coords_cols], self.metric_data[self.metric_name], metric=self.metric,
+                         agg=agg, bin_size=bin_size)
 
 
 class ScatterMap(BaseMetricMap):
@@ -162,9 +159,16 @@ class ScatterMap(BaseMetricMap):
 
 
 class BinarizedMap(BaseMetricMap):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, bin_size, **kwargs):
         super().__init__(*args, **kwargs)
-        # Perform a shallow copy of the metric data since new colums are going to be appended
+
+        if bin_size is not None:
+            if isinstance(bin_size, (int, float, np.number)):
+                bin_size = (bin_size, bin_size)
+            bin_size = np.array(bin_size)
+        self.bin_size = bin_size
+
+        # Perform a shallow copy of the metric data since new columns are going to be appended
         metric_data = self.metric_data.copy(deep=False)
 
         # Binarize map coordinates
@@ -226,4 +230,6 @@ class BinarizedMap(BaseMetricMap):
         return contents.sort_values(ascending=not self.is_lower_better)
 
 
-MetricMap = partial(BaseMetricMap, scatter_map_class=ScatterMap, binarized_map_class=BinarizedMap)
+class MetricMap(BaseMetricMap):
+    scatter_map_class = ScatterMap
+    binarized_map_class = BinarizedMap
