@@ -8,12 +8,12 @@ from scipy import optimize
 
 from .decorators import plotter
 
-# pylint: disable=too-many-instance-arguments
+# pylint: disable=too-many-instance-attributes
 class WeatheringVelocity:
     """The class fits and stores parameters of a weathering and some subweathering layers based on gather's offsets
     and first break picking times.
 
-    The class could be initialized with data and estimate parameters of weathering model. Data is a first breaking 
+    The class could be initialized with data and estimate parameters of weathering model. Data is a first breaking
     points times and corresponding offsets. Model parameters could be passed by `init`, `bounds`, `n_layers`, or a mix.
 
     `init` should be dict with the explained below keys and estimate values of model parameters. When bounds are not
