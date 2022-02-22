@@ -7,52 +7,51 @@ from sklearn.linear_model import SGDRegressor
 from scipy import optimize
 
 from .decorators import plotter
-from .utils import set_ticks
 
-
+# pylint: disable=too-many-instance-arguments
 class WeatheringVelocity:
-    """A class fitted and store parameters of a weathering and some subweathering layers based on gather's offsets
-    and times of a first break picking.
+    """The class fits and stores parameters of a weathering and some subweathering layers based on gather's offsets
+    and first break picking times.
 
-    A class could be initialized with data and weathering model params. Data is a first breaking points times and
-    respective offsets. Model params could be passed by `init`, `bounds`, `n_layers`, or by a mix of it.
+    The class could be initialized with data and estimate parameters of weathering model. Data is a first breaking 
+    points times and corresponding offsets. Model parameters could be passed by `init`, `bounds`, `n_layers`, or a mix.
 
-    `init` should be dict with explained below keys and estimate values of model parameters. When bounds are not
+    `init` should be dict with the explained below keys and estimate values of model parameters. When bounds are not
     defined (or anyone of bounds keys) init value is used to calculate bounds. The lower bound is init / 2 and
     the upper bound is init * 2.
     `bounds` should be dict with the same keys and lists with lower and upper bounds. Fitted values could not be out of
     bounds. When init are not defined (or anyone of init keys) missing `init` key's values are calculated from bounds as
-    lower bound + (upper bounds - lower bounds) / 3.
+    lower bound + (upper bounds - lower bounds) / 3 to be consistent with `init` to `bounds` processing.
 
-    WeatheringVelocity used the next key notation for `init` and `bounds`:
+    WeatheringVelocity uses the following key notation for `init` and `bounds`:
         `t0`: a double wave travel time to the weathering layer's base.
         `x1`: offsets where refracted wave from first subweathering layer comes at the same time with a reflected wave.
         `x{i}`: offset where refracted wave from i-th subweathering layer comes at the same time with a refracted wave
                 from the previous layer.
         `v1`: velocity of a weathering layer.
-        `v{i}`: velocity of an i-th layer. Subweathering layers start with the second number.
+        `v{i}`: velocity of an i-th layer. Indexing of subweathering layers starts with the second number.
     Fitted parameters are stored in the `params` attribute as a dict with a stated above keys.
 
     `n_layers` is the estimated number of total weathering and subwethering layers and could be useful if you haven't
     information about `init` or `bounds`. Used for a calculation reasonable estimation of an `init` and `bounds`.
 
-    In case you have partial information about `init` and `bounds` you could pass part of params in an `init` dict
-    and a remaining  part in a `bounds` dict. Be sure that you pass all the needed keys.
+    In case you have partial information about `init` and `bounds` you could pass part of keys and values in an `init`
+    dict and a remaining part of keys in a `bounds` dict. Be sure that you pass all the needed keys.
 
     All passed parameters have a greater priority than any calculated parameters.
 
     Examples
     --------
-    A Weathering Velocity object with starting initial parameters for two layers model
+    A Weathering Velocity object with starting initial parameters for two layers weathering model:
     >>> weathering_velocity = gather.calculate_weathering_velocity(init={'t0': 100, 'x1': 1500, 'v1': 2, 'v2': 3})
 
-    A Weathering Velocity object with bounds for final parameters of a piecewise function for one layer model
+    A Weathering Velocity object with bounds for final parameters of a piecewise function for 1-layer weathering model:
     >>> weathering_velocity = gather.calculate_weathering_velocity(init={'t0': [0, 200], 'v1': [1, 3]})
 
-    A Weathering Velocity object for three layers model.
+    A Weathering Velocity object for three layers weathering model:
     >>> weathering_velocity = gather.calculate_weathering_velocity(n_layers=3)
 
-    Also mixing parameters possible
+    Also mixing parameters are possible (two layers weathering model):
     >>> weathering_velocity = gather.calculate_weathering_velocity(init={'t0': 100, 'x1': 1500},
                                                                    bounds={'v1': [1, 3], 'v2': [1, 5]})
     Note: follow closely for keys unions fullness of a passed dicts.
@@ -60,37 +59,36 @@ class WeatheringVelocity:
     Parameters
     ----------
     offsets : 1d ndarray
-        offsets of a traces
+        Offsets of a traces.
     picking_times : 1d ndarray
-        picking times of a traces
+        Picking times of a traces.
     init : dict, defaults to None
-        initial  values for fitting a piecewise function. Used to calculate `bounds` if these params not enough.
+        Initial  values for fitting a piecewise function. Used to calculate `bounds` if these params not passed.
     bounds : Dict[List], defaults to None
-        left and right bounds for any parameter of a piecewise function. Used to calculate `init` and `n_layers`
-        if these params are not enough.
+        Left and right bounds for any parameter of a weathering model params. Used to calculate `init` and `n_layers`
+        if these params are not passed.
     n_layers : int, defaults to None
-        prior quantity of layers of a weathering model. Interpreting as a quantity piece of a piecewise function.
-        Used for calculating `init` and `bounds` if these params not enough.
+        Quantity of layers of a weathering model. Used to calculate `init` and `bounds` if these params not enough.
     kwargs : dict, optional
         Additional keyword arguments to `scipy.optimize.minimize`.
 
     Attributes
     ----------
     offsets : 1d ndarray
-        offsets of traces.
+        Offsets of traces.
     max_offset : int
-        maximum offsets value.
+        Maximum offsets value.
     picking_times : 1d ndarray
-        picking times of traces.
+        Picking times of traces.
     init : dict
-        inital values are used for fitting a piecewise function. Include the calculated unpassed keys and values.
+        Inital values are used to fit the weathering model params. Include the calculated unpassed keys and values.
     bounds : Dict[List]
-        left and right bounds are used for fitting a piecewise function. Include the calculated unpassed keys and
+        Left and right bounds are used to fit the weathering model params. Include the calculated unpassed keys and
         values.
     n_layers : int
-        quantity piece of a fitted piecewise function.
+        Quantity of weathering model layers. Calculated from `init`, `bounds`, and `n_layers` parameters.
     params : dict
-        contains fitted values of a piecewise function.
+        Contains fitted parameters of a weathering model.
 
     Raises
     ------
@@ -99,7 +97,7 @@ class WeatheringVelocity:
         if any `bounds` values are negative.
         if left bound greater than right bound.
         if passed `init` and/or `bounds` keys are insufficient or excessive.
-        if an union of a `init` and `bounds` keys cannot be interpretable as n-layers model.
+        if an union of `init` and `bounds` keys less than 2 or `n_layers` less than 1.
     """
 
     def __init__(self, offsets, picking_times, n_layers=None, init=None, bounds=None, **kwargs):
@@ -131,31 +129,31 @@ class WeatheringVelocity:
         self.params = dict(zip(self._valid_keys, self._model_params.x))
 
     def __call__(self, offsets):
-        ''' Return predicted times using the fitted crossovers and velocities.'''
+        '''Returns predicted first breaking times using the fitted parameters of the weathering model.'''
         return np.interp(offsets, self._piecewise_offsets, self._piecewise_times)
 
     def __getattr__(self, key):
         return self.params[key]
 
     def loss_piecewise_linear(self, *args):
-        '''Return L1 loss between true picking times and a predicted piecewise linear function.
+        '''Returns the L1 loss between true picking times and a predicted piecewise linear function.
 
-        Method update piecewise linear attributes of a WeatheringVelocity instance. Also calculate L1 loss between
-        true picking times stored in the `self.picking_times` and predicted piecewise linear function in the cross
-        offsets points.
+        Method update piecewise linear attributes of a WeatheringVelocity instance and calculate L1 loss between
+        true picking times stored in the `self.picking_times` and a predicted piecewise linear function. Points for
+        the L1 loss calculated for the offsets corresponding with true picking times.
         predicted_times = piecewise_linear(self.offsets).
 
-        Piecewise linear function defined by given `args` which should be list-like and have the next structure:
+        Piecewise linear function defined by the given `args` should be list-like and have the following structure:
             args[0] : t0
             args[1:n_layers] : cross offsets points in meters.
             args[n_layers:] : velocities of each weathering model layer in km/s.
-            The total length of args should be n_layers * 2.
-        List-like initial driven by `scipy.optimize.minimize` demand.
+            Total lenght of args should be n_layers * 2.
+        The list-like initial is due to the `scipy.optimize.minimize`.
 
         Parameters
         ----------
         args: tuple, list, or 1d ndarray
-            parameters for a piecewise linear function.
+            Parameters for a piecewise linear function.
 
         Returns
         -------
@@ -173,34 +171,34 @@ class WeatheringVelocity:
                      self.picking_times).mean()
 
     def _get_valid_keys(self, n_layers=None):
-        '''Return a valid list with keys based on `n_layers` or `self.n_layers`.'''
+        '''Returns a valid list with keys based on `n_layers` or `self.n_layers`.'''
         n_layers = self.n_layers if n_layers is None else n_layers
         return ['t0'] + [f'x{i+1}' for i in range(n_layers - 1)] + [f'v{i+1}' for i in range(n_layers)]
 
     def _stack_values(self, params_dict): # reshuffle params
-        '''Return values of the sorted input dict. Dict sorted by order stored in `_valid_keys` attribute.'''
+        '''Returns values of the sorted input dict. Dict sorted by order stored in `_valid_keys` attribute.'''
         return np.stack([params_dict[key] for key in self._valid_keys], axis=0)
 
     def _fit_regressor(self, x, y, start_slope, start_time, fit_intercept):
-        '''Return parameters of a fitted linear regression.
+        '''Returns parameters of a fitted linear regression.
 
         Parameters
         ----------
         x : 1d ndarray of shape (n_samples,)
-            training data
+            Training data.
         y : 1d ndarray of shape (n_samples,)
-            target values
+            Target values.
         start_slope : float
-            starting coefficients for linear regression
+            Starting coefficient to fit a linear regression.
         start_time : float
-            starting intercept for linear regression
+            Starting intercept to fit a linear regression.
         fit_intercept : bool
-            fitting intercept with `True` or hold it with `False`.
+            Fit the intercept with `True` or hold it with `False`.
 
         Returns
         -------
         params : tuple
-            Linear regresion `coef` and `intercept`
+            Linear regression `coef` and `intercept`
         '''
         lin_reg = SGDRegressor(loss='huber', early_stopping=True, penalty=None, shuffle=True, epsilon=0.1,
                                eta0=.05, alpha=0, tol=1e-4, fit_intercept=fit_intercept)
@@ -208,22 +206,22 @@ class WeatheringVelocity:
         return lin_reg.coef_[0], lin_reg.intercept_
 
     def _calc_init_by_layers(self, n_layers):
-        '''Return `init` dict by a given an estimated quantity of layers.
+        '''Returns `init` dict by a given an estimated quantity of layers.
 
         Method split picking times on a `n_layers` equal part by cross offsets and fit separate linear regression
-        on each part. For the first part fit coefficient and intercept, for any next part fit a coefficient only.
+        on each part. Fit a coefficient and intercept for the first part and fit a coefficient only for any next part.
         These linear functions are compiled together as an estimated piecewise linear function. Parameters of
         estimated piecewise function return as `init` dict.
 
         Parameters
         ----------
         n_layers : int
-            number of layers
+            Number of layers.
 
         Returns
         -------
         init : dict
-            estimated initial for fitting piecewise linear function.
+            Estimated initial to fit the piecewise linear function.
         '''
         if n_layers is None:
             return {}
@@ -253,15 +251,15 @@ class WeatheringVelocity:
         return init
 
     def _calc_init_by_bounds(self, bounds):
-        '''Return dict with a calculated init from a bounds dict.'''
+        '''Returns dict with a calculated init from a bounds dict.'''
         return {key: val1 + (val2 - val1) / 3 for key, (val1, val2) in bounds.items()}
 
     def _calc_bounds_by_init(self, init):
-        '''Return dict with calculated bounds from a init dict.'''
+        '''Returns dict with calculated bounds from a init dict.'''
         return {key: [val / 2, val * 2] for key, val in init.items()}
 
     def _check_values(self, init, bounds):
-        '''Checking values of an `init` and `bounds` dicts.'''
+        '''Check the values of an `init` and `bounds` dicts.'''
         negative_init = {key: val for key, val in init.items() if val < 0}
         if negative_init:
             raise ValueError(f"Init parameters contain negative values {str(negative_init)[1:-1]}")
@@ -287,18 +285,18 @@ class WeatheringVelocity:
 
     @plotter(figsize=(10, 5))
     def plot(self, ax, title=None, show_params=True, threshold_time=None, x_label="offset, m", y_label="time, ms"):
-        '''Plot the WeatheringVelocity data, fitted curve, cross offsets, and some additional information.
+        '''Plot the WeatheringVelocity data, fitted curve, cross offsets, and additional information.
 
         Parameters
         ----------
         show_params : bool, optional, defaults to True
-            shows a t0, cross offsets, and velocities on a plot.
+            Shows a t0, cross offsets, and velocities on a plot.
         threshold_time : int or float, optional. Defaults to None.
-            gap for plotting two outlines. If None additional outlines don't show.
+            Gap for plotting two outlines. If None additional outlines don't show.
         x_label : str, optional. Defaults to "offset, m".
-            label for the x-axis of a plot.
+            Label for the x-axis of a plot.
         y_label : str, optional. Defaults to "time, ms".
-            label for the y-axis of a plot.
+            Label for the y-axis of a plot.
 
         Returns
         -------

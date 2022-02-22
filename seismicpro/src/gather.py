@@ -755,8 +755,9 @@ class Gather:
     def calculate_weathering_metrics(self, weathering_velocity, first_breaks_col='FirstBreak', threshold_time=50):
         '''Return weathering metric value.
 
-        Weathering metric calculated as fraction of first breaking times that stands out from a weathering velocity curve
-        (piecewise linear function) more that `threshold_times` relative to the total number of first breaking times.
+        Weathering metric calculated as fraction of first breaking times that stands out from a weathering velocity
+        curve (piecewise linear function) more that `threshold_times` relative to the total number of first breaking
+        times.
 
         Parameters
         ----------
