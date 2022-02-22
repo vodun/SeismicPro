@@ -26,6 +26,7 @@ def plotter(figsize, args_to_unpack=None):
 
     The decorated method is supposed to accept an `ax` argument. If it's not passed during the call, the decorator
     creates it with the `figsize` provided.
+
     A new argument is added for the decorated method:
     save_to : str or dict, optional, defaults to None
         If `str`, a path to save the figure to.

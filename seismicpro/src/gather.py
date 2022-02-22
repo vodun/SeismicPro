@@ -50,7 +50,7 @@ class Gather:
     headers : pd.DataFrame
         A subset of parent survey header with common index value defining the gather.
     data : 2d np.ndarray
-        Trace data of the gather with (num_traces, trace_lenght) layout.
+        Trace data of the gather with (num_traces, trace_length) layout.
     samples : 1d np.ndarray of floats
         Recording time for each trace value. Measured in milliseconds.
     survey : Survey
@@ -61,7 +61,7 @@ class Gather:
     headers : pd.DataFrame
         A subset of parent survey header with common index value defining the gather.
     data : 2d np.ndarray
-        Trace data of the gather with (num_traces, trace_lenght) layout.
+        Trace data of the gather with (num_traces, trace_length) layout.
     samples : 1d np.ndarray of floats
         Recording time for each trace value. Measured in milliseconds.
     sample_rate : float
@@ -125,7 +125,7 @@ class Gather:
         ----------
         key : str, list of str, int, list, tuple, slice
             If str or list of str, gather headers to get as a 2d np.ndarray.
-            Otherwise, indices of traces and samples to get. In this case, __getitem__ behaviour almost coincides with
+            Otherwise, indices of traces and samples to get. In this case, __getitem__ behavior almost coincides with
             np.ndarray indexing and slicing except for cases, when resulting ndim is not preserved or joint indexation
             of gather attributes becomes ambiguous (e.g. gather[[0, 1], [0, 1]]).
 
@@ -235,15 +235,18 @@ class Gather:
 
         Parameters
         ----------
-        coords_cols : None, "index" or 2 element array-like, defaults to "index"
-            - If `None`, (`None`, `None`) tuple is returned.
-            - If "index", unique index value is used to define gather coordinates
-            - If 2 element array-like, `coords_cols` define gather headers to get x and y coordinates from.
-            In the last two cases index or column values are supposed to be unique for all traces in the gather.
+        coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
+            - If `None`, a namedtuple with two `None` elements is returned. Its fields are called 'X' and 'Y'
+              respectively.
+            - If "auto", columns of headers index define headers columns to get coordinates from (e.g.
+              'FieldRecord' is mapped to 'SourceX', 'SourceY' pair).
+            - If 2 element array-like, `coords_cols` define gather headers to get coordinates from.
+            In the last two cases index or column values are supposed to be unique for all traces in the gather and
+            the names of the fields of the returned namedtuple correspond to source headers columns.
 
         Returns
         -------
-        coords : tuple with 2 elements
+        coords : namedtuple with 2 elements
             Gather spatial coordinates.
 
         Raises
@@ -264,6 +267,7 @@ class Gather:
 
     @property
     def coords(self):
+        """namedtuple with 2 elements: Spatial coordinates of the gather."""
         return self.get_coords()
 
     @batch_method(target='threads', copy_src=False)
@@ -295,13 +299,13 @@ class Gather:
 
     def validate(self, required_header_cols=None, required_sorting=None):
         """Perform the following checks for a gather:
-            1. Its header contains all columns from `required_header_cols`,
+            1. Its headers contain all columns from `required_header_cols`,
             2. It is sorted by `required_sorting` header.
 
         Parameters
         ----------
         required_header_cols : None or str or array-like of str, defaults to None
-            Required gather header columns. If `None`, no check is performed.
+            Required gather headers columns. If `None`, no check is performed.
         required_sorting : None or str, defaults to None
             Required gather sorting. If `None`, no check is performed.
 
@@ -871,7 +875,7 @@ class Gather:
             Stacking velocities to perform NMO correction with. `StackingVelocity` instance is used directly. If
             `VelocityCube` instance is passed, a `StackingVelocity` corresponding to gather coordinates is fetched
             from it.
-        coords_cols : None, "index" or 2 element array-like, defaults to "index"
+        coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
             Header columns to get spatial coordinates of the gather from to fetch `StackingVelocity` from
             `VelocityCube`. See :func:`~Gather.get_coords` for more details.
 
@@ -1035,7 +1039,7 @@ class Gather:
         following options are supported:
         - `seismogram`: a 2d grayscale image of seismic traces. This mode supports the following `kwargs`:
             * `colorbar`: whether to add a colorbar to the right of the gather plot (defaults to `False`). If `dict`,
-              defines extra keyword arguments for `matplotlib.figure.Figure.colorbar`.
+              defines extra keyword arguments for `matplotlib.figure.Figure.colorbar`,
             * `qvmin`, `qvmax`: quantile range of amplitude values covered by the colormap (defaults to 0.1 and 0.9),
             * Any additional arguments for `matplotlib.pyplot.imshow`. Note, that `vmin` and `vmax` arguments take
               priority over `qvmin` and `qvmax` respectively.
@@ -1043,19 +1047,21 @@ class Gather:
           amplitude. This mode supports the following `kwargs`:
             * `std`: amplitude scaling factor. Higher values result in higher plot oscillations (defaults to 0.5),
             * `color`: defines a color for each trace. If a single color is given, it is applied to all the traces
-              (defaults to black).
-        - `hist`: a histogram of the trace data amplitudes or header values. The mode supports following `kwargs`:
-            * `bins`: if integer, number of equal-width bins; if sequence, bin edges that include the left edge of the
-              first bin and the right edge of the last bin.
-            * `grid`: whether to show the grid lines.
-            * `log`: set y-axis to log scale. If True, formatting defined in `y_ticker` is discarded.
+              (defaults to black),
+            * Any additional arguments for `matplotlib.pyplot.plot`.
+        - `hist`: a histogram of the trace data amplitudes or header values. This mode supports the following `kwargs`:
+            * `bins`: if `int`, the number of equal-width bins; if sequence, bin edges that include the left edge of
+              the first bin and the right edge of the last bin,
+            * `grid`: whether to show the grid lines,
+            * `log`: set y-axis to log scale. If `True`, formatting defined in `y_ticker` is discarded,
+            * Any additional arguments for `matplotlib.pyplot.hist`.
 
         Trace headers, whose values are measured in milliseconds (e.g. first break times) may be displayed over a
-        seismigram or wiggle plot if passed as `event_headers`. If `top_header` is passed, an auxiliary scatter plot of
+        seismogram or wiggle plot if passed as `event_headers`. If `top_header` is passed, an auxiliary scatter plot of
         values of this header will be shown on top of the gather plot.
 
         While the source of label ticks for both `x` and `y` is defined by `x_tick_src` and `y_tick_src`, ticker
-        appearence can be controlled via `x_ticker` and `y_ticker` parameters respectively. In the most general form,
+        appearance can be controlled via `x_ticker` and `y_ticker` parameters respectively. In the most general form,
         each of them is a `dict` with the following most commonly used keys:
         - `label`: axis label. Can be any string.
         - `round_to`: the number of decimal places to round tick labels to (defaults to 0).
@@ -1158,8 +1164,8 @@ class Gather:
 
     def _plot_histogram(self, ax, title, x_ticker, y_ticker, x_tick_src="amplitude", bins=None,
                         log=False, grid=True, **kwargs):
-        """Plot histogram of the data scpecified by x_tick_src."""
-        data = self.data if x_tick_src=="amplitude" else self[x_tick_src]
+        """Plot histogram of the data specified by x_tick_src."""
+        data = self.data if x_tick_src == "amplitude" else self[x_tick_src]
         _ = ax.hist(data.ravel(), bins=bins, **kwargs)
         set_ticks(ax, "x", tick_labels=None, **{"label": x_tick_src, 'round_to': None, **x_ticker})
         set_ticks(ax, "y", tick_labels=None, **{"label": "counts", **y_ticker})
@@ -1170,8 +1176,8 @@ class Gather:
         ax.set_title(**{'label': None, **title})
 
     # pylint: disable=too-many-arguments
-    def _plot_seismogram(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src='time',
-                         colorbar=False, qvmin=0.1, qvmax=0.9, event_headers=None, top_header=None, **kwargs):
+    def _plot_seismogram(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src='time', colorbar=False,
+                         qvmin=0.1, qvmax=0.9, event_headers=None, top_header=None, **kwargs):
         """Plot the gather as a 2d grayscale image of seismic traces."""
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
@@ -1203,7 +1209,7 @@ class Gather:
 
     def _finalize_plot(self, ax, title, divider, event_headers, top_header,
                        x_ticker, y_ticker, x_tick_src, y_tick_src):
-        """Plot optional artists and set ticks on the ax. Utilily method for 'seismogram' and 'wiggle' modes."""
+        """Plot optional artists and set ticks on the `ax`. Utility method for 'seismogram' and 'wiggle' modes."""
         # Add headers scatter plot if needed
         if event_headers is not None:
             self._plot_headers(ax, event_headers)
