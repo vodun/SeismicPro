@@ -105,27 +105,30 @@ class WeatheringVelocity:
         bounds = {} if bounds is None else bounds
 
         self.offsets = offsets
-        self.max_offset = offsets.max()
         self.picking_times = picking_times
 
         self._check_values(init, bounds)
 
         self.init = {**self._calc_init_by_layers(n_layers), **self._calc_init_by_bounds(bounds), **init}
-        self.bounds = {**self._calc_bounds_by_init(self.init), **bounds}
+        self.bounds = {**self._calc_bounds_by_init(), **bounds}
         self._check_keys()
         self.n_layers = len(self.bounds) // 2
         self._valid_keys = self._get_valid_keys()
 
+        # ordering `init` and `bounds` dicts to put all values in the required order into the `minimize` function.
+        self.init = {key: self.init[key] for key in self._valid_keys}
+        self.bounds = {key: self.bounds[key] for key in self._valid_keys}
+
         # piecewise func variables
         self._piecewise_times = np.empty(self.n_layers + 1)
         self._piecewise_offsets = np.zeros(self.n_layers + 1)
-        self._piecewise_offsets[-1] = self.max_offset
+        self._piecewise_offsets[-1] = offsets.max()
 
         # Fitting piecewise linear regression
         constraints = {"type": "ineq", "fun": lambda x: (np.diff(x[1:self.n_layers]) >= 0).all(out=np.array(0))}
         minimizer_kwargs = {'method': 'SLSQP', 'constraints': constraints, **kwargs}
-        self._model_params = optimize.minimize(self.loss_piecewise_linear, x0=self._stack_values(self.init),
-                                               bounds=self._stack_values(self.bounds), **minimizer_kwargs)
+        self._model_params = optimize.minimize(self.loss_piecewise_linear, x0=list(self.init.values()), 
+                                               bounds=list(self.bounds.values()), **minimizer_kwargs)
         self.params = dict(zip(self._valid_keys, self._model_params.x))
 
     def __call__(self, offsets):
@@ -135,37 +138,42 @@ class WeatheringVelocity:
     def __getattr__(self, key):
         return self.params[key]
 
-    def loss_piecewise_linear(self, *args):
-        '''Returns the L1 loss between true picking times and a predicted piecewise linear function.
-
-        Method update piecewise linear attributes of a WeatheringVelocity instance and calculate L1 loss between
-        true picking times stored in the `self.picking_times` and a predicted piecewise linear function. Points for
-        the L1 loss calculated for the offsets corresponding with true picking times.
-        predicted_times = piecewise_linear(self.offsets).
-
-        Piecewise linear function defined by the given `args` should be list-like and have the following structure:
-            args[0] : t0
-            args[1:n_layers] : cross offsets points in meters.
-            args[n_layers:] : velocities of each weathering model layer in km/s.
-            Total lenght of args should be n_layers * 2.
-        The list-like initial is due to the `scipy.optimize.minimize`.
-
-        Parameters
-        ----------
-        args: tuple, list, or 1d ndarray
-            Parameters for a piecewise linear function.
-
-        Returns
-        -------
-        loss : float
-            L1 loss between true picking times and a predicted piecewise linear function.
-        '''
+    def _update_piecelinear_args(self, *args):
         args = args[0]
         self._piecewise_times[0] = args[0]
         self._piecewise_offsets[1:self.n_layers] = args[1:self.n_layers]
         for i in range(self.n_layers):
             self._piecewise_times[i + 1] = ((self._piecewise_offsets[i + 1] - self._piecewise_offsets[i]) /
                                              args[self.n_layers + i]) + self._piecewise_times[i]
+
+    def loss_piecewise_linear(self, *args):
+        # rework docs
+
+        # '''Returns the L1 loss between true picking times and a predicted piecewise linear function.
+
+        # Method update piecewise linear attributes of a WeatheringVelocity instance and calculate L1 loss between
+        # true picking times stored in the `self.picking_times` and a predicted piecewise linear function. Points for
+        # the L1 loss calculated for the offsets corresponding with true picking times.
+        # predicted_times = piecewise_linear(self.offsets).
+
+        # Piecewise linear function defined by the given `args` should be list-like and have the following structure:
+        #     args[0] : t0
+        #     args[1:n_layers] : cross offsets points in meters.
+        #     args[n_layers:] : velocities of each weathering model layer in km/s.
+        #     Total lenght of args should be n_layers * 2.
+        # The list-like initial is due to the `scipy.optimize.minimize`.
+
+        # Parameters
+        # ----------
+        # args: tuple, list, or 1d ndarray
+        #     Parameters for a piecewise linear function.
+
+        # Returns
+        # -------
+        # loss : float
+        #     L1 loss between true picking times and a predicted piecewise linear function.
+        # '''
+        self._update_piecelinear_args(*args)
         # TODO: add different loss function
         return np.abs(np.interp(self.offsets, self._piecewise_offsets, self._piecewise_times) -
                      self.picking_times).mean()
@@ -174,10 +182,6 @@ class WeatheringVelocity:
         '''Returns a valid list with keys based on `n_layers` or `self.n_layers`.'''
         n_layers = self.n_layers if n_layers is None else n_layers
         return ['t0'] + [f'x{i+1}' for i in range(n_layers - 1)] + [f'v{i+1}' for i in range(n_layers)]
-
-    def _stack_values(self, params_dict): # reshuffle params
-        '''Returns values of the sorted input dict. Dict sorted by order stored in `_valid_keys` attribute.'''
-        return np.stack([params_dict[key] for key in self._valid_keys], axis=0)
 
     def _fit_regressor(self, x, y, start_slope, start_time, fit_intercept):
         '''Returns parameters of a fitted linear regression.
@@ -223,17 +227,17 @@ class WeatheringVelocity:
         init : dict
             Estimated initial to fit the piecewise linear function.
         '''
-        if n_layers is None:
+        if n_layers is None or n_layers < 1:
             return {}
 
         # split cross offsets on an equal intervals
-        cross_offsets = np.linspace(0, self.max_offset, num=n_layers+1)
-        times = np.empty(n_layers)
+        cross_offsets = np.linspace(0, self.offsets.max(), num=n_layers+1)
         slopes = np.empty(n_layers)
+        times = np.empty(n_layers)
 
         min_picking_times = self.picking_times.min()  # normalization parameter.
-        start_time = 1  # base time. equal to minimum picking times with the `min_picking` normalization.
         start_slope = 2/3  # base slope corresponding velocity is 1,5 km/s (v = 1 / slope)
+        start_time = 1  # base time. equal to minimum picking times with the `min_picking` normalization.
         for i in range(n_layers):
             mask = (self.offsets > cross_offsets[i]) & (self.offsets <= cross_offsets[i + 1])
             if mask.sum() > 1:  # at least two point to fit
@@ -254,9 +258,9 @@ class WeatheringVelocity:
         '''Returns dict with a calculated init from a bounds dict.'''
         return {key: val1 + (val2 - val1) / 3 for key, (val1, val2) in bounds.items()}
 
-    def _calc_bounds_by_init(self, init):
+    def _calc_bounds_by_init(self):
         '''Returns dict with calculated bounds from a init dict.'''
-        return {key: [val / 2, val * 2] for key, val in init.items()}
+        return {key: [val / 2, val * 2] for key, val in self.init.items()}
 
     def _check_values(self, init, bounds):
         '''Check the values of an `init` and `bounds` dicts.'''
@@ -269,6 +273,10 @@ class WeatheringVelocity:
         reversed_bounds = {key: [left, right] for key, [left, right] in bounds.items() if left > right}
         if reversed_bounds:
             raise ValueError(f"Left bound is greater than right bound for {list(reversed_bounds.keys())} key(s).")
+        both_keys = {*init.keys()} & {*bounds.keys()}
+        outbounds_keys = {key for key in both_keys if init[key] < bounds[key][0] or init[key] > bounds[key][1]}
+        if outbounds_keys:
+            raise ValueError(f"Init parameters are out of the bounds for {outbounds_keys} key(s).")        
 
     def _check_keys(self):
         '''Check the `self.bounds` keys for a minimum quantity, an excessive, and an insufficient.'''
