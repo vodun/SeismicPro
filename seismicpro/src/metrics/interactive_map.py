@@ -3,7 +3,7 @@ from functools import partial
 from sklearn.neighbors import NearestNeighbors
 
 from ..utils import set_text_formatting, MissingModule
-from ..utils.interactive_plot_utils import InteractivePlot, ClickablePlot, PairedPlot, TEXT_LAYOUT, BUTTON_LAYOUT
+from ..utils.interactive_plot_utils import InteractivePlot, PairedPlot, TEXT_LAYOUT, BUTTON_LAYOUT
 
 # Safe import of modules for interactive plotting
 try:
@@ -121,8 +121,8 @@ class MetricMapPlot(PairedPlot):
         super().__init__()
 
     def construct_left_plot(self):
-        return ClickablePlot(figsize=self.figsize, plot_fn=self.plot_map, click_fn=self.click, allow_unclick=False,
-                             title=self.title, init_click_coords=self.init_click_coords)
+        return InteractivePlot(plot_fn=self.plot_map, click_fn=self.click, allow_unclick=False,
+                               init_click_coords=self.init_click_coords, title=self.title, figsize=self.figsize)
 
     def click():
         raise NotImplementedError

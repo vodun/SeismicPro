@@ -1,3 +1,5 @@
+"""Building blocks for interactive plots"""
+
 from time import time
 
 import matplotlib.pyplot as plt
@@ -40,26 +42,42 @@ TITLE_TEMPLATE = "{style} <b><p>{title}</p></b>"
 
 
 class InteractivePlot:
-    def __init__(self, title="", plot_fn=None, figsize=(4.5, 4.5), toolbar_position="left"):
+    def __init__(self, plot_fn=None, click_fn=None, allow_unclick=True, unclick_fn=None, init_click_coords=None,
+                 marker_params=None, title="", figsize=(4.5, 4.5), toolbar_position="left"):
         self.plot_fn = plot_fn
+        self.click_fn = click_fn
+        self.unclick_fn = unclick_fn
+        self.is_clickable = click_fn is not None
 
+        marker_params = {} if marker_params is None else marker_params
+        self.marker_params = {"color": "black", "marker": "+", **marker_params}
+        self.click_time = None
+        self.click_marker = None
+        self.init_click_coords = init_click_coords
+
+        # Construct a figure
+        with plt.ioff():
+            # Add tight_layout to always correctly show colorbar ticks
+            self.fig, self.ax = plt.subplots(figsize=figsize, tight_layout=True)  # pylint: disable=invalid-name
         toolbar_visible = (toolbar_position is not None)
         if toolbar_position is None:
             toolbar_position = "left"
-
-        with plt.ioff():
-            # Add tight_layout to always correctly show colorbar ticks
-            self.fig, self.ax = plt.subplots(figsize=figsize, tight_layout=True)
-
-        self.fig.interactive_plotter = self  # Always keep reference to self for all plots to remain interactive
         self.fig.canvas.header_visible = False
         self.fig.canvas.toolbar_visible = toolbar_visible
         self.fig.canvas.toolbar_position = toolbar_position
-        self.fig.canvas.mpl_connect("resize_event", self.on_resize)
 
+        # Setup event handlers
+        self.fig.interactive_plotter = self  # Always keep reference to self for all plots to remain interactive
+        self.fig.canvas.mpl_connect("resize_event", self.on_resize)
+        if self.is_clickable:
+            self.fig.canvas.mpl_connect("button_press_event", self.on_click)
+            self.fig.canvas.mpl_connect("button_release_event", self.on_release)
+            if allow_unclick:
+                self.fig.canvas.mpl_connect("key_press_event", self.on_press)
+
+        # Build plot box
         title = TITLE_TEMPLATE.format(style=TITLE_STYLE, title=title)
         self.title = widgets.HTML(value=title, layout=widgets.Layout(**TEXT_LAYOUT))
-
         self.header = self.create_header()
         self.box = widgets.VBox([self.header, self.fig.canvas])
 
@@ -76,7 +94,8 @@ class InteractivePlot:
         return self.title
 
     def _resize(self, width):
-        width = width / self.fig.canvas._dpi_ratio  # Remove when fixed in ipympl
+        # Remove this correction when fixed in ipympl
+        width = width / self.fig.canvas._dpi_ratio    # pylint: disable=protected-access
         width += 4  # Correction for main axes margins
         if self.fig.canvas.toolbar_visible and (self.fig.canvas.toolbar_position in {"left", "right"}):
             width += 44  #  Correction for an optional toolbar and its margins
@@ -85,48 +104,14 @@ class InteractivePlot:
     def on_resize(self, event):
         self._resize(event.width)
 
-    def set_title(self, title):
-        self.title.value = TITLE_TEMPLATE.format(style=TITLE_STYLE, title=title)
-
-    def plot(self, display_box=True):
-        self._resize(self.fig.get_figwidth() * self.fig.dpi)  # Init the width of the box
-        if self.plot_fn is not None:
-            self.plot_fn(ax=self.ax)
-        if display_box:
-            display(self.box)
-
-
-class ClickablePlot(InteractivePlot):
-    def __init__(self, *args, click_fn=None, allow_unclick=True, unclick_fn=None, init_click_coords=None,
-                 marker_params=None, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.click_fn = click_fn
-        self.unclick_fn = unclick_fn
-        marker_params = {} if marker_params is None else marker_params
-        self.marker_params = {"color": "black", "marker": "+", **marker_params}
-        self.click_time = None
-        self.click_scatter = None
-        self.init_click_coords = init_click_coords
-        self.fig.canvas.mpl_connect("button_press_event", self.on_click)
-        self.fig.canvas.mpl_connect("button_release_event", self.on_release)
-        if allow_unclick:
-            self.fig.canvas.mpl_connect("key_press_event", self.on_press)
-
-    def plot(self, display_box=True):
-        super().plot(display_box)
-        if self.init_click_coords is not None:
-            self._click(self.init_click_coords)
-
     def _click(self, coords):
-        if self.click_fn is not None:
-            coords = self.click_fn(coords)
-            if coords is None:  # Skip click processing
-                return
-        if self.click_scatter is not None:
-            self.click_scatter.remove()
-        self.click_scatter = self.ax.scatter(*coords, **self.marker_params)
-        # TODO: switch to blit
-        self.fig.canvas.draw_idle()  # TODO: revert to pure draw when cursor handling is fixed in ipympl
+        coords = self.click_fn(coords)
+        if coords is None:  # Ignore click
+            return
+        if self.click_marker is not None:
+            self.click_marker.remove()
+        self.click_marker = self.ax.scatter(*coords, **self.marker_params, zorder=10)
+        self.fig.canvas.draw_idle()  # TODO: switch to blit, switch to draw when cursor handling is fixed in ipympl
 
     def on_click(self, event):
         # Discard clicks outside the main axes
@@ -140,22 +125,33 @@ class ClickablePlot(InteractivePlot):
         if event.inaxes != self.ax:
             return
         if event.button == 1 and ((time() - self.click_time) < MAX_CLICK_TIME):
-            self.click_time = 0
+            self.click_time = None
             self._click((event.xdata, event.ydata))
 
     def on_press(self, event):
         if (event.inaxes != self.ax) or (event.key != "escape"):
             return
-        if self.click_scatter is not None:
+        if self.click_marker is not None:
             if self.unclick_fn is not None:
                 self.unclick_fn()
-            self.click_scatter.remove()
-            self.click_scatter = None
-            # TODO: switch to blit
-            self.fig.canvas.draw_idle()
+            self.click_marker.remove()
+            self.click_marker = None
+            self.fig.canvas.draw_idle()  # TODO: switch to blit
+
+    def set_title(self, title):
+        self.title.value = TITLE_TEMPLATE.format(style=TITLE_STYLE, title=title)
+
+    def plot(self, display_box=True):
+        self._resize(self.fig.get_figwidth() * self.fig.dpi)  # Init the width of the box
+        if self.plot_fn is not None:
+            self.plot_fn(ax=self.ax)
+        if self.is_clickable and self.init_click_coords is not None:
+            self._click(self.init_click_coords)
+        if display_box:
+            display(self.box)
 
 
-class ToggleClickablePlot(ClickablePlot):
+class ToggleClickablePlot(InteractivePlot):
     def __init__(self, *args, toggle_fn=None, toggle_icon=None, **kwargs):
         self.button = widgets.Button(icon=toggle_icon, layout=widgets.Layout(**BUTTON_LAYOUT))
         self.button.on_click(toggle_fn)

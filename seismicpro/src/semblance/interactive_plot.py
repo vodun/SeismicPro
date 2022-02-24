@@ -3,7 +3,7 @@ from functools import partial
 import numpy as np
 
 from ..utils import set_text_formatting, times_to_indices, MissingModule
-from ..utils.interactive_plot_utils import InteractivePlot, ClickablePlot, PairedPlot
+from ..utils.interactive_plot_utils import InteractivePlot, PairedPlot
 
 # Safe import of modules for interactive plotting
 try:
@@ -42,11 +42,11 @@ class SemblancePlot(PairedPlot):
             self.right.ax.sharey(self.left.ax)
 
     def construct_left_plot(self):
-        return ClickablePlot(figsize=self.figsize, title=self.title, plot_fn=self.plot_semblance, click_fn=self.click,
-                             unclick_fn=self.unclick)
+        return InteractivePlot(plot_fn=self.plot_semblance, click_fn=self.click, unclick_fn=self.unclick,
+                               title=self.title, figsize=self.figsize)
 
     def construct_right_plot(self):
-        return InteractivePlot(figsize=self.figsize, title="Gather", plot_fn=self.plot_gather,
+        return InteractivePlot(plot_fn=self.plot_gather, title="Gather", figsize=self.figsize,
                                toolbar_position="right")
 
     def click(self, coords):
