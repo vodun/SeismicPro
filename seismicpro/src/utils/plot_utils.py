@@ -1,4 +1,4 @@
-"""Utilily functions for visualization"""
+"""Utility functions for visualization"""
 
 # pylint: disable=invalid-name
 from functools import partial
@@ -27,22 +27,39 @@ def set_text_formatting(*args, **kwargs):
     return text_args, kwargs
 
 
-def add_colorbar(ax, img, colorbar, divider=None, y_ticker=None):
+def add_colorbar(ax, artist, colorbar, divider=None, y_ticker=None):
+    """Add a colorbar to the axes.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axes to add a colorbar to.
+    artist : matplotlib.cm.ScalarMappable
+        A mappable artist described by the colorbar.
+    colorbar : bool or dict
+        If `bool`, defines whether to add a colorbar with default parameters. If `dict`, defines extra keyword
+        arguments for `matplotlib.figure.Figure.colorbar`.
+    divider : mpl_toolkits.axes_grid1.axes_divider.AxesDivider, optional
+        A divider of `ax`. If given, will be used to create child axes for the colorbar.
+    y_ticker : dict, optional
+        Parameters to control text formatting of y ticks of the created colorbar.
+    """
     if not isinstance(colorbar, (bool, dict)):
         raise ValueError(f"colorbar must be bool or dict but {type(colorbar)} was passed")
     if colorbar is False:
-        return None
+        return
     colorbar = {} if colorbar is True else colorbar
     if divider is None:
         divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size="5%", pad=0.05)
-    cbar = ax.figure.colorbar(img, cax=cax, **colorbar)
+    ax.figure.colorbar(artist, cax=cax, **colorbar)
     if y_ticker is not None:
-        set_subplot_ticks(cax, **y_ticker)
-    return cbar
+        format_subplot_yticklabels(cax, **y_ticker)
 
 
-def set_subplot_ticks(ax, fontsize=None, fontfamily=None, fontweight=None, **kwargs):
+def format_subplot_yticklabels(ax, fontsize=None, fontfamily=None, fontweight=None, **kwargs):
+    """Set text formatting of y ticks. This method updates only font size, family and weight and does not support
+    tick rotation."""
     _ = kwargs
     for tick in ax.get_yticklabels():
         tick.set_fontsize(fontsize)

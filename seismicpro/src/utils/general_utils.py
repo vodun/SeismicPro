@@ -54,6 +54,8 @@ INDEX_TO_COORDS = {frozenset(to_list(key)): val for key, val in INDEX_TO_COORDS.
 
 
 def get_coords_cols(index_cols):
+    """Return headers columns to get coordinates from depending on the type of headers index. See the mapping in
+    `INDEX_TO_COORDS`."""
     coords_cols = INDEX_TO_COORDS.get(frozenset(index_cols))
     if coords_cols is None:
         raise KeyError(f"Unknown coordinates columns for {index_cols} index")
@@ -61,7 +63,7 @@ def get_coords_cols(index_cols):
 
 
 def validate_columns_exist(df, columns):
-    """Check if the dataframe contains all columns from `columns_list`."""
+    """Check if each column from `columns_list` is present either in the dataframe columns or its index."""
     df_cols = set(df.columns) | set(df.index.names)
     missing_cols = set(to_list(columns)) - df_cols
     if missing_cols:
@@ -70,14 +72,55 @@ def validate_columns_exist(df, columns):
 
 
 def get_columns(df, columns_list):
+    """Extract columns from `columns_list` from dataframe columns or its index as a 2d `np.ndarray`."""
     validate_columns_exist(df, columns_list)
-    # Avoid using direct pandas indexing to speed up multiple column selection from dataframes with a small
-    # number of rows
+    # Avoid using direct pandas indexing to speed up selection of multiple columns from small dataframes
     res = []
     for col in columns_list:
         col_values = df[col] if col in df.columns else df.index.get_level_values(col)
         res.append(col_values.values)
     return np.column_stack(res)
+
+
+@njit(nogil=True)
+def clip(data, data_min, data_max):
+    """Limit the `data` values.
+
+    `data` values outside [`data_min`, `data_max`] interval are clipped to the interval edges.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Data to clip.
+    data_min : int, float
+        Minimum value of the interval.
+    data_max : int, float
+        Maximum value of the interval.
+
+    Returns
+    -------
+    data : np.ndarray
+        Clipped data with the same shape.
+    """
+    data_shape = data.shape
+    data = data.reshape(-1)
+    for i in range(len(data)):  # pylint: disable=consider-using-enumerate
+        data[i] = min(max(data[i], data_min), data_max)
+    return data.reshape(data_shape)
+
+
+class MissingModule:
+    """Postpone raising missing module error for `module_name` until it is being actually accessed in code."""
+    def __init__(self, module_name):
+        self._module_name = module_name
+
+    def __getattr__(self, name):
+        _ = name
+        raise ImportError(f"No module named {self._module_name}")
+
+    def __call__(self, *args, **kwargs):
+        _ = args, kwargs
+        raise ImportError(f"No module named {self._module_name}")
 
 
 @njit(nogil=True)
@@ -235,33 +278,6 @@ def mute_gather(gather_data, muting_times, samples, fill_value):
     return gather_data.reshape(data_shape)
 
 
-@njit(nogil=True)
-def clip(data, data_min, data_max):
-    """Limit the `data` values.
-
-    `data` values outside [`data_min`, `data_max`] interval are clipped to the interval edges.
-
-    Parameters
-    ----------
-    data : np.ndarray
-        Data to clip.
-    data_min : int, float
-        Minimum value of the interval.
-    data_max : int, float
-        Maximum value of the interval.
-
-    Returns
-    -------
-    data : np.ndarray
-        Clipped data with the same shape.
-    """
-    data_shape = data.shape
-    data = data.reshape(-1)
-    for i in range(len(data)):  # pylint: disable=consider-using-enumerate
-        data[i] = min(max(data[i], data_min), data_max)
-    return data.reshape(data_shape)
-
-
 def make_origins(origins, data_shape, crop_shape, n_crops=1, stride=None):
     """Calculate an array of origins or reformat given origins to a 2d `np.ndarray`.
 
@@ -335,14 +351,3 @@ def _make_grid_origins(data_shape, crop_shape, stride):
     """
     max_origin = max(data_shape - crop_shape, 0)
     return np.array(list(range(0, max_origin, stride)) + [max_origin], dtype=np.int32)
-
-
-class MissingModule:
-    def __init__(self, module_name):
-        self._module_name = module_name
-
-    def __getattr__(self, name):
-        raise ImportError(f"No module named {self._module_name}")
-
-    def __call__(self, *args, **kwargs):
-        raise ImportError(f"No module named {self._module_name}")

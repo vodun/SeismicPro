@@ -1,4 +1,4 @@
-"""Miscellaneous utility functions"""
+"""Miscellaneous general utility functions"""
 
 from .general_utils import *
 from .file_utils import *

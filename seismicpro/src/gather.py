@@ -18,8 +18,8 @@ from .stacking_velocity import StackingVelocity, VelocityCube
 from .decorators import batch_method, plotter
 from .utils import normalization, correction
 from .utils import (to_list, get_columns, validate_columns_exist, convert_times_to_mask, convert_mask_to_pick,
-                    times_to_indices, mute_gather, make_origins, set_ticks, set_subplot_ticks, set_text_formatting,
-                    add_colorbar, get_coords_cols)
+                    times_to_indices, mute_gather, make_origins, set_ticks, format_subplot_yticklabels,
+                    set_text_formatting, add_colorbar, get_coords_cols)
 from .const import HDR_FIRST_BREAK
 
 
@@ -1291,7 +1291,7 @@ class Gather:
         top_ax.xaxis.set_visible(False)
         top_ax.yaxis.tick_right()
         top_ax.invert_yaxis()
-        set_subplot_ticks(top_ax, **y_ticker)
+        format_subplot_yticklabels(top_ax, **y_ticker)
         return top_ax
 
     def _get_x_ticks(self, axis_label):
