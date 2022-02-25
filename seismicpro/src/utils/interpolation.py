@@ -103,7 +103,7 @@ def piecewise_polynomial(n, new_samples, old_samples, leftmost_indices, data):
     res = np.empty((len(data), len(new_samples)), dtype=data.dtype)
 
     # calculate Lagrange basis polynomials only once: they are the same at given position for all the traces
-    polynomials = calculate_base_polynomials(n, new_samples, old_samples, leftmost_indices)
+    polynomials = calculate_basis_polynomials(n, new_samples, old_samples, leftmost_indices)
 
     for j in prange(len(data)):  # pylint: disable=not-an-iterable
         for i, ix in enumerate(leftmost_indices):
