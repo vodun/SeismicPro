@@ -1303,7 +1303,7 @@ class Gather:
 
 
     @batch_method(target="t")
-    def bandpass(self, n, low=None, high=None, window='hamm', **kwargs):
+    def bandpass_filter(self, n, low=None, high=None, window='hamm', **kwargs):
         """ docs """
         fs = 1000 / self.sample_rate
         if low is not None and high is not None:
@@ -1321,12 +1321,12 @@ class Gather:
     @batch_method(target="f")
     def resample(self, new_sample_rate, kind=3, anti_aliasing=True):
         """ if type(kind) == int, perform piecewise polynomial interpolation with polynomial degree = kind
-            if type(kind) == str, deligate interpolation to scipy.interpolate.intep1d.  
+            if type(kind) == str, deligate interpolation to scipy.interpolate.intep1d.
         """
         current_sample_rate = self.sample_rate
 
-        # in case new sample rate becomes more, i.e. performing downsample, 
-        # anti-aliasing filter is applied to preserve signal frequencies 
+        # in case new sample rate becomes more, i.e. performing downsample,
+        # anti-aliasing filter is applied to preserve signal frequencies
         if new_sample_rate > current_sample_rate and anti_aliasing:
             nyquist_frequency = 1000 / (2 * new_sample_rate)
 
@@ -1335,7 +1335,7 @@ class Gather:
             cutoff_ratio = 0.8
 
             # perform filerting
-            self.bandpass(n, high=cutoff_ratio * nyquist_frequency)
+            self.bandpass_filter(n, high=cutoff_ratio * nyquist_frequency)
 
         new_samples = np.arange(self.samples[0], self.samples[-1] + 1e-6, new_sample_rate, self.samples.dtype)
 
@@ -1343,11 +1343,10 @@ class Gather:
             # for given n, n + 1 points is required to construct polynomial, find the index of leftmsot one
             indices = np.ceil(times_to_indices(new_samples, self.samples, False))
             leftmost_indices = np.clip(indices - (kind + 1) / 2, 0, len(self.samples) - kind - 1).astype(np.int32)
-
-            resampled = piecewise_polynomial(kind, new_samples, self.samples, leftmost_indices, self.data)
+            data_resampled = piecewise_polynomial(kind, new_samples, self.samples, leftmost_indices, self.data)
         elif isinstance(kind, str):
-            resampled = scipy.interpolate.interp1d(self.samples, self.data.T, axis=0, kind=kind)(new_samples).T
+            data_resampled = scipy.interpolate.interp1d(self.samples, self.data, kind=kind)(new_samples)
 
-        self.data = resampled
+        self.data = data_resampled
         self.samples = new_samples
         return self

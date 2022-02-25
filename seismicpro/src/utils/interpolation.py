@@ -62,7 +62,7 @@ class interp1d:
         return res.item() if is_scalar_input else res
 
 
-@njit(nogil=True, fastmath=True)
+@njit(nogil=True)
 def binomial(n, r):
     """ Binomial coefficient, nCr,
     n! / (r! * (n - r)!) """
@@ -75,9 +75,10 @@ def binomial(n, r):
     return p
 
 
-@njit(nogil=True, fastmath=True)
-def calculate_lagrange_polynomials(n, new_samples, old_samples, leftmost_indices):
-    L = np.empty((len(new_samples), n + 1))
+@njit(nogil=True)
+def calculate_basis_polynomials(n, new_samples, old_samples, leftmost_indices):
+    """ Calculate the values of basis polynomials for Lagrange interpolation. """
+    polynomials = np.empty((len(new_samples), n + 1))
     binomials = [binomial(n, k) for k in range(n+1)]
 
     sample_rate = old_samples[1] - old_samples[0]
@@ -90,22 +91,22 @@ def calculate_lagrange_polynomials(n, new_samples, old_samples, leftmost_indices
 
         for k in range(n + 1):
             if y == k:
-                L[i, k] = 1
+                polynomials[i, k] = 1
             else:
-                L[i, k] = common_multiplier * binomials[k] * (-1) ** (n - k)  / (y - k)
-    return L
+                polynomials[i, k] = common_multiplier * binomials[k] * (-1) ** (n - k)  / (y - k)
+    return polynomials
 
 
-@njit(nogil=True, parallel=True, fastmath=True)
+@njit(nogil=True, parallel=True)
 def piecewise_polynomial(n, new_samples, old_samples, leftmost_indices, data):
-    """" docs """
+    """" Perform piecewise polynomial(with degree n) interpolation ."""
     res = np.empty((len(data), len(new_samples)), dtype=data.dtype)
 
-    # calculate Lagrange polynomials only once: they are the same at given position for all the traces
-    L = calculate_lagrange_polynomials(n, new_samples, old_samples, leftmost_indices)
+    # calculate Lagrange basis polynomials only once: they are the same at given position for all the traces
+    polynomials = calculate_base_polynomials(n, new_samples, old_samples, leftmost_indices)
 
     for j in prange(len(data)):  # pylint: disable=not-an-iterable
         for i, ix in enumerate(leftmost_indices):
-            # interpolate at given point: multiply Lagrange polynomials and correspondoing function values and sum
-            res[j, i] = np.sum(L[i] * data[j, ix: ix + n + 1])
+            # interpolate at given point: multiply base polynomials and correspondoing function values and sum
+            res[j, i] = np.sum(polynomials[i] * data[j, ix: ix + n + 1])
     return res
