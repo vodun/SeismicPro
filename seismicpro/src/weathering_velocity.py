@@ -96,6 +96,7 @@ class WeatheringVelocity:
         if any `init` values are negative.
         if any `bounds` values are negative.
         if left bound greater than right bound.
+        if init value is out of the bound interval.
         if passed `init` and/or `bounds` keys are insufficient or excessive.
         if an union of `init` and `bounds` keys less than 2 or `n_layers` less than 1.
     """
@@ -119,7 +120,7 @@ class WeatheringVelocity:
         self.init = {key: self.init[key] for key in self._valid_keys}
         self.bounds = {key: self.bounds[key] for key in self._valid_keys}
 
-        # piecewise func variables
+        # piecewise func parameters
         self._piecewise_times = np.empty(self.n_layers + 1)
         self._piecewise_offsets = np.zeros(self.n_layers + 1)
         self._piecewise_offsets[-1] = offsets.max()
@@ -138,15 +139,16 @@ class WeatheringVelocity:
     def __getattr__(self, key):
         return self.params[key]
 
-    def _update_piecelinear_args(self, *args):
-        args = args[0]
+    def _update_piecewise_params(self, args):
+        # args = args[0]
         self._piecewise_times[0] = args[0]
         self._piecewise_offsets[1:self.n_layers] = args[1:self.n_layers]
+
         for i in range(self.n_layers):
             self._piecewise_times[i + 1] = ((self._piecewise_offsets[i + 1] - self._piecewise_offsets[i]) /
                                              args[self.n_layers + i]) + self._piecewise_times[i]
 
-    def loss_piecewise_linear(self, *args):
+    def loss_piecewise_linear(self, args):
         # rework docs
 
         # '''Returns the L1 loss between true picking times and a predicted piecewise linear function.
@@ -173,7 +175,7 @@ class WeatheringVelocity:
         # loss : float
         #     L1 loss between true picking times and a predicted piecewise linear function.
         # '''
-        self._update_piecelinear_args(*args)
+        self._update_piecewise_params(args)
         # TODO: add different loss function
         return np.abs(np.interp(self.offsets, self._piecewise_offsets, self._piecewise_times) -
                      self.picking_times).mean()
@@ -245,8 +247,11 @@ class WeatheringVelocity:
                                                           self.picking_times[mask] / min_picking_times,
                                                           start_slope, start_time, fit_intercept=(i==0))
             else:
-                slopes[i], times[i] = start_slope, start_time
+                slopes[i] = start_slope
+                times[i] = start_time - start_slope * self.offsets.min() / min_picking_times
                 warnings.warn("Not enough first break points to fit an init params. Using a base estimation.")
+            slopes[i] = max(.167, slopes[i])  # move maximal velocity to 6 km/s
+            times[i] = max(0, times[i])  # move minimal time to zero
             start_slope = slopes[i] * (n_layers / (n_layers + 1)) # raise base velocity for next layers (v = 1 / slope)
             start_time = times[i] + (slopes[i] - start_slope) * (cross_offsets[i + 1] / min_picking_times)
         velocities = 1 / slopes
@@ -260,7 +265,9 @@ class WeatheringVelocity:
 
     def _calc_bounds_by_init(self):
         '''Returns dict with calculated bounds from a init dict.'''
-        return {key: [val / 2, val * 2] for key, val in self.init.items()}
+        bounds = {key: [val / 2, val * 2] for key, val in self.init.items()}
+        bounds['t0'] = [min(0, bounds['t0'][0]), max(200, bounds['t0'][1])]
+        return bounds
 
     def _check_values(self, init, bounds):
         '''Check the values of an `init` and `bounds` dicts.'''
