@@ -154,6 +154,11 @@ class StackingVelocity:
         self.crossline = crossline
         return self
 
+    @classmethod
+    def from_constant_velocity(cls, velocity, inline=None, crossline=None):
+        interpolator = interp1d([0, 10000], [velocity, velocity])
+        return cls.from_interpolator(interpolator, inline=inline, crossline=crossline)
+
     def dump(self, path):
         """Dump stacking velocities to a file in VFUNC format.
 
