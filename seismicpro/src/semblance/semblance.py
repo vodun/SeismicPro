@@ -15,7 +15,7 @@ from .interactive_plot import SemblancePlot
 class BaseSemblance:
     """Base class for vertical velocity semblance calculation.
 
-    Implements general computation logic and visualisation method.
+    Implements general computation logic and visualization method.
 
     Parameters
     ----------
@@ -31,7 +31,7 @@ class BaseSemblance:
         Seismic gather for which semblance calculation was called.
     gather_data : 2d np.ndarray
         Gather data for semblance calculation. The data is stored in a transposed form, compared to `Gather.data` due
-        to performance reasons, so that `gather_data.shape` is (trace_lenght, num_traces).
+        to performance reasons, so that `gather_data.shape` is (trace_length, num_traces).
     win_size : int
         Temporal window size for smoothing the semblance. Measured in samples.
     """
@@ -96,7 +96,7 @@ class BaseSemblance:
             A callable that calculates normal moveout corrected gather for given time and velocity values and a range
             of offsets.
         gather_data : 2d np.ndarray
-            Gather data for semblance calculation with (trace_lenght, num_traces) layout.
+            Gather data for semblance calculation with (trace_length, num_traces) layout.
         times : 1d np.ndarray
             Recording time for each trace value. Measured in milliseconds.
         offsets : array-like
@@ -225,11 +225,11 @@ class Semblance(BaseSemblance):
     the amplitude is taken for the time defined by :math:`t(i, v) = \sqrt{t_0^2 + \frac{l_j^2}{v^2}}`,
     where:
 
-    :math:`t_0` - start time of the hyperbola assosicated with time index `i`,
+    :math:`t_0` - start time of the hyperbola associated with time index `i`,
     :math:`l_j` - offset of the `j`-th trace,
     :math:`v` - velocity value.
 
-    The resulting matrix :math:`S(k, v)` has shape (trace_lenght, n_velocities) and contains vertical velocity
+    The resulting matrix :math:`S(k, v)` has shape (trace_length, n_velocities) and contains vertical velocity
     semblance values based on hyperbolas with each combination of the starting point :math:`k` and velocity :math:`v`.
 
     The algorithm for semblance calculation looks as follows:
@@ -269,7 +269,7 @@ class Semblance(BaseSemblance):
         Seismic gather for which semblance calculation was called.
     gather_data : 2d np.ndarray
         Gather data for semblance calculation. The data is stored in a transposed form, compared to `Gather.data` due
-        to performance reasons, so that `gather_data.shape` is (trace_lenght, num_traces).
+        to performance reasons, so that `gather_data.shape` is (trace_length, num_traces).
     velocities : 1d np.ndarray
         Range of velocity values for which semblance was calculated. Measured in meters/seconds.
     win_size : int
@@ -450,7 +450,7 @@ class ResidualSemblance(BaseSemblance):
     `stacking_velocity(t)` * (1 +- `relative_margin`).
 
     Since the length of this velocity range varies for different timestamps, the residual semblance values are
-    interpolated to obtain a rectangular matrix of size (trace_lenght, max(right_boundary - left_boundary)), where
+    interpolated to obtain a rectangular matrix of size (trace_length, max(right_boundary - left_boundary)), where
     `left_boundary` and `right_boundary` are arrays of left and right boundaries for all timestamps respectively.
 
     Thus the residual semblance is a function of time and relative velocity margin. Zero margin line corresponds to
@@ -497,7 +497,7 @@ class ResidualSemblance(BaseSemblance):
         Seismic gather for which residual semblance calculation was called.
     gather_data : 2d np.ndarray
         Gather data for semblance calculation. The data is stored in a transposed form, compared to `Gather.data` due
-        to performance reasons, so that `gather_data.shape` is (trace_lenght, num_traces).
+        to performance reasons, so that `gather_data.shape` is (trace_length, num_traces).
     velocities : 1d np.ndarray
         Range of velocity values for which residual semblance was calculated. Measured in meters/seconds.
     win_size : int

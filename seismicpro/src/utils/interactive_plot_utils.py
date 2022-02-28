@@ -4,7 +4,7 @@ from time import time
 
 import matplotlib.pyplot as plt
 
-from .general_utils import MissingModule
+from .general_utils import align_args, MissingModule
 
 # Safe import of modules for interactive plotting
 try:
@@ -39,20 +39,6 @@ BUTTON_LAYOUT = {
 
 TITLE_STYLE = "<style>p{word-wrap:normal; text-align:center; font-size:14px}</style>"
 TITLE_TEMPLATE = "{style} <b><p>{title}</p></b>"
-
-
-def align_args(reference_arg, *args):
-    from .general_utils import to_list
-    reference_arg = to_list(reference_arg)
-    processed_args = []
-    for arg in args:
-        arg = to_list(arg)
-        if len(arg) == 1:
-            arg *= len(reference_arg)
-        if len(arg) != len(reference_arg):
-            raise ValueError("Lengths of all passed arguments must match")
-        processed_args.append(arg)
-    return reference_arg, *processed_args
 
 
 class InteractivePlot:

@@ -36,7 +36,7 @@ def stat_segy(tmp_path_factory, request):
         return trace_data[TRACE_SEQUENCE_FILE - 1]
 
     path = tmp_path_factory.mktemp("stat") / "stat.sgy"
-    make_prestack_segy(path, survey_size=(4, 4), origin=(0, 0), sources_step=(3, 3), recievers_step=(1, 1),
+    make_prestack_segy(path, survey_size=(4, 4), origin=(0, 0), sources_step=(3, 3), receivers_step=(1, 1),
                         bin_size=(1, 1), activation_dist=(1, 1), n_samples=n_samples, sample_rate=2000, delay=0,
                         bar=False, trace_gen=gen_trace)
     return path, trace_data
@@ -46,7 +46,7 @@ class TestStats:
     """Test `collect_stats` method."""
 
     def test_no_mark_dead_warning(self, segy_path):
-        """Check that a warning is emmited when `collect_stats` is run before `mark_dead_races`"""
+        """Check that a warning is emitted when `collect_stats` is run before `mark_dead_races`"""
         survey = Survey(segy_path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset")
 
         with pytest.warns(RuntimeWarning):

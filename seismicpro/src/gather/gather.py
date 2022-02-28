@@ -13,14 +13,14 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .cropped_gather import CroppedGather
 from .muting import Muter
-from .semblance import Semblance, ResidualSemblance
-from .stacking_velocity import StackingVelocity, VelocityCube
-from .decorators import batch_method, plotter
-from .utils import normalization, correction
-from .utils import (to_list, get_columns, validate_columns_exist, convert_times_to_mask, convert_mask_to_pick,
-                    times_to_indices, mute_gather, make_origins, set_ticks, format_subplot_yticklabels,
-                    set_text_formatting, add_colorbar, get_coords_cols)
-from .const import HDR_FIRST_BREAK
+from .utils import (convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins,
+                    normalization)
+from ..utils import (to_list, get_columns, validate_columns_exist, set_ticks, format_subplot_yticklabels,
+                     set_text_formatting, add_colorbar, get_coords_cols, correction)
+from ..semblance import Semblance, ResidualSemblance
+from ..stacking_velocity import StackingVelocity, VelocityCube
+from ..decorators import batch_method, plotter
+from ..const import HDR_FIRST_BREAK
 
 
 class Gather:

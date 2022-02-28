@@ -162,7 +162,7 @@ def dump_vfunc(path, vfunc_list, encoding="UTF-8"):
     """Dump vertical functions in Paradigm Echos VFUNC format to a file.
 
     Each passed VFUNC is a tuple with 4 elements: `inline`, `crossline`, `x` and `y`, where `x` and `y` are 1d
-    `np.ndarray`s with the same length. For each VFUNC a block with the following strcture is created in the resulting
+    `np.ndarray`s with the same length. For each VFUNC a block with the following structure is created in the resulting
     file:
     - The first row contains 3 values: VFUNC [inline] [crossline],
     - All other rows represent pairs of `x` and corresponding `y` values: [x1] [y1] [x2] [y2] ...
@@ -195,7 +195,7 @@ def dump_vfunc(path, vfunc_list, encoding="UTF-8"):
 
 
 # pylint: disable=too-many-arguments, invalid-name
-def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_step=(50, 300), recievers_step=(100, 25),
+def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_step=(50, 300), receivers_step=(100, 25),
                        bin_size=(50, 50), activation_dist=(500, 500), n_samples=1500, sample_rate=2000, delay=0,
                        bar=True, trace_gen=None, **kwargs):
     """Make a prestack SEG-Y file with rectangular geometry. Its headers are filled with values inferred from survey
@@ -214,15 +214,15 @@ def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_st
     sources_step : tuple of ints, defaults to (50, 300)
         Distances between sources. (50, 300) are standard values indicating that source lines are positioned along `y`
         axis with 300 meters step, while sources in each line are located every 50 meters along `x` axis.
-    recievers_step : tuple of ints, defaults to (100, 25)
-        Distances between recievers. It is supposed that reciever lines span along `x` axis. By default distance
-        between reciever lines is 100 meters along `x` axis, and distance between recievers in lines is 25 meters
+    receivers_step : tuple of ints, defaults to (100, 25)
+        Distances between receivers. It is supposed that receiver lines span along `x` axis. By default distance
+        between receiver lines is 100 meters along `x` axis, and distance between receivers in lines is 25 meters
         along `y` axis.
     bin_size : tuple of ints, defaults to (50, 50)
         Size of a CDP bin in meters.
     activation_dist : tuple of ints, defaults to (500, 500)
-        Maximum distance from source to active reciever along each axis. Each source activates a rectanglar field of
-        recievers with source at its center and shape (2 * activation_dist[0], 2 * activation_dist[1])
+        Maximum distance from source to active receiver along each axis. Each source activates a rectanglar field of
+        receivers with source at its center and shape (2 * activation_dist[0], 2 * activation_dist[1])
     n_samples : int, defaults to 1500
         Number of samples in traces.
     sample_rate : int, defaults to 2000
@@ -232,7 +232,7 @@ def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_st
     bar : bool, optional, defaults to True
         Whether to show a progress bar.
     trace_gen : callable, defaults to None.
-        Callable to generate trace data. It recieves a dict of trace headers along with everything passed in `kwargs`.
+        Callable to generate trace data. It receives a dict of trace headers along with everything passed in `kwargs`.
         If `None`, traces are filled with gaussian noise.
         Passed headers: TRACE_SEQUENCE_FILE, FieldRecord, TraceNumber, SourceX, SourceY, Group_X, Group_Y, offset, CDP,
                         CDP_X, CDP_Y, INLINE_3D, CROSSLINE_3D, TRACE_SAMPLE_COUNT, TRACE_SAMPLE_INTERVAL,
@@ -247,33 +247,33 @@ def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_st
             return np.random.normal(size=TRACE_SAMPLE_COUNT).astype(np.float32)
 
     def generate_coordinates(origin, survey_size, step):
-        """ Support function to create coordinates of sources / recievers """
+        """ Support function to create coordinates of sources / receivers """
         x, y = np.mgrid[[slice(start, start+size, step) for start, size, step in zip(origin, survey_size, step)]]
         return np.vstack([x.ravel(), y.ravel()]).T
 
-    # Create coordinate points for sources and recievers
+    # Create coordinate points for sources and receivers
     source_coords = generate_coordinates(origin, survey_size, sources_step)
-    reciever_coords = generate_coordinates(origin, survey_size, recievers_step)
+    receiver_coords = generate_coordinates(origin, survey_size, receivers_step)
 
     # Create and fill up a SEG-Y spec
     spec = segyio.spec()
     spec.format = 5 # 5 stands for IEEE-floating point, which is the standard -
     spec.samples = np.arange(n_samples) * sample_rate / 1000
 
-    # Calculate matrix of active recievers for each source and get overall number of traces
+    # Calculate matrix of active receivers for each source and get overall number of traces
     activation_dist = np.array(activation_dist)
-    active_recievers_mask = np.all(np.abs(source_coords[:, None, :] - reciever_coords) <= activation_dist, axis=-1)
-    spec.tracecount = np.sum(active_recievers_mask)
+    active_receivers_mask = np.all(np.abs(source_coords[:, None, :] - receiver_coords) <= activation_dist, axis=-1)
+    spec.tracecount = np.sum(active_receivers_mask)
 
     with segyio.create(path, spec) as dst_file:
         # Loop over the survey and put all the data into the new SEG-Y file
         TRACE_SEQUENCE_FILE = 0
 
         for FieldRecord, source_location in enumerate(tqdm(source_coords, disable=not bar)):
-            active_recievers_coords = reciever_coords[active_recievers_mask[FieldRecord]]
+            active_receivers_coords = receiver_coords[active_receivers_mask[FieldRecord]]
 
             # TODO: maybe add trace with zero offset
-            for TraceNumber, reciever_location in enumerate(active_recievers_coords):
+            for TraceNumber, receiver_location in enumerate(active_receivers_coords):
                 TRACE_SEQUENCE_FILE += 1
                 # Create header
                 header = dst_file.header[TRACE_SEQUENCE_FILE-1]
@@ -282,11 +282,11 @@ def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_st
                 trace_header_dict['FieldRecord'] = FieldRecord
                 trace_header_dict['TraceNumber'] = TraceNumber
                 trace_header_dict['SourceX'], trace_header_dict['SourceY'] = source_location
-                trace_header_dict['GroupX'], trace_header_dict['GroupY'] = reciever_location
-                trace_header_dict['offset'] = int(np.sum((source_location - reciever_location)**2)**0.5)
+                trace_header_dict['GroupX'], trace_header_dict['GroupY'] = receiver_location
+                trace_header_dict['offset'] = int(np.sum((source_location - receiver_location)**2)**0.5)
 
                 # Fill bin-related headers
-                midpoint = (source_location + reciever_location) / 2
+                midpoint = (source_location + receiver_location) / 2
                 trace_header_dict['INLINE_3D'], trace_header_dict['CROSSLINE_3D'] = (midpoint // bin_size).astype(int)
                 trace_header_dict['CDP_X'] = trace_header_dict['INLINE_3D'] * bin_size[0] + bin_size[0] // 2
                 trace_header_dict['CDP_Y'] = trace_header_dict['CROSSLINE_3D'] * bin_size[1] + bin_size[1] // 2

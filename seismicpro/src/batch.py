@@ -6,12 +6,12 @@ from functools import partial
 import numpy as np
 import matplotlib.pyplot as plt
 
-from .gather import Gather
-from .cropped_gather import CroppedGather
+from .gather import Gather, CroppedGather
+from .gather.utils.crop_utils import make_origins
 from .semblance import Semblance, ResidualSemblance
 from .metrics import define_metric, PipelineMetric, MetricsAccumulator
 from .decorators import create_batch_methods, apply_to_each_component
-from .utils import to_list, as_dict, save_figure, make_origins
+from .utils import to_list, as_dict, save_figure
 from ..batchflow import action, inbatch_parallel, save_data_to, Batch, DatasetIndex, NamedExpression
 
 
