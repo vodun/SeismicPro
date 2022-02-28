@@ -4,7 +4,7 @@ import pandas as pd
 from sklearn.neighbors import NearestNeighbors
 
 from ..utils import set_ticks, set_text_formatting, MissingModule
-from ..utils.interactive_plot_utils import InteractivePlot, ToggleClickablePlot, PairedPlot
+from ..utils.interactive_plot_utils import InteractivePlot, PairedPlot
 
 # Safe import of modules for interactive plotting
 try:
@@ -32,7 +32,7 @@ class SurveyGeometryPlot(PairedPlot):
         self.sort_by = sort_by
         self.figsize = figsize
 
-        # Calculate source and group indices to speed up gather selection and shot/receiver nearest neighbours to
+        # Calculate source and group indices to speed up gather selection and shot/receiver nearest neighbors to
         # project a click on the closest one
         source_params = self._process_survey(survey, ["SourceX", "SourceY"])
         self.source_ix, self.source_x, self.source_y, self.source_neighbors = source_params
@@ -44,15 +44,13 @@ class SurveyGeometryPlot(PairedPlot):
         y_lim = self._get_limits(self.source_y, self.group_y)
         self.plot_map = partial(self._plot_map, keep_aspect=keep_aspect, x_lim=x_lim, y_lim=y_lim, x_ticker=x_ticker,
                                 y_ticker=y_ticker, **self.map_kwargs)
-
-        self.is_shot_view = True
         self.affected_scatter = None
 
         super().__init__()
 
     def construct_left_plot(self):
-        return ToggleClickablePlot(figsize=self.figsize, plot_fn=self.plot_map, click_fn=self.click,
-                                   unclick_fn=self.unclick, toggle_fn=self.toggle_view, toggle_icon=self.toggle_icon)
+        return InteractivePlot(plot_fn=[self.plot_map, self.plot_map], click_fn=self.click, unclick_fn=self.unclick,
+                               title=["Shot map", "Receiver map"])
 
     def construct_right_plot(self):
         right = InteractivePlot(figsize=self.figsize, toolbar_position="right")
@@ -75,7 +73,9 @@ class SurveyGeometryPlot(PairedPlot):
         return [min_coord - margin, max_coord + margin]
 
     def _plot_map(self, ax, keep_aspect, x_lim, y_lim, x_ticker, y_ticker, **kwargs):
-        self.left.set_title(self.map_title)
+        self.right.ax.clear()
+        self.right.box.layout.visibility = "hidden"
+
         ax.scatter(self.coord_x, self.coord_y, color=self.main_color, marker=self.main_marker, **kwargs)
         ax.set_xlim(*x_lim)
         ax.set_ylim(*y_lim)
@@ -84,6 +84,10 @@ class SurveyGeometryPlot(PairedPlot):
             ax.set_aspect("equal", adjustable="box")
         set_ticks(ax, "x", self.map_x_label, **x_ticker)
         set_ticks(ax, "y", self.map_y_label, **y_ticker)
+
+    @property
+    def is_shot_view(self):
+        return self.left.current_view == 0
 
     @property
     def index(self):
@@ -120,14 +124,6 @@ class SurveyGeometryPlot(PairedPlot):
     @property
     def aux_marker(self):
         return "v" if self.is_shot_view else "*"
-
-    @property
-    def toggle_icon(self):
-        return "chevron-up" if self.is_shot_view else "chevron-down"
-
-    @property
-    def map_title(self):
-        return "Shot map" if self.is_shot_view else "Receiver map"
 
     @property
     def map_x_label(self):
@@ -168,14 +164,5 @@ class SurveyGeometryPlot(PairedPlot):
         if self.affected_scatter is not None:
             self.affected_scatter.remove()
             self.affected_scatter = None
-        self.right.ax.clear()
-        self.right.box.layout.visibility = "hidden"
-
-    def toggle_view(self, event):
-        _ = event
-        self.is_shot_view = not self.is_shot_view
-        self.left.button.icon = self.toggle_icon
-        self.left.ax.clear()
-        self.plot_map(ax=self.left.ax)
         self.right.ax.clear()
         self.right.box.layout.visibility = "hidden"
