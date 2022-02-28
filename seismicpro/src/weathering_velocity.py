@@ -101,12 +101,13 @@ class WeatheringVelocity:
         if an union of `init` and `bounds` keys less than 2 or `n_layers` less than 1.
     """
 
-    def __init__(self, offsets, picking_times, n_layers=None, init=None, bounds=None, **kwargs):
+    def __init__(self, offsets, picking_times, n_layers=None, init=None, bounds=None, loss='L1', **kwargs):
         init = {} if init is None else init
         bounds = {} if bounds is None else bounds
 
         self.offsets = offsets
         self.picking_times = picking_times
+        self.loss = loss
 
         self._check_values(init, bounds)
 
@@ -177,8 +178,21 @@ class WeatheringVelocity:
         # '''
         self._update_piecewise_params(args)
         # TODO: add different loss function
-        return np.abs(np.interp(self.offsets, self._piecewise_offsets, self._piecewise_times) -
-                     self.picking_times).mean()
+        diff = np.interp(self.offsets, self._piecewise_offsets, self._piecewise_times) - self.picking_times
+        if self.loss == 'L1':
+            return np.abs(diff).mean()
+        if self.loss == 'huber':  # by scipy docs for `optimize_curve`
+            mask = np.abs(diff) < 1
+            loss = np.mean(np.abs(diff[mask])) if mask.sum() > 0 else 0
+            loss += np.mean((2 * (np.abs(diff[~mask]) ** .5) - 1)) if mask.sum() < mask.shape[0] else 0
+            return  loss
+        if self.loss == 'soft_L1':
+            return 2 * ((1 + np.abs(diff)) ** .5 - 1)
+        if self.loss == 'cauchy':
+            return np.log(np.abs(np.diff) + 1)
+
+        raise ValueError('Unknown loss type for `loss_piecewise_linear`.')
+
 
     def _get_valid_keys(self, n_layers=None):
         '''Returns a valid list with keys based on `n_layers` or `self.n_layers`.'''
