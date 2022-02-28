@@ -196,7 +196,6 @@ class InteractivePlot:
     def set_view(self, view):
         if view < 0 or view >= self.n_views:
             raise ValueError("Unknown view")
-        self.ax.clear()
         self.current_view = view
         self.redraw()
 
@@ -210,6 +209,7 @@ class InteractivePlot:
         self.title_widget.value = TITLE_TEMPLATE.format(style=TITLE_STYLE, title=title)
 
     def redraw(self):
+        self.ax.clear()
         if self.plot_fn is not None:
             self.plot_fn(ax=self.ax)
         title = self.title

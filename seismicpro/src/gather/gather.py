@@ -11,8 +11,9 @@ import numpy as np
 import pandas as pd
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-from .cropped_gather import CroppedGather
 from .muting import Muter
+from .cropped_gather import CroppedGather
+from .interactive_plot import InteractiveNMOCorrection
 from .utils import (convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins,
                     normalization)
 from ..utils import (to_list, get_columns, validate_columns_exist, set_ticks, format_subplot_yticklabels,
@@ -1187,7 +1188,7 @@ class Gather:
         add_colorbar(ax, img, colorbar, divider, y_ticker)
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
-    def _plot_wiggle(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src='time',
+    def _plot_wiggle(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src="time", norm_tracewise=True,
                      std=0.5, color="black", event_headers=None, top_header=None, **kwargs):
         """Plot the gather as an amplitude vs time plot for each trace."""
         # Make the axis divisible to further plot colorbar and header subplot
@@ -1200,7 +1201,11 @@ class Gather:
             raise ValueError('The number of items in `color` must match the number of plotted traces')
 
         y_coords = np.arange(self.n_samples)
-        traces = std * (self.data - self.data.mean(axis=1, keepdims=True)) / (np.std(self.data) + 1e-10)
+        std_axis = 1 if norm_tracewise else None
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            traces = std * ((self.data - np.nanmean(self.data, axis=1, keepdims=True)) /
+                            (np.nanstd(self.data, axis=std_axis, keepdims=True) + 1e-10))
         for i, (trace, col) in enumerate(zip(traces, color)):
             ax.plot(i + trace, y_coords, color=col, **kwargs)
             ax.fill_betweenx(y_coords, i, i + trace, where=(trace > 0), color=col)
@@ -1320,3 +1325,6 @@ class Gather:
         else:
             raise ValueError(f"Unknown axis {axis}")
         set_ticks(ax, axis, tick_labels=tick_labels, **{"label": tick_src, **ticker})
+
+    def plot_nmo_correction(self, min_vel=1500, max_vel=6000, figsize=(6, 4.5), **kwargs):
+        InteractiveNMOCorrection(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, **kwargs).plot()
