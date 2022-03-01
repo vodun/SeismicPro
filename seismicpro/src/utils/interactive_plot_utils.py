@@ -208,8 +208,9 @@ class InteractivePlot:
     def set_title(self, title):
         self.title_widget.value = TITLE_TEMPLATE.format(style=TITLE_STYLE, title=title)
 
-    def redraw(self):
-        self.ax.clear()
+    def redraw(self, clear=True):
+        if clear:
+            self.ax.clear()
         if self.plot_fn is not None:
             self.plot_fn(ax=self.ax)
         title = self.title
@@ -218,7 +219,7 @@ class InteractivePlot:
         self.set_title(title)
 
     def plot(self, display_box=True):
-        self.redraw()
+        self.redraw(clear=False)
         if self.is_clickable and self.init_click_coords is not None:
             self._click(self.init_click_coords)
         # Init the width of the box
