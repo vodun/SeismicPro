@@ -121,8 +121,8 @@ class MetricMapPlot(PairedPlot):
         super().__init__()
 
     def construct_left_plot(self):
-        return InteractivePlot(plot_fn=self.plot_map, click_fn=self.click, allow_unclick=False,
-                               init_click_coords=self.init_click_coords, title=self.title, figsize=self.figsize)
+        return InteractivePlot(plot_fn=self.plot_map, click_fn=self.click, init_click_coords=self.init_click_coords,
+                               title=self.title, figsize=self.figsize)
 
     def click():
         raise NotImplementedError
