@@ -4,11 +4,11 @@ import numpy as np
 import pandas as pd
 from matplotlib import colors as mcolors
 
-from .metrics import Metric, PlottableMetric, PartialMetric
+from .metrics import Metric, PipelineMetric, PlottableMetric, PartialMetric
 from .interactive_map import ScatterMapPlot, BinarizedMapPlot
 from .utils import parse_coords, parse_metric_values
 from ..decorators import plotter
-from ..utils import add_colorbar, set_ticks, set_text_formatting
+from ..utils import to_list, add_colorbar, set_ticks, set_text_formatting
 
 
 class BaseMetricMap:
@@ -89,18 +89,21 @@ class BaseMetricMap:
         set_ticks(ax, "x", self.coords_cols[0], self.x_tick_labels, **x_ticker)
         set_ticks(ax, "y", self.coords_cols[1], self.y_tick_labels, **y_ticker)
 
-    def plot(self, *, interactive=False, plot_on_click=None, **kwargs):
+    def plot(self, *, interactive=False, plot_on_click=None, batch_src="index", pipeline=None, plot_component=None,
+             **kwargs):
         if not interactive:
             return self._plot(**kwargs)
 
-        # Instantiate the metric if it hasn't been done yet
-        if isinstance(self.metric, (type, PartialMetric)):
-            self.metric = self.metric()
-        if plot_on_click is None and not isinstance(self.metric, PlottableMetric):
-            raise ValueError("plot_on_click must be passed if not defined in the metric class")
-        if plot_on_click is None:
-            plot_on_click = self.plot_on_click
-        return self.interactive_map_class(self, plot_on_click, **kwargs).plot()
+        if plot_on_click is not None:
+            plot_on_click_list = to_list(plot_on_click)
+        else:
+            # Instantiate the metric if it hasn't been done yet
+            if isinstance(self.metric, (type, PartialMetric)):
+                self.metric = self.metric()
+            if not isinstance(self.metric, PlottableMetric):
+                raise ValueError("plot_on_click must be passed if metric class is not plottable")
+            plot_on_click_list = self.metric.get_views(batch_src, pipeline, plot_component)
+        return self.interactive_map_class(self, plot_on_click_list, **kwargs).plot()
 
     def aggregate(self, agg=None, bin_size=None):
         return self.base_map_cls(self.metric_data[self.coords_cols], self.metric_data[self.metric_name],

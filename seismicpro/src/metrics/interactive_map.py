@@ -2,7 +2,7 @@ from functools import partial
 
 from sklearn.neighbors import NearestNeighbors
 
-from ..utils import set_text_formatting, MissingModule
+from ..utils import to_list, set_text_formatting, MissingModule
 from ..utils.interactive_plot_utils import InteractivePlot, PairedPlot, TEXT_LAYOUT, BUTTON_LAYOUT
 
 # Safe import of modules for interactive plotting
@@ -17,7 +17,19 @@ except ImportError:
     display = MissingModule("IPython.display")
 
 
-class MapBinPlot(InteractivePlot):
+class MapCoordsPlot(InteractivePlot):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.current_coords = None
+
+    @property
+    def plot_fn(self):
+        if self.current_coords is None:
+            return None
+        return partial(super().plot_fn, coords=self.current_coords)
+
+
+class MapBinPlot(MapCoordsPlot):
     def __init__(self, *args, options=None, is_lower_better=True, **kwargs):
         self.is_desc = is_lower_better
         self.options = None
@@ -38,9 +50,7 @@ class MapBinPlot(InteractivePlot):
         if options is not None:
             self.update_state(0, options)
 
-    def create_header(self):
-        if self.fig.canvas.toolbar_position == "right":
-            return widgets.HBox([self.prev, self.drop, self.next, self.sort])
+    def construct_header(self):
         return widgets.HBox([self.sort, self.prev, self.drop, self.next])
 
     @property
@@ -57,6 +67,7 @@ class MapBinPlot(InteractivePlot):
             return
         self.options = new_options
         self.curr_option = option_ix
+        self.current_coords = self.options.index[self.curr_option]
 
         # Unobserve dropdown widget to simultaneously update both options and the currently selected option
         self.drop.unobserve(self.select_coords, names="value")
@@ -70,7 +81,7 @@ class MapBinPlot(InteractivePlot):
         self.next.disabled = (self.curr_option == (len(self.options) - 1))
 
         if redraw:
-            self._plot()
+            self.redraw()
 
     def reverse_coords(self, event):
         _ = event
@@ -90,17 +101,6 @@ class MapBinPlot(InteractivePlot):
         _ = change
         self.update_state(self.drop.index)
 
-    def _plot(self):
-        if self.plot_fn is not None:
-            self.ax.clear()
-            self.plot_fn(self.options.index[self.curr_option], ax=self.ax)
-
-    def plot(self, display_box=True):
-        self._resize(self.fig.get_figwidth() * self.fig.dpi)  # Init the width of the box
-        self._plot()
-        if display_box:
-            display(self.box)
-
 
 class MetricMapPlot(PairedPlot):
     def __init__(self, metric_map, plot_on_click, title=None, x_ticker=None, y_ticker=None, is_lower_better=None,
@@ -116,7 +116,7 @@ class MetricMapPlot(PairedPlot):
         self.title = metric_map.plot_title if title is None else title
         self.plot_map = partial(metric_map.plot, title="", x_ticker=x_ticker, y_ticker=y_ticker,
                                 is_lower_better=is_lower_better, **kwargs)
-        self.plot_on_click = partial(plot_on_click, **plot_on_click_kwargs)
+        self.plot_on_click = [partial(plot_fn, **plot_on_click_kwargs) for plot_fn in to_list(plot_on_click)]
         self.init_click_coords = metric_map.get_worst_coords(is_lower_better)
         super().__init__()
 
@@ -134,15 +134,17 @@ class ScatterMapPlot(MetricMapPlot):
         self.coords_neighbors = NearestNeighbors(n_neighbors=1).fit(self.coords)
         super().__init__(metric_map, plot_on_click, **kwargs)
 
+    def right_title(self):
+        return f"{self.metric_map.map_data[self.right.current_coords]:.05f} metric at {self.right.current_coords}"
+
     def construct_right_plot(self):
-        return InteractivePlot(toolbar_position="right")
+        return MapCoordsPlot(plot_fn=self.plot_on_click, title=self.right_title, toolbar_position="right")
 
     def click(self, coords):
         coords_ix = self.coords_neighbors.kneighbors([coords], return_distance=False).item()
         coords = tuple(self.coords[coords_ix])
-        self.right.set_title(f"{self.metric_map.map_data[coords]:.05f} metric at {coords}")
-        self.right.ax.clear()
-        self.plot_on_click(coords, ax=self.right.ax)
+        self.right.current_coords = coords
+        self.right.redraw()
         return coords
 
 
