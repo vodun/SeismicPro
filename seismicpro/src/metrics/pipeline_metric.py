@@ -10,17 +10,17 @@ from ..utils import to_list
 from ...batchflow import Pipeline
 
 
-def coords(method):
+def pass_coords(method):
     method.args_unpacking_mode = "coords"
     return staticmethod(method)
 
 
-def batch(method):
+def pass_batch(method):
     method.args_unpacking_mode = "batch"
     return staticmethod(method)
 
 
-def calc_args(method):
+def pass_calc_args(method):
     method.args_unpacking_mode = "calc_args"
     return staticmethod(method)
 
