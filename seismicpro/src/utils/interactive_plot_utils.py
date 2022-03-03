@@ -81,7 +81,8 @@ class InteractivePlot:
 
         # Build plot box
         self.title_widget = widgets.HTML(value="", layout=widgets.Layout(**TEXT_LAYOUT))
-        self.view_button = widgets.Button(icon="exchange", layout=widgets.Layout(**BUTTON_LAYOUT))
+        self.view_button = widgets.Button(icon="exchange", tooltip="Switch to the next view",
+                                          layout=widgets.Layout(**BUTTON_LAYOUT))
         self.view_button.on_click(self.on_view_toggle)
         self.header = self.construct_header()
         self.toolbar = self.construct_toolbar()
