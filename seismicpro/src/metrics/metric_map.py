@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from matplotlib import colors as mcolors
 
-from .metrics import Metric, PipelineMetric, PlottableMetric, PartialMetric
+from .metrics import Metric, PlottableMetric, PartialMetric
 from .interactive_map import ScatterMapPlot, BinarizedMapPlot
 from .utils import parse_coords, parse_metric_values
 from ..decorators import plotter
@@ -103,6 +103,8 @@ class BaseMetricMap:
             if not isinstance(self.metric, PlottableMetric):
                 raise ValueError("plot_on_click must be passed if metric class is not plottable")
             plot_on_click_list = self.metric.get_views(batch_src, pipeline, plot_component)
+        if len(plot_on_click_list) == 0:
+            raise ValueError("At least one click view must be specified")
         return self.interactive_map_class(self, plot_on_click_list, **kwargs).plot()
 
     def aggregate(self, agg=None, bin_size=None):
