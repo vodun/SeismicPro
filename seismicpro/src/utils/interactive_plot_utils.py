@@ -118,7 +118,10 @@ class InteractivePlot:
 
     @property
     def title(self):
-        return self.title_list[self.current_view]
+        title = self.title_list[self.current_view]
+        if callable(title):
+            return title()
+        return title
 
     def construct_buttons(self):
         if self.n_views == 1:
@@ -206,18 +209,15 @@ class InteractivePlot:
             self._unclick()
         self.set_view((self.current_view + 1) % self.n_views)
 
-    def set_title(self, title):
-        self.title_widget.value = TITLE_TEMPLATE.format(style=TITLE_STYLE, title=title)
+    def set_title(self):
+        self.title_widget.value = TITLE_TEMPLATE.format(style=TITLE_STYLE, title=self.title)
 
     def redraw(self, clear=True):
         if clear:
             self.ax.clear()
+        self.set_title()
         if self.plot_fn is not None:
             self.plot_fn(ax=self.ax)
-        title = self.title
-        if callable(title):
-            title = title()
-        self.set_title(title)
 
     def plot(self, display_box=True):
         self.redraw(clear=False)
