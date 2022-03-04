@@ -38,7 +38,7 @@ class StackingVelocityMetric(PlottableMetric):
 
     def plot(self, window, ax, x_ticker, y_ticker):
         for vel in window:
-            ax.plot(vel, self.times)
+            ax.plot(vel, self.times, color="tab:blue")
         ax.invert_yaxis()
         set_ticks(ax, "x", "Stacking velocity (m/s)", **x_ticker)
         set_ticks(ax, "y", "Time", **y_ticker)
@@ -76,7 +76,7 @@ class IsDecreasing(StackingVelocityMetric):
             # Process each continuous decreasing section independently
             for section in np.split(decreasing_pos, np.where(np.diff(decreasing_pos) != 1)[0] + 1):
                 section_slice = slice(section[0], section[-1] + 2)
-                ax.plot(stacking_velocity[section_slice], self.times[section_slice], color="red")
+                ax.plot(stacking_velocity[section_slice], self.times[section_slice], color="tab:red")
 
 
 class MaxAccelerationDeviation(StackingVelocityMetric):
@@ -103,7 +103,7 @@ class MaxAccelerationDeviation(StackingVelocityMetric):
 
         # Plot a mean-acceleration line
         stacking_velocity = window[0]
-        ax.plot([stacking_velocity[0], stacking_velocity[-1]], [self.times[0], self.times[-1]], "--")
+        ax.plot([stacking_velocity[0], stacking_velocity[-1]], [self.times[0], self.times[-1]], "--", color="tab:red")
 
 
 class MaxStandardDeviation(StackingVelocityMetric):
@@ -143,6 +143,10 @@ class MaxRelativeVariation(StackingVelocityMetric):
             current_rel_var = abs(np.mean(window[1:, i]) - window[0, i]) / window[0, i]
             max_rel_var = max(max_rel_var, current_rel_var)
         return max_rel_var
+
+    def plot(self, window, ax, x_ticker, y_ticker):
+        super().plot(window[1:], ax, x_ticker, y_ticker)
+        ax.plot(window[0], self.times, color="tab:red")
 
 
 VELOCITY_QC_METRICS = [IsDecreasing, MaxAccelerationDeviation, MaxStandardDeviation, MaxRelativeVariation]
