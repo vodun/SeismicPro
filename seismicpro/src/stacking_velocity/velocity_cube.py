@@ -264,7 +264,7 @@ class VelocityCube:
         times = np.array(times)
         velocities = self.interpolator.interpolate(coords, times)
 
-        # Select all neighbouring stacking velocities for each of coords
+        # Select all neighboring stacking velocities for each of coords
         if n_workers is None:
             n_workers = os.cpu_count()
         coords_neighbors = NearestNeighbors(radius=win_radius, n_jobs=n_workers).fit(coords)

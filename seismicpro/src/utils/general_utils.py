@@ -26,7 +26,6 @@ def unique_indices_sorted(arr):
 
 
 def align_args(reference_arg, *args):
-    from .general_utils import to_list
     reference_arg = to_list(reference_arg)
     processed_args = []
     for arg in args:

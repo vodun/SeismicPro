@@ -7,7 +7,7 @@ import pandas as pd
 from .metrics import Metric, PartialMetric
 from .metric_map import MetricMap
 from .utils import parse_coords
-from ..utils import to_list
+from ..utils import to_list, align_args
 from ...batchflow.models.metrics import Metrics
 
 
@@ -74,21 +74,14 @@ class MetricsAccumulator(Metrics):
         self.metrics_list += other.metrics_list
         self.metrics_types = other.metrics_types
 
-    def _process_aggregation_args(self, metrics, *args):
+    def _parse_requested_metrics(self, metrics):
         is_single_metric = isinstance(metrics, str) or metrics is None and len(self.metrics_names) == 1
         metrics = to_list(metrics) if metrics is not None else self.metrics_names
-        processed_args = []
-        for arg in args:
-            arg = to_list(arg)
-            if len(arg) == 1:
-                arg *= len(metrics)
-            if len(arg) != len(metrics):
-                raise ValueError("Lengths of all passed arguments must match the length of metrics to calculate")
-            processed_args.append(arg)
-        return metrics, *processed_args, is_single_metric
+        return metrics, is_single_metric
 
     def evaluate(self, metrics=None, agg="mean"):
-        metrics, agg, is_single_metric = self._process_aggregation_args(metrics, agg)
+        metrics, is_single_metric = self._parse_requested_metrics(metrics)
+        metrics, agg = align_args(metrics, agg)
         metrics_vals = [self.metrics[metric].dropna().explode().agg(metric_agg)
                         for metric, metric_agg in zip(metrics, agg)]
         if is_single_metric:
@@ -133,7 +126,8 @@ class MetricsAccumulator(Metrics):
             If `agg_func` is `str` and is not in DEFAULT_METRICS.
             If `agg_func` is not wrapped with `njit` decorator.
         """
-        metrics, agg, bin_size, is_single_metric = self._process_aggregation_args(metrics, agg, bin_size)
+        metrics, is_single_metric = self._parse_requested_metrics(metrics)
+        metrics, agg, bin_size = align_args(metrics, agg, bin_size)
 
         coords_to_indices = None
         if self.stores_indices:
