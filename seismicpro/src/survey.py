@@ -5,6 +5,7 @@ import os
 import warnings
 from copy import copy, deepcopy
 from textwrap import dedent
+import math
 
 import segyio
 import numpy as np
@@ -384,7 +385,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             self.load_trace(buf=trace, index=pos, limits=limits, trace_length=n_samples)
             trace_min, trace_max, *_ = calculate_stats(trace)
 
-            if np.isclose(trace_min, trace_max):
+            if math.isclose(trace_min, trace_max):
                 dead_indices.append(tr_index)
 
         self.n_dead_traces = len(dead_indices)
