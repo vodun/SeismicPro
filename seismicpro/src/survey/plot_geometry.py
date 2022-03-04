@@ -20,7 +20,7 @@ except ImportError:
 
 class SurveyGeometryPlot(PairedPlot):
     def __init__(self, survey, sort_by=None, keep_aspect=False, x_ticker=None, y_ticker=None, figsize=(4.5, 4.5),
-                 fontsize=8, gather_plot_kwargs=None, **kwargs):
+                 fontsize=8, gather_plot_kwargs=None, orientation="horizontal", **kwargs):
         (x_ticker, y_ticker), self.map_kwargs = set_text_formatting(x_ticker, y_ticker, fontsize=fontsize, **kwargs)
         if gather_plot_kwargs is None:
             gather_plot_kwargs = {}
@@ -31,6 +31,7 @@ class SurveyGeometryPlot(PairedPlot):
         self.survey = survey
         self.sort_by = sort_by
         self.figsize = figsize
+        self.orientation = orientation
 
         # Calculate source and group indices to speed up gather selection and shot/receiver nearest neighbors to
         # project a click on the closest one
@@ -46,16 +47,17 @@ class SurveyGeometryPlot(PairedPlot):
                                 y_ticker=y_ticker, **self.map_kwargs)
         self.affected_scatter = None
 
-        super().__init__()
+        super().__init__(orientation=orientation)
 
-    def construct_left_plot(self):
+    def construct_main_plot(self):
         return InteractivePlot(plot_fn=[self.plot_map, self.plot_map], click_fn=self.click, unclick_fn=self.unclick,
                                title=["Shot map", "Receiver map"])
 
-    def construct_right_plot(self):
-        right = InteractivePlot(figsize=self.figsize, toolbar_position="right")
-        right.box.layout.visibility = "hidden"
-        return right
+    def construct_aux_plot(self):
+        toolbar_position = "right" if self.orientation == "horizontal" else "left"
+        aux_plot = InteractivePlot(figsize=self.figsize, toolbar_position=toolbar_position)
+        aux_plot.box.layout.visibility = "hidden"
+        return aux_plot
 
     @staticmethod
     def _process_survey(survey, coord_cols):
@@ -73,8 +75,8 @@ class SurveyGeometryPlot(PairedPlot):
         return [min_coord - margin, max_coord + margin]
 
     def _plot_map(self, ax, keep_aspect, x_lim, y_lim, x_ticker, y_ticker, **kwargs):
-        self.right.ax.clear()
-        self.right.box.layout.visibility = "hidden"
+        self.aux.ax.clear()
+        self.aux.box.layout.visibility = "hidden"
 
         ax.scatter(self.coord_x, self.coord_y, color=self.main_color, marker=self.main_marker, **kwargs)
         ax.set_xlim(*x_lim)
@@ -87,7 +89,7 @@ class SurveyGeometryPlot(PairedPlot):
 
     @property
     def is_shot_view(self):
-        return self.left.current_view == 0
+        return self.main.current_view == 0
 
     @property
     def index(self):
@@ -151,18 +153,18 @@ class SurveyGeometryPlot(PairedPlot):
             gather = gather.sort(by=self.sort_by)
         if self.affected_scatter is not None:
             self.affected_scatter.remove()
-        self.affected_scatter = self.left.ax.scatter(*gather[self.affected_coords_cols].T, color=self.aux_color,
+        self.affected_scatter = self.main.ax.scatter(*gather[self.affected_coords_cols].T, color=self.aux_color,
                                                      marker=self.aux_marker, **self.map_kwargs)
 
-        self.right.box.layout.visibility = "visible"
-        self.right.set_title(self.gather_title + f"{x, y}")
-        self.right.ax.clear()
-        gather.plot(ax=self.right.ax, **self.gather_plot_kwargs)
+        self.aux.box.layout.visibility = "visible"
+        self.aux.set_title(self.gather_title + f"{x, y}")
+        self.aux.ax.clear()
+        gather.plot(ax=self.aux.ax, **self.gather_plot_kwargs)
         return x, y
 
     def unclick(self):
         if self.affected_scatter is not None:
             self.affected_scatter.remove()
             self.affected_scatter = None
-        self.right.ax.clear()
-        self.right.box.layout.visibility = "hidden"
+        self.aux.ax.clear()
+        self.aux.box.layout.visibility = "hidden"

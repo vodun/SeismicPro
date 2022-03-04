@@ -42,13 +42,13 @@ class SemblancePlot(PairedPlot):
 
         super().__init__()
         if sharey:
-            self.right.ax.sharey(self.left.ax)
+            self.aux.ax.sharey(self.main.ax)
 
-    def construct_left_plot(self):
+    def construct_main_plot(self):
         return InteractivePlot(plot_fn=self.plot_semblance, click_fn=self.click, unclick_fn=self.unclick,
                                title=self.title, figsize=self.figsize)
 
-    def construct_right_plot(self):
+    def construct_aux_plot(self):
         plotter = InteractivePlot(plot_fn=[self.plot_gather, partial(self.plot_gather, corrected=True)],
                                   title=self.get_gather_title, figsize=self.figsize, toolbar_position="right")
         plotter.view_button.disabled = True
@@ -71,7 +71,7 @@ class SemblancePlot(PairedPlot):
             self.plot_hodograph(ax=ax)
 
     def plot_hodograph(self, ax):
-        if self.right.current_view == 0:
+        if self.aux.current_view == 0:
             hodograph_times = np.sqrt(self.click_time**2 + self.gather.offsets**2/self.click_vel**2)
         else:
             hodograph_times = np.full_like(self.gather.offsets, self.click_time)
@@ -93,10 +93,10 @@ class SemblancePlot(PairedPlot):
         if (click_time is None) or (click_vel is None):
             return None  # Ignore click
 
-        self.right.view_button.disabled = False
+        self.aux.view_button.disabled = False
         self.click_time = click_time
         self.click_vel = click_vel
-        self.right.redraw()
+        self.aux.redraw()
         return coords
 
     def unclick(self):
@@ -105,6 +105,6 @@ class SemblancePlot(PairedPlot):
         self.hodograph = None
         self.click_time = None
         self.click_vel = None
-        if self.right.current_view == 1:
-            self.right.set_view(0)
-        self.right.view_button.disabled = True
+        if self.aux.current_view == 1:
+            self.aux.set_view(0)
+        self.aux.view_button.disabled = True

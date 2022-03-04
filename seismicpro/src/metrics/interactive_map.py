@@ -104,23 +104,25 @@ class MapBinPlot(MapCoordsPlot):
 
 class MetricMapPlot(PairedPlot):
     def __init__(self, metric_map, plot_on_click, title=None, x_ticker=None, y_ticker=None, is_lower_better=None,
-                 figsize=(4.5, 4.5), fontsize=8, plot_on_click_kwargs=None, **kwargs):
+                 figsize=(4.5, 4.5), fontsize=8, plot_on_click_kwargs=None, orientation="horizontal", **kwargs):
         (x_ticker, y_ticker), kwargs = set_text_formatting(x_ticker, y_ticker, fontsize=fontsize, **kwargs)
         if plot_on_click_kwargs is None:
             plot_on_click_kwargs = {}
         plot_on_click_kwargs["x_ticker"] = {**x_ticker, **plot_on_click_kwargs.get("x_ticker", {})}
         plot_on_click_kwargs["y_ticker"] = {**y_ticker, **plot_on_click_kwargs.get("y_ticker", {})}
 
-        self.metric_map = metric_map
         self.figsize = figsize
+        self.orientation = orientation
+
+        self.metric_map = metric_map
         self.title = metric_map.plot_title if title is None else title
         self.plot_map = partial(metric_map.plot, title="", x_ticker=x_ticker, y_ticker=y_ticker,
                                 is_lower_better=is_lower_better, **kwargs)
         self.plot_on_click = [partial(plot_fn, **plot_on_click_kwargs) for plot_fn in to_list(plot_on_click)]
         self.init_click_coords = metric_map.get_worst_coords(is_lower_better)
-        super().__init__()
+        super().__init__(orientation=orientation)
 
-    def construct_left_plot(self):
+    def construct_main_plot(self):
         return InteractivePlot(plot_fn=self.plot_map, click_fn=self.click, init_click_coords=self.init_click_coords,
                                title=self.title, figsize=self.figsize)
 
@@ -134,28 +136,33 @@ class ScatterMapPlot(MetricMapPlot):
         self.coords_neighbors = NearestNeighbors(n_neighbors=1).fit(self.coords)
         super().__init__(metric_map, plot_on_click, **kwargs)
 
-    def right_title(self):
-        return f"{self.metric_map.map_data[self.right.current_coords]:.05f} metric at {self.right.current_coords}"
+    def aux_title(self):
+        coords = self.aux.current_coords
+        if coords is None:
+            return ""
+        return f"{self.metric_map.map_data[coords]:.05f} metric at {coords}"
 
-    def construct_right_plot(self):
-        return MapCoordsPlot(plot_fn=self.plot_on_click, title=self.right_title, toolbar_position="right")
+    def construct_aux_plot(self):
+        toolbar_position = "right" if self.orientation == "horizontal" else "left"
+        return MapCoordsPlot(plot_fn=self.plot_on_click, title=self.aux_title, toolbar_position=toolbar_position)
 
     def click(self, coords):
         coords_ix = self.coords_neighbors.kneighbors([coords], return_distance=False).item()
         coords = tuple(self.coords[coords_ix])
-        self.right.current_coords = coords
-        self.right.redraw()
+        self.aux.current_coords = coords
+        self.aux.redraw()
         return coords
 
 
 class BinarizedMapPlot(MetricMapPlot):
-    def construct_right_plot(self):
-        return MapBinPlot(plot_fn=self.plot_on_click, toolbar_position="right")
+    def construct_aux_plot(self):
+        toolbar_position = "right" if self.orientation == "horizontal" else "left"
+        return MapBinPlot(plot_fn=self.plot_on_click, toolbar_position=toolbar_position)
 
     def click(self, coords):
         bin_coords = (int(coords[0] + 0.5), int(coords[1] + 0.5))
         contents = self.metric_map.get_bin_contents(bin_coords)
         if contents is None:  # Handle clicks outside bins
             return None
-        self.right.update_state(0, contents)
+        self.aux.update_state(0, contents)
         return bin_coords

@@ -230,19 +230,25 @@ class InteractivePlot:
 
 
 class PairedPlot:
-    def __init__(self, *args, **kwargs):
-        _ = args, kwargs
-        self.left = self.construct_left_plot()
-        self.right = self.construct_right_plot()
-        self.box = widgets.HBox([self.left.box, self.right.box])
+    def __init__(self, orientation="horizontal"):
+        if orientation == "horizontal":
+            box_type = widgets.HBox
+        elif orientation == "vertical":
+            box_type = widgets.VBox
+        else:
+            raise ValueError("Unknown plot orientation, must be one of \{'horizontal', 'vertical'\}")
 
-    def construct_left_plot(self):
+        self.main = self.construct_main_plot()
+        self.aux = self.construct_aux_plot()
+        self.box = box_type([self.main.box, self.aux.box])
+
+    def construct_main_plot(self):
         raise NotImplementedError
 
-    def construct_right_plot(self):
+    def construct_aux_plot(self):
         raise NotImplementedError
 
     def plot(self):
-        self.left.plot(display_box=False)
-        self.right.plot(display_box=False)
+        self.aux.plot(display_box=False)
+        self.main.plot(display_box=False)
         display(self.box)

@@ -36,5 +36,5 @@ class StackingVelocityScatterMapPlot(ScatterMapPlot):
             self.window.remove()
         if self.metric_map.is_window_metric and self.plot_window:
             self.window = patches.Circle(coords, self.metric_map.nearest_neighbors.radius, color="blue", alpha=0.3)
-            self.left.ax.add_patch(self.window)
+            self.main.ax.add_patch(self.window)
         return coords
