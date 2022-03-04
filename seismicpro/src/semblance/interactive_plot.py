@@ -31,7 +31,6 @@ class SemblancePlot(PairedPlot):
 
         self.figsize = figsize
         self.title = title
-        self.hodograph = None
         self.click_time = None
         self.click_vel = None
 
@@ -59,31 +58,30 @@ class SemblancePlot(PairedPlot):
             return "Gather"
         return f"Hodograph from {self.click_time:.0f} ms with {self.click_vel:.2f} km/s velocity"
 
-    @property
-    def corrected_gather(self):
+    def get_gather(self, corrected):
+        if not corrected:
+            return self.gather
         velocity = StackingVelocity.from_constant_velocity(self.click_vel * 1000)
         return self.gather.copy(ignore=["headers", "data", "samples"]).apply_nmo(velocity)
 
+    def get_hodograph(self, corrected):
+        if (self.click_time is None) or (self.click_vel is None):
+            return None
+        if not corrected:
+            return np.sqrt(self.click_time**2 + self.gather.offsets**2/self.click_vel**2)
+        return np.full_like(self.gather.offsets, self.click_time)
+
     def plot_gather(self, ax, corrected=False):
-        gather = self.corrected_gather if corrected else self.gather
+        gather = self.get_gather(corrected=corrected)
         gather.plot(ax=ax, **self.gather_plot_kwargs)
-        if (self.click_time is not None) and (self.click_vel is not None):
-            self.plot_hodograph(ax=ax)
 
-    def plot_hodograph(self, ax):
-        if self.aux.current_view == 0:
-            hodograph_times = np.sqrt(self.click_time**2 + self.gather.offsets**2/self.click_vel**2)
-        else:
-            hodograph_times = np.full_like(self.gather.offsets, self.click_time)
-
-        hodograph_y = times_to_indices(hodograph_times, self.gather.times) - 0.5  # Correction for pixel center
+        hodograph = self.get_hodograph(corrected=corrected)
+        if hodograph is None:
+            return
+        hodograph_y = times_to_indices(hodograph, self.gather.times) - 0.5  # Correction for pixel center
         hodograph_low = np.clip(hodograph_y - self.semblance.win_size, 0, len(self.gather.times) - 1)
         hodograph_high = np.clip(hodograph_y + self.semblance.win_size, 0, len(self.gather.times) - 1)
-
-        if self.hodograph is not None:
-            self.hodograph.remove()
-        self.hodograph = ax.fill_between(np.arange(len(hodograph_times)), hodograph_low, hodograph_high,
-                                         color="tab:blue", alpha=0.5)
+        ax.fill_between(np.arange(len(hodograph)), hodograph_low, hodograph_high, color="tab:blue", alpha=0.5)
 
     def click(self, coords):
         # Correction for pixel center
@@ -100,11 +98,7 @@ class SemblancePlot(PairedPlot):
         return coords
 
     def unclick(self):
-        if self.hodograph is not None:
-            self.hodograph.remove()
-        self.hodograph = None
         self.click_time = None
         self.click_vel = None
-        if self.aux.current_view == 1:
-            self.aux.set_view(0)
+        self.aux.set_view(0)
         self.aux.view_button.disabled = True
