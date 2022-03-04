@@ -21,13 +21,14 @@ class StackingVelocityMetric(PlottableMetric):
     is_window_metric = True
     interactive_scatter_map_class = StackingVelocityScatterMapPlot
 
-    def __init__(self, times, velocities, nearest_neighbors, velocity_cube):
+    def __init__(self, times, velocities, nearest_neighbors):
         self.times = times
         self.velocities = velocities
-        self.min_vel = self.velocities.min()
-        self.max_vel = self.velocities.max()
         self.nearest_neighbors = nearest_neighbors
-        self.velocity_cube = velocity_cube
+        min_vel = self.velocities.min()
+        max_vel = self.velocities.max()
+        margin = 0.05 * (max_vel - min_vel)
+        self.vel_limits = [min_vel - margin, max_vel + margin]
 
     def coords_to_window(self, coords):
         _, window_indices = self.nearest_neighbors.radius_neighbors([coords], return_distance=True, sort_results=True)
@@ -42,7 +43,7 @@ class StackingVelocityMetric(PlottableMetric):
         ax.invert_yaxis()
         set_ticks(ax, "x", "Stacking velocity (m/s)", **x_ticker)
         set_ticks(ax, "y", "Time", **y_ticker)
-        ax.set_xlim(self.min_vel, self.max_vel)
+        ax.set_xlim(*self.vel_limits)
 
     def plot_on_click(self, coords, ax, x_ticker, y_ticker):
         window = self.coords_to_window(coords)

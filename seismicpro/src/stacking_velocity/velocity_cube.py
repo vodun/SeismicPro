@@ -276,7 +276,7 @@ class VelocityCube:
             window = velocities[window_indices]
             return [metric.calc(times, window if metric.is_window_metric else window[0]) for metric in metrics]
 
-        metrics = [metric(times, velocities, coords_neighbors, self) for metric in metrics]
+        metrics = [metric(times, velocities, coords_neighbors) for metric in metrics]
         results = thread_map(calc_metrics, windows_indices, max_workers=n_workers,
                              desc="Coordinates processed", disable=not bar)
         coords_cols = ["INLINE_3D", "CROSSLINE_3D"]
