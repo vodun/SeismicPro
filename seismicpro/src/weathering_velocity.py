@@ -64,7 +64,8 @@ class WeatheringVelocity:
     picking_times : 1d ndarray
         Picking times of a traces.
     init : dict, defaults to None
-        Initial  values for fitting a piecewise function. Used to calculate `bounds` if these params not passed.
+        Initial points for weathering velocity model.
+        # Initial  values for fitting a piecewise function. Used to calculate `bounds` if these params not passed.
     bounds : Dict[List], defaults to None
         Left and right bounds for any parameter of a weathering model params. Used to calculate `init` and `n_layers`
         if these params are not passed.
@@ -127,23 +128,24 @@ class WeatheringVelocity:
         self._piecewise_offsets[-1] = offsets.max()
 
         # Fitting piecewise linear regression
-        constraints = {"type": "ineq", "fun": lambda x: (np.diff(x[1:self.n_layers]) >= 0).all(out=np.array(0))}
-        partial_loss_func = partial(self.loss_piecewise_linear, loss=kwargs.pop('loss', 'L1'), 
+        constraint_offset = {"type": "ineq", "fun": lambda x: np.diff(x[1:self.n_layers])}
+        constraint_velocity = {"type": "ineq", "fun": lambda x: np.diff(x[self.n_layers:])}
+        partial_loss_func = partial(self.loss_piecewise_linear, loss=kwargs.pop('loss', 'L1'),
                                     huber_coef=kwargs.pop('huber_coef', .1))
-        minimizer_kwargs = {'method': 'SLSQP', 'constraints': constraints, **kwargs}
+        minimizer_kwargs = {'method': 'SLSQP', 'constraints': (constraint_offset, constraint_velocity), **kwargs}
         self._model_params = optimize.minimize(partial_loss_func, x0=list(self.init.values()),
                                                bounds=list(self.bounds.values()), **minimizer_kwargs)
         self.params = dict(zip(self._valid_keys, self._model_params.x))
+        self._check_layers_data()
 
     def __call__(self, offsets):
-        '''Returns predicted first breaking times using the fitted parameters of the weathering model.'''
+        """Returns predicted first picking times using the fitted parameters of the weathering model."""
         return np.interp(offsets, self._piecewise_offsets, self._piecewise_times)
 
     def __getattr__(self, key):
         return self.params[key]
 
     def _update_piecewise_params(self, args):
-        # args = args[0]
         self._piecewise_times[0] = args[0]
         self._piecewise_offsets[1:self.n_layers] = args[1:self.n_layers]
 
@@ -153,13 +155,11 @@ class WeatheringVelocity:
 
     def loss_piecewise_linear(self, args, loss='L1', huber_coef=.1):
         # TODO: rework docs
-        '''Returns the loss between true picking times and a predicted piecewise linear function. The loss function
-        is chosen when the class instance is created.
+        """Updates the piecewise linear attributes and returns the loss function result.
 
         Method update piecewise linear attributes of a WeatheringVelocity instance and calculate a loss between
         true picking times stored in the `self.picking_times` and a predicted piecewise linear function. Points for
         the loss calculated for the offsets corresponding with true picking times.
-        predicted_times = piecewise_linear(self.offsets).
 
         Piecewise linear function defined by the given `args` should be list-like and have the following structure:
             args[0] : t0
@@ -170,14 +170,25 @@ class WeatheringVelocity:
 
         Parameters
         ----------
-        args: tuple, list, or 1d ndarray
+        args : tuple, list, or 1d ndarray
             Parameters for a piecewise linear function.
+        loss : str, optional, defaults to 'L1'. 
+            The loss function type. Should be one of 'L1', 'huber', 'soft_L1', or 'cauchy'.
+            All implemented loss functions have a mean reduction.
+        huber_coef : float, default to 0.1
+            Delta coefficient for Huber loss.
 
         Returns
         -------
         loss : float
-            loss between true picking times and a predicted piecewise linear function.
-        '''
+            Loss function result between true picking times and a predicted piecewise linear function.
+
+        Raises
+        ------
+        ValueError
+            If given `loss` does not exist.
+
+        """
         self._update_piecewise_params(args)
         diff_abs = np.abs(np.interp(self.offsets, self._piecewise_offsets, self._piecewise_times) - self.picking_times)
         if loss == 'L1':
@@ -195,12 +206,12 @@ class WeatheringVelocity:
         raise ValueError('Unknown loss type for `loss_piecewise_linear`.')
 
     def _get_valid_keys(self, n_layers=None):
-        '''Returns a valid list with keys based on `n_layers` or `self.n_layers`.'''
+        """Returns a valid list with keys based on `n_layers` or `self.n_layers`."""
         n_layers = self.n_layers if n_layers is None else n_layers
         return ['t0'] + [f'x{i+1}' for i in range(n_layers - 1)] + [f'v{i+1}' for i in range(n_layers)]
 
     def _fit_regressor(self, x, y, start_slope, start_time, fit_intercept):
-        '''Returns parameters of a fitted linear regression.
+        """Returns parameters of a fitted linear regression.
 
         Parameters
         ----------
@@ -219,14 +230,14 @@ class WeatheringVelocity:
         -------
         params : tuple
             Linear regression `coef` and `intercept`
-        '''
+        """
         lin_reg = SGDRegressor(loss='huber', early_stopping=True, penalty=None, shuffle=True, epsilon=0.1,
                                eta0=.05, alpha=0, tol=1e-4, fit_intercept=fit_intercept)
         lin_reg.fit(x, y, coef_init=start_slope, intercept_init=start_time)
         return lin_reg.coef_[0], lin_reg.intercept_
 
     def _calc_init_by_layers(self, n_layers):
-        '''Returns `init` dict by a given an estimated quantity of layers.
+        """Returns `init` dict by a given an estimated quantity of layers.
 
         Method split picking times on a `n_layers` equal part by cross offsets and fit separate linear regression
         on each part. Fit a coefficient and intercept for the first part and fit a coefficient only for any next part.
@@ -242,7 +253,7 @@ class WeatheringVelocity:
         -------
         init : dict
             Estimated initial to fit the piecewise linear function.
-        '''
+        """
         if n_layers is None or n_layers < 1:
             return {}
 
@@ -264,7 +275,7 @@ class WeatheringVelocity:
                 slopes[i] = start_slope
                 times[i] = start_time - start_slope * self.offsets.min() / min_picking_times
                 warnings.warn("Not enough first break points to fit an init params. Using a base estimation.")
-            slopes[i] = max(.167, slopes[i])  # move maximal velocity to 6 km/s
+            slopes[i] = max(.167, slopes[i], start_slope)  # move maximal velocity to 6 km/s
             times[i] = max(0, times[i])  # move minimal time to zero
             start_slope = slopes[i] * (n_layers / (n_layers + 1)) # raise base velocity for next layers (v = 1 / slope)
             start_time = times[i] + (slopes[i] - start_slope) * (cross_offsets[i + 1] / min_picking_times)
@@ -274,17 +285,17 @@ class WeatheringVelocity:
         return init
 
     def _calc_init_by_bounds(self, bounds):
-        '''Returns dict with a calculated init from a bounds dict.'''
+        """Returns dict with a calculated init from a bounds dict."""
         return {key: val1 + (val2 - val1) / 3 for key, (val1, val2) in bounds.items()}
 
     def _calc_bounds_by_init(self):
-        '''Returns dict with calculated bounds from a init dict.'''
+        """Returns dict with calculated bounds from a init dict."""
         bounds = {key: [val / 2, val * 2] for key, val in self.init.items()}
         bounds['t0'] = [min(0, bounds['t0'][0]), max(200, bounds['t0'][1])]
         return bounds
 
     def _check_values(self, init, bounds):
-        '''Check the values of an `init` and `bounds` dicts.'''
+        """Check the values of an `init` and `bounds` dicts."""
         negative_init = {key: val for key, val in init.items() if val < 0}
         if negative_init:
             raise ValueError(f"Init parameters contain negative values {str(negative_init)[1:-1]}")
@@ -300,7 +311,7 @@ class WeatheringVelocity:
             raise ValueError(f"Init parameters are out of the bounds for {outbounds_keys} key(s).")
 
     def _check_keys(self):
-        '''Check the `self.bounds` keys for a minimum quantity, an excessive, and an insufficient.'''
+        """Check the `self.bounds` keys for a minimum quantity, an excessive, and an insufficient."""
         expected_layers = len(self.bounds) // 2
         if expected_layers < 1:
             raise ValueError("Insufficient parameters to fit a weathering velocity curve.")
@@ -312,9 +323,17 @@ class WeatheringVelocity:
         if excessive_keys:
             raise ValueError(f"Excessive parameters to fit a weathering velocity curve. Remove {excessive_keys}.")
 
+    def _check_layers_data(self):
+        """Check for picking data in each layer and change parameters to `np.nan` if insufficient data found."""
+        for i in range(self.n_layers):
+            if self.offsets[(self.offsets > self._piecewise_offsets[i]) &
+                            (self.offsets <= self._piecewise_offsets[i+1])].shape[0] < 2:
+                self.params[f'v{i+1}'] = np.nan
+        self.params['t0'] = np.nan if self.params['v1'] else self.params['t0']
+
     @plotter(figsize=(10, 5))
     def plot(self, ax, title=None, show_params=True, threshold_time=None, x_label="offset, m", y_label="time, ms"):
-        '''Plot the WeatheringVelocity data, fitted curve, cross offsets, and additional information.
+        """Plot the WeatheringVelocity data, fitted curve, cross offsets, and additional information.
 
         Parameters
         ----------
@@ -331,15 +350,18 @@ class WeatheringVelocity:
         -------
         self : WeatheringVelocity
             WeatheringVelocity without changes.
-        '''
+        """
         ax.set_xlabel(x_label)
         ax.set_ylabel(y_label)
 
         ax.scatter(self.offsets, self.picking_times, s=1, color='black', label='fbp points')
-        ax.plot(self._piecewise_offsets, self._piecewise_times, '-', color='red', label='fitted linear function')
-        for i in range(self.n_layers-1):
-            ax.axvline(self._piecewise_offsets[i+1], 0, self.picking_times.max(), ls='--', c='blue',
-                       label='crossover point(s)' if i == 0 else None)
+        for i in range(self.n_layers):
+            if self.params[f'v{i+1}'] is not np.nan:
+                ax.plot(self._piecewise_offsets[i:i+2], self._piecewise_times[i:i+2], '-', color='red', 
+                        label='fitted piecewise function' if i == 0 else None)
+            if i != self.n_layers - 1:
+                ax.axvline(self._piecewise_offsets[i+1], 0, self.picking_times.max(), ls='--', c='blue',
+                        label='crossover point(s)' if i == 0 else None)
         if show_params:
             params = [self.params[key] for key in self._valid_keys]
             title = f"t0 : {params[0]:.2f} ms"
@@ -353,5 +375,7 @@ class WeatheringVelocity:
             ax.plot(self._piecewise_offsets, self._piecewise_times + threshold_time, '--', color='red',
                     label=f'+/- {threshold_time}ms window')
             ax.plot(self._piecewise_offsets, self._piecewise_times - threshold_time, '--', color='red')
+        ax.set_xlim(0)
+        ax.set_ylim(0)
         ax.legend(loc='lower right')
         return self
