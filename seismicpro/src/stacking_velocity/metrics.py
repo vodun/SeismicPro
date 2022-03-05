@@ -18,7 +18,7 @@ from ..utils import set_ticks
 
 
 class StackingVelocityScatterMapPlot(ScatterMapPlot):
-    def __init__(self, *args, plot_window=False, **kwargs):
+    def __init__(self, *args, plot_window=True, **kwargs):
         self.plot_window = plot_window
         self.window = None
         super().__init__(*args, **kwargs)

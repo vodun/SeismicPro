@@ -209,8 +209,9 @@ class InteractivePlot:
             self._unclick()
         self.set_view((self.current_view + 1) % self.n_views)
 
-    def set_title(self):
-        self.title_widget.value = TITLE_TEMPLATE.format(style=TITLE_STYLE, title=self.title)
+    def set_title(self, title=None):
+        title = title or self.title
+        self.title_widget.value = TITLE_TEMPLATE.format(style=TITLE_STYLE, title=title)
 
     def redraw(self, clear=True):
         if clear:
