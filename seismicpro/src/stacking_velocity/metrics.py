@@ -11,10 +11,26 @@ appended to a `VELOCITY_QC_METRICS` list.
 
 import numpy as np
 from numba import njit
+from matplotlib import patches
 
-from .qc_maps import StackingVelocityScatterMapPlot
-from ..metrics import PlottableMetric
+from ..metrics import PlottableMetric, ScatterMapPlot
 from ..utils import set_ticks
+
+
+class StackingVelocityScatterMapPlot(ScatterMapPlot):
+    def __init__(self, *args, plot_window=False, **kwargs):
+        self.plot_window = plot_window
+        self.window = None
+        super().__init__(*args, **kwargs)
+
+    def click(self, coords):
+        coords = super().click(coords)
+        if self.window is not None:
+            self.window.remove()
+        if self.metric_map.is_window_metric and self.plot_window:
+            self.window = patches.Circle(coords, self.metric_map.nearest_neighbors.radius, color="blue", alpha=0.3)
+            self.main.ax.add_patch(self.window)
+        return coords
 
 
 class StackingVelocityMetric(PlottableMetric):

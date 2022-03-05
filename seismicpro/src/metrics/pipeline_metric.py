@@ -5,7 +5,7 @@ from functools import partial
 import numpy as np
 import pandas as pd
 
-from .metrics import PlottableMetric
+from .metrics import define_metric, PartialMetric, PlottableMetric
 from ..utils import to_list
 from ...batchflow import Pipeline
 
@@ -160,3 +160,21 @@ class PipelineMetric(PlottableMetric):
             raise ValueError("Each metric view must be decorated with @coords, @batch or @calc_args decorator")
         return [partial(self.plot_view, batch_src=batch_src, pipeline=pipeline, view_fn=view_fn)
                 for view_fn in view_fns]
+
+
+def define_pipeline_metric(metric, metric_name):
+    is_metric_type = isinstance(metric, type) and issubclass(metric, PipelineMetric)
+    is_callable = not isinstance(metric, type) and callable(metric)
+    if not (is_metric_type or is_callable):
+        raise ValueError(f"metric must be either a subclass of PipelineMetric or a callable but {type(metric)} given")
+
+    if is_callable:
+        metric_name = metric_name or metric.__name__
+        if metric_name == "<lambda>":
+            raise ValueError("metric_name must be passed for lambda metrics")
+        return define_metric(base_cls=PipelineMetric, name=metric_name, calc=staticmethod(metric))
+
+    metric_name = metric_name or metric.name
+    if metric_name is None:
+        raise ValueError("metric_name must be passed if not defined in metric class")
+    return PartialMetric(metric, name=metric_name)

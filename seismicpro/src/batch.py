@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from .gather import Gather, CroppedGather
 from .gather.utils.crop_utils import make_origins
 from .semblance import Semblance, ResidualSemblance
-from .metrics import define_metric, PipelineMetric, MetricsAccumulator
+from .metrics import define_pipeline_metric, MetricsAccumulator
 from .decorators import create_batch_methods, apply_to_each_component
 from .utils import to_list, as_dict, save_figure
 from ..batchflow import action, inbatch_parallel, save_data_to, Batch, DatasetIndex, NamedExpression
@@ -132,7 +132,7 @@ class SeismicBatch(Batch):
         # Unpack tuple in case of non-multiindex survey
         if len(gather_index) == 1:
             gather_index = gather_index[0]
-        # Guarantee, that a DataFrame is always returned after .loc, regardless of pandas behaviour
+        # Guarantee, that a DataFrame is always returned after .loc, regardless of pandas behavior
         gather_index = slice(gather_index, gather_index)
         getattr(self, dst)[pos] = self.index.get_gather(survey_name=src, concat_id=concat_id,
                                                         gather_index=gather_index, **kwargs)
@@ -268,8 +268,8 @@ class SeismicBatch(Batch):
         >>> batch.predictions.shape
         (3, 1, 1500)
 
-        Predictions are split into 3 subarrays with a signle trace in each of them to match the number of traces in the
-        correponding gathers:
+        Predictions are split into 3 subarrays with a single trace in each of them to match the number of traces in the
+        corresponding gathers:
         >>> len(batch.outputs)
         3
         >>> batch.outputs[0].shape
@@ -391,25 +391,10 @@ class SeismicBatch(Batch):
 
         return self
 
-    def _define_metric(self, metric, metric_name):
-        is_metric_type = isinstance(metric, type) and issubclass(metric, PipelineMetric)
-        is_callable = not isinstance(metric, type) and callable(metric)
-        if not (is_metric_type or is_callable):
-            raise ValueError("metric must be either a subclass of PipelineMetric or a callable "
-                             f"but {type(metric)} given")
-        if is_callable:
-            metric_name = metric_name or metric.__name__
-            if metric_name == "<lambda>":
-                raise ValueError("metric_name must be passed for lambda metrics")
-            metric = define_metric(base_cls=PipelineMetric, name=metric_name, calc=staticmethod(metric))
-        else:
-            metric_name = metric_name or metric.name
-        return metric, metric_name
-
     @action(no_eval="save_to")
     def calculate_metric(self, metric, *args, metric_name=None, coords_component=None, coords_cols="auto",
                          save_to=None, **kwargs):
-        metric, metric_name = self._define_metric(metric, metric_name)
+        metric = define_pipeline_metric(metric, metric_name)
         unpacked_args, first_arg = metric.unpack_calc_args(self, *args, **kwargs)
 
         coords_items = first_arg if coords_component is None else getattr(self, coords_component)
@@ -420,7 +405,7 @@ class SeismicBatch(Batch):
             "pipeline": self.pipeline,
             "calculate_metric_index": self._calculated_metrics,
         }
-        accumulator = MetricsAccumulator(coords, indices=self.indices, **{metric_name: metric_params})
+        accumulator = MetricsAccumulator(coords, indices=self.indices, **{metric.name: metric_params})
 
         if save_to is not None:
             save_data_to(data=accumulator, dst=save_to, batch=self)
@@ -488,7 +473,7 @@ class SeismicBatch(Batch):
             If the length of `src_kwargs` when passed as a list does not match the length of `src`.
             If any of the components' `plot` method is not decorated with `plotter` decorator.
         """
-        # Consturct a list of plot kwargs for each component in src
+        # Construct a list of plot kwargs for each component in src
         src_list = to_list(src)
         if src_kwargs is None:
             src_kwargs = [{} for _ in range(len(src_list))]
@@ -559,9 +544,9 @@ class SeismicBatch(Batch):
 
         # Define axes layout and perform plotting
         fig_width = max(sum(plotter["width"] for plotter in plotters_row) for plotters_row in plotters)
-        row_heigths = [max(plotter["height"] for plotter in plotters_row) for plotters_row in plotters]
-        fig = plt.figure(figsize=(fig_width, sum(row_heigths)), constrained_layout=True)
-        gridspecs = fig.add_gridspec(len(plotters), 1, height_ratios=row_heigths)
+        row_heights = [max(plotter["height"] for plotter in plotters_row) for plotters_row in plotters]
+        fig = plt.figure(figsize=(fig_width, sum(row_heights)), constrained_layout=True)
+        gridspecs = fig.add_gridspec(len(plotters), 1, height_ratios=row_heights)
 
         for gridspecs_row, plotters_row in zip(gridspecs, plotters):
             n_cols = len(plotters_row)
