@@ -167,7 +167,7 @@ class InteractivePlot:
         if self.click_marker is not None:
             self.click_marker.remove()
         self.click_marker = self.ax.scatter(*coords, **self.marker_params, zorder=10)
-        self.fig.canvas.draw_idle()  # TODO: switch to blit, switch to draw when cursor handling is fixed in ipympl
+        self.fig.canvas.draw()
 
     def on_click(self, event):
         # Discard clicks outside the main axes
@@ -190,7 +190,7 @@ class InteractivePlot:
         self.unclick_fn()
         self.click_marker.remove()
         self.click_marker = None
-        self.fig.canvas.draw_idle()  # TODO: switch to blit
+        self.fig.canvas.draw()
 
     def on_press(self, event):
         if (event.inaxes != self.ax) or (event.key != "escape"):

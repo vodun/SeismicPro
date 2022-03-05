@@ -84,8 +84,7 @@ class SemblancePlot(PairedPlot):
         ax.fill_between(np.arange(len(hodograph)), hodograph_low, hodograph_high, color="tab:blue", alpha=0.5)
 
     def click(self, coords):
-        coords = coords[0] + 0.5, coords[1] + 0.5  # Correction for pixel center
-        click_time, click_vel = self.semblance.get_time_velocity(*coords)
+        click_time, click_vel = self.semblance.get_time_velocity(coords[1] + 0.5, coords[0] + 0.5)
         if (click_time is None) or (click_vel is None):
             return None  # Ignore click
         self.aux.view_button.disabled = False
