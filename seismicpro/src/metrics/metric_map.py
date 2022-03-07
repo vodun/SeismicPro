@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 from matplotlib import colors as mcolors
 
-from .metrics import Metric, PlottableMetric, PartialMetric
 from .interactive_map import ScatterMapPlot, BinarizedMapPlot
 from .utils import parse_coords, parse_metric_values
 from ..decorators import plotter
@@ -13,6 +12,7 @@ from ..utils import to_list, add_colorbar, set_ticks, set_text_formatting
 
 class BaseMetricMap:
     def __init__(self, coords, metric_values, *, coords_cols=None, metric=None, metric_name=None, agg=None):
+        from .metrics import Metric, PartialMetric
         if metric is None:
             metric = Metric
         if not (isinstance(metric, (Metric, PartialMetric)) or
@@ -97,6 +97,7 @@ class BaseMetricMap:
         if plot_on_click is not None:
             plot_on_click_list = to_list(plot_on_click)
         else:
+            from .metrics import PlottableMetric, PartialMetric
             # Instantiate the metric if it hasn't been done yet
             if isinstance(self.metric, (type, PartialMetric)):
                 self.metric = self.metric()
