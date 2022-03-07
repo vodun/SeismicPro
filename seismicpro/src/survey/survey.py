@@ -934,6 +934,6 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         coords_cols = by_to_coords_cols[by]
         coords = self[coords_cols]
         attribute_values = self[attribute].ravel()
-        metric = PartialMetric(SurveyAttribute, survey=self)
-        return MetricMap(coords, attribute_values, coords_cols=coords_cols, metric=metric, metric_name=attribute,
-                         agg=agg, bin_size=bin_size)
+        metric = PartialMetric(SurveyAttribute, survey=self, name=attribute)
+        return metric.map_class(coords, attribute_values, coords_cols=coords_cols, metric=metric,
+                                agg=agg, bin_size=bin_size)

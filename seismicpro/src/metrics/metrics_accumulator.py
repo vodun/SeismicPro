@@ -137,8 +137,8 @@ class MetricsAccumulator(Metrics):
         metrics_maps = []
         for metric, metric_agg, metric_bin_size in zip(metrics, agg, bin_size):
             metric_type = PartialMetric(self.metrics_types[metric], coords_to_indices=coords_to_indices)
-            metric_map = MetricMap(self.metrics[self.coords_cols], self.metrics[metric], metric=metric_type,
-                                   agg=metric_agg, bin_size=metric_bin_size)
+            metric_map = metric_type.map_class(self.metrics[self.coords_cols], self.metrics[metric],
+                                               metric=metric_type, agg=metric_agg, bin_size=metric_bin_size)
             metrics_maps.append(metric_map)
 
         if is_single_metric:

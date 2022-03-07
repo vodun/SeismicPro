@@ -13,7 +13,7 @@ import numpy as np
 from numba import njit
 from matplotlib import patches
 
-from ..metrics import PlottableMetric, ScatterMapPlot
+from ..metrics import PlottableMetric, ScatterMapPlot, MetricMap
 from ..utils import set_ticks
 
 
@@ -33,9 +33,13 @@ class StackingVelocityScatterMapPlot(ScatterMapPlot):
         return coords
 
 
+class StackingVelocityMetricMap(MetricMap):
+    interactive_scatter_map_class = StackingVelocityScatterMapPlot
+
+
 class StackingVelocityMetric(PlottableMetric):
     is_window_metric = True
-    interactive_scatter_map_class = StackingVelocityScatterMapPlot
+    map_class = StackingVelocityMetricMap
 
     def __init__(self, times, velocities, nearest_neighbors):
         self.times = times

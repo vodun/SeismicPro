@@ -1,6 +1,6 @@
 from functools import partial
 
-from .interactive_map import ScatterMapPlot, BinarizedMapPlot
+from .metric_map import MetricMap
 from ..utils import to_list
 
 
@@ -9,6 +9,7 @@ class Metric:
     min_value = None
     max_value = None
     is_lower_better = None
+    map_class = MetricMap
 
     @staticmethod
     def calc(*args, **kwargs):
@@ -24,8 +25,6 @@ class PlottableMetric(Metric):
     vmin = None
     vmax = None
     views = "plot_on_click"
-    interactive_scatter_map_class = ScatterMapPlot
-    interactive_binarized_map_class = BinarizedMapPlot
 
     def plot_on_click(self, coords, ax, **kwargs):
         _ = coords, ax, kwargs

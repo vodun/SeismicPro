@@ -108,8 +108,8 @@ class BaseMetricMap:
         return self.interactive_map_class(self, plot_on_click_list, **kwargs).plot()
 
     def aggregate(self, agg=None, bin_size=None):
-        return self.base_map_cls(self.metric_data[self.coords_cols], self.metric_data[self.metric_name],
-                                 metric=self.metric, agg=agg, bin_size=bin_size)
+        return self.map_class(self.metric_data[self.coords_cols], self.metric_data[self.metric_name],
+                              metric=self.metric, agg=agg, bin_size=bin_size)
 
 
 class ScatterMap(BaseMetricMap):
@@ -117,10 +117,6 @@ class ScatterMap(BaseMetricMap):
         super().__init__(*args, **kwargs)
         exploded = self.metric_data.explode(self.metric_name)
         self.map_data = exploded.groupby(self.coords_cols).agg(self.agg)[self.metric_name]
-
-    @property
-    def interactive_map_class(self):
-        return getattr(self, "interactive_scatter_map_class", ScatterMapPlot)
 
     def _plot_map(self, ax, is_lower_better, **kwargs):
         sort_key = None
@@ -183,10 +179,6 @@ class BinarizedMap(BaseMetricMap):
         self.bin_to_coords = bin_to_coords.to_frame().reset_index(level=self.coords_cols).groupby(bin_cols)
 
     @property
-    def interactive_map_class(self):
-        return getattr(self, "interactive_binarized_map_class", BinarizedMapPlot)
-
-    @property
     def plot_title(self):
         return super().plot_title + f" in {self.bin_size[0]}x{self.bin_size[1]} bins"
 
@@ -222,16 +214,23 @@ class BinarizedMap(BaseMetricMap):
 
 class MetricMapMeta(type):
     def __call__(cls, *args, bin_size=None, **kwargs):
-        metric_cls = cls.scatter_map_class
-        if bin_size is not None:
-            metric_cls = cls.binarized_map_class
+        if bin_size is None:
+            map_class = cls.scatter_map_class
+            interactive_map_class = cls.interactive_scatter_map_class
+        else:
+            map_class = cls.binarized_map_class
+            interactive_map_class = cls.interactive_binarized_map_class
             kwargs["bin_size"] = bin_size
-        instance = object.__new__(metric_cls)
+
+        instance = object.__new__(map_class)
         instance.__init__(*args, **kwargs)
-        instance.base_map_cls = cls
+        instance.map_class = cls
+        instance.interactive_map_class = interactive_map_class
         return instance
 
 
 class MetricMap(metaclass=MetricMapMeta):
     scatter_map_class = ScatterMap
     binarized_map_class = BinarizedMap
+    interactive_scatter_map_class = ScatterMapPlot
+    interactive_binarized_map_class = BinarizedMapPlot

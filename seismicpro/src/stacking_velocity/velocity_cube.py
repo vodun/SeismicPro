@@ -280,7 +280,7 @@ class VelocityCube:
         results = thread_map(calc_metrics, windows_indices, max_workers=n_workers,
                              desc="Coordinates processed", disable=not bar)
         coords_cols = ["INLINE_3D", "CROSSLINE_3D"]
-        metrics_maps = [MetricMap(coords, metric_values, coords_cols=coords_cols, metric=metric)
+        metrics_maps = [metric.map_class(coords, metric_values, coords_cols=coords_cols, metric=metric)
                         for metric, metric_values in zip(metrics, zip(*results))]
         if is_single_metric:
             return metrics_maps[0]
