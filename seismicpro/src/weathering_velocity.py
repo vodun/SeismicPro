@@ -8,6 +8,7 @@ from sklearn.linear_model import SGDRegressor
 from scipy import optimize
 
 from .decorators import plotter
+from .utils import set_ticks, set_text_formatting
 
 # pylint: disable=too-many-instance-attributes
 class WeatheringVelocity:
@@ -264,7 +265,7 @@ class WeatheringVelocity:
 
         min_picking_times = self.picking_times.min()  # normalization parameter.
         start_slope = 2/3  # base slope corresponding velocity is 1,5 km/s (v = 1 / slope)
-        start_time = 1  # base time. equal to minimum picking times with the `min_picking` normalization.
+        start_time = 1  # base time, equal to minimum picking times with the `min_picking` normalization.
         for i in range(n_layers):
             mask = (self.offsets > cross_offsets[i]) & (self.offsets <= cross_offsets[i + 1])
             if mask.sum() > 1:  # at least two point to fit
@@ -275,7 +276,8 @@ class WeatheringVelocity:
                 slopes[i] = start_slope
                 times[i] = start_time - start_slope * self.offsets.min() / min_picking_times
                 warnings.warn("Not enough first break points to fit an init params. Using a base estimation.")
-            slopes[i] = max(.167, slopes[i], start_slope)  # move maximal velocity to 6 km/s
+            slopes[i] = max(.167, slopes[i], start_slope)  # move maximal velocity to 6 km/s and
+                                                           # set velocity no less than previous layer
             times[i] = max(0, times[i])  # move minimal time to zero
             start_slope = slopes[i] * (n_layers / (n_layers + 1)) # raise base velocity for next layers (v = 1 / slope)
             start_time = times[i] + (slopes[i] - start_slope) * (cross_offsets[i + 1] / min_picking_times)
@@ -329,10 +331,10 @@ class WeatheringVelocity:
             if self.offsets[(self.offsets > self._piecewise_offsets[i]) &
                             (self.offsets <= self._piecewise_offsets[i+1])].shape[0] < 2:
                 self.params[f'v{i+1}'] = np.nan
-        self.params['t0'] = np.nan if self.params['v1'] else self.params['t0']
+        self.params['t0'] = np.nan if self.params['v1'] is np.nan else self.params['t0']
 
-    @plotter(figsize=(10, 5))
-    def plot(self, ax, title=None, show_params=True, threshold_time=None, x_label="offset, m", y_label="time, ms"):
+    @plotter(figsize=(10, 7))
+    def plot(self, ax, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_time=None, **kwargs):
         """Plot the WeatheringVelocity data, fitted curve, cross offsets, and additional information.
 
         Parameters
@@ -351,8 +353,9 @@ class WeatheringVelocity:
         self : WeatheringVelocity
             WeatheringVelocity without changes.
         """
-        ax.set_xlabel(x_label)
-        ax.set_ylabel(y_label)
+        (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
+        set_ticks(ax, "x", tick_labels=None, label="offset, m", **x_ticker)
+        set_ticks(ax, "y", tick_labels=None, label="time, ms", **y_ticker)
 
         ax.scatter(self.offsets, self.picking_times, s=1, color='black', label='fbp points')
         for i in range(self.n_layers):
@@ -364,12 +367,12 @@ class WeatheringVelocity:
                         label='crossover point(s)' if i == 0 else None)
         if show_params:
             params = [self.params[key] for key in self._valid_keys]
-            title = f"t0 : {params[0]:.2f} ms"
+            txt_info = f"t0 : {params[0]:.2f} ms"
             if self.n_layers > 1:
-                title += '\ncrossover offsets : ' + ', '.join(f"{round(x)}" for x in params[1:self.n_layers]) + ' m'
-            title += '\nvelocities : ' + ', '.join(f"{v:.2f}" for v in params[self.n_layers:]) + ' km/s'
+                txt_info += '\ncrossover offsets : ' + ', '.join(f"{round(x)}" for x in params[1:self.n_layers]) + ' m'
+            txt_info += '\nvelocities : ' + ', '.join(f"{v:.2f}" for v in params[self.n_layers:]) + ' km/s'
 
-            ax.text(0.03, .94, title, fontsize=15, va='top', transform=ax.transAxes)
+            ax.text(0.03, .94, txt_info, fontsize=15, va='top', transform=ax.transAxes)
 
         if threshold_time is not None:
             ax.plot(self._piecewise_offsets, self._piecewise_times + threshold_time, '--', color='red',
