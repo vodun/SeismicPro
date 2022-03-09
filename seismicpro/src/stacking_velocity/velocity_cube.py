@@ -165,8 +165,8 @@ class VelocityCube:
         Returns
         -------
         self : VelocityCube
-            Self with created interploator. Updates `interpolator` inplace and sets the `is_dirty_interpolator` flag
-            to `False`.
+            Self with created interpolator. Updates `interpolator` inplace and sets the `is_dirty_interpolator` flag to
+            `False`.
 
         Raises
         ------

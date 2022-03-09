@@ -17,7 +17,7 @@ from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
 from .utils import calculate_stats, create_supergather_index
 from ..gather import Gather
-from ..metrics import MetricMap, PartialMetric
+from ..metrics import PartialMetric
 from ..utils import to_list, maybe_copy, get_columns
 from ..const import HDR_DEAD_TRACE, HDR_FIRST_BREAK
 
@@ -923,7 +923,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     def plot_geometry(self, **kwargs):
         SurveyGeometryPlot(self, **kwargs).plot()
 
-    def construct_attribute_map(self, attribute, by, agg=None, bin_size=None):
+    def construct_attribute_map(self, attribute, by, agg=None, bin_size=None, sort_by=None, **kwargs):
         if by not in {"shot", "receiver", "midpoint"}:
             raise ValueError(f"by must be one of 'shot', 'receiver' or 'midpoint' but {by} given.")
         by_to_coords_cols = {
@@ -934,6 +934,6 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         coords_cols = by_to_coords_cols[by]
         coords = self[coords_cols]
         attribute_values = self[attribute].ravel()
-        metric = PartialMetric(SurveyAttribute, survey=self, name=attribute)
+        metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, sort_by=sort_by, **kwargs)
         return metric.map_class(coords, attribute_values, coords_cols=coords_cols, metric=metric,
                                 agg=agg, bin_size=bin_size)
