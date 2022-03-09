@@ -364,10 +364,10 @@ class Semblance(BaseSemblance):
         return self
 
     @plotter(figsize=(10, 9), args_to_unpack="stacking_velocity")
-    def plot(self, *args, interactive=False, title="Semblance", **kwargs):
+    def plot(self, stacking_velocity=None, interactive=False, title="Semblance", **kwargs):
         if not interactive:
-            return self._plot(*args, title=title, **kwargs)
-        return SemblancePlot(self, *args, title=title, **kwargs).plot()
+            return self._plot(stacking_velocity=stacking_velocity, title=title, **kwargs)
+        return SemblancePlot(self, stacking_velocity=stacking_velocity, title=title, **kwargs).plot()
 
     @batch_method(target="for", copy_src=False)
     def calculate_stacking_velocity(self, start_velocity_range=(1400, 1800), end_velocity_range=(2500, 5000),
@@ -618,7 +618,7 @@ class ResidualSemblance(BaseSemblance):
         return self
 
     @plotter(figsize=(10, 9))
-    def plot(self, *args, interactive=False, title="Residual semblance", **kwargs):
+    def plot(self, interactive=False, title="Residual semblance", **kwargs):
         if not interactive:
-            return self._plot(*args, title=title, **kwargs)
-        return SemblancePlot(self, *args, title=title, **kwargs).plot()
+            return self._plot(title=title, **kwargs)
+        return SemblancePlot(self, title=title, **kwargs).plot()

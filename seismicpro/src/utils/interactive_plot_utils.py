@@ -214,10 +214,12 @@ class InteractivePlot:
         self.title_widget.value = TITLE_TEMPLATE.format(style=TITLE_STYLE, title=title)
 
     def clear(self):
+        # Remove all created axes except for the main one if they were created (e.g. a colorbar)
         for ax in self.fig.axes:
             if ax != self.ax:
                 ax.remove()
         self.ax.clear()
+        # Stretch the axes to its original size
         self.ax.set_axes_locator(None)
 
     def redraw(self, clear=True):

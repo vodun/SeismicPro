@@ -19,8 +19,8 @@ except ImportError:
 
 
 class SemblancePlot(PairedPlot):
-    def __init__(self, semblance, *args, sharey=True, title="Semblance", x_ticker=None, y_ticker=None,
-                 figsize=(4.5, 4.5), fontsize=8, gather_plot_kwargs=None, **kwargs):
+    def __init__(self, semblance, title="Semblance", x_ticker=None, y_ticker=None, sharey=True, figsize=(4.5, 4.5),
+                 fontsize=8, gather_plot_kwargs=None, **kwargs):
         (x_ticker, y_ticker), kwargs = set_text_formatting(x_ticker, y_ticker, fontsize=fontsize, **kwargs)
         if gather_plot_kwargs is None:
             gather_plot_kwargs = {}
@@ -36,8 +36,7 @@ class SemblancePlot(PairedPlot):
 
         self.semblance = semblance
         self.gather = self.semblance.gather.copy(ignore="data")
-        self.plot_semblance = partial(self.semblance.plot, *args, title=None, x_ticker=x_ticker, y_ticker=y_ticker,
-                                      **kwargs)
+        self.plot_semblance = partial(self.semblance._plot, title=None, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
 
         super().__init__()
         if sharey:

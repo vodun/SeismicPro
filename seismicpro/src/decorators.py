@@ -56,9 +56,11 @@ def plotter(figsize, args_to_unpack=None):
     def decorator(method):
         @wraps(method)
         def plot(*args, **kwargs):
-            if "ax" in kwargs:
+            # Don't create axes if they are already passed or the plot is interactive
+            if "ax" in kwargs or kwargs.get("interactive"):
                 return method(*args, **kwargs)
-            # Add tight_layout to always correctly show colorbar ticks
+
+            # Create a figure and axes. Add tight_layout to always correctly show colorbar ticks.
             fig, ax = plt.subplots(1, 1, figsize=kwargs.pop("figsize", figsize), tight_layout=True)
             save_to = kwargs.pop("save_to", None)
             output = method(*args, ax=ax, **kwargs)
