@@ -197,12 +197,6 @@ class BaseSemblance:
         set_ticks(ax, "x", x_label, x_ticklabels, **x_ticker)
         set_ticks(ax, "y", "Time", y_ticklabels, **y_ticker)
 
-    def plot(self, *args, interactive=False, **kwargs):
-        kwargs = {"title": self.name, **kwargs}
-        if not interactive:
-            return self._plot(*args, **kwargs)
-        return SemblancePlot(self, *args, **kwargs).plot()
-
 
 class Semblance(BaseSemblance):
     r"""A class for vertical velocity semblance calculation and processing.
@@ -279,7 +273,6 @@ class Semblance(BaseSemblance):
     """
     def __init__(self, gather, velocities, win_size=25):
         super().__init__(gather, win_size=win_size)
-        self.name = "Semblance"
         self.velocities = velocities  # m/s
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
         self.semblance = self._calc_semblance_numba(semblance_func=self.calc_single_velocity_semblance,
@@ -328,7 +321,6 @@ class Semblance(BaseSemblance):
                                              t_min_ix=0, t_max_ix=len(gather_data))
         return semblance
 
-    @plotter(figsize=(10, 9), args_to_unpack="stacking_velocity")
     def _plot(self, stacking_velocity=None, *, title="Semblance", x_ticker=None, y_ticker=None, grid=False,
               colorbar=True, ax=None, **kwargs):
         """Plot vertical velocity semblance.
@@ -370,6 +362,12 @@ class Semblance(BaseSemblance):
                       stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
                       colorbar=colorbar, **kwargs)
         return self
+
+    @plotter(figsize=(10, 9), args_to_unpack="stacking_velocity")
+    def plot(self, *args, interactive=False, title="Semblance", **kwargs):
+        if not interactive:
+            return self._plot(*args, title=title, **kwargs)
+        return SemblancePlot(self, *args, title=title, **kwargs).plot()
 
     @batch_method(target="for", args_to_unpack="other")
     def calculate_signal_leakage(self, other):
@@ -511,7 +509,6 @@ class ResidualSemblance(BaseSemblance):
     """
     def __init__(self, gather, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2):
         super().__init__(gather, win_size)
-        self.name = "Residual semblance"
         self.stacking_velocity = stacking_velocity
         self.relative_margin = relative_margin
 
@@ -606,7 +603,6 @@ class ResidualSemblance(BaseSemblance):
                                               cropped_semblance)
         return residual_semblance
 
-    @plotter(figsize=(10, 9))
     def _plot(self, *, title="Residual semblance", x_ticker=None, y_ticker=None, grid=False, colorbar=True, ax=None,
               **kwargs):
         """Plot residual vertical velocity semblance. The plot always has a vertical line in the middle, representing
@@ -643,3 +639,9 @@ class ResidualSemblance(BaseSemblance):
                       grid=grid, stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
                       colorbar=colorbar, **kwargs)
         return self
+
+    @plotter(figsize=(10, 9))
+    def plot(self, *args, interactive=False, title="Residual semblance", **kwargs):
+        if not interactive:
+            return self._plot(*args, title=title, **kwargs)
+        return SemblancePlot(self, *args, title=title, **kwargs).plot()
