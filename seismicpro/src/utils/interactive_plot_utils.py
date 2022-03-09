@@ -213,9 +213,16 @@ class InteractivePlot:
         title = title or self.title
         self.title_widget.value = TITLE_TEMPLATE.format(style=TITLE_STYLE, title=title)
 
+    def clear(self):
+        for ax in self.fig.axes:
+            if ax != self.ax:
+                ax.remove()
+        self.ax.clear()
+        self.ax.set_axes_locator(None)
+
     def redraw(self, clear=True):
         if clear:
-            self.ax.clear()
+            self.clear()
         self.set_title()
         if self.plot_fn is not None:
             self.plot_fn(ax=self.ax)

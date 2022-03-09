@@ -49,4 +49,4 @@ class SignalLeakage(PipelineMetric):
         gather_diff = gather_before.copy(ignore=["data", "headers", "samples"])
         gather_diff.data = gather_after.data - gather_before.data
         semblance_diff = gather_diff.calculate_semblance(velocities)
-        semblance_diff.plot(ax=ax, **kwargs)
+        semblance_diff.plot(ax=ax, **{"title": None, **kwargs})
