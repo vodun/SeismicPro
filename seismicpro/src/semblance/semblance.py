@@ -369,29 +369,6 @@ class Semblance(BaseSemblance):
             return self._plot(*args, title=title, **kwargs)
         return SemblancePlot(self, *args, title=title, **kwargs).plot()
 
-    @batch_method(target="for", args_to_unpack="other")
-    def calculate_signal_leakage(self, other):
-        """Calculate signal leakage during ground-roll attenuation.
-
-        The metric is based on the assumption that a vertical velocity semblance calculated for the difference between
-        raw and processed gathers should not have pronounced energy maxima.
-
-        Parameters
-        ----------
-        self : Semblance
-            Semblance calculated for gather difference.
-        other : Semblance
-            Semblance for raw gather.
-
-        Returns
-        -------
-        metric : float
-            Signal leakage during gather processing.
-        """
-        minmax_self = np.max(self.semblance, axis=1) - np.min(self.semblance, axis=1)
-        minmax_other = np.max(other.semblance, axis=1) - np.min(other.semblance, axis=1)
-        return np.max(minmax_self / (minmax_other + 1e-11))
-
     @batch_method(target="for", copy_src=False)
     def calculate_stacking_velocity(self, start_velocity_range=(1400, 1800), end_velocity_range=(2500, 5000),
                                     max_acceleration=None, n_times=25, n_velocities=25, coords_cols="auto"):
