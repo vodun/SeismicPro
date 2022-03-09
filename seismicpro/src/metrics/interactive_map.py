@@ -2,7 +2,7 @@ from functools import partial
 
 from sklearn.neighbors import NearestNeighbors
 
-from ..utils import to_list, set_text_formatting, MissingModule
+from ..utils import set_text_formatting, align_args, MissingModule
 from ..utils.interactive_plot_utils import InteractivePlot, PairedPlot, TEXT_LAYOUT, BUTTON_LAYOUT
 
 # Safe import of modules for interactive plotting
@@ -103,13 +103,12 @@ class MapBinPlot(MapCoordsPlot):
 
 
 class MetricMapPlot(PairedPlot):
-    def __init__(self, metric_map, plot_on_click, title=None, x_ticker=None, y_ticker=None, is_lower_better=None,
-                 figsize=(4.5, 4.5), fontsize=8, plot_on_click_kwargs=None, orientation="horizontal", **kwargs):
-        (x_ticker, y_ticker), kwargs = set_text_formatting(x_ticker, y_ticker, fontsize=fontsize, **kwargs)
-        if plot_on_click_kwargs is None:
-            plot_on_click_kwargs = {}
-        plot_on_click_kwargs["x_ticker"] = {**x_ticker, **plot_on_click_kwargs.get("x_ticker", {})}
-        plot_on_click_kwargs["y_ticker"] = {**y_ticker, **plot_on_click_kwargs.get("y_ticker", {})}
+    def __init__(self, metric_map, plot_on_click=None, plot_on_click_kwargs=None, x_ticker=None, y_ticker=None,
+                 title=None, is_lower_better=None, figsize=(4.5, 4.5), fontsize=8, orientation="horizontal", **kwargs):
+        (text_kwargs,), kwargs = set_text_formatting(None, fontsize=fontsize, **kwargs)
+        plot_on_click, plot_on_click_kwargs = align_args(plot_on_click, plot_on_click_kwargs)
+        plot_on_click_kwargs = [{} if plot_kwargs is None else plot_kwargs for plot_kwargs in plot_on_click_kwargs]
+        plot_on_click_kwargs = [{**text_kwargs, **plot_kwargs} for plot_kwargs in plot_on_click_kwargs]
 
         self.figsize = figsize
         self.orientation = orientation
@@ -117,8 +116,9 @@ class MetricMapPlot(PairedPlot):
         self.metric_map = metric_map
         self.title = metric_map.plot_title if title is None else title
         self.plot_map = partial(metric_map.plot, title="", x_ticker=x_ticker, y_ticker=y_ticker,
-                                is_lower_better=is_lower_better, **kwargs)
-        self.plot_on_click = [partial(plot_fn, **plot_on_click_kwargs) for plot_fn in to_list(plot_on_click)]
+                                is_lower_better=is_lower_better, **kwargs, **text_kwargs)
+        self.plot_on_click = [partial(plot_fn, **plot_kwargs)
+                              for plot_fn, plot_kwargs in zip(plot_on_click, plot_on_click_kwargs)]
         self.init_click_coords = metric_map.get_worst_coords(is_lower_better)
         super().__init__(orientation=orientation)
 

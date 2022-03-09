@@ -149,17 +149,16 @@ class PipelineMetric(PlottableMetric):
         coords_args, coords_kwargs = self.eval_calc_args(batch)
         return view_fn(*coords_args, ax=ax, **coords_kwargs, **kwargs)
 
-    def get_views(self, batch_src, pipeline, plot_component, *args, **kwargs):
-        _ = args, kwargs
+    def get_views(self, batch_src="index", pipeline=None, plot_component=None, **kwargs):
         if plot_component is not None:
             return [partial(self.plot_component, batch_src=batch_src, pipeline=pipeline, plot_component=component)
-                    for component in to_list(plot_component)]
+                    for component in to_list(plot_component)], kwargs
 
         view_fns = [getattr(self, view) for view in to_list(self.views)]
         if not all(hasattr(view_fn, "args_unpacking_mode") for view_fn in view_fns):
             raise ValueError("Each metric view must be decorated with @coords, @batch or @calc_args decorator")
         return [partial(self.plot_view, batch_src=batch_src, pipeline=pipeline, view_fn=view_fn)
-                for view_fn in view_fns]
+                for view_fn in view_fns], kwargs
 
 
 def define_pipeline_metric(metric, metric_name):

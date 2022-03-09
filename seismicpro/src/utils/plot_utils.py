@@ -23,7 +23,7 @@ def set_text_formatting(*args, **kwargs):
     FORMAT_ARGS = {'fontsize', 'fontfamily', 'fontweight'}
 
     global_formatting = {arg: kwargs.pop(arg) for arg in FORMAT_ARGS if arg in kwargs}
-    text_args = ({**global_formatting, **({} if arg is None else as_dict(arg, key="label"))} for arg in args)
+    text_args = [{**global_formatting, **({} if arg is None else as_dict(arg, key="label"))} for arg in args]
     return text_args, kwargs
 
 

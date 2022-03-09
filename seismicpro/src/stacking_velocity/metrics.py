@@ -14,7 +14,7 @@ from numba import njit
 from matplotlib import patches
 
 from ..metrics import PlottableMetric, ScatterMapPlot, MetricMap
-from ..utils import set_ticks
+from ..utils import set_ticks, set_text_formatting
 
 
 class StackingVelocityScatterMapPlot(ScatterMapPlot):
@@ -42,6 +42,7 @@ class StackingVelocityMetric(PlottableMetric):
     map_class = StackingVelocityMetricMap
 
     def __init__(self, times, velocities, nearest_neighbors):
+        super().__init__()
         self.times = times
         self.velocities = velocities
         self.nearest_neighbors = nearest_neighbors
@@ -57,7 +58,8 @@ class StackingVelocityMetric(PlottableMetric):
             window_indices = window_indices[:1]
         return self.velocities[window_indices]
 
-    def plot(self, window, ax, x_ticker, y_ticker):
+    def plot(self, window, ax, x_ticker=None, y_ticker=None, **kwargs):
+        (x_ticker, y_ticker), kwargs = set_text_formatting(x_ticker, y_ticker, **kwargs)
         for vel in window:
             ax.plot(vel, self.times, color="tab:blue")
         ax.invert_yaxis()
@@ -65,9 +67,9 @@ class StackingVelocityMetric(PlottableMetric):
         set_ticks(ax, "y", "Time", **y_ticker)
         ax.set_xlim(*self.vel_limits)
 
-    def plot_on_click(self, coords, ax, x_ticker, y_ticker):
+    def plot_on_click(self, coords, ax, **kwargs):
         window = self.coords_to_window(coords)
-        self.plot(window, ax=ax, x_ticker=x_ticker, y_ticker=y_ticker)
+        self.plot(window, ax=ax, **kwargs)
 
 
 class IsDecreasing(StackingVelocityMetric):
@@ -87,8 +89,8 @@ class IsDecreasing(StackingVelocityMetric):
                 return True
         return False
 
-    def plot(self, window, ax, x_ticker, y_ticker):
-        super().plot(window, ax, x_ticker, y_ticker)
+    def plot(self, window, ax, **kwargs):
+        super().plot(window, ax, **kwargs)
 
         # Highlight decreasing sections
         stacking_velocity = window[0]
@@ -119,8 +121,8 @@ class MaxAccelerationDeviation(StackingVelocityMetric):
                 max_deviation = deviation
         return max_deviation
 
-    def plot(self, window, ax, x_ticker, y_ticker):
-        super().plot(window, ax, x_ticker, y_ticker)
+    def plot(self, window, ax, **kwargs):
+        super().plot(window, ax, **kwargs)
 
         # Plot a mean-acceleration line
         stacking_velocity = window[0]
@@ -165,8 +167,8 @@ class MaxRelativeVariation(StackingVelocityMetric):
             max_rel_var = max(max_rel_var, current_rel_var)
         return max_rel_var
 
-    def plot(self, window, ax, x_ticker, y_ticker):
-        super().plot(window[1:], ax, x_ticker, y_ticker)
+    def plot(self, window, ax, **kwargs):
+        super().plot(window[1:], ax, **kwargs)
         ax.plot(window[0], self.times, color="tab:red")
 
 

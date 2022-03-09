@@ -30,9 +30,8 @@ class PlottableMetric(Metric):
         _ = coords, ax, kwargs
         raise NotImplementedError
 
-    def get_views(self, *args, **kwargs):
-        _ = args, kwargs
-        return [getattr(self, view) for view in to_list(self.views)]
+    def get_views(self, **kwargs):
+        return [getattr(self, view) for view in to_list(self.views)], kwargs
 
 
 class PartialMetric:

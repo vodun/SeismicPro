@@ -89,24 +89,23 @@ class BaseMetricMap:
         set_ticks(ax, "x", self.coords_cols[0], self.x_tick_labels, **x_ticker)
         set_ticks(ax, "y", self.coords_cols[1], self.y_tick_labels, **y_ticker)
 
-    def plot(self, *, interactive=False, plot_on_click=None, batch_src="index", pipeline=None, plot_component=None,
-             **kwargs):
+    def plot(self, *, interactive=False, plot_on_click=None, **kwargs):
         if not interactive:
             return self._plot(**kwargs)
 
         if plot_on_click is not None:
             plot_on_click_list = to_list(plot_on_click)
         else:
-            from .metrics import PlottableMetric, PartialMetric
+            from .metrics import PartialMetric, PlottableMetric
             # Instantiate the metric if it hasn't been done yet
             if isinstance(self.metric, (type, PartialMetric)):
                 self.metric = self.metric()
             if not isinstance(self.metric, PlottableMetric):
                 raise ValueError("plot_on_click must be passed if metric class is not plottable")
-            plot_on_click_list = self.metric.get_views(batch_src, pipeline, plot_component)
+            plot_on_click_list, kwargs = self.metric.get_views(**kwargs)
         if len(plot_on_click_list) == 0:
             raise ValueError("At least one click view must be specified")
-        return self.interactive_map_class(self, plot_on_click_list, **kwargs).plot()
+        return self.interactive_map_class(self, plot_on_click=plot_on_click_list, **kwargs).plot()
 
     def aggregate(self, agg=None, bin_size=None):
         return self.map_class(self.metric_data[self.coords_cols], self.metric_data[self.metric_name],
