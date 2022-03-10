@@ -3,42 +3,29 @@ from functools import partial
 import numpy as np
 
 from ..stacking_velocity import StackingVelocity
-from ..utils import set_text_formatting, times_to_indices, MissingModule
+from ..utils import set_text_formatting, times_to_indices
 from ..utils.interactive_plot_utils import InteractivePlot, PairedPlot
-
-# Safe import of modules for interactive plotting
-try:
-    from ipywidgets import widgets
-except ImportError:
-    widgets = MissingModule("ipywidgets")
-
-try:
-    from IPython.display import display
-except ImportError:
-    display = MissingModule("IPython.display")
 
 
 class SemblancePlot(PairedPlot):
-    def __init__(self, semblance, title="Semblance", x_ticker=None, y_ticker=None, sharey=True, figsize=(4.5, 4.5),
-                 fontsize=8, gather_plot_kwargs=None, **kwargs):
-        (x_ticker, y_ticker), kwargs = set_text_formatting(x_ticker, y_ticker, fontsize=fontsize, **kwargs)
+    def __init__(self, semblance, title="Semblance", sharey=True, gather_plot_kwargs=None, figsize=(4.5, 4.5),
+                 fontsize=8, orientation="horizontal", **kwargs):
+        (text_kwargs,), kwargs = set_text_formatting(None, fontsize=fontsize, **kwargs)
         if gather_plot_kwargs is None:
             gather_plot_kwargs = {}
-        gather_plot_kwargs = {"title": None, **gather_plot_kwargs}
-        gather_plot_kwargs["x_ticker"] = {**x_ticker, **gather_plot_kwargs.get("x_ticker", {})}
-        gather_plot_kwargs["y_ticker"] = {**y_ticker, **gather_plot_kwargs.get("y_ticker", {})}
-        self.gather_plot_kwargs = gather_plot_kwargs
+        self.gather_plot_kwargs = {"title": None, **text_kwargs, **gather_plot_kwargs}
 
         self.figsize = figsize
+        self.orientation = orientation
         self.title = title
         self.click_time = None
         self.click_vel = None
 
         self.semblance = semblance
         self.gather = self.semblance.gather.copy(ignore="data")
-        self.plot_semblance = partial(self.semblance._plot, title=None, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
+        self.plot_semblance = partial(self.semblance._plot, title=None, **kwargs, **text_kwargs)
 
-        super().__init__()
+        super().__init__(orientation=orientation)
         if sharey:
             self.aux.ax.sharey(self.main.ax)
 
@@ -47,8 +34,9 @@ class SemblancePlot(PairedPlot):
                                title=self.title, figsize=self.figsize)
 
     def construct_aux_plot(self):
+        toolbar_position = "right" if self.orientation == "horizontal" else "left"
         plotter = InteractivePlot(plot_fn=[self.plot_gather, partial(self.plot_gather, corrected=True)],
-                                  title=self.get_gather_title, figsize=self.figsize, toolbar_position="right")
+                                  title=self.get_gather_title, figsize=self.figsize, toolbar_position=toolbar_position)
         plotter.view_button.disabled = True
         return plotter
 

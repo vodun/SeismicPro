@@ -3,30 +3,19 @@ from functools import partial
 import pandas as pd
 from sklearn.neighbors import NearestNeighbors
 
-from ..utils import set_ticks, set_text_formatting, MissingModule
+from ..utils import set_ticks, set_text_formatting
 from ..utils.interactive_plot_utils import InteractivePlot, PairedPlot
-
-# Safe import of modules for interactive plotting
-try:
-    from ipywidgets import widgets
-except ImportError:
-    widgets = MissingModule("ipywidgets")
-
-try:
-    from IPython.display import display
-except ImportError:
-    display = MissingModule("IPython.display")
 
 
 class SurveyGeometryPlot(PairedPlot):
-    def __init__(self, survey, sort_by=None, keep_aspect=False, x_ticker=None, y_ticker=None, figsize=(4.5, 4.5),
-                 fontsize=8, gather_plot_kwargs=None, orientation="horizontal", **kwargs):
-        (x_ticker, y_ticker), self.map_kwargs = set_text_formatting(x_ticker, y_ticker, fontsize=fontsize, **kwargs)
+    def __init__(self, survey, keep_aspect=False, sort_by=None, gather_plot_kwargs=None, x_ticker=None, y_ticker=None,
+                 figsize=(4.5, 4.5), fontsize=8, orientation="horizontal", **kwargs):
+        kwargs = {"fontsize": fontsize, **kwargs}
+        (x_ticker, y_ticker), self.scatter_kwargs = set_text_formatting(x_ticker, y_ticker, **kwargs)
+        (text_kwargs,), _ = set_text_formatting(None, **kwargs)
         if gather_plot_kwargs is None:
             gather_plot_kwargs = {}
-        gather_plot_kwargs["x_ticker"] = {**x_ticker, **gather_plot_kwargs.get("x_ticker", {})}
-        gather_plot_kwargs["y_ticker"] = {**y_ticker, **gather_plot_kwargs.get("y_ticker", {})}
-        self.gather_plot_kwargs = gather_plot_kwargs
+        self.gather_plot_kwargs = {"title": None, **text_kwargs, **gather_plot_kwargs}
 
         self.survey = survey
         self.sort_by = sort_by
@@ -43,8 +32,8 @@ class SurveyGeometryPlot(PairedPlot):
         # Calculate axes limits to fix them to avoid map plot shifting on view toggle
         x_lim = self._get_limits(self.source_x, self.group_x)
         y_lim = self._get_limits(self.source_y, self.group_y)
-        self.plot_map = partial(self._plot_map, keep_aspect=keep_aspect, x_lim=x_lim, y_lim=y_lim, x_ticker=x_ticker,
-                                y_ticker=y_ticker, **self.map_kwargs)
+        self.plot_map = partial(self._plot_map, keep_aspect=keep_aspect, x_lim=x_lim, y_lim=y_lim,
+                                x_ticker=x_ticker, y_ticker=y_ticker, **self.scatter_kwargs)
         self.affected_scatter = None
 
         super().__init__(orientation=orientation)
@@ -75,7 +64,7 @@ class SurveyGeometryPlot(PairedPlot):
         return [min_coord - margin, max_coord + margin]
 
     def _plot_map(self, ax, keep_aspect, x_lim, y_lim, x_ticker, y_ticker, **kwargs):
-        self.aux.ax.clear()
+        self.aux.clear()
         self.aux.box.layout.visibility = "hidden"
 
         ax.scatter(self.coord_x, self.coord_y, color=self.main_color, marker=self.main_marker, **kwargs)
@@ -154,11 +143,11 @@ class SurveyGeometryPlot(PairedPlot):
         if self.affected_scatter is not None:
             self.affected_scatter.remove()
         self.affected_scatter = self.main.ax.scatter(*gather[self.affected_coords_cols].T, color=self.aux_color,
-                                                     marker=self.aux_marker, **self.map_kwargs)
+                                                     marker=self.aux_marker, **self.scatter_kwargs)
 
         self.aux.box.layout.visibility = "visible"
         self.aux.set_title(self.gather_title + f"{x, y}")
-        self.aux.ax.clear()
+        self.aux.clear()
         gather.plot(ax=self.aux.ax, **self.gather_plot_kwargs)
         return x, y
 
@@ -166,5 +155,5 @@ class SurveyGeometryPlot(PairedPlot):
         if self.affected_scatter is not None:
             self.affected_scatter.remove()
             self.affected_scatter = None
-        self.aux.ax.clear()
+        self.aux.clear()
         self.aux.box.layout.visibility = "hidden"

@@ -11,11 +11,6 @@ try:
 except ImportError:
     widgets = MissingModule("ipywidgets")
 
-try:
-    from IPython.display import display
-except ImportError:
-    display = MissingModule("IPython.display")
-
 
 class MapCoordsPlot(InteractivePlot):
     def __init__(self, *args, **kwargs):
@@ -103,8 +98,8 @@ class MapBinPlot(MapCoordsPlot):
 
 
 class MetricMapPlot(PairedPlot):
-    def __init__(self, metric_map, plot_on_click=None, plot_on_click_kwargs=None, x_ticker=None, y_ticker=None,
-                 title=None, is_lower_better=None, figsize=(4.5, 4.5), fontsize=8, orientation="horizontal", **kwargs):
+    def __init__(self, metric_map, plot_on_click=None, plot_on_click_kwargs=None, title=None, is_lower_better=None,
+                 figsize=(4.5, 4.5), fontsize=8, orientation="horizontal", **kwargs):
         (text_kwargs,), kwargs = set_text_formatting(None, fontsize=fontsize, **kwargs)
         plot_on_click, plot_on_click_kwargs = align_args(plot_on_click, plot_on_click_kwargs)
         plot_on_click_kwargs = [{} if plot_kwargs is None else plot_kwargs for plot_kwargs in plot_on_click_kwargs]
@@ -115,8 +110,7 @@ class MetricMapPlot(PairedPlot):
 
         self.metric_map = metric_map
         self.title = metric_map.plot_title if title is None else title
-        self.plot_map = partial(metric_map.plot, title="", x_ticker=x_ticker, y_ticker=y_ticker,
-                                is_lower_better=is_lower_better, **kwargs, **text_kwargs)
+        self.plot_map = partial(metric_map.plot, title="", is_lower_better=is_lower_better, **kwargs, **text_kwargs)
         self.plot_on_click = [partial(plot_fn, **plot_kwargs)
                               for plot_fn, plot_kwargs in zip(plot_on_click, plot_on_click_kwargs)]
         self.init_click_coords = metric_map.get_worst_coords(is_lower_better)

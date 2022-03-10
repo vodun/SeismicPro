@@ -214,7 +214,7 @@ class InteractivePlot:
         self.title_widget.value = TITLE_TEMPLATE.format(style=TITLE_STYLE, title=title)
 
     def clear(self):
-        # Remove all created axes except for the main one if they were created (e.g. a colorbar)
+        # Remove all axes except for the main one if they were created (e.g. a colorbar)
         for ax in self.fig.axes:
             if ax != self.ax:
                 ax.remove()
