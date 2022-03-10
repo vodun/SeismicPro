@@ -64,7 +64,7 @@ class SeismicBatch(Batch):
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._calculated_metrics = 0
+        self._num_calculated_metrics = 0
 
     @property
     def nested_indices(self):
@@ -403,13 +403,13 @@ class SeismicBatch(Batch):
             "values": [metric.calc(*args, **kwargs) for args, kwargs in unpacked_args],
             "metric_type": metric,
             "pipeline": self.pipeline,
-            "calculate_metric_index": self._calculated_metrics,
+            "calculate_metric_index": self._num_calculated_metrics,
         }
         accumulator = MetricsAccumulator(coords, indices=self.indices, **{metric.name: metric_params})
 
         if save_to is not None:
             save_data_to(data=accumulator, dst=save_to, batch=self)
-        self._calculated_metrics += 1
+        self._num_calculated_metrics += 1
         return self
 
     @action
