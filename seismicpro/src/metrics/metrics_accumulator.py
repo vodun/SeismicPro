@@ -68,7 +68,7 @@ class MetricsAccumulator(Metrics):
         # TODO: allow for accumulation of different metrics
         if (set(self.coords_cols) != set(other.coords_cols)) or (set(self.metrics_names) != set(other.metrics_names)):
             raise ValueError("Only MetricsAccumulator with the same coordinates columns and metrics can be appended")
-        if ((self.stores_indices != self.stores_indices) or
+        if ((self.stores_indices != other.stores_indices) or
             (self.metrics_list[0].index.names != other.metrics_list[0].index.names)):
             raise ValueError("Both accumulators must store the same types of indices")
         self.metrics_list += other.metrics_list
