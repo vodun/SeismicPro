@@ -60,8 +60,9 @@ class BaseMetricMap:
     def _plot(self, *, title=None, x_ticker=None, y_ticker=None, is_lower_better=None, vmin=None, vmax=None, cmap=None,
               colorbar=True, center_colorbar=True, clip_threshold_quantile=0.95, keep_aspect=False, ax=None, **kwargs):
         is_lower_better = self.is_lower_better if is_lower_better is None else is_lower_better
-        vmin = vmin or self.vmin or self.min_value
-        vmax = vmax or self.vmax or self.max_value
+        # Handle plain Metric case
+        vmin = vmin or getattr(self, "vmin", self.min_value)
+        vmax = vmax or getattr(self, "vmax", self.max_value)
 
         if is_lower_better is None and center_colorbar:
             global_mean = self.metric_data[self.metric_name].agg("mean")

@@ -52,5 +52,5 @@ def parse_metric_values(metric_values, metric_name=None, metric_type=None):
 
     if metric_values.ndim != 1:
         raise ValueError(err_msg)
-    metric_name = metric_name or data_metric_name or getattr(metric_type, "name", "metric")
+    metric_name = metric_name or data_metric_name or getattr(metric_type, "name") or "metric"
     return metric_values, metric_name
