@@ -32,8 +32,8 @@ class SurveyGeometryPlot(PairedPlot):
         # Calculate axes limits to fix them to avoid map plot shifting on view toggle
         x_lim = self._get_limits(self.source_x, self.group_x)
         y_lim = self._get_limits(self.source_y, self.group_y)
-        self.plot_map = partial(self._plot_map, keep_aspect=keep_aspect, x_lim=x_lim, y_lim=y_lim,
-                                x_ticker=x_ticker, y_ticker=y_ticker, **self.scatter_kwargs)
+        self.plot_map = partial(self._plot_map, keep_aspect=keep_aspect, x_lim=x_lim, y_lim=y_lim, x_ticker=x_ticker,
+                                y_ticker=y_ticker, **self.scatter_kwargs)
         self.affected_scatter = None
 
         super().__init__(orientation=orientation)
@@ -62,19 +62,6 @@ class SurveyGeometryPlot(PairedPlot):
         max_coord = max(source_coords.max(), group_coords.max())
         margin = 0.05 * (max_coord - min_coord)
         return [min_coord - margin, max_coord + margin]
-
-    def _plot_map(self, ax, keep_aspect, x_lim, y_lim, x_ticker, y_ticker, **kwargs):
-        self.aux.clear()
-        self.aux.box.layout.visibility = "hidden"
-
-        ax.scatter(self.coord_x, self.coord_y, color=self.main_color, marker=self.main_marker, **kwargs)
-        ax.set_xlim(*x_lim)
-        ax.set_ylim(*y_lim)
-        ax.ticklabel_format(style="plain", useOffset=False)
-        if keep_aspect:
-            ax.set_aspect("equal", adjustable="box")
-        set_ticks(ax, "x", self.map_x_label, **x_ticker)
-        set_ticks(ax, "y", self.map_y_label, **y_ticker)
 
     @property
     def is_shot_view(self):
@@ -127,6 +114,19 @@ class SurveyGeometryPlot(PairedPlot):
     @property
     def gather_title(self):
         return "Common shot gather at " if self.is_shot_view else "Common receiver gather at "
+
+    def _plot_map(self, ax, keep_aspect, x_lim, y_lim, x_ticker, y_ticker, **kwargs):
+        self.aux.clear()
+        self.aux.box.layout.visibility = "hidden"
+
+        ax.scatter(self.coord_x, self.coord_y, color=self.main_color, marker=self.main_marker, **kwargs)
+        ax.set_xlim(*x_lim)
+        ax.set_ylim(*y_lim)
+        ax.ticklabel_format(style="plain", useOffset=False)
+        if keep_aspect:
+            ax.set_aspect("equal", adjustable="box")
+        set_ticks(ax, "x", self.map_x_label, **x_ticker)
+        set_ticks(ax, "y", self.map_y_label, **y_ticker)
 
     def click(self, coords):
         closest_ix = self.coords_neighbors.kneighbors([coords], return_distance=False).item()
