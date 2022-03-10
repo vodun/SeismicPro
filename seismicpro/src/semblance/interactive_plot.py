@@ -3,14 +3,15 @@ from functools import partial
 import numpy as np
 
 from ..stacking_velocity import StackingVelocity
-from ..utils import set_text_formatting, times_to_indices
+from ..utils import get_text_formatting_kwargs, times_to_indices
 from ..utils.interactive_plot_utils import InteractivePlot, PairedPlot
 
 
 class SemblancePlot(PairedPlot):
     def __init__(self, semblance, title="Semblance", sharey=True, gather_plot_kwargs=None, figsize=(4.5, 4.5),
                  fontsize=8, orientation="horizontal", **kwargs):
-        (text_kwargs,), kwargs = set_text_formatting(None, fontsize=fontsize, **kwargs)
+        kwargs = {"fontsize": fontsize, **kwargs}
+        text_kwargs = get_text_formatting_kwargs(**kwargs)
         if gather_plot_kwargs is None:
             gather_plot_kwargs = {}
         self.gather_plot_kwargs = {"title": None, **text_kwargs, **gather_plot_kwargs}
@@ -23,7 +24,7 @@ class SemblancePlot(PairedPlot):
 
         self.semblance = semblance
         self.gather = self.semblance.gather.copy(ignore="data")
-        self.plot_semblance = partial(self.semblance._plot, title=None, **kwargs, **text_kwargs)
+        self.plot_semblance = partial(self.semblance._plot, title=None, **kwargs)
 
         super().__init__(orientation=orientation)
         if sharey:

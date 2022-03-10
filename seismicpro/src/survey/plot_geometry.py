@@ -3,7 +3,7 @@ from functools import partial
 import pandas as pd
 from sklearn.neighbors import NearestNeighbors
 
-from ..utils import set_ticks, set_text_formatting
+from ..utils import set_ticks, set_text_formatting, get_text_formatting_kwargs
 from ..utils.interactive_plot_utils import InteractivePlot, PairedPlot
 
 
@@ -12,7 +12,7 @@ class SurveyGeometryPlot(PairedPlot):
                  figsize=(4.5, 4.5), fontsize=8, orientation="horizontal", **kwargs):
         kwargs = {"fontsize": fontsize, **kwargs}
         (x_ticker, y_ticker), self.scatter_kwargs = set_text_formatting(x_ticker, y_ticker, **kwargs)
-        (text_kwargs,), _ = set_text_formatting(None, **kwargs)
+        text_kwargs = get_text_formatting_kwargs(**kwargs)
         if gather_plot_kwargs is None:
             gather_plot_kwargs = {}
         self.gather_plot_kwargs = {"title": None, **text_kwargs, **gather_plot_kwargs}

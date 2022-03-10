@@ -18,11 +18,16 @@ def save_figure(fig, fname, dpi=100, bbox_inches="tight", pad_inches=0.1, **kwar
     fig.savefig(fname, dpi=dpi, bbox_inches=bbox_inches, pad_inches=pad_inches, **kwargs)
 
 
+TEXT_FORMATTING_ARGS = {"fontsize", "fontfamily", "fontweight"}
+
+
+def get_text_formatting_kwargs(**kwargs):
+    return {key: val for key, val in kwargs.items() if key in TEXT_FORMATTING_ARGS}
+
+
 def set_text_formatting(*args, **kwargs):
     """Pop text formatting parameters from `kwargs` and set them as defaults for each of `args` tranformed to dict."""
-    FORMAT_ARGS = {'fontsize', 'fontfamily', 'fontweight'}
-
-    global_formatting = {arg: kwargs.pop(arg) for arg in FORMAT_ARGS if arg in kwargs}
+    global_formatting = {arg: kwargs.pop(arg) for arg in TEXT_FORMATTING_ARGS if arg in kwargs}
     text_args = [{**global_formatting, **({} if arg is None else as_dict(arg, key="label"))} for arg in args]
     return text_args, kwargs
 
