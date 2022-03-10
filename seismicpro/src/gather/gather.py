@@ -13,7 +13,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .muting import Muter
 from .cropped_gather import CroppedGather
-from .interactive_plot import InteractiveNMOCorrection
+from .interactive_plot import NMOCorrectionPlot
 from .utils import (convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins,
                     normalization)
 from ..utils import (to_list, get_columns, validate_columns_exist, set_ticks, format_subplot_yticklabels,
@@ -1327,4 +1327,4 @@ class Gather:
         set_ticks(ax, axis, tick_labels=tick_labels, **{"label": tick_src, **ticker})
 
     def plot_nmo_correction(self, min_vel=1500, max_vel=6000, figsize=(6, 4.5), **kwargs):
-        InteractiveNMOCorrection(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, **kwargs).plot()
+        NMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, **kwargs).plot()

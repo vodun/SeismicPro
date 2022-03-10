@@ -32,7 +32,7 @@ class SlidingVelocityPlot(InteractivePlot):
             self.slider_box.layout.visibility = "visible"
 
 
-class InteractiveCorrection:
+class CorrectionPlot:
     def __init__(self, gather, min_vel, max_vel, figsize, **kwargs):
         kwargs = {"fontsize": 8, **kwargs}
         self.gather = gather
@@ -59,7 +59,7 @@ class InteractiveCorrection:
         self.plotter.plot()
 
 
-class InteractiveNMOCorrection(InteractiveCorrection):
+class NMOCorrectionPlot(CorrectionPlot):
     def get_title(self):
         return f"Normal moveout correction with {self.plotter.slider.value:.0f} m/s velocity"
 
