@@ -197,6 +197,11 @@ class BaseSemblance:
         set_ticks(ax, "x", x_label, x_ticklabels, **x_ticker)
         set_ticks(ax, "y", "Time", y_ticklabels, **y_ticker)
 
+    def plot(self, *args, interactive=False, **kwargs):
+        if not interactive:
+            return self._plot(*args, **kwargs)
+        return SemblancePlot(self, *args, **kwargs).plot()
+
 
 class Semblance(BaseSemblance):
     r"""A class for vertical velocity semblance calculation and processing.
@@ -365,9 +370,7 @@ class Semblance(BaseSemblance):
 
     @plotter(figsize=(10, 9), args_to_unpack="stacking_velocity")
     def plot(self, stacking_velocity=None, interactive=False, title="Semblance", **kwargs):
-        if not interactive:
-            return self._plot(stacking_velocity=stacking_velocity, title=title, **kwargs)
-        return SemblancePlot(self, stacking_velocity=stacking_velocity, title=title, **kwargs).plot()
+        return super().plot(stacking_velocity=stacking_velocity, interactive=interactive, title=title, **kwargs)
 
     @batch_method(target="for", copy_src=False)
     def calculate_stacking_velocity(self, start_velocity_range=(1400, 1800), end_velocity_range=(2500, 5000),
@@ -619,6 +622,4 @@ class ResidualSemblance(BaseSemblance):
 
     @plotter(figsize=(10, 9))
     def plot(self, interactive=False, title="Residual semblance", **kwargs):
-        if not interactive:
-            return self._plot(title=title, **kwargs)
-        return SemblancePlot(self, title=title, **kwargs).plot()
+        return super().plot(interactive=interactive, title=title, **kwargs)
