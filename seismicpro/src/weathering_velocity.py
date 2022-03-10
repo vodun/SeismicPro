@@ -173,7 +173,7 @@ class WeatheringVelocity:
         ----------
         args : tuple, list, or 1d ndarray
             Parameters for a piecewise linear function.
-        loss : str, optional, defaults to 'L1'. 
+        loss : str, optional, defaults to 'L1'.
             The loss function type. Should be one of 'L1', 'huber', 'soft_L1', or 'cauchy'.
             All implemented loss functions have a mean reduction.
         huber_coef : float, default to 0.1
@@ -353,6 +353,10 @@ class WeatheringVelocity:
         self : WeatheringVelocity
             WeatheringVelocity without changes.
         """
+        txt_kwargs = {key[4:]: kwargs[key] for key in kwargs.keys() if key.startswith('txt_')}
+        txt_kwargs = {**{'fontsize': 15, 'va': 'top'}, **txt_kwargs}
+        txt_ident = txt_kwargs.pop('ident', (.03, .94))
+
         (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
         set_ticks(ax, "x", tick_labels=None, label="offset, m", **x_ticker)
         set_ticks(ax, "y", tick_labels=None, label="time, ms", **y_ticker)
@@ -360,7 +364,7 @@ class WeatheringVelocity:
         ax.scatter(self.offsets, self.picking_times, s=1, color='black', label='fbp points')
         for i in range(self.n_layers):
             if self.params[f'v{i+1}'] is not np.nan:
-                ax.plot(self._piecewise_offsets[i:i+2], self._piecewise_times[i:i+2], '-', color='red', 
+                ax.plot(self._piecewise_offsets[i:i+2], self._piecewise_times[i:i+2], '-', color='red',
                         label='fitted piecewise function' if i == 0 else None)
             if i != self.n_layers - 1:
                 ax.axvline(self._piecewise_offsets[i+1], 0, self.picking_times.max(), ls='--', c='blue',
@@ -371,8 +375,7 @@ class WeatheringVelocity:
             if self.n_layers > 1:
                 txt_info += '\ncrossover offsets : ' + ', '.join(f"{round(x)}" for x in params[1:self.n_layers]) + ' m'
             txt_info += '\nvelocities : ' + ', '.join(f"{v:.2f}" for v in params[self.n_layers:]) + ' km/s'
-
-            ax.text(0.03, .94, txt_info, fontsize=15, va='top', transform=ax.transAxes)
+            ax.text(*txt_ident, txt_info, transform=ax.transAxes, **txt_kwargs)
 
         if threshold_time is not None:
             ax.plot(self._piecewise_offsets, self._piecewise_times + threshold_time, '--', color='red',
