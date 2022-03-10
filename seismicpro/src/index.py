@@ -213,7 +213,7 @@ class SeismicIndex(DatasetIndex):
                 None: SeismicIndex.from_survey,
             }
             if mode not in builders_dict:
-                raise ValueError("Unknown mode {}".format(mode))
+                raise ValueError(f"Unknown mode {mode}")
             index = builders_dict[mode](surveys, **kwargs)
 
         # Check that passed or created index has SeismicIndex type
@@ -364,7 +364,7 @@ class SeismicIndex(DatasetIndex):
         intersect_keys = x.surveys_dict.keys() & y.surveys_dict.keys()
         if intersect_keys:
             raise ValueError("Only surveys with unique names can be merged, "
-                             "but {} are duplicated".format(", ".join(intersect_keys)))
+                             f"but {', '.join(intersect_keys)} are duplicated")
 
         x_index_columns = x.index.names
         y_index_columns = y.index.names

@@ -6,6 +6,7 @@ from .batch import SeismicBatch
 from .survey import Survey
 from .gather import Gather
 from .coherency import Coherency, ResidualCoherency
+from .cropped_gather import CroppedGather
 from .velocity_cube import StackingVelocity, VelocityCube
 from .muting import Muter
 from .metrics import MetricsMap

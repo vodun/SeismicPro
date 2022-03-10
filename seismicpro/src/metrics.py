@@ -83,8 +83,8 @@ class MetricsMap(Metrics):
         if coords.ndim != 2:
             raise ValueError("Coordinates array must be 2-dimensional.")
         if coords.shape[1] != 2:
-            raise ValueError("Coordinates  array must have shape (N, 2), where N is the number of elements"\
-                             " but an array with shape {} was given".format(coords.shape))
+            raise ValueError("Coordinates array must have shape (N, 2), where N is the number of elements"
+                             f" but an array with shape {coords.shape} was given")
         self.coords = coords
 
         # Create attributes with metric values
@@ -98,8 +98,8 @@ class MetricsMap(Metrics):
             if not isinstance(metrics[0], (list, tuple, np.ndarray)):
                 metrics = metrics.reshape(-1, 1)
             if len(self.coords) != len(metrics):
-                raise ValueError("Length of coordinates array ({0}) doesn't match the length of '{1}' "\
-                                 "attribute ({2}).".format(len(self.coords), name, len(metrics)))
+                raise ValueError(f"The length of {name} metric array must match the length of coordinates array "
+                                 f"({len(self.coords)}) but equals {len(metrics)}")
             setattr(self, name, metrics)
 
         self.attribute_names = ('coords',) + tuple(kwargs.keys())
@@ -223,7 +223,7 @@ class MetricsMap(Metrics):
         params_names = list(params.keys())[1:]
         empty_params = [name for name, arg in zip(params_names, args) if arg == inspect.Parameter.empty]
         if empty_params:
-            raise ValueError("Missed value to '{}' argument(s).".format("', '".join(empty_params)))
+            raise ValueError(f"Missing values to {', '.join(empty_params)} argument(s)")
         return tuple(args)
 
     @staticmethod
