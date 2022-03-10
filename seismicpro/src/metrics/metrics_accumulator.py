@@ -131,7 +131,9 @@ class MetricsAccumulator(Metrics):
 
         coords_to_indices = None
         if self.stores_indices:
-            coords_to_indices = self.metrics.groupby(by=self.coords_cols).groups
+            # Rename metrics coordinates columns to avoid possible collision with index names which breaks groupby
+            renamed_metrics = self.metrics.rename(columns=dict(zip(self.coords_cols, ["X", "Y"])))
+            coords_to_indices = renamed_metrics.groupby(by=["X", "Y"]).groups
             coords_to_indices = {coords: indices.unique() for coords, indices in coords_to_indices.items()}
 
         metrics_maps = []
