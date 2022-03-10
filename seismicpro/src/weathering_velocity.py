@@ -334,7 +334,8 @@ class WeatheringVelocity:
         self.params['t0'] = np.nan if self.params['v1'] is np.nan else self.params['t0']
 
     @plotter(figsize=(10, 7))
-    def plot(self, ax, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_time=None, **kwargs):
+    def plot(self, ax, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_time=None, compare=None,
+             **kwargs):
         """Plot the WeatheringVelocity data, fitted curve, cross offsets, and additional information.
 
         Parameters
@@ -381,6 +382,8 @@ class WeatheringVelocity:
             ax.plot(self._piecewise_offsets, self._piecewise_times + threshold_time, '--', color='red',
                     label=f'+/- {threshold_time}ms window')
             ax.plot(self._piecewise_offsets, self._piecewise_times - threshold_time, '--', color='red')
+        if compare is not None:
+            ax.plot(compare[0], compare[1], '--', color='green', label='compare')
         ax.set_xlim(0)
         ax.set_ylim(0)
         ax.legend(loc='lower right')
