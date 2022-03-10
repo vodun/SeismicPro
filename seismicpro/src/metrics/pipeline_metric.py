@@ -52,7 +52,7 @@ class PipelineMetric(PlottableMetric):
     def calc(metric):
         return metric
 
-    def gen_batch(self, coords, batch_src, pipeline):
+    def make_batch(self, coords, batch_src, pipeline):
         if batch_src not in {"index", "coords"}:
             raise ValueError("Unknown source to get the batch from. Available options are 'index' and 'coords'.")
         if batch_src == "index":
@@ -129,7 +129,7 @@ class PipelineMetric(PlottableMetric):
         }
         if pipeline is None:
             pipeline = default_pipelines[batch_src]
-        batch = self.gen_batch(coords, batch_src, pipeline)
+        batch = self.make_batch(coords, batch_src, pipeline)
         item = getattr(batch, plot_component)[0]
         item.plot(ax=ax, **kwargs)
 
@@ -141,7 +141,7 @@ class PipelineMetric(PlottableMetric):
             if batch_src == "coords":
                 raise ValueError("A pipeline must be passed to plot a view if a batch is generated from coordinates")
             pipeline = self.plot_pipeline
-        batch = self.gen_batch(coords, batch_src, pipeline)
+        batch = self.make_batch(coords, batch_src, pipeline)
 
         if view_fn.args_unpacking_mode == "batch":
             return view_fn(batch, ax=ax, **kwargs)
