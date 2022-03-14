@@ -24,8 +24,8 @@ def _update_method_params(method, decorator_name, **decorator_params):
 def plotter(figsize, args_to_unpack=None):
     """Expand the functionality of a plotting method by defining figure creation and saving.
 
-    The decorated method is supposed to accept an `ax` argument. If it's not passed during the call, the decorator
-    creates it with the `figsize` provided.
+    The decorated method is supposed to accept an `ax` argument. If it's not passed during the call and the plot is not
+    interactive, the decorator creates it with the `figsize` provided.
 
     A new argument is added for the decorated method:
     save_to : str or dict, optional, defaults to None
