@@ -198,7 +198,7 @@ class WeatheringVelocity:
             loss = np.empty_like(diff_abs)
             mask = diff_abs <= huber_coef
             loss[mask] = .5 * (diff_abs[mask] ** 2)
-            loss[~mask] = huber_coef * diff_abs[~mask] ** 2 - .5 * (huber_coef ** 2)
+            loss[~mask] = huber_coef * diff_abs[~mask] - .5 * (huber_coef ** 2)
             return loss.mean()
         if loss == 'soft_L1':
             return 2 * ((1 + diff_abs) ** .5 - 1).mean()
@@ -276,9 +276,9 @@ class WeatheringVelocity:
                 slopes[i] = start_slope
                 times[i] = start_time - start_slope * self.offsets.min() / min_picking_times
                 warnings.warn("Not enough first break points to fit an init params. Using a base estimation.")
-            slopes[i] = max(.167, slopes[i], start_slope)  # move maximal velocity to 6 km/s and
+            slopes[i] = max([.167, slopes[i]])  # move maximal velocity to 6 km/s and
                                                            # set velocity no less than previous layer
-            times[i] = max(0, times[i])  # move minimal time to zero
+            times[i] = max([0, times[i]])  # move minimal time to zero
             start_slope = slopes[i] * (n_layers / (n_layers + 1)) # raise base velocity for next layers (v = 1 / slope)
             start_time = times[i] + (slopes[i] - start_slope) * (cross_offsets[i + 1] / min_picking_times)
         velocities = 1 / slopes
@@ -333,8 +333,8 @@ class WeatheringVelocity:
                 self.params[f'v{i+1}'] = np.nan
         self.params['t0'] = np.nan if self.params['v1'] is np.nan else self.params['t0']
 
-    @plotter(figsize=(10, 7))
-    def plot(self, ax, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_time=None, compare=None,
+    @plotter(figsize=(10, 5))
+    def plot(self, *, ax=None, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_time=None, compare=None,
              **kwargs):
         """Plot the WeatheringVelocity data, fitted curve, cross offsets, and additional information.
 
