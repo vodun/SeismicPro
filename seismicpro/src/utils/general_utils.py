@@ -26,6 +26,9 @@ def unique_indices_sorted(arr):
 
 
 def align_args(reference_arg, *args):
+    """Convert `reference_arg` and each arg from `args` to lists so that their lengths match the number of elements in
+    the `reference_arg`. If some arg contains a single element, its value will is repeated. If some arg is an
+    array-like whose length does not match the number of elements in the `reference_arg` an error is raised."""
     reference_arg = to_list(reference_arg)
     processed_args = []
     for arg in args:
@@ -75,21 +78,20 @@ def get_coords_cols(index_cols):
     return coords_cols
 
 
-def validate_columns_exist(df, columns):
-    """Check if each column from `columns_list` is present either in the dataframe columns or its index."""
+def validate_cols_exist(df, cols):
+    """Check if each column from `cols` is present either in the `df` DataFrame columns or index."""
     df_cols = set(df.columns) | set(df.index.names)
-    missing_cols = set(to_list(columns)) - df_cols
+    missing_cols = set(to_list(cols)) - df_cols
     if missing_cols:
-        err_msg = "The following headers must be preloaded: {}"
-        raise ValueError(err_msg.format(", ".join(missing_cols)))
+        raise ValueError(f"The following headers must be preloaded: {', '.join(missing_cols)}")
 
 
-def get_columns(df, columns_list):
-    """Extract columns from `columns_list` from dataframe columns or its index as a 2d `np.ndarray`."""
-    validate_columns_exist(df, columns_list)
-    # Avoid using direct pandas indexing to speed up selection of multiple columns from small dataframes
+def get_cols(df, cols):
+    """Extract columns from `cols` from the `df` DataFrame columns or index as a 2d `np.ndarray`."""
+    validate_cols_exist(df, cols)
+    # Avoid using direct pandas indexing to speed up selection of multiple columns from small DataFrames
     res = []
-    for col in columns_list:
+    for col in to_list(cols):
         col_values = df[col] if col in df.columns else df.index.get_level_values(col)
         res.append(col_values.values)
     return np.column_stack(res)

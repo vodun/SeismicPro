@@ -16,8 +16,8 @@ from .cropped_gather import CroppedGather
 from .interactive_plot import NMOCorrectionPlot
 from .utils import (convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins,
                     normalization)
-from ..utils import (to_list, get_columns, validate_columns_exist, set_ticks, format_subplot_yticklabels,
-                     set_text_formatting, add_colorbar, get_coords_cols, correction)
+from ..utils import (correction, to_list, get_cols, validate_cols_exist, set_ticks, format_subplot_yticklabels,
+                     set_text_formatting, add_colorbar, get_coords_cols)
 from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, VelocityCube
 from ..decorators import batch_method, plotter
@@ -143,7 +143,7 @@ class Gather:
         # If key is str or array of str, treat it as names of headers columns
         keys_array = np.array(to_list(key))
         if keys_array.dtype.type == np.str_:
-            return get_columns(self.headers, keys_array)
+            return get_cols(self.headers, keys_array)
 
         # Perform traces and samples selection
         key = (key, ) if not isinstance(key, tuple) else key
@@ -321,7 +321,7 @@ class Gather:
             If any of checks above failed.
         """
         if required_header_cols is not None:
-            validate_columns_exist(self.headers, required_header_cols)
+            validate_cols_exist(self.headers, required_header_cols)
         if (required_sorting is not None) and (self.sort_by != required_sorting):
             raise ValueError(f"Gather should be sorted by {required_sorting} not {self.sort_by}")
         return self

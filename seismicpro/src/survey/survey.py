@@ -18,7 +18,7 @@ from .plot_geometry import SurveyGeometryPlot
 from .utils import calculate_stats, create_supergather_index
 from ..gather import Gather
 from ..metrics import PartialMetric
-from ..utils import to_list, maybe_copy, get_columns
+from ..utils import to_list, maybe_copy, get_cols
 from ..const import HDR_DEAD_TRACE, HDR_FIRST_BREAK
 
 
@@ -203,7 +203,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         keys_array = np.array(to_list(key))
         if keys_array.dtype.type != np.str_:
             raise ValueError("Passed keys must be either str or array-like of str")
-        return get_columns(self.headers, keys_array)
+        return get_cols(self.headers, keys_array)
 
     def __setitem__(self, key, value):
         """Set given values to selected survey headers.
