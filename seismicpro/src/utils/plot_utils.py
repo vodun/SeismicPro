@@ -14,7 +14,7 @@ def as_dict(val, key):
 
 
 def save_figure(fig, fname, dpi=100, bbox_inches="tight", pad_inches=0.1, **kwargs):
-    """Save the given figure. All `args` and `kwargs` are passed directly into `matplotlib.pyplot.savefig`."""
+    """Save the given figure. All `args` and `kwargs` are passed directly to `matplotlib.pyplot.savefig`."""
     fig.savefig(fname, dpi=dpi, bbox_inches=bbox_inches, pad_inches=pad_inches, **kwargs)
 
 
@@ -22,6 +22,7 @@ TEXT_FORMATTING_ARGS = {"fontsize", "fontfamily", "fontweight"}
 
 
 def get_text_formatting_kwargs(**kwargs):
+    """Get text formatting parameters from `kwargs`."""
     return {key: val for key, val in kwargs.items() if key in TEXT_FORMATTING_ARGS}
 
 
@@ -42,8 +43,8 @@ def add_colorbar(ax, artist, colorbar, divider=None, y_ticker=None):
     artist : matplotlib.cm.ScalarMappable
         A mappable artist described by the colorbar.
     colorbar : bool or dict
-        If `bool`, defines whether to add a colorbar with default parameters. If `dict`, defines extra keyword
-        arguments for `matplotlib.figure.Figure.colorbar`.
+        If `False` does not add a colorbar. If `True`, adds a colorbar with default parameters. If `dict`, defines
+        keyword arguments for `matplotlib.figure.Figure.colorbar`.
     divider : mpl_toolkits.axes_grid1.axes_divider.AxesDivider, optional
         A divider of `ax`. If given, will be used to create child axes for the colorbar.
     y_ticker : dict, optional
@@ -63,8 +64,8 @@ def add_colorbar(ax, artist, colorbar, divider=None, y_ticker=None):
 
 
 def format_subplot_yticklabels(ax, fontsize=None, fontfamily=None, fontweight=None, **kwargs):
-    """Set text formatting of y ticks. This method updates only font size, family and weight and does not support
-    tick rotation."""
+    """Set text formatting of y ticks of `ax` axes. This method is mainly used to format ticks on subplots such as a
+    colorbar. It updates only font size, family and weight and does not support tick rotation."""
     _ = kwargs
     for tick in ax.get_yticklabels():
         tick.set_fontsize(fontsize)
