@@ -18,9 +18,11 @@ except ImportError:
     display = MissingModule("IPython.display")
 
 
+# Maximum time between mouse button click and release events to consider them as a single click
 MAX_CLICK_TIME = 0.2
 
 
+# Default layout of text widgets
 TEXT_LAYOUT = {
     "height": "28px",
     "display": "flex",
@@ -30,6 +32,7 @@ TEXT_LAYOUT = {
 }
 
 
+# Default layout of button widgets
 BUTTON_LAYOUT = {
     "height": "28px",
     "width": "35px",
@@ -37,6 +40,7 @@ BUTTON_LAYOUT = {
 }
 
 
+# HTML style of a plot title
 TITLE_STYLE = "<style>p{word-wrap:normal; text-align:center; font-size:14px}</style>"
 TITLE_TEMPLATE = "{style} <b><p>{title}</p></b>"
 
@@ -246,7 +250,7 @@ class PairedPlot:
         elif orientation == "vertical":
             box_type = widgets.VBox
         else:
-            raise ValueError("Unknown plot orientation, must be one of \{'horizontal', 'vertical'\}")
+            raise ValueError("Unknown plot orientation, must be either 'horizontal' or 'vertical'")
 
         self.main = self.construct_main_plot()
         self.aux = self.construct_aux_plot()
