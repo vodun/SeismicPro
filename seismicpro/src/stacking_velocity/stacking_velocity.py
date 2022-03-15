@@ -1,3 +1,5 @@
+"""Implements a StackingVelocity class which allows for velocity interpolation at given times"""
+
 from collections import namedtuple
 
 import numpy as np
@@ -7,16 +9,17 @@ from ..utils import read_single_vfunc, dump_vfunc
 
 
 class StackingVelocity:
-    """A class representing stacking velocity in a certain place of a field.
+    """A class representing stacking velocity at a certain point of a field.
 
     Stacking velocity is the value of the seismic velocity obtained from the best fit of the traveltime curve by a
     hyperbola for each timestamp. It is used to correct the arrival times of reflection events in the traces for their
     varying offsets prior to stacking.
 
-    It can be created from three different types of data by calling a corresponding `classmethod`:
+    It can be created from four different types of data by calling a corresponding `classmethod`:
     * `from_points` - create a stacking velocity from 1d arrays of times and velocities,
     * `from_file` - create a stacking velocity from a file in VFUNC format with time-velocity pairs,
-    * `from_interpolator` - create a stacking velocity from a callable that returns velocity value by given time.
+    * `from_interpolator` - create a stacking velocity from a callable that returns velocity value by given time,
+    * `from_constant_velocity` - create a stacking velocity which returns a single value for all times.
 
     However, usually a stacking velocity instance is not created directly, but is obtained as a result of calling the
     following methods:
@@ -35,7 +38,7 @@ class StackingVelocity:
     >>> semblance = gather.calculate_semblance(velocities=np.linspace(1400, 5000, 200), win_size=8)
     >>> velocity = semblance.calculate_stacking_velocity()
 
-    Or it can be interpolated from a velocity cube (loaded from a file in our case):
+    Or it can be interpolated from a velocity cube (loaded from a file in this case):
     >>> cube = VelocityCube(path=cube_path).create_interpolator()
     >>> velocity = cube(inline, crossline)
 
@@ -156,6 +159,24 @@ class StackingVelocity:
 
     @classmethod
     def from_constant_velocity(cls, velocity, inline=None, crossline=None):
+        """Init stacking velocity from a single velocity returned for all times.
+
+        Parameters
+        ----------
+        velocity : float
+            A single velocity returned for all times.
+        inline : int, optional, defaults to None
+            An inline of the created stacking velocity. If `None`, the created instance won't be able to be added to a
+            `VelocityCube`.
+        crossline : int, optional, defaults to None
+            A crossline of the created stacking velocity. If `None`, the created instance won't be able to be added to
+            a `VelocityCube`.
+
+        Returns
+        -------
+        self : StackingVelocity
+            Created stacking velocity instance.
+        """
         interpolator = interp1d([0, 10000], [velocity, velocity])
         return cls.from_interpolator(interpolator, inline=inline, crossline=crossline)
 
@@ -189,6 +210,8 @@ class StackingVelocity:
     def get_coords(self, *args, **kwargs):
         """Get spatial coordinates of the stacking velocity.
 
+        Ignores all passed arguments but accept them to preserve general `get_coords` interface.
+
         Returns
         -------
         coords : tuple with 2 elements
@@ -199,6 +222,7 @@ class StackingVelocity:
 
     @property
     def coords(self):
+        """namedtuple with 2 elements: Spatial coordinates of the stacking velocity."""
         return self.get_coords()
 
     def __call__(self, times):
