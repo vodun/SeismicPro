@@ -1,4 +1,5 @@
-"""Implements classes for velocity analysis: StackingVelocity and VelocityCube"""
+"""Implements a VelocityCube class which stores stacking velocities calculated at different field locations and allows
+for spatial velocity interpolation"""
 
 import os
 import warnings
@@ -10,7 +11,6 @@ from sklearn.neighbors import NearestNeighbors
 from .stacking_velocity import StackingVelocity
 from .velocity_interpolator import VelocityInterpolator
 from .metrics import VELOCITY_QC_METRICS, StackingVelocityMetric
-from ..metrics import MetricMap
 from ..utils import to_list, read_vfunc, dump_vfunc
 
 
@@ -28,9 +28,9 @@ class VelocityCube:
     interpolator creation is useful when the cube should be passed to different proccesses (e.g. in a pipeline with
     prefetch with `mpc` target) since otherwise the interpolator will be independently created in all the processes.
 
-    The cube provides an interface to quality control via its `qc` method, which calculates several
-    spatial-window-based metrics for its stacking velocities evaluated at passed times. The resulting object is an
-    instance of `MetricsMap` class, which allows for metric visualization over the field map.
+    The cube provides an interface to quality control via its `qc` method, which calculates maps for several
+    spatial-window-based metrics calculated for its stacking velocities evaluated at passed times. These maps may be
+    interactively visualized to evaluate the cube quality in detail.
 
     Examples
     --------
@@ -47,8 +47,9 @@ class VelocityCube:
     >>> cube.create_interpolator()
 
     Quality control can be performed by calling `qc` method and visualizing the resulting maps:
-    >>> cube_metrics = cube.qc(win_radius=40, times=np.arange(0, 3000, 2))
-    >>> cube_metrics.construct_map("max_relative_variation", bin_size=(40, 40))
+    >>> metrics_maps = cube.qc(win_radius=40, times=np.arange(0, 3000, 2))
+    >>> for metric_map in metrics_maps:
+    >>>     metric_map.plot(interactive=True)
 
     Parameters
     ----------
@@ -56,7 +57,7 @@ class VelocityCube:
         A path to the source file with vertical functions to load the cube from. If not given, an empty cube is
         created.
     create_interpolator : bool, optional, defaults to True
-        Whether to create an interpolator immediately if the cube was loaded from a file.
+        Whether to create an interpolator immediately if the cube is loaded from a file.
 
     Attributes
     ----------
@@ -154,7 +155,7 @@ class VelocityCube:
         if not all(vel.has_coords for vel in stacking_velocities):
             raise ValueError("All passed `StackingVelocity` instances must have not-None coordinates")
         for vel in stacking_velocities:
-            self.stacking_velocities_dict[vel.get_coords()] = vel
+            self.stacking_velocities_dict[tuple(vel.coords)] = vel
         if stacking_velocities:
             self.is_dirty_interpolator = True
         return self
@@ -211,21 +212,18 @@ class VelocityCube:
         return self.interpolator(inline, crossline)
 
     def qc(self, win_radius, times, coords=None, metrics=None, n_workers=None, bar=True): #pylint: disable=invalid-name
-        """Perform quality control of the velocity cube by calculating spatial-window-based metrics for stacking
+        """Perform quality control of the velocity cube by calculating spatial-window-based metrics for its stacking
         velocities evaluated at given `times`.
 
         If `coords` are specified, QC will be performed for stacking velocities, interpolated for each of them.
         Otherwise, stacking velocities stored in the cube are used directly.
 
         By default, the following metrics are calculated:
-        * Presence of velocity decreasing in time,
-        * Maximal spatial velocity standard deviation in a window over all the times,
+        * Presence of segments with velocity decrease in time,
+        * Maximal deviation of instantaneous acceleration from the mean acceleration over all times,
+        * Maximal spatial velocity standard deviation in a window over all times,
         * Maximal absolute relative difference between central stacking velocity and the average of all remaining
-          velocities in the window over all the times.
-
-        A specific metric can be specified either by its name in `~utils.velocity_qc` module or by a callable,
-        accepting a set of stacking velocities in a window as a stacked 2d `np.ndarray` in a channels-first format and
-        returning a single metric value.
+          velocities in the window over all times.
 
         Parameters
         ----------
@@ -236,15 +234,17 @@ class VelocityCube:
         coords : 2d np.array or None, optional
             Spatial coordinates of stacking velocities to calculate metrics for. If not given, stacking velocities
             stored in the cube are used without extra interpolation step.
-        metrics_names : str, callable or list of str or callable, optional
-            Metrics to calculate. Defaults to those defined in `~utils.velocity_qc.VELOCITY_QC_METRICS`.
+        metrics : StackingVelocityMetric or list of StackingVelocityMetric, optional
+            Metrics to calculate. Defaults to those defined in `~metrics.VELOCITY_QC_METRICS`.
         n_workers : int, optional
             The number of threads to be spawned to calculate metrics. Defaults to the number of cpu cores.
+        bar : bool, optional, defaults to True
+            Whether to show a progress bar.
 
         Returns
         -------
-        metrics_map : MetricsMap
-           Calculated metrics.
+        metrics_maps : StackingVelocityMetricMap or list of StackingVelocityMetricMap
+            Calculated metrics maps. Has the same shape as `metrics`.
         """
         is_single_metric = isinstance(metrics, type) and issubclass(metrics, StackingVelocityMetric)
         if metrics is None:

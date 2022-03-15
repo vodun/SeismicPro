@@ -1,3 +1,5 @@
+"""Implements stacking velocity interpolator over the field"""
+
 import cv2
 import numpy as np
 from numba import njit, prange
@@ -58,7 +60,7 @@ class VelocityInterpolator:
             corner_velocities_coords = [(min_i, min_x), (min_i, max_x), (max_i, min_x), (max_i, max_x)]
             self.tri = Delaunay(np.concatenate([self.coords, corner_velocities_coords]), incremental=False)
 
-        # Perform the first auxilliary call of the tri for it to work properly in different processes.
+        # Perform the first auxiliary call of the tri for it to work properly in different processes.
         # Otherwise VelocityCube.__call__ may fail if called in a pipeline with prefetch with mpc target.
         _ = self.tri.find_simplex((0, 0))
 
