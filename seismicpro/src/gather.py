@@ -724,7 +724,7 @@ class Gather:
         return self
 
     @batch_method(target='for')
-    def calculate_weathering_velocity(self, first_breaks_col='FirstBreak', n_layers=None, init=None, bounds=None,
+    def calculate_weathering_velocity(self, first_breaks_col=HDR_FIRST_BREAK, n_layers=None, init=None, bounds=None,
                                       **kwargs):
         '''Return the WeatheringVelocity instance based on the `offsets` and `picking_times` of the current gather.
 
@@ -732,7 +732,7 @@ class Gather:
 
         Parameters
         ----------
-        first_breaks_col : str, defaults to 'FirstBreak'
+        first_breaks_col : str, defaults to HDR_FIRST_BREAK
             Column name  from `self.headers` where first breaking times are stored.
         n_layers : int or None, defaults to None
             Number of weathering model layers.
@@ -745,7 +745,7 @@ class Gather:
 
         Returns
         -------
-        wv : WeatheringVelocity
+        WeatheringVelocity
             Calculated WeatheringVelocity instance.
         '''
         return WeatheringVelocity(offsets=self.offsets, picking_times=self[first_breaks_col].ravel(),

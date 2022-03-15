@@ -1,6 +1,5 @@
 """Implements WeatheringVelocity class to fit piecewise function and store parameters of a fitted function."""
 
-import warnings
 from functools import partial
 
 import numpy as np
@@ -107,11 +106,10 @@ class WeatheringVelocity:
     def __init__(self, offsets, picking_times, n_layers=None, init=None, bounds=None, **kwargs):
         init = {} if init is None else init
         bounds = {} if bounds is None else bounds
+        self._check_values(init, bounds)
 
         self.offsets = offsets
         self.picking_times = picking_times
-
-        self._check_values(init, bounds)
 
         self.init = {**self._calc_init_by_layers(n_layers), **self._calc_init_by_bounds(bounds), **init}
         self.bounds = {**self._calc_bounds_by_init(), **bounds}
@@ -133,7 +131,7 @@ class WeatheringVelocity:
         constraint_velocity = {"type": "ineq", "fun": lambda x: np.diff(x[self.n_layers:])}
         partial_loss_func = partial(self.loss_piecewise_linear, loss=kwargs.pop('loss', 'L1'),
                                     huber_coef=kwargs.pop('huber_coef', .1))
-        minimizer_kwargs = {'method': 'SLSQP', 'constraints': (constraint_offset, constraint_velocity), **kwargs}
+        minimizer_kwargs = {'method': 'SLSQP', 'constraints': (constraint_offset), **kwargs} # constraint_velocity
         self._model_params = optimize.minimize(partial_loss_func, x0=list(self.init.values()),
                                                bounds=list(self.bounds.values()), **minimizer_kwargs)
         self.params = dict(zip(self._valid_keys, self._model_params.x))
@@ -275,9 +273,7 @@ class WeatheringVelocity:
             else:
                 slopes[i] = start_slope
                 times[i] = start_time - start_slope * self.offsets.min() / min_picking_times
-                warnings.warn("Not enough first break points to fit an init params. Using a base estimation.")
-            slopes[i] = max([.167, slopes[i]])  # move maximal velocity to 6 km/s and
-                                                           # set velocity no less than previous layer
+            slopes[i] = max(.167, slopes[i])  # move maximal velocity to 6 km/s
             times[i] = max([0, times[i]])  # move minimal time to zero
             start_slope = slopes[i] * (n_layers / (n_layers + 1)) # raise base velocity for next layers (v = 1 / slope)
             start_time = times[i] + (slopes[i] - start_slope) * (cross_offsets[i + 1] / min_picking_times)
@@ -334,8 +330,8 @@ class WeatheringVelocity:
         self.params['t0'] = np.nan if self.params['v1'] is np.nan else self.params['t0']
 
     @plotter(figsize=(10, 5))
-    def plot(self, *, ax=None, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_time=None, compare=None,
-             **kwargs):
+    def plot(self, *, ax=None, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_time=None,
+            comparison_params=None, **kwargs):
         """Plot the WeatheringVelocity data, fitted curve, cross offsets, and additional information.
 
         Parameters
@@ -354,7 +350,7 @@ class WeatheringVelocity:
         self : WeatheringVelocity
             WeatheringVelocity without changes.
         """
-        txt_kwargs = {key[4:]: kwargs[key] for key in kwargs.keys() if key.startswith('txt_')}
+        txt_kwargs = {key[4:]: value for key, value in kwargs if key.startswith('txt_')}
         txt_kwargs = {**{'fontsize': 15, 'va': 'top'}, **txt_kwargs}
         txt_ident = txt_kwargs.pop('ident', (.03, .94))
 
@@ -382,8 +378,8 @@ class WeatheringVelocity:
             ax.plot(self._piecewise_offsets, self._piecewise_times + threshold_time, '--', color='red',
                     label=f'+/- {threshold_time}ms window')
             ax.plot(self._piecewise_offsets, self._piecewise_times - threshold_time, '--', color='red')
-        if compare is not None:
-            ax.plot(compare[0], compare[1], '--', color='green', label='compare')
+        if comparison_params is not None:
+            ax.plot(comparison_params[0], comparison_params[1], '--', color='green', label='comparison')
         ax.set_xlim(0)
         ax.set_ylim(0)
         ax.legend(loc='lower right')
