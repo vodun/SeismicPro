@@ -103,7 +103,7 @@ class WeatheringVelocity:
         if an union of `init` and `bounds` keys less than 2 or `n_layers` less than 1.
     """
 
-    def __init__(self, offsets, picking_times, n_layers=None, init=None, bounds=None, **kwargs):
+    def __init__(self, offsets, picking_times, n_layers=None, init=None, bounds=None, ascending_velocity=True, **kwargs):
         init = {} if init is None else init
         bounds = {} if bounds is None else bounds
         self._check_values(init, bounds)
@@ -129,9 +129,10 @@ class WeatheringVelocity:
         # Fitting piecewise linear regression
         constraint_offset = {"type": "ineq", "fun": lambda x: np.diff(x[1:self.n_layers])}
         constraint_velocity = {"type": "ineq", "fun": lambda x: np.diff(x[self.n_layers:])}
+        constraints = (constraint_offset, constraint_velocity) if ascending_velocity else constraint_offset
         partial_loss_func = partial(self.loss_piecewise_linear, loss=kwargs.pop('loss', 'L1'),
                                     huber_coef=kwargs.pop('huber_coef', .1))
-        minimizer_kwargs = {'method': 'SLSQP', 'constraints': (constraint_offset), **kwargs} # constraint_velocity
+        minimizer_kwargs = {'method': 'SLSQP', 'constraints': constraints, **kwargs}
         self._model_params = optimize.minimize(partial_loss_func, x0=list(self.init.values()),
                                                bounds=list(self.bounds.values()), **minimizer_kwargs)
         self.params = dict(zip(self._valid_keys, self._model_params.x))
@@ -329,9 +330,39 @@ class WeatheringVelocity:
                 self.params[f'v{i+1}'] = np.nan
         self.params['t0'] = np.nan if self.params['v1'] is np.nan else self.params['t0']
 
+    def _calc_piecewise_coords_from_params(self, params):
+        '''Calculate coords for the piecewise linear curve from params dict.
+        
+        Parameters
+        ----------
+        params : dict,
+            dict with same structure as self.params.
+
+        Returns
+        -------
+        offsets : 1d npdarray
+            coords of the points on the x axis
+        times : 1d ndarray
+            coords of the points on the y axis
+         '''
+        comparing_layers = len(params) // 2
+        keys = self._get_valid_keys(n_layers=comparing_layers)
+        params = {key: params[key] for key in keys}
+        params_values = list(params.values())
+
+        offsets = np.empty(comparing_layers + 1)
+        offsets[1:comparing_layers] = params_values[1:comparing_layers]
+        offsets[-1] = self.offsets.max()
+
+        times = np.zeros(comparing_layers + 1)
+        times[0] = params_values[0]
+        for i in range(comparing_layers):
+            times[i + 1] = ((offsets[i + 1] - offsets[i]) / params_values[comparing_layers + i]) + times[i]
+        return offsets, times
+
     @plotter(figsize=(10, 5))
     def plot(self, *, ax=None, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_time=None,
-            comparison_params=None, **kwargs):
+            compared_params=None, **kwargs):
         """Plot the WeatheringVelocity data, fitted curve, cross offsets, and additional information.
 
         Parameters
@@ -350,8 +381,7 @@ class WeatheringVelocity:
         self : WeatheringVelocity
             WeatheringVelocity without changes.
         """
-        txt_kwargs = {key[4:]: value for key, value in kwargs if key.startswith('txt_')}
-        txt_kwargs = {**{'fontsize': 15, 'va': 'top'}, **txt_kwargs}
+        txt_kwargs = {**{'fontsize': 15, 'va': 'top'}, **kwargs.pop('txt_kwargs', {})}
         txt_ident = txt_kwargs.pop('ident', (.03, .94))
 
         (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
@@ -364,7 +394,7 @@ class WeatheringVelocity:
                 ax.plot(self._piecewise_offsets[i:i+2], self._piecewise_times[i:i+2], '-', color='red',
                         label='fitted piecewise function' if i == 0 else None)
             if i != self.n_layers - 1:
-                ax.axvline(self._piecewise_offsets[i+1], 0, self.picking_times.max(), ls='--', c='blue',
+                ax.axvline(self._piecewise_offsets[i+1], 0, self.picking_times.max(), ls='--', color='blue',
                         label='crossover point(s)' if i == 0 else None)
         if show_params:
             params = [self.params[key] for key in self._valid_keys]
@@ -378,8 +408,9 @@ class WeatheringVelocity:
             ax.plot(self._piecewise_offsets, self._piecewise_times + threshold_time, '--', color='red',
                     label=f'+/- {threshold_time}ms window')
             ax.plot(self._piecewise_offsets, self._piecewise_times - threshold_time, '--', color='red')
-        if comparison_params is not None:
-            ax.plot(comparison_params[0], comparison_params[1], '--', color='green', label='comparison')
+        if compared_params is not None:
+            compared_offsets, compared_times = self._calc_piecewise_coords_from_params(compared_params)
+            ax.plot(compared_offsets, compared_times, '-', color='#ff7900', label='compared piecewise function')
         ax.set_xlim(0)
         ax.set_ylim(0)
         ax.legend(loc='lower right')
