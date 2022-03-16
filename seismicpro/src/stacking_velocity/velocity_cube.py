@@ -274,7 +274,7 @@ class VelocityCube:
         # Initialize metrics and calculate them
         def calc_metrics(window_indices):
             window = velocities[window_indices]
-            return [metric.calc(times, window if metric.is_window_metric else window[0]) for metric in metrics]
+            return [metric.calc(window if metric.is_window_metric else window[0], times) for metric in metrics]
 
         metrics = [metric(times, velocities, coords_neighbors) for metric in metrics]
         results = thread_map(calc_metrics, windows_indices, max_workers=n_workers,
