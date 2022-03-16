@@ -13,7 +13,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .muting import Muter
 from .cropped_gather import CroppedGather
-from .interactive_plot import NMOCorrectionPlot
+from .plot_corrections import NMOCorrectionPlot
 from .utils import correction, normalization
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
 from ..utils import (to_list, get_cols, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
@@ -240,8 +240,8 @@ class Gather:
             - If `None`, a namedtuple with two `None` elements is returned. Its fields are called 'X' and 'Y'
               respectively.
             - If "auto", columns of headers index define headers columns to get coordinates from (e.g.
-              'FieldRecord' is mapped to 'SourceX', 'SourceY' pair).
-            - If 2 element array-like, `coords_cols` define gather headers to get coordinates from.
+              'FieldRecord' is mapped to a ('SourceX', 'SourceY') pair).
+            - If 2 element array-like, `coords_cols` directly define gather headers to get coordinates from.
             In the last two cases index or column values are supposed to be unique for all traces in the gather and
             the names of the fields of the returned namedtuple correspond to source headers columns.
 
@@ -868,7 +868,7 @@ class Gather:
 
         Notes
         -----
-        A detailed description of NMO correction can be found in :func:`~correction.apply_nmo` docs.
+        A detailed description of NMO correction can be found in :func:`~utils.correction.apply_nmo` docs.
 
         Parameters
         ----------
@@ -1046,6 +1046,8 @@ class Gather:
               priority over `qvmin` and `qvmax` respectively.
         - `wiggle`: an amplitude vs time plot for each trace of the gather as an oscillating line around its mean
           amplitude. This mode supports the following `kwargs`:
+            * `norm_tracewise`: specifies whether to standardize each trace independently or use gather mean amplitude
+              and standard deviation (defaults to `True`),
             * `std`: amplitude scaling factor. Higher values result in higher plot oscillations (defaults to 0.5),
             * `color`: defines a color for each trace. If a single color is given, it is applied to all the traces
               (defaults to black),
@@ -1327,4 +1329,25 @@ class Gather:
         set_ticks(ax, axis, tick_labels=tick_labels, **{"label": tick_src, **ticker})
 
     def plot_nmo_correction(self, min_vel=1500, max_vel=6000, figsize=(6, 4.5), **kwargs):
+        """Perform interactive NMO correction of the gather with selected constant velocity.
+
+        The plot provides 2 views:
+        * Corrected gather (default). NMO correction is performed on the fly with the velocity controlled by a slider
+          on top of the plot.
+        * Source gather. This view disables the velocity slider.
+
+        Plotting must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and
+        `ipympl` and `ipywidgets` libraries installed.
+
+        Parameters
+        ----------
+        min_vel : float, optional, defaults to 1500
+            Minimum seismic velocity value for NMO correction. Measured in meters/seconds.
+        max_vel : float, optional, defaults to 6000
+            Maximum seismic velocity value for NMO correction. Measured in meters/seconds.
+        figsize : tuple with 2 elements, optional, defaults to (6, 4.5)
+            Size of the created figure. Measured in inches.
+        kwargs : misc, optional
+            Additional keyword arguments to `Gather.plot`.
+        """
         NMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, **kwargs).plot()
