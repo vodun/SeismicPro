@@ -1,3 +1,5 @@
+"""Implements interactive plots for gather corrections"""
+
 from functools import partial
 
 from ..stacking_velocity import StackingVelocity
@@ -12,7 +14,20 @@ except ImportError:
 
 
 class SlidingVelocityPlot(InteractivePlot):
-    def __init__(self, *, slider_min,  slider_max, slide_fn=None, **kwargs):
+    """Define an interactive plot with a slider on top of the canvas. The slider becomes invisible on the last view.
+
+    Parameters
+    ----------
+    slider_min : float
+        Minimum slider value.
+    slider_max : float
+        Maximum slider value.
+    slide_fn : callable
+        A function called on slider move.
+    kwargs : misc, optional
+        Additional keyword arguments to `InteractivePlot.__init__`.
+    """
+    def __init__(self, *, slider_min, slider_max, slide_fn=None, **kwargs):
         self.slider = widgets.FloatSlider(min=slider_min, max=slider_max, step=1, readout=False,
                                           layout=widgets.Layout(width="80%"))
         self.slider.observe(slide_fn, "value")
@@ -21,10 +36,12 @@ class SlidingVelocityPlot(InteractivePlot):
         super().__init__(**kwargs)
 
     def construct_header(self):
+        """Append the slider below the plot header."""
         header = super().construct_header()
         return widgets.VBox([header, self.slider_box])
 
     def on_view_toggle(self, event):
+        """Hide the slider on the last view."""
         super().on_view_toggle(event)
         if self.current_view == self.n_views - 1:
             self.slider_box.layout.visibility = "hidden"
@@ -33,6 +50,17 @@ class SlidingVelocityPlot(InteractivePlot):
 
 
 class CorrectionPlot:
+    """Base class for interactive gather corrections.
+
+    The plot provides 2 views:
+    * Corrected gather (default). Correction is performed on the fly with the velocity controlled by a slider on top of
+      the plot.
+    * Source gather. This view disables the velocity slider.
+
+    Two methods should be redefined in a concrete plotter child class:
+    * `get_title` - the title of the corrected view,
+    * `corrected_gather` - a property returning a corrected gather.
+    """
     def __init__(self, gather, min_vel, max_vel, figsize, **kwargs):
         kwargs = {"fontsize": 8, **kwargs}
         self.gather = gather
@@ -42,28 +70,37 @@ class CorrectionPlot:
                                            title=[self.get_title, "Source gather"], figsize=figsize)
 
     def get_title(self):
+        """Get title of the corrected view."""
         raise NotImplementedError
 
     @property
     def corrected_gather(self):
+        """Gather: corrected gather."""
         raise NotImplementedError
 
     def plot_corrected_gather(self, ax, **kwargs):
+        """Plot the corrected gather."""
         self.corrected_gather.plot(ax=ax, **kwargs)
 
     def on_velocity_change(self, change):
+        """Redraw the plot on velocity change."""
         _ = change
         self.plotter.redraw()
 
     def plot(self):
+        """Display the plot."""
         self.plotter.plot()
 
 
 class NMOCorrectionPlot(CorrectionPlot):
+    """Interactive NMO correction plot."""
+
     def get_title(self):
+        """Get title of the NMO corrected view."""
         return f"Normal moveout correction with {self.plotter.slider.value:.0f} m/s velocity"
 
     @property
     def corrected_gather(self):
+        """Gather: NMO corrected gather."""
         new_vel = StackingVelocity.from_constant_velocity(self.plotter.slider.value)
         return self.gather.copy(ignore=["headers", "data", "samples"]).apply_nmo(new_vel)
