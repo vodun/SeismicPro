@@ -101,33 +101,6 @@ def get_cols(df, cols):
 
 
 @njit(nogil=True)
-def clip(data, data_min, data_max):
-    """Limit the `data` values.
-
-    `data` values outside [`data_min`, `data_max`] interval are clipped to the interval edges.
-
-    Parameters
-    ----------
-    data : np.ndarray
-        Data to clip.
-    data_min : int, float
-        Minimum value of the interval.
-    data_max : int, float
-        Maximum value of the interval.
-
-    Returns
-    -------
-    data : np.ndarray
-        Clipped data with the same shape.
-    """
-    data_shape = data.shape
-    data = data.reshape(-1)
-    for i in range(len(data)):  # pylint: disable=consider-using-enumerate
-        data[i] = min(max(data[i], data_min), data_max)
-    return data.reshape(data_shape)
-
-
-@njit(nogil=True)
 def times_to_indices(times, samples, round=False):
     """Convert `times` to their indices in the increasing `samples` array. If some value of `times` is not present
     in `samples`, its index is linearly interpolated or extrapolated by the other indices of `samples`.
