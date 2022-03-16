@@ -1,3 +1,5 @@
+"""General gather processing utils"""
+
 import numpy as np
 from numba import njit, prange
 

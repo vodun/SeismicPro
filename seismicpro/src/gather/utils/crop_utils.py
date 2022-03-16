@@ -1,3 +1,5 @@
+"""Utils for gather cropping"""
+
 import numpy as np
 
 
