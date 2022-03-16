@@ -14,10 +14,10 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from .muting import Muter
 from .cropped_gather import CroppedGather
 from .interactive_plot import NMOCorrectionPlot
-from .utils import (convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins,
-                    normalization)
-from ..utils import (correction, to_list, get_cols, validate_cols_exist, set_ticks, format_subplot_yticklabels,
-                     set_text_formatting, add_colorbar, get_coords_cols)
+from .utils import correction, normalization
+from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
+from ..utils import (to_list, get_cols, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
+                     set_text_formatting, add_colorbar)
 from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, VelocityCube
 from ..decorators import batch_method, plotter

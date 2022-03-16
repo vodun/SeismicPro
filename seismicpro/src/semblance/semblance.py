@@ -5,11 +5,11 @@ import numpy as np
 from numba import njit, prange
 from matplotlib import colors as mcolors
 
+from .interactive_plot import SemblancePlot
 from ..decorators import batch_method, plotter
+from ..gather.utils.correction import get_hodograph
 from ..stacking_velocity import StackingVelocity, calculate_stacking_velocity
 from ..utils import add_colorbar, set_ticks, set_text_formatting
-from ..utils.correction import get_hodograph
-from .interactive_plot import SemblancePlot
 
 
 class BaseSemblance:
