@@ -14,6 +14,10 @@ class WeatheringVelocity:
     """The class fits and stores parameters of a weathering and some subweathering layers based on gather's offsets
     and first break picking times.
 
+
+
+
+
     The class could be initialized with data and estimate parameters of weathering model. Data is a first breaking
     points times and corresponding offsets. Model parameters could be passed by `init`, `bounds`, `n_layers`, or a mix.
 
@@ -103,7 +107,8 @@ class WeatheringVelocity:
         if an union of `init` and `bounds` keys less than 2 or `n_layers` less than 1.
     """
 
-    def __init__(self, offsets, picking_times, n_layers=None, init=None, bounds=None, ascending_velocity=True, **kwargs):
+    def __init__(self, offsets, picking_times, n_layers=None, init=None, bounds=None, ascending_velocity=True, 
+                 **kwargs):
         init = {} if init is None else init
         bounds = {} if bounds is None else bounds
         self._check_values(init, bounds)
@@ -237,12 +242,12 @@ class WeatheringVelocity:
         return lin_reg.coef_[0], lin_reg.intercept_
 
     def _calc_init_by_layers(self, n_layers):
-        """Returns `init` dict by a given an estimated quantity of layers.
+        """Calculates `init` dict by a given an estimated quantity of layers.
 
         Method split picking times on a `n_layers` equal part by cross offsets and fit separate linear regression
         on each part. Fit a coefficient and intercept for the first part and fit a coefficient only for any next part.
         These linear functions are compiled together as an estimated piecewise linear function. Parameters of
-        estimated piecewise function return as `init` dict.
+        estimated piecewise function are returns as `init` dict.
 
         Parameters
         ----------
@@ -257,29 +262,33 @@ class WeatheringVelocity:
         if n_layers is None or n_layers < 1:
             return {}
 
-        # split cross offsets on an equal intervals
-        cross_offsets = np.linspace(0, self.offsets.max(), num=n_layers+1)
-        slopes = np.empty(n_layers)
-        times = np.empty(n_layers)
-
         min_picking_times = self.picking_times.min()  # normalization parameter.
         start_slope = 2/3  # base slope corresponding velocity is 1,5 km/s (v = 1 / slope)
         start_time = 1  # base time, equal to minimum picking times with the `min_picking` normalization.
+        normalized_offsets = self.offsets / min_picking_times
+        normalized_times = self.picking_times / min_picking_times
+
+        # split cross offsets on an equal intervals
+        cross_offsets = np.linspace(0, normalized_offsets.max(), num=n_layers+1)
+        slopes = np.empty(n_layers)
+        times = np.empty(n_layers)
+
         for i in range(n_layers):
-            mask = (self.offsets > cross_offsets[i]) & (self.offsets <= cross_offsets[i + 1])
+            mask = (normalized_offsets > cross_offsets[i]) & (normalized_offsets <= cross_offsets[i + 1])
             if mask.sum() > 1:  # at least two point to fit
-                slopes[i], times[i] = self._fit_regressor(self.offsets[mask].reshape(-1, 1) / min_picking_times,
-                                                          self.picking_times[mask] / min_picking_times,
-                                                          start_slope, start_time, fit_intercept=(i==0))
+                slopes[i], times[i] = self._fit_regressor(normalized_offsets[mask].reshape(-1, 1),
+                                                          normalized_times[mask], start_slope, start_time,
+                                                          fit_intercept=(i==0))
             else:
                 slopes[i] = start_slope
-                times[i] = start_time - start_slope * self.offsets.min() / min_picking_times
+                times[i] = start_time - start_slope * normalized_offsets.min() * (i==0)  # add first layer correction
+                print(times[i] * min_picking_times)
             slopes[i] = max(.167, slopes[i])  # move maximal velocity to 6 km/s
             times[i] = max([0, times[i]])  # move minimal time to zero
             start_slope = slopes[i] * (n_layers / (n_layers + 1)) # raise base velocity for next layers (v = 1 / slope)
-            start_time = times[i] + (slopes[i] - start_slope) * (cross_offsets[i + 1] / min_picking_times)
+            start_time = times[i] + (slopes[i] - start_slope) * cross_offsets[i + 1]
         velocities = 1 / slopes
-        init = np.hstack((times[0] * min_picking_times, cross_offsets[1:-1], velocities))
+        init = np.hstack((times[0] * min_picking_times, cross_offsets[1:-1] * min_picking_times, velocities))
         init = dict(zip(self._get_valid_keys(n_layers), init))
         return init
 
@@ -332,7 +341,7 @@ class WeatheringVelocity:
 
     def _calc_piecewise_coords_from_params(self, params):
         '''Calculate coords for the piecewise linear curve from params dict.
-        
+
         Parameters
         ----------
         params : dict,
