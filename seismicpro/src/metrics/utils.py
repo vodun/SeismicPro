@@ -10,7 +10,7 @@ def parse_coords(coords, coords_cols=None):
     """Cast given `coords` to a 2d `np.ndarray` with shape [n_coords, 2] and try inferring names of both coordinates if
     `coords_cols` is not passed."""
     if isinstance(coords, pd.DataFrame):
-        data_coords_cols = coords.columns
+        data_coords_cols = coords.columns.tolist()
         coords = coords.values
     elif isinstance(coords, pd.Index):
         data_coords_cols = coords.names
