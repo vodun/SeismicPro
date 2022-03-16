@@ -5,7 +5,7 @@ from functools import partial
 import numpy as np
 import pandas as pd
 
-from .metrics import define_metric, PartialMetric, PlottableMetric
+from .metrics import define_metric, Metric, PartialMetric
 from ..utils import to_list
 from ...batchflow import Pipeline
 
@@ -25,7 +25,7 @@ def pass_calc_args(method):
     return staticmethod(method)
 
 
-class PipelineMetric(PlottableMetric):
+class PipelineMetric(Metric):
     args_to_unpack = "all"
     views = tuple()
 
@@ -156,7 +156,7 @@ class PipelineMetric(PlottableMetric):
 
         view_fns = [getattr(self, view) for view in to_list(self.views)]
         if not all(hasattr(view_fn, "args_unpacking_mode") for view_fn in view_fns):
-            raise ValueError("Each metric view must be decorated with @coords, @batch or @calc_args decorator")
+            raise ValueError("Each metric view must be decorated with @pass_coords, @pass_batch or @pass_calc_args")
         return [partial(self.plot_view, batch_src=batch_src, pipeline=pipeline, view_fn=view_fn)
                 for view_fn in view_fns], kwargs
 

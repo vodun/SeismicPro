@@ -1,9 +1,9 @@
 from functools import partial
 
-from ..metrics import PlottableMetric
+from ..metrics import Metric
 
 
-class SurveyAttribute(PlottableMetric):
+class SurveyAttribute(Metric):
     def __init__(self, survey, coords_cols, **kwargs):
         super().__init__(**kwargs)
         self.survey = survey.reindex(coords_cols)

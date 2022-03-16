@@ -61,8 +61,8 @@ class BaseMetricMap:
               colorbar=True, center_colorbar=True, clip_threshold_quantile=0.95, keep_aspect=False, ax=None, **kwargs):
         is_lower_better = self.is_lower_better if is_lower_better is None else is_lower_better
         # Handle plain Metric case
-        vmin = vmin or getattr(self, "vmin", self.min_value)
-        vmax = vmax or getattr(self, "vmax", self.max_value)
+        vmin = vmin or self.vmin or self.min_value
+        vmax = vmax or self.vmax or self.max_value
 
         if is_lower_better is None and center_colorbar:
             global_mean = self.metric_data[self.metric_name].agg("mean")
@@ -97,12 +97,10 @@ class BaseMetricMap:
         if plot_on_click is not None:
             plot_on_click_list = to_list(plot_on_click)
         else:
-            from .metrics import PartialMetric, PlottableMetric
             # Instantiate the metric if it hasn't been done yet
-            if isinstance(self.metric, (type, PartialMetric)):
+            from .metrics import Metric
+            if not isinstance(self.metric, Metric):
                 self.metric = self.metric()
-            if not isinstance(self.metric, PlottableMetric):
-                raise ValueError("plot_on_click must be passed if metric class is not plottable")
             plot_on_click_list, kwargs = self.metric.get_views(**kwargs)
         if len(plot_on_click_list) == 0:
             raise ValueError("At least one click view must be specified")

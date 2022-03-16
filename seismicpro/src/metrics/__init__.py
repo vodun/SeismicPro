@@ -1,4 +1,6 @@
-from .metrics import Metric, PlottableMetric, PartialMetric, define_metric
+"""Classes for metrics calculation, accumulation and visualization"""
+
+from .metrics import Metric, PartialMetric, define_metric
 from .pipeline_metric import PipelineMetric, pass_coords, pass_batch, pass_calc_args, define_pipeline_metric
 from .metrics_accumulator import MetricsAccumulator
 from .metric_map import MetricMap, ScatterMap, BinarizedMap

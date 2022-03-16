@@ -4,7 +4,7 @@ In order to define your own metric you need to inherit a new class from `Stackin
 * Set an `is_window_metric` class attribute to `True` or `False` depending on whether your metric needs all stacking
   velocities in a spatial window or only the central one in its `calc` method. In the first case, the central velocity
   will be the first one in the stacked 2d array of velocities.
-* Optionally define all other class attributes of `PlottableMetric` for future convenience.
+* Optionally define all other class attributes of `Metric` for future convenience.
 * Redefine `calc` method, which must accept two arguments: stacking velocities and times they are estimated for. If
   `is_window_metric` is `False`, stacking velocities will be a 1d array, otherwise it will be a 2d array with shape
   `(n_velocities, n_times)`. Times are always represented as a 1d array. `calc` must return a single metric value.
@@ -20,7 +20,7 @@ import numpy as np
 from numba import njit
 from matplotlib import patches
 
-from ..metrics import PlottableMetric, ScatterMapPlot, MetricMap
+from ..metrics import Metric, ScatterMapPlot, MetricMap
 from ..utils import set_ticks, set_text_formatting
 
 
@@ -49,10 +49,11 @@ class StackingVelocityMetricMap(MetricMap):
     interactive_scatter_map_class = StackingVelocityScatterMapPlot
 
 
-class StackingVelocityMetric(PlottableMetric):
+class StackingVelocityMetric(Metric):
     """Base metric class for quality control of stacking velocities."""
     is_window_metric = True
     map_class = StackingVelocityMetricMap
+    views = "plot_on_click"
 
     def __init__(self, times, velocities, nearest_neighbors):
         super().__init__()
