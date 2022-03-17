@@ -144,6 +144,14 @@ class ScatterMap(BaseMetricMap):
 
 
 class BinarizedMap(BaseMetricMap):
+    """
+    The map is constructed in the following way:
+        1. All stored coordinates are divided into bins of the specified `bin_size`.
+        2. All metric values are grouped by their bin.
+        3. An aggregation is performed by calling `agg_func` for values in each bin. If no metric values were assigned
+           to a bin, `np.nan` is returned.
+        As a result, each value of the constructed map represents an aggregated metric for a particular bin.
+    """
     def __init__(self, *args, bin_size, **kwargs):
         super().__init__(*args, **kwargs)
 

@@ -5,7 +5,6 @@ aggregates them into maps"""
 import pandas as pd
 
 from .metrics import Metric, PartialMetric
-from .metric_map import MetricMap
 from .utils import parse_coords
 from ..utils import to_list, align_args
 from ...batchflow.models.metrics import Metrics
@@ -33,6 +32,9 @@ class MetricsAccumulator(Metrics):
         * If an array of arrays, all values from each inner array correspond to a pair of coordinates with the same
           index as in the outer metrics array.
         In both cases the length of `metric_values` must match the length of coordinates array.
+
+    Attributes
+    ----------
     """
     def __init__(self, coords, *, coords_cols=None, indices=None, **kwargs):
         super().__init__()
@@ -59,6 +61,7 @@ class MetricsAccumulator(Metrics):
 
     @property
     def metrics(self):
+        """pd.DataFrame: collected coordinates and metrics."""
         if len(self.metrics_list) > 1:
             self.metrics_list = [pd.concat(self.metrics_list)]
         return self.metrics_list[0]
@@ -80,6 +83,22 @@ class MetricsAccumulator(Metrics):
         return metrics, is_single_metric
 
     def evaluate(self, metrics=None, agg="mean"):
+        """Aggregate metrics values.
+
+        Parameters
+        ----------
+        metrics : str or list of str or None, optional
+            Metrics to evaluate. If not given, evaluate all the accumulated metrics in the order they appear in
+            `metrics_names`.
+        agg : str or callable or list of str or callable, optional, defaults to "mean"
+            A function used for aggregating values of each metric from `metrics`. If a single `agg` is given it will be
+            used to evaluate all the `metrics`. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
+
+        Returns
+        -------
+        metrics_vals : float or list of float
+            Evaluated metrics values. Has the same shape as `metrics`.
+        """
         metrics, is_single_metric = self._parse_requested_metrics(metrics)
         metrics, agg = align_args(metrics, agg)
         metrics_vals = [self.metrics[metric].dropna().explode().agg(metric_agg)
@@ -89,42 +108,27 @@ class MetricsAccumulator(Metrics):
         return metrics_vals
 
     def construct_map(self, metrics=None, agg=None, bin_size=None):
-        """Calculate and optionally plot a metrics map.
-        The map is constructed in the following way:
-        1. All stored coordinates are divided into bins of the specified `bin_size`.
-        2. All metric values are grouped by their bin.
-        3. An aggregation is performed by calling `agg_func` for values in each bin. If no metric values were assigned
-           to a bin, `np.nan` is returned.
-        As a result, each value of the constructed map represents an aggregated metric for a particular bin.
+        """Aggregate metrics values into field maps.
+
         Parameters
         ----------
-        metric_name : str
-            The name of a metric to construct a map for.
-        bin_size : int, float or array-like with length 2, optional, defaults to 500
-            Bin size for X and Y axes. If single `int` or `float`, the same bin size will be used for both axes.
-        agg_func : str or callable, optional, defaults to 'mean'
-            Function to aggregate metric values in a bin.
-            If `str`, the function from `DEFAULT_METRICS` will be used.
-            If `callable`, it will be used directly. Note, that the function must be wrapped with `njit` decorator.
-            Its first argument is a 1d np.ndarray containing metric values in a bin, all other arguments can take any
-            numeric values and must be passed using the `agg_func_kwargs`.
-        agg_func_kwargs : dict, optional
-            Additional keyword arguments to be passed to `agg_func`.
-        plot : bool, optional, defaults to True
-            Whether to plot the constructed map.
-        plot_kwargs : misc, optional
-            Additional keyword arguments to be passed to :func:`.plot_utils.plot_metrics_map`.
+        metrics : str or list of str or None, optional
+            Metrics to construct field maps for. If not given, construct maps for all the accumulated metrics in the
+            order they appear in `metrics_names`.
+        agg : str or callable or list of str or callable, optional
+            A function used for aggregating each metric from `metrics`. If a single `agg` is given it will be used to
+            evaluate all the `metrics`. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
+        bin_size : ...
+            ...
+
         Returns
         -------
-        metrics_map : 2d np.ndarray
-            A map with aggregated metric values.
-        Raises
-        ------
-        TypeError
-            If `agg_func` is not `str` or `callable`.
-        ValueError
-            If `agg_func` is `str` and is not in DEFAULT_METRICS.
-            If `agg_func` is not wrapped with `njit` decorator.
+        metrics_maps : ...
+            ... Has the same shape as `metrics`.
+
+
+        bin_size : int, float or array-like with length 2, optional, defaults to 500
+            Bin size for X and Y axes. If single `int` or `float`, the same bin size will be used for both axes.
         """
         metrics, is_single_metric = self._parse_requested_metrics(metrics)
         metrics, agg, bin_size = align_args(metrics, agg, bin_size)

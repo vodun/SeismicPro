@@ -394,6 +394,43 @@ class SeismicBatch(Batch):
     @action(no_eval="save_to")
     def calculate_metric(self, metric, *args, metric_name=None, coords_component=None, coords_cols="auto",
                          save_to=None, **kwargs):
+        """Calculate a metric for each batch element and store the results into an accumulator.
+
+        Examples
+        --------
+        ...
+
+        Parameters
+        ----------
+        metric : subclass of PipelineMetric or callable
+            A metric to calculate. If `callable`, used directly to calculate a metric value for each batch element and
+            ///
+        metric_name : str or None, optional
+            A name of the calculated metric. If not given, ...
+        coords_component : str, optional
+            A component name to extract coordinates from. If not given, the first argument passed to the metric
+            calculation function is used.
+        coords_cols : "auto" or 2 element array-like, optional, defaults to "auto"
+            Headers columns of `coords_component` objects to get coordinates from. If "auto", tries inferring them
+            automatically by the type of headers index.
+        save_to : NamedExpression
+            A named expression to save the constructed `MetricsAccumulator` instance to.
+        args : misc, optional
+            Additional positional arguments to the metric calculation function.
+        kwargs : misc, optional
+            Additional keyword arguments to the metric calculation function.
+
+        Returns
+        -------
+        self : SeismicBatch
+            The batch with increased `_num_calculated_metrics` counter.
+
+        Raises
+        ------
+        ValueError
+            If wrong type of `metric` is passed.
+            If `metric` is `lambda` and `metric_name` is not given.
+        """
         metric = define_pipeline_metric(metric, metric_name)
         unpacked_args, first_arg = metric.unpack_calc_args(self, *args, **kwargs)
 
