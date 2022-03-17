@@ -785,13 +785,12 @@ class Gather:
 
         Notes
         -----
-        The gather should be sorted by offset. A detailed description of vertical velocity semblance and its
-        computation algorithm can be found in :func:`~semblance.Semblance` docs.
+        A detailed description of vertical velocity semblance and its computation algorithm can be found in
+        :func:`~semblance.Semblance` docs.
 
         Examples
         --------
         Calculate semblance for 200 velocities from 2000 to 6000 m/s and a temporal window size of 8 samples:
-        >>> gather = gather.sort(by="offset")
         >>> semblance = gather.calculate_semblance(velocities=np.linspace(2000, 6000, 200), win_size=8)
 
         Parameters
@@ -806,14 +805,9 @@ class Gather:
         -------
         semblance : Semblance
             Calculated vertical velocity semblance.
-
-        Raises
-        ------
-        ValueError
-            If the gather is not sorted by offset.
         """
-        self.validate(required_sorting="offset")
-        return Semblance(gather=self, velocities=velocities, win_size=win_size)
+        gather = self.copy().sort(by="offset")
+        return Semblance(gather=gather, velocities=velocities, win_size=win_size)
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
     def calculate_residual_semblance(self, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2):
@@ -821,13 +815,12 @@ class Gather:
 
         Notes
         -----
-        The gather should be sorted by offset. A detailed description of residual vertical velocity semblance and its
-        computation algorithm can be found in :func:`~semblance.ResidualSemblance` docs.
+        A detailed description of residual vertical velocity semblance and its computation algorithm can be found in
+        :func:`~semblance.ResidualSemblance` docs.
 
         Examples
         --------
         Calculate residual semblance for a gather and a stacking velocity, loaded from a file:
-        >>> gather = gather.sort(by="offset")
         >>> velocity = StackingVelocity.from_file(velocity_path)
         >>> residual = gather.calculate_residual_semblance(velocity, n_velocities=100, win_size=8)
 
@@ -848,14 +841,9 @@ class Gather:
         -------
         semblance : ResidualSemblance
             Calculated residual vertical velocity semblance.
-
-        Raises
-        ------
-        ValueError
-            If the gather is not sorted by offset.
         """
-        self.validate(required_sorting="offset")
-        return ResidualSemblance(gather=self, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
+        gather = self.copy().sort(by="offset")
+        return ResidualSemblance(gather=gather, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
                                  win_size=win_size, relative_margin=relative_margin)
 
     #------------------------------------------------------------------------#
@@ -925,8 +913,9 @@ class Gather:
         """
         if not isinstance(by, str):
             raise TypeError(f'`by` should be str, not {type(by)}')
-        self.validate(required_header_cols=by)
-        order = np.argsort(self.headers[by].values, kind='stable')
+        if self.sort_by == by:
+            return self
+        order = np.argsort(self[by].ravel(), kind='stable')
         self.sort_by = by
         self.data = self.data[order]
         self.headers = self.headers.iloc[order]
