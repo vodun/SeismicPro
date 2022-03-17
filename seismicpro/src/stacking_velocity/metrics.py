@@ -5,9 +5,10 @@ In order to define your own metric you need to inherit a new class from `Stackin
   velocities in a spatial window or only the central one in its `calc` method. In the first case, the central velocity
   will be the first one in the stacked 2d array of velocities.
 * Optionally define all other class attributes of `Metric` for future convenience.
-* Redefine `calc` method, which must accept two arguments: stacking velocities and times they are estimated for. If
-  `is_window_metric` is `False`, stacking velocities will be a 1d array, otherwise it will be a 2d array with shape
-  `(n_velocities, n_times)`. Times are always represented as a 1d array. `calc` must return a single metric value.
+* Redefine `calc_metric` static method, which must accept two arguments: stacking velocities and times they are
+  estimated for. If `is_window_metric` is `False`, stacking velocities will be a 1d array, otherwise it will be a 2d
+  array with shape `(n_velocities, n_times)`. Times are always represented as a 1d array. `calc_metric` must return a
+  single metric value.
 * Optionally redefine `plot` method which will be used to plot stacking velocities on click on a metric map in
   interactive mode. By default it plots all stacking velocities used by `calc` during metric calculation. Note, that
   `plot` always accepts a 2d array of velocities as its first argument regardless of the `is_window_metric` value.
@@ -65,6 +66,17 @@ class StackingVelocityMetric(Metric):
         margin = 0.05 * (max_vel - min_vel)
         self.vel_limits = [min_vel - margin, max_vel + margin]
 
+    @staticmethod
+    def calc_metric(*args, **kwargs):
+        """Calculate the metric. Must be overridden in child classes."""
+        _ = args, kwargs
+        raise NotImplementedError
+
+    @classmethod
+    def calc(cls, *args, **kwargs):
+        """Redirect metric calculation to a static `calc_metric` method which may be njitted."""
+        return cls.calc_metric(*args, **kwargs)
+
     def coords_to_window(self, coords):
         """Return all stacking velocities in a spatial window around given `coords`."""
         _, window_indices = self.nearest_neighbors.radius_neighbors([coords], return_distance=True, sort_results=True)
@@ -99,7 +111,7 @@ class IsDecreasing(StackingVelocityMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def calc(stacking_velocity, times):
+    def calc_metric(stacking_velocity, times):
         """Return whether the stacking velocity decreases at some time."""
         _ = times
         for cur_vel, next_vel in zip(stacking_velocity[:-1], stacking_velocity[1:]):
@@ -131,7 +143,7 @@ class MaxAccelerationDeviation(StackingVelocityMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def calc(stacking_velocity, times):
+    def calc_metric(stacking_velocity, times):
         """Return the maximal deviation of instantaneous acceleration from the mean acceleration over all times."""
         mean_acc = (stacking_velocity[-1] - stacking_velocity[0]) / (times[-1] - times[0])
         max_deviation = 0
@@ -161,7 +173,7 @@ class MaxStandardDeviation(StackingVelocityMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def calc(window, times):
+    def calc_metric(window, times):
         """Return the maximal spatial velocity standard deviation in a window over all times."""
         _ = times
         if window.shape[0] == 0:
@@ -185,7 +197,7 @@ class MaxRelativeVariation(StackingVelocityMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def calc(window, times):
+    def calc_metric(window, times):
         """Return the maximal absolute relative difference between central stacking velocity and the average of all
         remaining velocities in the window over all times."""
         _ = times

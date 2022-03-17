@@ -1,3 +1,6 @@
+"""Implements a metric that tracks a pipeline in which it was calculated and allows for automatic plotting of batch
+components on its interactive maps"""
+
 import warnings
 from inspect import signature
 from functools import partial
@@ -11,23 +14,30 @@ from ...batchflow import Pipeline
 
 
 def pass_coords(method):
+    """Indicate that the decorated view plotter should be provided with click coordinates besides `ax`."""
     method.args_unpacking_mode = "coords"
-    return staticmethod(method)
+    return classmethod(method)
 
 
 def pass_batch(method):
+    """Indicate that the decorated view plotter should be provided with a batch for which `calculate_metric` method was
+    called besides `ax`."""
     method.args_unpacking_mode = "batch"
-    return staticmethod(method)
+    return classmethod(method)
 
 
 def pass_calc_args(method):
+    """Indicate that the decorated view plotter should be provided with all arguments passed to the metric `calc`
+    method besides `ax`."""
     method.args_unpacking_mode = "calc_args"
-    return staticmethod(method)
+    return classmethod(method)
 
 
 class PipelineMetric(Metric):
+    """Define a metric that tracks a pipeline in which it was calculated and allows for automatic plotting of batch
+    components on its interactive maps.
+    """
     args_to_unpack = "all"
-    views = tuple()
 
     def __init__(self, pipeline, calculate_metric_index, coords_cols, coords_to_indices, **kwargs):
         super().__init__(**kwargs)
@@ -48,8 +58,9 @@ class PipelineMetric(Metric):
         self.calculate_metric_args = pipeline._actions[calculate_metric_action_index]["args"]
         self.calculate_metric_kwargs = pipeline._actions[calculate_metric_action_index]["kwargs"]
 
-    @staticmethod
-    def calc(metric):
+    @classmethod
+    def calc(cls, metric):
+        """Return an already calculated metric. May be overridden in child classes."""
         return metric
 
     def make_batch(self, coords, batch_src, pipeline):
@@ -80,7 +91,7 @@ class PipelineMetric(Metric):
         sign = signature(cls.calc)
         bound_args = sign.bind(*args, **kwargs)
 
-        # Determine Metric.calc arguments to unpack
+        # Determine PipelineMetric.calc arguments to unpack
         if cls.args_to_unpack is None:
             args_to_unpack = set()
         elif cls.args_to_unpack == "all":
@@ -113,7 +124,7 @@ class PipelineMetric(Metric):
         return unpacked_args, first_arg
 
     def eval_calc_args(self, batch):
-        # Get params passed to Metric.calc with possible named expressions and evaluate them
+        # Get params passed to PipelineMetric.calc with possible named expressions and evaluate them
         sign = signature(batch.calculate_metric)
         bound_args = sign.bind(*self.calculate_metric_args, **self.calculate_metric_kwargs)
         bound_args.apply_defaults()

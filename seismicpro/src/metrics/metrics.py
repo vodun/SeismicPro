@@ -10,7 +10,7 @@ class Metric:
     """Define a metric and its calculation logic.
 
     A metric is usually used as a class, not an instance: a concrete metric class must be inherited from `Metric`. It
-    describes a metric as a function and must implement an obligatory `calc` staticmethod and various class attributes
+    describes a metric as a function and must implement an obligatory `calc` classmethod and various class attributes
     that store metric metadata (e.g its name and minimum and maximum values).
 
     The simplest way to calculate the defined metric is by manually iterating over a dataset and calling `calc` method.
@@ -76,10 +76,10 @@ class Metric:
         for key, val in kwargs.items():
             setattr(self, key, val)
 
-    @staticmethod
-    def calc(*args, **kwargs):
+    @classmethod
+    def calc(cls, *args, **kwargs):
         """Calculate the metric. Must be overridden in child classes."""
-        _ = args, kwargs
+        _ = cls, args, kwargs
         raise NotImplementedError
 
     def get_views(self, **kwargs):
