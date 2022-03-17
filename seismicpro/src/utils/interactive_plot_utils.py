@@ -286,6 +286,8 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
             if ax != self.ax:
                 ax.remove()
         self.ax.clear()
+        # Reset aspect ratio constraints if they were set
+        self.ax.set_aspect("auto")
         # Stretch the axes to its original size
         self.ax.set_axes_locator(None)
 
