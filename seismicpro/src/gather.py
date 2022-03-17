@@ -725,21 +725,24 @@ class Gather:
 
     @batch_method(target='for')
     def calculate_weathering_velocity(self, first_breaks_col=HDR_FIRST_BREAK, n_layers=None, init=None, bounds=None,
-                                      **kwargs):
-        '''Return the WeatheringVelocity instance based on the `offsets` and `picking_times` of the current gather.
+                                      ascending_velocity=True, **kwargs):
+        """Calculate the weathering velocities.
 
-        Read the WeatheringVelocity docs for more information.
+        Method creates the WeatheringVelocity instance that fits and stores the parameters of a velocity model of
+        the first few subsurface layers. Read the WeatheringVelocity docs for more infomation.
 
         Parameters
         ----------
         first_breaks_col : str, defaults to HDR_FIRST_BREAK
             Column name  from `self.headers` where first breaking times are stored.
         n_layers : int or None, defaults to None
-            Number of weathering model layers.
+            Number of the weathering model layers.
         init : dict or None, defaults to None
-            Initial value for a weathering model.
+            Initial values for a weathering model.
         bounds : dict or None, defaults to None
-            Bounds for each parameter of a weathering model.
+            Bounds for the weathering model parameters.
+        ascending_velocity : bool, defaults to True
+            Keeps the ascend of the fitted velocities from layer to layer.
         kwargs : dict, optional
             Additional keyword arguments to `scipy.optimize.minimize`.
 
@@ -747,13 +750,13 @@ class Gather:
         -------
         WeatheringVelocity
             Calculated WeatheringVelocity instance.
-        '''
+        """
         return WeatheringVelocity(offsets=self.offsets, picking_times=self[first_breaks_col].ravel(),
                                   n_layers=n_layers, init=init, bounds=bounds, **kwargs)
 
     @batch_method(target='for', args_to_unpack='weathering_velocity')
-    def calculate_weathering_metrics(self, weathering_velocity, first_breaks_col='FirstBreak', threshold_time=50):
-        '''Return weathering metric value.
+    def calculate_weathering_metrics(self, weathering_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_time=50):
+        """Calculates the weathering metric value.
 
         Weathering metric calculated as fraction of first breaking times that stands out from a weathering velocity
         curve (piecewise linear function) more that `threshold_times` relative to the total number of first breaking
@@ -763,16 +766,16 @@ class Gather:
         ----------
         weathering_velocity : WeatheringVelocity
             Calculated WeatheringVelocity. Use `calculate_weathering_velocity` to calculate it.
-        first_breaks_col : str, defaults to 'FirstBreak'
+        first_breaks_col : str, defaults to HDR_FIRST_BREAK
             Column name  from `self.headers` where first breaking time are stored.
         threshold_time: int or float, defaults to 50
-            Threshold for weathering metric calculation.
+            Threshold for the weathering metric calculation.
 
         Returns
         -------
         metric : float
-            weathering metric
-        '''
+            Fraction of the first breaks stands out from the weathering velocity curve more than given threshold time.
+        """
         metric = np.mean(np.abs(weathering_velocity(self.offsets) - self[first_breaks_col].ravel()) > threshold_time)
         return metric
 
