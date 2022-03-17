@@ -752,7 +752,8 @@ class Gather:
             Calculated WeatheringVelocity instance.
         """
         return WeatheringVelocity(offsets=self.offsets, picking_times=self[first_breaks_col].ravel(),
-                                  n_layers=n_layers, init=init, bounds=bounds, **kwargs)
+                                  n_layers=n_layers, init=init, bounds=bounds, ascending_velocity=ascending_velocity,
+                                  **kwargs)
 
     @batch_method(target='for', args_to_unpack='weathering_velocity')
     def calculate_weathering_metrics(self, weathering_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_time=50):
@@ -767,7 +768,7 @@ class Gather:
         weathering_velocity : WeatheringVelocity
             Calculated WeatheringVelocity. Use `calculate_weathering_velocity` to calculate it.
         first_breaks_col : str, defaults to HDR_FIRST_BREAK
-            Column name  from `self.headers` where first breaking time are stored.
+            Column name  from `self.headers` where first breaking times are stored.
         threshold_time: int or float, defaults to 50
             Threshold for the weathering metric calculation.
 

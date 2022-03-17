@@ -15,22 +15,22 @@ class WeatheringVelocity:
     times.
 
     The weathering model is a velocity model of the first few subsurface layers. The class uses the intercept time,
-    cross offsets and velocities parameters of the weathering model. The weathering model could be present as 
+    cross offsets and velocities parameters of the weathering model. The weathering model could be present as
     a piecewise linear function the picking time from the offsets.
     Since the class uses the first break picking time to fit the detected velocities, any underlaying layers should
     have a higher velocity than any of the overlaying.
 
-    The class could be initialized with data and estimate parameters of weathering model. 
+    The class could be initialized with data and estimate parameters of weathering model.
         Data : first breaking points times and the corresponding offsets.
         Parameters : `init`, `bounds`, `n_layers`.
             `init` : dict with prior weathering model parameters. Read the keys notation below.
-            `bounds` : dict with left and right bound for each weathering model parameter. 
+            `bounds` : dict with left and right bound for each weathering model parameter.
                        Read the keys notation below.
             `n_layers` : the quantity of the weathering model layers.
 
     The WeatheringVelocity could calculate the missing parameters from the passed parameters to simplify class
     initialization.
-    Missing parameters calculate rules: 
+    Missing parameters calculate rules:
         `init` : calculated from `bounds`. lower bound + (upper bounds - lower bounds) / 3
                  calculated from `n_layers`. Read `_calc_init_by_layers` docs to get more info.
         `bounds` : calculated from `init`. The lower bound is init / 2, the upper bound is init * 2.
@@ -170,7 +170,7 @@ class WeatheringVelocity:
         """Update the piecewise linear attributes and returns the loss function result.
 
         Method calls `_update_piecewise_params` to update piecewise linear attributes of a WeatheringVelocity instance.
-        After that, the method calculates the loss function between the true picking times stored in 
+        After that, the method calculates the loss function between the true picking times stored in
         the `self.picking_times` and predicted piecewise linear function. The points at which the loss function
         is calculated correspond to the offset.
 
