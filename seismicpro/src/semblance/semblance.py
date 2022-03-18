@@ -336,7 +336,8 @@ class Semblance(BaseSemblance):
             Array with vertical velocity semblance values.
         """
         semblance = np.empty((len(gather_data), len(velocities)), dtype=np.float32)
-        for j in range(len(velocities)):  # TODO: use prange when fixed in numba
+        # TODO: use prange when fixed in numba
+        for j in range(len(velocities)):  # pylint: disable=consider-using-enumerate
             semblance[:, j] = semblance_func(nmo_func=nmo_func, gather_data=gather_data, times=times, offsets=offsets,
                                              velocity=velocities[j], sample_rate=sample_rate, win_size=win_size,
                                              t_min_ix=0, t_max_ix=len(gather_data))
