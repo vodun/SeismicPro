@@ -8,6 +8,7 @@ from scipy import optimize
 
 from .decorators import plotter
 from .utils import set_ticks, set_text_formatting
+from .utils.interpolation import interp1d
 
 # pylint: disable=too-many-instance-attributes
 class WeatheringVelocity:
@@ -68,60 +69,80 @@ class WeatheringVelocity:
     >>> weathering_velocity = gather.calculate_weathering_velocity(init={'x1': 200, 'v1': 2, 'v2': 3},
                                                                    bounds={'t0': [0, 50]},
                                                                    n_layers=2)
-
-    Parameters
-    ----------
-    offsets : 1d ndarray
-        Offsets of the traces in meters.
-    picking_times : 1d ndarray
-        First break picking times in milliseconds.
-    init : dict, defaults to None
-        Initial parameters of a weathering model.
-    bounds : dict, defaults to None
-        Left and right bounds of the weathering model parameters.
-    n_layers : int, defaults to None
-        Number of layers of a weathering model.
-    ascending_velocity : bool, defaults to True
-        Keeps the ascend of the fitted velocities from layer to layer.
-    kwargs : dict, optional
-        Additional keyword arguments to `scipy.optimize.minimize`.
-
-    Attributes
-    ----------
-    offsets : 1d ndarray
-        Offsets of traces in meters.
-    picking_times : 1d ndarray
-        Picking times of traces in milliseconds.
-    init : dict
-        The inital values used to fit the parameters of the weathering model. Includes the calculated non-passed keys
-        and values. Have the common keys notation.
-    bounds : dict
-        The left and right bounds used to fit the parameters of the weathering model. Includes the calculated
-        non-passed keys and values. Have the common keys notation.
-    n_layers : int
-        Number of the weathering model layers used to fit the parameters of the weathering model.
-    params : dict
-        The fitted parameters of a weathering model. Have the common keys notation.
-
-    Raises
-    ------
-    ValueError
-        if any `init` values are negative.
-        if any `bounds` values are negative.
-        if left bound greater than right bound.
-        if init value is out of the bound interval.
-        if passed `init` and/or `bounds` keys are insufficient or excessive.
-        if an union of `init` and `bounds` keys less than 2 or `n_layers` less than 1.
     """
+    def __init__(self):
+        self.offsets = None
+        self.picking_times = None
+        self.max_offset = None
+        self.init = None
+        self.bounds = None
+        self.n_layers = None
+        self.params = None
+        self.interpolator = lambda offsets: np.zeros_like(offsets, dtype=np.float32)
 
-    def __init__(self, offsets, picking_times, n_layers=None, init=None, bounds=None, ascending_velocity=True,
+        self._valid_keys = None
+        self._piecewise_times = None
+        self._current_args = None
+        self._model_params = None
+
+    @classmethod
+    def from_picking(cls, offsets, picking_times, n_layers=None, init=None, bounds=None, ascending_velocity=True,
                  **kwargs):
+        """Method fits the weathering model parameters from the offsets and the first break picking times.
+
+        Parameters
+        ----------
+        offsets : 1d ndarray
+            Offsets of the traces in meters.
+        picking_times : 1d ndarray
+            First break picking times in milliseconds.
+        init : dict, defaults to None
+            Initial parameters of a weathering model.
+        bounds : dict, defaults to None
+            Left and right bounds of the weathering model parameters.
+        n_layers : int, defaults to None
+            Number of layers of a weathering model.
+        ascending_velocity : bool, defaults to True
+            Keeps the ascend of the fitted velocities from layer to layer.
+        kwargs : dict, optional
+            Additional keyword arguments to `scipy.optimize.minimize`.
+
+        Attributes
+        ----------
+        offsets : 1d ndarray
+            Offsets of traces in meters.
+        picking_times : 1d ndarray
+            Picking times of traces in milliseconds.
+        init : dict
+            The inital values used to fit the parameters of the weathering model. Includes the calculated non-passed keys
+            and values. Have the common keys notation.
+        bounds : dict
+            The left and right bounds used to fit the parameters of the weathering model. Includes the calculated
+            non-passed keys and values. Have the common keys notation.
+        n_layers : int
+            Number of the weathering model layers used to fit the parameters of the weathering model.
+        params : dict
+            The fitted parameters of a weathering model. Have the common keys notation.
+
+        Raises
+        ------
+        ValueError
+            if any `init` values are negative.
+            if any `bounds` values are negative.
+            if left bound greater than right bound.
+            if init value is out of the bound interval.
+            if passed `init` and/or `bounds` keys are insufficient or excessive.
+            if an union of `init` and `bounds` keys less than 2 or `n_layers` less than 1.
+        """
+        self = cls()
+        self.interpolator = np.interp
         init = {} if init is None else init
         bounds = {} if bounds is None else bounds
         self._check_values(init, bounds)
 
         self.offsets = offsets
         self.picking_times = picking_times
+        self.max_offset = offsets.max()
 
         self.init = {**self._calc_init_by_layers(n_layers), **self._calc_init_by_bounds(bounds), **init}
         self.bounds = {**self._calc_bounds_by_init(), **bounds}
@@ -161,11 +182,42 @@ class WeatheringVelocity:
         self._model_params = optimize.minimize(partial_loss_func, x0=list(self.init.values()),
                                                bounds=list(self.bounds.values()), **minimizer_kwargs)
         self.params = dict(zip(self._valid_keys, self._model_params.x))
-        self.empty_layers = self._mask_empty_layers(self.params)
+        return self
+
+    @classmethod
+    def from_params(cls, params):
+        """Init WeatheringVelocity from parameters.
+        
+        Parameters should be dict with common keys notation.
+        
+        Parameters
+        ----------
+        params : dict,
+            parameters of the weathering model
+
+        Returns
+        -------
+        WeatheringVelocity
+            WeatheringVelocity instance based on passed params.
+        """
+        self = cls()
+        self.n_layers = len(params) // 2
+
+        self._valid_keys = self._get_valid_keys(self.n_layers)
+        self.params = {key: params[key] for key in self._valid_keys}
+
+        self._piecewise_offsets, self._piecewise_times = self._calc_piecewise_coords_from_params(params)
+        self._piecewise_offsets[-1] = 2 * self._piecewise_offsets[-2] - self._piecewise_offsets[-3]
+        self._piecewise_times[-1] = (self._piecewise_offsets[-1] - self._piecewise_offsets[-2]) / \
+                                    list(params.values())[-1] + self._piecewise_times[-2]
+        self.interpolator = interp1d(self._piecewise_offsets, self._piecewise_times)
+        return self
 
     def __call__(self, offsets):
         """Return predicted picking times using offsets and the fitted parameters of the weathering model."""
-        return np.interp(offsets, self._piecewise_offsets, self._piecewise_times)
+        if isinstance(self.interpolator, interp1d):
+            return self.interpolator(offsets)
+        return self.interpolator(offsets, self._piecewise_offsets, self._piecewise_times)
 
     def __getattr__(self, key):
         return self.params[key]
@@ -361,7 +413,7 @@ class WeatheringVelocity:
                 for i in range(self.n_layers)]
         return mask
 
-    def _calc_piecewise_coords_from_params(self, params):
+    def _calc_piecewise_coords_from_params(self, params, max_offset=np.nan):
         """Method calculate coords for the piecewise linear curve from params dict.
 
         Parameters
@@ -383,7 +435,7 @@ class WeatheringVelocity:
 
         offsets = np.empty(comparing_layers + 1)
         offsets[1:comparing_layers] = params_values[1:comparing_layers]
-        offsets[-1] = self.offsets.max()
+        offsets[-1] = max_offset
 
         times = np.zeros(comparing_layers + 1)
         times[0] = params_values[0]
@@ -423,13 +475,14 @@ class WeatheringVelocity:
         set_ticks(ax, "x", tick_labels=None, label="offset, m", **x_ticker)
         set_ticks(ax, "y", tick_labels=None, label="time, ms", **y_ticker)
 
-        ax.scatter(self.offsets, self.picking_times, s=1, color='black', label='fbp points')
+        if self.picking_times is not None:
+            ax.scatter(self.offsets, self.picking_times, s=1, color='black', label='fbp points')
         for i in range(self.n_layers):
             if self.params[f'v{i+1}'] is not np.nan:
                 ax.plot(self._piecewise_offsets[i:i+2], self._piecewise_times[i:i+2], '-', color='red',
                         label='fitted piecewise function' if i == 0 else None)
             if i != self.n_layers - 1:
-                ax.axvline(self._piecewise_offsets[i+1], 0, self.picking_times.max(), ls='--', color='blue',
+                ax.axvline(self._piecewise_offsets[i+1], 0, self._piecewise_times[-1], ls='--', color='blue',
                         label='crossover point(s)' if i == 0 else None)
         if show_params:
             params = [self.params[key] for key in self._valid_keys]
@@ -444,7 +497,8 @@ class WeatheringVelocity:
                     label=f'+/- {threshold_time}ms window')
             ax.plot(self._piecewise_offsets, self._piecewise_times - threshold_time, '--', color='red')
         if compared_params is not None:
-            compared_offsets, compared_times = self._calc_piecewise_coords_from_params(compared_params)
+            compared_offsets, compared_times = self._calc_piecewise_coords_from_params(compared_params,
+                                                                                       self.max_offset)
             ax.plot(compared_offsets, compared_times, '-', color='#ff7900', label='compared piecewise function')
         ax.set_xlim(0)
         ax.set_ylim(0)

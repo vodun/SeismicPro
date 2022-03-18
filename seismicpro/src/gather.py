@@ -751,7 +751,7 @@ class Gather:
         WeatheringVelocity
             Calculated WeatheringVelocity instance.
         """
-        return WeatheringVelocity(offsets=self.offsets, picking_times=self[first_breaks_col].ravel(),
+        return WeatheringVelocity.from_picking(offsets=self.offsets, picking_times=self[first_breaks_col].ravel(),
                                   n_layers=n_layers, init=init, bounds=bounds, ascending_velocity=ascending_velocity,
                                   **kwargs)
 
