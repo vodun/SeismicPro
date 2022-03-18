@@ -62,25 +62,35 @@ class BaseSemblance:
 
         Parameters
         ----------
-        coords_cols : None, "index" or 2 element array-like, defaults to "index"
-            - If `None`, (`None`, `None`) tuple is returned.
-            - If "index", unique underlying gather index value is used to define semblance coordinates.
-            - If 2 element array-like, `coords_cols` define gather headers to get x and y coordinates from.
+        coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
+            - If `None`, a namedtuple with two `None` elements is returned. Its fields are called "X" and "Y"
+              respectively.
+            - If "auto", columns of headers index of the underlying gather define headers columns to get coordinates
+              from (e.g. 'FieldRecord' is mapped to a ("SourceX", "SourceY") pair).
+            - If 2 element array-like, `coords_cols` directly define underlying gather headers to get coordinates from.
             In the last two cases index or column values are supposed to be unique for all traces in the underlying
-            gather.
+            gather and the names of the fields of the returned namedtuple correspond to source headers columns.
 
         Returns
         -------
-        coords : tuple with 2 elements
+        coords : namedtuple with 2 elements
             Semblance spatial coordinates.
+
+        Raises
+        ------
+        ValueError
+            If semblance coordinates are non-unique or more than 2 columns were passed.
         """
         return self.gather.get_coords(coords_cols)
 
     @property
     def coords(self):
+        """namedtuple with 2 elements: Spatial coordinates of the semblance."""
         return self.get_coords()
 
-    def get_time_velocity(self, time_ix, velocity_ix):
+    def get_time_velocity_by_indices(self, time_ix, velocity_ix):
+        """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
+        semblance."""
         _ = time_ix, velocity_ix
         raise NotImplementedError
 
@@ -164,6 +174,9 @@ class BaseSemblance:
             Time indices of calculated stacking velocities to show on the plot.
         stacking_velocities_ix : 1d np.ndarray, optional
             Velocity indices of calculated stacking velocities to show on the plot.
+        colorbar : bool or dict, optional, defaults to True
+            Whether to add a colorbar to the right of the gather plot. If `dict`, defines extra keyword arguments for
+            `matplotlib.figure.Figure.colorbar`.
         ax : matplotlib.axes.Axes, optional, defaults to None
             Axes of the figure to plot on.
         kwargs : misc, optional
@@ -198,6 +211,7 @@ class BaseSemblance:
         set_ticks(ax, "y", "Time", y_ticklabels, **y_ticker)
 
     def plot(self, *args, interactive=False, **kwargs):
+        """Plot semblance in interactive or non-interactive mode."""
         if not interactive:
             return self._plot(*args, **kwargs)
         return SemblancePlot(self, *args, **kwargs).plot()
@@ -285,7 +299,9 @@ class Semblance(BaseSemblance):
                                                     times=self.times, offsets=self.offsets, velocities=velocities_ms,
                                                     sample_rate=self.sample_rate, win_size=self.win_size)
 
-    def get_time_velocity(self, time_ix, velocity_ix):
+    def get_time_velocity_by_indices(self, time_ix, velocity_ix):
+        """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
+        semblance."""
         if (time_ix < 0) or (time_ix >= len(self.times)):
             time = None
         else:
@@ -328,31 +344,7 @@ class Semblance(BaseSemblance):
 
     def _plot(self, stacking_velocity=None, *, title="Semblance", x_ticker=None, y_ticker=None, grid=False,
               colorbar=True, ax=None, **kwargs):
-        """Plot vertical velocity semblance.
-
-        Parameters
-        ----------
-        stacking_velocity : StackingVelocity, optional
-            Stacking velocity to plot if given. If its sample rate is more than 50 ms, every point will be highlighted
-            with a circle.
-        title : str, optional, defaults to "Semblance"
-            Plot title.
-        x_ticker : dict, optional, defaults to None
-            Parameters for ticks and ticklabels formatting for the x-axis; see `.utils.set_ticks` for more details.
-        y_ticker : dict, optional, defaults to None
-            Parameters for ticks and ticklabels formatting for the y-axis; see `.utils.set_ticks` for more details.
-        grid : bool, optional, defaults to False
-            Specifies whether to draw a grid on the plot.
-        ax : matplotlib.axes.Axes, optional, defaults to None
-            Axes of the figure to plot on.
-        kwargs : misc, optional
-            Additional common keyword arguments for `x_ticker` and `y_tickers`.
-
-        Returns
-        -------
-        semblance : Semblance
-            Self unchanged.
-        """
+        """Plot vertical velocity semblance."""
         # Add a stacking velocity line on the plot
         stacking_times_ix, stacking_velocities_ix = None, None
         if stacking_velocity is not None:
@@ -369,7 +361,40 @@ class Semblance(BaseSemblance):
         return self
 
     @plotter(figsize=(10, 9), args_to_unpack="stacking_velocity")
-    def plot(self, stacking_velocity=None, interactive=False, title="Semblance", **kwargs):
+    def plot(self, stacking_velocity=None, *, title="Semblance", interactive=False, **kwargs):
+        """Plot vertical velocity semblance.
+
+        Parameters
+        ----------
+        stacking_velocity : StackingVelocity, optional
+            Stacking velocity to plot if given. If its sample rate is more than 50 ms, every point will be highlighted
+            with a circle.
+        title : str, optional, defaults to "Semblance"
+            Plot title.
+        x_ticker : dict, optional, defaults to None
+            Parameters for ticks and ticklabels formatting for the x-axis; see `.utils.set_ticks` for more details.
+        y_ticker : dict, optional, defaults to None
+            Parameters for ticks and ticklabels formatting for the y-axis; see `.utils.set_ticks` for more details.
+        grid : bool, optional, defaults to False
+            Specifies whether to draw a grid on the plot.
+        colorbar : bool or dict, optional, defaults to True
+            Whether to add a colorbar to the right of the gather plot. If `dict`, defines extra keyword arguments for
+            `matplotlib.figure.Figure.colorbar`.
+        ax : matplotlib.axes.Axes, optional, defaults to None
+            Axes of the figure to plot on.
+        interactive : bool, optional, defaults to `False`
+            Whether to plot semblance in interactive mode, which allows for highlighting hodograph on click on
+            semblance and performing NMO correction of the gather with selected velocity. Interactive plotting must be
+            performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and `ipympl` and
+            `ipywidgets` libraries installed.
+        kwargs : misc, optional
+            Additional common keyword arguments for `x_ticker` and `y_tickers`.
+
+        Returns
+        -------
+        semblance : Semblance
+            Self unchanged.
+        """
         return super().plot(stacking_velocity=stacking_velocity, interactive=interactive, title=title, **kwargs)
 
     @batch_method(target="for", copy_src=False)
@@ -395,7 +420,7 @@ class Semblance(BaseSemblance):
             The number of evenly spaced points to split time range into to generate graph edges.
         n_velocities : int, defaults to 25
             The number of evenly spaced points to split velocity range into for each time to generate graph edges.
-        coords_cols : None, "index" or 2 element array-like, defaults to "index"
+        coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
             Header columns of the underlying gather to get spatial coordinates of the semblance from. See
             :func:`~Semblance.get_coords` for more details.
 
@@ -507,7 +532,9 @@ class ResidualSemblance(BaseSemblance):
                                                                  right_bound_ix=right_bound_ix,
                                                                  sample_rate=self.sample_rate, win_size=self.win_size)
 
-    def get_time_velocity(self, time_ix, velocity_ix):
+    def get_time_velocity_by_indices(self, time_ix, velocity_ix):
+        """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
+        residual semblance."""
         if (time_ix < 0) or (time_ix >= len(self.times)):
             return None, None
         time = np.interp(time_ix, np.arange(len(self.times)), self.times)
@@ -585,29 +612,7 @@ class ResidualSemblance(BaseSemblance):
 
     def _plot(self, *, title="Residual semblance", x_ticker=None, y_ticker=None, grid=False, colorbar=True, ax=None,
               **kwargs):
-        """Plot residual vertical velocity semblance. The plot always has a vertical line in the middle, representing
-        the stacking velocity it was calculated for.
-
-        Parameters
-        ----------
-        title : str, optional, defaults to "Residual semblance"
-            Plot title.
-        x_ticker : dict, optional, defaults to None
-            Parameters for ticks and ticklabels formatting for the x-axis; see `.utils.set_ticks` for more details.
-        y_ticker : dict, optional, defaults to None
-            Parameters for ticks and ticklabels formatting for the y-axis; see `.utils.set_ticks` for more details.
-        grid : bool, optional, defaults to False
-            Specifies whether to draw a grid on the plot.
-        ax : matplotlib.axes.Axes, optional, defaults to None
-            Axes of the figure to plot on.
-        kwargs : misc, optional
-            Additional common keyword arguments for `x_ticker` and `y_tickers`.
-
-        Returns
-        -------
-        semblance : ResidualSemblance
-            Self unchanged.
-        """
+        """Plot residual vertical velocity semblance."""
         x_ticklabels = np.linspace(-self.relative_margin, self.relative_margin, self.residual_semblance.shape[1]) * 100
 
         stacking_times = self.stacking_velocity.times if self.stacking_velocity.times is not None else self.times
@@ -621,5 +626,36 @@ class ResidualSemblance(BaseSemblance):
         return self
 
     @plotter(figsize=(10, 9))
-    def plot(self, interactive=False, title="Residual semblance", **kwargs):
+    def plot(self, *, title="Residual semblance", interactive=False, **kwargs):
+        """Plot residual vertical velocity semblance. The plot always has a vertical line in the middle, representing
+        the stacking velocity it was calculated for.
+
+        Parameters
+        ----------
+        title : str, optional, defaults to "Residual semblance"
+            Plot title.
+        x_ticker : dict, optional, defaults to None
+            Parameters for ticks and ticklabels formatting for the x-axis; see `.utils.set_ticks` for more details.
+        y_ticker : dict, optional, defaults to None
+            Parameters for ticks and ticklabels formatting for the y-axis; see `.utils.set_ticks` for more details.
+        grid : bool, optional, defaults to False
+            Specifies whether to draw a grid on the plot.
+        colorbar : bool or dict, optional, defaults to True
+            Whether to add a colorbar to the right of the gather plot. If `dict`, defines extra keyword arguments for
+            `matplotlib.figure.Figure.colorbar`.
+        ax : matplotlib.axes.Axes, optional, defaults to None
+            Axes of the figure to plot on.
+        interactive : bool, optional, defaults to `False`
+            Whether to plot residual semblance in interactive mode, which allows for highlighting hodograph on click on
+            residual semblance and performing NMO correction of the gather with selected velocity. Interactive plotting
+            must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and `ipympl`
+            and `ipywidgets` libraries installed.
+        kwargs : misc, optional
+            Additional common keyword arguments for `x_ticker` and `y_tickers`.
+
+        Returns
+        -------
+        semblance : ResidualSemblance
+            Self unchanged.
+        """
         return super().plot(interactive=interactive, title=title, **kwargs)

@@ -952,9 +952,11 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         keep_aspect : bool, optional, defaults to False
             Whether to keep aspect ratio of the map plot.
         x_ticker : str or dict, optional
-            Parameters to control `x` axis tick formatting and layout of the map plot.
+            Parameters to control `x` axis tick formatting and layout of the map plot. See `.utils.set_ticks` for more
+            details.
         y_ticker : dict, optional
-            Parameters to control `y` axis tick formatting and layout of the map plot.
+            Parameters to control `y` axis tick formatting and layout of the map plot. See `.utils.set_ticks` for more
+            details.
         sort_by : str, optional
             Header name to sort the displayed gather by.
         gather_plot_kwargs : dict, optional

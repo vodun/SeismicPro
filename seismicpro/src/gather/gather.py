@@ -237,10 +237,10 @@ class Gather:
         Parameters
         ----------
         coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
-            - If `None`, a namedtuple with two `None` elements is returned. Its fields are called 'X' and 'Y'
+            - If `None`, a namedtuple with two `None` elements is returned. Its fields are called "X" and "Y"
               respectively.
             - If "auto", columns of headers index define headers columns to get coordinates from (e.g.
-              'FieldRecord' is mapped to a ('SourceX', 'SourceY') pair).
+              'FieldRecord' is mapped to a ("SourceX", "SourceY") pair).
             - If 2 element array-like, `coords_cols` directly define gather headers to get coordinates from.
             In the last two cases index or column values are supposed to be unique for all traces in the gather and
             the names of the fields of the returned namedtuple correspond to source headers columns.
