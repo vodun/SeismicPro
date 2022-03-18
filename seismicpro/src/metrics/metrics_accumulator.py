@@ -1,4 +1,4 @@
-"""Implements MetricsAccumulator class that accumulates metrics calculated for individual batches of data and
+"""Implements MetricsAccumulator class that collects metric values calculated for individual subsets of data and
 aggregates them into maps"""
 
 # pylint: disable=no-name-in-module, import-error
@@ -15,26 +15,34 @@ class MetricsAccumulator(Metrics):
 
     Parameters
     ----------
-    coords : array-like
-        Array of arrays or 2d array with coordinates for X and Y axes.
-    coords_cols : ...
-        ...
-    indices : ...
-        ...
+    coords : 2d array-like with 2 columns
+        Metrics coordinates for X and Y axes.
+    coords_cols : array-like with 2 elements, optional
+        Names of X and Y coordinates. Usually names of survey headers used to extract coordinates from. Defaults to
+        ("X", "Y") if not given and cannot be inferred from `coords`.
+    indices : pandas.Index, optional
+        Dataset indices, that produced corresponding `coords` and metric values. May be used by `PipelineMetric` to
+        speed up batch generation on click on an interactive metric map.
     kwargs : misc
-        Metrics and their values to aggregate and plot on the map. The `kwargs` dict has the following structure:
-        `{metric_name_1: metric_values_1,
-          ...,
-          metric_name_N: metric_values_N
-         }`
-        Here, `metric_name` is any `str` while `metric_values` should have one of the following formats:
-        * If 1d array, each value corresponds to a pair of coordinates with the same index.
-        * If an array of arrays, all values from each inner array correspond to a pair of coordinates with the same
-          index as in the outer metrics array.
-        In both cases the length of `metric_values` must match the length of coordinates array.
+        Metrics and their values to accumulate. Each `kwargs` item define metric name and its values in one of the
+        following formats:
+        * A 1d array-like: defines a single metric value for the corresponding pair of `coords`,
+        * An array of 1d arrays: defines several metric values for the corresponding pair of `coords`,
+        * A `dict` with the following keys:
+            * "values" - metric values as a 1d array-like or an array of 1d arrays as explained above,
+            * "metric_type" - the class of the metric (optional, defaults to `Metric`),
+            * Any other key-value pairs will be used to further instantiate the metric class.
 
     Attributes
     ----------
+    coords_cols : array-like with 2 elements
+        Names of X and Y coordinates.
+    metrics_list : list of pandas.DataFrame
+        Accumulated metrics values. Should not be used directly but via `metrics` property.
+    metrics_names : list of str
+        Names of accumulated metrics.
+    metrics_types : list of subclasses of Metric
+        Types of accumulated metrics.
     """
     def __init__(self, coords, *, coords_cols=None, indices=None, **kwargs):
         super().__init__()
@@ -61,13 +69,13 @@ class MetricsAccumulator(Metrics):
 
     @property
     def metrics(self):
-        """pd.DataFrame: collected coordinates and metrics."""
+        """pd.DataFrame: collected coordinates, metrics and indices."""
         if len(self.metrics_list) > 1:
             self.metrics_list = [pd.concat(self.metrics_list)]
         return self.metrics_list[0]
 
     def append(self, other):
-        """Append coordinates and metric values to the global container."""
+        """Append data from `other` accumulator to `self`."""
         # TODO: allow for accumulation of different metrics
         if (set(self.coords_cols) != set(other.coords_cols)) or (set(self.metrics_names) != set(other.metrics_names)):
             raise ValueError("Only MetricsAccumulator with the same coordinates columns and metrics can be appended")
@@ -116,19 +124,17 @@ class MetricsAccumulator(Metrics):
             Metrics to construct field maps for. If not given, construct maps for all the accumulated metrics in the
             order they appear in `metrics_names`.
         agg : str or callable or list of str or callable, optional
-            A function used for aggregating each metric from `metrics`. If a single `agg` is given it will be used to
-            evaluate all the `metrics`. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
-        bin_size : ...
-            ...
+            A function used for aggregating each metric from `metrics` by coordinates. If a single `agg` is given it
+            will be used to aggregate all the `metrics`. If not given, will be determined by the value of
+            `is_lower_better` attribute of the corresponding metric class in order to highlight outliers. Passed
+            directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
+        bin_size : int, float or array-like with length 2, optional
+            Bin size for X and Y axes. If single `int` or `float`, the same bin size will be used for both axes.
 
         Returns
         -------
-        metrics_maps : ...
-            ... Has the same shape as `metrics`.
-
-
-        bin_size : int, float or array-like with length 2, optional, defaults to 500
-            Bin size for X and Y axes. If single `int` or `float`, the same bin size will be used for both axes.
+        metrics_maps : BaseMetricMap or list of BaseMetricMap
+            Constructed maps. Has the same shape as `metrics`.
         """
         metrics, is_single_metric = self._parse_requested_metrics(metrics)
         metrics, agg, bin_size = align_args(metrics, agg, bin_size)
