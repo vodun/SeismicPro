@@ -12,7 +12,7 @@ from ..utils import to_list, add_colorbar, set_ticks, set_text_formatting
 
 class BaseMetricMap:
     def __init__(self, coords, metric_values, *, coords_cols=None, metric=None, metric_name=None, agg=None):
-        from .metrics import Metric, PartialMetric
+        from .metrics import Metric, PartialMetric  # pylint: disable=import-outside-toplevel
         if metric is None:
             metric = Metric
         if not (isinstance(metric, (Metric, PartialMetric)) or
@@ -98,7 +98,7 @@ class BaseMetricMap:
             plot_on_click_list = to_list(plot_on_click)
         else:
             # Instantiate the metric if it hasn't been done yet
-            from .metrics import Metric
+            from .metrics import Metric  # pylint: disable=import-outside-toplevel
             if not isinstance(self.metric, Metric):
                 self.metric = self.metric()
             plot_on_click_list, kwargs = self.metric.get_views(**kwargs)
@@ -127,7 +127,11 @@ class ScatterMap(BaseMetricMap):
         map_data = self.map_data.sort_values(ascending=is_lower_better, key=sort_key)
         coords_x, coords_y = map_data.index.to_frame().values.T
         x_margin = 0.05 * coords_x.ptp()
+        if np.isclose(x_margin, 0):
+            x_margin = 0.05 * coords_x[0]
         y_margin = 0.05 * coords_y.ptp()
+        if np.isclose(y_margin, 0):
+            y_margin = 0.05 * coords_y[0]
         ax.set_xlim(coords_x.min() - x_margin, coords_x.max() + x_margin)
         ax.set_ylim(coords_y.min() - y_margin, coords_y.max() + y_margin)
         return ax.scatter(coords_x, coords_y, c=map_data, **kwargs)

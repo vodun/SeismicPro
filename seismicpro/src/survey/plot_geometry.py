@@ -63,8 +63,8 @@ class SurveyGeometryPlot(PairedPlot):  # pylint: disable=too-many-instance-attri
 
     @staticmethod
     def _process_survey(survey, coord_cols):
-        # pylint: disable=import-outside-toplevel
-        from ..index import SeismicIndex  # Avoid cyclic imports, remove when Survey.get_gather is optimized
+        # Avoid cyclic imports, remove when Survey.get_gather is optimized
+        from ..index import SeismicIndex  # pylint: disable=import-outside-toplevel
         index = SeismicIndex(surveys=survey.reindex(coord_cols))
         coords = index.indices.to_frame().values[:, 1:]
         coords_neighbors = NearestNeighbors(n_neighbors=1).fit(coords)

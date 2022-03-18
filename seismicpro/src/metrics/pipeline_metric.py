@@ -128,8 +128,10 @@ class PipelineMetric(Metric):
         sign = signature(batch.calculate_metric)
         bound_args = sign.bind(*self.calculate_metric_args, **self.calculate_metric_kwargs)
         bound_args.apply_defaults()
+        # pylint: disable=protected-access
         calc_args = self.plot_pipeline._eval_expr(bound_args.arguments["args"], batch=batch)
         calc_kwargs = self.plot_pipeline._eval_expr(bound_args.arguments["kwargs"], batch=batch)
+        # pylint: enable=protected-access
         args, _ = self.unpack_calc_args(batch, *calc_args, **calc_kwargs)
         return args[0]
 
