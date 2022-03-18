@@ -1167,9 +1167,9 @@ class Gather:
             ax.set_yscale("log")
         ax.set_title(**{'label': None, **title})
 
-    def _plot_seismogram(self, ax, title, x_ticker, y_ticker, x_tick_src=None,  # pylint: disable=too-many-arguments
-                         y_tick_src='time', colorbar=False, qvmin=0.1, qvmax=0.9, event_headers=None, top_header=None,
-                         **kwargs):
+    # pylint: disable=too-many-arguments
+    def _plot_seismogram(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src='time', colorbar=False,
+                         qvmin=0.1, qvmax=0.9, event_headers=None, top_header=None, **kwargs):
         """Plot the gather as a 2d grayscale image of seismic traces."""
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
