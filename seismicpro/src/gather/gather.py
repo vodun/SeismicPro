@@ -1265,6 +1265,7 @@ class Gather:
         x_coords = np.arange(self.n_traces)
         kwargs_list = self._parse_headers_kwargs(headers_kwargs, "headers")
         for kwargs in kwargs_list:
+            kwargs = {"zorder": 10, **kwargs}  # Increase zorder to plot headers on top of gather
             header = kwargs.pop("headers")
             label = kwargs.pop("label", header)
             process_outliers = kwargs.pop("process_outliers", "none")
