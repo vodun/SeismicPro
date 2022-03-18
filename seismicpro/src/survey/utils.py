@@ -1,10 +1,16 @@
+"""Survey processing utils"""
+
+from functools import partial
+
 import numpy as np
 from numba import njit
+
+from ..metrics import Metric
 
 
 @njit(nogil=True)
 def calculate_stats(trace):
-    """Calculate min, max, sum and sum of squares of the trace amplitudes."""
+    """Calculate min, max, sum and sum of squares of trace amplitudes."""
     trace_min, trace_max = np.inf, -np.inf
     trace_sum, trace_sq_sum = 0, 0
     for sample in trace:
@@ -66,3 +72,22 @@ def create_supergather_index(centers, size):
                 row = np.array([i, x, i + shift_i, x + shift_x])
                 mapping[ix * area_size + ix_i * size[1] + ix_x] = row
     return mapping
+
+
+class SurveyAttribute(Metric):
+    """A utility metric class that reindexes given survey by `coords_cols` and allows for plotting gathers by their
+    coordinates. Does not implement any calculation logic."""
+    def __init__(self, survey, coords_cols, **kwargs):
+        super().__init__(**kwargs)
+        self.survey = survey.reindex(coords_cols)
+
+    def plot(self, coords, ax, sort_by=None, **kwargs):
+        """Plot a gather by given `coords`. Optionally sort it."""
+        gather = self.survey.get_gather(coords)
+        if sort_by is not None:
+            gather = gather.sort(by=sort_by)
+        gather.plot(ax=ax, **kwargs)
+
+    def get_views(self, sort_by=None, **kwargs):
+        """Return a single view, that plots a gather sorted by `sort_by` by click coordinates."""
+        return [partial(self.plot, sort_by=sort_by)], kwargs
