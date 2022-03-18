@@ -1,3 +1,5 @@
+"""Implements interactive plots of semblance and residual semblance"""
+
 from functools import partial
 
 import numpy as np
@@ -7,7 +9,14 @@ from ..utils import get_text_formatting_kwargs, times_to_indices
 from ..utils.interactive_plot_utils import InteractivePlot, PairedPlot
 
 
-class SemblancePlot(PairedPlot):
+class SemblancePlot(PairedPlot):  # pylint: disable=too-many-instance-attributes
+    """Define an interactive semblance plot.
+
+    This plot also displays the gather used to calculate the semblance. Clicking on semblance highlights the
+    corresponding hodograph on the gather plot and allows performing NMO correction of the gather with the selected
+    velocity by switching the view. The width of the hodograph matches the window size used to calculate the semblance
+    on both views. An initial click is performed on the maximum semblance value.
+    """
     def __init__(self, semblance, title="Semblance", sharey=True, gather_plot_kwargs=None, figsize=(4.5, 4.5),
                  fontsize=8, orientation="horizontal", **kwargs):
         kwargs = {"fontsize": fontsize, **kwargs}
@@ -31,10 +40,12 @@ class SemblancePlot(PairedPlot):
             self.aux.ax.sharey(self.main.ax)
 
     def construct_main_plot(self):
+        """Construct a clickable semblance plot."""
         return InteractivePlot(plot_fn=self.plot_semblance, click_fn=self.click, unclick_fn=self.unclick,
                                title=self.title, figsize=self.figsize)
 
     def construct_aux_plot(self):
+        """Construct a correctable gather plot."""
         toolbar_position = "right" if self.orientation == "horizontal" else "left"
         plotter = InteractivePlot(plot_fn=[self.plot_gather, partial(self.plot_gather, corrected=True)],
                                   title=self.get_gather_title, figsize=self.figsize, toolbar_position=toolbar_position)
@@ -42,17 +53,20 @@ class SemblancePlot(PairedPlot):
         return plotter
 
     def get_gather_title(self):
+        """Get title of the gather plot."""
         if (self.click_time is None) or (self.click_vel is None):
             return "Gather"
         return f"Hodograph from {self.click_time:.0f} ms with {self.click_vel:.2f} km/s velocity"
 
-    def get_gather(self, corrected):
+    def get_gather(self, corrected=False):
+        """Get an optionally corrected gather."""
         if not corrected:
             return self.gather
         velocity = StackingVelocity.from_constant_velocity(self.click_vel * 1000)
         return self.gather.copy(ignore=["headers", "data", "samples"]).apply_nmo(velocity)
 
     def get_hodograph(self, corrected):
+        """Get hodograph times if click has been performed."""
         if (self.click_time is None) or (self.click_vel is None):
             return None
         if not corrected:
@@ -60,6 +74,7 @@ class SemblancePlot(PairedPlot):
         return np.full_like(self.gather.offsets, self.click_time)
 
     def plot_gather(self, ax, corrected=False):
+        """Plot the gather and a hodograph if click has been performed."""
         gather = self.get_gather(corrected=corrected)
         gather.plot(ax=ax, **self.gather_plot_kwargs)
 
@@ -72,6 +87,7 @@ class SemblancePlot(PairedPlot):
         ax.fill_between(np.arange(len(hodograph)), hodograph_low, hodograph_high, color="tab:blue", alpha=0.5)
 
     def click(self, coords):
+        """Highlight the hodograph defined by click location on the gather plot."""
         click_time, click_vel = self.semblance.get_time_velocity_by_indices(coords[1] + 0.5, coords[0] + 0.5)
         if (click_time is None) or (click_vel is None):
             return None  # Ignore click
@@ -82,6 +98,7 @@ class SemblancePlot(PairedPlot):
         return coords
 
     def unclick(self):
+        """Remove the highlighted hodograph and switch to a non-corrected view."""
         self.click_time = None
         self.click_vel = None
         self.aux.set_view(0)

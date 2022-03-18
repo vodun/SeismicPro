@@ -175,8 +175,8 @@ class BaseSemblance:
         stacking_velocities_ix : 1d np.ndarray, optional
             Velocity indices of calculated stacking velocities to show on the plot.
         colorbar : bool or dict, optional, defaults to True
-            Whether to add a colorbar to the right of the gather plot. If `dict`, defines extra keyword arguments for
-            `matplotlib.figure.Figure.colorbar`.
+            Whether to add a colorbar to the right of the semblance plot. If `dict`, defines extra keyword arguments
+            for `matplotlib.figure.Figure.colorbar`.
         ax : matplotlib.axes.Axes, optional, defaults to None
             Axes of the figure to plot on.
         kwargs : misc, optional
@@ -378,17 +378,22 @@ class Semblance(BaseSemblance):
         grid : bool, optional, defaults to False
             Specifies whether to draw a grid on the plot.
         colorbar : bool or dict, optional, defaults to True
-            Whether to add a colorbar to the right of the gather plot. If `dict`, defines extra keyword arguments for
-            `matplotlib.figure.Figure.colorbar`.
+            Whether to add a colorbar to the right of the semblance plot. If `dict`, defines extra keyword arguments
+            for `matplotlib.figure.Figure.colorbar`.
         ax : matplotlib.axes.Axes, optional, defaults to None
             Axes of the figure to plot on.
-        interactive : bool, optional, defaults to `False`
-            Whether to plot semblance in interactive mode, which allows for highlighting hodograph on click on
-            semblance and performing NMO correction of the gather with selected velocity. Interactive plotting must be
-            performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and `ipympl` and
-            `ipywidgets` libraries installed.
         kwargs : misc, optional
             Additional common keyword arguments for `x_ticker` and `y_tickers`.
+        interactive : bool, optional, defaults to `False`
+            Whether to plot semblance in interactive mode. This mode also plots the gather used to calculate the
+            semblance. Clicking on semblance highlights the corresponding hodograph on the gather plot and allows
+            performing NMO correction of the gather with the selected velocity. Interactive plotting must be performed
+            in a JupyterLab environment with the the `%matplotlib widget` magic executed and `ipympl` and `ipywidgets`
+            libraries installed.
+        sharey : bool, optional, defaults to True, only for interactive mode
+            Whether to share y axis of semblance and gather plots.
+        gather_plot_kwargs : dict, optional, only for interactive mode
+            Additional arguments to pass to `Gather.plot`.
 
         Returns
         -------
@@ -641,17 +646,22 @@ class ResidualSemblance(BaseSemblance):
         grid : bool, optional, defaults to False
             Specifies whether to draw a grid on the plot.
         colorbar : bool or dict, optional, defaults to True
-            Whether to add a colorbar to the right of the gather plot. If `dict`, defines extra keyword arguments for
-            `matplotlib.figure.Figure.colorbar`.
+            Whether to add a colorbar to the right of the residual semblance plot. If `dict`, defines extra keyword
+            arguments for `matplotlib.figure.Figure.colorbar`.
         ax : matplotlib.axes.Axes, optional, defaults to None
             Axes of the figure to plot on.
-        interactive : bool, optional, defaults to `False`
-            Whether to plot residual semblance in interactive mode, which allows for highlighting hodograph on click on
-            residual semblance and performing NMO correction of the gather with selected velocity. Interactive plotting
-            must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and `ipympl`
-            and `ipywidgets` libraries installed.
         kwargs : misc, optional
             Additional common keyword arguments for `x_ticker` and `y_tickers`.
+        interactive : bool, optional, defaults to `False`
+            Whether to plot residual semblance in interactive mode. This mode also plots the gather used to calculate
+            the residual semblance. Clicking on residual semblance highlights the corresponding hodograph on the gather
+            plot and allows performing NMO correction of the gather with the selected velocity. Interactive plotting
+            must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and `ipympl`
+            and `ipywidgets` libraries installed.
+        sharey : bool, optional, defaults to True, only for interactive mode
+            Whether to share y axis of residual semblance and gather plots.
+        gather_plot_kwargs : dict, optional, only for interactive mode
+            Additional arguments to pass to `Gather.plot`.
 
         Returns
         -------

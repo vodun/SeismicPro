@@ -50,12 +50,12 @@ class SurveyGeometryPlot(PairedPlot):  # pylint: disable=too-many-instance-attri
         super().__init__(orientation=orientation)
 
     def construct_main_plot(self):
-        """Construct an interactive plot of shot and receiver locations."""
+        """Construct a clickable plot of shot and receiver locations."""
         return InteractivePlot(plot_fn=[self.plot_map, self.plot_map], click_fn=self.click, unclick_fn=self.unclick,
                                title=["Shot map", "Receiver map"])
 
     def construct_aux_plot(self):
-        """Construct an interactive gather plot."""
+        """Construct a gather plot."""
         toolbar_position = "right" if self.orientation == "horizontal" else "left"
         aux_plot = InteractivePlot(figsize=self.figsize, toolbar_position=toolbar_position)
         aux_plot.box.layout.visibility = "hidden"
