@@ -396,17 +396,52 @@ class SeismicBatch(Batch):
                          save_to=None, **kwargs):
         """Calculate a metric for each batch element and store the results into an accumulator.
 
+        The passed metric must be either a subclass of `PipelineMetric` or a `callable`. In the latter case, a new
+        subclass of `PipelineMetric` is created with its `calc` method defined by the `callable`. The metric class is
+        provided with information about the pipeline it was calculated in which allows restoring metric calculation
+        context during interactive metric map plotting.
+
         Examples
         --------
-        ...
+        1. Calculate a metric, that estimates signal leakage after seismic processing by CDP gathers:
+
+        Create a dataset with surveys before and after processing being merged:
+        >>> header_index = ["INLINE_3D", "CROSSLINE_3D"]
+        >>> header_cols = "offset"
+        >>> survey_before = Survey(path_before, header_index=header_index, header_cols=header_cols, name="before")
+        >>> survey_after = Survey(path_after, header_index=header_index, header_cols=header_cols, name="after")
+        >>> dataset = SeismicDataset(surveys=[survey_before, survey_after], mode="m")
+
+        Iterate over the dataset and calculate the metric:
+        >>> pipeline = (dataset
+        ...     .pipeline()
+        ...     .load(src=["before", "after"])
+        ...     .calculate_metric(SignalLeakage, "before", "after", velocities=np.linspace(1500, 5500, 100),
+        ...                       save_to=V("accumulator", mode="a"))
+        ... )
+        >>> pipeline.run(batch_size=16, n_epochs=1)
+
+        Extract the created metric accumulator, construct the map and plot it:
+        >>> leakage_map = pipeline.v("accumulator").construct_map()
+        >>> leakage_map.plot(interactive=True)  # works only in JupyterLab with `%matplotlib widget` magic executed
+
+        2. Calculate standard deviation of gather amplitudes using a lambda-function:
+        >>> pipeline = (dataset
+        ...     .pipeline()
+        ...     .load(src="before")
+        ...     .calculate_metric(lambda gather: gather.data.std(), "before", metric_name="std",
+        ...                       save_to=V("accumulator", mode="a"))
+        ... )
+        >>> pipeline.run(batch_size=16, n_epochs=1)
+        >>> std_map = pipeline.v("accumulator").construct_map()
+        >>> std_map.plot(interactive=True, plot_component="before")
 
         Parameters
         ----------
         metric : subclass of PipelineMetric or callable
-            A metric to calculate. If `callable`, used directly to calculate a metric value for each batch element and
-            ///
+            The metric to calculate.
         metric_name : str or None, optional
-            A name of the calculated metric. If not given, ...
+            A name of the calculated metric. Obligatory if `metric` is `lambda`.
         coords_component : str, optional
             A component name to extract coordinates from. If not given, the first argument passed to the metric
             calculation function is used.
