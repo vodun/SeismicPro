@@ -129,7 +129,7 @@ class WeatheringVelocity:
         self.n_layers = len(self.bounds) // 2
         self._valid_keys = self._get_valid_keys()
 
-        # ordering `init` and `bounds` dicts to put all values in the required order into the `minimize` function.
+        # ordering `init` and `bounds` dicts to put all values in the required order.
         self.init = {key: self.init[key] for key in self._valid_keys}
         self.bounds = {key: self.bounds[key] for key in self._valid_keys}
 
@@ -137,18 +137,31 @@ class WeatheringVelocity:
         self._piecewise_times = np.empty(self.n_layers + 1)
         self._piecewise_offsets = np.zeros(self.n_layers + 1)
         self._piecewise_offsets[-1] = offsets.max()
+        self._current_args = np.array(list(self.init.values()))
+
+        # Constraints define
+        constraint_offset = {"type": "ineq", "fun": lambda x: np.diff(x[1:self.n_layers])}  # crossoffsets ascend.
+        constraint_velocity = {"type": "ineq", "fun": lambda x: np.diff(x[self.n_layers:])}  # velocities ascend.
+        constraint_freeze_velocity = {  # freeze the velocity fitting if no data for layer is found.
+            "type": "eq",
+            "fun": lambda x: self._current_args[self.n_layers:][self._mask_empty_layers(self.init)] \
+                             - x[self.n_layers:][self._mask_empty_layers(self.init)]}
+        constraint_freeze_time = {  # freeze the intercept time fitting if no data for layer is found.
+            "type": "eq",
+            "fun": lambda x: self._current_args[0][self._mask_empty_layers(self.init)[0]] \
+                             - x[0][self._mask_empty_layers(self.init)[0]]}
+        constraints = [constraint_offset, constraint_freeze_velocity, constraint_freeze_time]
+        if ascending_velocity:
+            constraints.append(constraint_velocity)
 
         # Fitting piecewise linear regression
-        constraint_offset = {"type": "ineq", "fun": lambda x: np.diff(x[1:self.n_layers])}
-        constraint_velocity = {"type": "ineq", "fun": lambda x: np.diff(x[self.n_layers:])}
-        constraints = (constraint_offset, constraint_velocity) if ascending_velocity else constraint_offset
         partial_loss_func = partial(self.loss_piecewise_linear, loss=kwargs.pop('loss', 'L1'),
                                     huber_coef=kwargs.pop('huber_coef', .1))
         minimizer_kwargs = {'method': 'SLSQP', 'constraints': constraints, **kwargs}
         self._model_params = optimize.minimize(partial_loss_func, x0=list(self.init.values()),
                                                bounds=list(self.bounds.values()), **minimizer_kwargs)
         self.params = dict(zip(self._valid_keys, self._model_params.x))
-        self._check_layers_data()
+        self.empty_layers = self._mask_empty_layers(self.params)
 
     def __call__(self, offsets):
         """Return predicted picking times using offsets and the fitted parameters of the weathering model."""
@@ -159,6 +172,7 @@ class WeatheringVelocity:
 
     def _update_piecewise_params(self, args):
         """Update the parameters of piecewise linear function stored in class attributes."""
+        self._current_args = args
         self._piecewise_times[0] = args[0]
         self._piecewise_offsets[1:self.n_layers] = args[1:self.n_layers]
 
@@ -340,13 +354,12 @@ class WeatheringVelocity:
         if excessive_keys:
             raise ValueError(f"Excessive parameters to fit a weathering velocity curve. Remove {excessive_keys}.")
 
-    def _check_layers_data(self):
-        """Check the picking data in each layer and changes parameters to `np.nan` if insufficient data found."""
-        for i in range(self.n_layers):
-            if self.offsets[(self.offsets > self._piecewise_offsets[i]) &
-                            (self.offsets <= self._piecewise_offsets[i+1])].shape[0] < 2:
-                self.params[f'v{i+1}'] = np.nan
-        self.params['t0'] = np.nan if self.params['v1'] is np.nan else self.params['t0']
+    def _mask_empty_layers(self, params):
+        """Method checks the layers for data and returns boolean mask. The mask value is 1 if no data is found."""
+        cross_offsets = [0, *list(params.values())[1:self.n_layers], self.offsets.max()]
+        mask = [self.offsets[(self.offsets > cross_offsets[i]) & (self.offsets <= cross_offsets[i+1])].shape[0] < 1
+                for i in range(self.n_layers)]
+        return mask
 
     def _calc_piecewise_coords_from_params(self, params):
         """Method calculate coords for the piecewise linear curve from params dict.
