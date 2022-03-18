@@ -10,7 +10,7 @@ from .decorators import plotter
 from .utils import set_ticks, set_text_formatting
 from .utils.interpolation import interp1d
 
-# pylint: disable=too-many-instance-attributes
+# pylint: disable=too-many-instance-attributes, protected-access
 class WeatheringVelocity:
     """The class fits and stores parameters of a weathering model based on gather's offsets and first break picking
     times.
@@ -81,6 +81,7 @@ class WeatheringVelocity:
         self.interpolator = lambda offsets: np.zeros_like(offsets, dtype=np.float32)
 
         self._valid_keys = None
+        self._piecewise_offsets = None
         self._piecewise_times = None
         self._current_args = None
         self._model_params = None
@@ -114,8 +115,8 @@ class WeatheringVelocity:
         picking_times : 1d ndarray
             Picking times of traces in milliseconds.
         init : dict
-            The inital values used to fit the parameters of the weathering model. Includes the calculated non-passed keys
-            and values. Have the common keys notation.
+            The inital values used to fit the parameters of the weathering model. Includes the calculated non-passed
+            keys and values. Have the common keys notation.
         bounds : dict
             The left and right bounds used to fit the parameters of the weathering model. Includes the calculated
             non-passed keys and values. Have the common keys notation.
@@ -187,9 +188,9 @@ class WeatheringVelocity:
     @classmethod
     def from_params(cls, params):
         """Init WeatheringVelocity from parameters.
-        
+
         Parameters should be dict with common keys notation.
-        
+
         Parameters
         ----------
         params : dict,
