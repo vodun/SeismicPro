@@ -127,7 +127,7 @@ class MapBinPlot(MapCoordsPlot):
         self.update_state(self.drop.index)
 
 
-class MetricMapPlot(PairedPlot):
+class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method
     """Base class for interactive metric map visualization.
 
     Two methods should be redefined in a concrete plotter child class:
