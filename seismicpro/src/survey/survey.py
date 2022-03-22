@@ -102,7 +102,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         The number of traces with constant value (dead traces). None until `mark_dead_traces` is called.
     """
     def __init__(self, path, header_index, header_cols=None, name=None, limits=None):
-        self.path = path
+        self.path = os.path.abspath(path)
         basename = os.path.splitext(os.path.basename(self.path))[0]
         self.name = name if name is not None else basename
 
