@@ -15,6 +15,7 @@ from scipy.interpolate import interp1d
 
 from .plot_geometry import SurveyGeometryPlot
 from .utils import calculate_stats, create_supergather_index, SurveyAttribute
+from ..indexer import create_indexer
 from ..gather import Gather
 from ..metrics import PartialMetric
 from ..utils import to_list, maybe_copy, get_cols
@@ -73,7 +74,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     Attributes
     ----------
     path : str
-        A path to the source SEG-Y file.
+        An absolute path to the source SEG-Y file.
     name : str
         Survey name.
     headers : pd.DataFrame
@@ -103,8 +104,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     """
     def __init__(self, path, header_index, header_cols=None, name=None, limits=None):
         self.path = os.path.abspath(path)
-        basename = os.path.splitext(os.path.basename(self.path))[0]
-        self.name = name if name is not None else basename
+        self.name = os.path.splitext(os.path.basename(self.path))[0] if name is None else name
 
         if header_cols is None:
             header_cols = set()
@@ -112,7 +112,6 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             header_cols = set(segyio.tracefield.keys.keys())
         else:
             header_cols = set(to_list(header_cols))
-
         header_index = to_list(header_index)
         load_headers = set(header_index) | header_cols
 
@@ -143,8 +142,14 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
         # Sort headers by index to optimize further headers subsampling and merging.
         # Preserve trace order from the file for traces from the same gather.
-        self.headers = headers.sort_index(kind="stable")
+        headers = headers.sort_index(kind="stable")
 
+        # Set loaded survey headers and construct its fast indexer
+        self._headers = None
+        self.indexer = None
+        self.headers = headers
+
+        # Define all stats-related attributes
         self.has_stats = False
         self.min = None
         self.max = None
@@ -157,14 +162,31 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         """Get sample rate from file headers"""
         bin_sample_rate = self.segy_handler.bin[segyio.BinField.Interval]
         trace_sample_rate = self.segy_handler.header[0][segyio.TraceField.TRACE_SAMPLE_INTERVAL]
-        # 0 means that the sample rate is undefined, so it is removed from the set of sample rate values.
+        # 0 means undefined sample rate, so it is removed from the set of sample rate values.
         union_sample_rate = {bin_sample_rate, trace_sample_rate} - {0}
         if len(union_sample_rate) != 1:
-            error_msg = "Cannot infer sample rate from file headers: either both `Interval` (bytes 3217-3218 in the "\
-                        "binary header) and `TRACE_SAMPLE_INTERVAL` (bytes 117-118 in the header of the first trace) "\
-                        "are undefined or they have different values."
-            raise ValueError(error_msg)
+            raise ValueError("Cannot infer sample rate from file headers: either both `Interval` (bytes 3217-3218 in "
+                             "the binary header) and `TRACE_SAMPLE_INTERVAL` (bytes 117-118 in the header of the "
+                             "first trace are undefined or they have different values.")
         return union_sample_rate.pop() / 1000 # Convert sample rate from microseconds to milliseconds
+
+    @property
+    def headers(self):
+        """pd.DataFrame: loaded trace headers."""
+        return self._headers
+
+    @headers.setter
+    def headers(self, headers):
+        """Reconstruct survey indexer on each headers assignment."""
+        if not headers.index.is_monotonic:
+            raise ValueError("Headers with non-monotonic index is being set.")
+        self.indexer = create_indexer(headers)
+        self._headers = headers
+
+    @property
+    def indices(self):
+        """pd.Index: indices of gathers in the survey."""
+        return self.indexer.indices
 
     @property
     def times(self):
@@ -175,6 +197,11 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     def n_traces(self):
         """int: The number of traces in the survey."""
         return len(self.headers)
+
+    @property
+    def n_gathers(self):
+        """int: The number of gathers in the survey."""
+        return len(self.indices)
 
     @property
     def n_samples(self):
@@ -253,14 +280,13 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         Survey name:               {self.name}
         Survey size:               {os.path.getsize(self.path) / (1024**3):4.3f} GB
 
+        Indexed by:                {', '.join(self.headers.index.names)}
+        Number of gathers:         {self.n_gathers}
         Number of traces:          {self.n_traces}
         Trace length:              {self.n_samples} samples
         Sample rate:               {self.sample_rate} ms
         Times range:               [{min(self.samples)} ms, {max(self.samples)} ms]
         Offsets range:             {offset_range}
-
-        Index name(s):             {', '.join(self.headers.index.names)}
-        Number of unique indices:  {len(np.unique(self.headers.index))}
         """
 
         if self.has_stats:
@@ -281,6 +307,15 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         """Print survey metadata including information about source file and trace statistics if they were
         calculated."""
         print(self)
+
+    def get_headers_by_indices(self, indices):
+        """Return headers for gathers with given `indices`."""
+        headers_indices = self.indexer.get_loc(indices)
+        headers = self.headers.iloc[headers_indices]
+        # iloc may sometimes return Series. In such cases slicing is used to guarantee, that a DataFrame is returned
+        if isinstance(headers, pd.Series):
+            headers = self.headers.iloc[headers_indices:headers_indices]
+        return headers
 
     #------------------------------------------------------------------------#
     #                     Statistics computation methods                     #
@@ -328,7 +363,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
         headers = self.headers
         if indices is not None:
-            headers = headers.loc[indices]
+            headers = self.get_headers_by_indices(indices)
         n_traces = len(headers)
         traces_pos = headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
         np.random.shuffle(traces_pos)
@@ -365,7 +400,6 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             if quantile_traces_counter < n_quantile_traces:
                 traces_buf[quantile_traces_counter] = trace
                 quantile_traces_counter += 1
-
 
         self.min = np.float32(global_min)
         self.max = np.float32(global_max)
@@ -509,11 +543,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         gather : Gather
             Loaded gather instance.
         """
-        gather_headers = self.headers.loc[index]
-        # loc may sometimes return Series. In such cases slicing is used to guarantee, that DataFrame is returned
-        if isinstance(gather_headers, pd.Series):
-            gather_headers = self.headers.loc[index:index]
-        return self.load_gather(gather_headers, limits, copy_headers)
+        return self.load_gather(self.get_headers_by_indices((index,)), limits, copy_headers)
 
     def sample_gather(self, limits=None, copy_headers=True):
         """Load a gather with random index.
@@ -531,9 +561,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         gather : Gather
             Loaded gather instance.
         """
-        index = np.random.choice(self.headers.index)
-        gather = self.get_gather(index=index, limits=limits, copy_headers=copy_headers)
-        return gather
+        return self.get_gather(index=np.random.choice(self.indices), limits=limits, copy_headers=copy_headers)
 
     def load_trace(self, buf, index, limits, trace_length):
         """Load a single trace from a SEG-Y file by its position.
@@ -625,8 +653,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         headers = headers.merge(first_breaks_df, on=trace_id_cols)
         if headers.empty:
             raise ValueError('Empty headers after first breaks loading.')
-        headers.set_index(self.headers.index.names, inplace=True)
-        self.headers = headers.sort_index(kind="stable")
+        self.headers = headers.set_index(self.headers.index.names).sort_index(kind="stable")
         return self
 
     #------------------------------------------------------------------------#
@@ -796,9 +823,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             Reindexed survey.
         """
         self = maybe_copy(self, inplace)
-        self.headers.reset_index(inplace=True)
-        self.headers.set_index(new_index, inplace=True)
-        self.headers.sort_index(kind="stable", inplace=True)
+        self.headers = self.headers.reset_index().set_index(new_index).sort_index(kind="stable")
         return self
 
     def set_limits(self, limits):
@@ -916,12 +941,10 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         supergather_centers = supergather_centers.drop_duplicates().sort_values(by=line_cols)
         supergather_lines = pd.DataFrame(create_supergather_index(supergather_centers.values, size),
                                          columns=super_line_cols+line_cols)
-        self.headers = pd.merge(supergather_lines, headers, on=line_cols)
-
+        headers = pd.merge(supergather_lines, headers, on=line_cols)
         if reindex:
             index_cols = super_line_cols
-        self.headers.set_index(index_cols, inplace=True)
-        self.headers.sort_index(kind="stable", inplace=True)
+        self.headers = headers.set_index(index_cols).sort_index(kind="stable")
         return self
 
     #------------------------------------------------------------------------#
