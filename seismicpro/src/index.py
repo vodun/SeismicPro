@@ -10,7 +10,8 @@ import numpy as np
 import pandas as pd
 
 from .survey import Survey
-from .utils import maybe_copy, unique_indices_sorted
+from .utils import maybe_copy
+from .indexer import unique_indices_sorted
 from ..batchflow import DatasetIndex
 
 
