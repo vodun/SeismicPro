@@ -116,13 +116,6 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         header_index = to_list(header_index)
         load_headers = set(header_index) | header_cols
 
-        # We always reconstruct this column, so there is no need to load it.
-        if "TRACE_SEQUENCE_FILE" in load_headers:
-            load_headers.remove("TRACE_SEQUENCE_FILE")
-            warn_msg = ("An automatically reconstructed TRACE_SEQUENCE_FILE header will be used instead of the one, "
-                        f"contained in {basename}")
-            warnings.warn(warn_msg, RuntimeWarning)
-
         self.segy_handler = segyio.open(self.path, ignore_geometry=True)
         self.segy_handler.mmap()
 
