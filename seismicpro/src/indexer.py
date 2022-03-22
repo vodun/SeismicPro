@@ -6,8 +6,8 @@ import numpy as np
 def unique_indices_sorted(arr):
     """Return indices of the first occurrences of the unique values in a sorted array."""
     mask = np.empty(len(arr), dtype=np.bool_)
-    mask[:1] = True
-    mask[1:] = (arr[1:] != arr[:-1]).any(axis=1)
+    np.any(arr[1:] != arr[:-1], axis=1, out=mask[1:])
+    mask[0] = True
     return np.where(mask)[0]
 
 
