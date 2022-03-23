@@ -371,7 +371,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         if indices is not None:
             headers = self.get_headers_by_indices(indices)
         n_traces = len(headers)
-        traces_pos = headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
+        traces_pos = get_cols(headers, "TRACE_SEQUENCE_FILE").ravel() - 1
         np.random.shuffle(traces_pos)
 
         limits = self.limits if stats_limits is None else self._process_limits(stats_limits)
@@ -447,7 +447,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
         limits = self.limits if limits is None else self._process_limits(limits)
 
-        traces_pos = self.headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
+        traces_pos = self["TRACE_SEQUENCE_FILE"].ravel() - 1
         n_samples = len(self.file_samples[limits])
 
         trace = np.empty(n_samples, dtype=np.float32)
@@ -518,7 +518,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         """
         if copy_headers:
             headers = headers.copy()
-        trace_indices = headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
+        trace_indices = get_cols(headers, "TRACE_SEQUENCE_FILE").ravel() - 1
 
         limits = self.limits if limits is None else self._process_limits(limits)
         samples = self.file_samples[limits]
