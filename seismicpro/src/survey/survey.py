@@ -19,8 +19,8 @@ from .utils import ibm_to_ieee, calculate_trace_stats, create_supergather_index
 from ..gather import Gather
 from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
-from ..utils import to_list, maybe_copy, get_cols
-from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK
+from ..utils import to_list, maybe_copy, get_cols, has_clips
+from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_CLIP, HDR_FIRST_BREAK
 
 
 class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-instance-attributes
@@ -456,6 +456,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         trace = np.empty(n_samples, dtype=self.trace_dtype)
         dead_indices = []
+        clip_indices = []
+
         for tr_index, pos in tqdm(enumerate(traces_pos), desc=f"Detecting dead traces for survey {self.name}",
                                   total=len(self.headers), disable=not bar):
             self.load_trace_segyio(buf=trace, index=pos, limits=limits, trace_length=n_samples)
@@ -464,9 +466,15 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             if math.isclose(trace_min, trace_max):
                 dead_indices.append(tr_index)
 
+            elif has_clips(trace, clip_len=3):
+                clip_indices.append(tr_index)
+
         self.n_dead_traces = len(dead_indices)
         self.headers[HDR_DEAD_TRACE] = False
         self.headers.iloc[dead_indices, self.headers.columns.get_loc(HDR_DEAD_TRACE)] = True
+
+        self.headers[HDR_CLIP] = False
+        self.headers.iloc[clip_indices, self.headers.columns.get_loc(HDR_CLIP)] = True
 
         return self
 

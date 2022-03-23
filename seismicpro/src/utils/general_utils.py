@@ -140,6 +140,56 @@ class Coordinates:
         return np.array(self.coords, dtype=dtype)
 
 
+@njit(nogil=True)
+def strip_clip_indicator(clip_ind):
+    n = len(clip_ind)
+    for i0 in range(n):
+        if not clip_ind[i0]:
+            break
+
+    i1 = n
+    for j in range(n - 1 - i0):
+        if not clip_ind[n - 1 - j]:
+            break
+        else:
+            i1 -= 1
+    return i0, i1
+
+
+@njit(nogil=True)
+def get_clip_indicator(traces, clip_len):
+    traces = np.atleast_1d(traces)
+
+    n_samples = traces.shape[0]
+
+    if clip_len < 2 or clip_len > n_samples - 1:
+        raise ValueError("Incorrect `clip_len`")
+
+    ind_len = n_samples - clip_len + 1
+    shift_beg = clip_len - 1
+
+    clip_indicator = np.full_like(traces[:ind_len], True, dtype=np.bool8)
+    while shift_beg > 0:
+        clip_indicator &= (traces[shift_beg:ind_len + shift_beg] == traces[:ind_len])
+        shift_beg -= 1
+
+    return clip_indicator
+
+
+@njit(nogil=True)
+def has_clips(trace, clip_len):
+
+    trace = np.asarray(trace)
+    if trace.ndim != 1:
+        raise ValueError("Only 1-D traces are allowed")
+
+    clip_res = get_clip_indicator(trace, clip_len)
+
+    i0, i1 = strip_clip_indicator(clip_res)
+
+    return np.any(clip_res[i0:i1])
+
+
 class MissingModule:
     """Postpone raising missing module error for `module_name` until it is being actually accessed in code."""
     def __init__(self, module_name):
