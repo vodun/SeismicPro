@@ -82,7 +82,7 @@ class SurveyGeometryPlot(PairedPlot):  # pylint: disable=too-many-instance-attri
 
     @property
     def survey(self):
-        """SeismicIndex: an index to get gathers from, depends on the current view."""
+        """Survey: a survey to get gathers from, depends on the current view."""
         return self.source_sur if self.is_shot_view else self.group_sur
 
     @property
