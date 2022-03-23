@@ -11,31 +11,42 @@ def unique_indices_sorted(arr):
     return np.where(mask)[0]
 
 
-class TraceIndexer:
+class BaseIndexer:
     def __init__(self, index):
         self.index = index
-        self.indices = index
+        self.unique_indices = None
+
+    def get_loc(self, index):
+        _ = index
+        raise NotImplementedError
+
+
+class TraceIndexer(BaseIndexer):
+    def __init__(self, index):
+        super().__init__(index)
+        self.unique_indices = index
 
     def get_loc(self, index):
         return self.index.get_indexer(index)
 
 
-class GatherIndexer:
-    def __init__(self, index, unique_indices_pos=None):
-        if unique_indices_pos is None:
-            unique_indices_pos = unique_indices_sorted(index.to_frame().values)
-        start_pos = unique_indices_pos
-        end_pos = chain(unique_indices_pos[1:], [len(index)])
+class GatherIndexer(BaseIndexer):
+    def __init__(self, index):
+        super().__init__(index)
+        unique_indices_pos = unique_indices_sorted(index.to_frame().values)
+        ix_start = unique_indices_pos
+        ix_end = chain(unique_indices_pos[1:], [len(index)])
 
-        self.indices = index[unique_indices_pos]
-        self.index_to_headers_pos = {ix: range(start, end) for ix, start, end in zip(self.indices, start_pos, end_pos)}
+        self.unique_indices = index[unique_indices_pos]
+        self.index_to_headers_pos = {ix: range(*args) for ix, *args in zip(self.unique_indices, ix_start, ix_end)}
 
     def get_loc(self, index):
         return list(chain.from_iterable(self.index_to_headers_pos[item] for item in index))
 
 
-def create_indexer(headers):
-    unique_indices_pos = unique_indices_sorted(headers.index.to_frame().values)
-    if len(unique_indices_pos) == len(headers):
-        return TraceIndexer(headers.index)
-    return GatherIndexer(headers.index, unique_indices_pos)
+def create_indexer(index):
+    if not index.is_monotonic:
+        raise ValueError("Indexer can be created only for monotonic indices")
+    if index.is_unique:
+        return TraceIndexer(index)
+    return GatherIndexer(index)

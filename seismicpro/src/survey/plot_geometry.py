@@ -3,7 +3,6 @@
 from functools import partial
 
 import numpy as np
-import pandas as pd
 from sklearn.neighbors import NearestNeighbors
 
 from ..utils import set_ticks, set_text_formatting, get_text_formatting_kwargs

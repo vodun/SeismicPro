@@ -31,7 +31,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     method.
 
     The resulting gather type depends on `header_index` argument, passed during `Survey` creation: traces are grouped
-    into gathers by the common value of headers, defined by `header_index`. Some usual values of `header_index`
+    into gathers by the common value of headers, defined by `header_index`. Some common values of `header_index`
     include:
     - 'TRACE_SEQUENCE_FILE' - to get individual traces,
     - 'FieldRecord' - to get common source gathers,
@@ -77,8 +77,6 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         An absolute path to the source SEG-Y file.
     name : str
         Survey name.
-    headers : pd.DataFrame
-        Loaded trace headers.
     samples : 1d np.ndarray of floats
         Recording time for each trace value. Measured in milliseconds.
     sample_rate : float
@@ -128,21 +126,18 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self.sample_rate = None
         self.set_limits(limits)
 
-        headers = {}
-        for column in load_headers:
-            headers[column] = self.segy_handler.attributes(segyio.tracefield.keys[column])[:]
-
-        # According to SEG-Y spec, headers values are at most 4-byte integers
+        # Load trace headers from the file and cast them to int32 since their values are at most 4-byte integers
+        # according to SEG-Y spec
+        headers = {header: self.segy_handler.attributes(segyio.tracefield.keys[header])[:] for header in load_headers}
         headers = pd.DataFrame(headers, dtype=np.int32)
-        # TRACE_SEQUENCE_FILE is reconstructed manually since it can be omitted according to the SEG-Y standard
-        # but we rely on it during gather loading.
+        # TRACE_SEQUENCE_FILE is reconstructed manually since sometimes it is undefined in the file but we rely on it
+        # during gather loading
         tsf_dtype = np.int32 if len(headers) < np.iinfo(np.int32).max else np.int64
         headers["TRACE_SEQUENCE_FILE"] = np.arange(1, self.segy_handler.tracecount+1, dtype=tsf_dtype)
+        # Sort headers by the required index in order to optimize further subsampling and merging. Sorting preserves
+        # trace order from the file within each gather.
         headers.set_index(header_index, inplace=True)
-
-        # Sort headers by index to optimize further headers subsampling and merging.
-        # Preserve trace order from the file for traces from the same gather.
-        headers = headers.sort_index(kind="stable")
+        headers.sort_index(kind="stable", inplace=True)
 
         # Set loaded survey headers and construct its fast indexer
         self._headers = None
@@ -179,14 +174,14 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     def headers(self, headers):
         """Reconstruct survey indexer on each headers assignment."""
         if not headers.index.is_monotonic:
-            raise ValueError("Headers with non-monotonic index is being set.")
-        self.indexer = create_indexer(headers)
+            headers = headers.sort_index(kind="stable")
+        self.indexer = create_indexer(headers.index)
         self._headers = headers
 
     @property
     def indices(self):
         """pd.Index: indices of gathers in the survey."""
-        return self.indexer.indices
+        return self.indexer.unique_indices
 
     @property
     def times(self):
@@ -309,10 +304,21 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         print(self)
 
     def get_headers_by_indices(self, indices):
-        """Return headers for gathers with given `indices`."""
+        """Return headers for gathers with given `indices`.
+
+        Parameters
+        ----------
+        indices : array-like
+            Indices of gathers to get headers for.
+
+        Returns
+        -------
+        headers : pd.DataFrame
+            Selected headers values.
+        """
         headers_indices = self.indexer.get_loc(indices)
         headers = self.headers.iloc[headers_indices]
-        # iloc may sometimes return Series. In such cases slicing is used to guarantee, that a DataFrame is returned
+        # iloc may sometimes return Series. In such cases slicing is used to guarantee that a DataFrame is returned
         if isinstance(headers, pd.Series):
             headers = self.headers.iloc[headers_indices:headers_indices]
         return headers
@@ -337,7 +343,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
         Parameters
         ----------
-        indices : pd.MultiIndex, optional
+        indices : pd.Index, optional
             A subset of survey headers indices to collect stats for. If not given, statistics are calculated for the
             whole survey.
         n_quantile_traces : positive int, optional, defaults to 100000
@@ -531,7 +537,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         Parameters
         ----------
         index : int or 1d array-like
-            An index of the gather to load. Must be one of `self.headers.index`.
+            An index of the gather to load. Must be one of `self.indices`.
         limits : int or tuple or slice or None, optional, defaults to None
             Time range for trace loading. `int` or `tuple` are used as arguments to init a `slice` object. If not
             given, whole traces are loaded. Measured in samples.
@@ -649,11 +655,14 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         first_breaks_df = pd.read_csv(path, delimiter=delimiter, names=file_columns,
                                       decimal=decimal, encoding=encoding, **kwargs)
 
-        headers = self.headers.reset_index()
+        headers = self.headers
+        headers.reset_index(inplace=True)
         headers = headers.merge(first_breaks_df, on=trace_id_cols)
         if headers.empty:
             raise ValueError('Empty headers after first breaks loading.')
-        self.headers = headers.set_index(self.headers.index.names).sort_index(kind="stable")
+        headers.set_index(self.headers.index.names, inplace=True)
+        headers.sort_index(kind="stable", inplace=True)
+        self.headers = headers
         return self
 
     #------------------------------------------------------------------------#
@@ -753,7 +762,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             If `cond` returns more than one bool value for each row of `headers`.
         """
         self = maybe_copy(self, inplace)
-        headers = self.headers.reset_index()[to_list(cols)]
+        cols = to_list(cols)
+        headers = pd.DataFrame(self[cols], columns=cols)
         mask = self._apply(cond, headers, axis=axis, unpack_args=unpack_args, **kwargs)
         if (mask.ndim != 2) or (mask.shape[1] != 1):
             raise ValueError("cond must return a single value for each header row")
@@ -801,8 +811,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         """
         self = maybe_copy(self, inplace)
         cols = to_list(cols)
+        headers = pd.DataFrame(self[cols], columns=cols)
         res_cols = cols if res_cols is None else to_list(res_cols)
-        headers = self.headers.reset_index()[cols]
         res = self._apply(func, headers, axis=axis, unpack_args=unpack_args, **kwargs)
         self.headers[res_cols] = res
         return self
@@ -823,7 +833,11 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             Reindexed survey.
         """
         self = maybe_copy(self, inplace)
-        self.headers = self.headers.reset_index().set_index(new_index).sort_index(kind="stable")
+        headers = self.headers
+        headers.reset_index(inplace=True)
+        headers.set_index(new_index, inplace=True)
+        headers.sort_index(kind="stable", inplace=True)
+        self.headers = headers
         return self
 
     def set_limits(self, limits):
@@ -883,7 +897,6 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
         self.filter(lambda dt: ~dt, cols=HDR_DEAD_TRACE, inplace=True)
         self.n_dead_traces = 0
-
         return self
 
     #------------------------------------------------------------------------#
@@ -928,23 +941,22 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             If `INLINE_3D` and `CROSSLINE_3D` headers were not loaded.
         """
         self = maybe_copy(self, inplace)
-        index_cols = self.headers.index.names
-        headers = self.headers.reset_index()
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]
         super_line_cols = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
+        index_cols = super_line_cols if reindex else self.headers.index.names
 
-        if any(col not in headers for col in line_cols):
-            raise KeyError("INLINE_3D and CROSSLINE_3D headers are not loaded")
-        supergather_centers_mask = ((headers["INLINE_3D"] % step[0] == modulo[0]) &
-                                    (headers["CROSSLINE_3D"] % step[1] == modulo[1]))
-        supergather_centers = headers.loc[supergather_centers_mask, line_cols]
-        supergather_centers = supergather_centers.drop_duplicates().sort_values(by=line_cols)
-        supergather_lines = pd.DataFrame(create_supergather_index(supergather_centers.values, size),
+        line_coords = pd.DataFrame(self[line_cols])
+        line_coords.drop_duplicates(inplace=True)
+        supergather_centers = line_coords[(line_coords.mod(step) == modulo).all(axis=1)].values
+        supergather_lines = pd.DataFrame(create_supergather_index(supergather_centers, size),
                                          columns=super_line_cols+line_cols)
+
+        headers = self.headers
+        headers.reset_index(inplace=True)
         headers = pd.merge(supergather_lines, headers, on=line_cols)
-        if reindex:
-            index_cols = super_line_cols
-        self.headers = headers.set_index(index_cols).sort_index(kind="stable")
+        headers.set_index(index_cols, inplace=True)
+        headers.sort_index(kind="stable", inplace=True)
+        self.headers = headers
         return self
 
     #------------------------------------------------------------------------#
@@ -984,7 +996,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         """
         SurveyGeometryPlot(self, **kwargs).plot()
 
-    def construct_attribute_map(self, attribute, by, agg=None, bin_size=None, **kwargs):
+    def construct_attribute_map(self, attribute, by, drop_duplicates=False, agg=None, bin_size=None, **kwargs):
         """Construct a map of trace headers values aggregated by gathers.
 
         The map allows for interactive plotting: a gather type defined by `by` will be displayed on click on the map.
@@ -996,6 +1008,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             Survey header name to construct a map for.
         by : {"shot", "receiver", "midpoint"}
             Gather type to aggregate header values over.
+        drop_duplicates : bool, optional, defaults to False
+            Whether to drop duplicated (coordinates, value) pairs. Useful when constructing an attribute defined for a
+            shot or receiver, not a trace (e.g. elevation by shots).
         agg : str or callable, optional, defaults to "mean"
             An aggregation function. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
         bin_size : int, float or array-like with length 2, optional
@@ -1016,8 +1031,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             "midpoint": ["CDP_X", "CDP_Y"],
         }
         coords_cols = by_to_coords_cols[by]
-        coords = self[coords_cols]
-        attribute_values = self[attribute].ravel()
+        map_data = self[coords_cols + [attribute]]
+        if drop_duplicates:
+            map_data = np.unique(map_data, axis=0)
         metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
-        return metric.map_class(coords, attribute_values, coords_cols=coords_cols, metric=metric,
+        return metric.map_class(map_data[:, :2], map_data[:, 2], coords_cols=coords_cols, metric=metric,
                                 agg=agg, bin_size=bin_size)

@@ -209,15 +209,15 @@ class Gather:
         Parent survey path:          {self.survey.path}
         Parent survey name:          {self.survey.name}
 
+        Indexed by:                  {', '.join(self.headers.index.names)}
+        Index value:                 {index}
+        Gather sorting:              {self.sort_by}
+
         Number of traces:            {self.n_traces}
         Trace length:                {self.n_samples} samples
         Sample rate:                 {self.sample_rate} ms
         Times range:                 [{min(self.samples)} ms, {max(self.samples)} ms]
         Offsets range:               {offset_range}
-
-        Index name(s):               {', '.join(self.headers.index.names)}
-        Index value:                 {index}
-        Gather sorting:              {self.sort_by}
 
         Gather statistics:
         Number of dead traces:       {n_dead_traces}
