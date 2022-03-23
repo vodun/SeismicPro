@@ -390,7 +390,7 @@ class Gather:
         trace_headers["TRACE_SEQUENCE_FILE"] = np.arange(len(trace_headers)) + 1
 
         # Keep only headers, defined by SEG-Y standard.
-        used_header_names = set(trace_headers.columns) & set(segyio.tracefield.keys.keys())
+        used_header_names = list(set(trace_headers.columns) & set(segyio.tracefield.keys.keys()))
         trace_headers = trace_headers[used_header_names]
 
         # Now we change column name's into byte number based on the SEG-Y standard.
