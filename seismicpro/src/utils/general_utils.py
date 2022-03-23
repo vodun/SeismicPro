@@ -20,6 +20,14 @@ def maybe_copy(obj, inplace=False, **kwargs):
     return obj if inplace else obj.copy(**kwargs)
 
 
+def unique_indices_sorted(arr):
+    """Return indices of the first occurrences of the unique values in a sorted array."""
+    mask = np.empty(len(arr), dtype=np.bool_)
+    np.any(arr[1:] != arr[:-1], axis=1, out=mask[1:])
+    mask[0] = True
+    return np.where(mask)[0]
+
+
 def align_args(reference_arg, *args):
     """Convert `reference_arg` and each arg from `args` to lists so that their lengths match the number of elements in
     the `reference_arg`. If some arg contains a single element, its value will is repeated. If some arg is an
