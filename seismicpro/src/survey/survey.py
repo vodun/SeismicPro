@@ -1030,10 +1030,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             "receiver": ["GroupX", "GroupY"],
             "midpoint": ["CDP_X", "CDP_Y"],
         }
-        coords_cols = by_to_coords_cols[by]
-        map_data = self[coords_cols + [attribute]]
+        data_cols = by_to_coords_cols[by] + [attribute]
+        map_data = pd.DataFrame(self[data_cols], columns=data_cols)
         if drop_duplicates:
-            map_data = np.unique(map_data, axis=0)
+            map_data.drop_duplicates(inplace=True)
         metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
-        return metric.map_class(map_data[:, :2], map_data[:, 2], coords_cols=coords_cols, metric=metric,
-                                agg=agg, bin_size=bin_size)
+        return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
