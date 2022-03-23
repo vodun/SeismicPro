@@ -1009,7 +1009,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         by : {"shot", "receiver", "midpoint"}
             Gather type to aggregate header values over.
         drop_duplicates : bool, optional, defaults to False
-            Whether to drop duplicated (coordinates, value) pairs. Useful when constructing an attribute defined for a
+            Whether to drop duplicated (coordinates, value) pairs. Useful when dealing with an attribute defined for a
             shot or receiver, not a trace (e.g. elevation by shots).
         agg : str or callable, optional, defaults to "mean"
             An aggregation function. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
