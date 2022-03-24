@@ -946,14 +946,13 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         super_line_cols = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
         index_cols = super_line_cols if reindex else self.headers.index.names
 
-        line_coords = pd.DataFrame(self[line_cols])
-        line_coords.drop_duplicates(inplace=True)
+        headers = self.headers
+        headers.reset_index(inplace=True)
+        line_coords = headers[line_cols].drop_duplicates()
         supergather_centers = line_coords[(line_coords.mod(step) == modulo).all(axis=1)].values
         supergather_lines = pd.DataFrame(create_supergather_index(supergather_centers, size),
                                          columns=super_line_cols+line_cols)
 
-        headers = self.headers
-        headers.reset_index(inplace=True)
         headers = pd.merge(supergather_lines, headers, on=line_cols)
         headers.set_index(index_cols, inplace=True)
         headers.sort_index(kind="stable", inplace=True)
