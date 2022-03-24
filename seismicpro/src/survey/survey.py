@@ -1009,7 +1009,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         Parameters
         ----------
         attribute : str
-            Survey header name to construct a map for.
+            If "fold", calculates the number of traces in gathers defined by `by`. Otherwise survey header name to
+            construct a map for.
         by : {"shot", "receiver", "midpoint"}
             Gather type to aggregate header values over.
         drop_duplicates : bool, optional, defaults to False
@@ -1034,9 +1035,15 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             "receiver": ["GroupX", "GroupY"],
             "midpoint": ["CDP_X", "CDP_Y"],
         }
-        data_cols = by_to_coords_cols[by] + [attribute]
-        map_data = pd.DataFrame(self[data_cols], columns=data_cols)
-        if drop_duplicates:
-            map_data.drop_duplicates(inplace=True)
+
+        if attribute == "fold":
+            map_data = self.headers.groupby(by_to_coords_cols[by], as_index=False).size()
+            map_data.rename(columns={"size": "Fold"}, inplace=True)
+        else:
+            data_cols = by_to_coords_cols[by] + [attribute]
+            map_data = pd.DataFrame(self[data_cols], columns=data_cols)
+            if drop_duplicates:
+                map_data.drop_duplicates(inplace=True)
+
         metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
