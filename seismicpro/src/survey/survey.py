@@ -1003,20 +1003,33 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     def construct_attribute_map(self, attribute, by, drop_duplicates=False, agg=None, bin_size=None, **kwargs):
         """Construct a map of trace headers values aggregated by gathers.
 
+        Examples
+        --------
+        Construct a map of maximum offsets by shots:
+        >>> max_offset_map = survey.construct_attribute_map("offset", by="shot", agg="max")
+        >>> max_offset_map.plot()
+
         The map allows for interactive plotting: a gather type defined by `by` will be displayed on click on the map.
-        The gather may be optionally sorted by `sort_by` argument if passed to the `plot` method of the map.
+        The gather may be optionally sorted if `sort_by` argument if passed to the `plot` method:
+        >>> max_offset_map.plot(interactive=True, sort_by="offset")
+
+        Generate supergathers and calculate the number of traces in each of them (fold):
+        >>> supergather_columns = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
+        >>> supergather_survey = survey.generate_supergathers(size=(7, 7), step=(7, 7))
+        >>> fold_map = supergather_survey.construct_attribute_map("fold", by=supergather_columns)
+        >>> fold_map.plot()
 
         Parameters
         ----------
         attribute : str
-            If "fold", calculates the number of traces in gathers defined by `by`. Otherwise survey header name to
-            construct a map for.
+            If "fold", calculates the number of traces in gathers defined by `by`. Otherwise defines a survey header
+            name to construct a map for.
         by : tuple with 2 elements or {"shot", "receiver", "midpoint", "bin"}
             If `tuple`, survey headers names to get coordinates from.
             If `str`, gather type to aggregate header values over.
         drop_duplicates : bool, optional, defaults to False
             Whether to drop duplicated (coordinates, value) pairs. Useful when dealing with an attribute defined for a
-            shot or receiver, not a trace (e.g. elevation by shots).
+            shot or receiver, not a trace (e.g. constructing a map of elevations by shots).
         agg : str or callable, optional, defaults to "mean"
             An aggregation function. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
         bin_size : int, float or array-like with length 2, optional
