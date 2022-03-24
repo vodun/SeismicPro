@@ -1011,8 +1011,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         attribute : str
             If "fold", calculates the number of traces in gathers defined by `by`. Otherwise survey header name to
             construct a map for.
-        by : {"shot", "receiver", "midpoint"}
-            Gather type to aggregate header values over.
+        by : tuple with 2 elements or {"shot", "receiver", "midpoint", "bin"}
+            If `tuple`, survey headers names to get coordinates from.
+            If `str`, gather type to aggregate header values over.
         drop_duplicates : bool, optional, defaults to False
             Whether to drop duplicated (coordinates, value) pairs. Useful when dealing with an attribute defined for a
             shot or receiver, not a trace (e.g. elevation by shots).
@@ -1028,19 +1029,25 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         attribute_map : BaseMetricMap
             Constructed attribute map.
         """
-        if by not in {"shot", "receiver", "midpoint"}:
-            raise ValueError(f"by must be one of 'shot', 'receiver' or 'midpoint' but {by} given.")
-        by_to_coords_cols = {
-            "shot": ["SourceX", "SourceY"],
-            "receiver": ["GroupX", "GroupY"],
-            "midpoint": ["CDP_X", "CDP_Y"],
-        }
+        if isinstance(by, str):
+            by_to_coords_cols = {
+                "shot": ["SourceX", "SourceY"],
+                "receiver": ["GroupX", "GroupY"],
+                "midpoint": ["CDP_X", "CDP_Y"],
+                "bin": ["INLINE_3D", "CROSSLINE_3D"],
+            }
+            coords_cols = by_to_coords_cols.get(by)
+            if coords_cols is None:
+                raise ValueError(f"by must be one of {', '.join(by_to_coords_cols.keys())} but {by} given.")
+        else:
+            coords_cols = to_list(by)
+        if len(coords_cols) != 2:
+            raise ValueError("Exactly 2 coordinates headers must be passed")
 
         if attribute == "fold":
-            map_data = self.headers.groupby(by_to_coords_cols[by], as_index=False).size()
-            map_data.rename(columns={"size": "Fold"}, inplace=True)
+            map_data = self.headers.groupby(coords_cols, as_index=False).size().rename(columns={"size": "Fold"})
         else:
-            data_cols = by_to_coords_cols[by] + [attribute]
+            data_cols = coords_cols + [attribute]
             map_data = pd.DataFrame(self[data_cols], columns=data_cols)
             if drop_duplicates:
                 map_data.drop_duplicates(inplace=True)
