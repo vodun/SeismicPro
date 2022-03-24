@@ -643,7 +643,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         ValueError
             If there is not a single match of rows from the file with those in `self.headers`.
         """
-        self = maybe_copy(self, inplace)
+        self = maybe_copy(self, inplace, ignore=["_headers", "indexer"])
 
         # if decimal is not provided, try to infer it from the first line
         if decimal is None:
@@ -655,13 +655,10 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         first_breaks_df = pd.read_csv(path, delimiter=delimiter, names=file_columns,
                                       decimal=decimal, encoding=encoding, **kwargs)
 
-        headers = self.headers
-        old_index = headers.index.names
-        headers.reset_index(inplace=True)
-        headers = headers.merge(first_breaks_df, on=trace_id_cols)
+        headers = self.headers.merge(first_breaks_df, on=trace_id_cols)
         if headers.empty:
             raise ValueError('Empty headers after first breaks loading.')
-        headers.set_index(old_index, inplace=True)
+        headers.set_index(self.headers.index.names, inplace=True)
         headers.sort_index(kind="stable", inplace=True)
         self.headers = headers
         return self
@@ -772,7 +769,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         ValueError
             If `cond` returns more than one bool value for each row of `headers`.
         """
-        self = maybe_copy(self, inplace)
+        self = maybe_copy(self, inplace, ignore=["_headers", "indexer"])
         cols = to_list(cols)
         headers = pd.DataFrame(self[cols], columns=cols)
         mask = self._apply(cond, headers, axis=axis, unpack_args=unpack_args, **kwargs)
@@ -780,7 +777,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             raise ValueError("cond must return a single value for each header row")
         if mask.dtype != np.bool_:
             raise ValueError("cond must return a bool value for each header row")
-        self.headers = self.headers.loc[mask[:, 0]]
+        self.headers = self.headers.loc[mask[:, 0]].copy()  # Guarantee that a copy is set
         return self
 
     def apply(self, func, cols, res_cols=None, axis=None, unpack_args=False, inplace=False, **kwargs):
@@ -843,9 +840,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self : Survey
             Reindexed survey.
         """
-        self = maybe_copy(self, inplace)
-        headers = self.headers
-        headers.reset_index(inplace=True)
+        self = maybe_copy(self, inplace, ignore=["_headers", "indexer"])
+        headers = self.headers.reset_index()
         headers.set_index(new_index, inplace=True)
         headers.sort_index(kind="stable", inplace=True)
         self.headers = headers
