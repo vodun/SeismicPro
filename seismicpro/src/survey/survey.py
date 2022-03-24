@@ -670,15 +670,25 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     #                       Survey processing methods                        #
     #------------------------------------------------------------------------#
 
-    def copy(self):
-        """Create a deepcopy of a `Survey` instance.
+    def copy(self, ignore=None):
+        """Create a deepcopy of all survey attributes except for those specified in `ignore`, which are kept unchanged.
+
+        Parameters
+        ----------
+        ignore : str or array of str, defaults to None
+            Attributes that won't be copied.
 
         Returns
         -------
         survey : Survey
             Survey copy.
         """
-        return deepcopy(self)
+        ignore_attrs = set() if ignore is None else set(to_list(ignore))
+        ignore_attrs = [getattr(self, attr) for attr in ignore_attrs]
+
+        # Construct a memo dict with attributes, that should not be copied
+        memo = {id(attr): attr for attr in ignore_attrs}
+        return deepcopy(self, memo)
 
     @staticmethod
     def _apply(func, df, axis, unpack_args, **kwargs):
@@ -941,19 +951,17 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         KeyError
             If `INLINE_3D` and `CROSSLINE_3D` headers were not loaded.
         """
-        self = maybe_copy(self, inplace)
+        self = maybe_copy(self, inplace, ignore=["_headers", "indexer"])
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]
         super_line_cols = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
         index_cols = super_line_cols if reindex else self.headers.index.names
 
-        headers = self.headers
-        headers.reset_index(inplace=True)
-        line_coords = headers[line_cols].drop_duplicates()
+        line_coords = pd.DataFrame(self[line_cols], columns=line_cols).drop_duplicates().sort_values(by=line_cols)
         supergather_centers = line_coords[(line_coords.mod(step) == modulo).all(axis=1)].values
         supergather_lines = pd.DataFrame(create_supergather_index(supergather_centers, size),
                                          columns=super_line_cols+line_cols)
 
-        headers = pd.merge(supergather_lines, headers, on=line_cols)
+        headers = pd.merge(supergather_lines, self.headers, on=line_cols)
         headers.set_index(index_cols, inplace=True)
         headers.sort_index(kind="stable", inplace=True)
         self.headers = headers
