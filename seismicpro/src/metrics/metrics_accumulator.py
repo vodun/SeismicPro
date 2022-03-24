@@ -1,16 +1,14 @@
 """Implements MetricsAccumulator class that collects metric values calculated for individual subsets of data and
 aggregates them into maps"""
 
-# pylint: disable=no-name-in-module, import-error
 import pandas as pd
 
 from .metrics import Metric, PartialMetric
 from .utils import parse_coords
 from ..utils import to_list, align_args
-from ...batchflow.models.metrics import Metrics
 
 
-class MetricsAccumulator(Metrics):
+class MetricsAccumulator:
     """Accumulate metric values and their coordinates to further aggregate them into metric maps.
 
     Parameters
