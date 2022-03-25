@@ -168,7 +168,7 @@ class SeismicIndex(DatasetIndex):
     #                         Index creation methods                         #
     #------------------------------------------------------------------------#
 
-    def build_index(self, index=None, surveys=None, mode=None, **kwargs):
+    def build_index(self, index=None, surveys=None, mode=None, **kwargs):  # pylint: disable=arguments-renamed
         """Build an index from args in the following way:
         1. If both `index` and `surveys` are `None` an empty index is created.
         2. If `surveys` is given then index is created according to the `mode` specified.

@@ -246,9 +246,9 @@ def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_st
             _ = kwargs
             return np.random.normal(size=TRACE_SAMPLE_COUNT).astype(np.float32)
 
-    def generate_coordinates(origin, survey_size, step):
+    def generate_coordinates(origin, sur_size, coords_step):
         """ Support function to create coordinates of sources / receivers """
-        x, y = np.mgrid[[slice(start, start+size, step) for start, size, step in zip(origin, survey_size, step)]]
+        x, y = np.mgrid[[slice(start, start+size, step) for start, size, step in zip(origin, sur_size, coords_step)]]
         return np.vstack([x.ravel(), y.ravel()]).T
 
     # Create coordinate points for sources and receivers
