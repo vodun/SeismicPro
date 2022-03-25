@@ -3,7 +3,7 @@
 import numpy as np
 from numba import njit, prange
 
-from .interpolation import interpolate
+from .interpolation import _times_to_indices
 
 
 def to_list(obj):
@@ -49,13 +49,6 @@ def times_to_indices(times, samples, round=False):
     if np.any(np.diff(samples) < 0):
         raise ValueError('The `samples` array must be non-decreasing.')
     return _times_to_indices(times=times, samples=samples, round=round)
-
-@njit
-def _times_to_indices(times, samples, round):
-    left_slope = 1 / (samples[1] - samples[0])
-    right_slope = 1 / (samples[-1] - samples[-2])
-    float_position = interpolate(times, samples, np.arange(len(samples), dtype=np.float32), left_slope, right_slope)
-    return np.rint(float_position) if round else float_position
 
 
 def indices_to_times(indices, samples):

@@ -1340,10 +1340,7 @@ class Gather:
         new_samples = np.arange(self.samples[0], self.samples[-1] + 1e-6, new_sample_rate, self.samples.dtype)
 
         if isinstance(kind, int):
-            # for given n, n + 1 points is required to construct polynomial, find the index of leftmsot one
-            indices = np.ceil(times_to_indices(new_samples, self.samples, False))
-            leftmost_indices = np.clip(indices - (kind + 1) / 2, 0, len(self.samples) - kind - 1).astype(np.int32)
-            data_resampled = piecewise_polynomial(kind, new_samples, self.samples, leftmost_indices, self.data)
+            data_resampled = piecewise_polynomial(kind, new_samples, self.samples, self.data)
         elif isinstance(kind, str):
             data_resampled = scipy.interpolate.interp1d(self.samples, self.data, kind=kind)(new_samples)
 

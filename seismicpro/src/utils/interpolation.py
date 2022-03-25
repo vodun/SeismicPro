@@ -62,6 +62,14 @@ class interp1d:
         return res.item() if is_scalar_input else res
 
 
+@njit
+def _times_to_indices(times, samples, round):
+    left_slope = 1 / (samples[1] - samples[0])
+    right_slope = 1 / (samples[-1] - samples[-2])
+    float_position = interpolate(times, samples, np.arange(len(samples), dtype=np.float32), left_slope, right_slope)
+    return np.rint(float_position) if round else float_position
+
+
 @njit(nogil=True)
 def binomial(n, r):
     """ Binomial coefficient, nCr,
@@ -98,9 +106,13 @@ def calculate_basis_polynomials(n, new_samples, old_samples, leftmost_indices):
 
 
 @njit(nogil=True, parallel=True)
-def piecewise_polynomial(n, new_samples, old_samples, leftmost_indices, data):
+def piecewise_polynomial(n, new_samples, old_samples, data):
     """" Perform piecewise polynomial(with degree n) interpolation ."""
     res = np.empty((len(data), len(new_samples)), dtype=data.dtype)
+
+    # for given point, n + 1 neighbor samples are required to construct polynomial, find the index of leftmsot one
+    indices = np.ceil(_times_to_indices(new_samples, old_samples, False))
+    leftmost_indices = np.clip(indices - (n + 1) / 2, 0, len(old_samples) - n - 1).astype(np.int32)
 
     # calculate Lagrange basis polynomials only once: they are the same at given position for all the traces
     polynomials = calculate_basis_polynomials(n, new_samples, old_samples, leftmost_indices)
