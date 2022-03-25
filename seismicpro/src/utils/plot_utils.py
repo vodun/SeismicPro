@@ -23,7 +23,7 @@ def calculate_axis_limits(coords):
     coords = np.array(coords)
     min_coord = coords.min()
     max_coord = coords.max()
-    margin_candidates = 0.05 * np.array([max_coord - min_coord, max_coord, 1])
+    margin_candidates = 0.05 * np.array([max_coord - min_coord, abs(max_coord), 1])
     margin = margin_candidates[~np.isclose(margin_candidates, 0)][0]
     return (min_coord - margin, max_coord + margin)
 
