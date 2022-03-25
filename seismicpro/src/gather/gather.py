@@ -4,7 +4,6 @@ import os
 import warnings
 from copy import deepcopy
 from textwrap import dedent
-from collections import namedtuple
 
 import segyio
 import numpy as np
@@ -17,7 +16,7 @@ from .plot_corrections import NMOCorrectionPlot
 from .utils import correction, normalization
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
 from ..utils import (to_list, get_cols, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
-                     set_text_formatting, add_colorbar)
+                     set_text_formatting, add_colorbar, Coordinates)
 from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, VelocityCube
 from ..decorators import batch_method, plotter
@@ -237,17 +236,16 @@ class Gather:
         Parameters
         ----------
         coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
-            - If `None`, a namedtuple with two `None` elements is returned. Its fields are called "X" and "Y"
-              respectively.
-            - If "auto", columns of headers index define headers columns to get coordinates from (e.g.
-              'FieldRecord' is mapped to a ("SourceX", "SourceY") pair).
+            - If `None`, `Coordinates` with two `None` elements is returned. Their names are "X" and "Y" respectively.
+            - If "auto", columns of headers index define headers columns to get coordinates from (e.g. 'FieldRecord' is
+              mapped to a ("SourceX", "SourceY") pair).
             - If 2 element array-like, `coords_cols` directly define gather headers to get coordinates from.
-            In the last two cases index or column values are supposed to be unique for all traces in the gather and
-            the names of the fields of the returned namedtuple correspond to source headers columns.
+            In the last two cases index or column values are supposed to be unique for all traces in the gather and the
+            names of the returned coordinates correspond to source headers columns.
 
         Returns
         -------
-        coords : namedtuple with 2 elements
+        coords : Coordinates
             Gather spatial coordinates.
 
         Raises
@@ -256,7 +254,7 @@ class Gather:
             If gather coordinates are non-unique or more than 2 columns were passed.
         """
         if coords_cols is None:
-            return namedtuple("Coordinates", ["X", "Y"])(None, None)
+            return Coordinates()
         if coords_cols == "auto":
             coords_cols = get_coords_cols(self.headers.index.names)
         coords = np.unique(self[coords_cols], axis=0)
@@ -264,11 +262,11 @@ class Gather:
             raise ValueError("Gather coordinates are non-unique")
         if coords.shape[1] != 2:
             raise ValueError(f"Gather position must be defined by exactly two coordinates, not {coords.shape[1]}")
-        return namedtuple("Coordinates", coords_cols)(*coords[0])
+        return Coordinates(*coords[0], names=coords_cols)
 
     @property
     def coords(self):
-        """namedtuple with 2 elements: Spatial coordinates of the gather."""
+        """Coordinates: Spatial coordinates of the gather."""
         return self.get_coords()
 
     @batch_method(target='threads', copy_src=False)

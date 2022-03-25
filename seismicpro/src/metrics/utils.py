@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from ..utils import to_list
+from ..utils import to_list, Coordinates
 
 
 def parse_coords(coords, coords_cols=None):
@@ -18,13 +18,17 @@ def parse_coords(coords, coords_cols=None):
             data_coords_cols = None
         coords = coords.to_frame().values
     elif isinstance(coords, (list, tuple, np.ndarray)):
-        # Try inferring coordinates columns if passed coords is an iterable of namedtuples
-        data_coords_cols_set = {getattr(coord, "_fields", None) for coord in coords}
-        if len(data_coords_cols_set) != 1:
-            raise ValueError("Coordinates from different header columns were passed")
-        data_coords_cols = data_coords_cols_set.pop()
+        data_coords_cols = None
+
+        # Try inferring coordinates columns if passed coords is an iterable of Coordinates
+        if all(isinstance(coord, Coordinates) for coord in coords):
+            data_coords_cols_set = {coord.names for coord in coords}
+            if len(data_coords_cols_set) != 1:
+                raise ValueError("Coordinates from different header columns were passed")
+            data_coords_cols = data_coords_cols_set.pop()
+
+        # Cast coords to an array. If coords is an array of arrays, convert it to an array with numeric dtype.
         coords = np.asarray(coords)
-        # If coords is an array of arrays, convert it to an array with numeric dtype
         coords = np.array(coords.tolist()) if coords.ndim == 1 else coords
     else:
         raise ValueError(f"Unsupported type of coords {type(coords)}")
