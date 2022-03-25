@@ -18,6 +18,16 @@ def save_figure(fig, fname, dpi=100, bbox_inches="tight", pad_inches=0.1, **kwar
     fig.savefig(fname, dpi=dpi, bbox_inches=bbox_inches, pad_inches=pad_inches, **kwargs)
 
 
+def calculate_axis_limits(coords):
+    """Calculate axis limits by coordinates of items being plotted. Mimics default matplotlib behavior."""
+    coords = np.array(coords)
+    min_coord = coords.min()
+    max_coord = coords.max()
+    margin_candidates = 0.05 * np.array([max_coord - min_coord, max_coord, 1])
+    margin = margin_candidates[~np.isclose(margin_candidates, 0)][0]
+    return (min_coord - margin, max_coord + margin)
+
+
 TEXT_FORMATTING_ARGS = {"fontsize", "fontfamily", "fontweight"}
 
 

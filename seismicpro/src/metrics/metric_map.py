@@ -7,7 +7,7 @@ from matplotlib import colors as mcolors
 from .interactive_map import ScatterMapPlot, BinarizedMapPlot
 from .utils import parse_coords, parse_metric_values
 from ..decorators import plotter
-from ..utils import to_list, add_colorbar, set_ticks, set_text_formatting
+from ..utils import to_list, add_colorbar, calculate_axis_limits, set_ticks, set_text_formatting
 
 
 class BaseMetricMap:
@@ -200,14 +200,8 @@ class ScatterMap(BaseMetricMap):
         # Guarantee that extreme values are always displayed on top of the others
         map_data = self.map_data.sort_values(ascending=is_lower_better, key=sort_key)
         coords_x, coords_y = map_data.index.to_frame().values.T
-        x_margin = 0.05 * coords_x.ptp()
-        if np.isclose(x_margin, 0):
-            x_margin = 0.05 * coords_x[0]
-        y_margin = 0.05 * coords_y.ptp()
-        if np.isclose(y_margin, 0):
-            y_margin = 0.05 * coords_y[0]
-        ax.set_xlim(coords_x.min() - x_margin, coords_x.max() + x_margin)
-        ax.set_ylim(coords_y.min() - y_margin, coords_y.max() + y_margin)
+        ax.set_xlim(*calculate_axis_limits(coords_x))
+        ax.set_ylim(*calculate_axis_limits(coords_y))
         return ax.scatter(coords_x, coords_y, c=map_data, **kwargs)
 
     def get_centered_norm(self, clip_threshold_quantile):
