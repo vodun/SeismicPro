@@ -368,6 +368,30 @@ class MetricMapMeta(type):
 class MetricMap(metaclass=MetricMapMeta):
     """Construct a map from metric values and their coordinates.
 
+    Examples
+    --------
+    A map can be created directly from known values and coordinates:
+    >>> metric_map = MetricMap(coords=[[0, 0], [0, 1], [1, 0], [1, 1]], metric_values=[1, 2, 3, 4])
+
+    But usually maps are constructed via helper functions. One of the most common cases is to accumulate metric values
+    in a pipeline and then convert them into a map:
+    >>> survey = Survey(path, header_index="FieldRecord", header_cols=["SourceY", "SourceX", "offset"], name="raw")
+    >>> dataset = SeismicDataset(surveys=survey)
+    >>> pipeline = (dataset
+    ...     .pipeline()
+    ...     .load(src="raw")
+    ...     .gather_metrics(MetricsAccumulator, coords=L("raw").coords, std=L("raw").data.std(),
+    ...                     save_to=V("accumulator", mode="a"))
+    ... )
+    >>> pipeline.run(batch_size=16, n_epochs=1)
+    >>> std_map = pipeline.v("accumulator").construct_map()
+
+    The resulting map can be visualized by calling `plot` method:
+    >>> std_map.plot()
+
+    In case of a large number of points it makes sense to aggregate the map first to make the plot more clear:
+    >>> std_map.aggregate(bin_size=100, agg="mean").plot()
+
     Parameters
     ----------
     coords : 2d array-like with 2 columns
