@@ -69,14 +69,12 @@ class BaseMetricMap:
               colorbar=True, center_colorbar=True, clip_threshold_quantile=0.95, keep_aspect=False, ax=None, **kwargs):
         """Plot the metric map."""
         is_lower_better = self.is_lower_better if is_lower_better is None else is_lower_better
-        # Handle plain Metric case
+        vmin_vmax_passed = (vmin is not None) or (vmax is not None)
         vmin = vmin or self.vmin or self.min_value
         vmax = vmax or self.vmax or self.max_value
 
-        if is_lower_better is None and center_colorbar:
-            global_mean = self.metric_data[self.metric_name].agg("mean")
-            clip_threshold = (self.metric_data[self.metric_name] - global_mean).abs().quantile(clip_threshold_quantile)
-            norm = mcolors.CenteredNorm(global_mean, clip_threshold)
+        if (not vmin_vmax_passed) and (is_lower_better is None) and center_colorbar:
+            norm = self.get_centered_norm(clip_threshold_quantile)
         else:
             norm = mcolors.Normalize(vmin, vmax)
 
@@ -212,6 +210,12 @@ class ScatterMap(BaseMetricMap):
         ax.set_ylim(coords_y.min() - y_margin, coords_y.max() + y_margin)
         return ax.scatter(coords_x, coords_y, c=map_data, **kwargs)
 
+    def get_centered_norm(self, clip_threshold_quantile):
+        """Return a matplotlib norm to center map data around its mean value."""
+        global_mean = self.map_data.mean()
+        clip_threshold = (self.map_data - global_mean).abs().quantile(clip_threshold_quantile)
+        return mcolors.CenteredNorm(global_mean, clip_threshold)
+
     def get_worst_coords(self, is_lower_better=None):
         """Get coordinates with the worst metric value dependind on `is_lower_better`. If not given, `is_lower_better`
         attribute of `self.metric` is used.
@@ -296,6 +300,12 @@ class BinarizedMap(BaseMetricMap):
         _ = is_lower_better
         kwargs = {"interpolation": "none", "origin": "lower", "aspect": "auto", **kwargs}
         return ax.imshow(self.map_data.T, **kwargs)
+
+    def get_centered_norm(self, clip_threshold_quantile):
+        """Return a matplotlib norm to center map data around its mean value."""
+        global_mean = np.nanmean(self.map_data)
+        clip_threshold = np.nanquantile(np.abs(self.map_data - global_mean), clip_threshold_quantile)
+        return mcolors.CenteredNorm(global_mean, clip_threshold)
 
     def get_worst_coords(self, is_lower_better=None):
         """Get coordinates with the worst metric value dependind on `is_lower_better`. If not given, `is_lower_better`
