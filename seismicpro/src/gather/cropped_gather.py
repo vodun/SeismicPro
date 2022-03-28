@@ -4,7 +4,7 @@ import warnings
 
 import numpy as np
 
-from .decorators import batch_method
+from ..decorators import batch_method
 
 
 class CroppedGather:

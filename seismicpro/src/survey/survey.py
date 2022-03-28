@@ -13,9 +13,12 @@ import pandas as pd
 from tqdm.auto import tqdm
 from scipy.interpolate import interp1d
 
-from .gather import Gather
-from .utils import to_list, maybe_copy, calculate_stats, create_supergather_index
-from .const import HDR_DEAD_TRACE, HDR_FIRST_BREAK
+from .plot_geometry import SurveyGeometryPlot
+from .utils import calculate_stats, create_supergather_index, SurveyAttribute
+from ..gather import Gather
+from ..metrics import PartialMetric
+from ..utils import to_list, maybe_copy, get_cols
+from ..const import HDR_DEAD_TRACE, HDR_FIRST_BREAK
 
 
 class Survey:  # pylint: disable=too-many-instance-attributes
@@ -194,6 +197,42 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     def dead_traces_marked(self):
         """bool: `mark_dead_traces` called."""
         return self.n_dead_traces is not None
+
+    def __getitem__(self, key):
+        """Select values of survey headers by their names.
+
+        Notes
+        -----
+        A 2d array is always returned even for a single header.
+
+        Parameters
+        ----------
+        key : str, list of str
+            Names of survey headers to get values for.
+
+        Returns
+        -------
+        result : 2d np.ndarray
+            Headers values.
+        """
+        keys_array = np.array(to_list(key))
+        if keys_array.dtype.type != np.str_:
+            raise ValueError("Passed keys must be either str or array-like of str")
+        return get_cols(self.headers, keys_array)
+
+    def __setitem__(self, key, value):
+        """Set given values to selected survey headers.
+
+        Parameters
+        ----------
+        key : str or list of str
+            Survey headers to set values for.
+        value : np.ndarray
+            Headers values to set.
+        """
+        key = to_list(key)
+        val = pd.DataFrame(value, columns=key, index=self.headers.index)
+        self.headers[key] = val
 
     def __del__(self):
         """Close SEG-Y file handler on survey destruction."""
@@ -891,3 +930,78 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self.headers.set_index(index_cols, inplace=True)
         self.headers.sort_index(kind="stable", inplace=True)
         return self
+
+    #------------------------------------------------------------------------#
+    #                         Visualization methods                          #
+    #------------------------------------------------------------------------#
+
+    def plot_geometry(self, **kwargs):
+        """Plot shot and receiver locations on a field map.
+
+        This plot is interactive and provides 2 views:
+        * Shot view: displays shot locations. Highlights all activated receivers on click and displays the
+          corresponding common shot gather.
+        * Receiver view: displays receiver locations. Highlights all shots that activated the receiver on click and
+          displays the corresponding common receiver gather.
+
+        Plotting must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and
+        `ipympl` and `ipywidgets` libraries installed.
+
+        Parameters
+        ----------
+        keep_aspect : bool, optional, defaults to False
+            Whether to keep aspect ratio of the map plot.
+        x_ticker : str or dict, optional
+            Parameters to control `x` axis tick formatting and layout of the map plot. See `.utils.set_ticks` for more
+            details.
+        y_ticker : dict, optional
+            Parameters to control `y` axis tick formatting and layout of the map plot. See `.utils.set_ticks` for more
+            details.
+        sort_by : str, optional
+            Header name to sort the displayed gather by.
+        gather_plot_kwargs : dict, optional
+            Additional arguments to pass to `Gather.plot`.
+        figsize : tuple with 2 elements, optional, defaults to (4.5, 4.5)
+            Size of created map and gather figures. Measured in inches.
+        kwargs : misc, optional
+            Additional keyword arguments to pass to `matplotlib.axes.Axes.scatter` when plotting the map.
+        """
+        SurveyGeometryPlot(self, **kwargs).plot()
+
+    def construct_attribute_map(self, attribute, by, agg=None, bin_size=None, **kwargs):
+        """Construct a map of trace headers values aggregated by gathers.
+
+        The map allows for interactive plotting: a gather type defined by `by` will be displayed on click on the map.
+        The gather may be optionally sorted by `sort_by` argument if passed to the `plot` method of the map.
+
+        Parameters
+        ----------
+        attribute : str
+            Survey header name to construct a map for.
+        by : {"shot", "receiver", "midpoint"}
+            Gather type to aggregate header values over.
+        agg : str or callable, optional, defaults to "mean"
+            An aggregation function. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
+        bin_size : int, float or array-like with length 2, optional
+            Bin size for X and Y axes. If single `int` or `float`, the same bin size will be used for both axes.
+        kwargs : misc, optional
+            Additional keyword arguments to pass to `Metric.__init__`.
+
+        Returns
+        -------
+        attribute_map : BaseMetricMap
+            Constructed attribute map.
+        """
+        if by not in {"shot", "receiver", "midpoint"}:
+            raise ValueError(f"by must be one of 'shot', 'receiver' or 'midpoint' but {by} given.")
+        by_to_coords_cols = {
+            "shot": ["SourceX", "SourceY"],
+            "receiver": ["GroupX", "GroupY"],
+            "midpoint": ["CDP_X", "CDP_Y"],
+        }
+        coords_cols = by_to_coords_cols[by]
+        coords = self[coords_cols]
+        attribute_values = self[attribute].ravel()
+        metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
+        return metric.map_class(coords, attribute_values, coords_cols=coords_cols, metric=metric,
+                                agg=agg, bin_size=bin_size)
