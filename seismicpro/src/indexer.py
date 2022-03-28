@@ -17,7 +17,7 @@ class TraceIndexer(BaseIndexer):
     def __init__(self, index):
         super().__init__(index)
         self.unique_indices = index
-        _ = self.get_loc(index[:1])  # Warmup call to `get_loc`: the first call is way slower than the following ones
+        _ = self.get_loc(index[:1])  # Warmup of `get_loc`: the first call is way slower than the following ones
 
     def get_loc(self, index):
         return self.index.get_indexer(index)

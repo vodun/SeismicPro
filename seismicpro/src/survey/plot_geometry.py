@@ -31,8 +31,8 @@ class SurveyGeometryPlot(PairedPlot):  # pylint: disable=too-many-instance-attri
         self.figsize = figsize
         self.orientation = orientation
 
-        # Calculate source and group indices to speed up gather selection and shot/receiver nearest neighbors to
-        # project a click on the closest one
+        # Reindex the survey to speed up gather selection and fit nearest neighbors to project a click on the closest
+        # shot or receiver
         source_params = self._process_survey(survey, ["SourceX", "SourceY"])
         self.source_sur, self.source_x, self.source_y, self.source_neighbors = source_params
         group_params = self._process_survey(survey, ["GroupX", "GroupY"])

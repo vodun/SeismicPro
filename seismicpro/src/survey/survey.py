@@ -840,8 +840,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self : Survey
             Reindexed survey.
         """
-        self = maybe_copy(self, inplace, ignore=["_headers", "indexer"])
-        headers = self.headers.reset_index()
+        self = maybe_copy(self, inplace, ignore="indexer")
+        headers = self.headers
+        headers.reset_index(inplace=True)
         headers.set_index(new_index, inplace=True)
         headers.sort_index(kind="stable", inplace=True)
         self.headers = headers
