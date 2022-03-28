@@ -10,16 +10,18 @@ import numpy as np
 import pandas as pd
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-from .cropped_gather import CroppedGather
 from .muting import Muter
-from .semblance import Semblance, ResidualSemblance
-from .velocity_cube import StackingVelocity, VelocityCube
-from .weathering_velocity import WeatheringVelocity
-from .decorators import batch_method, plotter
-from .utils import normalization, correction
-from .utils import (to_list, convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins,
-                    set_ticks, set_text_formatting)
-from .const import HDR_FIRST_BREAK
+from .cropped_gather import CroppedGather
+from .plot_corrections import NMOCorrectionPlot
+from .utils import correction, normalization
+from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
+from ..utils import (to_list, get_cols, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
+                     set_text_formatting, add_colorbar, Coordinates)
+from ..semblance import Semblance, ResidualSemblance
+from ..stacking_velocity import StackingVelocity, VelocityCube
+from ..weathering_velocity import WeatheringVelocity
+from ..decorators import batch_method, plotter
+from ..const import HDR_FIRST_BREAK
 
 class Gather:
     """A class representing a single seismic gather.
@@ -48,7 +50,7 @@ class Gather:
     headers : pd.DataFrame
         A subset of parent survey header with common index value defining the gather.
     data : 2d np.ndarray
-        Trace data of the gather with (num_traces, trace_lenght) layout.
+        Trace data of the gather with (num_traces, trace_length) layout.
     samples : 1d np.ndarray of floats
         Recording time for each trace value. Measured in milliseconds.
     survey : Survey
@@ -59,7 +61,7 @@ class Gather:
     headers : pd.DataFrame
         A subset of parent survey header with common index value defining the gather.
     data : 2d np.ndarray
-        Trace data of the gather with (num_traces, trace_lenght) layout.
+        Trace data of the gather with (num_traces, trace_length) layout.
     samples : 1d np.ndarray of floats
         Recording time for each trace value. Measured in milliseconds.
     sample_rate : float
@@ -123,7 +125,7 @@ class Gather:
         ----------
         key : str, list of str, int, list, tuple, slice
             If str or list of str, gather headers to get as a 2d np.ndarray.
-            Otherwise, indices of traces and samples to get. In this case, __getitem__ behaviour almost coincides with
+            Otherwise, indices of traces and samples to get. In this case, __getitem__ behavior almost coincides with
             np.ndarray indexing and slicing except for cases, when resulting ndim is not preserved or joint indexation
             of gather attributes becomes ambiguous (e.g. gather[[0, 1], [0, 1]]).
 
@@ -140,14 +142,7 @@ class Gather:
         # If key is str or array of str, treat it as names of headers columns
         keys_array = np.array(to_list(key))
         if keys_array.dtype.type == np.str_:
-            self.validate(required_header_cols=keys_array)
-            # Avoid using direct pandas indexing to speed up multiple headers selection from gathers with a small
-            # number of traces
-            headers = []
-            for col in keys_array:
-                header = self.headers[col] if col in self.headers.columns else self.headers.index.get_level_values(col)
-                headers.append(header.values)
-            return np.column_stack(headers)
+            return get_cols(self.headers, keys_array)
 
         # Perform traces and samples selection
         key = (key, ) if not isinstance(key, tuple) else key
@@ -235,20 +230,22 @@ class Gather:
         """Print gather metadata including information about its survey, headers and traces."""
         print(self)
 
-    def get_coords(self, coords_columns="index"):
+    def get_coords(self, coords_cols="auto"):
         """Get spatial coordinates of the gather.
 
         Parameters
         ----------
-        coords_columns : None, "index" or 2 element array-like, defaults to "index"
-            - If `None`, (`None`, `None`) tuple is returned.
-            - If "index", unique index value is used to define gather coordinates
-            - If 2 element array-like, `coords_columns` define gather headers to get x and y coordinates from.
-            In the last two cases index or column values are supposed to be unique for all traces in the gather.
+        coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
+            - If `None`, `Coordinates` with two `None` elements is returned. Their names are "X" and "Y" respectively.
+            - If "auto", columns of headers index define headers columns to get coordinates from (e.g. 'FieldRecord' is
+              mapped to a ("SourceX", "SourceY") pair).
+            - If 2 element array-like, `coords_cols` directly define gather headers to get coordinates from.
+            In the last two cases index or column values are supposed to be unique for all traces in the gather and the
+            names of the returned coordinates correspond to source headers columns.
 
         Returns
         -------
-        coords : tuple with 2 elements
+        coords : Coordinates
             Gather spatial coordinates.
 
         Raises
@@ -256,16 +253,21 @@ class Gather:
         ValueError
             If gather coordinates are non-unique or more than 2 columns were passed.
         """
-        if coords_columns is None:
-            return (None, None)
-        if coords_columns == "index":
-            coords_columns = list(self.headers.index.names)
-        coords = np.unique(self.headers.reset_index()[coords_columns].values, axis=0)
+        if coords_cols is None:
+            return Coordinates()
+        if coords_cols == "auto":
+            coords_cols = get_coords_cols(self.headers.index.names)
+        coords = np.unique(self[coords_cols], axis=0)
         if coords.shape[0] != 1:
             raise ValueError("Gather coordinates are non-unique")
         if coords.shape[1] != 2:
             raise ValueError(f"Gather position must be defined by exactly two coordinates, not {coords.shape[1]}")
-        return tuple(coords[0].tolist())
+        return Coordinates(*coords[0], names=coords_cols)
+
+    @property
+    def coords(self):
+        """Coordinates: Spatial coordinates of the gather."""
+        return self.get_coords()
 
     @batch_method(target='threads', copy_src=False)
     def copy(self, ignore=None):
@@ -294,28 +296,15 @@ class Gather:
         """An interface for `self.__getitem__` method."""
         return self[args if len(args) > 1 else args[0]]
 
-    def _validate_header_cols(self, required_header_cols):
-        """Check if the gather headers contain all columns from `required_header_cols`."""
-        header_cols = set(self.headers.columns) | set(self.headers.index.names)
-        missing_headers = set(to_list(required_header_cols)) - header_cols
-        if missing_headers:
-            err_msg = "The following headers must be preloaded: {}"
-            raise ValueError(err_msg.format(", ".join(missing_headers)))
-
-    def _validate_sorting(self, required_sorting):
-        """Check if the gather is sorted by `required_sorting` header."""
-        if self.sort_by != required_sorting:
-            raise ValueError(f"Gather should be sorted by {required_sorting} not {self.sort_by}")
-
     def validate(self, required_header_cols=None, required_sorting=None):
         """Perform the following checks for a gather:
-            1. Its header contains all columns from `required_header_cols`,
+            1. Its headers contain all columns from `required_header_cols`,
             2. It is sorted by `required_sorting` header.
 
         Parameters
         ----------
         required_header_cols : None or str or array-like of str, defaults to None
-            Required gather header columns. If `None`, no check is performed.
+            Required gather headers columns. If `None`, no check is performed.
         required_sorting : None or str, defaults to None
             Required gather sorting. If `None`, no check is performed.
 
@@ -330,9 +319,9 @@ class Gather:
             If any of checks above failed.
         """
         if required_header_cols is not None:
-            self._validate_header_cols(required_header_cols)
-        if required_sorting is not None:
-            self._validate_sorting(required_sorting)
+            validate_cols_exist(self.headers, required_header_cols)
+        if (required_sorting is not None) and (self.sort_by != required_sorting):
+            raise ValueError(f"Gather should be sorted by {required_sorting} not {self.sort_by}")
         return self
 
     #------------------------------------------------------------------------#
@@ -851,13 +840,12 @@ class Gather:
 
         Notes
         -----
-        The gather should be sorted by offset. A detailed description of vertical velocity semblance and its
-        computation algorithm can be found in :func:`~semblance.Semblance` docs.
+        A detailed description of vertical velocity semblance and its computation algorithm can be found in
+        :func:`~semblance.Semblance` docs.
 
         Examples
         --------
         Calculate semblance for 200 velocities from 2000 to 6000 m/s and a temporal window size of 8 samples:
-        >>> gather = gather.sort(by="offset")
         >>> semblance = gather.calculate_semblance(velocities=np.linspace(2000, 6000, 200), win_size=8)
 
         Parameters
@@ -872,14 +860,9 @@ class Gather:
         -------
         semblance : Semblance
             Calculated vertical velocity semblance.
-
-        Raises
-        ------
-        ValueError
-            If the gather is not sorted by offset.
         """
-        self.validate(required_sorting="offset")
-        return Semblance(gather=self, velocities=velocities, win_size=win_size)
+        gather = self.copy().sort(by="offset")
+        return Semblance(gather=gather, velocities=velocities, win_size=win_size)
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
     def calculate_residual_semblance(self, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2):
@@ -887,13 +870,12 @@ class Gather:
 
         Notes
         -----
-        The gather should be sorted by offset. A detailed description of residual vertical velocity semblance and its
-        computation algorithm can be found in :func:`~semblance.ResidualSemblance` docs.
+        A detailed description of residual vertical velocity semblance and its computation algorithm can be found in
+        :func:`~semblance.ResidualSemblance` docs.
 
         Examples
         --------
         Calculate residual semblance for a gather and a stacking velocity, loaded from a file:
-        >>> gather = gather.sort(by="offset")
         >>> velocity = StackingVelocity.from_file(velocity_path)
         >>> residual = gather.calculate_residual_semblance(velocity, n_velocities=100, win_size=8)
 
@@ -914,14 +896,9 @@ class Gather:
         -------
         semblance : ResidualSemblance
             Calculated residual vertical velocity semblance.
-
-        Raises
-        ------
-        ValueError
-            If the gather is not sorted by offset.
         """
-        self.validate(required_sorting="offset")
-        return ResidualSemblance(gather=self, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
+        gather = self.copy().sort(by="offset")
+        return ResidualSemblance(gather=gather, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
                                  win_size=win_size, relative_margin=relative_margin)
 
     #------------------------------------------------------------------------#
@@ -929,12 +906,12 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
-    def apply_nmo(self, stacking_velocity, coords_columns="index"):
+    def apply_nmo(self, stacking_velocity, coords_cols="auto"):
         """Perform gather normal moveout correction using given stacking velocity.
 
         Notes
         -----
-        A detailed description of NMO correction can be found in :func:`~correction.apply_nmo` docs.
+        A detailed description of NMO correction can be found in :func:`~utils.correction.apply_nmo` docs.
 
         Parameters
         ----------
@@ -942,7 +919,7 @@ class Gather:
             Stacking velocities to perform NMO correction with. `StackingVelocity` instance is used directly. If
             `VelocityCube` instance is passed, a `StackingVelocity` corresponding to gather coordinates is fetched
             from it.
-        coords_columns : None, "index" or 2 element array-like, defaults to "index"
+        coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
             Header columns to get spatial coordinates of the gather from to fetch `StackingVelocity` from
             `VelocityCube`. See :func:`~Gather.get_coords` for more details.
 
@@ -957,7 +934,7 @@ class Gather:
             If `stacking_velocity` is not a `StackingVelocity` or `VelocityCube` instance.
         """
         if isinstance(stacking_velocity, VelocityCube):
-            stacking_velocity = stacking_velocity(*self.get_coords(coords_columns), create_interpolator=False)
+            stacking_velocity = stacking_velocity(*self.get_coords(coords_cols), create_interpolator=False)
         if not isinstance(stacking_velocity, StackingVelocity):
             raise ValueError("Only VelocityCube or StackingVelocity instances can be passed as a stacking_velocity")
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
@@ -991,8 +968,9 @@ class Gather:
         """
         if not isinstance(by, str):
             raise TypeError(f'`by` should be str, not {type(by)}')
-        self.validate(required_header_cols=by)
-        order = np.argsort(self.headers[by].values, kind='stable')
+        if self.sort_by == by:
+            return self
+        order = np.argsort(self[by].ravel(), kind='stable')
         self.sort_by = by
         self.data = self.data[order]
         self.headers = self.headers.iloc[order]
@@ -1099,34 +1077,38 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @plotter(figsize=(10, 7))
-    def plot(self, mode="seismogram", title=None, x_ticker=None, y_ticker=None, ax=None, **kwargs):
+    def plot(self, mode="seismogram", *, title=None, x_ticker=None, y_ticker=None, ax=None, **kwargs):
         """Plot gather traces.
 
         The traces can be displayed in a number of representations, depending on the `mode` provided. Currently, the
         following options are supported:
         - `seismogram`: a 2d grayscale image of seismic traces. This mode supports the following `kwargs`:
             * `colorbar`: whether to add a colorbar to the right of the gather plot (defaults to `False`). If `dict`,
-              defines extra keyword arguments for `matplotlib.figure.Figure.colorbar`.
+              defines extra keyword arguments for `matplotlib.figure.Figure.colorbar`,
             * `qvmin`, `qvmax`: quantile range of amplitude values covered by the colormap (defaults to 0.1 and 0.9),
             * Any additional arguments for `matplotlib.pyplot.imshow`. Note, that `vmin` and `vmax` arguments take
               priority over `qvmin` and `qvmax` respectively.
         - `wiggle`: an amplitude vs time plot for each trace of the gather as an oscillating line around its mean
           amplitude. This mode supports the following `kwargs`:
+            * `norm_tracewise`: specifies whether to standardize each trace independently or use gather mean amplitude
+              and standard deviation (defaults to `True`),
             * `std`: amplitude scaling factor. Higher values result in higher plot oscillations (defaults to 0.5),
             * `color`: defines a color for each trace. If a single color is given, it is applied to all the traces
-              (defaults to black).
-        - `hist`: a histogram of the trace data amplitudes or header values. The mode supports following `kwargs`:
-            * `bins`: if integer, number of equal-width bins; if sequence, bin edges that include the left edge of the
-              first bin and the right edge of the last bin.
-            * `grid`: whether to show the grid lines.
-            * `log`: set y-axis to log scale. If True, formatting defined in `y_ticker` is discarded.
+              (defaults to black),
+            * Any additional arguments for `matplotlib.pyplot.plot`.
+        - `hist`: a histogram of the trace data amplitudes or header values. This mode supports the following `kwargs`:
+            * `bins`: if `int`, the number of equal-width bins; if sequence, bin edges that include the left edge of
+              the first bin and the right edge of the last bin,
+            * `grid`: whether to show the grid lines,
+            * `log`: set y-axis to log scale. If `True`, formatting defined in `y_ticker` is discarded,
+            * Any additional arguments for `matplotlib.pyplot.hist`.
 
         Trace headers, whose values are measured in milliseconds (e.g. first break times) may be displayed over a
-        seismigram or wiggle plot if passed as `event_headers`. If `top_header` is passed, an auxiliary scatter plot of
+        seismogram or wiggle plot if passed as `event_headers`. If `top_header` is passed, an auxiliary scatter plot of
         values of this header will be shown on top of the gather plot.
 
         While the source of label ticks for both `x` and `y` is defined by `x_tick_src` and `y_tick_src`, ticker
-        appearence can be controlled via `x_ticker` and `y_ticker` parameters respectively. In the most general form,
+        appearance can be controlled via `x_ticker` and `y_ticker` parameters respectively. In the most general form,
         each of them is a `dict` with the following most commonly used keys:
         - `label`: axis label. Can be any string.
         - `round_to`: the number of decimal places to round tick labels to (defaults to 0).
@@ -1229,8 +1211,8 @@ class Gather:
 
     def _plot_histogram(self, ax, title, x_ticker, y_ticker, x_tick_src="amplitude", bins=None,
                         log=False, grid=True, **kwargs):
-        """Plot histogram of the data scpecified by x_tick_src."""
-        data = self.data if x_tick_src=="amplitude" else self[x_tick_src]
+        """Plot histogram of the data specified by x_tick_src."""
+        data = self.data if x_tick_src == "amplitude" else self[x_tick_src]
         _ = ax.hist(data.ravel(), bins=bins, **kwargs)
         set_ticks(ax, "x", tick_labels=None, **{"label": x_tick_src, 'round_to': None, **x_ticker})
         set_ticks(ax, "y", tick_labels=None, **{"label": "counts", **y_ticker})
@@ -1241,24 +1223,18 @@ class Gather:
         ax.set_title(**{'label': None, **title})
 
     # pylint: disable=too-many-arguments
-    def _plot_seismogram(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src='time',
-                         colorbar=False, qvmin=0.1, qvmax=0.9, event_headers=None, top_header=None, **kwargs):
+    def _plot_seismogram(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src='time', colorbar=False,
+                         qvmin=0.1, qvmax=0.9, event_headers=None, top_header=None, **kwargs):
         """Plot the gather as a 2d grayscale image of seismic traces."""
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
-
         vmin, vmax = self.get_quantile([qvmin, qvmax])
         kwargs = {"cmap": "gray", "aspect": "auto", "vmin": vmin, "vmax": vmax, **kwargs}
         img = ax.imshow(self.data.T, **kwargs)
-        if not isinstance(colorbar, (bool, dict)):
-            raise ValueError(f"colorbar must be bool or dict but {type(colorbar)} was passed")
-        if colorbar is not False:
-            colorbar = {} if colorbar is True else colorbar
-            cax = divider.append_axes("right", size="5%", pad=0.05)
-            ax.figure.colorbar(img, cax=cax, **colorbar)
+        add_colorbar(ax, img, colorbar, divider, y_ticker)
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
-    def _plot_wiggle(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src='time',
+    def _plot_wiggle(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src="time", norm_tracewise=True,
                      std=0.5, color="black", event_headers=None, top_header=None, **kwargs):
         """Plot the gather as an amplitude vs time plot for each trace."""
         # Make the axis divisible to further plot colorbar and header subplot
@@ -1271,7 +1247,11 @@ class Gather:
             raise ValueError('The number of items in `color` must match the number of plotted traces')
 
         y_coords = np.arange(self.n_samples)
-        traces = std * (self.data - self.data.mean(axis=1, keepdims=True)) / (np.std(self.data) + 1e-10)
+        std_axis = 1 if norm_tracewise else None
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            traces = std * ((self.data - np.nanmean(self.data, axis=1, keepdims=True)) /
+                            (np.nanstd(self.data, axis=std_axis, keepdims=True) + 1e-10))
         for i, (trace, col) in enumerate(zip(traces, color)):
             ax.plot(i + trace, y_coords, color=col, **kwargs)
             ax.fill_betweenx(y_coords, i, i + trace, where=(trace > 0), color=col)
@@ -1280,7 +1260,7 @@ class Gather:
 
     def _finalize_plot(self, ax, title, divider, event_headers, top_header,
                        x_ticker, y_ticker, x_tick_src, y_tick_src):
-        """Plot optional artists and set ticks on the ax. Utilily method for 'seismogram' and 'wiggle' modes."""
+        """Plot optional artists and set ticks on the `ax`. Utility method for 'seismogram' and 'wiggle' modes."""
         # Add headers scatter plot if needed
         if event_headers is not None:
             self._plot_headers(ax, event_headers)
@@ -1288,7 +1268,8 @@ class Gather:
         # Add a top subplot for given header if needed and set plot title
         top_ax = ax
         if top_header is not None:
-            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_header].ravel())
+            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_header].ravel(),
+                                            y_ticker=y_ticker)
 
         # Set axis ticks
         x_tick_src = x_tick_src or self.sort_by or "index"
@@ -1339,6 +1320,7 @@ class Gather:
         x_coords = np.arange(self.n_traces)
         kwargs_list = self._parse_headers_kwargs(headers_kwargs, "headers")
         for kwargs in kwargs_list:
+            kwargs = {"zorder": 10, **kwargs}  # Increase zorder to plot headers on top of gather
             header = kwargs.pop("headers")
             label = kwargs.pop("label", header)
             process_outliers = kwargs.pop("process_outliers", "none")
@@ -1354,13 +1336,14 @@ class Gather:
         if headers_kwargs:
             ax.legend()
 
-    def _plot_top_subplot(self, ax, divider, header_values, **kwargs):
+    def _plot_top_subplot(self, ax, divider, header_values, y_ticker, **kwargs):
         """Add a scatter plot of given header values on top of the main gather plot."""
         top_ax = divider.append_axes("top", sharex=ax, size="12%", pad=0.05)
         top_ax.scatter(np.arange(self.n_traces), header_values, **{"s": 5, "color": "black", **kwargs})
         top_ax.xaxis.set_visible(False)
         top_ax.yaxis.tick_right()
         top_ax.invert_yaxis()
+        format_subplot_yticklabels(top_ax, **y_ticker)
         return top_ax
 
     def _get_x_ticks(self, axis_label):
@@ -1389,3 +1372,27 @@ class Gather:
         else:
             raise ValueError(f"Unknown axis {axis}")
         set_ticks(ax, axis, tick_labels=tick_labels, **{"label": tick_src, **ticker})
+
+    def plot_nmo_correction(self, min_vel=1500, max_vel=6000, figsize=(6, 4.5), **kwargs):
+        """Perform interactive NMO correction of the gather with selected constant velocity.
+
+        The plot provides 2 views:
+        * Corrected gather (default). NMO correction is performed on the fly with the velocity controlled by a slider
+          on top of the plot.
+        * Source gather. This view disables the velocity slider.
+
+        Plotting must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and
+        `ipympl` and `ipywidgets` libraries installed.
+
+        Parameters
+        ----------
+        min_vel : float, optional, defaults to 1500
+            Minimum seismic velocity value for NMO correction. Measured in meters/seconds.
+        max_vel : float, optional, defaults to 6000
+            Maximum seismic velocity value for NMO correction. Measured in meters/seconds.
+        figsize : tuple with 2 elements, optional, defaults to (6, 4.5)
+            Size of the created figure. Measured in inches.
+        kwargs : misc, optional
+            Additional keyword arguments to `Gather.plot`.
+        """
+        NMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, **kwargs).plot()

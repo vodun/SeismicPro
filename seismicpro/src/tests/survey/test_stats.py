@@ -36,7 +36,7 @@ def stat_segy(tmp_path_factory, request):
         return trace_data[TRACE_SEQUENCE_FILE - 1]
 
     path = tmp_path_factory.mktemp("stat") / "stat.sgy"
-    make_prestack_segy(path, survey_size=(4, 4), origin=(0, 0), sources_step=(3, 3), recievers_step=(1, 1),
+    make_prestack_segy(path, survey_size=(4, 4), origin=(0, 0), sources_step=(3, 3), receivers_step=(1, 1),
                         bin_size=(1, 1), activation_dist=(1, 1), n_samples=n_samples, sample_rate=2000, delay=0,
                         bar=False, trace_gen=gen_trace)
     return path, trace_data
@@ -46,7 +46,7 @@ class TestStats:
     """Test `collect_stats` method."""
 
     def test_no_mark_dead_warning(self, segy_path):
-        """Check that a warning is emmited when `collect_stats` is run before `mark_dead_races`"""
+        """Check that a warning is emitted when `collect_stats` is run before `mark_dead_races`"""
         survey = Survey(segy_path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset")
 
         with pytest.warns(RuntimeWarning):
@@ -118,16 +118,20 @@ class TestStats:
             survey.get_quantile(0.5)
 
 
-
+@pytest.mark.parametrize("header_index", ["TRACE_SEQUENCE_FILE", "CDP", ["CDP", "FieldRecord"]])
 class TestDeadTraces:
     """Test dead traces processing"""
     @pytest.mark.parametrize("inplace", [True, False])
     @pytest.mark.parametrize("pre_mark_dead", [True, False])
-    def test_remove(self, stat_segy, inplace, pre_mark_dead):
+    def test_remove(self, stat_segy, header_index, inplace, pre_mark_dead):
         """Check that `remove_dead_traces` properly updates survey `headers` and sets `n_dead_traces` counter to 0."""
 
         path, trace_data = stat_segy
-        survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset")
+        survey = Survey(path, header_index=header_index, header_cols="offset")
+
+        traces_pos = survey.headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
+        trace_data = trace_data[np.argsort(traces_pos)]
+
         survey_copy = survey.copy()
 
         if pre_mark_dead:
@@ -147,11 +151,15 @@ class TestDeadTraces:
         assert_survey_processed_inplace(survey, survey_filtered, inplace)
 
     @pytest.mark.parametrize("detection_limits", [None, slice(5), slice(2, 8)])
-    def test_mark(self, stat_segy, detection_limits):
+    def test_mark(self, stat_segy, header_index, detection_limits):
         """Check that `mark_dead_traces` properly updates survey `headers` and sets `n_dead_traces` counter."""
 
         path, trace_data = stat_segy
-        survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset")
+        survey = Survey(path, header_index=header_index, header_cols="offset")
+
+        traces_pos = survey.headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
+        trace_data = trace_data[np.argsort(traces_pos)]
+
         survey_copy = survey.copy()
 
         survey.mark_dead_traces(limits=detection_limits, bar=False)
@@ -160,8 +168,7 @@ class TestDeadTraces:
             trace_data = trace_data[:, detection_limits]
 
         is_dead = np.isclose(trace_data.min(axis=1), trace_data.max(axis=1))
-        survey_copy.headers[HDR_DEAD_TRACE] = False
-        survey_copy.headers.loc[is_dead, HDR_DEAD_TRACE] = True
+        survey_copy.headers[HDR_DEAD_TRACE] = is_dead
         survey_copy.n_dead_traces = np.sum(is_dead)
 
         assert_surveys_equal(survey, survey_copy)

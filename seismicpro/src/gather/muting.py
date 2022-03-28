@@ -4,7 +4,7 @@ import numpy as np
 from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
 
-from .utils import read_single_vfunc
+from ..utils import read_single_vfunc
 
 
 class Muter:
@@ -40,7 +40,7 @@ class Muter:
     def from_points(cls, offsets, times, fill_value="extrapolate"):
         """Create a muter from 1d arrays of offsets and times.
 
-        The resulting muter performs linear time interpolation between points given, its behaviour outside of the
+        The resulting muter performs linear time interpolation between points given, its behavior outside of the
         offsets' range is defined by the `fill_value` argument.
 
         Parameters
@@ -73,7 +73,7 @@ class Muter:
         [offset_1] [time_1] [offset_2] [time_2] ... [offset_n] [time_n]
 
         The loaded data is directly passed to :func:`~Muter.from_points`. The resulting muter performs linear time
-        interpolation between points given, its behaviour outside of the offsets' range is defined by the
+        interpolation between points given, its behavior outside of the offsets' range is defined by the
         `fill_value` argument.
 
         Parameters

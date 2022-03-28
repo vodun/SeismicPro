@@ -6,9 +6,9 @@ import numpy as np
 from sklearn.linear_model import SGDRegressor
 from scipy import optimize
 
-from .decorators import plotter
-from .utils import set_ticks, set_text_formatting
-from .utils.interpolation import interp1d
+from ..decorators import plotter
+from ..utils import set_ticks, set_text_formatting
+from ..utils.interpolation import interp1d
 
 # pylint: disable=too-many-instance-attributes, protected-access
 class WeatheringVelocity:
@@ -16,37 +16,44 @@ class WeatheringVelocity:
     times.
 
     The weathering model is a velocity model of the first few subsurface layers. The class uses the intercept time,
-    cross offsets and velocities parameters of the weathering model. The weathering model could be present as
-    a piecewise linear function the picking time from the offsets.
+    cross offsets and velocities values as the weathering model parameters. The weathering model could be present as
+    a piecewise linear function the picking time from the offsets. Also referred to as the weathering velocity curve.
     Since the class uses the first break picking time to fit the detected velocities, any underlaying layers should
     have a higher velocity than any of the overlaying.
 
-    The class could be initialized with data and estimate parameters of weathering model.
-        Data : first breaking points times and the corresponding offsets.
+    It can be created from four different types of data by calling a corresponding `classmethod`:
+
+    The class could be created with `from_params` and `from_picking` classmethods.
+    `from_params` - create the WeatheringVelocity by parameters of the weathering model.
+        Parameters : `params`.
+            `params` : dict with weathering model parameters. Read the keys notation below.
+
+    `from_picking` - create the WeatheringVelocity by data and estimate parameters of weathering model 
+        Data : first break picking times and the corresponding offsets.
         Parameters : `init`, `bounds`, `n_layers`.
-            `init` : dict with prior weathering model parameters. Read the keys notation below.
+            `init` : dict with the estimate weathering model parameters. Read the keys notation below.
             `bounds` : dict with left and right bound for each weathering model parameter.
-                       Read the keys notation below.
+                    Read the keys notation below.
             `n_layers` : the quantity of the weathering model layers.
 
-    The WeatheringVelocity could calculate the missing parameters from the passed parameters to simplify class
-    initialization.
+    The WeatheringVelocity created with `from_picking` classmethod could calculate the missing parameters from
+    the passed parameters to simplify class initialization.
     Missing parameters calculate rules:
         `init` : calculated from `bounds`. lower bound + (upper bounds - lower bounds) / 3
                  calculated from `n_layers`. Read `_calc_init_by_layers` docs to get more info.
         `bounds` : calculated from `init`. The lower bound is init / 2, the upper bound is init * 2.
                    calculated from `n_layers`. `init` calculates first and uses the above expression.
-        `n_layers`: calculated from `bounds`. Half of the `bounds` parameters.
+        `n_layers`: calculated from `bounds`. Half of the the `bounds` parameters.
                     calculated from `init`. Calculates `bounds` from `init` first and uses the above rule.
 
-    Keys notation.
+    Common keys notation.
         `init`, `bounds` and `params` is dict with the common key notation.
             `t0`: a intercept time of the first subweathering layer. a double wave travel time to the first refractor.
                 Measured in milliseconds.
             `x{i}`: offset where refracted wave from i-th layer comes at the same time with a refracted wave from
                     the underlaying layer. Measured in meters.
             `v{i}`: velocity of an i-th layer. Measured in km/s.
-        Note: in some case a direct wave could be detected on close offsets. In this point `v1` is mean velocity
+        Note: in some case a direct wave could be detected on the close offsets. In this point `v1` is mean velocity
         of the direct wave layer, and `x1` is cross offsets where direct wave comes at the same time with a refracted
         wave from the first subweathering layer.
 
@@ -59,14 +66,15 @@ class WeatheringVelocity:
     A Weathering Velocity object with starting initial parameters for two layers weathering model:
     >>> weathering_velocity = gather.calculate_weathering_velocity(init={'t0': 100, 'x1': 1500, 'v1': 2, 'v2': 3})
 
-    A Weathering Velocity object with bounds for final parameters of a piecewise function for 1-layer weathering model:
+    A Weathering Velocity object with bounds for fitted intercept time and velocity of the first layer for the one
+    layer weathering model:
     >>> weathering_velocity = gather.calculate_weathering_velocity(init={'t0': [0, 200], 'v1': [1, 3]})
 
     A Weathering Velocity object for three layers weathering model:
     >>> weathering_velocity = gather.calculate_weathering_velocity(n_layers=3)
 
     Also mixing parameters are possible (two layers weathering model):
-    >>> weathering_velocity = gather.calculate_weathering_velocity(init={'x1': 200, 'v1': 2, 'v2': 3},
+    >>> weathering_velocity = gather.calculate_weathering_velocity(init={'x1': 200, 'v1': 2},
                                                                    bounds={'t0': [0, 50]},
                                                                    n_layers=2)
     """
@@ -116,14 +124,14 @@ class WeatheringVelocity:
             Picking times of traces in milliseconds.
         init : dict
             The inital values used to fit the parameters of the weathering model. Includes the calculated non-passed
-            keys and values. Have the common keys notation.
+            keys and values. Have the common key notation.
         bounds : dict
             The left and right bounds used to fit the parameters of the weathering model. Includes the calculated
-            non-passed keys and values. Have the common keys notation.
+            non-passed keys and values. Have the common key notation.
         n_layers : int
             Number of the weathering model layers used to fit the parameters of the weathering model.
         params : dict
-            The fitted parameters of a weathering model. Have the common keys notation.
+            The fitted parameters of a weathering model. Have the common key notation.
 
         Raises
         ------
@@ -147,7 +155,7 @@ class WeatheringVelocity:
 
         self.init = {**self._calc_init_by_layers(n_layers), **self._calc_init_by_bounds(bounds), **init}
         self.bounds = {**self._calc_bounds_by_init(), **bounds}
-        self._check_keys()
+        self._check_keys(self.bounds)
         self.n_layers = len(self.bounds) // 2
         self._valid_keys = self._get_valid_keys()
 
@@ -189,7 +197,7 @@ class WeatheringVelocity:
     def from_params(cls, params):
         """Init WeatheringVelocity from parameters.
 
-        Parameters should be dict with common keys notation.
+        Parameters should be dict with common key notation.
 
         Parameters
         ----------
@@ -202,15 +210,17 @@ class WeatheringVelocity:
             WeatheringVelocity instance based on passed params.
         """
         self = cls()
-        self.n_layers = len(params) // 2
 
+        self._check_keys(params)
+        self.n_layers = len(params) // 2
         self._valid_keys = self._get_valid_keys(self.n_layers)
         self.params = {key: params[key] for key in self._valid_keys}
 
         self._piecewise_offsets, self._piecewise_times = self._calc_piecewise_coords_from_params(params)
         self._piecewise_offsets[-1] = 2 * self._piecewise_offsets[-2] - self._piecewise_offsets[-3]
         self._piecewise_times[-1] = (self._piecewise_offsets[-1] - self._piecewise_offsets[-2]) / \
-                                    list(params.values())[-1] + self._piecewise_times[-2]
+                                    params[f'v{self.n_layers}'] + self._piecewise_times[-2] # params[f'v{self.n_layers}'], list(params.values())[-1]
+                                    
         self.interpolator = interp1d(self._piecewise_offsets, self._piecewise_times)
         return self
 
@@ -361,8 +371,8 @@ class WeatheringVelocity:
                 times[i] = start_time - start_slope * normalized_offsets.min() * (i==0)  # add first layer correction
             slopes[i] = max(.167, slopes[i])  # move maximal velocity to 6 km/s
             times[i] = max([0, times[i]])  # move minimal time to zero
-            start_slope = slopes[i] * (n_layers / (n_layers + 1)) # raise base velocity for next layers (v = 1 / slope)
             start_time = times[i] + (slopes[i] - start_slope) * cross_offsets[i + 1]
+            start_slope = slopes[i] * (n_layers / (n_layers + 1)) # raise base velocity for next layers (v = 1 / slope)
         velocities = 1 / slopes
         init = np.hstack((times[0] * min_picking_times, cross_offsets[1:-1] * min_picking_times, velocities))
         init = dict(zip(self._get_valid_keys(n_layers), init))
@@ -394,16 +404,16 @@ class WeatheringVelocity:
         if outbounds_keys:
             raise ValueError(f"Init parameters are out of the bounds for {outbounds_keys} key(s).")
 
-    def _check_keys(self):
-        """Check the `self.bounds` keys for a minimum quantity, an excessive, and an insufficient."""
-        expected_layers = len(self.bounds) // 2
+    def _check_keys(self, checked_dict):
+        """Check the keys of given dict for a minimum quantity, an excessive, and an insufficient."""
+        expected_layers = len(checked_dict) // 2
         if expected_layers < 1:
             raise ValueError("Insufficient parameters to fit a weathering velocity curve.")
-        missing_keys = set(self._get_valid_keys(expected_layers)) - set(self.bounds.keys())
+        missing_keys = set(self._get_valid_keys(expected_layers)) - set(checked_dict.keys())
         if missing_keys:
             raise ValueError("Insufficient parameters to fit a weathering velocity curve. ",
                             f"Check {missing_keys} key(s) or define `n_layers`")
-        excessive_keys = set(self.bounds.keys()) - set(self._get_valid_keys(expected_layers))
+        excessive_keys = set(checked_dict.keys()) - set(self._get_valid_keys(expected_layers))
         if excessive_keys:
             raise ValueError(f"Excessive parameters to fit a weathering velocity curve. Remove {excessive_keys}.")
 
@@ -420,7 +430,7 @@ class WeatheringVelocity:
         Parameters
         ----------
         params : dict,
-            Dict with parameters of weathering model. Keys have the common notation.
+            Dict with parameters of weathering model. Dict have the common key notation.
 
         Returns
         -------
@@ -429,19 +439,19 @@ class WeatheringVelocity:
         times : 1d ndarray
             coords of the points on the y axis
         """
-        comparing_layers = len(params) // 2
-        keys = self._get_valid_keys(n_layers=comparing_layers)
+        expected_layers = len(params) // 2
+        keys = self._get_valid_keys(n_layers=expected_layers)
         params = {key: params[key] for key in keys}
         params_values = list(params.values())
 
-        offsets = np.empty(comparing_layers + 1)
-        offsets[1:comparing_layers] = params_values[1:comparing_layers]
+        offsets = np.empty(expected_layers + 1)
+        times = np.zeros(expected_layers + 1)
         offsets[-1] = max_offset
 
-        times = np.zeros(comparing_layers + 1)
+        offsets[1:expected_layers] = params_values[1:expected_layers]
         times[0] = params_values[0]
-        for i in range(comparing_layers):
-            times[i + 1] = ((offsets[i + 1] - offsets[i]) / params_values[comparing_layers + i]) + times[i]
+        for i in range(expected_layers):
+            times[i + 1] = ((offsets[i + 1] - offsets[i]) / params_values[expected_layers + i]) + times[i]
         return offsets, times
 
     @plotter(figsize=(10, 5))
@@ -462,7 +472,8 @@ class WeatheringVelocity:
         threshold_time : int or float, optional. Defaults to None
             Gap for plotting two outlines. If None additional outlines don't show.
         compared_params : dict, optional, defaults to None
-            Dict with another weathering velocity params. Should have common keys notation.
+            Dict with the weathering velocity params. Uses to plot an additional the weathering velocity curve.
+            Should have the common key notation.
 
         Returns
         -------
