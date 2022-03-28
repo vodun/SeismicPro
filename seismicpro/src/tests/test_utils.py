@@ -4,7 +4,7 @@ import pytest
 import numpy as np
 
 
-from seismicpro.src.utils import has_clips, get_clip_indicator
+from seismicpro.src.utils import has_clips, get_clip_indicator, get_cliplen_indicator
 
 
 CLIP_IND_PARAMS = [
@@ -15,6 +15,7 @@ CLIP_IND_PARAMS = [
     ([1, 2, 3, 3, 3], 3, [0, 0, 1]),
     ([1, 1, 3, 3, 3], 2, [1, 0, 1, 1]),
     ([1, 1, 1], 2, [1, 1]),
+    ([1, 1, 1, 1, 1], 3, [1, 1, 1]),
     (np.asarray([[1, 2, 2, 3]]).T, 2, np.asarray([[0, 1, 0],]).T),
     (np.asarray([[1, 2, 2, 3], [1, 1, 2, 3]]).T, 2, np.asarray([[0, 1, 0], [1, 0, 0]]).T),
 ]
@@ -40,3 +41,17 @@ def test_has_clips(arr, clip_len, expected):
 def test_has_clips_fails(arr):
     with pytest.raises(ValueError, match="Only 1-D traces are allowed"):
         has_clips(arr, 2)
+
+CLIPLEN_IND_PARAMS = [
+    ([1, 2, 3, 3, 3, 4], [0, 0, 1, 2, 0]),
+    ([1, 1, 3, 3, 3], [1, 0, 1, 2]),
+    ([1, 1, 1, 1, 1], [1, 2, 3, 4]),
+    ([1, 2, 3, 3, 3, 4, 4, 4, 4], [0, 0, 1, 2, 0, 1, 2, 3]),
+    ([1, 1, 1, 2, 1], [1, 2, 0, 0]),
+    (np.asarray([[1, 2, 2, 3]]).T, np.asarray([[0, 1, 0],]).T),
+    (np.asarray([[1, 2, 2, 3], [1, 1, 2, 3]]).T, np.asarray([[0, 1, 0], [1, 0, 0]]).T),
+    (np.asarray([[ 0,  1,  0,  0], [ 0,  0,  0,  1]]).T , np.asarray([[0, 0, 1], [1, 2, 0]]).T),
+]
+@pytest.mark.parametrize("arr,expected", CLIPLEN_IND_PARAMS)
+def test_cliplen_indicator(arr, expected):
+    assert np.allclose(get_cliplen_indicator(np.asarray(arr)), np.asarray(expected).astype(int))

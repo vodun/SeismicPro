@@ -157,6 +157,33 @@ def strip_clip_indicator(clip_ind):
 
 
 @njit(nogil=True)
+def get_cliplen_indicator(traces, max_clip_len=None):
+    traces = np.atleast_1d(traces)
+
+    n_samples = traces.shape[0]
+    if max_clip_len is None:
+        max_clip_len = min(n_samples - 1, 127)
+
+    if max_clip_len < 2 or max_clip_len > n_samples - 1:
+        raise ValueError("Incorrect `max_clip_len`")
+
+    clip_indicator = np.full_like(traces[:n_samples - 1], 0, dtype=np.int8)
+
+    for curr_shift in range(1, max_clip_len + 1):
+        curr_check = (traces[curr_shift:] == traces[:n_samples - curr_shift])
+
+        if curr_shift > 1: # ensure that clips of less length exist
+            curr_check &= (clip_indicator[curr_shift - 1:] == curr_shift - 1)
+
+        if np.any(curr_check):
+            clip_indicator[curr_shift - 1:] += curr_check.astype(np.int8)
+        else:
+            break
+
+    return clip_indicator
+
+
+@njit(nogil=True)
 def get_clip_indicator(traces, clip_len):
     traces = np.atleast_1d(traces)
 
@@ -166,12 +193,10 @@ def get_clip_indicator(traces, clip_len):
         raise ValueError("Incorrect `clip_len`")
 
     ind_len = n_samples - clip_len + 1
-    shift_beg = clip_len - 1
 
     clip_indicator = np.full_like(traces[:ind_len], True, dtype=np.bool8)
-    while shift_beg > 0:
-        clip_indicator &= (traces[shift_beg:ind_len + shift_beg] == traces[:ind_len])
-        shift_beg -= 1
+    for curr_shift in range(1, clip_len):
+        clip_indicator &= (traces[curr_shift:ind_len + curr_shift] == traces[:ind_len])
 
     return clip_indicator
 
@@ -188,6 +213,20 @@ def has_clips(trace, clip_len):
     i0, i1 = strip_clip_indicator(clip_res)
 
     return np.any(clip_res[i0:i1])
+
+
+def get_max_clips(traces):
+    traces = np.atleast_2d(traces)
+
+    res = (traces == traces.max(axis=-1)[:, np.newaxis])
+
+    return res[:, :-1] & res[:, 1:]
+
+
+
+def has_max_clips(traces):
+    return np.any(get_max_clips(traces))
+
 
 
 class MissingModule:
