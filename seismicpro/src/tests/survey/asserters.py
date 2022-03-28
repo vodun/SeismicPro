@@ -6,6 +6,10 @@ import pathlib
 import segyio
 import numpy as np
 
+from seismicpro.src.utils.indexer import create_indexer
+
+from ..indexer.asserters import assert_indexers_equal
+
 
 # Define default tolerances to check if two float values are close
 RTOL = 1e-5
@@ -38,12 +42,15 @@ def assert_survey_loaded(survey, segy_path, expected_name, expected_index, expec
     assert set(survey.headers.index.names) | set(survey.headers.columns) == expected_headers
     assert survey.headers.index.is_monotonic_increasing
 
+    # Check whether indexer was constructed correctly
+    assert_indexers_equal(survey.indexer, create_indexer(survey.headers.index))
+
 
 def assert_both_none_or_close(left, right, rtol=RTOL, atol=ATOL):
     """Check whether both `left` and `right` are `None` or they are close."""
     left_none = left is None
     right_none = right is None
-    assert not(left_none ^ right_none)  #pylint: disable=superfluous-parens
+    assert not(left_none ^ right_none)  # pylint: disable=superfluous-parens
     assert left_none and right_none or np.allclose(left, right, rtol=rtol, atol=atol)
 
 
@@ -70,6 +77,9 @@ def assert_surveys_equal(left, right, ignore_column_order=False, ignore_dtypes=F
         right_headers = right_headers.astype(left_headers.dtypes)
     assert left_headers.equals(right_headers)
     assert left.n_traces == right.n_traces
+
+    # Check whether survey indexers are equal
+    assert_indexers_equal(left.indexer, right.indexer)
 
     # Check whether same default limits are applied
     assert left.limits == right.limits

@@ -33,7 +33,7 @@ def test_set_limits(survey, limits, expected_limits):
 
 
 @pytest.mark.parametrize("limits", [
-    # Negetive step is not allowed
+    # Negative step is not allowed
     (200, 100, -2),
     slice(-100, -500, -1),
 
