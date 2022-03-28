@@ -215,17 +215,20 @@ def has_clips(trace, clip_len):
     return np.any(clip_res[i0:i1])
 
 
-def get_max_clips(traces):
+def get_maxabs_clips(traces):
     traces = np.atleast_2d(traces)
 
-    res = (traces == traces.max(axis=-1)[:, np.newaxis])
+    maxabs = np.abs(traces).max(axis=-1)[:, np.newaxis]
 
-    return res[:, :-1] & res[:, 1:]
+    res_plus = (traces == maxabs)
+    res_minus = (-traces == maxabs)
+
+    return (res_plus[:, :-1] & res_plus[:, 1:]) | (res_minus[:, :-1] & res_minus[:, 1:])
 
 
 
-def has_max_clips(traces):
-    return np.any(get_max_clips(traces))
+def has_maxabs_clips(traces):
+    return np.any(get_maxabs_clips(traces), axis=-1)
 
 
 
