@@ -22,7 +22,7 @@ from numba import njit
 from matplotlib import patches
 
 from ..metrics import Metric, ScatterMapPlot, MetricMap
-from ..utils import set_ticks, set_text_formatting
+from ..utils import calculate_axis_limits, set_ticks, set_text_formatting
 
 
 class StackingVelocityScatterMapPlot(ScatterMapPlot):
@@ -60,11 +60,8 @@ class StackingVelocityMetric(Metric):
         super().__init__()
         self.times = times
         self.velocities = velocities
+        self.velocity_limits = calculate_axis_limits(velocities)
         self.nearest_neighbors = nearest_neighbors
-        min_vel = self.velocities.min()
-        max_vel = self.velocities.max()
-        margin = 0.05 * (max_vel - min_vel)
-        self.vel_limits = [min_vel - margin, max_vel + margin]
 
     @staticmethod
     def calc_metric(*args, **kwargs):
@@ -93,7 +90,7 @@ class StackingVelocityMetric(Metric):
         ax.invert_yaxis()
         set_ticks(ax, "x", "Stacking velocity (m/s)", **x_ticker)
         set_ticks(ax, "y", "Time", **y_ticker)
-        ax.set_xlim(*self.vel_limits)
+        ax.set_xlim(*self.velocity_limits)
 
     def plot_on_click(self, coords, ax, **kwargs):
         """Plot all stacking velocities used by `calc` during metric calculation."""

@@ -63,17 +63,16 @@ class BaseSemblance:
         Parameters
         ----------
         coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
-            - If `None`, a namedtuple with two `None` elements is returned. Its fields are called "X" and "Y"
-              respectively.
+            - If `None`, `Coordinates` with two `None` elements is returned. Their names are "X" and "Y" respectively.
             - If "auto", columns of headers index of the underlying gather define headers columns to get coordinates
               from (e.g. 'FieldRecord' is mapped to a ("SourceX", "SourceY") pair).
             - If 2 element array-like, `coords_cols` directly define underlying gather headers to get coordinates from.
             In the last two cases index or column values are supposed to be unique for all traces in the underlying
-            gather and the names of the fields of the returned namedtuple correspond to source headers columns.
+            gather and the names of the returned coordinates correspond to source headers columns.
 
         Returns
         -------
-        coords : namedtuple with 2 elements
+        coords : Coordinates
             Semblance spatial coordinates.
 
         Raises
@@ -85,7 +84,7 @@ class BaseSemblance:
 
     @property
     def coords(self):
-        """namedtuple with 2 elements: Spatial coordinates of the semblance."""
+        """Coordinates: Spatial coordinates of the semblance."""
         return self.get_coords()
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):

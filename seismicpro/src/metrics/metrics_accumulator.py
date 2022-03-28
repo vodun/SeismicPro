@@ -1,17 +1,39 @@
 """Implements MetricsAccumulator class that collects metric values calculated for individual subsets of data and
 aggregates them into maps"""
 
-# pylint: disable=no-name-in-module, import-error
 import pandas as pd
 
 from .metrics import Metric, PartialMetric
 from .utils import parse_coords
 from ..utils import to_list, align_args
-from ...batchflow.models.metrics import Metrics
 
 
-class MetricsAccumulator(Metrics):
+class MetricsAccumulator:
     """Accumulate metric values and their coordinates to further aggregate them into metric maps.
+
+    Examples
+    --------
+    Accumulate minimum and maximum amplitudes for each common source gather in a survey:
+    >>> survey = Survey(path, header_index="FieldRecord", header_cols=["SourceY", "SourceX", "offset"], name="raw")
+    >>> dataset = SeismicDataset(surveys=survey)
+    >>> pipeline = (dataset
+    ...     .pipeline()
+    ...     .load(src="raw")
+    ...     .gather_metrics(MetricsAccumulator, coords=L("raw").coords, min_amplitude=L("raw").data.min(),
+    ...                     max_amplitude=L("raw").data.max(), save_to=V("accumulator", mode="a"))
+    ... )
+    >>> pipeline.run(batch_size=16, n_epochs=1)
+    >>> accumulator = pipeline.v("accumulator")
+
+    The calculated metric values can be aggregated over the whole field. Global minimum and maximum amplitudes can be
+    obtained as follows:
+    >>> min_amplitude = accumulator.evaluate("min_amplitude", agg="min")
+    >>> max_amplitude = accumulator.evaluate("max_amplitude", agg="max")
+
+    Accumulator object can construct a map for each metric to display its values over the field map:
+    >>> min_map, max_map = accumulator.construct_map(["min_amplitude", "max_amplitude"])
+    >>> min_map.plot()
+    >>> max_map.plot()
 
     Parameters
     ----------

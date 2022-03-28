@@ -5,7 +5,7 @@ from functools import partial
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
-from ..utils import set_ticks, set_text_formatting, get_text_formatting_kwargs
+from ..utils import calculate_axis_limits, set_ticks, set_text_formatting, get_text_formatting_kwargs
 from ..utils.interactive_plot_utils import InteractivePlot, PairedPlot
 
 
@@ -39,8 +39,8 @@ class SurveyGeometryPlot(PairedPlot):  # pylint: disable=too-many-instance-attri
         self.group_sur, self.group_x, self.group_y, self.group_neighbors = group_params
 
         # Calculate axes limits to fix them to avoid map plot shifting on view toggle
-        x_lim = self._get_limits(self.source_x, self.group_x)
-        y_lim = self._get_limits(self.source_y, self.group_y)
+        x_lim = calculate_axis_limits(np.concatenate([self.source_x, self.group_x]))
+        y_lim = calculate_axis_limits(np.concatenate([self.source_y, self.group_y]))
         self.plot_map = partial(self._plot_map, keep_aspect=keep_aspect, x_lim=x_lim, y_lim=y_lim, x_ticker=x_ticker,
                                 y_ticker=y_ticker, **self.scatter_kwargs)
         self.affected_scatter = None
@@ -65,15 +65,6 @@ class SurveyGeometryPlot(PairedPlot):  # pylint: disable=too-many-instance-attri
         coords = survey.indices.to_frame().values
         coords_neighbors = NearestNeighbors(n_neighbors=1).fit(coords)
         return survey, coords[:, 0], coords[:, 1], coords_neighbors
-
-    @staticmethod
-    def _get_limits(source_coords, group_coords):
-        min_coord = min(source_coords.min(), group_coords.min())
-        max_coord = max(source_coords.max(), group_coords.max())
-        margin = 0.05 * (max_coord - min_coord)
-        if np.isclose(margin, 0):
-            margin = 0.05 * max_coord
-        return [min_coord - margin, max_coord + margin]
 
     @property
     def is_shot_view(self):

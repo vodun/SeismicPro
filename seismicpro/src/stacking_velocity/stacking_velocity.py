@@ -1,11 +1,9 @@
 """Implements a StackingVelocity class which allows for velocity interpolation at given times"""
 
-from collections import namedtuple
-
 import numpy as np
 
 from ..utils.interpolation import interp1d
-from ..utils import read_single_vfunc, dump_vfunc
+from ..utils import read_single_vfunc, dump_vfunc, Coordinates
 
 
 class StackingVelocity:
@@ -214,15 +212,15 @@ class StackingVelocity:
 
         Returns
         -------
-        coords : tuple with 2 elements
+        coords : Coordinates
             Stacking velocity spatial coordinates.
         """
         _ = args, kwargs
-        return namedtuple("Coordinates", ["INLINE_3D", "CROSSLINE_3D"])(self.inline, self.crossline)
+        return Coordinates(self.inline, self.crossline, names=["INLINE_3D", "CROSSLINE_3D"])
 
     @property
     def coords(self):
-        """namedtuple with 2 elements: Spatial coordinates of the stacking velocity."""
+        """Coordinates: Spatial coordinates of the stacking velocity."""
         return self.get_coords()
 
     def __call__(self, times):

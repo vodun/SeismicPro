@@ -7,7 +7,7 @@ from matplotlib import colors as mcolors
 from .interactive_map import ScatterMapPlot, BinarizedMapPlot
 from .utils import parse_coords, parse_metric_values
 from ..decorators import plotter
-from ..utils import to_list, add_colorbar, set_ticks, set_text_formatting
+from ..utils import to_list, add_colorbar, calculate_axis_limits, set_ticks, set_text_formatting
 
 
 class BaseMetricMap:
@@ -64,19 +64,23 @@ class BaseMetricMap:
         """None or array-like: labels of y axis ticks."""
         return None
 
+    @staticmethod
+    def _construct_centered_norm(vcenter, halfrange):
+        if np.isclose(halfrange, 0):
+            halfrange = 0.1 if np.isclose(vcenter, 0) else 0.1 * abs(vcenter)
+        return mcolors.CenteredNorm(vcenter, halfrange)
+
     @plotter(figsize=(10, 7))
     def _plot(self, *, title=None, x_ticker=None, y_ticker=None, is_lower_better=None, vmin=None, vmax=None, cmap=None,
               colorbar=True, center_colorbar=True, clip_threshold_quantile=0.95, keep_aspect=False, ax=None, **kwargs):
         """Plot the metric map."""
         is_lower_better = self.is_lower_better if is_lower_better is None else is_lower_better
-        # Handle plain Metric case
+        vmin_vmax_passed = (vmin is not None) or (vmax is not None)
         vmin = vmin or self.vmin or self.min_value
         vmax = vmax or self.vmax or self.max_value
 
-        if is_lower_better is None and center_colorbar:
-            global_mean = self.metric_data[self.metric_name].agg("mean")
-            clip_threshold = (self.metric_data[self.metric_name] - global_mean).abs().quantile(clip_threshold_quantile)
-            norm = mcolors.CenteredNorm(global_mean, clip_threshold)
+        if (not vmin_vmax_passed) and (is_lower_better is None) and center_colorbar:
+            norm = self.get_centered_norm(clip_threshold_quantile)
         else:
             norm = mcolors.Normalize(vmin, vmax)
 
@@ -202,15 +206,15 @@ class ScatterMap(BaseMetricMap):
         # Guarantee that extreme values are always displayed on top of the others
         map_data = self.map_data.sort_values(ascending=is_lower_better, key=sort_key)
         coords_x, coords_y = map_data.index.to_frame().values.T
-        x_margin = 0.05 * coords_x.ptp()
-        if np.isclose(x_margin, 0):
-            x_margin = 0.05 * coords_x[0]
-        y_margin = 0.05 * coords_y.ptp()
-        if np.isclose(y_margin, 0):
-            y_margin = 0.05 * coords_y[0]
-        ax.set_xlim(coords_x.min() - x_margin, coords_x.max() + x_margin)
-        ax.set_ylim(coords_y.min() - y_margin, coords_y.max() + y_margin)
+        ax.set_xlim(*calculate_axis_limits(coords_x))
+        ax.set_ylim(*calculate_axis_limits(coords_y))
         return ax.scatter(coords_x, coords_y, c=map_data, **kwargs)
+
+    def get_centered_norm(self, clip_threshold_quantile):
+        """Return a matplotlib norm to center map data around its mean value."""
+        global_mean = self.map_data.mean()
+        clip_threshold = (self.map_data - global_mean).abs().quantile(clip_threshold_quantile)
+        return self._construct_centered_norm(global_mean, clip_threshold)
 
     def get_worst_coords(self, is_lower_better=None):
         """Get coordinates with the worst metric value dependind on `is_lower_better`. If not given, `is_lower_better`
@@ -297,6 +301,12 @@ class BinarizedMap(BaseMetricMap):
         kwargs = {"interpolation": "none", "origin": "lower", "aspect": "auto", **kwargs}
         return ax.imshow(self.map_data.T, **kwargs)
 
+    def get_centered_norm(self, clip_threshold_quantile):
+        """Return a matplotlib norm to center map data around its mean value."""
+        global_mean = np.nanmean(self.map_data)
+        clip_threshold = np.nanquantile(np.abs(self.map_data - global_mean), clip_threshold_quantile)
+        return self._construct_centered_norm(global_mean, clip_threshold)
+
     def get_worst_coords(self, is_lower_better=None):
         """Get coordinates with the worst metric value dependind on `is_lower_better`. If not given, `is_lower_better`
         attribute of `self.metric` is used.
@@ -357,6 +367,30 @@ class MetricMapMeta(type):
 
 class MetricMap(metaclass=MetricMapMeta):
     """Construct a map from metric values and their coordinates.
+
+    Examples
+    --------
+    A map can be created directly from known values and coordinates:
+    >>> metric_map = MetricMap(coords=[[0, 0], [0, 1], [1, 0], [1, 1]], metric_values=[1, 2, 3, 4])
+
+    But usually maps are constructed via helper functions. One of the most common cases is to accumulate metric values
+    in a pipeline and then convert them into a map:
+    >>> survey = Survey(path, header_index="FieldRecord", header_cols=["SourceY", "SourceX", "offset"], name="raw")
+    >>> dataset = SeismicDataset(surveys=survey)
+    >>> pipeline = (dataset
+    ...     .pipeline()
+    ...     .load(src="raw")
+    ...     .gather_metrics(MetricsAccumulator, coords=L("raw").coords, std=L("raw").data.std(),
+    ...                     save_to=V("accumulator", mode="a"))
+    ... )
+    >>> pipeline.run(batch_size=16, n_epochs=1)
+    >>> std_map = pipeline.v("accumulator").construct_map()
+
+    The resulting map can be visualized by calling `plot` method:
+    >>> std_map.plot()
+
+    In case of a large number of points it makes sense to aggregate the map first to make the plot more clear:
+    >>> std_map.aggregate(bin_size=100, agg="mean").plot()
 
     Parameters
     ----------
