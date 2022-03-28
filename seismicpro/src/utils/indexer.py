@@ -94,7 +94,7 @@ def create_indexer(index):
     indexer : BaseIndexer
         The constructed indexer.
     """
-    if not index.is_monotonic:
+    if not (index.is_monotonic_increasing or index.is_monotonic_decreasing):
         raise ValueError("Indexer can be created only for monotonic indices")
     if index.is_unique:
         return TraceIndexer(index)
