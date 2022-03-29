@@ -2,6 +2,7 @@
 
 # pylint: disable=protected-access
 import pathlib
+from copy import deepcopy
 
 import segyio
 import numpy as np
@@ -104,23 +105,28 @@ def assert_surveys_equal(left, right, ignore_column_order=False, ignore_dtypes=F
 
 def assert_surveys_not_linked(base, altered):
     """Check whether attributes of both `base` and `altered` surveys have links to the same data by changing `altered`
-    data inplace."""
-    base_copy = base.copy()
-
+    data inplace. Each data attribute is copied via its own deepcopy method in order not to use `Survey.copy`, which
+    calls this function in its own tests."""
     # Modify headers
+    unchanged_headers = base.headers.copy()
     altered.headers.iloc[:, :] = 0
-    assert base_copy.headers.equals(base.headers)
+    assert unchanged_headers.equals(base.headers)
 
     # Modify indexer: only index_to_headers_pos dict is changed since pd.Index is immutable
     if isinstance(base.indexer, GatherIndexer) and isinstance(altered.indexer, GatherIndexer):
+        unchanged_index_to_headers_pos = deepcopy(base.indexer.index_to_headers_pos)
         altered.indexer.index_to_headers_pos["TEST_KEY"] = None
-        assert base_copy.indexer.index_to_headers_pos == base.indexer.index_to_headers_pos
+        assert unchanged_index_to_headers_pos == base.indexer.index_to_headers_pos
 
     # Modify samples
+    unchanged_samples = np.copy(base.samples)
     altered.samples += 1
+    assert np.allclose(unchanged_samples, base.samples)
+
+    # Modify file samples
+    unchanged_file_samples = np.copy(base.file_samples)
     altered.file_samples += 1
-    assert np.allclose(base_copy.samples, base.samples)
-    assert np.allclose(base_copy.file_samples, base.file_samples)
+    assert np.allclose(unchanged_file_samples, base.file_samples)
 
 
 def assert_survey_processed_inplace(before, after, inplace):
