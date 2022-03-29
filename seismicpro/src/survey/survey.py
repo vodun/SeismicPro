@@ -642,7 +642,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         ValueError
             If there is not a single match of rows from the file with those in `self.headers`.
         """
-        self = maybe_copy(self, inplace, ignore=["_headers", "indexer"])
+        self = maybe_copy(self, inplace, ignore="indexer")
 
         # if decimal is not provided, try to infer it from the first line
         if decimal is None:
@@ -654,7 +654,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         first_breaks_df = pd.read_csv(path, delimiter=delimiter, names=file_columns,
                                       decimal=decimal, encoding=encoding, **kwargs)
 
-        headers = self.headers.merge(first_breaks_df, on=trace_id_cols)
+        headers = self.headers
+        headers.reset_index(inplace=True)
+        headers = headers.merge(first_breaks_df, on=trace_id_cols)
         if headers.empty:
             raise ValueError('Empty headers after first breaks loading.')
         headers.set_index(self.headers.index.names, inplace=True)
@@ -947,7 +949,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         KeyError
             If `INLINE_3D` and `CROSSLINE_3D` headers were not loaded.
         """
-        self = maybe_copy(self, inplace, ignore=["_headers", "indexer"])
+        self = maybe_copy(self, inplace, ignore="indexer")
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]
         super_line_cols = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
         index_cols = super_line_cols if reindex else self.headers.index.names
@@ -957,7 +959,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         supergather_lines = pd.DataFrame(create_supergather_index(supergather_centers, size),
                                          columns=super_line_cols+line_cols)
 
-        headers = pd.merge(supergather_lines, self.headers, on=line_cols)
+        headers = self.headers
+        headers.reset_index(inplace=True)
+        headers = pd.merge(supergather_lines, headers, on=line_cols)
         headers.set_index(index_cols, inplace=True)
         headers.sort_index(kind="stable", inplace=True)
         self.headers = headers
