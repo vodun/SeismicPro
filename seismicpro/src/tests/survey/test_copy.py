@@ -2,8 +2,6 @@
 
 import pickle
 
-import numpy as np
-
 from . import assert_surveys_equal, assert_surveys_not_linked
 
 
