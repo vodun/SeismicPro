@@ -18,57 +18,55 @@ class WeatheringVelocity:
     The weathering model is a velocity model of the first few subsurface layers. The class uses the intercept time,
     cross offsets and velocities values as the weathering model parameters. The weathering model could be present as
     a piecewise linear function the picking time from the offsets. Also referred to as the weathering velocity curve.
-    Since the class uses the first break picking time to fit the detected velocities, any underlaying layers should
-    have a higher velocity than any of the overlaying.
-
-    It can be created from four different types of data by calling a corresponding `classmethod`:
+    Since the class uses the first break picking time to fit the detected velocities, any detected underlaying layers
+    should have a higher velocity than any of the overlaying.
 
     The class could be created with `from_params` and `from_picking` classmethods.
     `from_params` - create the WeatheringVelocity by parameters of the weathering model.
         Parameters : `params`.
-            `params` : dict with weathering model parameters. Read the keys notation below.
+            `params` : dict with weathering model parameters. Read the common keys notation below.
 
-    `from_picking` - create the WeatheringVelocity by data and estimate parameters of weathering model 
+    `from_picking` - create the WeatheringVelocity by first break picking data and estimate parameters
+                     of the weathering model.
         Data : first break picking times and the corresponding offsets.
         Parameters : `init`, `bounds`, `n_layers`.
-            `init` : dict with the estimate weathering model parameters. Read the keys notation below.
+            `init` : dict with the estimate weathering model parameters. Read the common keys notation below.
             `bounds` : dict with left and right bound for each weathering model parameter.
-                    Read the keys notation below.
+                    Read the common keys notation below.
             `n_layers` : the quantity of the weathering model layers.
 
     The WeatheringVelocity created with `from_picking` classmethod could calculate the missing parameters from
     the passed parameters to simplify class initialization.
-    Missing parameters calculate rules:
+    Rules for calculating missing parameters:
         `init` : calculated from `bounds`. lower bound + (upper bounds - lower bounds) / 3
                  calculated from `n_layers`. Read `_calc_init_by_layers` docs to get more info.
         `bounds` : calculated from `init`. The lower bound is init / 2, the upper bound is init * 2.
                    calculated from `n_layers`. `init` calculates first and uses the above expression.
-        `n_layers`: calculated from `bounds`. Half of the the `bounds` parameters.
+        `n_layers`: calculated from `bounds`. Half of the the `bounds` keys.
                     calculated from `init`. Calculates `bounds` from `init` first and uses the above rule.
+    Note: All passed parameters have a greater priority than any calculated parameters.
 
     Common keys notation.
-        `init`, `bounds` and `params` is dict with the common key notation.
-            `t0`: a intercept time of the first subweathering layer. a double wave travel time to the first refractor.
-                Measured in milliseconds.
-            `x{i}`: offset where refracted wave from i-th layer comes at the same time with a refracted wave from
-                    the underlaying layer. Measured in meters.
-            `v{i}`: velocity of an i-th layer. Measured in km/s.
+        `init`, `bounds` and `params` is dicts with the common key notation.
+            `t0`: a intercept time of the first subweathering layer. Same as double wave travel time to the first
+                  refractor. Measured in milliseconds.
+            `x{i}`: cross offset. The offset where refracted wave from the i-th layer comes at the same time with
+                    a refracted wave from the next underlaying layer. Measured in meters.
+            `v{i}`: velocity of the i-th layer. Measured in km/s.
         Note: in some case a direct wave could be detected on the close offsets. In this point `v1` is mean velocity
         of the direct wave layer, and `x1` is cross offsets where direct wave comes at the same time with a refracted
         wave from the first subweathering layer.
 
-    In case you have partial information about `init` and `bounds` you could pass part of keys and values in an `init`
-    dict and a remaining part of keys in a `bounds` dict. Be sure that you pass all the needed keys.
-    Note: All passed parameters have a greater priority than any calculated parameters.
-
     Examples
     --------
+    Note: `gather.calculate_weathering_velocity` uses `from_picking` classmethod to create the WeatheringVelocity.
+
     A Weathering Velocity object with starting initial parameters for two layers weathering model:
     >>> weathering_velocity = gather.calculate_weathering_velocity(init={'t0': 100, 'x1': 1500, 'v1': 2, 'v2': 3})
 
     A Weathering Velocity object with bounds for fitted intercept time and velocity of the first layer for the one
     layer weathering model:
-    >>> weathering_velocity = gather.calculate_weathering_velocity(init={'t0': [0, 200], 'v1': [1, 3]})
+    >>> weathering_velocity = gather.calculate_weathering_velocity(bounds={'t0': [0, 200], 'v1': [1, 3]})
 
     A Weathering Velocity object for three layers weathering model:
     >>> weathering_velocity = gather.calculate_weathering_velocity(n_layers=3)
@@ -96,7 +94,7 @@ class WeatheringVelocity:
 
     @classmethod
     def from_picking(cls, offsets, picking_times, n_layers=None, init=None, bounds=None, ascending_velocity=True,
-                 **kwargs):
+                 freeze_t0=False, **kwargs):
         """Method fits the weathering model parameters from the offsets and the first break picking times.
 
         Parameters
@@ -113,6 +111,8 @@ class WeatheringVelocity:
             Number of layers of a weathering model.
         ascending_velocity : bool, defaults to True
             Keeps the ascend of the fitted velocities from layer to layer.
+        freeze_t0 : bool, defaults to False
+            Avoid the fitting `t0`.
         kwargs : dict, optional
             Additional keyword arguments to `scipy.optimize.minimize`.
 
@@ -136,12 +136,12 @@ class WeatheringVelocity:
         Raises
         ------
         ValueError
-            if any `init` values are negative.
-            if any `bounds` values are negative.
-            if left bound greater than right bound.
-            if init value is out of the bound interval.
-            if passed `init` and/or `bounds` keys are insufficient or excessive.
-            if an union of `init` and `bounds` keys less than 2 or `n_layers` less than 1.
+            If any `init` values are negative.
+            If any `bounds` values are negative.
+            If left bound greater than right bound.
+            If init value is out of the bound interval.
+            If passed `init` and/or `bounds` keys are insufficient or excessive.
+            If an union of `init` and `bounds` keys less than 2 or `n_layers` less than 1.
         """
         self = cls()
         self.interpolator = np.interp
@@ -169,22 +169,24 @@ class WeatheringVelocity:
         self._piecewise_offsets[-1] = offsets.max()
         self._current_args = np.array(list(self.init.values()))
 
-        # Constraints define
+        # constraints define
         constraint_offset = {"type": "ineq", "fun": lambda x: np.diff(x[1:self.n_layers])}  # crossoffsets ascend.
         constraint_velocity = {"type": "ineq", "fun": lambda x: np.diff(x[self.n_layers:])}  # velocities ascend.
         constraint_freeze_velocity = {  # freeze the velocity fitting if no data for layer is found.
             "type": "eq",
             "fun": lambda x: self._current_args[self.n_layers:][self._mask_empty_layers(self.init)] \
                              - x[self.n_layers:][self._mask_empty_layers(self.init)]}
-        constraint_freeze_time = {  # freeze the intercept time fitting if no data for layer is found.
+        constraint_freeze_t0 = {  # freeze the intercept time fitting if no data for layer is found.
             "type": "eq",
             "fun": lambda x: self._current_args[0][self._mask_empty_layers(self.init)[0]] \
                              - x[0][self._mask_empty_layers(self.init)[0]]}
-        constraints = [constraint_offset, constraint_freeze_velocity, constraint_freeze_time]
+        constraint_freeze_init_t0 = {"type": "eq", "fun": lambda x: x[0] - self.init['t0']} # freeze `t0` at init value
+        constraints = [constraint_offset, constraint_freeze_velocity]
+        constraints.append(constraint_freeze_init_t0 if freeze_t0 else constraint_freeze_t0)
         if ascending_velocity:
             constraints.append(constraint_velocity)
 
-        # Fitting piecewise linear regression
+        # fitting piecewise linear regression
         partial_loss_func = partial(self.loss_piecewise_linear, loss=kwargs.pop('loss', 'L1'),
                                     huber_coef=kwargs.pop('huber_coef', .1))
         minimizer_kwargs = {'method': 'SLSQP', 'constraints': constraints, **kwargs}
@@ -202,12 +204,17 @@ class WeatheringVelocity:
         Parameters
         ----------
         params : dict,
-            parameters of the weathering model
+            Parameters of the weathering model. Have the common key notation.
 
         Returns
         -------
         WeatheringVelocity
             WeatheringVelocity instance based on passed params.
+
+        Raises
+        ------
+        ValueError
+            If passed `params` keys are insufficient or excessive.
         """
         self = cls()
 
@@ -218,9 +225,9 @@ class WeatheringVelocity:
 
         self._piecewise_offsets, self._piecewise_times = self._calc_piecewise_coords_from_params(params)
         self._piecewise_offsets[-1] = 2 * self._piecewise_offsets[-2] - self._piecewise_offsets[-3]
-        self._piecewise_times[-1] = (self._piecewise_offsets[-1] - self._piecewise_offsets[-2]) / \
-                                    params[f'v{self.n_layers}'] + self._piecewise_times[-2] # params[f'v{self.n_layers}'], list(params.values())[-1]
-                                    
+        self._piecewise_times[-1] = ((self._piecewise_offsets[-1] - self._piecewise_offsets[-2]) /
+                                    params[f'v{self.n_layers}'] + self._piecewise_times[-2])
+
         self.interpolator = interp1d(self._piecewise_offsets, self._piecewise_times)
         return self
 
@@ -267,7 +274,7 @@ class WeatheringVelocity:
             The loss function type. Should be one of 'L1', 'huber', 'soft_L1', or 'cauchy'.
             All implemented loss functions have a mean reduction.
         huber_coef : float, default to 0.1
-            Delta coefficient for Huber loss.
+            Coefficient for Huber loss.
 
         Returns
         -------
