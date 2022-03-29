@@ -64,6 +64,24 @@ class BaseMetricMap:
         """None or array-like: labels of y axis ticks."""
         return None
 
+    def evaluate(self, agg=None):
+        """Aggregate metric values.
+
+        Parameters
+        ----------
+        agg : str or callable, optional, defaults to None
+            A function used for aggregating metric values. If not given, `agg` passed during map initialization is
+            used. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
+
+        Returns
+        -------
+        metric_val : float
+            Evaluated metric value.
+        """
+        if agg is None:
+            agg = self.agg
+        return self.metric_data[self.metric_name].agg(agg)
+
     def get_worst_coords(self, is_lower_better=None):
         """Get coordinates with the worst metric value dependind on `is_lower_better`. If not given, `is_lower_better`
         attribute of `self.metric` is used.
