@@ -4,7 +4,7 @@ import pickle
 
 import numpy as np
 
-from . import assert_surveys_equal
+from . import assert_surveys_equal, assert_surveys_not_linked
 
 
 class TestCopy:
@@ -27,15 +27,4 @@ class TestCopy:
     def test_is_copy_deep(self, survey):
         """Test whether `survey.copy` returns a deepcopy by changing some of its mutable attributes."""
         survey_copy = survey.copy()
-        survey_copy.headers = survey_copy.headers.iloc[1:]
-        assert not survey.headers.equals(survey_copy.headers)
-
-        survey_copy = survey.copy()
-        survey_copy.headers["_EXTRA_HEADER"] = 0
-        assert not survey.headers.equals(survey_copy.headers)
-
-        survey_copy = survey.copy()
-        survey_copy.samples += 1
-        survey_copy.file_samples += 1
-        assert not np.allclose(survey.samples, survey_copy.samples)
-        assert not np.allclose(survey.file_samples, survey_copy.file_samples)
+        assert_surveys_not_linked(survey, survey_copy)

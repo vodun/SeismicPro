@@ -6,7 +6,7 @@ import pathlib
 import segyio
 import numpy as np
 
-from seismicpro.src.utils.indexer import create_indexer
+from seismicpro.src.utils.indexer import create_indexer, GatherIndexer
 
 from ..indexer.asserters import assert_indexers_equal
 
@@ -102,11 +102,33 @@ def assert_surveys_equal(left, right, ignore_column_order=False, ignore_dtypes=F
     assert_both_none_or_close(left_quantiles, right_quantiles, rtol=rtol, atol=atol)
 
 
+def assert_surveys_not_linked(base, altered):
+    """Check whether attributes of both `base` and `altered` surveys have links to the same data by changing `altered`
+    data inplace."""
+    base_copy = base.copy()
+
+    # Modify headers
+    altered.headers.iloc[:, :] = 0
+    assert base_copy.headers.equals(base.headers)
+
+    # Modify indexer: only index_to_headers_pos dict is changed since pd.Index is immutable
+    if isinstance(base.indexer, GatherIndexer) and isinstance(altered.indexer, GatherIndexer):
+        altered.indexer.index_to_headers_pos["TEST_KEY"] = None
+        assert base_copy.indexer.index_to_headers_pos == base.indexer.index_to_headers_pos
+
+    # Modify samples
+    altered.samples += 1
+    altered.file_samples += 1
+    assert np.allclose(base_copy.samples, base.samples)
+    assert np.allclose(base_copy.file_samples, base.file_samples)
+
+
 def assert_survey_processed_inplace(before, after, inplace):
-    """Assert whether survey processing was performed inplace depending on the `inplace` flag."""
+    """Assert whether survey processing was performed inplace depending on the `inplace` flag. Changes `after` data
+    inplace if `inplace` flag is set to `True`."""
     assert (id(before) == id(after)) is inplace
-    if inplace:
-        assert_surveys_equal(before, after)
+    if not inplace:
+        assert_surveys_not_linked(before, after)
 
 
 def assert_survey_limits_set(survey, limits, rtol=RTOL, atol=ATOL):
