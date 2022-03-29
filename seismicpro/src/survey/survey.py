@@ -655,11 +655,12 @@ class Survey:  # pylint: disable=too-many-instance-attributes
                                       decimal=decimal, encoding=encoding, **kwargs)
 
         headers = self.headers
+        headers_index = self.headers.index.names
         headers.reset_index(inplace=True)
         headers = headers.merge(first_breaks_df, on=trace_id_cols)
         if headers.empty:
             raise ValueError('Empty headers after first breaks loading.')
-        headers.set_index(self.headers.index.names, inplace=True)
+        headers.set_index(headers_index, inplace=True)
         headers.sort_index(kind="stable", inplace=True)
         self.headers = headers
         return self
