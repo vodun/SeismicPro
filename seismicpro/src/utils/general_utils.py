@@ -75,7 +75,7 @@ INDEX_TO_COORDS = {frozenset(to_list(key)): val for key, val in INDEX_TO_COORDS.
 def get_coords_cols(index_cols):
     """Return headers columns to get coordinates from depending on the type of headers index. See the mapping in
     `INDEX_TO_COORDS`."""
-    coords_cols = INDEX_TO_COORDS.get(frozenset(index_cols))
+    coords_cols = INDEX_TO_COORDS.get(frozenset(to_list(index_cols)))
     if coords_cols is None:
         raise KeyError(f"Unknown coordinates columns for {index_cols} index")
     return coords_cols

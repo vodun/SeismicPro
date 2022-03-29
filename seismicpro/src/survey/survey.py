@@ -172,10 +172,18 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     @headers.setter
     def headers(self, headers):
         """Reconstruct survey indexer on each headers assignment."""
-        if not headers.index.is_monotonic:
+        if not (headers.index.is_monotonic_increasing or headers.index.is_monotonic_decreasing):
             headers = headers.sort_index(kind="stable")
         self.indexer = create_indexer(headers.index)
         self._headers = headers
+
+    @property
+    def indexed_by(self):
+        """str or tuple of str: Names of header indices."""
+        index_names = tuple(self.headers.index.names)
+        if len(index_names) == 1:
+            return index_names[0]
+        return index_names
 
     @property
     def indices(self):
@@ -274,7 +282,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         Survey name:               {self.name}
         Survey size:               {os.path.getsize(self.path) / (1024**3):4.3f} GB
 
-        Indexed by:                {', '.join(self.headers.index.names)}
+        Indexed by:                {', '.join(to_list(self.indexed_by))}
         Number of gathers:         {self.n_gathers}
         Number of traces:          {self.n_traces}
         Trace length:              {self.n_samples} samples
@@ -655,7 +663,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
                                       decimal=decimal, encoding=encoding, **kwargs)
 
         headers = self.headers
-        headers_index = self.headers.index.names
+        headers_index = self.indexed_by
         headers.reset_index(inplace=True)
         headers = headers.merge(first_breaks_df, on=trace_id_cols)
         if headers.empty:
@@ -953,7 +961,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self = maybe_copy(self, inplace, ignore="indexer")
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]
         super_line_cols = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
-        index_cols = super_line_cols if reindex else self.headers.index.names
+        index_cols = super_line_cols if reindex else self.indexed_by
 
         line_coords = pd.DataFrame(self[line_cols], columns=line_cols).drop_duplicates().sort_values(by=line_cols)
         supergather_centers = line_coords[(line_coords.mod(step) == modulo).all(axis=1)].values
