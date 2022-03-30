@@ -83,7 +83,7 @@ class BaseMetricMap:
         return self.metric_data[self.metric_name].agg(agg)
 
     def get_worst_coords(self, is_lower_better=None):
-        """Get coordinates with the worst metric value dependind on `is_lower_better`. If not given, `is_lower_better`
+        """Get coordinates with the worst metric value depending on `is_lower_better`. If not given, `is_lower_better`
         attribute of `self.metric` is used.
 
         Three options are possible:
