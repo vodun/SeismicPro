@@ -3,7 +3,6 @@
 from functools import partial
 
 import numpy as np
-import pandas as pd
 from sklearn.neighbors import NearestNeighbors
 
 from ..utils import calculate_axis_limits, set_ticks, set_text_formatting, get_text_formatting_kwargs
@@ -28,17 +27,16 @@ class SurveyGeometryPlot(PairedPlot):  # pylint: disable=too-many-instance-attri
             gather_plot_kwargs = {}
         self.gather_plot_kwargs = {"title": None, **text_kwargs, **gather_plot_kwargs}
 
-        self.survey = survey
         self.sort_by = sort_by
         self.figsize = figsize
         self.orientation = orientation
 
-        # Calculate source and group indices to speed up gather selection and shot/receiver nearest neighbors to
-        # project a click on the closest one
+        # Reindex the survey to speed up gather selection and fit nearest neighbors to project a click on the closest
+        # shot or receiver
         source_params = self._process_survey(survey, ["SourceX", "SourceY"])
-        self.source_ix, self.source_x, self.source_y, self.source_neighbors = source_params
+        self.source_sur, self.source_x, self.source_y, self.source_neighbors = source_params
         group_params = self._process_survey(survey, ["GroupX", "GroupY"])
-        self.group_ix, self.group_x, self.group_y, self.group_neighbors = group_params
+        self.group_sur, self.group_x, self.group_y, self.group_neighbors = group_params
 
         # Calculate axes limits to fix them to avoid map plot shifting on view toggle
         x_lim = calculate_axis_limits(np.concatenate([self.source_x, self.group_x]))
@@ -63,12 +61,10 @@ class SurveyGeometryPlot(PairedPlot):  # pylint: disable=too-many-instance-attri
 
     @staticmethod
     def _process_survey(survey, coord_cols):
-        # Avoid cyclic imports, remove when Survey.get_gather is optimized
-        from ..index import SeismicIndex  # pylint: disable=import-outside-toplevel
-        index = SeismicIndex(surveys=survey.reindex(coord_cols))
-        coords = index.indices.to_frame().values[:, 1:]
+        survey = survey.reindex(coord_cols)
+        coords = survey.indices.to_frame().values
         coords_neighbors = NearestNeighbors(n_neighbors=1).fit(coords)
-        return index, coords[:, 0], coords[:, 1], coords_neighbors
+        return survey, coords[:, 0], coords[:, 1], coords_neighbors
 
     @property
     def is_shot_view(self):
@@ -76,9 +72,9 @@ class SurveyGeometryPlot(PairedPlot):  # pylint: disable=too-many-instance-attri
         return self.main.current_view == 0
 
     @property
-    def index(self):
-        """SeismicIndex: an index to get gathers from, depends on the current view."""
-        return self.source_ix if self.is_shot_view else self.group_ix
+    def survey(self):
+        """Survey: a survey to get gathers from, depends on the current view."""
+        return self.source_sur if self.is_shot_view else self.group_sur
 
     @property
     def coord_x(self):
@@ -154,14 +150,10 @@ class SurveyGeometryPlot(PairedPlot):  # pylint: disable=too-many-instance-attri
         closest_ix = self.coords_neighbors.kneighbors([coords], return_distance=False).item()
         x = self.coord_x[closest_ix]
         y = self.coord_y[closest_ix]
-
-        # TODO: Change to gather = survey.get_gather((x, y)) when it is optimized
-        tmp_index = self.index.create_subset(pd.MultiIndex.from_tuples([(0, x, y)]))
-        gather_headers = tmp_index.headers.droplevel(0)
-        gather = self.survey.load_gather(gather_headers, copy_headers=False)
-
+        gather = self.survey.get_gather((x, y), copy_headers=False)
         if self.sort_by is not None:
             gather = gather.sort(by=self.sort_by)
+
         if self.affected_scatter is not None:
             self.affected_scatter.remove()
         self.affected_scatter = self.main.ax.scatter(*gather[self.affected_coords_cols].T, color=self.aux_color,

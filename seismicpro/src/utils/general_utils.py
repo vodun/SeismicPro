@@ -23,8 +23,8 @@ def maybe_copy(obj, inplace=False, **kwargs):
 def unique_indices_sorted(arr):
     """Return indices of the first occurrences of the unique values in a sorted array."""
     mask = np.empty(len(arr), dtype=np.bool_)
-    mask[:1] = True
-    mask[1:] = (arr[1:] != arr[:-1]).any(axis=1)
+    np.any(arr[1:] != arr[:-1], axis=1, out=mask[1:])
+    mask[0] = True
     return np.where(mask)[0]
 
 
@@ -75,7 +75,7 @@ INDEX_TO_COORDS = {frozenset(to_list(key)): val for key, val in INDEX_TO_COORDS.
 def get_coords_cols(index_cols):
     """Return headers columns to get coordinates from depending on the type of headers index. See the mapping in
     `INDEX_TO_COORDS`."""
-    coords_cols = INDEX_TO_COORDS.get(frozenset(index_cols))
+    coords_cols = INDEX_TO_COORDS.get(frozenset(to_list(index_cols)))
     if coords_cols is None:
         raise KeyError(f"Unknown coordinates columns for {index_cols} index")
     return coords_cols
