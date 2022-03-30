@@ -19,7 +19,7 @@ def test_create_indexer_fails(index):
         create_indexer(index)
 
 
-@pytest.mark.parametrize("index, is_unique, query_index, query_pos", [
+@pytest.mark.parametrize("index, is_unique, query_indices, query_pos", [
     # Trace indexer creation
     [pd.Index([10]), True, [10], [0]],  # Single-element index
     [pd.Index([1, 2]), True, [1], [0]],  # Unique monotonically increasing index
@@ -38,9 +38,9 @@ def test_create_indexer_fails(index):
     [pd.MultiIndex.from_tuples([(3, 3), (3, 3), (5, 5)]), False, [(5, 5)], [2]],  # Monotonically increasing index
     [pd.MultiIndex.from_tuples([(2, 4), (2, 4), (1, 5)]), False, [(2, 4)], [0, 1]],  # Monotonically decreasing index
 ])
-def test_create_indexer(index, is_unique, query_index, query_pos):
+def test_create_indexer(index, is_unique, query_indices, query_pos):
     """Test whether the correct type of indexer is created and correct positions are returned."""
     indexer = create_indexer(index)
     index_type = TraceIndexer if is_unique else GatherIndexer
     assert isinstance(indexer, index_type)
-    assert np.array_equal(indexer.get_loc(query_index), query_pos)
+    assert np.array_equal(indexer.get_loc(query_indices), query_pos)

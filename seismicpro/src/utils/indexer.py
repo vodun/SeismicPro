@@ -16,9 +16,9 @@ class BaseIndexer:
         self.index = index
         self.unique_indices = None
 
-    def get_loc(self, index):
-        """Get locations of `index` values in the source index."""
-        _ = index
+    def get_loc(self, indices):
+        """Get locations of `indices` values in the source index."""
+        _ = indices
         raise NotImplementedError
 
 
@@ -31,12 +31,12 @@ class TraceIndexer(BaseIndexer):
         self.unique_indices = index
         _ = self.get_loc(index[:1])  # Warmup of `get_loc`: the first call is way slower than the following ones
 
-    def get_loc(self, index):
-        """Get locations of `index` values in the source index.
+    def get_loc(self, indices):
+        """Get locations of `indices` values in the source index.
 
         Parameters
         ----------
-        index : array-like
+        indices : array-like
             Indices of traces to get locations for.
 
         Returns
@@ -44,7 +44,7 @@ class TraceIndexer(BaseIndexer):
         locations : np.ndarray
             Locations of the requested indices.
         """
-        return self.index.get_indexer(index)
+        return self.index.get_indexer(indices)
 
 
 class GatherIndexer(BaseIndexer):
@@ -59,12 +59,12 @@ class GatherIndexer(BaseIndexer):
         self.unique_indices = index[unique_indices_pos]
         self.index_to_headers_pos = {ix: range(*args) for ix, *args in zip(self.unique_indices, ix_start, ix_end)}
 
-    def get_loc(self, index):
-        """Get locations of `index` values in the source index.
+    def get_loc(self, indices):
+        """Get locations of `indices` values in the source index.
 
         Parameters
         ----------
-        index : array-like
+        indices : array-like
             Indices of gathers to get locations for.
 
         Returns
@@ -72,7 +72,7 @@ class GatherIndexer(BaseIndexer):
         locations : list
             Locations of the requested gathers.
         """
-        return list(chain.from_iterable(self.index_to_headers_pos[item] for item in index))
+        return list(chain.from_iterable(self.index_to_headers_pos[item] for item in indices))
 
 
 def create_indexer(index):
@@ -82,7 +82,7 @@ def create_indexer(index):
       constructed to speed up lookups from `O(logN)` to `O(1)`,
     * If `index` is non-monotonic, an error is raised.
 
-    The returned object implements `get_loc` method that returns locations of given indices in the `index`.
+    The returned object implements `get_loc` method that returns locations of given `indices` in the `index`.
 
     Parameters
     ----------
