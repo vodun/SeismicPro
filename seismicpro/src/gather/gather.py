@@ -941,6 +941,45 @@ class Gather:
         self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms, self.sample_rate)
         return self
 
+    @batch_method(target="for")
+    def apply_static_correciton(self, datum):
+        """!!!"""
+        self.validate(required_header_cols=["ReceiverGroupElevation", "SourceSurfaceElevation", "SourceUpholeTime",
+                                            "rec_v1", "rec_v2", "rec_depth_1", "source_v1", "source_v2",
+                                            "source_depth_1"])
+        new_data = np.zeros(self.shape)
+        for i, trace in enumerate(self.data):
+            header = self.headers.iloc[i]
+            dt = (self.get_dt(name='source', header=header, datum=datum)
+                  + self.get_dt(name='rec', header=header, datum=datum) - header["SourceUpholeTime"])
+            shift = np.int32(dt // self.sample_rate)
+            if shift > 0:
+                new_data[i][: -shift] = trace[shift:]
+            elif shift < 0:
+                new_data[i][-shift:] = trace[:shift]
+            else:
+                new_data[i] = trace
+        self.data = new_data
+        return self
+
+    @staticmethod
+    def get_dt(name, header, datum):
+        if name == 'source':
+            elevation_header = 'SourceSurfaceElevation'
+        elif name == 'rec':
+            elevation_header = 'ReceiverGroupElevation'
+        else:
+            raise ValueError('some')
+
+        # Calculate distance from surface to datum
+        dist_from_surface = header[elevation_header] - datum
+        if dist_from_surface < 0:
+            raise ValueError('some')
+
+        h_v1 = min(dist_from_surface, header[f'{name}_depth_1'])
+        h_v2 = dist_from_surface - h_v1
+        return h_v1 / header[f'{name}_v1'] + h_v2 / header[f'{name}_v2']
+
     #------------------------------------------------------------------------#
     #                       General processing methods                       #
     #------------------------------------------------------------------------#
