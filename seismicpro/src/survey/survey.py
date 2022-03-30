@@ -30,8 +30,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     method.
 
     The resulting gather type depends on `header_index` argument, passed during `Survey` creation: traces are grouped
-    into gathers by the common value of headers, defined by `header_index`. Some common values of `header_index`
-    include:
+    into gathers by the common value of headers, defined by `header_index`. Some frequently used values of
+    `header_index` are:
     - 'TRACE_SEQUENCE_FILE' - to get individual traces,
     - 'FieldRecord' - to get common source gathers,
     - ['GroupX', 'GroupY'] - to get common receiver gathers,
@@ -1014,7 +1014,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         SurveyGeometryPlot(self, **kwargs).plot()
 
     def construct_attribute_map(self, attribute, by, drop_duplicates=False, agg=None, bin_size=None, **kwargs):
-        """Construct a map of trace headers values aggregated by gathers.
+        """Construct a map of trace attributes aggregated by gathers.
 
         Examples
         --------
