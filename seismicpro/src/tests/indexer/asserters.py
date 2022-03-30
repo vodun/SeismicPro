@@ -15,4 +15,4 @@ def assert_indexers_equal(left, right):
     assert left.index.equals(right.index)
     assert left.unique_indices.equals(right.unique_indices)
     if isinstance(left, GatherIndexer):
-        assert left.index_to_headers_pos == left.index_to_headers_pos
+        assert left.index_to_headers_pos == right.index_to_headers_pos
