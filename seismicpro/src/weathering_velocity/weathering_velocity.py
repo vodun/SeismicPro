@@ -7,7 +7,7 @@ from sklearn.linear_model import SGDRegressor
 from scipy import optimize
 
 from ..decorators import plotter
-from ..utils import set_ticks, set_text_formatting
+from ..utils import set_ticks, set_text_formatting, get_text_formatting_kwargs
 from ..utils.interpolation import interp1d
 
 # pylint: disable=too-many-instance-attributes, protected-access
@@ -440,8 +440,8 @@ class WeatheringVelocity:
         mask_offsets = self._piecewise_offsets[2:] - params[1:self.n_layers] < 0
         params[1:self.n_layers][mask_offsets] = self._piecewise_offsets[2:][mask_offsets]
         if ascending_velocity:
-            mask_velocity = params[self.n_layers + 1:] - params[self.n_layers:-1] < 0
-            params[self.n_layers + 1:][mask_velocity] = params[self.n_layers:-1][mask_velocity]
+            for i in range(self.n_layers, 2 * self.n_layers - 1):
+                params[i+1] = params[i] if params[i+1] - params[i] < 0 else params[i+1]
         return params
 
     def _calc_piecewise_coords_from_params(self, params, max_offset=np.nan):
@@ -500,10 +500,12 @@ class WeatheringVelocity:
         self : WeatheringVelocity
             WeatheringVelocity without changes.
         """
+
         txt_kwargs = {**{'fontsize': 15, 'va': 'top'}, **kwargs.pop('txt_kwargs', {})}
         txt_ident = txt_kwargs.pop('ident', (.03, .94))
 
         (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
+        txt_kwargs = {**txt_kwargs, **get_text_formatting_kwargs(**{**x_ticker, **y_ticker})}
         set_ticks(ax, "x", tick_labels=None, label="offset, m", **x_ticker)
         set_ticks(ax, "y", tick_labels=None, label="time, ms", **y_ticker)
 
