@@ -170,8 +170,11 @@ class WeatheringVelocity:
         self._current_args = np.array(list(self.init.values()))
 
         # constraints define
-        constraint_offset = {"type": "ineq", "fun": lambda x: np.diff(x[1:self.n_layers])}  # crossoffsets ascend.
-        constraint_velocity = {"type": "ineq", "fun": lambda x: np.diff(x[self.n_layers:])}  # velocities ascend.
+        constraint_offset = {  # crossoffsets ascend
+            "type": "ineq",
+            "fun": lambda x: np.diff(np.concatenate((x[1:self.n_layers], [self.max_offset])))
+            }
+        constraint_velocity = {"type": "ineq", "fun": lambda x: np.diff(x[self.n_layers:])}  # velocities ascend
         constraint_freeze_velocity = {  # freeze the velocity fitting if no data for layer is found.
             "type": "eq",
             "fun": lambda x: self._current_args[self.n_layers:][self._mask_empty_layers(self.init)] \
@@ -181,7 +184,7 @@ class WeatheringVelocity:
             "fun": lambda x: self._current_args[0][self._mask_empty_layers(self.init)[0]] \
                              - x[0][self._mask_empty_layers(self.init)[0]]}
         constraint_freeze_init_t0 = {"type": "eq", "fun": lambda x: x[0] - self.init['t0']} # freeze `t0` at init value
-        constraints = [constraint_offset, constraint_freeze_velocity]
+        constraints = [constraint_offset , constraint_freeze_velocity]
         constraints.append(constraint_freeze_init_t0 if freeze_t0 else constraint_freeze_t0)
         if ascending_velocity:
             constraints.append(constraint_velocity)
@@ -190,9 +193,10 @@ class WeatheringVelocity:
         partial_loss_func = partial(self.loss_piecewise_linear, loss=kwargs.pop('loss', 'L1'),
                                     huber_coef=kwargs.pop('huber_coef', .1))
         minimizer_kwargs = {'method': 'SLSQP', 'constraints': constraints, **kwargs}
-        self._model_params = optimize.minimize(partial_loss_func, x0=list(self.init.values()),
+        self._model_params = optimize.minimize(partial_loss_func, x0=self._current_args,
                                                bounds=list(self.bounds.values()), **minimizer_kwargs)
-        self.params = dict(zip(self._valid_keys, self._model_params.x))
+        self.params = dict(zip(self._valid_keys, self._params_postprocceissing(self._model_params.x,
+                                                                               ascending_velocity=ascending_velocity)))
         return self
 
     @classmethod
@@ -356,7 +360,7 @@ class WeatheringVelocity:
         if n_layers is None or n_layers < 1:
             return {}
 
-        min_picking_times = self.picking_times.min()  # normalization parameter.
+        min_picking_times = self.picking_times.min() + 1  # normalization parameter.
         start_slope = 2/3  # base slope corresponding velocity is 1,5 km/s (v = 1 / slope)
         start_time = 1  # base time, equal to minimum picking times with the `min_picking` normalization.
         normalized_offsets = self.offsets / min_picking_times
@@ -430,6 +434,15 @@ class WeatheringVelocity:
         mask = [self.offsets[(self.offsets > cross_offsets[i]) & (self.offsets <= cross_offsets[i+1])].shape[0] < 1
                 for i in range(self.n_layers)]
         return mask
+    
+    def _params_postprocceissing(self, params, ascending_velocity):
+        """Checks the params and fix it if constraints are not met."""
+        mask_offsets = self._piecewise_offsets[2:] - params[1:self.n_layers] < 0
+        params[1:self.n_layers][mask_offsets] = self._piecewise_offsets[2:][mask_offsets]
+        if ascending_velocity:
+            mask_velocity = params[self.n_layers + 1:] - params[self.n_layers:-1] < 0
+            params[self.n_layers + 1:][mask_velocity] = params[self.n_layers:-1][mask_velocity]
+        return params
 
     def _calc_piecewise_coords_from_params(self, params, max_offset=np.nan):
         """Method calculate coords for the piecewise linear curve from params dict.
@@ -451,8 +464,8 @@ class WeatheringVelocity:
         params = {key: params[key] for key in keys}
         params_values = list(params.values())
 
-        offsets = np.empty(expected_layers + 1)
-        times = np.zeros(expected_layers + 1)
+        offsets = np.zeros(expected_layers + 1)
+        times = np.empty(expected_layers + 1)
         offsets[-1] = max_offset
 
         offsets[1:expected_layers] = params_values[1:expected_layers]
@@ -480,7 +493,7 @@ class WeatheringVelocity:
             Gap for plotting two outlines. If None additional outlines don't show.
         compared_params : dict, optional, defaults to None
             Dict with the weathering velocity params. Uses to plot an additional the weathering velocity curve.
-            Should have the common key notation.
+            Should have the common keys notation.
 
         Returns
         -------
@@ -522,4 +535,5 @@ class WeatheringVelocity:
         ax.set_xlim(0)
         ax.set_ylim(0)
         ax.legend(loc='lower right')
+        ax.set_title(**{"label": None}, **title)
         return self
