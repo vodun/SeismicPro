@@ -1,6 +1,6 @@
 """Implements the weathering velocity metrics"""
 
-from ..metrics import PipelineMetric
+from ..metrics import PipelineMetric, pass_calc_args
 from ..const import HDR_FIRST_BREAK
 
 class WeatheringVelocityMetric(PipelineMetric):
@@ -16,9 +16,10 @@ class WeatheringVelocityMetric(PipelineMetric):
                                                    threshold_time=threshold_times)
 
     @pass_calc_args
-    def plot(gather, weathering_velocity, ax, first_breaks_col=HDR_FIRST_BREAK, mode='seismogram', **kwargs):
-        gather.plot(ax, event_headers=first_breaks_col, mode=mode, **kwargs)
+    def plot(cls, gather, weathering_velocity, ax, threshold_times=50, mode='seismogram',
+             first_breaks_col=HDR_FIRST_BREAK, **kwargs):
+        gather.plot(ax=ax, event_headers={'headers': HDR_FIRST_BREAK}, mode=mode, **kwargs)
 
     @pass_calc_args
-    def plot_wv(gather, weathering_velocity, ax, threshold_time=50, **kwargs):
-        weathering_velocity.plot(ax, threshold_time=threshold_time, **kwargs)
+    def plot_wv(cls, gather, weathering_velocity, ax, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50, **kwargs):
+        weathering_velocity.plot(ax=ax, threshold_time=threshold_times, **kwargs)
