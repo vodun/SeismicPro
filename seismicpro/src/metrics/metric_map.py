@@ -64,11 +64,47 @@ class BaseMetricMap:
         """None or array-like: labels of y axis ticks."""
         return None
 
-    @staticmethod
-    def _construct_centered_norm(vcenter, halfrange):
-        if np.isclose(halfrange, 0):
-            halfrange = 0.1 if np.isclose(vcenter, 0) else 0.1 * abs(vcenter)
-        return mcolors.CenteredNorm(vcenter, halfrange)
+    def evaluate(self, agg=None):
+        """Aggregate metric values.
+
+        Parameters
+        ----------
+        agg : str or callable, optional, defaults to None
+            A function used for aggregating metric values. If not given, `agg` passed during map initialization is
+            used. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
+
+        Returns
+        -------
+        metric_val : float
+            Evaluated metric value.
+        """
+        if agg is None:
+            agg = self.agg
+        return self.metric_data[self.metric_name].agg(agg)
+
+    def get_worst_coords(self, is_lower_better=None):
+        """Get coordinates with the worst metric value depending on `is_lower_better`. If not given, `is_lower_better`
+        attribute of `self.metric` is used.
+
+        Three options are possible:
+        1. If `is_lower_better` is `True`, coordinates with maximum metric value are returned,
+        2. If `is_lower_better` is `False`, coordinates with minimum metric value are returned,
+        3. Otherwise, coordinates whose value has maximum absolute deviation from the mean metric value is returned.
+        """
+        is_lower_better = self.is_lower_better if is_lower_better is None else is_lower_better
+        if is_lower_better is None:
+            return (self.map_data - self.map_data.mean()).abs().idxmax()
+        if is_lower_better:
+            return self.map_data.idxmax()
+        return self.map_data.idxmin()
+
+    def get_centered_norm(self, clip_threshold_quantile):
+        """Return a matplotlib norm to center map data around its mean value."""
+        global_mean = self.map_data.mean()
+        clip_threshold = (self.map_data - global_mean).abs().quantile(clip_threshold_quantile)
+        if np.isclose(clip_threshold, 0):
+            clip_threshold = 0.1 if np.isclose(global_mean, 0) else 0.1 * abs(global_mean)
+        return mcolors.CenteredNorm(global_mean, clip_threshold)
 
     @plotter(figsize=(10, 7))
     def _plot(self, *, title=None, x_ticker=None, y_ticker=None, is_lower_better=None, vmin=None, vmax=None, cmap=None,
@@ -201,39 +237,14 @@ class ScatterMap(BaseMetricMap):
         sort_key = None
         if is_lower_better is None:
             is_lower_better = True
-            global_agg = self.map_data.agg(self.agg)
-            sort_key = lambda col: (col - global_agg).abs()
+            global_mean = self.map_data.mean()
+            sort_key = lambda col: (col - global_mean).abs()
         # Guarantee that extreme values are always displayed on top of the others
         map_data = self.map_data.sort_values(ascending=is_lower_better, key=sort_key)
         coords_x, coords_y = map_data.index.to_frame().values.T
         ax.set_xlim(*calculate_axis_limits(coords_x))
         ax.set_ylim(*calculate_axis_limits(coords_y))
         return ax.scatter(coords_x, coords_y, c=map_data, **kwargs)
-
-    def get_centered_norm(self, clip_threshold_quantile):
-        """Return a matplotlib norm to center map data around its mean value."""
-        global_mean = self.map_data.mean()
-        clip_threshold = (self.map_data - global_mean).abs().quantile(clip_threshold_quantile)
-        return self._construct_centered_norm(global_mean, clip_threshold)
-
-    def get_worst_coords(self, is_lower_better=None):
-        """Get coordinates with the worst metric value dependind on `is_lower_better`. If not given, `is_lower_better`
-        attribute of `self.metric` is used.
-
-        Three options are possible:
-        1. If `is_lower_better` is `True`, coordinates with maximum metric value are returned,
-        2. If `is_lower_better` is `False`, coordinates with minimum metric value are returned,
-        3. Otherwise, coordinates, whose value has maximum absolute deviation from the aggregated metric value is
-           returned.
-        """
-        is_lower_better = self.is_lower_better if is_lower_better is None else is_lower_better
-        if is_lower_better is None:
-            data = (self.map_data - self.metric_data[self.metric_name].agg(self.agg)).abs()
-        elif is_lower_better:
-            data = self.map_data
-        else:
-            data = -self.map_data
-        return self.map_data.index[data.argmax()]
 
 
 class BinarizedMap(BaseMetricMap):
@@ -242,8 +253,7 @@ class BinarizedMap(BaseMetricMap):
     Binarization is performed in the following way:
     1. All stored coordinates are divided into bins of the given `bin_size`,
     2. All metric values are grouped by their bin,
-    3. An aggregation is performed by calling `agg` for values in each bin. NaN values are ignored. If no metric values
-       were assigned to a bin, `np.nan` is returned.
+    3. An aggregation is performed by calling `agg` for values in each bin. NaN values are ignored.
 
     Should not be instantiated directly, use `MetricMap` or its subclasses instead.
     """
@@ -257,28 +267,22 @@ class BinarizedMap(BaseMetricMap):
         self.bin_size = bin_size
 
         # Perform a shallow copy of the metric data since new columns are going to be appended
-        metric_data = self.metric_data.copy(deep=False)
+        map_data = self.metric_data.copy(deep=False)
 
         # Binarize map coordinates
         bin_cols = ["BIN_X", "BIN_Y"]
-        min_coords = metric_data[self.coords_cols].min(axis=0).values
-        metric_data[bin_cols] = (metric_data[self.coords_cols] - min_coords) // self.bin_size
-        x_bin_range = np.arange(metric_data["BIN_X"].max() + 1)
-        y_bin_range = np.arange(metric_data["BIN_Y"].max() + 1)
+        min_coords = map_data[self.coords_cols].min(axis=0).values
+        map_data[bin_cols] = (map_data[self.coords_cols] - min_coords) // self.bin_size
+        x_bin_range = np.arange(map_data["BIN_X"].max() + 1)
+        y_bin_range = np.arange(map_data["BIN_Y"].max() + 1)
         self.x_bin_coords = min_coords[0] + self.bin_size[0] * x_bin_range + self.bin_size[0] // 2
         self.y_bin_coords = min_coords[1] + self.bin_size[1] * y_bin_range + self.bin_size[1] // 2
-        metric_data = metric_data.set_index(bin_cols + self.coords_cols)[self.metric_name].explode().sort_index()
+        map_data = map_data.set_index(bin_cols + self.coords_cols)[self.metric_name].explode().sort_index()
 
-        # Construct a binarized map
-        binarized_metric = metric_data.groupby(bin_cols).agg(self.agg)
-        x = binarized_metric.index.get_level_values(0)
-        y = binarized_metric.index.get_level_values(1)
-        self.map_data = np.full((len(x_bin_range), len(y_bin_range)), fill_value=np.nan)
-        self.map_data[x, y] = binarized_metric
-
-        # Construct a mapping from a bin to its contents
-        bin_to_coords = metric_data.groupby(bin_cols + self.coords_cols).agg(self.agg)
+        # Construct a mapping from a bin to its contents and a binarized map
+        bin_to_coords = map_data.groupby(bin_cols + self.coords_cols).agg(self.agg)
         self.bin_to_coords = bin_to_coords.to_frame().reset_index(level=self.coords_cols).groupby(bin_cols)
+        self.map_data = map_data.groupby(bin_cols).agg(self.agg)
 
     @property
     def plot_title(self):
@@ -298,33 +302,15 @@ class BinarizedMap(BaseMetricMap):
     def _plot_map(self, ax, is_lower_better, **kwargs):
         """Display map data as an image."""
         _ = is_lower_better
+
+        # Construct an image of the map
+        x = self.map_data.index.get_level_values(0)
+        y = self.map_data.index.get_level_values(1)
+        map_image = np.full((len(self.x_bin_coords), len(self.y_bin_coords)), fill_value=np.nan)
+        map_image[x, y] = self.map_data
+
         kwargs = {"interpolation": "none", "origin": "lower", "aspect": "auto", **kwargs}
-        return ax.imshow(self.map_data.T, **kwargs)
-
-    def get_centered_norm(self, clip_threshold_quantile):
-        """Return a matplotlib norm to center map data around its mean value."""
-        global_mean = np.nanmean(self.map_data)
-        clip_threshold = np.nanquantile(np.abs(self.map_data - global_mean), clip_threshold_quantile)
-        return self._construct_centered_norm(global_mean, clip_threshold)
-
-    def get_worst_coords(self, is_lower_better=None):
-        """Get coordinates with the worst metric value dependind on `is_lower_better`. If not given, `is_lower_better`
-        attribute of `self.metric` is used.
-
-        Three options are possible:
-        1. If `is_lower_better` is `True`, coordinates with maximum metric value are returned,
-        2. If `is_lower_better` is `False`, coordinates with minimum metric value are returned,
-        3. Otherwise, coordinates, whose value has maximum absolute deviation from the aggregated metric value is
-           returned.
-        """
-        is_lower_better = self.is_lower_better if is_lower_better is None else is_lower_better
-        if is_lower_better is None:
-            data = np.abs(self.map_data - self.metric_data[self.metric_name].agg(self.agg))
-        elif is_lower_better:
-            data = self.map_data
-        else:
-            data = -self.map_data
-        return np.unravel_index(np.nanargmax(data), self.map_data.shape)
+        return ax.imshow(map_image.T, **kwargs)
 
     def get_bin_contents(self, coords):
         """Get contents of a bin by its coords.
@@ -416,6 +402,9 @@ class MetricMap(metaclass=MetricMapMeta):
     ----------
     metric_data : pandas.DataFrame
         A `DataFrame` with coordinates and metric values. NaN metric values are dropped.
+    map_data : pandas.Series
+        Aggregated map data. Series index stores either metric coordinates as is if `bin_size` was not given or indices
+        of bins otherwise.
     coords_cols : array-like with 2 elements
         Names of X and Y coordinates.
     metric_name : str
@@ -426,10 +415,6 @@ class MetricMap(metaclass=MetricMapMeta):
         A function used for aggregating the map.
     bin_size : 1d np.ndarray with 2 elements
         Bin size for X and Y axes. Available only if the map was binarized.
-    map_data : pandas.Series or 2d np.ndarray
-        If the map was not binarized, a `pandas.Series` whose index stores metric coordinates and values -
-        corresponding metric values.
-        If the map was binarized, a 2d `np.ndarray` with values for each bin along X and Y axes.
     """
     scatter_map_class = ScatterMap
     binarized_map_class = BinarizedMap

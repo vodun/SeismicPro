@@ -79,6 +79,22 @@ class Gather:
         self.sort_by = None
 
     @property
+    def indexed_by(self):
+        """str or tuple of str: Names of header indices."""
+        index_names = tuple(self.headers.index.names)
+        if len(index_names) == 1:
+            return index_names[0]
+        return index_names
+
+    @property
+    def index(self):
+        """int or tuple of int or None: Unique index values of the gather. `None` if the gather is combined."""
+        indices = self.headers.index.drop_duplicates()
+        if len(indices) != 1:
+            return None
+        return indices[0]
+
+    @property
     def sample_rate(self):
         """"float: Sample rate of seismic traces. Measured in milliseconds."""
         sample_rate = np.unique(np.diff(self.samples))
@@ -198,25 +214,21 @@ class Gather:
         offsets = self.headers.get('offset')
         offset_range = f'[{np.min(offsets)} m, {np.max(offsets)} m]' if offsets is not None else None
 
-        # Determine index value
-        index = np.unique(self.headers.index)
-        index = 'combined' if len(index) > 1 else index.item()
-
         # Count the number of zero/constant traces
         n_dead_traces = np.isclose(np.max(self.data, axis=1), np.min(self.data, axis=1)).sum()
         msg = f"""
         Parent survey path:          {self.survey.path}
         Parent survey name:          {self.survey.name}
 
+        Indexed by:                  {', '.join(to_list(self.indexed_by))}
+        Index value:                 {'combined' if self.index is None else self.index}
+        Gather sorting:              {self.sort_by}
+
         Number of traces:            {self.n_traces}
         Trace length:                {self.n_samples} samples
         Sample rate:                 {self.sample_rate} ms
         Times range:                 [{min(self.samples)} ms, {max(self.samples)} ms]
         Offsets range:               {offset_range}
-
-        Index name(s):               {', '.join(self.headers.index.names)}
-        Index value:                 {index}
-        Gather sorting:              {self.sort_by}
 
         Gather statistics:
         Number of dead traces:       {n_dead_traces}
@@ -256,7 +268,7 @@ class Gather:
         if coords_cols is None:
             return Coordinates()
         if coords_cols == "auto":
-            coords_cols = get_coords_cols(self.headers.index.names)
+            coords_cols = get_coords_cols(self.indexed_by)
         coords = np.unique(self[coords_cols], axis=0)
         if coords.shape[0] != 1:
             raise ValueError("Gather coordinates are non-unique")
@@ -365,6 +377,7 @@ class Gather:
         parent_handler = self.survey.segy_handler
 
         if name is None:
+            # Use the first value of gather index to handle combined case
             name = "_".join(map(str, [self.survey.name] + to_list(self.headers.index.values[0])))
         if name == "":
             raise ValueError("Argument `name` can not be empty.")
@@ -388,7 +401,7 @@ class Gather:
         trace_headers["TRACE_SEQUENCE_FILE"] = np.arange(len(trace_headers)) + 1
 
         # Keep only headers, defined by SEG-Y standard.
-        used_header_names = set(trace_headers.columns) & set(segyio.tracefield.keys.keys())
+        used_header_names = list(set(trace_headers.columns) & set(segyio.tracefield.keys.keys()))
         trace_headers = trace_headers[used_header_names]
 
         # Now we change column name's into byte number based on the SEG-Y standard.
