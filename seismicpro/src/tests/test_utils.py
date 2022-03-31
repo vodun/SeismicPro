@@ -56,7 +56,7 @@ CLIPLEN_IND_PARAMS = [
 def test_cliplen_indicator(arr, expected):
     assert np.allclose(get_cliplen_indicator(np.asarray(arr)).astype(int), np.asarray(expected))
 
-MAABS_CLIPS_PARAMS = [
+MAXABS_CLIPS_PARAMS = [
     ([1, 2, 3, 3, 3, 4], [0, 0, 0, 0]),
     ([1, 2, 3, 3, 3, 2], [0, 0, 1, 0]),
     ([1, 2, 2, 3, 3, 2], [0, 0, 0, 0]),
@@ -64,11 +64,14 @@ MAABS_CLIPS_PARAMS = [
     ([1, 2, 3, 3, -3, -3, 2], [0, 0, 0, 0, 0]),
     ([1, 1, 3, 3, 3], [0, 0, 1]),
     ([1, 1, 1, 1, 1], [1, 1, 1]),
+    ([0, 0, 1, 1, 1], [0, 0, 1]),
+    ([0, 0, 0, 1, 1], [0, 0, 0]),
+    ([0, 0, 0, 0, -1], [0, 0, 0]),
     ([1, 2, 2, 2, -3, -3, -3], [0, 1, 0, 0, 1]),
     (np.asarray([[1, 2, 2, 2, 1]]), np.asarray([[0, 1, 0],])),
     (np.asarray([[1, 2, 2, 2, 1], [1, 2, 2, 2, 3]]), np.asarray([[0, 1, 0], [0, 0, 0]])),
 ]
-@pytest.mark.parametrize("arr,expected", MAABS_CLIPS_PARAMS)
+@pytest.mark.parametrize("arr,expected", MAXABS_CLIPS_PARAMS)
 def test_get_maxabs_clips(arr, expected):
     assert np.allclose(get_maxabs_clips(np.asarray(arr)).astype(int), np.asarray(expected))
 
