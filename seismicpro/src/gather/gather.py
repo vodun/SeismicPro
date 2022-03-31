@@ -905,6 +905,19 @@ class Gather:
     #                           Gather corrections                           #
     #------------------------------------------------------------------------#
 
+    @batch_method(target="for", args_to_unpack="weathering_velocity") # benchmark it
+    def apply_lmo(self, weathering_velocity, ident=100):
+        """ TODO: docstring """
+        data = np.zeros_like(self.data)
+        gap_ms = np.round((weathering_velocity(self.offsets) - ident) / self.sample_rate).astype(np.int)
+        for i in range(self.n_traces):
+            if gap_ms[i] > 0:
+                data[i, :self.n_samples - gap_ms[i]] = self.data[i, gap_ms[i]:]
+            else:
+                data[i, -gap_ms[i]:] = self.data[i, :self.n_samples + gap_ms[i]]
+        self.data = data
+        return self
+
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
     def apply_nmo(self, stacking_velocity, coords_cols="auto"):
         """Perform gather normal moveout correction using given stacking velocity.
