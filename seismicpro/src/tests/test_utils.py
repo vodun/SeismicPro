@@ -48,9 +48,9 @@ CLIPLEN_IND_PARAMS = [
     ([1, 1, 1, 1, 1], [1, 2, 3, 4]),
     ([1, 2, 3, 3, 3, 4, 4, 4, 4], [0, 0, 1, 2, 0, 1, 2, 3]),
     ([1, 1, 1, 2, 1], [1, 2, 0, 0]),
-    (np.asarray([[1, 2, 2, 3]]).T, np.asarray([[0, 1, 0],]).T),
-    (np.asarray([[1, 2, 2, 3], [1, 1, 2, 3]]).T, np.asarray([[0, 1, 0], [1, 0, 0]]).T),
-    (np.asarray([[ 0,  1,  0,  0], [ 0,  0,  0,  1]]).T , np.asarray([[0, 0, 1], [1, 2, 0]]).T),
+    (np.asarray([[1, 2, 2, 3]]), np.asarray([[0, 1, 0],])),
+    (np.asarray([[1, 2, 2, 3], [1, 1, 2, 3]]), np.asarray([[0, 1, 0], [1, 0, 0]])),
+    (np.asarray([[ 0,  1,  0,  0], [ 0,  0,  0,  1]]) , np.asarray([[0, 0, 1], [1, 2, 0]])),
 ]
 @pytest.mark.parametrize("arr,expected", CLIPLEN_IND_PARAMS)
 def test_cliplen_indicator(arr, expected):

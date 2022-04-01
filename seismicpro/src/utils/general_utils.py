@@ -157,30 +157,15 @@ def strip_clip_indicator(clip_ind):
 
 
 @njit(nogil=True)
-def get_cliplen_indicator(traces, max_clip_len=None):
+def get_cliplen_indicator(traces):
     traces = np.atleast_1d(traces)
 
-    n_samples = traces.shape[0]
-    if max_clip_len is None:
-        max_clip_len = min(n_samples - 1, 127)
+    indicator = (np.abs(traces[..., 1:] - traces[..., :-1]) < 1e-8).astype(np.int32)
 
-    if max_clip_len < 2 or max_clip_len > n_samples - 1:
-        raise ValueError("Incorrect `max_clip_len`")
+    for i in range(1, indicator.shape[-1]):
+        indicator[..., i] += indicator[..., i-1] * (indicator[..., i] == 1)
 
-    clip_indicator = np.full_like(traces[:n_samples - 1], 0, dtype=np.int8)
-
-    for curr_shift in range(1, max_clip_len + 1):
-        curr_check = (traces[curr_shift:] == traces[:n_samples - curr_shift])
-
-        if curr_shift > 1: # ensure that clips of less length exist
-            curr_check &= (clip_indicator[curr_shift - 1:] == curr_shift - 1)
-
-        if np.any(curr_check):
-            clip_indicator[curr_shift - 1:] += curr_check.astype(np.int8)
-        else:
-            break
-
-    return clip_indicator
+    return indicator
 
 
 @njit(nogil=True)
