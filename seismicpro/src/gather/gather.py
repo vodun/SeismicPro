@@ -944,14 +944,15 @@ class Gather:
     @batch_method(target="for")
     def apply_static_correciton(self, datum):
         """!!!"""
-        self.validate(required_header_cols=["ReceiverGroupElevation", "SourceSurfaceElevation", "SourceUpholeTime",
-                                            "rec_v1", "rec_v2", "rec_depth_1", "source_v1", "source_v2",
-                                            "source_depth_1"])
+        self.validate(required_header_cols=["ReceiverGroupElevation", "SourceSurfaceElevation", "SourceUpholeTime"])
+        if self.survey.static_corr is None:
+            raise ValueError('!!')
+
         new_data = np.zeros(self.shape)
         for i, trace in enumerate(self.data):
             header = self.headers.iloc[i]
-            dt = (self.get_dt(name='source', header=header, datum=datum)
-                  + self.get_dt(name='rec', header=header, datum=datum) - header["SourceUpholeTime"])
+            dt = (self._calculate_dt(name='source', header=header, datum=datum)
+                  + self._calculate_dt(name='rec', header=header, datum=datum) - header["SourceUpholeTime"])
             shift = np.int32(dt // self.sample_rate)
             if shift > 0:
                 new_data[i][: -shift] = trace[shift:]
@@ -962,23 +963,29 @@ class Gather:
         self.data = new_data
         return self
 
-    @staticmethod
-    def get_dt(name, header, datum):
-        if name == 'source':
-            elevation_header = 'SourceSurfaceElevation'
-        elif name == 'rec':
-            elevation_header = 'ReceiverGroupElevation'
+    def _calculate_dt(self, name, header, datum):
+        if name == "source":
+            elevation_header = "SourceSurfaceElevation"
+        elif name == "rec":
+            elevation_header = "ReceiverGroupElevation"
         else:
-            raise ValueError('some')
-
+            raise ValueError("some")
+        static_corr = self.survey.static_corr
+        cols = static_corr._get_cols(name)
+        index = tuple(np.int32(header[cols]))
+        params = getattr(static_corr, f"{name}_params").loc[index]
         # Calculate distance from surface to datum
+
         dist_from_surface = header[elevation_header] - datum
         if dist_from_surface < 0:
             raise ValueError('some')
 
-        h_v1 = min(dist_from_surface, header[f'{name}_depth_1'])
-        h_v2 = dist_from_surface - h_v1
-        return h_v1 / header[f'{name}_v1'] + h_v2 / header[f'{name}_v2']
+        dt = 0
+        for i in range(1, static_corr.n_layers):
+            layer_depth = min(dist_from_surface, params[f'depth_{i}'])
+            dt += layer_depth / params[f'{name}_v{i}']
+            dist_from_surface = dist_from_surface - layer_depth
+        return dt
 
     #------------------------------------------------------------------------#
     #                       General processing methods                       #
