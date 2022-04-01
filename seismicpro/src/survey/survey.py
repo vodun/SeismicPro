@@ -17,6 +17,7 @@ from .plot_geometry import SurveyGeometryPlot
 from .utils import calculate_stats, create_supergather_index, SurveyAttribute
 from ..gather import Gather
 from ..metrics import PartialMetric
+from ..static_correction import StaticCorrection
 from ..utils import to_list, maybe_copy, get_cols
 from ..const import HDR_DEAD_TRACE, HDR_FIRST_BREAK
 
@@ -159,6 +160,7 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self.std = None
         self.quantile_interpolator = None
         self.n_dead_traces = None
+        self.static_corr = None
 
     def _infer_sample_rate(self):
         """Get sample rate from file headers"""
@@ -929,6 +931,14 @@ class Survey:  # pylint: disable=too-many-instance-attributes
             index_cols = super_line_cols
         self.headers.set_index(index_cols, inplace=True)
         self.headers.sort_index(kind="stable", inplace=True)
+        return self
+
+    def calculate_static_correction_params(self, first_breaks_col, wv_interp):
+        """!!!"""
+        static_corr = StaticCorrection(self, first_breaks_col, wv_interp)
+        static_corr.fill_traces_params()
+        static_corr.calculate_thicknesses()
+        self.static_corr = static_corr
         return self
 
     #------------------------------------------------------------------------#
