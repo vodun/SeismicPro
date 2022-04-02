@@ -2,9 +2,14 @@
 
 # pylint: disable=protected-access
 import pathlib
+from copy import deepcopy
 
 import segyio
 import numpy as np
+
+from seismicpro.src.utils.indexer import create_indexer, GatherIndexer
+
+from ..indexer.asserters import assert_indexers_equal
 
 
 # Define default tolerances to check if two float values are close
@@ -38,12 +43,15 @@ def assert_survey_loaded(survey, segy_path, expected_name, expected_index, expec
     assert set(survey.headers.index.names) | set(survey.headers.columns) == expected_headers
     assert survey.headers.index.is_monotonic_increasing
 
+    # Check whether indexer was constructed correctly
+    assert_indexers_equal(survey.indexer, create_indexer(survey.headers.index))
+
 
 def assert_both_none_or_close(left, right, rtol=RTOL, atol=ATOL):
     """Check whether both `left` and `right` are `None` or they are close."""
     left_none = left is None
     right_none = right is None
-    assert not(left_none ^ right_none)  #pylint: disable=superfluous-parens
+    assert not(left_none ^ right_none)  # pylint: disable=superfluous-parens
     assert left_none and right_none or np.allclose(left, right, rtol=rtol, atol=atol)
 
 
@@ -71,6 +79,9 @@ def assert_surveys_equal(left, right, ignore_column_order=False, ignore_dtypes=F
     assert left_headers.equals(right_headers)
     assert left.n_traces == right.n_traces
 
+    # Check whether survey indexers are equal
+    assert_indexers_equal(left.indexer, right.indexer)
+
     # Check whether same default limits are applied
     assert left.limits == right.limits
     assert left.n_samples == right.n_samples
@@ -92,11 +103,38 @@ def assert_surveys_equal(left, right, ignore_column_order=False, ignore_dtypes=F
     assert_both_none_or_close(left_quantiles, right_quantiles, rtol=rtol, atol=atol)
 
 
+def assert_surveys_not_linked(base, altered):
+    """Check whether attributes of both `base` and `altered` surveys have links to the same data by changing `altered`
+    data inplace. Each data attribute is copied via its own deepcopy method in order not to use `Survey.copy`, which
+    calls this function in its own tests."""
+    # Modify headers
+    unchanged_headers = base.headers.copy()
+    altered.headers.iloc[:, :] = 0
+    assert unchanged_headers.equals(base.headers)
+
+    # Modify indexer: only index_to_headers_pos dict is changed since pd.Index is immutable
+    if isinstance(base.indexer, GatherIndexer) and isinstance(altered.indexer, GatherIndexer):
+        unchanged_index_to_headers_pos = deepcopy(base.indexer.index_to_headers_pos)
+        altered.indexer.index_to_headers_pos["TEST_KEY"] = None
+        assert unchanged_index_to_headers_pos == base.indexer.index_to_headers_pos
+
+    # Modify samples
+    unchanged_samples = np.copy(base.samples)
+    altered.samples += 1
+    assert np.allclose(unchanged_samples, base.samples)
+
+    # Modify file samples
+    unchanged_file_samples = np.copy(base.file_samples)
+    altered.file_samples += 1
+    assert np.allclose(unchanged_file_samples, base.file_samples)
+
+
 def assert_survey_processed_inplace(before, after, inplace):
-    """Assert whether survey processing was performed inplace depending on the `inplace` flag."""
+    """Assert whether survey processing was performed inplace depending on the `inplace` flag. Changes `after` data
+    inplace if `inplace` flag is set to `True`."""
     assert (id(before) == id(after)) is inplace
-    if inplace:
-        assert_surveys_equal(before, after)
+    if not inplace:
+        assert_surveys_not_linked(before, after)
 
 
 def assert_survey_limits_set(survey, limits, rtol=RTOL, atol=ATOL):
