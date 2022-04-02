@@ -12,6 +12,8 @@ class WeatheringVelocityInterpolator():
     def from_supergathers(self, survey, supergather_kwargs, first_breaks_col, weathering_velocity=None,
                           wv_kwargs=None):
         """Interpolate wv using supergathers"""
+        # TODO: Add oppotunity to set weathering velocity as Uphole_depth / Uphole_time
+
         # Move source on the surface, if wv is not passed to find correct value of V0.
         # All operations with passed weathering_velocity are applied under the assumption that weathering_velocity
         # is a direct wave.

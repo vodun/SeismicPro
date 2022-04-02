@@ -22,25 +22,46 @@ class StaticCorrection:
         self.first_breaks_col = first_breaks_col
 
         self.headers = self.survey.headers[USEFUL_COLS + [first_breaks_col]]
-        self.headers_index = self.headers.index.names
         self.headers.reset_index(inplace=True)
 
-        self.interpolator = interpolator
-        self.n_layers = None
+        self.source_params = self._create_params_df(name='source')
+        self.rec_params = self._create_params_df(name='rec')
 
-        self.source_params = self._create_depth_df('source')
-        self.rec_params = self._create_depth_df('rec')
+        self._add_wv_to_params('source', interpolator=interpolator)
+        self._add_wv_to_params('rec', interpolator=interpolator)
 
-    ### main actions ###
+        self.n_layers = self.source_params.shape[1] // 2 + 1
 
-    def fill_traces_params(self):
-        # TODO: stop if velocities already added into headers
-        self._add_wv_to_params('source')
-        self._add_wv_to_params('rec')
-        self.headers = self.headers.merge(self.source_params, on=DEFAULT_COLS['source']).merge(self.rec_params, on=DEFAULT_COLS['rec'])
+    def _create_params_df(self, name):
+        cols = self._get_cols(name)
+        unique_coords = np.unique(self.headers[cols], axis=0)
+        return pd.DataFrame(unique_coords, columns=cols).set_index(cols)
+
+    def _add_wv_to_params(self, name, interpolator):
+        cols = self._get_cols(name)
+        unique_coords = np.unique(self.headers[cols], axis=0)
+        wv_params = interpolator(unique_coords)
+        length = wv_params.shape[1] // 2 + 1
+        names = [f'{name}_x{i+1}' for i in range(length-1)] + [f'{name}_v{i+1}' for i in range(length)]
+        self._update_params(name=name, coords=unique_coords, values=wv_params, columns=names)
+        self.headers = self.headers.merge(getattr(self, f"{name}_params"), on=cols)
+
+    def _update_params(self, name, coords, values, columns):
+        cols = self._get_cols(name)
+        data = np.hstack((coords, values))
+        df = pd.DataFrame(data, columns=[*cols, *columns]).set_index(cols)
+        setattr(self, f'{name}_params', getattr(self, f'{name}_params').join(df, on=cols))
+
+    def _get_cols(self, name):
+        cols = DEFAULT_COLS.get(name)
+        if cols is None:
+            raise ValueError(f'Given unknown "name" {name}')
+        return cols
 
     def calculate_thicknesses(self):
-        # TODO: add accumulation of loss and plot for it.
+        # TODO:
+        # 1. Add processing for self.n_layers = 1
+        # 2. Add accumulation of loss and plot for it
         for i in range(1, self.n_layers):
             cross_left = self.headers.get([f"source_x{i}", f"rec_x{i}"], 0)
             cross_left = cross_left.min(axis=1) if isinstance(cross_left, type(self.headers)) else cross_left
@@ -64,33 +85,6 @@ class StaticCorrection:
 
             self._update_params('source', unique_sources, res[:len(unique_sources)].reshape(-1, 1), [f'depth_{i}'])
             self._update_params('rec', unique_recs, res[len(unique_sources):].reshape(-1, 1), [f'depth_{i}'])
-
-    ### supporting function ###
-    def _create_depth_df(self, name):
-        cols = self._get_cols(name)
-        unique_recs =np.unique(self.headers[cols], axis=0)
-        depths = pd.DataFrame(unique_recs, columns=cols)
-        return depths.set_index(cols)
-
-    def _get_cols(self, name):
-        cols = DEFAULT_COLS.get(name)
-        if cols is None:
-            raise ValueError(f'Given unknown "name" {name}')
-        return cols
-
-    def _add_wv_to_params(self, name):
-        cols = self._get_cols(name)
-        uniques = np.unique(self.headers[cols], axis=0)
-        wv_params = self.interpolator(uniques)
-        self.n_layers = wv_params.shape[1] // 2 + 1
-        names = [f'{name}_x{i+1}' for i in range(self.n_layers-1)] + [f'{name}_v{i+1}' for i in range(self.n_layers)]
-        self._update_params(name, uniques, wv_params, names)
-
-    def _update_params(self, name, coords, values, columns):
-        cols = self._get_cols(name)
-        data = np.hstack((coords, values))
-        df = pd.DataFrame(data, columns=[*cols, *columns]).set_index(cols)
-        setattr(self, f'{name}_params', getattr(self, f'{name}_params').join(df, on=cols))
 
     def _get_sparse_coefs(self, name, layer_headers, layer):
         cols = self._get_cols(name)

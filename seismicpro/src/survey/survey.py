@@ -936,7 +936,6 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     def calculate_static_correction_params(self, first_breaks_col, wv_interp):
         """!!!"""
         static_corr = StaticCorrection(self, first_breaks_col, wv_interp)
-        static_corr.fill_traces_params()
         static_corr.calculate_thicknesses()
         self.static_corr = static_corr
         return self
