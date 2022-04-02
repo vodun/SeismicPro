@@ -918,6 +918,39 @@ class Gather:
     #                           Gather corrections                           #
     #------------------------------------------------------------------------#
 
+    @batch_method(target="for", args_to_unpack="weathering_velocity") # benchmark it
+    def apply_lmo(self, weathering_velocity, delay=100):
+        """Perform gather linear moveout correction using given weathering velocity.
+        
+        Parameters
+        ----------
+        weathering_velocity : WeatheringVelocity
+            Weathering velocity to to perform LMO correction with.
+        delay : int, defaults to 100
+            Moveout delay. Measured in milliseconds.
+
+        Returns
+        -------
+        self : Gather
+            LMO corrected gather.
+
+        Raises
+        ------
+        ValueError
+            If `stacking_velocity` is not a `WeatheringVelocity` instance.
+        """
+        if isinstance(weathering_velocity, WeatheringVelocity):
+            raise ValueError("Only WeatheringVelocity instances can be passed as a `weathering_velocity`")
+        data = np.zeros_like(self.data)
+        samples_gap = np.round((weathering_velocity(self.offsets) - delay) / self.sample_rate).astype(np.int)
+        for i in range(self.n_traces):
+            if samples_gap[i] > 0:
+                data[i, :self.n_samples - samples_gap[i]] = self.data[i, samples_gap[i]:]
+            else:
+                data[i, -samples_gap[i]:] = self.data[i, :self.n_samples + samples_gap[i]]
+        self.data = data
+        return self
+
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
     def apply_nmo(self, stacking_velocity, coords_cols="auto"):
         """Perform gather normal moveout correction using given stacking velocity.
