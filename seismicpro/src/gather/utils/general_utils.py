@@ -125,3 +125,59 @@ def mute_gather(gather_data, muting_times, samples, fill_value):
     mask = mask.reshape(-1)
     gather_data[~mask] = fill_value
     return gather_data.reshape(data_shape)
+
+@njit(parallel=True)
+def agc(data, factor=1, win_size=250, mode='abs'):
+    """ TODO """
+    coefs = np.empty_like(data)
+    n = data.shape[1]
+    wl, wr = win_size // 2, win_size - win_size // 2
+    start, end = wl, n - wr
+    if mode == 'abs':
+        for i in prange(data.shape[0]):
+            coefs[i] = calc_coef_abs(data[i], factor, start, end, wr, wl)
+    elif mode == 'rms':
+        for i in prange(data.shape[0]):
+            coefs[i] = calc_coef_rms(data[i], factor, start, end, wr, wl)
+    return coefs
+
+
+@njit
+def calc_coef_abs(trace, factor, start, end, wr, wl):
+    """ TODO """
+    coef = np.empty_like(trace)
+    trace = np.abs(trace)
+
+    summ = np.sum(trace[:start+wr])
+    count = np.sum(trace[:start+wr] != 0)
+    coef[start] = factor * count / (summ + 1e-5)
+
+    for i in range(start+1, end):
+        p, m = trace[i+wr], trace[i-wl]
+        summ += (p - m)
+        count += ((p != 0) - (m != 0))
+        coef[i] = factor * count / (summ + 1e-5)
+
+    coef[:start] = coef[start]
+    coef[end:] = coef[end-1]
+    return coef
+
+
+@njit
+def calc_coef_rms(trace, factor, start, end, wr, wl):
+    """ TODO """
+    coef = np.empty_like(trace)
+
+    summ_squares = np.sum(trace[:start+wr]**2)
+    count = np.sum(trace[:start+wr] != 0)
+    coef[start] = factor * count / (summ_squares**0.5 + 1e-5)
+
+    for i in range(start+1, end):
+        p, m = trace[i+wr]**2, trace[i-wl]**2
+        summ_squares += (p - m)
+        count += ((p != 0) - (m != 0))
+        coef[i] = factor * count / (summ_squares**0.5 + 1e-5)
+
+    coef[:start] = coef[start]
+    coef[end:] = coef[end-1]
+    return coef

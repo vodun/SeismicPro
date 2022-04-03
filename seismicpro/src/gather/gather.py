@@ -14,7 +14,7 @@ from .muting import Muter
 from .cropped_gather import CroppedGather
 from .plot_corrections import NMOCorrectionPlot
 from .utils import correction, normalization
-from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
+from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins, agc
 from ..utils import (to_list, get_cols, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
                      set_text_formatting, add_colorbar, Coordinates)
 from ..semblance import Semblance, ResidualSemblance
@@ -1027,6 +1027,15 @@ class Gather:
         """
         origins = make_origins(origins, self.shape, crop_shape, n_crops, stride)
         return CroppedGather(self, origins, crop_shape, pad_mode, **kwargs)
+
+    def agc(data, factor=1, win_size=250, mode='abs', median=False):
+        """ TODO """
+        if mode not in ['abs', 'rms']:
+            raise ValueError(f"mode should be either 'abs' or 'rms', but {mode} was given")
+        coefs = agc(data=data, factor=factor, win_size=win_size, mode=mode)
+        if median:
+            coefs = np.median(coefs, axis=1)
+        return coefs * data
 
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #
