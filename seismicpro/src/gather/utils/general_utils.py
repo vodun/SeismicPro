@@ -134,10 +134,10 @@ def agc(data, factor=1, win_size=250, mode='abs'):
     wl, wr = win_size // 2, win_size - win_size // 2
     start, end = wl, n - wr
     if mode == 'abs':
-        for i in prange(data.shape[0]):
+        for i in prange(data.shape[0]):  # pylint: disable=not-an-iterable
             coefs[i] = calc_coef_abs(data[i], factor, start, end, wr, wl)
     elif mode == 'rms':
-        for i in prange(data.shape[0]):
+        for i in prange(data.shape[0]):  # pylint: disable=not-an-iterable
             coefs[i] = calc_coef_rms(data[i], factor, start, end, wr, wl)
     return coefs
 
