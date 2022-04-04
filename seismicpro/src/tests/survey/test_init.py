@@ -2,7 +2,6 @@
 
 import pytest
 import segyio
-import numpy as np
 
 from seismicpro import Survey
 
@@ -65,8 +64,8 @@ LIMITS = [
 class TestInit:
     """Test `Survey` instantiation."""
 
-    def test_nolimits_nostats(self, segy_path, header_index, expected_index, header_cols, expected_cols,
-                              name, expected_name):
+    def test_nolimits(self, segy_path, header_index, expected_index, header_cols, expected_cols,
+                      name, expected_name):
         """Test survey loading when limits are not passed and stats are not calculated."""
         survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name)
 
@@ -79,10 +78,11 @@ class TestInit:
 
         # Assert that stats are not calculated
         assert survey.has_stats is False
+        assert survey.dead_traces_marked is False
 
     @pytest.mark.parametrize(["limits", "slice_limits"], LIMITS)
-    def test_limits_nostats(self, segy_path, header_index, expected_index, header_cols, expected_cols,
-                            name, expected_name, limits, slice_limits):
+    def test_limits(self, segy_path, header_index, expected_index, header_cols, expected_cols,
+                    name, expected_name, limits, slice_limits):
         """Test survey loading with limits set when stats are not calculated."""
         survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name, limits=limits)
 
@@ -94,64 +94,9 @@ class TestInit:
 
         # Assert that stats are not calculated
         assert survey.has_stats is False
+        assert survey.dead_traces_marked is False
 
         # Check that passing limits to init is identical to running set_limits method
         other = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name)
         other.set_limits(limits)
-        assert_surveys_equal(survey, other)
-
-    @pytest.mark.parametrize("stats_limits", [None, 100])
-    def test_nolimits_stats(self, segy_path, header_index, expected_index, header_cols, expected_cols, name,
-                            expected_name, stats_limits, monkeypatch):
-        """Test survey loading when stats are calculated, but limits are not set."""
-        # Always use the same traces for quantile estimation
-        monkeypatch.setattr(np.random, "permutation", lambda n: np.arange(n))
-
-        survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name, collect_stats=True,
-                        n_quantile_traces=10, quantile_precision=1, stats_limits=stats_limits, bar=False)
-
-        # Assert that a survey was loaded correctly and an extra DeadTrace header was created
-        expected_headers = expected_index | expected_cols | {"TRACE_SEQUENCE_FILE", "DeadTrace"}
-        assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers)
-
-        # Assert that whole traces are loaded
-        limits = slice(0, survey.n_file_samples, 1)
-        assert_survey_limits_set(survey, limits)
-
-        # Assert that stats are calculated
-        assert survey.has_stats is True
-
-        # Check that passing collect_stats to init is identical to running collect_stats method
-        other = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name)
-        other.collect_stats(n_quantile_traces=10, quantile_precision=1, stats_limits=stats_limits, bar=False)
-        assert_surveys_equal(survey, other)
-
-    @pytest.mark.parametrize("stats_limits", [None, 100])
-    @pytest.mark.parametrize(["limits", "slice_limits"], LIMITS)
-    def test_limits_stats(self, segy_path, header_index, expected_index,  # pylint: disable=too-many-arguments
-                          header_cols, expected_cols, name, expected_name, limits, slice_limits, stats_limits,
-                          monkeypatch):
-        """Test survey loading when limits are set and stats are calculated."""
-        # Always use the same traces for quantile estimation
-        monkeypatch.setattr(np.random, "permutation", lambda n: np.arange(n))
-
-        survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name, limits=limits,
-                        collect_stats=True, n_quantile_traces=10, quantile_precision=1, stats_limits=stats_limits,
-                        bar=False)
-
-        # Assert that a survey was loaded correctly and an extra DeadTrace header was created
-        expected_headers = expected_index | expected_cols | {"TRACE_SEQUENCE_FILE", "DeadTrace"}
-        assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers)
-
-        # Assert that correct limits were set
-        assert_survey_limits_set(survey, slice_limits)
-
-        # Assert that stats are calculated
-        assert survey.has_stats is True
-
-        # Check that passing limits and collect_stats to init is identical to first running set_limits with the
-        # following run of collect_stats
-        other = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name)
-        other.set_limits(limits)
-        other.collect_stats(n_quantile_traces=10, quantile_precision=1, stats_limits=stats_limits, bar=False)
         assert_surveys_equal(survey, other)

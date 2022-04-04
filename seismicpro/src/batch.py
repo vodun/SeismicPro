@@ -6,12 +6,13 @@ from functools import partial
 import numpy as np
 import matplotlib.pyplot as plt
 
-from .gather import Gather
-from .cropped_gather import CroppedGather
+from .gather import Gather, CroppedGather
+from .gather.utils.crop_utils import make_origins
 from .semblance import Semblance, ResidualSemblance
+from .metrics import define_pipeline_metric, MetricsAccumulator
 from .decorators import create_batch_methods, apply_to_each_component
-from .utils import to_list, as_dict, save_figure, make_origins
-from ..batchflow import action, inbatch_parallel, Batch, DatasetIndex, NamedExpression
+from .utils import to_list, as_dict, save_figure
+from ..batchflow import action, inbatch_parallel, save_data_to, Batch, DatasetIndex, NamedExpression
 
 
 @create_batch_methods(Gather, CroppedGather, Semblance, ResidualSemblance)
@@ -61,6 +62,10 @@ class SeismicBatch(Batch):
     components : tuple
         Names of the created components. Each of them can be accessed as a usual attribute.
     """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._num_calculated_metrics = 0
+
     @property
     def nested_indices(self):
         """list: indices of the batch each additionally wrapped into a list. If used as an `init` function in
@@ -127,7 +132,7 @@ class SeismicBatch(Batch):
         # Unpack tuple in case of non-multiindex survey
         if len(gather_index) == 1:
             gather_index = gather_index[0]
-        # Guarantee, that a DataFrame is always returned after .loc, regardless of pandas behaviour
+        # Guarantee, that a DataFrame is always returned after .loc, regardless of pandas behavior
         gather_index = slice(gather_index, gather_index)
         getattr(self, dst)[pos] = self.index.get_gather(survey_name=src, concat_id=concat_id,
                                                         gather_index=gather_index, **kwargs)
@@ -263,8 +268,8 @@ class SeismicBatch(Batch):
         >>> batch.predictions.shape
         (3, 1, 1500)
 
-        Predictions are split into 3 subarrays with a signle trace in each of them to match the number of traces in the
-        correponding gathers:
+        Predictions are split into 3 subarrays with a single trace in each of them to match the number of traces in the
+        corresponding gathers:
         >>> len(batch.outputs)
         3
         >>> batch.outputs[0].shape
@@ -386,6 +391,99 @@ class SeismicBatch(Batch):
 
         return self
 
+    @action(no_eval="save_to")
+    def calculate_metric(self, metric, *args, metric_name=None, coords_component=None, coords_cols="auto",
+                         save_to=None, **kwargs):
+        """Calculate a metric for each batch element and store the results into an accumulator.
+
+        The passed metric must be either a subclass of `PipelineMetric` or a `callable`. In the latter case, a new
+        subclass of `PipelineMetric` is created with its `calc` method defined by the `callable`. The metric class is
+        provided with information about the pipeline it was calculated in which allows restoring metric calculation
+        context during interactive metric map plotting.
+
+        Examples
+        --------
+        1. Calculate a metric, that estimates signal leakage after seismic processing by CDP gathers:
+
+        Create a dataset with surveys before and after processing being merged:
+        >>> header_index = ["INLINE_3D", "CROSSLINE_3D"]
+        >>> header_cols = "offset"
+        >>> survey_before = Survey(path_before, header_index=header_index, header_cols=header_cols, name="before")
+        >>> survey_after = Survey(path_after, header_index=header_index, header_cols=header_cols, name="after")
+        >>> dataset = SeismicDataset(surveys=[survey_before, survey_after], mode="m")
+
+        Iterate over the dataset and calculate the metric:
+        >>> pipeline = (dataset
+        ...     .pipeline()
+        ...     .load(src=["before", "after"])
+        ...     .calculate_metric(SignalLeakage, "before", "after", velocities=np.linspace(1500, 5500, 100),
+        ...                       save_to=V("accumulator", mode="a"))
+        ... )
+        >>> pipeline.run(batch_size=16, n_epochs=1)
+
+        Extract the created metric accumulator, construct the map and plot it:
+        >>> leakage_map = pipeline.v("accumulator").construct_map()
+        >>> leakage_map.plot(interactive=True)  # works only in JupyterLab with `%matplotlib widget` magic executed
+
+        2. Calculate standard deviation of gather amplitudes using a lambda-function:
+        >>> pipeline = (dataset
+        ...     .pipeline()
+        ...     .load(src="before")
+        ...     .calculate_metric(lambda gather: gather.data.std(), "before", metric_name="std",
+        ...                       save_to=V("accumulator", mode="a"))
+        ... )
+        >>> pipeline.run(batch_size=16, n_epochs=1)
+        >>> std_map = pipeline.v("accumulator").construct_map()
+        >>> std_map.plot(interactive=True, plot_component="before")
+
+        Parameters
+        ----------
+        metric : subclass of PipelineMetric or callable
+            The metric to calculate.
+        metric_name : str or None, optional
+            A name of the calculated metric. Obligatory if `metric` is `lambda`.
+        coords_component : str, optional
+            A component name to extract coordinates from. If not given, the first argument passed to the metric
+            calculation function is used.
+        coords_cols : "auto" or 2 element array-like, optional, defaults to "auto"
+            Headers columns of `coords_component` objects to get coordinates from. If "auto", tries inferring them
+            automatically by the type of headers index.
+        save_to : NamedExpression
+            A named expression to save the constructed `MetricsAccumulator` instance to.
+        args : misc, optional
+            Additional positional arguments to the metric calculation function.
+        kwargs : misc, optional
+            Additional keyword arguments to the metric calculation function.
+
+        Returns
+        -------
+        self : SeismicBatch
+            The batch with increased `_num_calculated_metrics` counter.
+
+        Raises
+        ------
+        ValueError
+            If wrong type of `metric` is passed.
+            If `metric` is `lambda` and `metric_name` is not given.
+        """
+        metric = define_pipeline_metric(metric, metric_name)
+        unpacked_args, first_arg = metric.unpack_calc_args(self, *args, **kwargs)
+
+        coords_items = first_arg if coords_component is None else getattr(self, coords_component)
+        coords = [item.get_coords(coords_cols) for item in coords_items]
+        metric_params = {
+            "values": [metric.calc(*args, **kwargs) for args, kwargs in unpacked_args],
+            "metric_type": metric,
+            "pipeline": self.pipeline,
+            "calculate_metric_index": self._num_calculated_metrics,
+        }
+        accumulator = MetricsAccumulator(coords, indices=self.indices, **{metric.name: metric_params})
+
+        if save_to is not None:
+            save_data_to(data=accumulator, dst=save_to, batch=self)
+        self._num_calculated_metrics += 1
+        return self
+
     @action
     def plot(self, src, src_kwargs=None, max_width=20, title="{src}: {index}", save_to=None, **common_kwargs):  # pylint: disable=too-many-statements
         """Plot batch components on a grid constructed as follows:
@@ -447,7 +545,7 @@ class SeismicBatch(Batch):
             If the length of `src_kwargs` when passed as a list does not match the length of `src`.
             If any of the components' `plot` method is not decorated with `plotter` decorator.
         """
-        # Consturct a list of plot kwargs for each component in src
+        # Construct a list of plot kwargs for each component in src
         src_list = to_list(src)
         if src_kwargs is None:
             src_kwargs = [{} for _ in range(len(src_list))]
@@ -487,12 +585,12 @@ class SeismicBatch(Batch):
 
                 # Format subplot title
                 if title_template is not None:
-                    title = as_dict(title_template, key='label')
-                    label = title.pop("label")
+                    src_title = as_dict(title_template, key='label')
+                    label = src_title.pop("label")
                     format_names = {name for _, name, _, _ in Formatter().parse(label) if name is not None}
-                    format_kwargs = {name: title.pop(name) for name in format_names if name in title}
-                    title["label"] = label.format(src=src, index=index, **format_kwargs)
-                    kwargs["title"] = title
+                    format_kwargs = {name: src_title.pop(name) for name in format_names if name in src_title}
+                    src_title["label"] = label.format(src=src, index=index, **format_kwargs)
+                    kwargs["title"] = src_title
 
                 # Create subplotter config
                 subplot_config = {
@@ -518,9 +616,9 @@ class SeismicBatch(Batch):
 
         # Define axes layout and perform plotting
         fig_width = max(sum(plotter["width"] for plotter in plotters_row) for plotters_row in plotters)
-        row_heigths = [max(plotter["height"] for plotter in plotters_row) for plotters_row in plotters]
-        fig = plt.figure(figsize=(fig_width, sum(row_heigths)), constrained_layout=True)
-        gridspecs = fig.add_gridspec(len(plotters), 1, height_ratios=row_heigths)
+        row_heights = [max(plotter["height"] for plotter in plotters_row) for plotters_row in plotters]
+        fig = plt.figure(figsize=(fig_width, sum(row_heights)), constrained_layout=True)
+        gridspecs = fig.add_gridspec(len(plotters), 1, height_ratios=row_heights)
 
         for gridspecs_row, plotters_row in zip(gridspecs, plotters):
             n_cols = len(plotters_row)
@@ -539,5 +637,4 @@ class SeismicBatch(Batch):
         if save_to is not None:
             save_kwargs = as_dict(save_to, key="fname")
             save_figure(fig, **save_kwargs)
-        plt.show()
         return self

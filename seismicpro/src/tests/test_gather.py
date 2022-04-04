@@ -8,20 +8,23 @@ import numpy as np
 
 from seismicpro import Survey, StackingVelocity
 from seismicpro.src.utils import to_list
+from seismicpro.src.const import HDR_FIRST_BREAK
 
 
 # Constants
-ALL_ATTRS = ['data', 'headers', 'samples', '_sample_rate', 'sort_by', 'survey']
-COPY_IGNORE_ATTRS = ['data', 'headers', 'samples', '_sample_rate'] # Attrs that might not be copied during gather.copy
-NUMPY_ATTRS = ['data', 'samples', '_sample_rate']
+ALL_ATTRS = ['data', 'headers', 'samples', 'sort_by', 'survey']
+COPY_IGNORE_ATTRS = ['data', 'headers', 'samples'] # Attrs that might not be copied during gather.copy
+NUMPY_ATTRS = ['data', 'samples']
 
 
 @pytest.fixture(scope='module')
 def survey(segy_path):
     """Create gather"""
     survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'],
-                    header_cols=['offset', 'FieldRecord'], collect_stats=True)
-    survey.headers['FirstBreak'] = np.random.randint(0, 1000, len(survey.headers))
+                    header_cols=['offset', 'FieldRecord'])
+    survey.remove_dead_traces(bar=False)
+    survey.collect_stats(bar=False)
+    survey.headers[HDR_FIRST_BREAK] = np.random.randint(0, 1000, len(survey.headers))
     return survey
 
 
@@ -53,7 +56,6 @@ def compare_gathers(first, second, drop_cols=None, check_types=False, same_surve
 
     assert np.allclose(first.data, second.data)
     assert np.allclose(first.samples, second.samples)
-    assert first._sample_rate == second._sample_rate  # pylint: disable=protected-access
 
     if check_types:
         for attr in NUMPY_ATTRS:
@@ -170,8 +172,11 @@ def test_gather_getitem_sort_by(gather, key):
 def test_gather_getitem_sample_rate_changes(gather, key, sample_rate):
     """test_gather_getitem_sample_rate_changes"""
     result_getitem = gather[slice(None), key]
-    assert result_getitem._sample_rate == sample_rate  # pylint: disable=protected-access
-
+    if sample_rate is not None:
+        assert result_getitem.sample_rate == sample_rate  # pylint: disable=protected-access
+    else:
+        with pytest.raises(ValueError):
+            _ = result_getitem.sample_rate
     if sample_rate is not None:
         assert result_getitem.sample_rate == sample_rate
     else:
@@ -220,8 +225,8 @@ def test_gather_scale_maxabs(gather, tracewise, use_global):
 
 def test_gather_mask_to_pick_and_pick_to_mask(gather):
     """test_gather_mask_to_pick"""
-    mask = gather.pick_to_mask(first_breaks_col='FirstBreak')
-    mask.mask_to_pick(first_breaks_col='FirstBreak', save_to=gather)
+    mask = gather.pick_to_mask(first_breaks_col=HDR_FIRST_BREAK)
+    mask.mask_to_pick(first_breaks_col=HDR_FIRST_BREAK, save_to=gather)
 
 def test_gather_get_coords(gather):
     """test_gather_get_coords"""

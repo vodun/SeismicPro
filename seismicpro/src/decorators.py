@@ -6,7 +6,7 @@ from collections import defaultdict
 
 import matplotlib.pyplot as plt
 
-from .utils import to_list, save_figure, set_text_formatting, as_dict
+from .utils import to_list, save_figure, as_dict
 from ..batchflow import action, inbatch_parallel
 
 
@@ -24,9 +24,8 @@ def _update_method_params(method, decorator_name, **decorator_params):
 def plotter(figsize, args_to_unpack=None):
     """Expand the functionality of a plotting method by defining figure creation and saving.
 
-    The decorated method is supposed to accept an `ax` argument. If it's not passed during the call, the decorator
-    creates it with the `figsize` provided. Before calling the decorated method, `kwargs` are processed as follows: all
-    text formatting arguments are popped from `kwargs` and set as defaults for 'title', 'x_ticker' and 'y_ticker'.
+    The decorated method is supposed to accept an `ax` argument. If it's not passed during the call and the plot is not
+    interactive, the decorator creates it with the `figsize` provided.
 
     A new argument is added for the decorated method:
     save_to : str or dict, optional, defaults to None
@@ -57,16 +56,17 @@ def plotter(figsize, args_to_unpack=None):
     def decorator(method):
         @wraps(method)
         def plot(*args, **kwargs):
-            kwargs = set_text_formatting(kwargs)
-            if "ax" in kwargs:
+            # Don't create axes if they are already passed or the plot is interactive
+            if "ax" in kwargs or kwargs.get("interactive"):
                 return method(*args, **kwargs)
-            fig, ax = plt.subplots(1, 1, figsize=kwargs.pop("figsize", figsize))
+
+            # Create a figure and axes. Add tight_layout to always correctly show colorbar ticks.
+            fig, ax = plt.subplots(1, 1, figsize=kwargs.pop("figsize", figsize), tight_layout=True)
             save_to = kwargs.pop("save_to", None)
             output = method(*args, ax=ax, **kwargs)
             if save_to is not None:
                 save_kwargs = as_dict(save_to, key="fname")
                 save_figure(fig, **save_kwargs)
-            plt.show()
             return output
         return _update_method_params(plot, "plotter", figsize=figsize, args_to_unpack=args_to_unpack)
     return decorator

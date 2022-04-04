@@ -5,17 +5,17 @@ import numpy as np
 from numba import njit, prange
 from matplotlib import colors as mcolors
 
-from .decorators import batch_method, plotter
-from .velocity_model import calculate_stacking_velocity
-from .velocity_cube import StackingVelocity
-from .utils import set_ticks, as_dict
-from .utils.correction import get_hodograph
+from .interactive_plot import SemblancePlot
+from ..decorators import batch_method, plotter
+from ..gather.utils.correction import get_hodograph
+from ..stacking_velocity import StackingVelocity, calculate_stacking_velocity
+from ..utils import add_colorbar, set_ticks, set_text_formatting
 
 
 class BaseSemblance:
     """Base class for vertical velocity semblance calculation.
 
-    Implements general computation logic and visualisation method.
+    Implements general computation logic and visualization method.
 
     Parameters
     ----------
@@ -31,7 +31,7 @@ class BaseSemblance:
         Seismic gather for which semblance calculation was called.
     gather_data : 2d np.ndarray
         Gather data for semblance calculation. The data is stored in a transposed form, compared to `Gather.data` due
-        to performance reasons, so that `gather_data.shape` is (trace_lenght, num_traces).
+        to performance reasons, so that `gather_data.shape` is (trace_length, num_traces).
     win_size : int
         Temporal window size for smoothing the semblance. Measured in samples.
     """
@@ -55,26 +55,43 @@ class BaseSemblance:
         """np.ndarray of floats: The distance between source and receiver for each trace. Measured in meters."""
         return self.gather.offsets  # m
 
-    def get_coords(self, coords_columns="index"):
+    def get_coords(self, coords_cols="auto"):
         """Get spatial coordinates of the semblance.
 
         The call is redirected to the underlying gather.
 
         Parameters
         ----------
-        coords_columns : None, "index" or 2 element array-like, defaults to "index"
-            - If `None`, (`None`, `None`) tuple is returned.
-            - If "index", unique underlying gather index value is used to define semblance coordinates.
-            - If 2 element array-like, `coords_columns` define gather headers to get x and y coordinates from.
+        coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
+            - If `None`, `Coordinates` with two `None` elements is returned. Their names are "X" and "Y" respectively.
+            - If "auto", columns of headers index of the underlying gather define headers columns to get coordinates
+              from (e.g. 'FieldRecord' is mapped to a ("SourceX", "SourceY") pair).
+            - If 2 element array-like, `coords_cols` directly define underlying gather headers to get coordinates from.
             In the last two cases index or column values are supposed to be unique for all traces in the underlying
-            gather.
+            gather and the names of the returned coordinates correspond to source headers columns.
 
         Returns
         -------
-        coords : tuple with 2 elements
+        coords : Coordinates
             Semblance spatial coordinates.
+
+        Raises
+        ------
+        ValueError
+            If semblance coordinates are non-unique or more than 2 columns were passed.
         """
-        return self.gather.get_coords(coords_columns)
+        return self.gather.get_coords(coords_cols)
+
+    @property
+    def coords(self):
+        """Coordinates: Spatial coordinates of the semblance."""
+        return self.get_coords()
+
+    def get_time_velocity_by_indices(self, time_ix, velocity_ix):
+        """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
+        semblance."""
+        _ = time_ix, velocity_ix
+        raise NotImplementedError
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
@@ -88,7 +105,7 @@ class BaseSemblance:
             A callable that calculates normal moveout corrected gather for given time and velocity values and a range
             of offsets.
         gather_data : 2d np.ndarray
-            Gather data for semblance calculation with (trace_lenght, num_traces) layout.
+            Gather data for semblance calculation with (trace_length, num_traces) layout.
         times : 1d np.ndarray
             Recording time for each trace value. Measured in milliseconds.
         offsets : array-like
@@ -129,9 +146,9 @@ class BaseSemblance:
         return semblance_slice
 
     @staticmethod
-    def plot(semblance, title=None, x_label=None, x_ticklabels=None,  # pylint: disable=too-many-arguments
-             x_ticker=None, y_ticklabels=None, y_ticker=None, grid=False, stacking_times_ix=None,
-             stacking_velocities_ix=None, ax=None, **kwargs):
+    def _plot(semblance, title=None, x_label=None, x_ticklabels=None,  # pylint: disable=too-many-arguments
+              x_ticker=None, y_ticklabels=None, y_ticker=None, grid=False, stacking_times_ix=None,
+              stacking_velocities_ix=None, colorbar=True, ax=None, **kwargs):
         """Plot vertical velocity semblance and, optionally, stacking velocity.
 
         Parameters
@@ -156,11 +173,17 @@ class BaseSemblance:
             Time indices of calculated stacking velocities to show on the plot.
         stacking_velocities_ix : 1d np.ndarray, optional
             Velocity indices of calculated stacking velocities to show on the plot.
+        colorbar : bool or dict, optional, defaults to True
+            Whether to add a colorbar to the right of the semblance plot. If `dict`, defines extra keyword arguments
+            for `matplotlib.figure.Figure.colorbar`.
         ax : matplotlib.axes.Axes, optional, defaults to None
             Axes of the figure to plot on.
         kwargs : misc, optional
             Additional common keyword arguments for `x_ticker` and `y_tickers`.
         """
+        # Cast text-related parameters to dicts and add text formatting parameters from kwargs to each of them
+        (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
+
         # Split the range of semblance amplitudes into 16 levels on a log scale,
         # that will further be used as colormap bins
         max_val = np.max(semblance)
@@ -172,9 +195,8 @@ class BaseSemblance:
         x_grid, y_grid = np.meshgrid(np.arange(0, semblance.shape[1]), np.arange(0, semblance.shape[0]))
         ax.contour(x_grid, y_grid, semblance, levels, colors='k', linewidths=.5, alpha=.5)
         img = ax.imshow(semblance, norm=norm, aspect='auto', cmap='seismic')
-        ax.figure.colorbar(img, ticks=levels[1::2], ax=ax)
-
-        ax.set_title(**as_dict(title, key='label'))
+        add_colorbar(ax, img, colorbar, y_ticker=y_ticker)
+        ax.set_title(**{"label": None, **title})
 
         # Change markers of stacking velocity points if they are far enough apart
         if stacking_velocities_ix is not None and stacking_times_ix is not None:
@@ -184,10 +206,14 @@ class BaseSemblance:
         if grid:
             ax.grid(c='k')
 
-        x_ticker = kwargs if x_ticker is None else {**kwargs, **x_ticker}
-        y_ticker = kwargs if y_ticker is None else {**kwargs, **y_ticker}
         set_ticks(ax, "x", x_label, x_ticklabels, **x_ticker)
-        set_ticks(ax, "y", "Time (ms)", y_ticklabels, **y_ticker)
+        set_ticks(ax, "y", "Time", y_ticklabels, **y_ticker)
+
+    def plot(self, *args, interactive=False, **kwargs):
+        """Plot semblance in interactive or non-interactive mode."""
+        if not interactive:
+            return self._plot(*args, **kwargs)
+        return SemblancePlot(self, *args, **kwargs).plot()
 
 
 class Semblance(BaseSemblance):
@@ -211,11 +237,11 @@ class Semblance(BaseSemblance):
     the amplitude is taken for the time defined by :math:`t(i, v) = \sqrt{t_0^2 + \frac{l_j^2}{v^2}}`,
     where:
 
-    :math:`t_0` - start time of the hyperbola assosicated with time index `i`,
+    :math:`t_0` - start time of the hyperbola associated with time index `i`,
     :math:`l_j` - offset of the `j`-th trace,
     :math:`v` - velocity value.
 
-    The resulting matrix :math:`S(k, v)` has shape (trace_lenght, n_velocities) and contains vertical velocity
+    The resulting matrix :math:`S(k, v)` has shape (trace_length, n_velocities) and contains vertical velocity
     semblance values based on hyperbolas with each combination of the starting point :math:`k` and velocity :math:`v`.
 
     The algorithm for semblance calculation looks as follows:
@@ -255,7 +281,7 @@ class Semblance(BaseSemblance):
         Seismic gather for which semblance calculation was called.
     gather_data : 2d np.ndarray
         Gather data for semblance calculation. The data is stored in a transposed form, compared to `Gather.data` due
-        to performance reasons, so that `gather_data.shape` is (trace_lenght, num_traces).
+        to performance reasons, so that `gather_data.shape` is (trace_length, num_traces).
     velocities : 1d np.ndarray
         Range of velocity values for which semblance was calculated. Measured in meters/seconds.
     win_size : int
@@ -271,6 +297,22 @@ class Semblance(BaseSemblance):
                                                     nmo_func=get_hodograph, gather_data=self.gather_data,
                                                     times=self.times, offsets=self.offsets, velocities=velocities_ms,
                                                     sample_rate=self.sample_rate, win_size=self.win_size)
+
+    def get_time_velocity_by_indices(self, time_ix, velocity_ix):
+        """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
+        semblance."""
+        if (time_ix < 0) or (time_ix >= len(self.times)):
+            time = None
+        else:
+            time = np.interp(time_ix, np.arange(len(self.times)), self.times)
+
+        if (velocity_ix < 0) or (velocity_ix >= len(self.velocities)):
+            velocity = None
+        else:
+            velocity = np.interp(velocity_ix, np.arange(len(self.velocities)), self.velocities)
+            velocity /= 1000  # from m/s to m/ms
+
+        return time, velocity
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
@@ -293,15 +335,33 @@ class Semblance(BaseSemblance):
             Array with vertical velocity semblance values.
         """
         semblance = np.empty((len(gather_data), len(velocities)), dtype=np.float32)
-        for j in prange(len(velocities)):
+        # TODO: use prange when fixed in numba
+        for j in range(len(velocities)):  # pylint: disable=consider-using-enumerate
             semblance[:, j] = semblance_func(nmo_func=nmo_func, gather_data=gather_data, times=times, offsets=offsets,
                                              velocity=velocities[j], sample_rate=sample_rate, win_size=win_size,
                                              t_min_ix=0, t_max_ix=len(gather_data))
         return semblance
 
+    def _plot(self, stacking_velocity=None, *, title="Semblance", x_ticker=None, y_ticker=None, grid=False,
+              colorbar=True, ax=None, **kwargs):
+        """Plot vertical velocity semblance."""
+        # Add a stacking velocity line on the plot
+        stacking_times_ix, stacking_velocities_ix = None, None
+        if stacking_velocity is not None:
+            stacking_times = stacking_velocity.times if stacking_velocity.times is not None else self.times
+            stacking_velocities = stacking_velocity(stacking_times)
+            stacking_times_ix = stacking_times / self.sample_rate
+            stacking_velocities_ix = ((stacking_velocities - self.velocities[0]) /
+                                      (self.velocities[-1] - self.velocities[0]) * self.semblance.shape[1])
+
+        super()._plot(self.semblance, title=title, x_label="Velocity (m/s)", x_ticklabels=self.velocities,
+                      x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax, grid=grid,
+                      stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
+                      colorbar=colorbar, **kwargs)
+        return self
+
     @plotter(figsize=(10, 9), args_to_unpack="stacking_velocity")
-    def plot(self, stacking_velocity=None, title="Semblance", x_ticker=None, y_ticker=None, grid=False, ax=None,
-             **kwargs):
+    def plot(self, stacking_velocity=None, *, title="Semblance", interactive=False, **kwargs):
         """Plot vertical velocity semblance.
 
         Parameters
@@ -317,56 +377,34 @@ class Semblance(BaseSemblance):
             Parameters for ticks and ticklabels formatting for the y-axis; see `.utils.set_ticks` for more details.
         grid : bool, optional, defaults to False
             Specifies whether to draw a grid on the plot.
+        colorbar : bool or dict, optional, defaults to True
+            Whether to add a colorbar to the right of the semblance plot. If `dict`, defines extra keyword arguments
+            for `matplotlib.figure.Figure.colorbar`.
         ax : matplotlib.axes.Axes, optional, defaults to None
             Axes of the figure to plot on.
         kwargs : misc, optional
             Additional common keyword arguments for `x_ticker` and `y_tickers`.
+        interactive : bool, optional, defaults to `False`
+            Whether to plot semblance in interactive mode. This mode also plots the gather used to calculate the
+            semblance. Clicking on semblance highlights the corresponding hodograph on the gather plot and allows
+            performing NMO correction of the gather with the selected velocity. Interactive plotting must be performed
+            in a JupyterLab environment with the the `%matplotlib widget` magic executed and `ipympl` and `ipywidgets`
+            libraries installed.
+        sharey : bool, optional, defaults to True, only for interactive mode
+            Whether to share y axis of semblance and gather plots.
+        gather_plot_kwargs : dict, optional, only for interactive mode
+            Additional arguments to pass to `Gather.plot`.
 
         Returns
         -------
         semblance : Semblance
             Self unchanged.
         """
-        # Add a stacking velocity line on the plot
-        stacking_times_ix, stacking_velocities_ix = None, None
-        if stacking_velocity is not None:
-            stacking_times = stacking_velocity.times if stacking_velocity.times is not None else self.times
-            stacking_velocities = stacking_velocity(stacking_times)
-            stacking_times_ix = stacking_times / self.sample_rate
-            stacking_velocities_ix = ((stacking_velocities - self.velocities[0]) /
-                                      (self.velocities[-1] - self.velocities[0]) * self.semblance.shape[1])
-
-        super().plot(self.semblance, title=title, x_label="Velocity (m/s)", x_ticklabels=self.velocities,
-                     x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax, grid=grid,
-                     stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix, **kwargs)
-        return self
-
-    @batch_method(target="for", args_to_unpack="other")
-    def calculate_signal_leakage(self, other):
-        """Calculate signal leakage during ground-roll attenuation.
-
-        The metric is based on the assumption that a vertical velocity semblance calculated for the difference between
-        raw and processed gathers should not have pronounced energy maxima.
-
-        Parameters
-        ----------
-        self : Semblance
-            Semblance calculated for gather difference.
-        other : Semblance
-            Semblance for raw gather.
-
-        Returns
-        -------
-        metric : float
-            Signal leakage during gather processing.
-        """
-        minmax_self = np.max(self.semblance, axis=1) - np.min(self.semblance, axis=1)
-        minmax_other = np.max(other.semblance, axis=1) - np.min(other.semblance, axis=1)
-        return np.max(minmax_self / (minmax_other + 1e-11))
+        return super().plot(stacking_velocity=stacking_velocity, interactive=interactive, title=title, **kwargs)
 
     @batch_method(target="for", copy_src=False)
     def calculate_stacking_velocity(self, start_velocity_range=(1400, 1800), end_velocity_range=(2500, 5000),
-                                    max_acceleration=None, n_times=25, n_velocities=25, coords_columns="index"):
+                                    max_acceleration=None, n_times=25, n_velocities=25, coords_cols="auto"):
         """Calculate stacking velocity by vertical velocity semblance.
 
         Notes
@@ -387,8 +425,8 @@ class Semblance(BaseSemblance):
             The number of evenly spaced points to split time range into to generate graph edges.
         n_velocities : int, defaults to 25
             The number of evenly spaced points to split velocity range into for each time to generate graph edges.
-        coords_columns : None, "index" or 2 element array-like, defaults to "index"
-            Header columns of the underlying gather to get spatial coordinates of the semblance from`. See
+        coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
+            Header columns of the underlying gather to get spatial coordinates of the semblance from. See
             :func:`~Semblance.get_coords` for more details.
 
         Returns
@@ -401,7 +439,7 @@ class Semblance(BaseSemblance):
         ValueError
             If no stacking velocity was found for given parameters.
         """
-        inline, crossline = self.get_coords(coords_columns)
+        inline, crossline = self.get_coords(coords_cols)
         times, velocities, _ = calculate_stacking_velocity(self.semblance, self.times, self.velocities,
                                                            start_velocity_range, end_velocity_range, max_acceleration,
                                                            n_times, n_velocities)
@@ -420,7 +458,7 @@ class ResidualSemblance(BaseSemblance):
     `stacking_velocity(t)` * (1 +- `relative_margin`).
 
     Since the length of this velocity range varies for different timestamps, the residual semblance values are
-    interpolated to obtain a rectangular matrix of size (trace_lenght, max(right_boundary - left_boundary)), where
+    interpolated to obtain a rectangular matrix of size (trace_length, max(right_boundary - left_boundary)), where
     `left_boundary` and `right_boundary` are arrays of left and right boundaries for all timestamps respectively.
 
     Thus the residual semblance is a function of time and relative velocity margin. Zero margin line corresponds to
@@ -467,7 +505,7 @@ class ResidualSemblance(BaseSemblance):
         Seismic gather for which residual semblance calculation was called.
     gather_data : 2d np.ndarray
         Gather data for semblance calculation. The data is stored in a transposed form, compared to `Gather.data` due
-        to performance reasons, so that `gather_data.shape` is (trace_lenght, num_traces).
+        to performance reasons, so that `gather_data.shape` is (trace_length, num_traces).
     velocities : 1d np.ndarray
         Range of velocity values for which residual semblance was calculated. Measured in meters/seconds.
     win_size : int
@@ -498,6 +536,19 @@ class ResidualSemblance(BaseSemblance):
                                                                  left_bound_ix=left_bound_ix,
                                                                  right_bound_ix=right_bound_ix,
                                                                  sample_rate=self.sample_rate, win_size=self.win_size)
+
+    def get_time_velocity_by_indices(self, time_ix, velocity_ix):
+        """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
+        residual semblance."""
+        if (time_ix < 0) or (time_ix >= len(self.times)):
+            return None, None
+        time = np.interp(time_ix, np.arange(len(self.times)), self.times)
+        center_velocity = self.stacking_velocity(time) / 1000  # from m/s to m/ms
+
+        if (velocity_ix < 0) or (velocity_ix >= self.residual_semblance.shape[1]):
+            return time, None
+        margin = self.relative_margin * (2 * velocity_ix / (self.residual_semblance.shape[1] - 1) - 1)
+        return time, center_velocity * (1 + margin)
 
     def _calc_velocity_bounds(self):
         """Calculate velocity boundaries for each time within which residual semblance will be calculated.
@@ -541,7 +592,7 @@ class ResidualSemblance(BaseSemblance):
             Array with residual vertical velocity semblance values.
         """
         semblance = np.zeros((len(gather_data), len(velocities)), dtype=np.float32)
-        for i in prange(left_bound_ix.min(), right_bound_ix.max() + 1):
+        for i in range(left_bound_ix.min(), right_bound_ix.max() + 1):  # TODO: use prange when fixed in numba
             t_min_ix = np.where(right_bound_ix == i)[0]
             t_min_ix = 0 if len(t_min_ix) == 0 else t_min_ix[0]
 
@@ -564,8 +615,23 @@ class ResidualSemblance(BaseSemblance):
                                               cropped_semblance)
         return residual_semblance
 
+    def _plot(self, *, title="Residual semblance", x_ticker=None, y_ticker=None, grid=False, colorbar=True, ax=None,
+              **kwargs):
+        """Plot residual vertical velocity semblance."""
+        x_ticklabels = np.linspace(-self.relative_margin, self.relative_margin, self.residual_semblance.shape[1]) * 100
+
+        stacking_times = self.stacking_velocity.times if self.stacking_velocity.times is not None else self.times
+        stacking_times_ix = stacking_times / self.sample_rate
+        stacking_velocities_ix = np.full_like(stacking_times_ix, self.residual_semblance.shape[1] / 2)
+
+        super()._plot(self.residual_semblance, title=title, x_label="Relative velocity margin (%)",
+                      x_ticklabels=x_ticklabels, x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax,
+                      grid=grid, stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
+                      colorbar=colorbar, **kwargs)
+        return self
+
     @plotter(figsize=(10, 9))
-    def plot(self, title="Residual semblance", x_ticker=None, y_ticker=None, grid=False, ax=None, **kwargs):
+    def plot(self, *, title="Residual semblance", interactive=False, **kwargs):
         """Plot residual vertical velocity semblance. The plot always has a vertical line in the middle, representing
         the stacking velocity it was calculated for.
 
@@ -579,24 +645,27 @@ class ResidualSemblance(BaseSemblance):
             Parameters for ticks and ticklabels formatting for the y-axis; see `.utils.set_ticks` for more details.
         grid : bool, optional, defaults to False
             Specifies whether to draw a grid on the plot.
+        colorbar : bool or dict, optional, defaults to True
+            Whether to add a colorbar to the right of the residual semblance plot. If `dict`, defines extra keyword
+            arguments for `matplotlib.figure.Figure.colorbar`.
         ax : matplotlib.axes.Axes, optional, defaults to None
             Axes of the figure to plot on.
         kwargs : misc, optional
             Additional common keyword arguments for `x_ticker` and `y_tickers`.
+        interactive : bool, optional, defaults to `False`
+            Whether to plot residual semblance in interactive mode. This mode also plots the gather used to calculate
+            the residual semblance. Clicking on residual semblance highlights the corresponding hodograph on the gather
+            plot and allows performing NMO correction of the gather with the selected velocity. Interactive plotting
+            must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and `ipympl`
+            and `ipywidgets` libraries installed.
+        sharey : bool, optional, defaults to True, only for interactive mode
+            Whether to share y axis of residual semblance and gather plots.
+        gather_plot_kwargs : dict, optional, only for interactive mode
+            Additional arguments to pass to `Gather.plot`.
 
         Returns
         -------
         semblance : ResidualSemblance
             Self unchanged.
         """
-        x_ticklabels = np.linspace(-self.relative_margin, self.relative_margin, self.residual_semblance.shape[1]) * 100
-
-        stacking_times = self.stacking_velocity.times if self.stacking_velocity.times is not None else self.times
-        stacking_times_ix = stacking_times / self.sample_rate
-        stacking_velocities_ix = np.full_like(stacking_times_ix, self.residual_semblance.shape[1] / 2)
-
-        super().plot(self.residual_semblance, title=title, x_label="Relative velocity margin (%)",
-                     x_ticklabels=x_ticklabels, x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax,
-                     grid=grid, stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
-                     **kwargs)
-        return self
+        return super().plot(interactive=interactive, title=title, **kwargs)
