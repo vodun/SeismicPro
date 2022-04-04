@@ -1033,6 +1033,52 @@ class Gather:
         origins = make_origins(origins, self.shape, crop_shape, n_crops, stride)
         return CroppedGather(self, origins, crop_shape, pad_mode, **kwargs)
 
+    @batch_method(target="t")
+    def bandpass_filter(self, n, low=None, high=None, window='hamm', **kwargs):
+        """ docs """
+        fs = 1000 / self.sample_rate
+        if low is not None and high is not None:
+            kernel = scipy.signal.firwin(n, [low, high], window=window, fs=fs, pass_zero='bandpass', **kwargs)
+        elif low is not None:
+            kernel = scipy.signal.firwin(n, low, window=window, fs=fs, pass_zero='highpass', **kwargs)
+        elif high is not None:
+            kernel = scipy.signal.firwin(n, high, window=window, fs=fs, pass_zero='lowpass', **kwargs)
+        else:
+            raise ValueError('At least one of low and high must be provided')
+
+        self.data = cv2.filter2D(self.data, ddepth=-1, kernel=kernel.reshape(1, -1))
+        return self
+
+    @batch_method(target="f")
+    def resample(self, new_sample_rate, kind=3, anti_aliasing=True):
+        """ if type(kind) == int, perform piecewise polynomial interpolation with polynomial degree = kind
+            if type(kind) == str, deligate interpolation to scipy.interpolate.intep1d.
+        """
+        current_sample_rate = self.sample_rate
+
+        # in case new sample rate becomes more, i.e. performing downsample,
+        # anti-aliasing filter is applied to preserve signal frequencies
+        if new_sample_rate > current_sample_rate and anti_aliasing:
+            nyquist_frequency = 1000 / (2 * new_sample_rate)
+
+            # estimate parameters for filter
+            n = int(10000 / (nyquist_frequency * current_sample_rate))
+            cutoff_ratio = 0.8
+
+            # perform filerting
+            self.bandpass_filter(n, high=cutoff_ratio * nyquist_frequency)
+
+        new_samples = np.arange(self.samples[0], self.samples[-1] + 1e-6, new_sample_rate, self.samples.dtype)
+
+        if isinstance(kind, int):
+            data_resampled = piecewise_polynomial(kind, new_samples, self.samples, self.data)
+        elif isinstance(kind, str):
+            data_resampled = scipy.interpolate.interp1d(self.samples, self.data, kind=kind)(new_samples)
+
+        self.data = data_resampled
+        self.samples = new_samples
+        return self
+
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #
     #------------------------------------------------------------------------#
@@ -1300,50 +1346,3 @@ class Gather:
         axis_label += UNITS.get(axis_label, "")
         axis_label = axis_label[0].upper() + axis_label[1:]
         set_ticks(ax, axis, axis_label, tick_labels, **ticker)
-
-
-    @batch_method(target="t")
-    def bandpass_filter(self, n, low=None, high=None, window='hamm', **kwargs):
-        """ docs """
-        fs = 1000 / self.sample_rate
-        if low is not None and high is not None:
-            kernel = scipy.signal.firwin(n, [low, high], window=window, fs=fs, pass_zero='bandpass', **kwargs)
-        elif low is not None:
-            kernel = scipy.signal.firwin(n, low, window=window, fs=fs, pass_zero='highpass', **kwargs)
-        elif high is not None:
-            kernel = scipy.signal.firwin(n, high, window=window, fs=fs, pass_zero='lowpass', **kwargs)
-        else:
-            raise ValueError('At least one of low and high must be provided')
-
-        self.data = cv2.filter2D(self.data, ddepth=-1, kernel=kernel.reshape(1, -1))
-        return self
-
-    @batch_method(target="f")
-    def resample(self, new_sample_rate, kind=3, anti_aliasing=True):
-        """ if type(kind) == int, perform piecewise polynomial interpolation with polynomial degree = kind
-            if type(kind) == str, deligate interpolation to scipy.interpolate.intep1d.
-        """
-        current_sample_rate = self.sample_rate
-
-        # in case new sample rate becomes more, i.e. performing downsample,
-        # anti-aliasing filter is applied to preserve signal frequencies
-        if new_sample_rate > current_sample_rate and anti_aliasing:
-            nyquist_frequency = 1000 / (2 * new_sample_rate)
-
-            # estimate parameters for filter
-            n = int(10000 / (nyquist_frequency * current_sample_rate))
-            cutoff_ratio = 0.8
-
-            # perform filerting
-            self.bandpass_filter(n, high=cutoff_ratio * nyquist_frequency)
-
-        new_samples = np.arange(self.samples[0], self.samples[-1] + 1e-6, new_sample_rate, self.samples.dtype)
-
-        if isinstance(kind, int):
-            data_resampled = piecewise_polynomial(kind, new_samples, self.samples, self.data)
-        elif isinstance(kind, str):
-            data_resampled = scipy.interpolate.interp1d(self.samples, self.data, kind=kind)(new_samples)
-
-        self.data = data_resampled
-        self.samples = new_samples
-        return self
