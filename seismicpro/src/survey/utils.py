@@ -26,11 +26,11 @@ class ForPoolExecutor(Executor):
         self.task_queue.append((future, partial(fn, *args, **kwargs)))
         return future
 
-    def shutdown(self, wait=True, *, cancel_futures=False):
-        for future, func in self.task_queue:
-            future.set_result(func())
+    def shutdown(self, *args, **kwargs):
+        _ = args, kwargs
+        for future, fn in self.task_queue:
+            future.set_result(fn())
         self.task_queue = None
-        super().shutdown(wait=wait, cancel_futures=cancel_futures)
 
 
 def define_unpacking_format(headers_to_load):
