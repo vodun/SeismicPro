@@ -64,10 +64,16 @@ LIMITS = [
 class TestInit:
     """Test `Survey` instantiation."""
 
+    @pytest.mark.parametrize("chunk_size, n_workers, bar", [
+        [1, 1, True],  # Single worker, tracewise loading with bar
+        [10, None, True],  # os.cpu_count() workers, small chunk size with bar
+        [10000000, None, False],  # Chunk size larger than the number of traces
+    ])
     def test_nolimits(self, segy_path, header_index, expected_index, header_cols, expected_cols,
-                      name, expected_name):
-        """Test survey loading when limits are not passed and stats are not calculated."""
-        survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name)
+                      name, expected_name, chunk_size, n_workers, bar):
+        """Test survey loading when limits are not passed."""
+        survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name,
+                        chunk_size=chunk_size, n_workers=n_workers, bar=bar)
 
         expected_headers = expected_index | expected_cols | {"TRACE_SEQUENCE_FILE"}
         assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers)
@@ -83,8 +89,9 @@ class TestInit:
     @pytest.mark.parametrize(["limits", "slice_limits"], LIMITS)
     def test_limits(self, segy_path, header_index, expected_index, header_cols, expected_cols,
                     name, expected_name, limits, slice_limits):
-        """Test survey loading with limits set when stats are not calculated."""
-        survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name, limits=limits)
+        """Test survey loading with limits set."""
+        survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name, limits=limits,
+                        bar=False)
 
         expected_headers = expected_index | expected_cols | {"TRACE_SEQUENCE_FILE"}
         assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers)
