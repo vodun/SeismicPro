@@ -17,7 +17,7 @@ class WeatheringVelocityMetric(PipelineMetric):
     views = ("plot", "plot_wv")
 
     @staticmethod
-    def calc(gather, weathering_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_time=50):
+    def calc(gather, weathering_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50):
         """Calculates the weathering metric value.
 
         Weathering metric calculated as fraction of first breaking times that stands out from a weathering velocity
@@ -38,7 +38,7 @@ class WeatheringVelocityMetric(PipelineMetric):
         metric : float
             Fraction of the first breaks stands out from the weathering velocity curve more than given threshold time.
         """
-        metric = np.abs(weathering_velocity(gather.offsets) - gather[first_breaks_col].ravel()) > threshold_time
+        metric = np.abs(weathering_velocity(gather.offsets) - gather[first_breaks_col].ravel()) > threshold_times
         return np.mean(metric)
 
     @pass_calc_args
