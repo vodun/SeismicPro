@@ -126,58 +126,37 @@ def mute_gather(gather_data, muting_times, samples, fill_value):
     gather_data[~mask] = fill_value
     return gather_data.reshape(data_shape)
 
+
 @njit(parallel=True)
-def agc(data, factor=1, win_size=250, mode='abs'):
+def calculate_agc(data, factor=1, win_size=250, mode='abs'):
     """ TODO """
     coefs = np.empty_like(data)
     n = data.shape[1]
-    wl, wr = win_size // 2, win_size - win_size // 2
-    start, end = wl, n - wr
+    win_left, win_right = win_size // 2, win_size - win_size // 2
+    # Start is the first trace position that fits the full window, end is the last.
+    # AGC coefficients before start and after end are extrapolated.
+    start, end = win_left, n - win_right
     if mode == 'abs':
+        data = np.abs(data)
         for i in prange(data.shape[0]):  # pylint: disable=not-an-iterable
-            coefs[i] = calc_coef_abs(data[i], factor, start, end, wr, wl)
+            coefs[i] = calculate_agc_coefs(data[i], start, end, win_size)
     elif mode == 'rms':
+        data = np.power(data, 2)
         for i in prange(data.shape[0]):  # pylint: disable=not-an-iterable
-            coefs[i] = calc_coef_rms(data[i], factor, start, end, wr, wl)
-    return coefs
-
-
-@njit
-def calc_coef_abs(trace, factor, start, end, wr, wl):
-    """ TODO """
-    coef = np.empty_like(trace)
-    trace = np.abs(trace)
-
-    summ = np.sum(trace[:start+wr])
-    count = np.sum(trace[:start+wr] != 0)
-    coef[start] = factor * count / (summ + 1e-5)
-
-    for i in range(start+1, end):
-        p, m = trace[i+wr], trace[i-wl]
-        summ += (p - m)
-        count += ((p != 0) - (m != 0))
-        coef[i] = factor * count / (summ + 1e-5)
-
-    coef[:start] = coef[start]
-    coef[end:] = coef[end-1]
-    return coef
-
+            coefs[i] = calculate_agc_coefs(data[i], start, end, win_size)
+        coefs = np.sqrt(coefs)
+    return factor * coefs
 
 @njit
-def calc_coef_rms(trace, factor, start, end, wr, wl):
+def calculate_agc_coefs(trace, start, end, win_size):
     """ TODO """
-    coef = np.empty_like(trace)
+    agc = np.empty_like(trace)
+    cs = np.cumsum(trace)
+    counts = np.cumsum(trace!=0)
+    agc[start:end] = ((counts[:-(win_size)]-counts[win_size:]) /
+                      (cs[:-(win_size)] - cs[win_size:] + 1e-15))
 
-    summ_squares = np.sum(trace[:start+wr]**2)
-    count = np.sum(trace[:start+wr] != 0)
-    coef[start] = factor * count / (summ_squares**0.5 + 1e-5)
-
-    for i in range(start+1, end):
-        p, m = trace[i+wr]**2, trace[i-wl]**2
-        summ_squares += (p - m)
-        count += ((p != 0) - (m != 0))
-        coef[i] = factor * count / (summ_squares**0.5 + 1e-5)
-
-    coef[:start] = coef[start]
-    coef[end:] = coef[end-1]
-    return coef
+    # Extrapolate AGC coefs for trace positions where full window does not fit
+    agc[:start] = agc[start]
+    agc[end:] = agc[end-1]
+    return agc
