@@ -1,5 +1,6 @@
 """Survey processing utils"""
 
+import os
 import mmap
 from struct import unpack
 from functools import partial
@@ -50,6 +51,10 @@ def load_headers(path, headers_to_load, endian, trace_data_offset, trace_size, n
 
     headers_format, headers_order = define_unpacking_format(headers_to_load)
     headers = np.empty((n_traces, len(headers_to_load)), dtype=np.int32)
+
+    if n_workers is None:
+        n_workers = os.cpu_count()
+    n_workers = min(len(chunk_sizes), n_workers)
 
     with tqdm(total=n_traces, desc="Trace headers loaded", disable=not bar) as pbar:
         with ProcessPoolExecutor(max_workers=n_workers) as pool:
