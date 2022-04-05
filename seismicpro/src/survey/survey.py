@@ -14,7 +14,7 @@ from tqdm.auto import tqdm
 from scipy.interpolate import interp1d
 
 from .plot_geometry import SurveyGeometryPlot
-from .utils import calculate_stats, create_supergather_index, SurveyAttribute
+from .utils import load_headers, calculate_stats, create_supergather_index, SurveyAttribute
 from ..gather import Gather
 from ..metrics import PartialMetric
 from ..utils import to_list, maybe_copy, get_cols, create_indexer
@@ -99,7 +99,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     n_dead_traces : int
         The number of traces with constant value (dead traces). None until `mark_dead_traces` is called.
     """
-    def __init__(self, path, header_index, header_cols=None, name=None, limits=None):
+    def __init__(self, path, header_index, header_cols=None, name=None, limits=None, endian="big", chunk_size=100000,
+                 n_workers=None, bar=True, legacy_mode=False):
         self.path = os.path.abspath(path)
         self.name = os.path.splitext(os.path.basename(self.path))[0] if name is None else name
 
@@ -110,9 +111,16 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         else:
             header_cols = set(to_list(header_cols))
         header_index = to_list(header_index)
-        load_headers = set(header_index) | header_cols
 
-        self.segy_handler = segyio.open(self.path, ignore_geometry=True)
+        # TRACE_SEQUENCE_FILE is not loaded but reconstructed manually since sometimes it is undefined in the file but
+        # we rely on it during gather loading
+        headers_to_load = (set(header_index) | header_cols) - {"TRACE_SEQUENCE_FILE"}
+
+        endian_options = {"big", "msb", "little", "lsb"}
+        if endian not in endian_options:
+            raise ValueError(f"Unknown endian, must be one of {', '.join(endian_options)}")
+
+        self.segy_handler = segyio.open(self.path, mode="r", endian=endian, ignore_geometry=True)
         self.segy_handler.mmap()
 
         # Get attributes from the source SEG-Y file.
@@ -125,14 +133,23 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self.sample_rate = None
         self.set_limits(limits)
 
-        # Load trace headers from the file and cast them to int32 since their values are at most 4-byte integers
-        # according to SEG-Y spec
-        headers = {header: self.segy_handler.attributes(segyio.tracefield.keys[header])[:] for header in load_headers}
-        headers = pd.DataFrame(headers, dtype=np.int32)
-        # TRACE_SEQUENCE_FILE is reconstructed manually since sometimes it is undefined in the file but we rely on it
-        # during gather loading
+        if legacy_mode:
+            # Load trace headers from the file and cast them to int32 since their values are at most 4-byte integers
+            # according to SEG-Y spec
+            headers = {header: self.segy_handler.attributes(segyio.tracefield.keys[header])[:]
+                       for header in headers_to_load}
+            headers = pd.DataFrame(headers, dtype=np.int32)
+        else:
+            metrics = self.segy_handler.xfd.metrics()
+            n_traces = metrics["tracecount"]
+            trace_data_offset = metrics["trace0"]
+            trace_size = metrics["trace_bsize"]
+            headers = load_headers(path, headers_to_load, endian, trace_data_offset, trace_size, n_traces, chunk_size,
+                                   n_workers, bar)
+
         tsf_dtype = np.int32 if len(headers) < np.iinfo(np.int32).max else np.int64
         headers["TRACE_SEQUENCE_FILE"] = np.arange(1, self.segy_handler.tracecount+1, dtype=tsf_dtype)
+
         # Sort headers by the required index in order to optimize further subsampling and merging. Sorting preserves
         # trace order from the file within each gather.
         headers.set_index(header_index, inplace=True)

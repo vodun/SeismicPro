@@ -1,11 +1,69 @@
 """Survey processing utils"""
 
+import mmap
+from struct import unpack
 from functools import partial
+from concurrent.futures import ProcessPoolExecutor
 
+import segyio
 import numpy as np
+import pandas as pd
 from numba import njit
+from tqdm.auto import tqdm
 
 from ..metrics import Metric
+from ..const import TRACE_HEADER_SIZE
+
+
+def define_unpacking_format(headers_to_load):
+    header_to_byte = segyio.tracefield.keys
+    byte_to_header = {val: key for key, val in header_to_byte.items()}
+    start_bytes = sorted(header_to_byte.values())
+    byte_to_len = {start: end - start for start, end in zip(start_bytes, start_bytes[1:] + [TRACE_HEADER_SIZE + 1])}
+    len_to_code = {2: "h", 4: "i"}
+
+    headers_to_load_bytes = {header_to_byte[header] for header in headers_to_load}
+    headers_to_code = {byte: len_to_code[header_len] if byte in headers_to_load_bytes else "x" * header_len
+                       for byte, header_len in byte_to_len.items()}
+    headers_format = "".join(headers_to_code[byte] for byte in start_bytes)
+    headers_order = [byte_to_header[byte] for byte in sorted(headers_to_load_bytes)]
+    return headers_format, headers_order
+
+
+def read_headers_chunk(path, chunk_offset, chunk_size, trace_stride, headers_format, endian):
+    with open(path, "rb") as f:
+        with mmap.mmap(f.fileno(), length=0, access=mmap.ACCESS_READ) as mm:
+            headers = np.ndarray(buffer=mm, dtype=np.dtype(f"V{TRACE_HEADER_SIZE}"), offset=chunk_offset,
+                                 shape=chunk_size, strides=trace_stride).tolist()
+    chunk_format_str = {"big": ">", "msb": ">", "little": "<", "lsb": "<"}[endian] + headers_format * chunk_size
+    return np.array(unpack(chunk_format_str, b"".join(headers)), dtype=np.int32).reshape(chunk_size, -1)
+
+
+def load_headers(path, headers_to_load, endian, trace_data_offset, trace_size, n_traces, chunk_size, n_workers, bar):
+    trace_stride = TRACE_HEADER_SIZE + trace_size
+    n_chunks, last_chunk_size = divmod(n_traces, chunk_size)
+    chunk_sizes = [chunk_size] * n_chunks
+    if last_chunk_size:
+        chunk_sizes += [last_chunk_size]
+    chunk_starts = np.cumsum([0] + chunk_sizes[:-1])
+    chunk_offsets = trace_data_offset + chunk_starts * trace_stride
+
+    headers_format, headers_order = define_unpacking_format(headers_to_load)
+    headers = np.empty((n_traces, len(headers_to_load)), dtype=np.int32)
+
+    with tqdm(total=n_traces, desc="Trace headers loaded", disable=not bar) as pbar:
+        with ProcessPoolExecutor(max_workers=n_workers) as pool:
+            def callback(future, start_pos):
+                chunk_headers = future.result()
+                n_headers = len(chunk_headers)
+                headers[start_pos : start_pos + n_headers] = chunk_headers
+                pbar.update(n_headers)
+
+            for start, size, offset in zip(chunk_starts, chunk_sizes, chunk_offsets):
+                future = pool.submit(read_headers_chunk, path, offset, size, trace_stride, headers_format, endian)
+                future.add_done_callback(partial(callback, start_pos=start))
+
+    return pd.DataFrame(headers, columns=headers_order)
 
 
 @njit(nogil=True)
