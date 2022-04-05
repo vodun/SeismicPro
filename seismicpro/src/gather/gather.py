@@ -917,18 +917,11 @@ class Gather:
         if not isinstance(weathering_velocity, WeatheringVelocity):
             raise ValueError("Only WeatheringVelocity instances can be passed as a `weathering_velocity`")
         data = np.full_like(self.data, fill_value)
-        base = weathering_velocity(self.offsets)
-        trace_lenght = min(self.samples - base, self.samples - delay)
-        # samples_gap = np.round((weathering_velocity(self.offsets) - delay) / self.sample_rate).astype(np.int)
+        base_step = times_to_indices(weathering_velocity(self.offsets), self.samples, round=True).astype(int)
+        delay = times_to_indices(np.full(self.shape[0], delay), self.samples, round=True).astype(int)
+        step = np.maximum(base_step - delay, 0)
         for i in range(self.n_traces):
-            data[i, delay: delay + trace_lenght] = self.data[i, base:]
-
-
-            # if samples_gap[i] > 0:
-            #     data[i, :self.n_samples - samples_gap[i]] = self.data[i, samples_gap[i]:]
-            # else:
-            #     data[i, -samples_gap[i]:] = self.data[i, :self.n_samples + samples_gap[i]]
-
+            data[i, :self.samples.shape[0] - step[i]] = self.data[i, step[i]:]
         self.data = data
         return self
 
