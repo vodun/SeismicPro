@@ -12,7 +12,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .muting import Muter
 from .cropped_gather import CroppedGather
-from .plot_corrections import NMOCorrectionPlot
+from .plot_corrections import NMOCorrectionPlot, LMOCorrectionPlot
 from .utils import correction, normalization
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
 from ..utils import (to_list, get_cols, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
@@ -919,9 +919,9 @@ class Gather:
         data = np.full_like(self.data, fill_value)
         base_step = times_to_indices(weathering_velocity(self.offsets), self.samples, round=True).astype(int)
         delay = times_to_indices(np.full(self.shape[0], delay), self.samples, round=True).astype(int)
-        step = np.maximum(base_step - delay, 0)
+        step = np.maximum(base_step - delay, 1)
         for i in range(self.n_traces):
-            data[i, :self.samples.shape[0] - step[i]] = self.data[i, step[i]:]
+            data[i, :-step[i]] = self.data[i, step[i]:]
         self.data = data
         return self
 
@@ -1416,3 +1416,8 @@ class Gather:
             Additional keyword arguments to `Gather.plot`.
         """
         NMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, **kwargs).plot()
+
+    def plot_lmo_correction(self, min_vel=800, max_vel=6000, figsize=(6, 4.5), **kwargs):
+        """Perform interactive LMO correction of the gather with selected velocity of the 1-layer weathering model.
+        """
+        LMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, **kwargs).plot()

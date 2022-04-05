@@ -3,6 +3,7 @@
 from functools import partial
 
 from ..stacking_velocity import StackingVelocity
+from ..weathering_velocity import WeatheringVelocity
 from ..utils.interactive_plot_utils import InteractivePlot
 from ..utils import MissingModule
 
@@ -104,3 +105,21 @@ class NMOCorrectionPlot(CorrectionPlot):
         """Gather: NMO corrected gather."""
         new_vel = StackingVelocity.from_constant_velocity(self.plotter.slider.value)
         return self.gather.copy(ignore=["headers", "data", "samples"]).apply_nmo(new_vel)
+
+
+class LMOCorrectionPlot(CorrectionPlot):
+    """Interactive LMO correction plot."""
+    def get_title(self):
+        """Get title of the LMO correction view."""
+        return f"Linear moveout correction with {(self.params['v1'] * 1000):.0f} m / s"
+
+    @property
+    def corrected_gather(self):
+        """LMO corrected gather."""
+        wv = WeatheringVelocity.from_params(self.params)
+        return self.gather.copy(ignore=["headers", "data", "samples"]).apply_lmo(wv)
+
+    @property
+    def params(self):
+        """Dict with 1-layer weathering model parameters"""
+        return {'t0': 0, 'v1': self.plotter.slider.value / 1000}
