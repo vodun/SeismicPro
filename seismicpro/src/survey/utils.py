@@ -4,7 +4,7 @@ import os
 import mmap
 from struct import unpack
 from functools import partial
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import Future, Executor, ProcessPoolExecutor
 
 import segyio
 import numpy as np
@@ -16,12 +16,29 @@ from ..metrics import Metric
 from ..const import TRACE_HEADER_SIZE
 
 
+class ForPoolExecutor(Executor):
+    def __init__(self, *args, **kwargs):
+        _ = args, kwargs
+        self.task_queue = []
+
+    def submit(self, fn, /, *args, **kwargs):
+        future = Future()
+        self.task_queue.append((future, partial(fn, *args, **kwargs)))
+        return future
+
+    def shutdown(self, wait=True, *, cancel_futures=False):
+        for future, func in self.task_queue:
+            future.set_result(func())
+        self.task_queue = None
+        super().shutdown(wait=wait, cancel_futures=cancel_futures)
+
+
 def define_unpacking_format(headers_to_load):
     header_to_byte = segyio.tracefield.keys
     byte_to_header = {val: key for key, val in header_to_byte.items()}
     start_bytes = sorted(header_to_byte.values())
     byte_to_len = {start: end - start for start, end in zip(start_bytes, start_bytes[1:] + [TRACE_HEADER_SIZE + 1])}
-    len_to_code = {2: "h", 4: "i"}
+    len_to_code = {2: "h", 4: "i"}  # Each header value is represented either by int16 or int32
 
     headers_to_load_bytes = {header_to_byte[header] for header in headers_to_load}
     headers_to_code = {byte: len_to_code[header_len] if byte in headers_to_load_bytes else "x" * header_len
@@ -36,7 +53,9 @@ def read_headers_chunk(path, chunk_offset, chunk_size, trace_stride, headers_for
         with mmap.mmap(f.fileno(), length=0, access=mmap.ACCESS_READ) as mm:
             headers = np.ndarray(buffer=mm, dtype=np.dtype(f"V{TRACE_HEADER_SIZE}"), offset=chunk_offset,
                                  shape=chunk_size, strides=trace_stride).tolist()
+    # Construct a format string for the whole chunk
     chunk_format_str = {"big": ">", "msb": ">", "little": "<", "lsb": "<"}[endian] + headers_format * chunk_size
+    # Unpack headers and cast them to int32 since their values are at most 4-byte integers according to SEG-Y spec
     return np.array(unpack(chunk_format_str, b"".join(headers)), dtype=np.int32).reshape(chunk_size, -1)
 
 
@@ -55,9 +74,10 @@ def load_headers(path, headers_to_load, endian, trace_data_offset, trace_size, n
     if n_workers is None:
         n_workers = os.cpu_count()
     n_workers = min(len(chunk_sizes), n_workers)
+    executor_class = ForPoolExecutor if n_workers == 1 else ProcessPoolExecutor
 
     with tqdm(total=n_traces, desc="Trace headers loaded", disable=not bar) as pbar:
-        with ProcessPoolExecutor(max_workers=n_workers) as pool:
+        with executor_class(max_workers=n_workers) as pool:
             def callback(future, start_pos):
                 chunk_headers = future.result()
                 n_headers = len(chunk_headers)

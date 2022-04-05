@@ -91,7 +91,7 @@ class TestInit:
                     name, expected_name, limits, slice_limits):
         """Test survey loading with limits set."""
         survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name, limits=limits,
-                        bar=False)
+                        n_workers=1, bar=False)
 
         expected_headers = expected_index | expected_cols | {"TRACE_SEQUENCE_FILE"}
         assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers)
