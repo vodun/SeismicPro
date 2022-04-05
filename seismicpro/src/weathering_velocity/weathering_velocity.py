@@ -167,32 +167,38 @@ class WeatheringVelocity:
         self._piecewise_times = np.empty(self.n_layers + 1)
         self._piecewise_offsets = np.zeros(self.n_layers + 1)
         self._piecewise_offsets[-1] = offsets.max()
-        self._current_args = np.array(list(self.init.values()))
+        self._current_args = np.array(list(self.init.values())) # remove if the contstraint mask needs the offsets only
 
         # constraints define
-        constraint_offset = {  # crossoffsets ascend
-            "type": "ineq",
-            "fun": lambda x: np.diff(np.concatenate((x[1:self.n_layers], [self.max_offset])))
-            }
-        constraint_velocity = {"type": "ineq", "fun": lambda x: np.diff(x[self.n_layers:])}  # velocities ascend
-        constraint_freeze_velocity = {  # freeze the velocity fitting if no data for layer is found.
-            "type": "eq",
-            "fun": lambda x: self._current_args[self.n_layers:][self._mask_empty_layers(self.init)] \
-                             - x[self.n_layers:][self._mask_empty_layers(self.init)]}
-        constraint_freeze_t0 = {  # freeze the intercept time fitting if no data for layer is found.
-            "type": "eq",
-            "fun": lambda x: self._current_args[0][self._mask_empty_layers(self.init)[0]] \
-                             - x[0][self._mask_empty_layers(self.init)[0]]}
-        constraint_freeze_init_t0 = {"type": "eq", "fun": lambda x: x[0] - self.init['t0']} # freeze `t0` at init value
-        constraints = [constraint_offset , constraint_freeze_velocity]
-        constraints.append(constraint_freeze_init_t0 if freeze_t0 else constraint_freeze_t0)
-        if ascending_velocity:
-            constraints.append(constraint_velocity)
+        # constraint_offset = {  # crossoffsets ascend
+        #     "type": "ineq",
+        #     "fun": lambda x: np.diff(np.concatenate((x[1:self.n_layers], [self.max_offset]))),
+        #      }
+        # constraint_velocity = {"type": "ineq", "fun": lambda x: np.diff(x[self.n_layers:]) }  # velocities ascend
+        # # velocity_jac = np.hstack((np.zeros(shape=(self.n_layers)), -np.ones(shape=(self.n_layers))))
+        # constraint_freeze_velocity = {  # freeze the velocity fitting if no data for layer is found.
+        #     "type": "eq",
+        #     "fun": lambda x: self._current_args[self.n_layers:][self._mask_empty_layers(self._piecewise_offsets)] \
+        #                      - x[self.n_layers:][self._mask_empty_layers(self._piecewise_offsets)],
+        # #     # "jac": lambda x: velocity_jac[self._mask_empty_layers(self._piecewise_offsets)]
+        # }
+        # time_jac = np.hstack(([-1], np.zeros(shape=2 * self.n_layers - 1)))
+        # constraint_freeze_t0 = {  # freeze the intercept time fitting if no data for layer is found.
+        #     "type": "eq",
+        #     "fun": lambda x: self._piecewise_times[0][self._mask_empty_layers(self._current_args)[0]] \
+        #                      - x[0][self._mask_empty_layers(self._current_args)[0]],
+        #     # "jac": lambda x: time_jac # * self._mask_empty_layers(self._current_args)[0]
+        #     }
+        # constraint_freeze_init_t0 = {"type": "eq", "fun": lambda x: x[0] - self.init['t0']} # freeze `t0` at init value
+        # constraints = [constraint_offset] # [constraint_freeze_velocity]#, constraint_freeze_velocity] constraint_offset
+        # constraints.append(constraint_freeze_init_t0 if freeze_t0 else constraint_freeze_t0)
+        # if ascending_velocity:
+            # constraints.append(constraint_velocity)
 
         # fitting piecewise linear regression
         partial_loss_func = partial(self.loss_piecewise_linear, loss=kwargs.pop('loss', 'L1'),
                                     huber_coef=kwargs.pop('huber_coef', .1))
-        minimizer_kwargs = {'method': 'SLSQP', 'constraints': constraints, **kwargs}
+        minimizer_kwargs = {'method': 'SLSQP', **kwargs} # 'constraints': constraints, 
         self._model_params = optimize.minimize(partial_loss_func, x0=self._current_args,
                                                bounds=list(self.bounds.values()), **minimizer_kwargs)
         self.params = dict(zip(self._valid_keys, self._params_postprocceissing(self._model_params.x,
@@ -371,7 +377,7 @@ class WeatheringVelocity:
         slopes = np.empty(n_layers)
         times = np.empty(n_layers)
 
-        for i in range(n_layers):  # inside the loop work only with normalized data
+        for i in range(n_layers):  # inside the loop work with normalized data only
             mask = (normalized_offsets > cross_offsets[i]) & (normalized_offsets <= cross_offsets[i + 1])
             if mask.sum() > 1:  # at least two point to fit
                 slopes[i], times[i] = self._fit_regressor(normalized_offsets[mask].reshape(-1, 1),
@@ -428,13 +434,19 @@ class WeatheringVelocity:
         if excessive_keys:
             raise ValueError(f"Excessive parameters to fit a weathering velocity curve. Remove {excessive_keys}.")
 
-    def _mask_empty_layers(self, params):
-        """Method checks the layers for data and returns boolean mask. The mask value is 1 if no data is found."""
-        cross_offsets = [0, *list(params.values())[1:self.n_layers], self.offsets.max()]
+    def _mask_empty_layers(self, params): # offsets
+        """Method checks the layers for data and returns boolean mask. The mask value is `True` if no data is found."""
+        # mask = [self.offsets[(self.offsets > offsets[i]) & (self.offsets <= offsets[i+1])].shape[0] < 1
+        #         for i in range(self.n_layers)]
+        # print(mask)
+        # return np.array(mask)
+
+        cross_offsets = [0, *params[1:self.n_layers], self.offsets.max()]
         mask = [self.offsets[(self.offsets > cross_offsets[i]) & (self.offsets <= cross_offsets[i+1])].shape[0] < 1
                 for i in range(self.n_layers)]
-        return mask
-    
+        # print(mask)
+        return np.array(mask, dtype=bool)
+
     def _params_postprocceissing(self, params, ascending_velocity):
         """Checks the params and fix it if constraints are not met."""
         mask_offsets = self._piecewise_offsets[2:] - params[1:self.n_layers] < 0
@@ -455,9 +467,9 @@ class WeatheringVelocity:
         Returns
         -------
         offsets : 1d npdarray
-            coords of the points on the x axis
+            Coords of the points on the x axis.
         times : 1d ndarray
-            coords of the points on the y axis
+            Coords of the points on the y axis.
         """
         expected_layers = len(params) // 2
         keys = self._get_valid_keys(n_layers=expected_layers)
@@ -494,6 +506,8 @@ class WeatheringVelocity:
         compared_params : dict, optional, defaults to None
             Dict with the weathering velocity params. Uses to plot an additional the weathering velocity curve.
             Should have the common keys notation.
+        kwargs : dict, optional
+            Additional keyword arguments to the plotter.
 
         Returns
         -------
@@ -504,20 +518,18 @@ class WeatheringVelocity:
         txt_kwargs = {**{'fontsize': 15, 'va': 'top'}, **kwargs.pop('txt_kwargs', {})}
         txt_ident = txt_kwargs.pop('ident', (.03, .94))
 
-        (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
-        txt_kwargs = {**txt_kwargs, **get_text_formatting_kwargs(**{**x_ticker, **y_ticker})}
+        (title, x_ticker, y_ticker, txt_kwargs), kwargs = set_text_formatting(title, x_ticker, y_ticker, txt_kwargs, **kwargs)
+        # txt_kwargs = kwargs
+        # {**txt_kwargs, **get_text_formatting_kwargs(**{**x_ticker, **y_ticker})}
         set_ticks(ax, "x", tick_labels=None, label="offset, m", **x_ticker)
         set_ticks(ax, "y", tick_labels=None, label="time, ms", **y_ticker)
 
         if self.picking_times is not None:
             ax.scatter(self.offsets, self.picking_times, s=1, color='black', label='fbp points')
-        for i in range(self.n_layers):
-            if self.params[f'v{i+1}'] is not np.nan:
-                ax.plot(self._piecewise_offsets[i:i+2], self._piecewise_times[i:i+2], '-', color='red',
-                        label='fitted piecewise function' if i == 0 else None)
-            if i != self.n_layers - 1:
-                ax.axvline(self._piecewise_offsets[i+1], 0, self._piecewise_times[-1], ls='--', color='blue',
-                        label='crossover point(s)' if i == 0 else None)
+        ax.plot(self._piecewise_offsets, self._piecewise_times, '-', color='red', label='fitted piecewise function')
+        for i in range(self.n_layers - 1):
+            ax.axvline(self._piecewise_offsets[i+1], 0, self._piecewise_times[-1], ls='--', color='blue',
+                       label='crossover point(s)' if i == 0 else None)
         if show_params:
             params = [self.params[key] for key in self._valid_keys]
             txt_info = f"t0 : {params[0]:.2f} ms"

@@ -754,33 +754,8 @@ class Gather:
             Calculated WeatheringVelocity instance.
         """
         return WeatheringVelocity.from_picking(offsets=self.offsets, picking_times=self[first_breaks_col].ravel(),
-                                  n_layers=n_layers, init=init, bounds=bounds, ascending_velocity=ascending_velocity,
-                                  **kwargs)
-
-    @batch_method(target='for', args_to_unpack='weathering_velocity')
-    def calculate_weathering_metrics(self, weathering_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_time=50):
-        """Calculates the weathering metric value.
-
-        Weathering metric calculated as fraction of first breaking times that stands out from a weathering velocity
-        curve (piecewise linear function) more that `threshold_times` relative to the total number of first breaking
-        times.
-
-        Parameters
-        ----------
-        weathering_velocity : WeatheringVelocity
-            Calculated WeatheringVelocity. Use `calculate_weathering_velocity` to calculate it.
-        first_breaks_col : str, defaults to HDR_FIRST_BREAK
-            Column name  from `self.headers` where first breaking times are stored.
-        threshold_time: int or float, defaults to 50
-            Threshold for the weathering metric calculation.
-
-        Returns
-        -------
-        metric : float
-            Fraction of the first breaks stands out from the weathering velocity curve more than given threshold time.
-        """
-        metric = np.mean(np.abs(weathering_velocity(self.offsets) - self[first_breaks_col].ravel()) > threshold_time)
-        return metric
+                                               n_layers=n_layers, init=init, bounds=bounds,
+                                               ascending_velocity=ascending_velocity, **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #
@@ -919,9 +894,9 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @batch_method(target="for", args_to_unpack="weathering_velocity") # benchmark it
-    def apply_lmo(self, weathering_velocity, delay=100):
+    def apply_lmo(self, weathering_velocity, fill_value=0, delay=100):
         """Perform gather linear moveout correction using given weathering velocity.
-        
+
         Parameters
         ----------
         weathering_velocity : WeatheringVelocity
@@ -939,15 +914,21 @@ class Gather:
         ValueError
             If `stacking_velocity` is not a `WeatheringVelocity` instance.
         """
-        if isinstance(weathering_velocity, WeatheringVelocity):
+        if not isinstance(weathering_velocity, WeatheringVelocity):
             raise ValueError("Only WeatheringVelocity instances can be passed as a `weathering_velocity`")
-        data = np.zeros_like(self.data)
-        samples_gap = np.round((weathering_velocity(self.offsets) - delay) / self.sample_rate).astype(np.int)
+        data = np.full_like(self.data, fill_value)
+        base = weathering_velocity(self.offsets)
+        trace_lenght = min(self.samples - base, self.samples - delay)
+        # samples_gap = np.round((weathering_velocity(self.offsets) - delay) / self.sample_rate).astype(np.int)
         for i in range(self.n_traces):
-            if samples_gap[i] > 0:
-                data[i, :self.n_samples - samples_gap[i]] = self.data[i, samples_gap[i]:]
-            else:
-                data[i, -samples_gap[i]:] = self.data[i, :self.n_samples + samples_gap[i]]
+            data[i, delay: delay + trace_lenght] = self.data[i, base:]
+
+
+            # if samples_gap[i] > 0:
+            #     data[i, :self.n_samples - samples_gap[i]] = self.data[i, samples_gap[i]:]
+            # else:
+            #     data[i, -samples_gap[i]:] = self.data[i, :self.n_samples + samples_gap[i]]
+
         self.data = data
         return self
 
