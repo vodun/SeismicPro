@@ -1,7 +1,6 @@
 """Implements Gather class that represents a group of seismic traces that share some common acquisition parameter"""
 
 import os
-from signal import raise_signal
 import warnings
 from copy import deepcopy
 from textwrap import dedent
