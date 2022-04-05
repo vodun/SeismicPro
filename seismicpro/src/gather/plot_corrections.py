@@ -123,3 +123,8 @@ class LMOCorrectionPlot(CorrectionPlot):
     def params(self):
         """Dict with 1-layer weathering model parameters"""
         return {'t0': 0, 'v1': self.plotter.slider.value / 1000}
+
+    def plot_corrected_gather(self, ax, **kwargs):
+        """Plot the corrected gather."""
+        self.corrected_gather.plot(ax=ax, y_ticker={"step_ticks": int(100 // self.gather.sample_rate)}, **kwargs)
+        ax.grid(which='major', axis='y', color='k', linestyle='--')
