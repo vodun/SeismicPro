@@ -42,38 +42,44 @@ HEADER_COLS = [
 ]
 
 
-NAME = [
-    # Use file name if survey name is not passed
-    [None, FILE_NAME],
-
-    # Use passed name otherwise
-    ["raw", "raw"],
+NAME = [  # passed survey name and expected name
+    [None, FILE_NAME],  # Use file name if survey name is not passed
+    ["raw", "raw"],  # Use passed name otherwise
 ]
 
 
-LIMITS = [
+LIMITS = [  # passed samples limits and expected limits with positive start and stop
     (None, slice(0, N_SAMPLES, 1)),
     (10, slice(0, 10, 1)),
     (slice(100, -100), slice(100, N_SAMPLES - 100, 1)),
 ]
 
 
-@pytest.mark.parametrize("header_index, expected_index", HEADER_INDEX)
-@pytest.mark.parametrize("header_cols, expected_cols", HEADER_COLS)
-@pytest.mark.parametrize("name, expected_name", NAME)
+WORKERS = [  # headers chunk size, number of workers and prograss bar display flag
+    [1, 1, True],  # Tracewise loading, single worker, bar enabled
+    [10, 2, True],  # Small chunk size, 2 workers, bar enabled
+    [10, None, False],  # Small chunk size, os.cpu_count() workers, bar disabled
+    [10000000, None, False],  # Chunk size larger than the number of traces, os.cpu_count() workers, bar disabled
+]
+
+
 class TestInit:
     """Test `Survey` instantiation."""
 
-    @pytest.mark.parametrize("chunk_size, n_workers, bar", [
-        [1, 1, True],  # Single worker, tracewise loading with bar
-        [10, None, True],  # os.cpu_count() workers, small chunk size with bar
-        [10000000, None, False],  # Chunk size larger than the number of traces
-    ])
-    def test_nolimits(self, segy_path, header_index, expected_index, header_cols, expected_cols,
-                      name, expected_name, chunk_size, n_workers, bar):
-        """Test survey loading when limits are not passed."""
-        survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name,
+    @pytest.mark.parametrize("chunk_size, n_workers, bar", WORKERS)
+    def test_headers_loading(self, segy_path, chunk_size, n_workers, bar):
+        """Test sequential and parallel loading of survey trace headers."""
+        survey = Survey(segy_path, header_index="FieldRecord", header_cols="all", name="raw",
                         chunk_size=chunk_size, n_workers=n_workers, bar=bar)
+        assert_survey_loaded(survey, segy_path, "raw", {"FieldRecord"}, set(segyio.tracefield.keys.keys()))
+
+    @pytest.mark.parametrize("header_index, expected_index", HEADER_INDEX)
+    @pytest.mark.parametrize("header_cols, expected_cols", HEADER_COLS)
+    @pytest.mark.parametrize("name, expected_name", NAME)
+    def test_no_limits(self, segy_path, header_index, expected_index, header_cols, expected_cols, name, expected_name):
+        """Test survey loading when limits are not passed."""
+        survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name, n_workers=1,
+                        bar=False)
 
         expected_headers = expected_index | expected_cols | {"TRACE_SEQUENCE_FILE"}
         assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers)
@@ -86,9 +92,12 @@ class TestInit:
         assert survey.has_stats is False
         assert survey.dead_traces_marked is False
 
-    @pytest.mark.parametrize(["limits", "slice_limits"], LIMITS)
-    def test_limits(self, segy_path, header_index, expected_index, header_cols, expected_cols,
-                    name, expected_name, limits, slice_limits):
+    @pytest.mark.parametrize("header_index, expected_index", HEADER_INDEX)
+    @pytest.mark.parametrize("header_cols, expected_cols", HEADER_COLS)
+    @pytest.mark.parametrize("name, expected_name", NAME)
+    @pytest.mark.parametrize("limits, slice_limits", LIMITS)
+    def test_limits(self, segy_path, header_index, expected_index, header_cols, expected_cols, name, expected_name,
+                    limits, slice_limits):
         """Test survey loading with limits set."""
         survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name, limits=limits,
                         n_workers=1, bar=False)

@@ -143,9 +143,9 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self.set_limits(limits)
 
         # Load trace headers
-        metrics = self.segy_handler.xfd.metrics()
-        headers = load_headers(path, headers_to_load, endian=endian, trace_data_offset=metrics["trace0"],
-                               trace_size=metrics["trace_bsize"], n_traces=metrics["tracecount"],
+        file_metrics = self.segy_handler.xfd.metrics()
+        headers = load_headers(path, headers_to_load, endian=endian, trace_data_offset=file_metrics["trace0"],
+                               trace_size=file_metrics["trace_bsize"], n_traces=file_metrics["tracecount"],
                                chunk_size=chunk_size, n_workers=n_workers, bar=bar)
 
         # Reconstruct TRACE_SEQUENCE_FILE header
