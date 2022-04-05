@@ -17,16 +17,22 @@ from ..const import TRACE_HEADER_SIZE
 
 
 class ForPoolExecutor(Executor):
+    """A sequential executor of tasks in a for loop. Inherits `Executor` interface thus can serve as a seamless
+    replacement for both `ThreadPoolExecutor` and `ProcessPoolExecutor` when threads or processes spawning is
+    undesirable."""
+
     def __init__(self, *args, **kwargs):
         _ = args, kwargs
         self.task_queue = []
 
     def submit(self, fn, /, *args, **kwargs):
+        """Schedule `fn` to be executed with given arguments."""
         future = Future()
         self.task_queue.append((future, partial(fn, *args, **kwargs)))
         return future
 
     def shutdown(self, *args, **kwargs):
+        """Signal the executor to finish all scheduled tasks and free its resources."""
         _ = args, kwargs
         for future, fn in self.task_queue:
             future.set_result(fn())
@@ -34,6 +40,7 @@ class ForPoolExecutor(Executor):
 
 
 def define_unpacking_format(headers_to_load):
+    """Return a format string to unpack `headers_to_load` trace headers from a headers byte sequence."""
     header_to_byte = segyio.tracefield.keys
     byte_to_header = {val: key for key, val in header_to_byte.items()}
     start_bytes = sorted(header_to_byte.values())
@@ -49,6 +56,7 @@ def define_unpacking_format(headers_to_load):
 
 
 def read_headers_chunk(path, chunk_offset, chunk_size, trace_stride, headers_format, endian):
+    """Read `chunk_size` trace headers starting from `chunk_offset` byte in the SEG-Y file."""
     with open(path, "rb") as f:
         with mmap.mmap(f.fileno(), length=0, access=mmap.ACCESS_READ) as mm:
             headers = np.ndarray(buffer=mm, dtype=np.dtype(f"V{TRACE_HEADER_SIZE}"), offset=chunk_offset,
@@ -59,7 +67,9 @@ def read_headers_chunk(path, chunk_offset, chunk_size, trace_stride, headers_for
     return np.array(unpack(chunk_format_str, b"".join(headers)), dtype=np.int32).reshape(chunk_size, -1)
 
 
-def load_headers(path, headers_to_load, endian, trace_data_offset, trace_size, n_traces, chunk_size, n_workers, bar):
+def load_headers(path, headers_to_load, trace_data_offset, trace_size, n_traces, endian, chunk_size, n_workers, bar):
+    """Load `headers_to_load` trace headers from a SEG-Y file."""
+    # Split the whole file into chunks no larger than chunk_size
     trace_stride = TRACE_HEADER_SIZE + trace_size
     n_chunks, last_chunk_size = divmod(n_traces, chunk_size)
     chunk_sizes = [chunk_size] * n_chunks
@@ -68,14 +78,17 @@ def load_headers(path, headers_to_load, endian, trace_data_offset, trace_size, n
     chunk_starts = np.cumsum([0] + chunk_sizes[:-1])
     chunk_offsets = trace_data_offset + chunk_starts * trace_stride
 
+    # Construct a format string to unpack trace headers from a byte sequence and preallocate headers buffer
     headers_format, headers_order = define_unpacking_format(headers_to_load)
     headers = np.empty((n_traces, len(headers_to_load)), dtype=np.int32)
 
+    # Process passed n_workers and select an appropriate pool executor
     if n_workers is None:
         n_workers = os.cpu_count()
     n_workers = min(len(chunk_sizes), n_workers)
     executor_class = ForPoolExecutor if n_workers == 1 else ProcessPoolExecutor
 
+    # Load trace headers for each chunk
     with tqdm(total=n_traces, desc="Trace headers loaded", disable=not bar) as pbar:
         with executor_class(max_workers=n_workers) as pool:
             def callback(future, start_pos):
