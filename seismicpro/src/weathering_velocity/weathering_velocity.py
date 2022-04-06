@@ -7,7 +7,7 @@ from sklearn.linear_model import SGDRegressor
 from scipy import optimize
 
 from ..decorators import plotter
-from ..utils import set_ticks, set_text_formatting, get_text_formatting_kwargs
+from ..utils import set_ticks, set_text_formatting
 from ..utils.interpolation import interp1d
 
 # pylint: disable=too-many-instance-attributes, protected-access
@@ -87,9 +87,9 @@ class WeatheringVelocity:
         self.interpolator = lambda offsets: np.zeros_like(offsets, dtype=np.float32)
 
         self._valid_keys = None
+        self._empty_layers = None
         self._piecewise_offsets = None
         self._piecewise_times = None
-        self._current_args = None
         self._model_params = None
 
     @classmethod
@@ -144,7 +144,6 @@ class WeatheringVelocity:
             If an union of `init` and `bounds` keys less than 2 or `n_layers` less than 1.
         """
         self = cls()
-        # self.interpolator = np.interp
         init = {} if init is None else init
         bounds = {} if bounds is None else bounds
         self._check_values(init, bounds)
@@ -164,44 +163,33 @@ class WeatheringVelocity:
         self.bounds = {key: self.bounds[key] for key in self._valid_keys}
 
         # piecewise func parameters
-        self._piecewise_times = np.empty(self.n_layers + 1)
-        self._piecewise_offsets = np.zeros(self.n_layers + 1)
-        self._piecewise_offsets[-1] = offsets.max()
-        self._current_args = np.array(list(self.init.values())) # remove if the contstraint mask needs the offsets only
+        self._piecewise_offsets, self._piecewise_times = self._create_piecewise_coords(self.n_layers, offsets.max())
+        self._empty_layers = self._mask_empty_layers(list(self.init.values()))
 
         # constraints define
         constraint_offset = {  # crossoffsets ascend
             "type": "ineq",
-            "fun": lambda x: np.diff(np.concatenate((x[1:self.n_layers], [self.max_offset]))),
-             }
+            "fun": lambda x: np.diff(np.concatenate((x[1:self.n_layers], [self.max_offset])))}
         constraint_velocity = {"type": "ineq", "fun": lambda x: np.diff(x[self.n_layers:]) }  # velocities ascend
-        # velocity_jac = np.hstack((np.zeros(shape=(self.n_layers)), -np.ones(shape=(self.n_layers))))
-        # constraint_freeze_velocity = {  # freeze the velocity fitting if no data for layer is found.
-        #     "type": "eq",
-        #     "fun": lambda x: self._current_args[self.n_layers:][self._mask_empty_layers(self._piecewise_offsets)] \
-        #                      - x[self.n_layers:][self._mask_empty_layers(self._piecewise_offsets)],
-        # #     # "jac": lambda x: velocity_jac[self._mask_empty_layers(self._piecewise_offsets)]
-        # }
-        # time_jac = np.hstack(([-1], np.zeros(shape=2 * self.n_layers - 1)))
-        # constraint_freeze_t0 = {  # freeze the intercept time fitting if no data for layer is found.
-        #     "type": "eq",
-        #     "fun": lambda x: self._piecewise_times[0][self._mask_empty_layers(self._current_args)[0]] \
-        #                      - x[0][self._mask_empty_layers(self._current_args)[0]],
-        #     # "jac": lambda x: time_jac # * self._mask_empty_layers(self._current_args)[0]
-        #     }
+        constraint_freeze_velocity = {  # freeze the velocity if no data for layer is found.
+            "type": "eq",
+            "fun": lambda x: np.array(list(self.init.values()))[self.n_layers:][self._empty_layers]
+                             - x[self.n_layers:][self._empty_layers]}
+        constraint_freeze_t0 = {  # freeze the intercept time if no data for layer is found.
+            "type": "eq",
+            "fun": lambda x: np.array(list(self.init.values()))[:1][self._empty_layers[:1]]
+                                      - x[:1][self._empty_layers[:1]]}
         constraint_freeze_init_t0 = {"type": "eq", "fun": lambda x: x[0] - self.init['t0']} # freeze `t0` at init value
-        constraints = [constraint_offset] # [constraint_freeze_velocity] #constraint_freeze_velocity] constraint_offset
-        # constraints.append(constraint_freeze_init_t0 if freeze_t0 else constraint_freeze_t0)
-        if freeze_t0:
-            constraints.append(constraint_freeze_init_t0)
+        constraints = [constraint_offset, constraint_freeze_velocity]
+        constraints.append(constraint_freeze_init_t0 if freeze_t0 else constraint_freeze_t0)
         if ascending_velocity:
             constraints.append(constraint_velocity)
 
         # fitting piecewise linear regression
         partial_loss_func = partial(self.loss_piecewise_linear, loss=kwargs.pop('loss', 'L1'),
                                     huber_coef=kwargs.pop('huber_coef', .1))
-        minimizer_kwargs = {'method': 'SLSQP', **kwargs} # 'constraints': constraints, 
-        self._model_params = optimize.minimize(partial_loss_func, x0=self._current_args,
+        minimizer_kwargs = {'method': 'SLSQP', 'constraints': constraints, **kwargs}
+        self._model_params = optimize.minimize(partial_loss_func, x0=list(self.init.values()),
                                                bounds=list(self.bounds.values()), **minimizer_kwargs)
         self.params = dict(zip(self._valid_keys, self._params_postprocceissing(self._model_params.x,
                                                                                ascending_velocity=ascending_velocity)))
@@ -236,32 +224,36 @@ class WeatheringVelocity:
         self._valid_keys = self._get_valid_keys(self.n_layers)
         self.params = {key: params[key] for key in self._valid_keys}
 
-        self._piecewise_offsets, self._piecewise_times = self._calc_piecewise_coords_from_params(params)
+        self._piecewise_offsets, self._piecewise_times = self._create_piecewise_coords(self.n_layers)
         self._piecewise_offsets[-1] = self._piecewise_offsets[-2] + 1000
-        self._piecewise_times[-1] = ((self._piecewise_offsets[-1] - self._piecewise_offsets[-2]) /
-                                    params[f'v{self.n_layers}'] + self._piecewise_times[-2])
-
+        self._piecewise_offsets, self._piecewise_times = \
+            self._update_piecewise_coords(self._piecewise_offsets, self._piecewise_times,
+                                          list(self.params.values()), self.n_layers)
         self.interpolator = interp1d(self._piecewise_offsets, self._piecewise_times)
         return self
 
     def __call__(self, offsets):
         """Return predicted picking times using offsets and the fitted parameters of the weathering model."""
-        # if isinstance(self.interpolator, interp1d):
         return self.interpolator(offsets)
-        # return self.interpolator(offsets, self._piecewise_offsets, self._piecewise_times)
 
     def __getattr__(self, key):
         return self.params[key]
 
-    def _update_piecewise_params(self, args):
-        """Update the parameters of piecewise linear function stored in class attributes."""
-        self._current_args = args
-        self._piecewise_times[0] = args[0]
-        self._piecewise_offsets[1:self.n_layers] = args[1:self.n_layers]
+    def _create_piecewise_coords(self, n_layers, max_offset=np.nan):
+        """Create two array corresponding to the piecewise linear function coords."""
+        offsets = np.zeros(n_layers + 1)
+        times = np.zeros(n_layers + 1)
+        offsets[-1] = max_offset
+        return offsets, times
+
+    def _update_piecewise_coords(self, offsets, times, params, n_layers):
+        """Update the given `offsets` and `times` arrays based on the `params` and `n_layers`."""
+        times[0] = params[0]
+        offsets[1:self.n_layers] = params[1:self.n_layers]
 
         for i in range(self.n_layers):
-            self._piecewise_times[i + 1] = ((self._piecewise_offsets[i + 1] - self._piecewise_offsets[i]) /
-                                             args[self.n_layers + i]) + self._piecewise_times[i]
+            times[i + 1] = ((offsets[i + 1] - offsets[i]) / params[n_layers + i]) + times[i]
+        return offsets, times
 
     def loss_piecewise_linear(self, args, loss='L1', huber_coef=.1):
         """Update the piecewise linear attributes and returns the loss function result.
@@ -300,7 +292,8 @@ class WeatheringVelocity:
             If given `loss` does not exist.
 
         """
-        self._update_piecewise_params(args)
+        self._piecewise_offsets, self._piecewise_times = \
+            self._update_piecewise_coords(self._piecewise_offsets, self._piecewise_times, args, self.n_layers)
         diff_abs = np.abs(np.interp(self.offsets, self._piecewise_offsets, self._piecewise_times) - self.picking_times)
         if loss == 'L1':
             return diff_abs.mean()
@@ -437,13 +430,8 @@ class WeatheringVelocity:
         if excessive_keys:
             raise ValueError(f"Excessive parameters to fit a weathering velocity curve. Remove {excessive_keys}.")
 
-    def _mask_empty_layers(self, params): # offsets
+    def _mask_empty_layers(self, params):
         """Method checks the layers for data and returns boolean mask. The mask value is `True` if no data is found."""
-        # mask = [self.offsets[(self.offsets > offsets[i]) & (self.offsets <= offsets[i+1])].shape[0] < 1
-        #         for i in range(self.n_layers)]
-        # print(mask)
-        # return np.array(mask)
-
         cross_offsets = [0, *params[1:self.n_layers], self.offsets.max()]
         mask = [self.offsets[(self.offsets > cross_offsets[i]) & (self.offsets <= cross_offsets[i+1])].shape[0] < 1
                 for i in range(self.n_layers)]
@@ -459,7 +447,7 @@ class WeatheringVelocity:
                 params[i+1] = params[i] if params[i+1] - params[i] < 0 else params[i+1]
         return params
 
-    def _calc_piecewise_coords_from_params(self, params, max_offset=np.nan):
+    def _calc_coords_from_params(self, params, max_offset=np.nan):
         """Method calculate coords for the piecewise linear curve from params dict.
 
         Parameters
@@ -479,14 +467,8 @@ class WeatheringVelocity:
         params = {key: params[key] for key in keys}
         params_values = list(params.values())
 
-        offsets = np.zeros(expected_layers + 1)
-        times = np.empty(expected_layers + 1)
-        offsets[-1] = max_offset
-
-        offsets[1:expected_layers] = params_values[1:expected_layers]
-        times[0] = params_values[0]
-        for i in range(expected_layers):
-            times[i + 1] = ((offsets[i + 1] - offsets[i]) / params_values[expected_layers + i]) + times[i]
+        offsets, times = self._create_piecewise_coords(expected_layers, max_offset)
+        offsets, times = self._update_piecewise_coords(offsets, times, params_values, expected_layers)
         return offsets, times
 
     @plotter(figsize=(10, 5))
@@ -545,8 +527,7 @@ class WeatheringVelocity:
                             self._piecewise_times + threshold_time, color='red',
                             label=f'+/- {threshold_time}ms threshold area', alpha=.2)
         if compared_params is not None:
-            compared_offsets, compared_times = self._calc_piecewise_coords_from_params(compared_params,
-                                                                                       self.max_offset)
+            compared_offsets, compared_times = self._calc_coords_from_params(compared_params, self.max_offset)
             ax.plot(compared_offsets, compared_times, '-', color='#ff7900', label='compared piecewise function')
         ax.set_xlim(0)
         ax.set_ylim(0)
