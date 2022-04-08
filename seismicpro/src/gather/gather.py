@@ -640,7 +640,7 @@ class Gather:
 
         Parameters
         ----------
-        first_breaks_col : str, optional, defaults to 'FirstBreak'
+        first_breaks_col : str, optional, defaults to HDR_FIRST_BREAK
             A column of `self.headers` that contains first arrival times, measured in milliseconds.
 
         Returns
@@ -670,7 +670,7 @@ class Gather:
         ----------
         threshold : float, optional, defaults to 0.5
             A threshold for trace mask value to refer its index to be either pre- or post-first break.
-        first_breaks_col : str, optional, defaults to 'FirstBreak'
+        first_breaks_col : str, optional, defaults to HDR_FIRST_BREAK
             Headers column to save first break times to.
         save_to : Gather, optional, defaults to None
             An extra `Gather` to save first break times to. Generally used to conveniently pass first break times from
@@ -702,7 +702,7 @@ class Gather:
             Path to the file.
         trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
             Columns names from `self.headers` that act as trace id. These would be present in the file.
-        first_breaks_col : str, defaults to 'FirstBreak'
+        first_breaks_col : str, defaults to HDR_FIRST_BREAK
             Column name from `self.headers` where first break times are stored.
         col_space : int, defaults to 8
             The minimum width of each column.
@@ -744,7 +744,7 @@ class Gather:
         bounds : dict or None, defaults to None
             Bounds for the weathering model parameters.
         ascending_velocity : bool, defaults to True
-            Keeps the ascend of the fitted velocities from layer to layer.
+            Keeps the ascend of the fitted velocities from i-th layer to i+1 layer.
         freeze_t0 : bool, defaults to False
             Avoid the fitting `t0`.
         kwargs : dict, optional
@@ -902,7 +902,7 @@ class Gather:
         Parameters
         ----------
         weathering_velocity : WeatheringVelocity
-            Weathering velocity to to perform LMO correction with.
+            Weathering velocity object to perform LMO correction with.
         fill_value : int or float, defaults to 0
             Value to fill in the empty parts of the traces.
         delay : int, defaults to 100
@@ -923,9 +923,10 @@ class Gather:
         data = np.full_like(self.data, fill_value)
         base_step = times_to_indices(weathering_velocity(self.offsets), self.samples, round=True).astype(int)
         delay = times_to_indices(np.full(self.shape[0], delay), self.samples, round=True).astype(int)
-        step = np.maximum(base_step - delay, 1)
+        start = np.maximum(delay - base_step, 0)
+        end = np.maximum(base_step - delay, 0)
         for i in range(self.n_traces):
-            data[i, :-step[i]] = self.data[i, step[i]:]
+            data[i, start[i]:self.shape[1] - end[i]] = self.data[i, end[i]:self.shape[1] - start[i]]
         self.data = data
         return self
 

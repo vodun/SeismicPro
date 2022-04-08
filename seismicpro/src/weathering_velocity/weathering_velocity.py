@@ -22,11 +22,13 @@ class WeatheringVelocity:
     should have a higher velocity than any of the overlaying.
 
     The class could be created with `from_params` and `from_picking` classmethods.
+    If you have the weathering model parameters.
     `from_params` - create the WeatheringVelocity by parameters of the weathering model.
         Parameters : `params`.
             `params` : dict with weathering model parameters. Read the common keys notation below.
 
-    `from_picking` - create the WeatheringVelocity by first break picking data and estimate parameters
+    If you haven't the weathering model parameters.
+    `from_picking` - create the WeatheringVelocity by the first break picking data and estimate parameters
                      of the weathering model.
         Data : first break picking times and the corresponding offsets.
         Parameters : `init`, `bounds`, `n_layers`.
@@ -36,8 +38,8 @@ class WeatheringVelocity:
             `n_layers` : the quantity of the weathering model layers.
 
     The WeatheringVelocity created with `from_picking` classmethod could calculate the missing parameters from
-    the passed parameters to simplify class initialization.
-    Rules for calculating missing parameters:
+    the passed parameters.
+    Rules for the calculating missing parameters:
         `init` : calculated from `bounds`. lower bound + (upper bounds - lower bounds) / 3
                  calculated from `n_layers`. Read `_calc_init_by_layers` docs to get more info.
         `bounds` : calculated from `init`. The lower bound is init / 2, the upper bound is init * 2.
@@ -75,6 +77,9 @@ class WeatheringVelocity:
     >>> weathering_velocity = gather.calculate_weathering_velocity(init={'x1': 200, 'v1': 2},
                                                                    bounds={'t0': [0, 50]},
                                                                    n_layers=2)
+
+    A Weathering Velocity object with known parameters (avoid the fitting procedure):
+    >>> weathering_velocity = WeatheringVelocity.from_params(params={'t0': 100, 'x1': 1500, 'v1': 2, 'v2': 3})
     """
     def __init__(self):
         self.offsets = None
@@ -100,9 +105,9 @@ class WeatheringVelocity:
         Parameters
         ----------
         offsets : 1d ndarray
-            Offsets of the traces in meters.
+            Offsets of the traces. Measured in meters.
         picking_times : 1d ndarray
-            First break picking times in milliseconds.
+            First break picking times. Measured in milliseconds.
         init : dict, defaults to None
             Initial parameters of a weathering model.
         bounds : dict, defaults to None
@@ -110,7 +115,7 @@ class WeatheringVelocity:
         n_layers : int, defaults to None
             Number of layers of a weathering model.
         ascending_velocity : bool, defaults to True
-            Keep the ascend of the fitted velocities from layer to layer.
+            Keep the ascend of the fitted velocities from i-th layer to i+1 layer.
         freeze_t0 : bool, defaults to False
             Avoid the fitting `t0`.
         kwargs : dict, optional
@@ -119,9 +124,9 @@ class WeatheringVelocity:
         Attributes
         ----------
         offsets : 1d ndarray
-            Offsets of traces in meters.
+            Offsets of traces. Measured in meters.
         picking_times : 1d ndarray
-            Picking times of traces in milliseconds.
+            Picking times of traces. Measured in milliseconds.
         init : dict
             The inital values used to fit the parameters of the weathering model. Includes the calculated non-passed
             keys and values. Have the common key notation.
@@ -236,7 +241,7 @@ class WeatheringVelocity:
         return self
 
     def __call__(self, offsets):
-        """Return predicted picking times using offsets and the fitted parameters of the weathering model."""
+        """Return predicted picking times using the offsets and fitted parameters of the weathering model."""
         return self.interpolator(offsets)
 
     def __getattr__(self, key):
@@ -260,7 +265,7 @@ class WeatheringVelocity:
     def loss_piecewise_linear(self, args, loss='L1', huber_coef=.1):
         """Update the piecewise linear attributes and returns the loss function result.
 
-        Method calls `_update_piecewise_params` to update piecewise linear attributes of a WeatheringVelocity instance.
+        Method calls `_update_piecewise_coords` to update piecewise linear attributes of a WeatheringVelocity instance.
         After that, the method calculates the loss function between the true picking times stored in
         the `self.picking_times` and predicted piecewise linear function. The points at which the loss function
         is calculated correspond to the offset.
@@ -439,12 +444,11 @@ class WeatheringVelocity:
         cross_offsets = [0, *params[1:self.n_layers], self.offsets.max()]
         mask = [self.offsets[(self.offsets > cross_offsets[i]) & (self.offsets <= cross_offsets[i+1])].shape[0] < 1
                 for i in range(self.n_layers)]
-        # print(mask)
         return np.array(mask, dtype=bool)
 
     def _params_postprocceissing(self, params, ascending_velocity):
         """Checks the params and fix it if constraints are not met."""
-        mask_offsets = self._piecewise_offsets[2:] - params[1:self.n_layers] < 0
+        mask_offsets = self._piecewise_offsets[2:] - params[1:self.n_layers] < 0 # piecewise_offsets contain max_offset
         params[1:self.n_layers][mask_offsets] = self._piecewise_offsets[2:][mask_offsets]
         if ascending_velocity:
             for i in range(self.n_layers, 2 * self.n_layers - 1):
