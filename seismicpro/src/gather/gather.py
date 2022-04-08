@@ -727,7 +727,7 @@ class Gather:
 
     @batch_method(target='for')
     def calculate_weathering_velocity(self, first_breaks_col=HDR_FIRST_BREAK, n_layers=None, init=None, bounds=None,
-                                      ascending_velocity=True, **kwargs):
+                                      ascending_velocity=True, freeze_t0=False, **kwargs):
         """Calculate the weathering velocities.
 
         Method creates the WeatheringVelocity instance that fits and stores the parameters of a velocity model of
@@ -736,7 +736,7 @@ class Gather:
         Parameters
         ----------
         first_breaks_col : str, defaults to HDR_FIRST_BREAK
-            Column name  from `self.headers` where first breaking times are stored.
+            Column name from `self.headers` where first breaking times are stored.
         n_layers : int or None, defaults to None
             Number of the weathering model layers.
         init : dict or None, defaults to None
@@ -745,6 +745,8 @@ class Gather:
             Bounds for the weathering model parameters.
         ascending_velocity : bool, defaults to True
             Keeps the ascend of the fitted velocities from layer to layer.
+        freeze_t0 : bool, defaults to False
+            Avoid the fitting `t0`.
         kwargs : dict, optional
             Additional keyword arguments to `scipy.optimize.minimize`.
 
@@ -755,7 +757,7 @@ class Gather:
         """
         return WeatheringVelocity.from_picking(offsets=self.offsets, picking_times=self[first_breaks_col].ravel(),
                                                n_layers=n_layers, init=init, bounds=bounds,
-                                               ascending_velocity=ascending_velocity, **kwargs)
+                                               ascending_velocity=ascending_velocity, freeze_t0=freeze_t0, **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #
@@ -901,6 +903,8 @@ class Gather:
         ----------
         weathering_velocity : WeatheringVelocity
             Weathering velocity to to perform LMO correction with.
+        fill_value : int or float, defaults to 0
+            Value to fill in the empty parts of the traces.
         delay : int, defaults to 100
             Moveout delay. Measured in milliseconds.
 
@@ -1418,6 +1422,25 @@ class Gather:
         NMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, **kwargs).plot()
 
     def plot_lmo_correction(self, min_vel=800, max_vel=6000, figsize=(6, 4.5), **kwargs):
-        """Perform interactive LMO correction of the gather with selected velocity of the 1-layer weathering model.
+        """Perform interactive LMO correction of the gather with the selected velocity of the 1-layer weathering model.
+
+        The plot provides 2 views:
+        * Corrected gahted (default). LMO correction is performed on the fly with the celocity controlled by a slider
+        on top of the plot.
+        * Source gather. This view disables the velocity slider.
+
+        Plotting must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and
+        `ipympl` and `ipywidgets` libraries installed.
+
+        Parameters
+        ----------
+        min_vel : float, optional, defaults to 1500
+            Minimum seismic velocity value for NMO correction. Measured in meters/seconds.
+        max_vel : float, optional, defaults to 6000
+            Maximum seismic velocity value for NMO correction. Measured in meters/seconds.
+        figsize : tuple with 2 elements, optional, defaults to (6, 4.5)
+            Size of the created figure. Measured in inches.
+        kwargs : misc, optional
+            Additional keyword arguments to `Gather.plot`.
         """
         LMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, **kwargs).plot()
