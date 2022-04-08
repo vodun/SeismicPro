@@ -52,7 +52,7 @@ class WeatheringVelocity:
                   refractor. Measured in milliseconds.
             `x{i}`: cross offset. The offset where refracted wave from the i-th layer comes at the same time with
                     a refracted wave from the next underlaying layer. Measured in meters.
-            `v{i}`: velocity of the i-th layer. Measured in km/s.
+            `v{i}`: velocity of the i-th layer. Measured in kilometers/seconds.
         Note: in some case a direct wave could be detected on the close offsets. In this point `v1` is mean velocity
         of the direct wave layer, and `x1` is cross offsets where direct wave comes at the same time with a refracted
         wave from the first subweathering layer.
@@ -110,7 +110,7 @@ class WeatheringVelocity:
         n_layers : int, defaults to None
             Number of layers of a weathering model.
         ascending_velocity : bool, defaults to True
-            Keeps the ascend of the fitted velocities from layer to layer.
+            Keep the ascend of the fitted velocities from layer to layer.
         freeze_t0 : bool, defaults to False
             Avoid the fitting `t0`.
         kwargs : dict, optional
@@ -164,6 +164,9 @@ class WeatheringVelocity:
 
         # piecewise func parameters
         self._piecewise_offsets, self._piecewise_times = self._create_piecewise_coords(self.n_layers, offsets.max())
+        self._piecewise_offsets, self._piecewise_times = \
+            self._update_piecewise_coords(self._piecewise_offsets, self._piecewise_times, list(self.init.values()),
+                                          self.n_layers)
         self._empty_layers = self._mask_empty_layers(list(self.init.values()))
 
         # constraints define
@@ -224,8 +227,8 @@ class WeatheringVelocity:
         self._valid_keys = self._get_valid_keys(self.n_layers)
         self.params = {key: params[key] for key in self._valid_keys}
 
-        self._piecewise_offsets, self._piecewise_times = self._create_piecewise_coords(self.n_layers)
-        self._piecewise_offsets[-1] = self._piecewise_offsets[-2] + 1000
+        self._piecewise_offsets, self._piecewise_times = \
+            self._create_piecewise_coords(self.n_layers, list(self.params.values())[self.n_layers-1] + 1000)
         self._piecewise_offsets, self._piecewise_times = \
             self._update_piecewise_coords(self._piecewise_offsets, self._piecewise_times,
                                           list(self.params.values()), self.n_layers)
@@ -249,9 +252,8 @@ class WeatheringVelocity:
     def _update_piecewise_coords(self, offsets, times, params, n_layers):
         """Update the given `offsets` and `times` arrays based on the `params` and `n_layers`."""
         times[0] = params[0]
-        offsets[1:self.n_layers] = params[1:self.n_layers]
-
-        for i in range(self.n_layers):
+        offsets[1:n_layers] = params[1:n_layers]
+        for i in range(n_layers):
             times[i + 1] = ((offsets[i + 1] - offsets[i]) / params[n_layers + i]) + times[i]
         return offsets, times
 
@@ -275,8 +277,8 @@ class WeatheringVelocity:
         ----------
         args : tuple, list, or 1d ndarray
             Parameters of the piecewise linear function.
-        loss : str, optional, defaults to 'L1'.
-            The loss function type. Should be one of 'L1', 'huber', 'soft_L1', or 'cauchy'.
+        loss : str, optional, defaults to "L1".
+            The loss function type. Should be one of "MSE", "L1", "huber", "soft_L1", or "cauchy".
             All implemented loss functions have a mean reduction.
         huber_coef : float, default to 0.1
             Coefficient for Huber loss.
@@ -295,6 +297,8 @@ class WeatheringVelocity:
         self._piecewise_offsets, self._piecewise_times = \
             self._update_piecewise_coords(self._piecewise_offsets, self._piecewise_times, args, self.n_layers)
         diff_abs = np.abs(np.interp(self.offsets, self._piecewise_offsets, self._piecewise_times) - self.picking_times)
+        if loss == 'MSE':
+            return (diff_abs ** 2).mean()
         if loss == 'L1':
             return diff_abs.mean()
         if loss == 'huber':
@@ -472,7 +476,7 @@ class WeatheringVelocity:
         return offsets, times
 
     @plotter(figsize=(10, 5))
-    def plot(self, *, ax=None, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_time=None,
+    def plot(self, *, ax=None, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_times=None,
             compared_params=None, **kwargs):
         """Plot the WeatheringVelocity data, fitted curve, cross offsets, and additional information.
 
@@ -486,8 +490,8 @@ class WeatheringVelocity:
             Parameters for ticks and ticklabels formatting for the y-axis; see `.utils.set_ticks` for more details.
         show_params : bool, optional, defaults to True
             Shows the weathering model parameters on a plot.
-        threshold_time : int or float, optional. Defaults to None
-            Gap for plotting two outlines. If None additional outlines don't show.
+        threshold_times : int or float, optional. Defaults to None
+            Neighborhood margins of the fitted curve to fill in the area inside. If None the area don't show.
         compared_params : dict, optional, defaults to None
             Dict with the weathering velocity params. Uses to plot an additional the weathering velocity curve.
             Should have the common keys notation.
@@ -522,10 +526,10 @@ class WeatheringVelocity:
             txt_ident = txt_kwargs.pop('ident', (.03, .94))
             ax.text(*txt_ident, txt_info, transform=ax.transAxes, **txt_kwargs)
 
-        if threshold_time is not None:
-            ax.fill_between(self._piecewise_offsets, self._piecewise_times - threshold_time,
-                            self._piecewise_times + threshold_time, color='red',
-                            label=f'+/- {threshold_time}ms threshold area', alpha=.2)
+        if threshold_times is not None:
+            ax.fill_between(self._piecewise_offsets, self._piecewise_times - threshold_times,
+                            self._piecewise_times + threshold_times, color='red',
+                            label=f'+/- {threshold_times}ms threshold area', alpha=.2)
         if compared_params is not None:
             compared_offsets, compared_times = self._calc_coords_from_params(compared_params, self.max_offset)
             ax.plot(compared_offsets, compared_times, '-', color='#ff7900', label='compared piecewise function')
