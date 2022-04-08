@@ -15,6 +15,7 @@ class WeatheringVelocityMetric(PipelineMetric):
     vmax = 0.05
     is_lower_better = True
     views = ("plot", "plot_wv")
+    args_to_unpack = ("gather", "weathering_velocity")
 
     @staticmethod
     def calc(gather, weathering_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50, **kwargs):
@@ -30,7 +31,7 @@ class WeatheringVelocityMetric(PipelineMetric):
             Calculated WeatheringVelocity. Use `calculate_weathering_velocity` to calculate it.
         first_breaks_col : str, defaults to HDR_FIRST_BREAK
             Column name  from `self.headers` where first breaking times are stored.
-        threshold_time: int or float, defaults to 50
+        threshold_times: int or float, defaults to 50
             Threshold for the weathering metric calculation.
 
         Returns
@@ -43,15 +44,15 @@ class WeatheringVelocityMetric(PipelineMetric):
         return np.mean(metric)
 
     @pass_calc_args
-    def plot(cls, gather, weathering_velocity, ax, threshold_times=50, **kwargs):
+    def plot(cls, gather, weathering_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50, **kwargs):
         """Plot the gather and the first break points."""
         _ = weathering_velocity, threshold_times
-        event_headers = kwargs.pop('event_headers', {'headers': HDR_FIRST_BREAK})
-        gather.plot(ax=ax, event_headers=event_headers, **kwargs)
+        event_headers = kwargs.pop('event_headers', {'headers': first_breaks_col})
+        gather.plot(event_headers=event_headers, **kwargs)
 
     @pass_calc_args
-    def plot_wv(cls, gather, weathering_velocity, ax, threshold_times=50, **kwargs):
+    def plot_wv(cls, gather, weathering_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50, **kwargs):
         """Plot the first break picking points, weathering velocity curve, thresholds, and weathering model
         parameters."""
-        _ = gather
-        weathering_velocity.plot(ax=ax, threshold_time=threshold_times, **kwargs)
+        _ = gather, first_breaks_col
+        weathering_velocity.plot(threshold_times=threshold_times, **kwargs)
