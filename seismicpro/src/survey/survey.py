@@ -128,8 +128,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         headers_to_load = (set(header_index) | header_cols) - {"TRACE_SEQUENCE_FILE"}
 
         # Open the SEG-Y file and memory map it
-        if endian not in ENDIANNESS.keys():
-            raise ValueError(f"Unknown endian, must be one of {', '.join(ENDIANNESS.keys())}")
+        if endian not in ENDIANNESS:
+            raise ValueError(f"Unknown endian, must be one of {', '.join(ENDIANNESS)}")
         self.segy_handler = segyio.open(self.path, mode="r", endian=endian, ignore_geometry=True)
         self.segy_handler.mmap()
 
