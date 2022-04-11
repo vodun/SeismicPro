@@ -20,7 +20,7 @@ from .utils import calculate_stats, create_supergather_index
 from ..gather import Gather
 from ..metrics import PartialMetric
 from ..utils import to_list, maybe_copy, get_cols, create_indexer
-from ..const import HDR_DEAD_TRACE, HDR_FIRST_BREAK
+from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK
 
 
 class Survey:  # pylint: disable=too-many-instance-attributes
@@ -128,9 +128,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         headers_to_load = (set(header_index) | header_cols) - {"TRACE_SEQUENCE_FILE"}
 
         # Open the SEG-Y file and memory map it
-        endian_options = {"big", "msb", "little", "lsb"}
-        if endian not in endian_options:
-            raise ValueError(f"Unknown endian, must be one of {', '.join(endian_options)}")
+        if endian not in ENDIANNESS.keys():
+            raise ValueError(f"Unknown endian, must be one of {', '.join(ENDIANNESS.keys())}")
         self.segy_handler = segyio.open(self.path, mode="r", endian=endian, ignore_geometry=True)
         self.segy_handler.mmap()
 

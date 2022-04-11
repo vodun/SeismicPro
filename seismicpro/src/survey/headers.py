@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
 
-from ..const import TRACE_HEADER_SIZE
+from ..const import TRACE_HEADER_SIZE, ENDIANNESS
 from ..utils import ForPoolExecutor
 
 
@@ -50,7 +50,7 @@ def read_headers_chunk(path, chunk_offset, chunk_size, trace_stride, headers_for
             headers = np.ndarray(buffer=mm, dtype=np.dtype(f"V{TRACE_HEADER_SIZE}"), offset=chunk_offset,
                                  shape=chunk_size, strides=trace_stride).tolist()
     # Construct a format string for the whole chunk
-    chunk_format_str = {"big": ">", "msb": ">", "little": "<", "lsb": "<"}[endian] + headers_format * chunk_size
+    chunk_format_str = ENDIANNESS[endian] + headers_format * chunk_size
     # Unpack headers and cast them to int32 since their values are at most 4-byte integers according to SEG-Y spec
     return np.array(unpack(chunk_format_str, b"".join(headers)), dtype=np.int32).reshape(chunk_size, -1)
 
