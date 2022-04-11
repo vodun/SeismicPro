@@ -13,8 +13,10 @@ import pandas as pd
 from tqdm.auto import tqdm
 from scipy.interpolate import interp1d
 
+from .headers import load_headers
+from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
-from .utils import load_headers, calculate_stats, create_supergather_index, SurveyAttribute
+from .utils import calculate_stats, create_supergather_index
 from ..gather import Gather
 from ..metrics import PartialMetric
 from ..utils import to_list, maybe_copy, get_cols, create_indexer
