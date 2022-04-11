@@ -10,6 +10,7 @@ import scipy
 import segyio
 import numpy as np
 import pandas as pd
+from scipy.signal import firwin
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .muting import Muter
@@ -1031,20 +1032,20 @@ class Gather:
         return CroppedGather(self, origins, crop_shape, pad_mode, **kwargs)
 
     @batch_method(target="t")
-def bandpass_filter(self, low=None, high=None, filter_size=81, **kwargs):
-    """ docs
+    def bandpass_filter(self, low=None, high=None, filter_size=81, **kwargs):
+        """ docs
 
-    Default `filter_size` is set to 81 to guarantee that transition bandwidth of the filter does not exceed 10% of the
-    Nyquist frequency for the default Hamming window.
-    """
-    filter_size |= 1  # Guarantee that filter size is odd
-    pass_zero = low is None
-    cutoffs = [cutoff for cutoff in [low, high] if cutoff is not None]
+        Default `filter_size` is set to 81 to guarantee that transition bandwidth of the filter does not exceed 10% of the
+        Nyquist frequency for the default Hamming window.
+        """
+        filter_size |= 1  # Guarantee that filter size is odd
+        pass_zero = low is None
+        cutoffs = [cutoff for cutoff in [low, high] if cutoff is not None]
 
-    # Construct the filter and flip it since opencv computes crosscorrelation instead of convolution
-    kernel = firwin(filter_size, cutoffs, pass_zero=pass_zero, fs=1000 / self.sample_rate, **kwargs)[::-1]
-    cv2.filter2D(self.data, dst=self.data, ddepth=-1, kernel=kernel.reshape(1, -1))
-    return self
+        # Construct the filter and flip it since opencv computes crosscorrelation instead of convolution
+        kernel = firwin(filter_size, cutoffs, pass_zero=pass_zero, fs=1000 / self.sample_rate, **kwargs)[::-1]
+        cv2.filter2D(self.data, dst=self.data, ddepth=-1, kernel=kernel.reshape(1, -1))
+        return self
 
     @batch_method(target="f")
     def resample(self, new_sample_rate, kind=3, anti_aliasing=True):
