@@ -18,7 +18,7 @@ from .plot_corrections import NMOCorrectionPlot
 from .utils import correction, normalization
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
 from ..utils import (to_list, get_cols, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
-                     set_text_formatting, add_colorbar, Coordinates, piecewise_polynomial)
+                     set_text_formatting, add_colorbar, piecewise_polynomial, Coordinates)
 from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, VelocityCube
 from ..decorators import batch_method, plotter

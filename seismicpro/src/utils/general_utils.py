@@ -125,8 +125,9 @@ def times_to_indices(times, samples, round=False):
     ValueError
         If `samples` is not increasing.
     """
-    if np.any(np.diff(samples) < 0):
-        raise ValueError('The `samples` array must be non-decreasing.')
+    for i in range(len(samples) - 1):
+        if samples[i+1] <= samples[i]:
+            raise ValueError('The `samples` array must be increasing.')
     return _times_to_indices(times=times, samples=samples, round=round)
 
 
