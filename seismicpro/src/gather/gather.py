@@ -12,7 +12,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .muting import Muter
 from .cropped_gather import CroppedGather
-from .plot_corrections import NMOCorrectionPlot
+from .plot_corrections import NMOCorrectionPlot, LMOCorrectionPlot
 from .utils import correction, normalization
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
 from ..utils import (to_list, get_cols, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
@@ -640,7 +640,7 @@ class Gather:
 
         Parameters
         ----------
-        first_breaks_col : str, optional, defaults to 'FirstBreak'
+        first_breaks_col : str, optional, defaults to HDR_FIRST_BREAK
             A column of `self.headers` that contains first arrival times, measured in milliseconds.
 
         Returns
@@ -670,7 +670,7 @@ class Gather:
         ----------
         threshold : float, optional, defaults to 0.5
             A threshold for trace mask value to refer its index to be either pre- or post-first break.
-        first_breaks_col : str, optional, defaults to 'FirstBreak'
+        first_breaks_col : str, optional, defaults to HDR_FIRST_BREAK
             Headers column to save first break times to.
         save_to : Gather, optional, defaults to None
             An extra `Gather` to save first break times to. Generally used to conveniently pass first break times from
@@ -702,7 +702,7 @@ class Gather:
             Path to the file.
         trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
             Columns names from `self.headers` that act as trace id. These would be present in the file.
-        first_breaks_col : str, defaults to 'FirstBreak'
+        first_breaks_col : str, defaults to HDR_FIRST_BREAK
             Column name from `self.headers` where first break times are stored.
         col_space : int, defaults to 8
             The minimum width of each column.
@@ -727,7 +727,7 @@ class Gather:
 
     @batch_method(target='for')
     def calculate_weathering_velocity(self, first_breaks_col=HDR_FIRST_BREAK, n_layers=None, init=None, bounds=None,
-                                      ascending_velocity=True, **kwargs):
+                                      ascending_velocity=True, freeze_t0=False, **kwargs):
         """Calculate the weathering velocities.
 
         Method creates the WeatheringVelocity instance that fits and stores the parameters of a velocity model of
@@ -736,7 +736,7 @@ class Gather:
         Parameters
         ----------
         first_breaks_col : str, defaults to HDR_FIRST_BREAK
-            Column name  from `self.headers` where first breaking times are stored.
+            Column name from `self.headers` where first breaking times are stored.
         n_layers : int or None, defaults to None
             Number of the weathering model layers.
         init : dict or None, defaults to None
@@ -744,7 +744,9 @@ class Gather:
         bounds : dict or None, defaults to None
             Bounds for the weathering model parameters.
         ascending_velocity : bool, defaults to True
-            Keeps the ascend of the fitted velocities from layer to layer.
+            Keeps the ascend of the fitted velocities from i-th layer to i+1 layer.
+        freeze_t0 : bool, defaults to False
+            Avoid the fitting `t0`.
         kwargs : dict, optional
             Additional keyword arguments to `scipy.optimize.minimize`.
 
@@ -754,33 +756,8 @@ class Gather:
             Calculated WeatheringVelocity instance.
         """
         return WeatheringVelocity.from_picking(offsets=self.offsets, picking_times=self[first_breaks_col].ravel(),
-                                  n_layers=n_layers, init=init, bounds=bounds, ascending_velocity=ascending_velocity,
-                                  **kwargs)
-
-    @batch_method(target='for', args_to_unpack='weathering_velocity')
-    def calculate_weathering_metrics(self, weathering_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_time=50):
-        """Calculates the weathering metric value.
-
-        Weathering metric calculated as fraction of first breaking times that stands out from a weathering velocity
-        curve (piecewise linear function) more that `threshold_times` relative to the total number of first breaking
-        times.
-
-        Parameters
-        ----------
-        weathering_velocity : WeatheringVelocity
-            Calculated WeatheringVelocity. Use `calculate_weathering_velocity` to calculate it.
-        first_breaks_col : str, defaults to HDR_FIRST_BREAK
-            Column name  from `self.headers` where first breaking times are stored.
-        threshold_time: int or float, defaults to 50
-            Threshold for the weathering metric calculation.
-
-        Returns
-        -------
-        metric : float
-            Fraction of the first breaks stands out from the weathering velocity curve more than given threshold time.
-        """
-        metric = np.mean(np.abs(weathering_velocity(self.offsets) - self[first_breaks_col].ravel()) > threshold_time)
-        return metric
+                                               n_layers=n_layers, init=init, bounds=bounds,
+                                               ascending_velocity=ascending_velocity, freeze_t0=freeze_t0, **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #
@@ -919,13 +896,15 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @batch_method(target="for", args_to_unpack="weathering_velocity") # benchmark it
-    def apply_lmo(self, weathering_velocity, delay=100):
+    def apply_lmo(self, weathering_velocity, fill_value=0, delay=100):
         """Perform gather linear moveout correction using given weathering velocity.
-        
+
         Parameters
         ----------
         weathering_velocity : WeatheringVelocity
-            Weathering velocity to to perform LMO correction with.
+            Weathering velocity object to perform LMO correction with.
+        fill_value : int or float, defaults to 0
+            Value to fill in the empty parts of the traces.
         delay : int, defaults to 100
             Moveout delay. Measured in milliseconds.
 
@@ -939,15 +918,16 @@ class Gather:
         ValueError
             If `stacking_velocity` is not a `WeatheringVelocity` instance.
         """
-        if isinstance(weathering_velocity, WeatheringVelocity):
+        if not isinstance(weathering_velocity, WeatheringVelocity):
             raise ValueError("Only WeatheringVelocity instances can be passed as a `weathering_velocity`")
-        data = np.zeros_like(self.data)
-        samples_gap = np.round((weathering_velocity(self.offsets) - delay) / self.sample_rate).astype(np.int)
+        data = np.full_like(self.data, fill_value)
+        base_step = times_to_indices(weathering_velocity(self.offsets), self.samples, round=True).astype(int)
+        delay = times_to_indices(np.full(self.shape[0], delay), self.samples, round=True).astype(int)
+        start = np.maximum(delay - base_step, 0)
+        end = np.maximum(base_step - delay, 0)
+        lenght = np.maximum(self.shape[1] - start - end, 0)
         for i in range(self.n_traces):
-            if samples_gap[i] > 0:
-                data[i, :self.n_samples - samples_gap[i]] = self.data[i, samples_gap[i]:]
-            else:
-                data[i, -samples_gap[i]:] = self.data[i, :self.n_samples + samples_gap[i]]
+            data[i, start[i]:start[i] + lenght[i]] = self.data[i, end[i]:end[i] + lenght[i]]
         self.data = data
         return self
 
@@ -1488,3 +1468,27 @@ class Gather:
             Additional keyword arguments to `Gather.plot`.
         """
         NMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, **kwargs).plot()
+
+    def plot_lmo_correction(self, min_vel=800, max_vel=6000, figsize=(6, 4.5), **kwargs):
+        """Perform interactive LMO correction of the gather with the selected velocity of the 1-layer weathering model.
+
+        The plot provides 2 views:
+        * Corrected gahted (default). LMO correction is performed on the fly with the celocity controlled by a slider
+        on top of the plot.
+        * Source gather. This view disables the velocity slider.
+
+        Plotting must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and
+        `ipympl` and `ipywidgets` libraries installed.
+
+        Parameters
+        ----------
+        min_vel : float, optional, defaults to 1500
+            Minimum seismic velocity value for NMO correction. Measured in meters/seconds.
+        max_vel : float, optional, defaults to 6000
+            Maximum seismic velocity value for NMO correction. Measured in meters/seconds.
+        figsize : tuple with 2 elements, optional, defaults to (6, 4.5)
+            Size of the created figure. Measured in inches.
+        kwargs : misc, optional
+            Additional keyword arguments to `Gather.plot`.
+        """
+        LMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, **kwargs).plot()
