@@ -1056,14 +1056,11 @@ def bandpass_filter(self, low=None, high=None, filter_size=81, **kwargs):
         # in case new sample rate becomes more, i.e. performing downsample,
         # anti-aliasing filter is applied to preserve signal frequencies
         if new_sample_rate > current_sample_rate and anti_aliasing:
+            # Smoothly attenuate frequencies starting from 0.8 of the new Nyquist frequency so that all frequencies
+            # above are zeroed out
             nyquist_frequency = 1000 / (2 * new_sample_rate)
-
-            # estimate parameters for filter
-            n = int(10000 / (nyquist_frequency * current_sample_rate))
-            cutoff_ratio = 0.8
-
-            # perform filerting
-            self.bandpass_filter(n, high=cutoff_ratio * nyquist_frequency)
+            filter_size = int(40 * new_sample_rate / current_sample_rate)
+            self.bandpass_filter(high=0.9 * nyquist_frequency, filter_size=filter_size, window="hann")
 
         new_samples = np.arange(self.samples[0], self.samples[-1] + 1e-6, new_sample_rate, self.samples.dtype)
 
