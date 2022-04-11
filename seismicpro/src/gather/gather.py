@@ -1031,20 +1031,20 @@ class Gather:
         return CroppedGather(self, origins, crop_shape, pad_mode, **kwargs)
 
     @batch_method(target="t")
-    def bandpass_filter(self, n, low=None, high=None, window='hamm', **kwargs):
-        """ docs """
-        fs = 1000 / self.sample_rate
-        if low is not None and high is not None:
-            kernel = scipy.signal.firwin(n, [low, high], window=window, fs=fs, pass_zero='bandpass', **kwargs)
-        elif low is not None:
-            kernel = scipy.signal.firwin(n, low, window=window, fs=fs, pass_zero='highpass', **kwargs)
-        elif high is not None:
-            kernel = scipy.signal.firwin(n, high, window=window, fs=fs, pass_zero='lowpass', **kwargs)
-        else:
-            raise ValueError('At least one of low and high must be provided')
+def bandpass_filter(self, low=None, high=None, filter_size=81, **kwargs):
+    """ docs
 
-        self.data = cv2.filter2D(self.data, ddepth=-1, kernel=kernel.reshape(1, -1))
-        return self
+    Default `filter_size` is set to 81 to guarantee that transition bandwidth of the filter does not exceed 10% of the
+    Nyquist frequency for the default Hamming window.
+    """
+    filter_size |= 1  # Guarantee that filter size is odd
+    pass_zero = low is None
+    cutoffs = [cutoff for cutoff in [low, high] if cutoff is not None]
+
+    # Construct the filter and flip it since opencv computes crosscorrelation instead of convolution
+    kernel = firwin(filter_size, cutoffs, pass_zero=pass_zero, fs=1000 / self.sample_rate, **kwargs)[::-1]
+    cv2.filter2D(self.data, dst=self.data, ddepth=-1, kernel=kernel.reshape(1, -1))
+    return self
 
     @batch_method(target="f")
     def resample(self, new_sample_rate, kind=3, anti_aliasing=True):
