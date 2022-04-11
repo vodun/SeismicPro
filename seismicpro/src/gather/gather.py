@@ -925,8 +925,9 @@ class Gather:
         delay = times_to_indices(np.full(self.shape[0], delay), self.samples, round=True).astype(int)
         start = np.maximum(delay - base_step, 0)
         end = np.maximum(base_step - delay, 0)
+        lenght = np.maximum(self.shape[1] - start - end, 0)
         for i in range(self.n_traces):
-            data[i, start[i]:self.shape[1] - end[i]] = self.data[i, end[i]:self.shape[1] - start[i]]
+            data[i, start[i]:start[i] + lenght[i]] = self.data[i, end[i]:end[i] + lenght[i]]
         self.data = data
         return self
 
