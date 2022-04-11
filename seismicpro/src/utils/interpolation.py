@@ -106,19 +106,19 @@ def calculate_basis_polynomials(n, new_samples, old_samples, leftmost_indices):
 
 
 @njit(nogil=True, parallel=True)
-def piecewise_polynomial(n, new_samples, old_samples, data):
+def piecewise_polynomial(x_new, x, y, n):
     """" Perform piecewise polynomial(with degree n) interpolation ."""
-    res = np.empty((len(data), len(new_samples)), dtype=data.dtype)
+    res = np.empty((len(y), len(x_new)), dtype=y.dtype)
 
     # for given point, n + 1 neighbor samples are required to construct polynomial, find the index of leftmsot one
-    indices = np.ceil(_times_to_indices(new_samples, old_samples, False))
-    leftmost_indices = np.clip(indices - (n + 1) / 2, 0, len(old_samples) - n - 1).astype(np.int32)
+    indices = np.ceil(_times_to_indices(x_new, x, False))
+    leftmost_indices = np.clip(indices - (n + 1) / 2, 0, len(x) - n - 1).astype(np.int32)
 
     # calculate Lagrange basis polynomials only once: they are the same at given position for all the traces
-    polynomials = calculate_basis_polynomials(n, new_samples, old_samples, leftmost_indices)
+    polynomials = calculate_basis_polynomials(n, x_new, x, leftmost_indices)
 
-    for j in prange(len(data)):  # pylint: disable=not-an-iterable
+    for j in prange(len(y)):  # pylint: disable=not-an-iterable
         for i, ix in enumerate(leftmost_indices):
             # interpolate at given point: multiply base polynomials and correspondoing function values and sum
-            res[j, i] = np.sum(polynomials[i] * data[j, ix: ix + n + 1])
+            res[j, i] = np.sum(polynomials[i] * y[j, ix: ix + n + 1])
     return res

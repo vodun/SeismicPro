@@ -1065,7 +1065,7 @@ def bandpass_filter(self, low=None, high=None, filter_size=81, **kwargs):
         new_samples = np.arange(self.samples[0], self.samples[-1] + 1e-6, new_sample_rate, self.samples.dtype)
 
         if isinstance(kind, int):
-            data_resampled = piecewise_polynomial(kind, new_samples, self.samples, self.data)
+            data_resampled = piecewise_polynomial(new_samples, self.samples, self.data, kind)
         elif isinstance(kind, str):
             data_resampled = scipy.interpolate.interp1d(self.samples, self.data, kind=kind)(new_samples)
 
