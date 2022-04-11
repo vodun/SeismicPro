@@ -18,7 +18,8 @@ from ..utils import ForPoolExecutor
 def define_unpacking_format(headers_to_load):
     """Return a format string to unpack `headers_to_load` trace headers from a byte sequence of header values.
 
-    The string encodes each trace header in the order they are stored in a SEG-Y file with one of the following characters:
+    The string encodes each trace header in the order they are stored in a SEG-Y file with one of the following
+    characters:
     * "h" - if the header is being loaded and its value is stored as a 16-bit integer,
     * "i" - if the header is being loaded and its value is stored as a 32-bit integer,
     * "xx" - if the header is not being loaded and its value is stored as a 16-bit integer,
