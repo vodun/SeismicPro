@@ -13,13 +13,15 @@ import pandas as pd
 from tqdm.auto import tqdm
 from scipy.interpolate import interp1d
 
+from .headers import load_headers
+from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
-from .utils import calculate_stats, create_supergather_index, SurveyAttribute
+from .utils import calculate_stats, create_supergather_index
 from ..gather import Gather
 from ..metrics import PartialMetric
 from ..static_correction import StaticCorrection
 from ..utils import to_list, maybe_copy, get_cols, create_indexer
-from ..const import HDR_DEAD_TRACE, HDR_FIRST_BREAK
+from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK
 
 
 class Survey:  # pylint: disable=too-many-instance-attributes
@@ -70,6 +72,15 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     limits : int or tuple or slice, optional
         Default time limits to be used during trace loading and survey statistics calculation. `int` or `tuple` are
         used as arguments to init a `slice` object. If not given, whole traces are used. Measured in samples.
+    endian : {"big", "msb", "little", "lsb"}, optional, defaults to "big"
+        SEG-Y file endianness.
+    chunk_size : int, optional, defaults to 25000
+        The number of traces to load by each of spawned processes.
+    n_workers : int, optional
+        The maximum number of simultaneously spawned processes to load trace headers. Defaults to the number of cpu
+        cores.
+    bar : bool, optional, defaults to True
+        Whether to show survey loading progress bar.
 
     Attributes
     ----------
@@ -100,7 +111,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
     n_dead_traces : int
         The number of traces with constant value (dead traces). None until `mark_dead_traces` is called.
     """
-    def __init__(self, path, header_index, header_cols=None, name=None, limits=None):
+    def __init__(self, path, header_index, header_cols=None, name=None, limits=None, endian="big", chunk_size=25000,
+                 n_workers=None, bar=True):
         self.path = os.path.abspath(path)
         self.name = os.path.splitext(os.path.basename(self.path))[0] if name is None else name
 
@@ -111,9 +123,15 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         else:
             header_cols = set(to_list(header_cols))
         header_index = to_list(header_index)
-        load_headers = set(header_index) | header_cols
 
-        self.segy_handler = segyio.open(self.path, ignore_geometry=True)
+        # TRACE_SEQUENCE_FILE is not loaded but reconstructed manually since sometimes it is undefined in the file but
+        # we rely on it during gather loading
+        headers_to_load = (set(header_index) | header_cols) - {"TRACE_SEQUENCE_FILE"}
+
+        # Open the SEG-Y file and memory map it
+        if endian not in ENDIANNESS:
+            raise ValueError(f"Unknown endian, must be one of {', '.join(ENDIANNESS)}")
+        self.segy_handler = segyio.open(self.path, mode="r", endian=endian, ignore_geometry=True)
         self.segy_handler.mmap()
 
         # Get attributes from the source SEG-Y file.
@@ -126,14 +144,16 @@ class Survey:  # pylint: disable=too-many-instance-attributes
         self.sample_rate = None
         self.set_limits(limits)
 
-        # Load trace headers from the file and cast them to int32 since their values are at most 4-byte integers
-        # according to SEG-Y spec
-        headers = {header: self.segy_handler.attributes(segyio.tracefield.keys[header])[:] for header in load_headers}
-        headers = pd.DataFrame(headers, dtype=np.int32)
-        # TRACE_SEQUENCE_FILE is reconstructed manually since sometimes it is undefined in the file but we rely on it
-        # during gather loading
+        # Load trace headers
+        file_metrics = self.segy_handler.xfd.metrics()
+        headers = load_headers(path, headers_to_load, trace_data_offset=file_metrics["trace0"],
+                               trace_size=file_metrics["trace_bsize"], n_traces=file_metrics["tracecount"],
+                               endian=endian, chunk_size=chunk_size, n_workers=n_workers, bar=bar)
+
+        # Reconstruct TRACE_SEQUENCE_FILE header
         tsf_dtype = np.int32 if len(headers) < np.iinfo(np.int32).max else np.int64
         headers["TRACE_SEQUENCE_FILE"] = np.arange(1, self.segy_handler.tracecount+1, dtype=tsf_dtype)
+
         # Sort headers by the required index in order to optimize further subsampling and merging. Sorting preserves
         # trace order from the file within each gather.
         headers.set_index(header_index, inplace=True)
@@ -181,8 +201,8 @@ class Survey:  # pylint: disable=too-many-instance-attributes
 
     @property
     def indexed_by(self):
-        """str or tuple of str: Names of header indices."""
-        index_names = tuple(self.headers.index.names)
+        """str or list of str: Names of header indices."""
+        index_names = list(self.headers.index.names)
         if len(index_names) == 1:
             return index_names[0]
         return index_names
