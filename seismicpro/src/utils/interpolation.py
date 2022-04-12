@@ -71,43 +71,26 @@ def _times_to_indices(times, samples, round):
 
 
 @njit(nogil=True)
-def binomial(n, r):
-    """ Binomial coefficient, nCr,
-    n! / (r! * (n - r)!) """
-
-    p = 1
-    for i in range(1, min(r, n - r) + 1):
-        p *= n
-        p //= i
-        n -= 1
-    return p
-
-
-@njit(nogil=True)
-def calculate_basis_polynomials(n, new_samples, old_samples, leftmost_indices):
+def calculate_basis_polynomials(x_new, x, n, leftmost_indices):
     """ Calculate the values of basis polynomials for Lagrange interpolation. """
-    polynomials = np.empty((len(new_samples), n + 1))
-    binomials = [binomial(n, k) for k in range(n+1)]
+    polynomials = np.ones((len(x_new), n + 1))
 
-    sample_rate = old_samples[1] - old_samples[0]
-    for i, (ix, it) in enumerate(zip(leftmost_indices, new_samples)):
-        y = (it - old_samples[ix]) / sample_rate
-
-        common_multiplier = y
-        for k in range(1, n + 1):
-            common_multiplier = common_multiplier * (y - k) / k
-
+    for i, (ix, it) in enumerate(zip(leftmost_indices, x_new)):
+        y = (it - x[ix]) / (x[1] - x[0])
+                
         for k in range(n + 1):
-            if y == k:
-                polynomials[i, k] = 1
-            else:
-                polynomials[i, k] = common_multiplier * binomials[k] * (-1) ** (n - k)  / (y - k)
+            for j in range(n + 1):
+                if k == j:
+                    continue
+                polynomials[i, k] *= (y - j) / (k - j)       
+
     return polynomials
 
 
 @njit(nogil=True, parallel=True)
 def piecewise_polynomial(x_new, x, y, n):
     """" Perform piecewise polynomial(with degree n) interpolation ."""
+    y = np.atleast_2d(y)
     res = np.empty((len(y), len(x_new)), dtype=y.dtype)
 
     # for given point, n + 1 neighbor samples are required to construct polynomial, find the index of leftmsot one
@@ -121,4 +104,7 @@ def piecewise_polynomial(x_new, x, y, n):
         for i, ix in enumerate(leftmost_indices):
             # interpolate at given point: multiply base polynomials and correspondoing function values and sum
             res[j, i] = np.sum(polynomials[i] * y[j, ix: ix + n + 1])
+    
+    if len(res) == 1:
+        return res[0]
     return res

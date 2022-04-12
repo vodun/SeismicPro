@@ -1035,8 +1035,8 @@ class Gather:
     def bandpass_filter(self, low=None, high=None, filter_size=81, **kwargs):
         """ docs
 
-        Default `filter_size` is set to 81 to guarantee that transition bandwidth of the filter does not exceed 10% of the
-        Nyquist frequency for the default Hamming window.
+        Default `filter_size` is set to 81 to guarantee that transition bandwidth of the filter
+        does not exceed 10% of the Nyquist frequency for the default Hamming window.
         """
         filter_size |= 1  # Guarantee that filter size is odd
         pass_zero = low is None
