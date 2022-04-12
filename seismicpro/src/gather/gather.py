@@ -80,7 +80,7 @@ class Gather:
 
     @property
     def indexed_by(self):
-        """str or tuple of str: Names of header indices."""
+        """str or list of str: Names of header indices."""
         index_names = list(self.headers.index.names)
         if len(index_names) == 1:
             return index_names[0]

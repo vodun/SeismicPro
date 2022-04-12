@@ -188,7 +188,7 @@ class MissingModule:
 
 
 class ForPoolExecutor(Executor):
-    """A sequential executor of tasks in a for loop. Inherits `Executor` interface thus can serve as a seamless
+    """A sequential executor of tasks in a for loop. Inherits `Executor` interface thus can serve as a drop-in
     replacement for both `ThreadPoolExecutor` and `ProcessPoolExecutor` when threads or processes spawning is
     undesirable."""
 
