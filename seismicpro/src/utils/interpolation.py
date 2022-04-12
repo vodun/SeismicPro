@@ -84,9 +84,8 @@ def calculate_basis_polynomials(x_new, x, n):
                 
         for k in range(n + 1):
             for j in range(n + 1):
-                if k == j:
-                    continue
-                polynomials[i, k] *= (y - j) / (k - j)       
+                if k != j:
+                    polynomials[i, k] *= (y - j) / (k - j)       
 
     return polynomials, leftmost_indices
 
@@ -99,7 +98,7 @@ def piecewise_polynomial(x_new, x, y, n):
     res = np.empty((len(y), len(x_new)), dtype=y.dtype)
 
     # calculate Lagrange basis polynomials only once: they are the same at given position for all the traces
-    polynomials, leftmost_indices = calculate_basis_polynomials(n, x_new, x)
+    polynomials, leftmost_indices = calculate_basis_polynomials(x_new, x, n)
 
     for j in prange(len(y)):  # pylint: disable=not-an-iterable
         for i, ix in enumerate(leftmost_indices):
