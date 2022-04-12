@@ -19,8 +19,9 @@ from .utils import ibm_to_ieee, calculate_trace_stats, create_supergather_index
 from ..gather import Gather
 from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
-from ..utils import to_list, maybe_copy, get_cols, has_maxabs_clips
-from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_CLIP, HDR_FIRST_BREAK
+from ..utils import to_list, maybe_copy, get_cols, has_maxabs_clips, calc_spikes, create_indexer
+from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_CLIP, HDR_FIRST_BREAK, HDR_SPIKES, HDR_AUTOCORR, \
+                    HDR_ABS_VALS, HDR_ALMOST_DEAD_TRACE
 
 
 class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-instance-attributes
@@ -455,26 +456,44 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         n_samples = len(self.file_samples[limits])
 
         trace = np.empty(n_samples, dtype=self.trace_dtype)
-        dead_indices = []
-        clip_indices = []
+
+        indicators = [HDR_DEAD_TRACE, HDR_CLIP]
+        indicators_val = [HDR_SPIKES, HDR_AUTOCORR, HDR_ABS_VALS, HDR_ALMOST_DEAD_TRACE]
+        indices = {k: [] for k in indicators + indicators_val}
 
         for tr_index, pos in tqdm(enumerate(traces_pos), desc=f"Detecting dead traces for survey {self.name}",
                                   total=len(self.headers), disable=not bar):
             self.load_trace_segyio(buf=trace, index=pos, limits=limits, trace_length=n_samples)
-            trace_min, trace_max, *_ = calculate_trace_stats(trace)
+            trace_min, trace_max, trace_mean, trace_var = calculate_trace_stats(trace)
 
-            if math.isclose(trace_min, trace_max):
-                dead_indices.append(tr_index)
+            if math.isclose(trace_min, trace_max, rel_tol=1e-09, abs_tol=0.0):
+                indices[HDR_DEAD_TRACE].append(tr_index)
 
-            elif has_maxabs_clips(trace):
-                clip_indices.append(tr_index)
+                for hdr in indicators_val:
+                    indices[hdr].append(None)
 
-        self.n_dead_traces = len(dead_indices)
-        self.headers[HDR_DEAD_TRACE] = False
-        self.headers.iloc[dead_indices, self.headers.columns.get_loc(HDR_DEAD_TRACE)] = True
+            else:
+                std = np.sqrt(trace_var)
+                norm_trace = (trace - trace_mean)/std
 
-        self.headers[HDR_CLIP] = False
-        self.headers.iloc[clip_indices, self.headers.columns.get_loc(HDR_CLIP)] = True
+                if has_maxabs_clips(norm_trace):
+                    indices[HDR_CLIP].append(tr_index)
+
+                spikes = calc_spikes(norm_trace)
+
+                indices[HDR_SPIKES].append(np.max(spikes))
+                indices[HDR_AUTOCORR].append(np.sum(norm_trace[1:]*norm_trace[:-1])/n_samples)
+                indices[HDR_ABS_VALS].append(std/max(trace_max, -trace_min))
+                indices[HDR_ALMOST_DEAD_TRACE].append(std)
+
+        self.n_dead_traces = len(indices[HDR_DEAD_TRACE])
+
+        for hdr in indicators:
+            self.headers[hdr] = False
+            self.headers.iloc[indices[hdr], self.headers.columns.get_loc(hdr)] = True
+
+        for hdr in indicators_val:
+            self.headers[hdr] = indices[hdr]
 
         return self
 

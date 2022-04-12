@@ -2,6 +2,10 @@
 
 from functools import partial
 from concurrent.futures import Future, Executor
+import numpy as np
+
+from numba import njit
+from scipy import signal
 
 import numpy as np
 
@@ -201,21 +205,56 @@ def has_clips(trace, clip_len):
 
 
 def get_maxabs_clips(traces):
-    traces = np.atleast_2d(traces)
-
-    maxes = traces.max(axis=-1)[:, np.newaxis]
-    mins = traces.min(axis=-1)[:, np.newaxis]
+    maxes = traces.max(axis=-1)[..., np.newaxis]
+    mins = traces.min(axis=-1)[..., np.newaxis]
 
     res_plus = np.isclose(traces, maxes, atol=0) & ~np.isclose(maxes, 0)
     res_minus = np.isclose(traces, mins, atol=0) & ~np.isclose(mins, 0)
 
-    return ((res_plus[:, :-2] & res_plus[:, 1:-1] & res_plus[:, 2:])
-            | (res_minus[:, :-2] & res_minus[:, 1:-1] & res_minus[:, 2:]))
-
+    return ((res_plus[..., :-2] & res_plus[..., 1:-1] & res_plus[..., 2:])
+            | (res_minus[..., :-2] & res_minus[..., 1:-1] & res_minus[..., 2:]))
 
 def has_maxabs_clips(traces):
     return np.any(get_maxabs_clips(traces), axis=-1)
 
+def calc_spikes(arr):
+    running_mean = signal.fftconvolve(arr, [1,1,1], mode='valid')/3
+    return (np.abs(arr[1:-1] - running_mean))
+
+class Coordinates:
+    """Define spatial coordinates of an object."""
+    def __init__(self, *args, names=None):
+        if names is None:
+            names = ("X", "Y")
+        names = tuple(to_list(names))
+        if len(names) != 2:
+            raise ValueError("Exactly two names must be passed.")
+
+        if not args:
+            args = (None, None)
+        if len(args) != 2:
+            raise ValueError("Exactly two coordinates must be passed.")
+
+        self.coords = args
+        self.names = names
+
+    def __repr__(self):
+        return f"Coordinates({self.coords[0]}, {self.coords[1]}, names={self.names})"
+
+    def __str__(self):
+        return f"({self.names[0]}: {self.coords[0]}, {self.names[1]}: {self.coords[1]})"
+
+    def __iter__(self):
+        return iter(self.coords)
+
+    def __len__(self):
+        return len(self.coords)
+
+    def __getitem__(self, key):
+        return self.coords[key]
+
+    def __array__(self, dtype=None):
+        return np.array(self.coords, dtype=dtype)
 
 
 class MissingModule:
