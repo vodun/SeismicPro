@@ -62,7 +62,7 @@ class interp1d:
         return res.item() if is_scalar_input else res
 
 
-@njit
+@njit(nogil=True)
 def _times_to_indices(times, samples, round):
     left_slope = 1 / (samples[1] - samples[0])
     right_slope = 1 / (samples[-1] - samples[-2])
@@ -71,12 +71,16 @@ def _times_to_indices(times, samples, round):
 
 
 @njit(nogil=True)
-def calculate_basis_polynomials(x_new, x, n, leftmost_indices):
+def calculate_basis_polynomials(x_new, x, n):
     """ Calculate the values of basis polynomials for Lagrange interpolation. """
     polynomials = np.ones((len(x_new), n + 1))
 
+    # for given point, n + 1 neighbor samples are required to construct polynomial, find the index of leftmsot one
+    indices = np.ceil(_times_to_indices(x_new, x, False))
+    leftmost_indices = (indices - (n + 1) / 2).astype(np.int32)
+
     for i, (ix, it) in enumerate(zip(leftmost_indices, x_new)):
-        y = (it - x[ix]) / (x[1] - x[0])
+        y = (it - x[abs(ix)] * np.sign(ix)) / (x[1] - x[0])
                 
         for k in range(n + 1):
             for j in range(n + 1):
@@ -84,27 +88,32 @@ def calculate_basis_polynomials(x_new, x, n, leftmost_indices):
                     continue
                 polynomials[i, k] *= (y - j) / (k - j)       
 
-    return polynomials
+    return polynomials, leftmost_indices
 
 
 @njit(nogil=True, parallel=True)
 def piecewise_polynomial(x_new, x, y, n):
     """" Perform piecewise polynomial(with degree n) interpolation ."""
+    is_1d = (y.ndim == 1)
     y = np.atleast_2d(y)
     res = np.empty((len(y), len(x_new)), dtype=y.dtype)
 
-    # for given point, n + 1 neighbor samples are required to construct polynomial, find the index of leftmsot one
-    indices = np.ceil(_times_to_indices(x_new, x, False))
-    leftmost_indices = np.clip(indices - (n + 1) / 2, 0, len(x) - n - 1).astype(np.int32)
-
     # calculate Lagrange basis polynomials only once: they are the same at given position for all the traces
-    polynomials = calculate_basis_polynomials(n, x_new, x, leftmost_indices)
+    polynomials, leftmost_indices = calculate_basis_polynomials(n, x_new, x)
 
     for j in prange(len(y)):  # pylint: disable=not-an-iterable
         for i, ix in enumerate(leftmost_indices):
             # interpolate at given point: multiply base polynomials and correspondoing function values and sum
-            res[j, i] = np.sum(polynomials[i] * y[j, ix: ix + n + 1])
-    
-    if len(res) == 1:
+            for p in range(n + 1):
+                if ix + p < 0:
+                    mirrored_ix = abs(ix + p)
+                elif ix + p > y.shape[1] - 1:
+                    mirrored_ix = y.shape[1] - (ix + p - y.shape[1]) - 1
+                else:
+                    mirrored_ix = ix + p
+
+                res[j, i] += polynomials[i, p] * y[j, mirrored_ix]
+
+    if is_1d:
         return res[0]
     return res
