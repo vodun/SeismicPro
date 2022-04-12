@@ -3,7 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy import sparse
 
-from .utils import calculate_depth_coef
+from .utils import calculate_depth_coefs
 from seismicpro.src.metrics import MetricMap
 
 
@@ -13,7 +13,7 @@ DEFAULT_COLS = {
 }
 
 
-USEFUL_COLS = [*sum(DEFAULT_COLS.values(), []), "SourceUpholeTime", "CDP_X", "CDP_Y", "offset"]
+USED_COLS = [*sum(DEFAULT_COLS.values(), []), "SourceUpholeTime", "CDP_X", "CDP_Y", "offset"]
 
 
 class StaticCorrection:
@@ -21,7 +21,7 @@ class StaticCorrection:
         self.survey = survey.copy()
         self.first_breaks_col = first_breaks_col
 
-        self.headers = self.survey.headers[USEFUL_COLS + [first_breaks_col]]
+        self.headers = self.survey.headers[USED_COLS + [first_breaks_col]]
         self.headers.reset_index(inplace=True)
 
         self.source_params = self._create_params_df(name='source')
@@ -62,16 +62,19 @@ class StaticCorrection:
         # TODO:
         # 1. Add processing for self.n_layers = 1
         # 2. Add accumulation of loss and plot for it
+        # 3. Add processing for sources / receivers with missing depths
         for i in range(1, self.n_layers):
-            cross_left = self.headers.get([f"source_x{i}", f"rec_x{i}"], 0)
-            cross_left = cross_left.min(axis=1) if isinstance(cross_left, type(self.headers)) else cross_left
-            cross_right = self.headers.get([f"source_x{i+1}", f"rec_x{i+1}"], np.inf)
-            cross_right = cross_right.max(axis=1) if isinstance(cross_right, type(self.headers)) else cross_right
+            cross_left = self.headers.get([f"source_x{i}", f"rec_x{i}"]).min(axis=1)
+            cross_right = np.inf
+            if f"source_x{i+1}" in self.headers.columns:
+                cross_right = self.headers.get([f"source_x{i+1}", f"rec_x{i+1}"]).max(axis=1)
+
             # Sometimes some sources or receivers haven't got any traces on this range, thus they won't have i-th depth
-            layer_headers = self.headers[(self.headers["offset"] >= cross_left) & (self.headers['offset'] <= cross_right)].copy()
+            offsets = self.headers['offset']
+            layer_headers = self.headers[(offsets >= cross_left) & (offsets <= cross_right)].copy()
 
             layer_headers[f'avg_v{i+1}'] = (layer_headers[f'source_v{i+1}'] + layer_headers[f'rec_v{i+1}']) / 2
-            layer_headers['y'] = layer_headers[self.first_breaks_col] - layer_headers['offset'] / layer_headers[f'avg_v{i+1}']
+            layer_headers['y'] = layer_headers[self.first_breaks_col] - offsets / layer_headers[f'avg_v{i+1}']
             # Drop traces with y < 0 since this cannot happend in real world
             layer_headers = layer_headers[layer_headers['y'] > 0]
 
@@ -89,7 +92,8 @@ class StaticCorrection:
     def _get_sparse_coefs(self, name, layer_headers, layer):
         cols = self._get_cols(name)
         uniques, index, inverse = np.unique(layer_headers[cols], axis=0, return_index=True, return_inverse=True)
-        coefs = calculate_depth_coef(*layer_headers.iloc[index][[name+f'_v{layer}', name+f'_v{layer+1}', f'avg_v{layer+1}']].values.T)
+        wv_params = layer_headers.iloc[index][[name+f'_v{layer}', name+f'_v{layer+1}', f'avg_v{layer+1}']].values.T
+        coefs = calculate_depth_coefs(*wv_params)
         eye = sparse.eye((len(uniques)), format='csc')
         return eye.multiply(coefs).tocsc()[inverse], uniques
 
@@ -104,7 +108,7 @@ class StaticCorrection:
 
     def plot_applied_static_map(self, column, datum, **kwargs):
         survey = self.survey.copy()
-        survey.headers = survey.headers.merge(self.headers, on=USEFUL_COLS)
+        survey.headers = survey.headers.merge(self.headers, on=USED_COLS)
         survey.reindex(['GroupX', 'GroupY'], inplace=True)
         def _gather_plot(fontsize, coords, ax):
             g = survey.get_gather(coords)
