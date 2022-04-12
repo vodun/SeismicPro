@@ -75,13 +75,15 @@ def calculate_basis_polynomials(x_new, x, n):
     """ Calculate the values of basis polynomials for Lagrange interpolation. """
     polynomials = np.ones((len(x_new), n + 1))
 
+    sample_rate = x[1] - x[0]
     # for given point, n + 1 neighbor samples are required to construct polynomial, find the index of leftmsot one
-    indices = np.ceil(_times_to_indices(x_new, x, False))
-    leftmost_indices = (indices - (n + 1) / 2).astype(np.int32)
+    leftmost_indices = np.ceil(_times_to_indices(x_new - sample_rate * n / 2, x, False))
+    # secure that its elements can serve as indices
+    leftmost_indices = leftmost_indices.astype(np.int32)
 
     for i, (ix, it) in enumerate(zip(leftmost_indices, x_new)):
-        y = (it - x[abs(ix)] * np.sign(ix)) / (x[1] - x[0])
-                
+        y = (it - x[abs(ix)] * np.sign(ix + 1e9)) / sample_rate
+
         for k in range(n + 1):
             for j in range(n + 1):
                 if k != j:
@@ -92,7 +94,7 @@ def calculate_basis_polynomials(x_new, x, n):
 
 @njit(nogil=True, parallel=True)
 def piecewise_polynomial(x_new, x, y, n):
-    """" Perform piecewise polynomial(with degree n) interpolation ."""
+    """" Perform piecewise polynomial (with degree n) interpolation ."""
     is_1d = (y.ndim == 1)
     y = np.atleast_2d(y)
     res = np.empty((len(y), len(x_new)), dtype=y.dtype)
@@ -104,6 +106,8 @@ def piecewise_polynomial(x_new, x, y, n):
         for i, ix in enumerate(leftmost_indices):
             # interpolate at given point: multiply base polynomials and correspondoing function values and sum
             for p in range(n + 1):
+
+                # implicit padding for the interpolation on the edges
                 if ix + p < 0:
                     mirrored_ix = abs(ix + p)
                 elif ix + p > y.shape[1] - 1:
