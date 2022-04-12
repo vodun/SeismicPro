@@ -1,5 +1,8 @@
 """Miscellaneous general utility functions"""
 
+from functools import partial
+from concurrent.futures import Future, Executor
+
 import numpy as np
 from numba import njit
 
@@ -179,3 +182,26 @@ class MissingModule:
     def __call__(self, *args, **kwargs):
         _ = args, kwargs
         raise ImportError(f"No module named {self._module_name}")
+
+
+class ForPoolExecutor(Executor):
+    """A sequential executor of tasks in a for loop. Inherits `Executor` interface thus can serve as a drop-in
+    replacement for both `ThreadPoolExecutor` and `ProcessPoolExecutor` when threads or processes spawning is
+    undesirable."""
+
+    def __init__(self, *args, **kwargs):
+        _ = args, kwargs
+        self.task_queue = []
+
+    def submit(self, fn, /, *args, **kwargs):
+        """Schedule `fn` to be executed with given arguments."""
+        future = Future()
+        self.task_queue.append((future, partial(fn, *args, **kwargs)))
+        return future
+
+    def shutdown(self, *args, **kwargs):
+        """Signal the executor to finish all scheduled tasks and free its resources."""
+        _ = args, kwargs
+        for future, fn in self.task_queue:
+            future.set_result(fn())
+        self.task_queue = None

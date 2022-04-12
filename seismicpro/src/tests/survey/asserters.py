@@ -36,12 +36,21 @@ def assert_survey_loaded(survey, segy_path, expected_name, expected_index, expec
     assert np.allclose(survey.file_samples, file_samples, rtol=rtol, atol=atol)
     assert np.isclose(survey.file_sample_rate, file_sample_rate, rtol=rtol, atol=atol)
 
-    # Check loaded trace headers
+    # Check names of loaded trace headers and the resulting headers shape
     assert survey.n_traces == n_traces
     assert len(survey.headers) == n_traces
     assert set(survey.headers.index.names) == expected_index
     assert set(survey.headers.index.names) | set(survey.headers.columns) == expected_headers
     assert survey.headers.index.is_monotonic_increasing
+
+    # Restore the order of the traces from the source file
+    loaded_headers = survey.headers.reset_index().sort_values(by="TRACE_SEQUENCE_FILE")
+
+    # Check loaded trace headers values
+    assert np.array_equal(loaded_headers["TRACE_SEQUENCE_FILE"].values, np.arange(1, n_traces + 1))
+    for header in set(loaded_headers.columns) - {"TRACE_SEQUENCE_FILE"}:
+        assert np.array_equal(loaded_headers[header].values,
+                              survey.segy_handler.attributes(segyio.tracefield.keys[header])[:])
 
     # Check whether indexer was constructed correctly
     assert_indexers_equal(survey.indexer, create_indexer(survey.headers.index))
