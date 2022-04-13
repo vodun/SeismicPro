@@ -102,7 +102,7 @@ def piecewise_polynomial(x_new, x, y, n, secure_edges=True):
     """" Perform piecewise polynomial (with degree n) interpolation ."""
     is_1d = (y.ndim == 1)
     y = np.atleast_2d(y)
-    res = np.empty((len(y), len(x_new)), dtype=y.dtype)
+    res = np.zeros((len(y), len(x_new)), dtype=y.dtype)
 
     # calculate Lagrange basis polynomials only once: they are the same at given position for all the traces
     polynomials, indices = calculate_basis_polynomials(x_new, x, n, secure_edges)
