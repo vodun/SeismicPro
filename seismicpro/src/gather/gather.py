@@ -1029,6 +1029,7 @@ class Gather:
         origins = make_origins(origins, self.shape, crop_shape, n_crops, stride)
         return CroppedGather(self, origins, crop_shape, pad_mode, **kwargs)
 
+    @batch_method(target="for")
     def apply_agc(self, factor=1, win_size=250, mode='abs', median=False):
         """ TODO """
         if mode not in ['abs', 'rms']:
@@ -1041,33 +1042,9 @@ class Gather:
         self.data = coefs * self.data
         return self
 
-    def apply_agc_vectorized(self, factor=1, win_size=250, mode='abs', median=False):
+    @batch_method(target="for")
+    def correct_spherical_divergence(self, t_pow=None, v_pow=None, velocity=None):
         """ TODO """
-        if mode not in ['abs', 'rms']:
-            raise ValueError(f"mode should be either 'abs' or 'rms', but {mode} was given")
-        if (win_size < 3) or (win_size > self.n_samples):
-            raise ValueError(f'win_size should be between 3 and trace length, but {win_size} was given')
-
-        data = np.abs(self.data) if mode=='abs' else np.power(self.data, 2)
-        agc = np.empty_like(data)
-
-        n = data.shape[1]
-        win_left, win_right = win_size // 2, win_size - win_size // 2
-        start, end = win_left, n - win_right
-
-        cs = np.cumsum(data, axis=1)
-        counts = np.cumsum(data!=0, axis=1)
-        agc[:, start:end] = ((counts[:, :-(win_size)] - counts[:, win_size:]) /
-                             (cs[:, :-(win_size)] - cs[:, win_size:] + 1e-15))
-
-        # Extrapolate AGC coefs for trace positions where full window does not fit
-        agc[:, :start] = agc[:, start].reshape(data.shape[0], -1)
-        agc[:, end:] = agc[:, end-1].reshape(data.shape[0], -1)
-        if mode == 'rms':
-            agc = np.sqrt(agc)
-        if median:
-            agc = np.median(agc, axis=0)
-        self.data = self.data * factor * agc
         return self
 
     #------------------------------------------------------------------------#

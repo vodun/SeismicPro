@@ -1,0 +1,27 @@
+""" Implements function that generates file with seismic data and provides Survey objects for benchmark """
+
+def make_benchmark_data(path):
+    """ Generates data ...bla... equal number of traces ... bla"""
+    # The geometry defined below should be changed only together with survey filtering parameters
+    # to ensure that after filtering all the gathers \ supergathers have the same number of traces
+    make_prestack_segy(path, survey_size=(400, 400), sources_step=(5, 5), receivers_step=(5, 5), activation_dist=(50, 50), bin_size=(10, 10))
+
+    # Load required headers and add synthetic FirstBreak times
+    sur = Survey(path, header_index=['INLINE_3D', 'CROSSLINE_3D'], 
+                 header_cols='offset', name='raw')
+    sur.headers['FirstBreak'] = np.random.randint(0, 3000, len(sur.headers))
+
+    cl_min, cl_max = sur['CROSSLINE_3D'].min(), sur['CROSSLINE_3D'].max()
+    il_min, il_max = sur['INLINE_3D'].min(), sur['INLINE_3D'].max()
+    # Drop three lines of CDPs from each side of the survey, since they have less traces than central ones
+    survey = (sur.filter(lambda x: (x>cl_min+3) & (x<=cl_max-3), 'CROSSLINE_3D')
+                 .filter(lambda x: (x>il_min+3) & (x<=cl_max-3), 'INLINE_3D'))
+
+    sg_survey = survey.generate_supergathers((3,3), (1,1), (0,0))
+    sgc_min, sgc_max = sg_survey['SUPERGATHER_CROSSLINE_3D'].min(), sg_survey['SUPERGATHER_CROSSLINE_3D'].max()
+    sgi_min, sgi_max = sg_survey['SUPERGATHER_INLINE_3D'].min(), sg_survey['SUPERGATHER_INLINE_3D'].max()
+    # Drop one line of supergathers from each side of the survey, since they have less traces than central ones
+    sg_survey = (sg_survey.filter(lambda x: (x>sgc_min+1) & (x<=sgc_max-1), 'SUPERGATHER_CROSSLINE_3D')
+                           .filter(lambda x: (x>sgi_min+1) & (x<=sgi_max-1), 'SUPERGATHER_INLINE_3D'))
+
+    return survey, sg_survey
