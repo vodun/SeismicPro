@@ -80,12 +80,11 @@ def calculate_basis_polynomials(x_new, x, n, secure_edges):
     # for given point, n + 1 neighbor samples are required to construct polynomial, find the index of leftmsot one
     leftmost_indices = _times_to_indices(x_new - (sample_rate * n / 2), x, True).astype(np.int32)
 
-    if secure_edges:
-        indices = np.array([ [x + i for i in range(N) ] for x in leftmost_indices ])        
-        indices = np.where(indices < len(x) - 1, np.abs(indices), len(x) - (indices - len(x)) - 2)
-    else:
-        leftmost_indices = np.clip(leftmost_indices, 0, len(x) - n - 1)
-        indices = np.array([ [x + i for i in range(N) ] for x in leftmost_indices ])
+    indices = leftmost_indices + np.arange(N).reshape(-1, 1)
+
+    # Reflect indices from array borders
+    div, mod = np.divmod(np.abs(indices), len(x))
+    indices = np.where(div % 2, np.abs(len(x) - mod - 2), mod)
     
     y = (x_new - x[np.abs(leftmost_indices)] * np.sign(leftmost_indices + 1e-9) ) / sample_rate
     
