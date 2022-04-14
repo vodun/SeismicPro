@@ -63,6 +63,37 @@ class interp1d:
 
 
 @njit(nogil=True)
+def times_to_indices(times, samples, round=False):
+    """Convert `times` to their indices in the increasing `samples` array. If some value of `times` is not present
+    in `samples`, its index is linearly interpolated or extrapolated by the other indices of `samples`.
+
+    Parameters
+    ----------
+    times : 1d np.ndarray of floats
+        Time values to convert to indices.
+    samples : 1d np.ndarray of floats
+        Recording time for each trace value.
+    round : bool, optional, defaults to False
+        If `True`, round the obtained float indices to the nearest integer. Values exactly halfway between two adjacent
+        integers are rounded to the nearest even one.
+
+    Returns
+    -------
+    indices : 1d np.ndarray
+        Array with positions of `times` in `samples`.
+
+    Raises
+    ------
+    ValueError
+        If `samples` is not increasing.
+    """
+    for i in range(len(samples) - 1):
+        if samples[i+1] <= samples[i]:
+            raise ValueError('The `samples` array must be increasing.')
+    return _times_to_indices(times=times, samples=samples, round=round)
+
+
+@njit(nogil=True)
 def _times_to_indices(times, samples, round):
     left_slope = 1 / (samples[1] - samples[0])
     right_slope = 1 / (samples[-1] - samples[-2])
