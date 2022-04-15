@@ -923,11 +923,11 @@ class Gather:
         data = np.full_like(self.data, fill_value)
         base_step = times_to_indices(weathering_velocity(self.offsets), self.samples, round=True).astype(int)
         delay = times_to_indices(np.full(self.shape[0], delay), self.samples, round=True).astype(int)
-        start = np.maximum(delay - base_step, 0)
-        end = np.maximum(base_step - delay, 0)
-        lenght = np.maximum(self.shape[1] - start - end, 0)
+        start_lmo = np.maximum(delay - base_step, 0)
+        start_raw = np.maximum(base_step - delay, 0)
+        lenght = np.maximum(self.shape[1] - start_lmo - start_raw, 0)
         for i in range(self.n_traces):
-            data[i, start[i]:start[i] + lenght[i]] = self.data[i, end[i]:end[i] + lenght[i]]
+            data[i, start_lmo[i]:start_lmo[i] + lenght[i]] = self.data[i, start_raw[i]:start_raw[i] + lenght[i]]
         self.data = data
         return self
 
