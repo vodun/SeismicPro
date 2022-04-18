@@ -970,6 +970,7 @@ class Gather:
     @batch_method(target="for")
     def apply_static_correciton(self, datum):
         """!!!"""
+        # Do we need DelayRecordingTime?
         self.validate(required_header_cols=["ReceiverGroupElevation", "SourceSurfaceElevation", "SourceUpholeTime"])
         if self.survey.static_corr is None:
             raise ValueError('!!')

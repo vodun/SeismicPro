@@ -97,6 +97,33 @@ class StaticCorrection:
         eye = sparse.eye((len(uniques)), format='csc')
         return eye.multiply(coefs).tocsc()[inverse], uniques
 
+    ### dump ###
+    # Raw dumps, just to be able to somehow save results
+    def dump_sources(self, path, layer, fillna=0):
+        columns = ["SourceX", "SourceY", "EnergySourcePoint", "SourceWaterDepth", "GroupWaterDepth"]
+        by = columns[2: 4]
+        sources = self.source_params[[f"depth_{layer}"]].fillna(fillna).round().astype(np.int32)
+        sub_headers = self.survey.headers[columns].reset_index(drop=True)
+        sub_headers = sub_headers.set_index(columns[:2]).drop_duplicates()
+        dump_df = sources.join(sub_headers).sort_values(by=by)
+        self._dump(path, dump_df, columns[2:] + [f"depth_{layer}"])
+
+    def dump_recs(self, path, layer, fillna=0):
+        columns = ["GroupX", "GroupY", "ReceiverDatumElevation", "SourceDatumElevation", "ReceiverGroupElevation"]
+        by = columns[2: 4]
+        recs = self.rec_params[[f"depth_{layer}"]].fillna(fillna).round().astype(np.int32)
+        sub_headers = self.survey.headers[columns].reset_index(drop=True)
+        sub_headers = sub_headers.set_index(columns[:2]).drop_duplicates()
+        dump_df = recs.join(sub_headers).sort_values(by=by)
+        self._dump(path, dump_df, columns[2:] + [f"depth_{layer}"])
+
+    def _dump(self, path, df, columns):
+        with open(path, 'w', encoding="UTF-8") as f:
+            for _, row in df.iterrows():
+                nums = "{:8}" * len(columns)
+                line = (nums + "\n").format(*row[columns].values)
+                f.write(line)
+
     ### plotters ###
 
     def plot_depths(self, layer):
