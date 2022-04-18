@@ -85,7 +85,7 @@ def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src
     dst : str or list of str, optional
         Names of components to store the results. Must match the length of `src`. If not given, the processing is
         performed inplace. If a component with a name specified in `dst` does not exist, it will be created using
-        :func:`~batch.SeismicBatch._init_component` method.
+        :func:`~batch.SeismicBatch.init_component` method.
 
     Parameters
     ----------
@@ -170,7 +170,7 @@ def apply_to_each_component(*args, target="for", fetch_method_target=True):
     in the corresponding components of `dst`.
 
     If a component with a name specified in `dst` does not exist, it will be created using
-    :func:`~batch.SeismicBatch._init_component` method.
+    :func:`~batch.SeismicBatch.init_component` method.
 
     Parameters
     ----------
@@ -178,7 +178,7 @@ def apply_to_each_component(*args, target="for", fetch_method_target=True):
         Default `inbatch_parallel` target to use when processing component elements with the method if it was not
         decorated by `batch_method` or `target` was not passed in `kwargs` during method call.
     fetch_method_target : bool, optional, defaults to True
-        Whether to try to fetch `target` from method attributes if it was decorated by `batch_method`.
+        Whether to try to fetch `target` from method attributes if it was decorated with `batch_method`.
 
     Returns
     -------
@@ -207,7 +207,7 @@ def create_batch_methods(*component_classes):
     dst : str or list of str, optional
         Names of components to store the results. Must match the length of `src`. If not given, the processing is
         performed inplace. If a component with a name specified in `dst` does not exist, it will be created using
-        :func:`~batch.SeismicBatch._init_component` method.
+        :func:`~batch.SeismicBatch.init_component` method.
 
     Parameters
     ----------
