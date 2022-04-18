@@ -53,15 +53,15 @@ class TestStats:
             survey.collect_stats()
 
     @pytest.mark.parametrize("remove_dead", [True, False])
-    @pytest.mark.parametrize("limits", [slice(8), slice(-4, None)])
+    @pytest.mark.parametrize("init_limits", [slice(8), slice(-4, None)])
     @pytest.mark.parametrize("n_quantile_traces", [0, 10, 100])
     @pytest.mark.parametrize("quantile_precision", [1, 2])
     @pytest.mark.parametrize("stats_limits", [None, slice(5), slice(2, 8)])
-    def test_collect_stats(self, stat_segy, remove_dead,
-                           limits, n_quantile_traces, quantile_precision, stats_limits):
+    def test_collect_stats(self, stat_segy, init_limits, remove_dead, n_quantile_traces, quantile_precision,
+                           stats_limits):
         """Compare stats obtained by running `collect_stats` with the actual ones."""
         path, trace_data = stat_segy
-        survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset", limits=limits)
+        survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset", limits=init_limits)
         survey.mark_dead_traces(bar=False)
 
         if remove_dead:
@@ -69,10 +69,10 @@ class TestStats:
 
         survey_copy = survey.copy()
         survey.collect_stats(n_quantile_traces=n_quantile_traces, quantile_precision=quantile_precision,
-                             stats_limits=stats_limits, bar=True)
+                             limits=stats_limits, bar=True)
 
-        # stats_limits take priority over survey limits
-        stats_limits = limits if stats_limits is None else stats_limits
+        # stats_limits take priority over init_limits
+        stats_limits = init_limits if stats_limits is None else stats_limits
         trace_data = trace_data[:, stats_limits]
         if remove_dead:
             is_dead = np.isclose(trace_data.min(axis=1), trace_data.max(axis=1))
