@@ -277,21 +277,20 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         quantile_precision : positive int, optional, defaults to 2
             Calculate an approximate quantile for each q with `quantile_precision` decimal places. All other quantiles
             will be linearly interpolated on request.
-        stats_limits : int or tuple or slice, optional
+        limits : int or tuple or slice, optional
             Time limits to be used for statistics calculation. `int` or `tuple` are used as arguments to init a `slice`
-            object. If not given, whole traces are used. Measured in samples.
+            object. If not given, `limits` passed to `__init__` are used. Measured in samples.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
 
         Returns
         -------
         survey : Survey
-            The survey with collected stats. Sets `has_stats` flag to `True`, and updates statistics attributes inplace.
+            The survey with collected stats. Sets `has_stats` flag to `True` and updates statistics attributes inplace.
         """
-        if not self.dead_traces_marked:
-            warn_msg = ("Dead traces detection was not performed, collected statistics may be skewed. "
-                        "Run `mark_dead_traces` to remove this warning")
-            warnings.warn(warn_msg, RuntimeWarning)
+        if not self.dead_traces_marked or self.n_dead_traces:
+            warnings.warn("The survey was not checked for dead traces or they were not removed. "
+                          "Run `remove_dead_traces` first.", RuntimeWarning)
 
         headers = self.headers
         if indices is not None:
@@ -358,10 +357,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Parameters
         ----------
-        limits : int or tuple or slice or None, optional, defaults to None
-            Time range that is used to detect dead traces.
-            `int` or `tuple` are used as arguments to init a `slice` object.
-            If None, whole traces are loaded. Measured in samples.
+        limits : int or tuple or slice, optional
+            Time limits to be used to detect dead traces. `int` or `tuple` are used as arguments to init a `slice`
+            object. If not given, `limits` passed to `__init__` are used. Measured in samples.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
 
@@ -431,9 +429,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         ----------
         headers : pd.DataFrame
             Headers of traces to load. Must be a subset of `self.headers`.
-        limits : int or tuple or slice or None, optional, defaults to None
+        limits : int or tuple or slice or None, optional
             Time range for trace loading. `int` or `tuple` are used as arguments to init a `slice` object. If not
-            given, whole traces are loaded. Measured in samples.
+            given, `limits` passed to `__init__` are used. Measured in samples.
         copy_headers : bool, optional, defaults to False
             Whether to copy the passed `headers` when instantiating the gather.
 
@@ -464,9 +462,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         ----------
         index : int or 1d array-like
             An index of the gather to load. Must be one of `self.indices`.
-        limits : int or tuple or slice or None, optional, defaults to None
+        limits : int or tuple or slice or None, optional
             Time range for trace loading. `int` or `tuple` are used as arguments to init a `slice` object. If not
-            given, whole traces are loaded. Measured in samples.
+            given, `limits` passed to `__init__` are used. Measured in samples.
         copy_headers : bool, optional, defaults to False
             Whether to copy the subset of survey `headers` describing the gather.
 
@@ -482,9 +480,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Parameters
         ----------
-        limits : int or tuple or slice or None, optional, defaults to None
+        limits : int or tuple or slice or None, optional
             Time range for trace loading. `int` or `tuple` are used as arguments to init a `slice` object. If not
-            given, whole traces are loaded. Measured in samples.
+            given, `limits` passed to `__init__` are used. Measured in samples.
         copy_headers : bool, optional, defaults to False
             Whether to copy the subset of survey `headers` describing the sampled gather.
 
@@ -815,9 +813,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Parameters
         ----------
-        limits : int or tuple or slice or None, optional, defaults to None
-            Time range that is used to detect dead traces, if needed.
-            See :meth:`Survey.mark_dead_traces` for more info.
+        limits : int or tuple or slice, optional
+            Time limits to be used to detect dead traces if needed. `int` or `tuple` are used as arguments to init a
+            `slice` object. If not given, `limits` passed to `__init__` are used. Measured in samples.
         inplace : bool, optional, defaults to False
             Whether to remove traces inplace or return a new survey instance.
         bar : bool, optional, defaults to True
