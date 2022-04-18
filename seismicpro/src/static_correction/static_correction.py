@@ -99,22 +99,18 @@ class StaticCorrection:
 
     ### dump ###
     # Raw dumps, just to be able to somehow save results
-    def dump_sources(self, path, layer, fillna=0):
-        columns = ["SourceX", "SourceY", "EnergySourcePoint", "SourceWaterDepth", "GroupWaterDepth"]
-        by = columns[2: 4]
-        sources = self.source_params[[f"depth_{layer}"]].fillna(fillna).round().astype(np.int32)
+    def dump(self, name, path, layer, fillna=0):
+        columns = self._get_cols(name)
+        if name == 'source':
+            columns.extend(["EnergySourcePoint", "SourceWaterDepth", "GroupWaterDepth"])
+        elif name == 'rec':
+            columns.extend(["ReceiverDatumElevation", "SourceDatumElevation", "ReceiverGroupElevation"])
+        else:
+            raise ValueError('!!!')
+        depths = getattr(self, f"{name}_params")[[f"depth_{layer}"]].fillna(fillna).round().astype(np.int32)
         sub_headers = self.survey.headers[columns].reset_index(drop=True)
         sub_headers = sub_headers.set_index(columns[:2]).drop_duplicates()
-        dump_df = sources.join(sub_headers).sort_values(by=by)
-        self._dump(path, dump_df, columns[2:] + [f"depth_{layer}"])
-
-    def dump_recs(self, path, layer, fillna=0):
-        columns = ["GroupX", "GroupY", "ReceiverDatumElevation", "SourceDatumElevation", "ReceiverGroupElevation"]
-        by = columns[2: 4]
-        recs = self.rec_params[[f"depth_{layer}"]].fillna(fillna).round().astype(np.int32)
-        sub_headers = self.survey.headers[columns].reset_index(drop=True)
-        sub_headers = sub_headers.set_index(columns[:2]).drop_duplicates()
-        dump_df = recs.join(sub_headers).sort_values(by=by)
+        dump_df = depths.join(sub_headers).sort_values(by=columns[2: 4])
         self._dump(path, dump_df, columns[2:] + [f"depth_{layer}"])
 
     def _dump(self, path, df, columns):
