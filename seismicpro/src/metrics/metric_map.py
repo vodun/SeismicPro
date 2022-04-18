@@ -362,7 +362,7 @@ class MetricMap(metaclass=MetricMapMeta):
     But usually maps are constructed via helper functions. One of the most common cases is to accumulate metric values
     in a pipeline and then convert them into a map:
     >>> survey = Survey(path, header_index="FieldRecord", header_cols=["SourceY", "SourceX", "offset"], name="raw")
-    >>> dataset = SeismicDataset(surveys=survey)
+    >>> dataset = SeismicDataset(survey)
     >>> pipeline = (dataset
     ...     .pipeline()
     ...     .load(src="raw")

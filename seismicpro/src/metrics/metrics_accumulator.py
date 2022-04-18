@@ -15,7 +15,7 @@ class MetricsAccumulator:
     --------
     Accumulate minimum and maximum amplitudes for each common source gather in a survey:
     >>> survey = Survey(path, header_index="FieldRecord", header_cols=["SourceY", "SourceX", "offset"], name="raw")
-    >>> dataset = SeismicDataset(surveys=survey)
+    >>> dataset = SeismicDataset(survey)
     >>> pipeline = (dataset
     ...     .pipeline()
     ...     .load(src="raw")

@@ -54,7 +54,7 @@ class PipelineMetric(Metric):
 
     Calculate the metric for a given dataset:
     >>> survey = Survey(path, header_index="FieldRecord", header_cols=["SourceY", "SourceX", "offset"], name="raw")
-    >>> dataset = SeismicDataset(surveys=survey)
+    >>> dataset = SeismicDataset(survey)
     >>> pipeline = (dataset
     ...     .pipeline()
     ...     .load(src="raw")
