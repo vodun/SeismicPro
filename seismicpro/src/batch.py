@@ -33,7 +33,7 @@ class SeismicBatch(Batch):
     --------
     Usually a batch is created from a `SeismicDataset` instance by calling :func:`~SeismicDataset.next_batch` method:
     >>> survey = Survey(path, header_index="FieldRecord", header_cols=["TraceNumber", "offset"], name="survey")
-    >>> dataset = SeismicDataset(surveys=survey)
+    >>> dataset = SeismicDataset(survey)
     >>> batch = dataset.next_batch(10)
 
     Here a batch of 10 gathers was created and can now be processed using the methods defined in
@@ -78,27 +78,27 @@ class SeismicBatch(Batch):
         return np.arange(len(self))
 
     @action
-    def load(self, src=None, fmt="sgy", components=None, combined=False, **kwargs):
+    def load(self, src=None, dst=None, fmt="sgy", combined=False, **kwargs):
         """Load seismic gathers into batch components.
 
         Parameters
         ----------
         src : str or list of str, optional
             Survey names to load gathers from.
+        dst : str or list of str, optional
+            Batch components to store the result in. Equals to `src` if not given.
         fmt : str, optional, defaults to "sgy"
             Data format to load gathers from.
-        components : str or list of str, optional
-            Batch components to store the result in. Equals to `src` if not given.
         combined : bool, optional, defaults to False
-            If `False`, load gathers by corresponding index value. If `True`, group all batch traces from a particular
-            survey into a single gather increasing loading speed by reducing the number of `.loc`s performed.
+            If `False`, load gathers by corresponding index value. If `True`, group all traces from a particular survey
+            into a single gather. Increases loading speed by reducing the number of `DataFrame` indexations performed.
         kwargs : misc, optional
             Additional keyword arguments to :func:`~Survey.load_gather`.
 
         Returns
         -------
         batch : SeismicBatch
-            A batch with loaded gathers. Creates or updates `src` components inplace.
+            A batch with loaded gathers. Creates or updates `dst` components inplace.
 
         Raises
         ------
@@ -107,21 +107,22 @@ class SeismicBatch(Batch):
         """
         if isinstance(fmt, str) and fmt.lower() in {"sgy", "segy"}:
             if not combined:
-                return self.load_gather(src=src, dst=components, **kwargs)
+                return self.load_gather(src=src, dst=dst, **kwargs)
             non_empty_parts = [i for i, n_gathers in enumerate(self.index.n_gathers_by_part) if n_gathers]
             combined_batch = type(self)(DatasetIndex(non_empty_parts), dataset=self.dataset, pipeline=self.pipeline)
-            return combined_batch.load_combined_gather(src=src, dst=components, parent_index=self.index, **kwargs)
-        return super().load(src=src, fmt=fmt, components=components, **kwargs)
+            return combined_batch.load_combined_gather(src=src, dst=dst, parent_index=self.index, **kwargs)
+        return super().load(src=src, fmt=fmt, components=dst, **kwargs)
 
     @apply_to_each_component(target="for", fetch_method_target=False)
     def load_gather(self, pos, src, dst, **kwargs):
-        """Load a gather with given `index` from a survey called `src`."""
+        """Load a gather with ordinal number `pos` in the batch from a survey `src`."""
         index, part = self.index.index_by_pos(pos)
         getattr(self, dst)[pos] = self.index.get_gather(index, part=part, survey_name=src, **kwargs)
 
     @apply_to_each_component(target="for", fetch_method_target=False)
     def load_combined_gather(self, pos, src, dst, parent_index, **kwargs):
-        """Load all batch traces from a survey called `src` with `CONCAT_ID` equal to `index` into a single gather."""
+        """Load all batch traces from a survey `src` and an index part with ordinal number `pos` in the batch into a
+        single gather."""
         part = parent_index.parts[self.indices[pos]]
         survey = part.surveys_dict[src]
         headers = part.headers[src]
@@ -222,7 +223,7 @@ class SeismicBatch(Batch):
 
     @action(no_eval='dst')
     def split_model_outputs(self, src, dst, shapes):
-        """Split data into multiple sub-arrays whose shapes along zero axis if defined by `shapes`.
+        """Split data into multiple sub-arrays whose shapes along zero axis are defined by `shapes`.
 
         Usually gather data for each batch element is stacked or concatenated along zero axis using
         :func:`SeismicBatch.make_model_inputs` before being passed to a model. This method performs a reverse operation
@@ -294,8 +295,8 @@ class SeismicBatch(Batch):
         return self
 
     @action
-    @inbatch_parallel(init='_init_component', target='for')
-    def crop(self, idx, src, origins, crop_shape, dst=None, joint=True, n_crops=1, stride=None, **kwargs):
+    @inbatch_parallel(init='init_component', target='for')
+    def crop(self, pos, src, origins, crop_shape, dst=None, joint=True, n_crops=1, stride=None, **kwargs):
         """Crop batch components.
 
         Parameters
@@ -348,8 +349,6 @@ class SeismicBatch(Batch):
         if len(src_list) != len(dst_list):
             raise ValueError("src and dst should have the same length.")
 
-        pos = self.index.get_pos(idx)
-
         if joint:
             src_shapes = set()
             src_types = set()
@@ -392,7 +391,7 @@ class SeismicBatch(Batch):
         >>> header_cols = "offset"
         >>> survey_before = Survey(path_before, header_index=header_index, header_cols=header_cols, name="before")
         >>> survey_after = Survey(path_after, header_index=header_index, header_cols=header_cols, name="after")
-        >>> dataset = SeismicDataset(surveys=[survey_before, survey_after], mode="m")
+        >>> dataset = SeismicDataset(survey_before, survey_after, mode="m")
 
         Iterate over the dataset and calculate the metric:
         >>> pipeline = (dataset
