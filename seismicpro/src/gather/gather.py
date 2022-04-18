@@ -7,7 +7,6 @@ from textwrap import dedent
 
 import segyio
 import numpy as np
-import pandas as pd
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .muting import Muter
@@ -17,13 +16,14 @@ from .utils import correction, normalization
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
 from ..utils import (to_list, get_cols, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
                      set_text_formatting, add_colorbar, Coordinates)
+from ..containers import TraceContainer, SamplesContainer
 from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, VelocityCube
 from ..decorators import batch_method, plotter
 from ..const import HDR_FIRST_BREAK
 
 
-class Gather:
+class Gather(TraceContainer, SamplesContainer):
     """A class representing a single seismic gather.
 
     A gather is a collection of seismic traces that share some common acquisition parameter (same index value of the
@@ -79,14 +79,6 @@ class Gather:
         self.sort_by = None
 
     @property
-    def indexed_by(self):
-        """str or list of str: Names of header indices."""
-        index_names = list(self.headers.index.names)
-        if len(index_names) == 1:
-            return index_names[0]
-        return index_names
-
-    @property
     def index(self):
         """int or tuple of int or None: Unique index values of the gather. `None` if the gather is combined."""
         indices = self.headers.index.drop_duplicates()
@@ -103,29 +95,14 @@ class Gather:
         raise ValueError("`sample_rate` is not defined, since `samples` are not regular.")
 
     @property
-    def times(self):
-        """1d np.ndarray of floats: Recording time for each trace value. Measured in milliseconds."""
-        return self.samples
-
-    @property
     def offsets(self):
         """1d np.ndarray of floats: The distance between source and receiver for each trace. Measured in meters."""
-        return self.headers['offset'].values
+        return self["offset"].ravel()
 
     @property
     def shape(self):
         """tuple with 2 elements: The number of traces in the gather and trace length in samples."""
         return self.data.shape
-
-    @property
-    def n_traces(self):
-        """int: The number of traces in the gather."""
-        return self.shape[0]
-
-    @property
-    def n_samples(self):
-        """int: Trace length in samples."""
-        return self.shape[1]
 
     def __getitem__(self, key):
         """Either select gather headers values by their names or create a new `Gather` with specified traces and
@@ -193,20 +170,6 @@ class Gather:
             new_self.sort_by = None
         return new_self
 
-    def __setitem__(self, key, value):
-        """Set given values to selected gather headers.
-
-        Parameters
-        ----------
-        key : str or list of str
-            Gather headers to set values for.
-        value : np.ndarray
-            Headers values to set.
-        """
-        key = to_list(key)
-        val = pd.DataFrame(value, columns=key, index=self.headers.index)
-        self.headers[key] = val
-
     def __str__(self):
         """Print gather metadata including information about its survey, headers and traces."""
 
@@ -236,7 +199,7 @@ class Gather:
          min | max:                  {np.min(self.data):>10.2f} | {np.max(self.data):<10.2f}
          q01 | q99:                  {self.get_quantile(0.01):>10.2f} | {self.get_quantile(0.99):<10.2f}
         """
-        return dedent(msg)
+        return dedent(msg).strip()
 
     def info(self):
         """Print gather metadata including information about its survey, headers and traces."""
