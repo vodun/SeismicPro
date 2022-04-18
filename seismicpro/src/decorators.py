@@ -159,7 +159,7 @@ def _apply_to_each_component(method, target, fetch_method_target):
             if len(self) == 1:
                 src_method_target = "for"
 
-            parallel_method = inbatch_parallel(init="_init_component", target=src_method_target)(method)
+            parallel_method = inbatch_parallel(init="init_component", target=src_method_target)(method)
             parallel_method(self, *args, src=src, dst=dst, **kwargs)
         return self
     return decorated_method
@@ -237,9 +237,8 @@ def create_batch_methods(*component_classes):
 
         # TODO: dynamically generate docstring
         def create_method(method_name):
-            def method(self, index, *args, src=None, dst=None, **kwargs):
-                # Get an object corresponding to the given index from src component and copy it if needed
-                pos = self.index.get_pos(index)
+            def method(self, pos, *args, src=None, dst=None, **kwargs):
+                # Get an object corresponding to the given pos from src component and copy it if needed
                 obj = getattr(self, src)[pos]
                 obj_method_params = getattr(obj, method_name).method_params["batch_method"]
                 if obj_method_params["copy_src"] and src != dst:

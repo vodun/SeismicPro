@@ -66,25 +66,16 @@ class SeismicBatch(Batch):
         super().__init__(*args, **kwargs)
         self._num_calculated_metrics = 0
 
-    @property
-    def nested_indices(self):
-        """list: indices of the batch each additionally wrapped into a list. If used as an `init` function in
-        `inbatch_parallel` decorator, each index will be passed to its parallelly executed callable as a tuple, not
-        individual level values."""
-        if isinstance(self.indices, np.ndarray):
-            return self.indices.tolist()
-        return [[index] for index in self.indices]
-
-    def _init_component(self, *args, dst=None, **kwargs):
-        """Create and preallocate new attributes with names listed in `dst` if they don't exist and return
-        `self.nested_indices`. This method is typically used as a default `init` function in `inbatch_parallel`
+    def init_component(self, *args, dst=None, **kwargs):
+        """Create and preallocate new attributes with names listed in `dst` if they don't exist and return ordinal
+        numbers of batch items. This method is typically used as a default `init` function in `inbatch_parallel`
         decorator."""
         _ = args, kwargs
         dst = [] if dst is None else to_list(dst)
         for comp in dst:
             if self.components is None or comp not in self.components:
                 self.add_components(comp, init=self.array_of_nones)
-        return self.nested_indices
+        return np.arange(len(self))
 
     @action
     def load(self, src=None, fmt="sgy", components=None, combined=False, **kwargs):
@@ -116,34 +107,25 @@ class SeismicBatch(Batch):
         """
         if isinstance(fmt, str) and fmt.lower() in {"sgy", "segy"}:
             if not combined:
-                return self._load_gather(src=src, dst=components, **kwargs)
-            unique_files = self.indices.unique(level=0)
-            combined_batch = type(self)(DatasetIndex(unique_files), dataset=self.dataset, pipeline=self.pipeline)
-            # pylint: disable=protected-access
-            return combined_batch._load_combined_gather(src=src, dst=components, parent_index=self.index, **kwargs)
-            # pylint: enable=protected-access
+                return self.load_gather(src=src, dst=components, **kwargs)
+            non_empty_parts = [i for i, n_gathers in enumerate(self.index.n_gathers_by_part) if n_gathers]
+            combined_batch = type(self)(DatasetIndex(non_empty_parts), dataset=self.dataset, pipeline=self.pipeline)
+            return combined_batch.load_combined_gather(src=src, dst=components, parent_index=self.index, **kwargs)
         return super().load(src=src, fmt=fmt, components=components, **kwargs)
 
     @apply_to_each_component(target="for", fetch_method_target=False)
-    def _load_gather(self, index, src, dst, **kwargs):
+    def load_gather(self, pos, src, dst, **kwargs):
         """Load a gather with given `index` from a survey called `src`."""
-        pos = self.index.get_pos(index)
-        concat_id, gather_index = index[0], index[1:]
-        # Unpack tuple in case of non-multiindex survey
-        if len(gather_index) == 1:
-            gather_index = gather_index[0]
-        # Guarantee, that a DataFrame is always returned after .loc, regardless of pandas behavior
-        gather_index = slice(gather_index, gather_index)
-        getattr(self, dst)[pos] = self.index.get_gather(survey_name=src, concat_id=concat_id,
-                                                        gather_index=gather_index, **kwargs)
+        index, part = self.index.index_by_pos(pos)
+        getattr(self, dst)[pos] = self.index.get_gather(index, part=part, survey_name=src, **kwargs)
 
     @apply_to_each_component(target="for", fetch_method_target=False)
-    def _load_combined_gather(self, index, src, dst, parent_index, **kwargs):
+    def load_combined_gather(self, pos, src, dst, parent_index, **kwargs):
         """Load all batch traces from a survey called `src` with `CONCAT_ID` equal to `index` into a single gather."""
-        pos = self.index.get_pos(index)
-        gather_index = parent_index.indices.to_frame().loc[index].index
-        getattr(self, dst)[pos] = parent_index.get_gather(survey_name=src, concat_id=index,
-                                                          gather_index=gather_index, **kwargs)
+        part = parent_index.parts[self.indices[pos]]
+        survey = part.surveys_dict[src]
+        headers = part.headers[src]
+        getattr(self, dst)[pos] = survey.load_gather(headers, **kwargs)
 
     @action
     def update_velocity_cube(self, velocity_cube, src):

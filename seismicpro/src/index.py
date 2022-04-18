@@ -232,13 +232,6 @@ class SeismicIndex(DatasetIndex):
         if any(indexed_by != part.indexed_by for part in parts[1:]):
             raise ValueError("All parts must be indexed by the same columns")
 
-        # Warn about empty index or some of its parts
-        empty_parts = [i for i, part in enumerate(parts) if not part]
-        if len(empty_parts) == len(parts):
-            warnings.warn("All index parts are empty, empty index is created", RuntimeWarning)
-        elif empty_parts:
-            warnings.warn(f"Index parts {empty_parts} are empty", RuntimeWarning)
-
         if copy_headers:
             # TODO: copy headers
             parts = parts
@@ -270,9 +263,17 @@ class SeismicIndex(DatasetIndex):
     def merge(cls, *args, **kwargs):
         indices = cls._args_to_indices(*args, copy_headers=False)
         if len({ix.n_parts for ix in indices}) != 1:
-            raise ValueError
+            raise ValueError("All indices being merged must have the same number of parts")
         ix_parts = [ix.parts for ix in indices]
         merged_parts = [reduce(lambda x, y: x.merge(y, **kwargs), parts) for parts in zip(*ix_parts)]
+
+        # Warn about empty index or some of its parts
+        empty_parts = [i for i, part in enumerate(merged_parts) if not part]
+        if len(empty_parts) == len(merged_parts):
+            warnings.warn("Empty index after merge", RuntimeWarning)
+        elif empty_parts:
+            warnings.warn(f"Empty parts {empty_parts} after merge", RuntimeWarning)
+
         return cls.from_parts(*merged_parts, copy_headers=False)
 
     #------------------------------------------------------------------------#
@@ -281,6 +282,11 @@ class SeismicIndex(DatasetIndex):
 
     def build_pos(self):
         return None
+
+    def index_by_pos(self, pos):
+        part_pos_borders = np.cumsum([0] + self.n_gathers_by_part)
+        part = np.searchsorted(part_pos_borders[1:], pos, side="right")
+        return self.indices[part][pos - part_pos_borders[part]], part
 
     def subset_by_pos(self, pos):
         pos = np.sort(np.atleast_1d(pos))
