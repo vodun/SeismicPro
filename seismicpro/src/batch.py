@@ -59,7 +59,7 @@ class SeismicBatch(Batch):
     ----------
     index : DatasetIndex
         Unique identifiers of seismic gathers in the batch. Usually has :class:`~index.SeismicIndex` type.
-    components : tuple
+    components : tuple of str or None
         Names of the created components. Each of them can be accessed as a usual attribute.
     """
     def __init__(self, *args, **kwargs):
