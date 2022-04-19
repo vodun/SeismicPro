@@ -15,13 +15,13 @@ from .cropped_gather import CroppedGather
 from .plot_corrections import NMOCorrectionPlot
 from .utils import correction, normalization
 from .utils import (convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins,
-                    calculate_agc)
+                    calculate_agc, apply_sdc)
 from ..utils import (to_list, get_cols, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
                      set_text_formatting, add_colorbar, Coordinates)
 from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, VelocityCube
 from ..decorators import batch_method, plotter
-from ..const import HDR_FIRST_BREAK
+from ..const import HDR_FIRST_BREAK, DEFAULT_STACKING_VELOCITY
 
 
 class Gather:
@@ -1030,21 +1030,23 @@ class Gather:
         return CroppedGather(self, origins, crop_shape, pad_mode, **kwargs)
 
     @batch_method(target="for")
-    def apply_agc(self, factor=1, win_size=250, mode='abs', median=False):
+    def apply_agc(self, factor=1, window=250, mode='abs'):
         """ TODO """
         if mode not in ['abs', 'rms']:
             raise ValueError(f"mode should be either 'abs' or 'rms', but {mode} was given")
-        if (win_size < 3) or (win_size > self.n_samples):
-            raise ValueError(f'win_size should be between 3 and trace length, but {win_size} was given')
-        coefs = calculate_agc(data=self.data, factor=factor, win_size=win_size, mode=mode)
-        if median:
-            coefs = np.median(coefs, axis=0)
-        self.data = coefs * self.data
+        if (window < 3) or (window > self.n_samples-1):
+            raise ValueError(f'window should be at least 3 and and at most n_samples-1, but {window} was given')
+        self.data = calculate_agc(data=self.data, factor=factor, window=window, mode=mode)
         return self
 
     @batch_method(target="for")
-    def correct_spherical_divergence(self, t_pow=None, v_pow=None, velocity=None):
+    def correct_spherical_divergence(self, t_pow=1, v_pow=2, velocity=None):
         """ TODO """
+        if velocity is None:
+            velocity = DEFAULT_STACKING_VELOCITY
+        if not isinstance(velocity, StackingVelocity):
+            raise ValueError("Only VelocityCube or StackingVelocity instances can be passed as a stacking_velocity")
+        self.data = apply_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
         return self
 
     #------------------------------------------------------------------------#

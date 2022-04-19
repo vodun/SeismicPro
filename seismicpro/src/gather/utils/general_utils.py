@@ -1,7 +1,9 @@
 """General gather processing utils"""
 
+from typing import Hashable
 import numpy as np
 from numba import njit, prange
+from sympy import arg
 
 from ...utils import times_to_indices
 
@@ -128,35 +130,39 @@ def mute_gather(gather_data, muting_times, samples, fill_value):
 
 
 @njit(parallel=True)
-def calculate_agc(data, factor=1, win_size=250, mode='abs'):
+def calculate_agc(data, factor=1, window=250, mode='abs'):
     """ TODO """
-    coefs = np.empty_like(data)
-    n = data.shape[1]
-    win_left, win_right = win_size // 2, win_size - win_size // 2
-    # Start is the first trace position that fits the full window, end is the last.
+    n_traces, trace_len = data.shape
+    win_left, win_right = window // 2, window - window // 2
+    # start is the first trace index that fits the full window, end is the last.
     # AGC coefficients before start and after end are extrapolated.
-    start, end = win_left, n - win_right
-    if mode == 'abs':
-        data = np.abs(data)
-        for i in prange(data.shape[0]):  # pylint: disable=not-an-iterable
-            coefs[i] = calculate_agc_coefs(data[i], start, end, win_size)
-    elif mode == 'rms':
-        data = np.power(data, 2)
-        for i in prange(data.shape[0]):  # pylint: disable=not-an-iterable
-            coefs[i] = calculate_agc_coefs(data[i], start, end, win_size)
-        coefs = np.sqrt(coefs)
-    return factor * coefs
+    start, end = win_left, trace_len - win_right
 
-@njit
-def calculate_agc_coefs(trace, start, end, win_size):
+    for i in prange(n_traces):  # pylint: disable=not-an-iterable
+        trace = data[i]
+        trace = np.power(trace, 2) if mode=='rms' else np.abs(trace)
+
+        amplitudes_cumsum = np.cumsum(trace)
+        nonzero_counts_cumsum = np.cumsum(trace!=0)
+
+        coefs = np.empty_like(trace)
+        coefs[start:end] = ((nonzero_counts_cumsum[:-window] - nonzero_counts_cumsum[window:]) 
+                            / (amplitudes_cumsum[:-window] - amplitudes_cumsum[window:] + 1e-15))
+        # Extrapolate AGC coefs for trace positions where full window does not fit
+        coefs[:start] = coefs[start]
+        coefs[end:] = coefs[end-1]
+
+        coefs = np.sqrt(coefs) * factor if mode=='rms' else coefs * factor
+        data[i] *= coefs
+    return data
+
+@njit(parallel=True)
+def apply_sdc(data, v_pow, velocities, t_pow, times):
     """ TODO """
-    agc = np.empty_like(trace)
-    cs = np.cumsum(trace)
-    counts = np.cumsum(trace!=0)
-    agc[start:end] = ((counts[:-(win_size)]-counts[win_size:]) /
-                      (cs[:-(win_size)] - cs[win_size:] + 1e-15))
-
-    # Extrapolate AGC coefs for trace positions where full window does not fit
-    agc[:start] = agc[start]
-    agc[end:] = agc[end-1]
-    return agc
+    n_traces, trace_len = data.shape
+    sdc_coefficient = velocities**v_pow * times**t_pow
+    # Scale sdc_coefficient to be 1 at maximum time
+    sdc_coefficient /= sdc_coefficient[trace_len-1]
+    for i in prange(n_traces):  # pylint: disable=not-an-iterable
+        data[i] *= sdc_coefficient
+    return data
