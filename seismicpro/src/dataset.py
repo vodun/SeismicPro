@@ -1,6 +1,7 @@
 """Implements SeismicDataset class that allows for iteration over gathers in a survey or a group of surveys and their
 joint processing"""
 
+from functools import wraps
 from textwrap import dedent
 
 from .batch import SeismicBatch
@@ -63,8 +64,19 @@ class SeismicDataset(Dataset):
         super().__init__(index, batch_class=batch_class)
 
     def __getattr__(self, name):
-        """Redirect requests to undefined attributes and methods to the underlying index."""
-        return getattr(self.index, name)
+        """Redirect requests to undefined attributes and methods to the underlying index. If `SeismicIndex` is returned
+        convert it to `SeismicDataset`."""
+        attr = getattr(self.index, name)
+        if not callable(attr):
+            return attr
+
+        @wraps(attr)
+        def proxy(*args, **kwargs):
+            res = attr(*args, **kwargs)
+            if isinstance(res, SeismicIndex):
+                return type(self)(res, copy_headers=False, batch_class=self.batch_class)
+            return res
+        return proxy
 
     def __dir__(self):
         """Fix autocompletion for redirected methods."""
