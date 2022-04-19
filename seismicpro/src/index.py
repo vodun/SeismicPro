@@ -2,6 +2,7 @@
 
 import os
 import warnings
+from copy import copy
 from textwrap import indent, dedent
 from functools import partial, reduce
 
@@ -88,6 +89,12 @@ class IndexPart(GatherContainer):
     def create_subset(self, indices):
         subset_headers = self.get_headers_by_indices(indices)
         return self.from_attributes(subset_headers, self.surveys_dict, self.common_headers)
+
+    def copy(self):
+        self_copy = copy(self)
+        self_copy._headers = self.headers.copy()
+        self_copy.common_headers = copy(self.common_headers)
+        return self_copy
 
 
 class SeismicIndex(DatasetIndex):
@@ -296,8 +303,7 @@ class SeismicIndex(DatasetIndex):
             raise ValueError("All parts must be indexed by the same columns")
 
         if copy_headers:
-            # TODO: copy headers
-            parts = parts
+            parts = [part.copy() for part in parts]
 
         index = cls()
         index.parts = parts
@@ -311,9 +317,8 @@ class SeismicIndex(DatasetIndex):
 
     @classmethod
     def from_index(cls, index, copy_headers=False):
-        if not copy_headers:
-            return index
-        # TODO: copy headers
+        if copy_headers:
+            return index.copy()
         return index
 
     @classmethod
@@ -496,3 +501,15 @@ class SeismicIndex(DatasetIndex):
             survey_name = np.random.choice(self.survey_names)
         index = np.random.choice(self.parts[part].indices)
         return self.get_gather(index, part, survey_name, limits=limits, copy_headers=copy_headers)
+
+    #------------------------------------------------------------------------#
+    #                       Index manipulation methods                       #
+    #------------------------------------------------------------------------#
+
+    def copy(self):
+        self_copy = self.from_parts(*self.parts, copy_headers=True)
+        for split_name in ("train", "test", "validation"):
+            split = getattr(self, split_name)
+            if split is not None:
+                setattr(self, split_name, split.copy())
+        return self_copy
