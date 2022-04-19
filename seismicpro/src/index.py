@@ -23,6 +23,7 @@ class IndexPart(GatherContainer):
 
     @property
     def survey_names(self):
+        """list of str: names of surveys in the index part."""
         return sorted(self.surveys_dict.keys())
 
     @classmethod
@@ -90,47 +91,109 @@ class IndexPart(GatherContainer):
 
 
 class SeismicIndex(DatasetIndex):
+    """A class that enumerates gathers in a survey or a group of surveys and allows iterating over them.
+
+    While `Survey` describes a single SEG-Y file, `SeismicIndex` is primarily used to describe survey concatenation
+    (e.g. when several fields are being processed in the same way one after another) or merging (e.g. when traces from
+    the same field before and after a given processing stage must be matched and compared).
+
+    TODO: finish docs
+
+    Examples
+    --------
+    Let's consider 4 surveys, describing a single field before and after processing. Note that all of them have the
+    same `header_index`:
+    >>> s1_before = Survey(path, header_index=index_headers, name="before")
+    >>> s2_before = Survey(path, header_index=index_headers, name="before")
+
+    >>> s1_after = Survey(path, header_index=index_headers, name="after")
+    >>> s2_after = Survey(path, header_index=index_headers, name="after")
+
+    An index can be created from a single survey in the following way:
+    >>> index = SeismicIndex(s1_before)
+
+    If `s1_before` and `s2_before` represent different parts of the same field, they can be concatenated into one index
+    to iterate over the whole field and process it at once. Both surveys must have the same `name`:
+    >>> index = SeismicIndex(s1_before, s2_before, mode="c")
+
+    Gathers before and after given processing stage can be matched using merge operation. Both surveys must have
+    different `name`s:
+    >>> index = SeismicIndex(s1_before, s1_after, mode="m")
+
+    Merge can follow concat and vice versa. A more complex case, covering both operations is shown below:
+    >>> index_before = SeismicIndex(s1_before, s2_before, mode="c")
+    >>> index_after = SeismicIndex(s1_after, s2_after, mode="c")
+    >>> index = SeismicIndex(index_before, index_after, mode="m")
+
+    Parameters
+    ----------
+    args : tuple of Survey, IndexPart or SeismicIndex
+        A sequence of surveys, indices or parts to construct an index.
+    mode : {"c", "concat", "m", "merge", None}, optional, defaults to None
+        A mode used to combine multiple `args` into a single index. If `None`, only one positional argument can be
+        passed.
+    copy_headers : bool, optional, defaults to False
+        Whether to copy a `DataFrame` of trace headers while constructing index parts.
+    kwargs : misc, optional
+        Additional keyword arguments to :func:`~SeismicIndex.merge` if the corresponding mode was chosen.
+
+    Attributes
+    ----------
+    parts : tuple of IndexPart
+        Parts of the constructed index.
+    index : tuple of pd.Index
+        Unique identifiers of seismic gathers in each part of the index.
+    """
     def __init__(self, *args, mode=None, copy_headers=False, **kwargs):
         self.parts = tuple()
         super().__init__(*args, mode=mode, copy_headers=copy_headers, **kwargs)
 
     @property
     def n_parts(self):
+        """int: The number of parts in the index."""
         return len(self.parts)
 
     @property
     def n_gathers_by_part(self):
+        """int: The number of gathers in each part of the index."""
         return [part.n_gathers for part in self.parts]
 
     @property
     def n_gathers(self):
+        """int: The number of gathers in the index."""
         return sum(self.n_gathers_by_part)
 
     @property
     def n_traces_by_part(self):
+        """int: The number of traces in each part of the index."""
         return [part.n_traces for part in self.parts]
 
     @property
     def n_traces(self):
+        """int: The number of traces in the index."""
         return sum(self.n_traces_by_part)
 
     @property
     def indexed_by(self):
+        """str or list of str or None: Names of header indices of each part. `None` for empty index."""
         if self.parts:
             return self.parts[0].indexed_by
         return None
 
     @property
     def survey_names(self):
+        """list of str or None: Names of surveys in the index. `None` for empty index."""
         if self.parts:
             return self.parts[0].survey_names
         return None
 
     @property
     def is_empty(self):
+        """bool: Whether the index is empty."""
         return self.n_parts == 0
 
     def __len__(self):
+        """The number of gathers in the index."""
         return self.n_gathers
 
     def get_index_info(self, index_path="index", indent_size=0):
@@ -139,17 +202,17 @@ class SeismicIndex(DatasetIndex):
             return "Empty index"
 
         splits = [(name, getattr(self, name)) for name in ("train", "test", "validation")
-                                            if getattr(self, name) is not None]
+                                              if getattr(self, name) is not None]
 
         info_df = pd.DataFrame({"Gathers": self.n_gathers_by_part, "Traces": self.n_traces_by_part},
-                            index=pd.RangeIndex(self.n_parts, name="Part"))
+                               index=pd.RangeIndex(self.n_parts, name="Part"))
         for sur in self.survey_names:
             info_df[f"Survey {sur}"] = [os.path.basename(part.surveys_dict[sur].path) for part in self.parts]
 
         msg = f"""
         {index_path} info:
 
-        Indexed by:                {', '.join(to_list(self.indexed_by))}
+        Indexed by:                {", ".join(to_list(self.indexed_by))}
         Number of gathers:         {self.n_gathers}
         Number of traces:          {self.n_traces}
         Is split:                  {any(splits)}
@@ -163,7 +226,7 @@ class SeismicIndex(DatasetIndex):
         return msg
 
     def __str__(self):
-        """Print index metadata including information about its surveys and total number of traces and gathers."""
+        """Print index metadata including information about its parts and underlying surveys."""
         msg = self.get_index_info()
         for i, part in enumerate(self.parts):
             for sur in part.survey_names:
@@ -171,7 +234,7 @@ class SeismicIndex(DatasetIndex):
         return msg.strip()
 
     def info(self):
-        """Print index metadata including information about its surveys and total number of traces and gathers."""
+        """Print index metadata including information about its parts and underlying surveys."""
         print(self)
 
     #------------------------------------------------------------------------#
@@ -210,7 +273,7 @@ class SeismicIndex(DatasetIndex):
         if not args:
             return tuple()
 
-        # Don't copy headers if args are merged since pandas.merge will return a copy
+        # Don't copy headers if args are merged since pandas.merge will return a copy further
         if mode in {"m", "merge"}:
             copy_headers = False
 
@@ -267,7 +330,7 @@ class SeismicIndex(DatasetIndex):
         ix_parts = [ix.parts for ix in indices]
         merged_parts = [reduce(lambda x, y: x.merge(y, **kwargs), parts) for parts in zip(*ix_parts)]
 
-        # Warn about empty index or some of its parts
+        # Warn if the whole index or some of its parts are empty
         empty_parts = [i for i, part in enumerate(merged_parts) if not part]
         if len(empty_parts) == len(merged_parts):
             warnings.warn("Empty index after merge", RuntimeWarning)
@@ -281,14 +344,42 @@ class SeismicIndex(DatasetIndex):
     #------------------------------------------------------------------------#
 
     def build_pos(self):
+        """Implement degenerate `get_pos` to decrease computational complexity since `SeismicIndex` provides its own
+        interface to get gathers from each of its parts."""
         return None
 
     def index_by_pos(self, pos):
+        """Return gather index and part by its position in the index.
+
+        Parameters
+        ----------
+        pos : int
+            Ordinal number of the gather in the index.
+
+        Returns
+        -------
+        index : int or tuple
+            Gather index.
+        part : int
+            Index part to get the gather from.
+        """
         part_pos_borders = np.cumsum([0] + self.n_gathers_by_part)
         part = np.searchsorted(part_pos_borders[1:], pos, side="right")
         return self.indices[part][pos - part_pos_borders[part]], part
 
     def subset_by_pos(self, pos):
+        """Return a subset of gather indices by their positions in the index.
+
+        Parameters
+        ----------
+        pos : int or array-like of int
+            Ordinal numbers of gathers in the index.
+
+        Returns
+        -------
+        indices : list of pd.Index
+            Gather indices of the subset by each index part.
+        """
         pos = np.sort(np.atleast_1d(pos))
         part_pos_borders = np.cumsum([0] + self.n_gathers_by_part)
         pos_by_part = np.split(pos, np.searchsorted(pos, part_pos_borders[1:]))
@@ -296,6 +387,21 @@ class SeismicIndex(DatasetIndex):
         return tuple(index[subset] for index, subset in zip(self.index, part_indices))
 
     def create_subset(self, index):
+        """Return a new index object based on a subset of its indices given.
+
+        Parameters
+        ----------
+        index : SeismicIndex or tuple of pd.Index
+            Gather indices of the subset to create a new `SeismicIndex` object for. If `tuple` of `pd.Index`, each item
+            defines gather indices of the corresponding part in `self`.
+
+        Returns
+        -------
+        subset : SeismicIndex
+            A subset of the index.
+        """
+        if isinstance(index, SeismicIndex):
+            index = index.index
         if len(index) != self.n_parts:
             raise ValueError("Index length must match the number of parts")
         return self.from_parts(*[part.create_subset(ix) for part, ix in zip(self.parts, index)], copy_headers=False)
