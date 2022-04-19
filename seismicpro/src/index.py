@@ -201,9 +201,6 @@ class SeismicIndex(DatasetIndex):
         if self.is_empty:
             return "Empty index"
 
-        splits = [(name, getattr(self, name)) for name in ("train", "test", "validation")
-                                              if getattr(self, name) is not None]
-
         info_df = pd.DataFrame({"Gathers": self.n_gathers_by_part, "Traces": self.n_traces_by_part},
                                index=pd.RangeIndex(self.n_parts, name="Part"))
         for sur in self.survey_names:
@@ -215,14 +212,17 @@ class SeismicIndex(DatasetIndex):
         Indexed by:                {", ".join(to_list(self.indexed_by))}
         Number of gathers:         {self.n_gathers}
         Number of traces:          {self.n_traces}
-        Is split:                  {any(splits)}
+        Is split:                  {self.is_split}
 
         Index parts info:
         """
         msg = indent(dedent(msg) + info_df.to_string() + "\n", " " * indent_size)
 
-        for name, index in splits:
-            msg += "_" * 79 + "\n" + index.get_index_info(index_path=f"{index_path}.{name}", indent_size=indent_size+4)
+        # Recursively fetch info about index splits
+        for split_name in ("train", "test", "validation"):
+            split = getattr(self, split_name)
+            if split is not None:
+                msg += "_" * 79 + "\n" + split.get_index_info(f"{index_path}.{split_name}", indent_size+4)
         return msg
 
     def __str__(self):
