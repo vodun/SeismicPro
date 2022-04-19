@@ -411,34 +411,36 @@ class SeismicIndex(DatasetIndex):
     #------------------------------------------------------------------------#
 
     def collect_stats(self, n_quantile_traces=100000, quantile_precision=2, limits=None, bar=True):
-        """Collect the following trace data statistics for each survey in the dataset:
+        """Collect the following trace data statistics for each survey in the index or a dataset:
         1. Min and max amplitude,
         2. Mean amplitude and trace standard deviation,
-        3. Approximation of trace data quantiles with given precision,
-        4. The number of dead traces.
+        3. Approximation of trace data quantiles with given precision.
 
         Since fair quantile calculation requires simultaneous loading of all traces from the file we avoid such memory
         overhead by calculating approximate quantiles for a small subset of `n_quantile_traces` traces selected
-        randomly. Moreover, only a set of quantiles defined by `quantile_precision` is calculated, the rest of them are
-        linearly interpolated by the collected ones.
+        randomly. Only a set of quantiles defined by `quantile_precision` is calculated, the rest of them are linearly
+        interpolated by the collected ones.
 
-        After the method is executed all calculated values can be obtained via corresponding attributes for all the
-        surveys in the dataset and theirs `has_stats` flag is set to `True`.
+        After the method is executed all calculated values can be obtained via corresponding attributes of the surveys
+        in the index and their `has_stats` flag is set to `True`.
 
         Examples
         --------
-        Statistics calculation for the whole dataset can be done as follows:
+        Statistics calculation for the whole index can be done as follows:
         >>> survey = Survey(path, header_index="FieldRecord", header_cols=["TraceNumber", "offset"], name="survey")
-        >>> dataset = SeismicDataset(surveys=survey).collect_stats()
+        >>> index = SeismicIndex(survey).collect_stats()
 
-        After a train-test split is performed, `train` and `test` parts of the dataset share lots of their attributes
-        in common allowing for `collect_stats` to be used to calculate statistics for the training set and be available
-        for gathers in the testing set avoiding data leakage during machine learning model training:
+        Statistics can be calculated for a dataset as well:
+        >>> dataset = SeismicDataset(index).collect_stats()
+
+        After a train-test split is performed, `train` and `test` refer to the very same `Survey` instances. This
+        allows for `collect_stats` to be used to calculate statistics for the training set and then use them to
+        normalize gathers from the testing set to avoid data leakage during machine learning model training:
         >>> dataset.split()
         >>> dataset.train.collect_stats()
         >>> dataset.test.next_batch(1).load(src="survey").scale_standard(src="survey", use_global=True)
 
-        But note that if no gathers from a particular survey were included in the training set its stats won't be
+        Note that if no gathers from a particular survey were included in the training set its stats won't be
         collected!
 
         Parameters
@@ -448,17 +450,17 @@ class SeismicIndex(DatasetIndex):
         quantile_precision : positive int, optional, defaults to 2
             Calculate an approximate quantile for each q with `quantile_precision` decimal places. All other quantiles
             will be linearly interpolated on request.
-        stats_limits : int or tuple or slice, optional
+        limits : int or tuple or slice, optional
             Time limits to be used for statistics calculation. `int` or `tuple` are used as arguments to init a `slice`
-            object. If not given, whole traces are used. Measured in samples.
+            object. If not given, `limits` passed to `Survey.__init__` are used. Measured in samples.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
 
         Returns
         -------
-        dataset : SeismicDataset
-            A dataset with collected stats. Sets `has_stats` flag to `True` and updates statistics attributes inplace
-            for each of the underlying surveys.
+        self : same type as self
+            An index or a dataset with collected stats. Sets `has_stats` flag to `True` and updates statistics
+            attributes inplace for each of the underlying surveys.
         """
         for part in self.parts:
             for sur in part.surveys_dict.values():

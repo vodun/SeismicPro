@@ -254,7 +254,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     #------------------------------------------------------------------------#
 
     def collect_stats(self, indices=None, n_quantile_traces=100000, quantile_precision=2, limits=None, bar=True):
-        """Collect the following statistics by iterating over non-dead traces of the survey:
+        """Collect the following statistics by iterating over survey traces:
         1. Min and max amplitude,
         2. Mean amplitude and trace standard deviation,
         3. Approximation of trace data quantiles with given precision.
