@@ -66,6 +66,10 @@ class SeismicDataset(Dataset):
         """Redirect requests to undefined attributes and methods to the underlying index."""
         return getattr(self.index, name)
 
+    def __dir__(self):
+        """Fix autocompletion for redirected methods."""
+        return sorted(set(super().__dir__()) | set(dir(self.index)))
+
     def __str__(self):
         """Print dataset metadata including information about its batch class and index."""
         msg = f"""
