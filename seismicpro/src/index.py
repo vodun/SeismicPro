@@ -11,7 +11,7 @@ import pandas as pd
 
 from .survey import Survey
 from .containers import GatherContainer
-from .utils import to_list
+from .utils import to_list, maybe_copy
 from ..batchflow import DatasetIndex
 
 
@@ -38,19 +38,22 @@ class IndexPart(GatherContainer):
     @classmethod
     def from_survey(cls, survey, copy_headers=False):
         headers = survey.headers.copy(copy_headers)
+        common_headers = set(headers.columns)
         headers.columns = pd.MultiIndex.from_product([[survey.name], headers.columns])
 
         part = cls()
         part._headers = headers  # Avoid calling headers setter since the indexer is already calculated
         part.indexer = survey.indexer
-        part.common_headers = set(headers.columns) - {"TRACE_SEQUENCE_FILE"}
+        part.common_headers = common_headers
         part.surveys_dict = {survey.name: survey}
         return part
 
     @staticmethod
     def _filter_equal(df, cols):
-        drop_mask = reduce(np.logical_or, [np.ptp(df.loc[:, (slice(None), col)], axis=1) for col in cols])
-        return df.loc[~drop_mask]
+        if not cols:
+            return df
+        drop_cols = np.column_stack([np.ptp(df.loc[:, (slice(None), col)], axis=1).astype(np.bool_) for col in cols])
+        return df.loc[~np.any(drop_cols, axis=1)]
 
     def merge(self, other, on=None, validate="1:1"):
         self_indexed_by = set(to_list(self.indexed_by))
@@ -60,17 +63,17 @@ class IndexPart(GatherContainer):
         if set(self.survey_names) & set(other.survey_names):
             raise ValueError("Only surveys with unique names can be merged")
 
-        common_headers = self.common_headers & other.common_headers
+        possibly_common_headers = self.common_headers & other.common_headers
         if on is None:
-            on = common_headers
+            on = possibly_common_headers - {"TRACE_SEQUENCE_FILE"}
             left_df = self.headers
             right_df = other.headers
         else:
             on = set(to_list(on)) - self_indexed_by
             # Filter both self and other by equal values of on
-            left_df = self._filter_equal(self.headers, on)
-            right_df = self._filter_equal(other.headers, on)
-        headers_to_check = common_headers - on
+            left_df = self._filter_equal(self.headers, on - self.common_headers)
+            right_df = self._filter_equal(other.headers, on - other.common_headers)
+        headers_to_check = possibly_common_headers - on
 
         merge_on = sorted(on)
         left_survey_name = self.survey_names[0]
@@ -95,6 +98,28 @@ class IndexPart(GatherContainer):
         self_copy._headers = self.headers.copy()
         self_copy.common_headers = copy(self.common_headers)
         return self_copy
+
+    def reindex(self, new_index):
+        new_index = to_list(new_index)
+        old_index = to_list(self.indexed_by)
+        if set(to_list(new_index)) - self.common_headers:
+            raise ValueError("IndexPart can be reindexed only with common headers")
+        cols_to_drop = ([(sur, new_ix) for sur in self.survey_names for new_ix in new_index] +
+                        [(old_ix, "") for old_ix in old_index])
+
+        headers = self.headers
+        headers.reset_index(inplace=True)
+        for sur in self.survey_names:
+            for old_ix in old_index:
+                headers[(sur, old_ix)] = headers[(old_ix, "")]
+        headers[new_index] = headers[((self.survey_names[0], new_ix) for new_ix in new_index)]
+        headers.drop(columns=cols_to_drop, inplace=True)
+        headers.set_index(new_index, inplace=True)
+        headers.sort_index(kind="stable", inplace=True)
+
+        self.headers = headers
+        self.common_headers = (self.common_headers - set(new_index)) | set(old_index)
+        return self
 
 
 class SeismicIndex(DatasetIndex):
@@ -199,6 +224,11 @@ class SeismicIndex(DatasetIndex):
         """bool: Whether the index is empty."""
         return self.n_parts == 0
 
+    @property
+    def splits(self):
+        return {split_name: getattr(self, split_name) for split_name in ("train", "test", "validation")
+                                                      if getattr(self, split_name) is not None}
+
     def __len__(self):
         """The number of gathers in the index."""
         return self.n_gathers
@@ -226,10 +256,8 @@ class SeismicIndex(DatasetIndex):
         msg = indent(dedent(msg) + info_df.to_string() + "\n", " " * indent_size)
 
         # Recursively fetch info about index splits
-        for split_name in ("train", "test", "validation"):
-            split = getattr(self, split_name)
-            if split is not None:
-                msg += "_" * 79 + "\n" + split.get_index_info(f"{index_path}.{split_name}", indent_size+4)
+        for split_name, split in self.splits.items():
+            msg += "_" * 79 + "\n" + split.get_index_info(f"{index_path}.{split_name}", indent_size+4)
         return msg
 
     def __str__(self):
@@ -508,8 +536,19 @@ class SeismicIndex(DatasetIndex):
 
     def copy(self):
         self_copy = self.from_parts(*self.parts, copy_headers=True)
-        for split_name in ("train", "test", "validation"):
-            split = getattr(self, split_name)
-            if split is not None:
-                setattr(self, split_name, split.copy())
+        for split_name, split in self.splits.items():
+            setattr(self, split_name, split.copy())
         return self_copy
+
+    def reindex(self, new_index, reindex_nested=True, inplace=False):
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        for part in self.parts:
+            part.reindex(new_index)
+        # Set _index explicitly since already created index is modified
+        self._index = tuple(part.indices for part in self.parts)
+        self.reset("iter")
+
+        if reindex_nested:
+            for split in self.splits.values():
+                split.reindex(new_index, reindex_nested=True, inplace=True)
+        return self
