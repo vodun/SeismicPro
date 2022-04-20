@@ -47,7 +47,7 @@ class TraceContainer:
 
         Parameters
         ----------
-        key : str, list of str
+        key : str or list of str
             Names of headers to get values for.
 
         Returns
@@ -55,10 +55,7 @@ class TraceContainer:
         result : 2d np.ndarray
             Headers values.
         """
-        keys_array = np.array(to_list(key))
-        if keys_array.dtype.type != np.str_:
-            raise ValueError("Passed keys must be either str or array-like of str")
-        return get_cols(self.headers, keys_array)
+        return get_cols(self.headers, to_list(key))
 
     def __setitem__(self, key, value):
         """Set given values to selected headers.

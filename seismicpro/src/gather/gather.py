@@ -14,7 +14,7 @@ from .cropped_gather import CroppedGather
 from .plot_corrections import NMOCorrectionPlot
 from .utils import correction, normalization
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
-from ..utils import (to_list, get_cols, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
+from ..utils import (to_list, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
                      set_text_formatting, add_colorbar, Coordinates)
 from ..containers import TraceContainer, SamplesContainer
 from ..semblance import Semblance, ResidualSemblance
@@ -135,7 +135,7 @@ class Gather(TraceContainer, SamplesContainer):
         # If key is str or array of str, treat it as names of headers columns
         keys_array = np.array(to_list(key))
         if keys_array.dtype.type == np.str_:
-            return get_cols(self.headers, keys_array)
+            return super().__getitem__(key)
 
         # Perform traces and samples selection
         key = (key, ) if not isinstance(key, tuple) else key
