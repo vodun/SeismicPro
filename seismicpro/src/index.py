@@ -2,7 +2,6 @@
 
 import os
 import warnings
-from copy import copy
 from textwrap import indent, dedent
 from functools import partial, reduce
 
@@ -123,6 +122,12 @@ class IndexPart(GatherContainer):
         self.common_headers = (self.common_headers - new_index_diff) | old_index_diff
         return self
 
+    def filter(self, cond, cols, axis=None, unpack_args=False, inplace=False, **kwargs):
+        return self
+
+    def apply(self, func, cols, res_cols=None, axis=None, unpack_args=False, inplace=False, **kwargs):
+        return self
+
 
 def delegate_to_parts(*methods):
     def decorator(cls):
@@ -144,7 +149,7 @@ def delegate_to_parts(*methods):
     return decorator
 
 
-@delegate_to_parts("reindex")
+@delegate_to_parts("reindex", "filter", "apply")
 class SeismicIndex(DatasetIndex):
     """A class that enumerates gathers in a survey or a group of surveys and allows iterating over them.
 
