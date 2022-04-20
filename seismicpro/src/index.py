@@ -99,7 +99,9 @@ class IndexPart(GatherContainer):
         self_copy.common_headers = copy(self.common_headers)
         return self_copy
 
-    def reindex(self, new_index):
+    def reindex(self, new_index, inplace=False):
+        self = maybe_copy(self, inplace)
+
         new_index = to_list(new_index)
         old_index = to_list(self.indexed_by)
         if set(to_list(new_index)) - self.common_headers:
@@ -540,15 +542,15 @@ class SeismicIndex(DatasetIndex):
             setattr(self, split_name, split.copy())
         return self_copy
 
-    def reindex(self, new_index, reindex_nested=True, inplace=False):
+    def reindex(self, new_index, recursive=True, inplace=False):
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         for part in self.parts:
-            part.reindex(new_index)
+            part.reindex(new_index, inplace=True)
         # Set _index explicitly since already created index is modified
         self._index = tuple(part.indices for part in self.parts)
         self.reset("iter")
 
-        if reindex_nested:
+        if recursive:
             for split in self.splits.values():
                 split.reindex(new_index, reindex_nested=True, inplace=True)
         return self
