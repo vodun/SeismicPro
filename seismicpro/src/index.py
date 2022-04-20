@@ -124,6 +124,27 @@ class IndexPart(GatherContainer):
         return self
 
 
+def delegate_to_parts(*methods):
+    def decorator(cls):
+        for method in methods:
+            def method_fn(self, *args, method=method, recursive=True, inplace=False, **kwargs):
+                self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+                for part in self.parts:
+                    getattr(part, method)(*args, inplace=True, **kwargs)
+                # Set _index explicitly since already created index is modified
+                self._index = tuple(part.indices for part in self.parts)
+                self.reset("iter")
+
+                if recursive:
+                    for split in self.splits.values():
+                        getattr(split, method)(*args, recursive=True, inplace=True, **kwargs)
+                return self
+            setattr(cls, method, method_fn)
+        return cls
+    return decorator
+
+
+@delegate_to_parts("reindex")
 class SeismicIndex(DatasetIndex):
     """A class that enumerates gathers in a survey or a group of surveys and allows iterating over them.
 
@@ -541,16 +562,3 @@ class SeismicIndex(DatasetIndex):
         for split_name, split in self.splits.items():
             setattr(self, split_name, split.copy())
         return self_copy
-
-    def reindex(self, new_index, recursive=True, inplace=False):
-        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
-        for part in self.parts:
-            part.reindex(new_index, inplace=True)
-        # Set _index explicitly since already created index is modified
-        self._index = tuple(part.indices for part in self.parts)
-        self.reset("iter")
-
-        if recursive:
-            for split in self.splits.values():
-                split.reindex(new_index, reindex_nested=True, inplace=True)
-        return self
