@@ -21,6 +21,16 @@ class IndexPart(GatherContainer):
         self.common_headers = set()
         self.surveys_dict = {}
 
+    def __getitem__(self, key):
+        if isinstance(key, tuple):
+            key = [key]
+        return super().__getitem__(key)
+
+    def __setitem__(self, key, value):
+        if isinstance(key, tuple):
+            key = [key]
+        return super().__setitem__(key, value)
+
     @property
     def survey_names(self):
         """list of str: names of surveys in the index part."""
@@ -123,6 +133,16 @@ class IndexPart(GatherContainer):
         return self
 
     def filter(self, cond, cols, axis=None, unpack_args=False, inplace=False, **kwargs):
+        cols = to_list(cols)
+        survey_names = self.survey_names
+        indexed_by = set(to_list(self.indexed_by))
+        if (set(cols) - indexed_by) <= self.common_headers:
+            survey_names = [survey_names[0]]  # Filter only one survey since all of them share values of `cols` headers
+
+        self = maybe_copy(self, inplace)
+        for sur in survey_names:
+            sur_cols = [col if col in indexed_by else (sur, col) for col in cols]
+            super().filter(cond, cols=sur_cols, axis=axis, unpack_args=unpack_args, inplace=True, **kwargs)
         return self
 
     def apply(self, func, cols, res_cols=None, axis=None, unpack_args=False, inplace=False, **kwargs):
