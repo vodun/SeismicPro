@@ -259,12 +259,8 @@ class Gather(TraceContainer, SamplesContainer):
         copy : Gather
             Copy of the gather.
         """
-        ignore_attrs = set() if ignore is None else set(to_list(ignore))
-        ignore_attrs = [getattr(self, attr) for attr in ignore_attrs | {'survey'}]
-
-        # Construct a memo dict with attributes, that should not be copied
-        memo = {id(attr): attr for attr in ignore_attrs}
-        return deepcopy(self, memo)
+        ignore = set() if ignore is None else set(to_list(ignore))
+        return super().copy(ignore | {"survey"})
 
     @batch_method(target='for')
     def get_item(self, *args):

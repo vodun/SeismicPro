@@ -1,7 +1,9 @@
+from copy import deepcopy
+
 import numpy as np
 import pandas as pd
 
-from .utils import to_list, get_cols, create_indexer
+from .utils import to_list, get_cols, create_indexer, maybe_copy
 
 
 class SamplesContainer:
@@ -71,6 +73,14 @@ class TraceContainer:
         val = pd.DataFrame(value, columns=key, index=self.headers.index)
         self.headers[key] = val
 
+    def copy(self, ignore=None):
+        ignore = set() if ignore is None else set(to_list(ignore))
+        ignore_attrs = [getattr(self, attr) for attr in ignore]
+
+        # Construct a memo dict with attributes, that should not be copied
+        memo = {id(attr): attr for attr in ignore_attrs}
+        return deepcopy(self, memo)
+
 
 class GatherContainer(TraceContainer):
     def __len__(self):
@@ -115,3 +125,30 @@ class GatherContainer(TraceContainer):
         """
         headers_indices = self.indexer.get_loc(indices)
         return self.headers.iloc[headers_indices]
+
+    def copy(self, ignore=None):
+        ignore = set() if ignore is None else set(to_list(ignore))
+        return super().copy(ignore | {"indexer"})
+
+    def reindex(self, new_index, inplace=False):
+        """Change the index of `self.headers` to `new_index`.
+
+        Parameters
+        ----------
+        new_index : str or list of str
+            Headers columns to become a new index.
+        inplace : bool, optional, defaults to False
+            Whether to perform reindexation inplace or return a new instance.
+
+        Returns
+        -------
+        self : same type as self
+            Reindexed self.
+        """
+        self = maybe_copy(self, inplace)  # ignore="indexer"
+        headers = self.headers
+        headers.reset_index(inplace=True)
+        headers.set_index(new_index, inplace=True)
+        headers.sort_index(kind="stable", inplace=True)
+        self.headers = headers
+        return self

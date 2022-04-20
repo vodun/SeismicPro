@@ -3,7 +3,7 @@
 # pylint: disable=self-cls-assignment
 import os
 import warnings
-from copy import copy, deepcopy
+from copy import copy
 from textwrap import dedent
 import math
 
@@ -567,7 +567,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         ValueError
             If there is not a single match of rows from the file with those in `self.headers`.
         """
-        self = maybe_copy(self, inplace, ignore="indexer")
+        self = maybe_copy(self, inplace)
 
         # if decimal is not provided, try to infer it from the first line
         if decimal is None:
@@ -593,26 +593,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     #------------------------------------------------------------------------#
     #                       Survey processing methods                        #
     #------------------------------------------------------------------------#
-
-    def copy(self, ignore=None):
-        """Create a deepcopy of all survey attributes except for those specified in `ignore`, which are kept unchanged.
-
-        Parameters
-        ----------
-        ignore : str or array of str, defaults to None
-            Attributes that won't be copied.
-
-        Returns
-        -------
-        survey : Survey
-            Survey copy.
-        """
-        ignore_attrs = set() if ignore is None else set(to_list(ignore))
-        ignore_attrs = [getattr(self, attr) for attr in ignore_attrs]
-
-        # Construct a memo dict with attributes, that should not be copied
-        memo = {id(attr): attr for attr in ignore_attrs}
-        return deepcopy(self, memo)
 
     @staticmethod
     def _apply(func, df, axis, unpack_args, **kwargs):
@@ -696,7 +676,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         ValueError
             If `cond` returns more than one bool value for each row of `headers`.
         """
-        self = maybe_copy(self, inplace, ignore=["_headers", "indexer"])
+        self = maybe_copy(self, inplace, ignore="headers")
         cols = to_list(cols)
         headers = pd.DataFrame(self[cols], columns=cols)
         mask = self._apply(cond, headers, axis=axis, unpack_args=unpack_args, **kwargs)
@@ -750,29 +730,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         res_cols = cols if res_cols is None else to_list(res_cols)
         res = self._apply(func, headers, axis=axis, unpack_args=unpack_args, **kwargs)
         self.headers[res_cols] = res
-        return self
-
-    def reindex(self, new_index, inplace=False):
-        """Change the index of `self.headers` to `new_index`.
-
-        Parameters
-        ----------
-        new_index : str or list of str
-            Headers columns to become a new index.
-        inplace : bool, optional, defaults to False
-            Whether to perform reindexation inplace or return a new survey instance.
-
-        Returns
-        -------
-        self : Survey
-            Reindexed survey.
-        """
-        self = maybe_copy(self, inplace, ignore="indexer")
-        headers = self.headers
-        headers.reset_index(inplace=True)
-        headers.set_index(new_index, inplace=True)
-        headers.sort_index(kind="stable", inplace=True)
-        self.headers = headers
         return self
 
     def set_limits(self, limits):
@@ -875,7 +832,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         KeyError
             If `INLINE_3D` and `CROSSLINE_3D` headers were not loaded.
         """
-        self = maybe_copy(self, inplace, ignore="indexer")
+        self = maybe_copy(self, inplace)
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]
         super_line_cols = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
         index_cols = super_line_cols if reindex else self.indexed_by

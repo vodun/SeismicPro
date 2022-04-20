@@ -93,34 +93,34 @@ class IndexPart(GatherContainer):
         subset_headers = self.get_headers_by_indices(indices)
         return self.from_attributes(subset_headers, self.surveys_dict, self.common_headers)
 
-    def copy(self):
-        self_copy = copy(self)
-        self_copy._headers = self.headers.copy()
-        self_copy.common_headers = copy(self.common_headers)
-        return self_copy
+    def copy(self, ignore=None):
+        ignore = set() if ignore is None else set(to_list(ignore))
+        return super().copy(ignore | {"surveys_dict"})
 
     def reindex(self, new_index, inplace=False):
-        self = maybe_copy(self, inplace)
-
-        new_index = to_list(new_index)
         old_index = to_list(self.indexed_by)
-        if set(to_list(new_index)) - self.common_headers:
+        new_index = to_list(new_index)
+        new_index_diff = set(new_index) - set(old_index)
+        old_index_diff = set(old_index) - set(new_index)
+        if new_index_diff - self.common_headers:
             raise ValueError("IndexPart can be reindexed only with common headers")
-        cols_to_drop = ([(sur, new_ix) for sur in self.survey_names for new_ix in new_index] +
-                        [(old_ix, "") for old_ix in old_index])
 
-        headers = self.headers
-        headers.reset_index(inplace=True)
+        self = maybe_copy(self, inplace)
+        new_diff_list = list(new_index_diff)
+        self.headers[new_diff_list] = self.headers[((self.survey_names[0], new_ix) for new_ix in new_diff_list)]
+        super().reindex(new_index, inplace=True)
+
+        # Copy old index to each survey
         for sur in self.survey_names:
-            for old_ix in old_index:
-                headers[(sur, old_ix)] = headers[(old_ix, "")]
-        headers[new_index] = headers[((self.survey_names[0], new_ix) for new_ix in new_index)]
-        headers.drop(columns=cols_to_drop, inplace=True)
-        headers.set_index(new_index, inplace=True)
-        headers.sort_index(kind="stable", inplace=True)
+            for old_ix in old_index_diff:
+                self.headers[(sur, old_ix)] = self.headers[(old_ix, "")]
 
-        self.headers = headers
-        self.common_headers = (self.common_headers - set(new_index)) | set(old_index)
+        # Drop unwanted headers
+        cols_to_drop = ([(sur, new_ix) for sur in self.survey_names for new_ix in new_index_diff] +
+                        [(old_ix, "") for old_ix in old_index_diff])
+        self.headers.drop(columns=cols_to_drop, inplace=True)
+
+        self.common_headers = (self.common_headers - new_index_diff) | old_index_diff
         return self
 
 
