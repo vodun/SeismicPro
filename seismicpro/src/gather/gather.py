@@ -295,6 +295,9 @@ class Gather(TraceContainer, SamplesContainer):
             raise ValueError(f"Gather should be sorted by {required_sorting} not {self.sort_by}")
         return self
 
+    def _post_filter(self, mask):
+        self.data = self.data[mask]
+
     #------------------------------------------------------------------------#
     #                              Dump methods                              #
     #------------------------------------------------------------------------#
