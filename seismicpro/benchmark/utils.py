@@ -1,7 +1,10 @@
 """ SeismicPro-specific functions for Benchmark """
 
+import sys
+sys.path.append('../..')
+
 import numpy as np
-from .. import Survey, make_prestack_segy
+from seismicpro import Survey, make_prestack_segy
 
 def make_benchmark_data(path):
     """ TODO """

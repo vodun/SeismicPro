@@ -128,7 +128,7 @@ def mute_gather(gather_data, muting_times, samples, fill_value):
 
 
 @njit(parallel=True)
-def calculate_agc(data, factor=1, window=250, mode='abs'):
+def apply_agc(data, factor=1, window=250, mode='abs'):
     """ TODO """
     n_traces, trace_len = data.shape
     win_left, win_right = window // 2, window - window // 2
@@ -146,7 +146,7 @@ def calculate_agc(data, factor=1, window=250, mode='abs'):
         coefs = np.empty_like(trace)
         coefs[start:end] = ((nonzero_counts_cumsum[:-window] - nonzero_counts_cumsum[window:])
                             / (amplitudes_cumsum[:-window] - amplitudes_cumsum[window:] + 1e-15))
-        # Extrapolate AGC coefs for trace positions where full window does not fit
+        # Extrapolate AGC coefs for trace indices that don't fit the full window
         coefs[:start] = coefs[start]
         coefs[end:] = coefs[end-1]
 
@@ -154,13 +154,30 @@ def calculate_agc(data, factor=1, window=250, mode='abs'):
         data[i] *= coefs
     return data
 
+
+@njit(parallel=True)
+def calculate_sdc_coefficient(v_pow, velocities, t_pow, times):
+    """ TODO """
+    sdc_coefficient = velocities**v_pow * times**t_pow
+    # Scale sdc_coefficient to be 1 at maximum time
+    sdc_coefficient /= sdc_coefficient[-1]
+    return sdc_coefficient
+
+
 @njit(parallel=True)
 def apply_sdc(data, v_pow, velocities, t_pow, times):
     """ TODO """
-    n_traces, trace_len = data.shape
-    sdc_coefficient = velocities**v_pow * times**t_pow
-    # Scale sdc_coefficient to be 1 at maximum time
-    sdc_coefficient /= sdc_coefficient[trace_len-1]
+    n_traces, _ = data.shape
+    sdc_coefficient = calculate_sdc_coefficient(v_pow, velocities, t_pow, times)
     for i in prange(n_traces):  # pylint: disable=not-an-iterable
         data[i] *= sdc_coefficient
+    return data
+
+@njit(parallel=True)
+def undo_sdc(data, v_pow, velocities, t_pow, times):
+    """ TODO """
+    n_traces, _ = data.shape
+    sdc_coefficient = calculate_sdc_coefficient(v_pow, velocities, t_pow, times)
+    for i in prange(n_traces):  # pylint: disable=not-an-iterable
+        data[i] /= sdc_coefficient
     return data

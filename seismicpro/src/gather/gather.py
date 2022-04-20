@@ -15,7 +15,7 @@ from .cropped_gather import CroppedGather
 from .plot_corrections import NMOCorrectionPlot
 from .utils import correction, normalization
 from .utils import (convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins,
-                    calculate_agc, apply_sdc)
+                    apply_agc, apply_sdc, undo_sdc)
 from ..utils import (to_list, get_cols, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
                      set_text_formatting, add_colorbar, Coordinates)
 from ..semblance import Semblance, ResidualSemblance
@@ -1036,11 +1036,11 @@ class Gather:
             raise ValueError(f"mode should be either 'abs' or 'rms', but {mode} was given")
         if (window < 3) or (window > self.n_samples-1):
             raise ValueError(f'window should be at least 3 and and at most n_samples-1, but {window} was given')
-        self.data = calculate_agc(data=self.data, factor=factor, window=window, mode=mode)
+        self.data = apply_agc(data=self.data, factor=factor, window=window, mode=mode)
         return self
 
     @batch_method(target="for")
-    def correct_spherical_divergence(self, t_pow=1, v_pow=2, velocity=None):
+    def apply_sdc(self, t_pow=1, v_pow=2, velocity=None):
         """ TODO """
         if velocity is None:
             velocity = DEFAULT_STACKING_VELOCITY
@@ -1048,6 +1048,17 @@ class Gather:
             raise ValueError("Only VelocityCube or StackingVelocity instances can be passed as a stacking_velocity")
         self.data = apply_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
         return self
+    
+    @batch_method(target="for")
+    def undo_sdc(self, t_pow=1, v_pow=2, velocity=None):
+        """ TODO """
+        if velocity is None:
+            velocity = DEFAULT_STACKING_VELOCITY
+        if not isinstance(velocity, StackingVelocity):
+            raise ValueError("Only VelocityCube or StackingVelocity instances can be passed as a stacking_velocity")
+        self.data = undo_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
+        return self
+
 
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #
