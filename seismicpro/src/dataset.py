@@ -9,6 +9,18 @@ from .index import SeismicIndex
 from ..batchflow import Dataset
 
 
+def delegate_constructors(*constructors):
+    def decorator(cls):
+        for constructor in constructors:
+            def constructor_fn(*args, constructor=constructor, batch_class=SeismicBatch, **kwargs):
+                index = getattr(SeismicIndex, constructor)(*args, **kwargs)
+                return cls(index, batch_class=batch_class)
+            setattr(cls, constructor, constructor_fn)
+        return cls
+    return decorator
+
+
+@delegate_constructors("from_parts", "from_survey", "from_index", "concat", "merge")
 class SeismicDataset(Dataset):
     """A dataset, that contains identifiers of seismic gathers from a survey or a group of surveys and allows for
     generation of small subsets of gathers called batches for their joint processing.
