@@ -1,9 +1,7 @@
 """General gather processing utils"""
 
-from typing import Hashable
 import numpy as np
 from numba import njit, prange
-from sympy import arg
 
 from ...utils import times_to_indices
 
@@ -146,7 +144,7 @@ def calculate_agc(data, factor=1, window=250, mode='abs'):
         nonzero_counts_cumsum = np.cumsum(trace!=0)
 
         coefs = np.empty_like(trace)
-        coefs[start:end] = ((nonzero_counts_cumsum[:-window] - nonzero_counts_cumsum[window:]) 
+        coefs[start:end] = ((nonzero_counts_cumsum[:-window] - nonzero_counts_cumsum[window:])
                             / (amplitudes_cumsum[:-window] - amplitudes_cumsum[window:] + 1e-15))
         # Extrapolate AGC coefs for trace positions where full window does not fit
         coefs[:start] = coefs[start]
