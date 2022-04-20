@@ -1,9 +1,10 @@
+from email import header
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy import sparse
 
-from .utils import calculate_depth_coefs
+from .utils import calculate_depth_coefs, calculate_velocities
 from seismicpro.src.metrics import MetricMap
 
 
@@ -13,7 +14,7 @@ DEFAULT_COLS = {
 }
 
 
-USED_COLS = [*sum(DEFAULT_COLS.values(), []), "SourceUpholeTime", "CDP_X", "CDP_Y", "offset"]
+USED_COLS = [*sum(DEFAULT_COLS.values(), []), "offset"]
 
 
 class StaticCorrection:
@@ -44,13 +45,18 @@ class StaticCorrection:
         length = wv_params.shape[1] // 2 + 1
         names = [f'{name}_x{i+1}' for i in range(length-1)] + [f'{name}_v{i+1}' for i in range(length)]
         self._update_params(name=name, coords=unique_coords, values=wv_params, columns=names)
-        self.headers = self.headers.merge(getattr(self, f"{name}_params"), on=cols)
 
     def _update_params(self, name, coords, values, columns):
         cols = self._get_cols(name)
+        columns = [columns] if isinstance(columns, str) else columns
+
         data = np.hstack((coords, values))
         df = pd.DataFrame(data, columns=[*cols, *columns]).set_index(cols)
-        setattr(self, f'{name}_params', getattr(self, f'{name}_params').join(df, on=cols))
+
+        # If column from `columns` already exists in df params, it will be overwritten
+        updated_params = getattr(self, f'{name}_params').merge(df, on=cols, suffixes=("_drop", ""))
+        updated_params = updated_params.drop(columns=updated_params.filter(regex='_drop$').columns)
+        setattr(self, f'{name}_params', updated_params)
 
     def _get_cols(self, name):
         cols = DEFAULT_COLS.get(name)
@@ -58,44 +64,82 @@ class StaticCorrection:
             raise ValueError(f'Given unknown "name" {name}')
         return cols
 
-    def calculate_thicknesses(self):
-        # TODO:
-        # 1. Add processing for self.n_layers = 1
-        # 2. Add accumulation of loss and plot for it
-        # 3. Add processing for sources / receivers with missing depths
-        for i in range(1, self.n_layers):
-            cross_left = self.headers.get([f"source_x{i}", f"rec_x{i}"]).min(axis=1)
-            cross_right = np.inf
-            if f"source_x{i+1}" in self.headers.columns:
-                cross_right = self.headers.get([f"source_x{i+1}", f"rec_x{i+1}"]).max(axis=1)
+    def _get_headers(self):
+        headers = self.headers.merge(self.source_params, on=self._get_cols('source'))
+        return headers.merge(self.rec_params, on=self._get_cols('rec'))
 
-            # Sometimes some sources or receivers haven't got any traces on this range, thus they won't have i-th depth
-            offsets = self.headers['offset']
-            layer_headers = self.headers[(offsets >= cross_left) & (offsets <= cross_right)].copy()
+    def optimize(self, n_iters=1, max_wv=None):
+        self.update_layer_params(layer=1, to='depth')
+        for layer in range(1, n_iters+1):
+            self.update_layer_params(layer=1, to='vel', max_wv=max_wv)
+            self.update_layer_params(layer=layer, to='depth')
 
-            layer_headers[f'avg_v{i+1}'] = (layer_headers[f'source_v{i+1}'] + layer_headers[f'rec_v{i+1}']) / 2
-            layer_headers['y'] = layer_headers[self.first_breaks_col] - offsets / layer_headers[f'avg_v{i+1}']
-            # Drop traces with y < 0 since this cannot happend in real world
-            layer_headers = layer_headers[layer_headers['y'] > 0]
+    def update_layer_params(self, layer, to, max_wv=None):
+        headers = self._get_headers()
+        layer_headers = self._get_layer_headers(headers=headers, layer=layer)
+        layer_headers = self._fill_layer_params(layer_headers=layer_headers, layer=layer)
 
-            ohe_source, unique_sources = self._get_sparse_coefs(name='source', layer_headers=layer_headers, layer=i)
-            ohe_rec, unique_recs = self._get_sparse_coefs(name='rec', layer_headers=layer_headers, layer=i)
-            matrix = sparse.hstack((ohe_source, ohe_rec))
+        ohe_source, unique_sources, ix_sources = self._get_sparse_coefs(name='source', layer_headers=layer_headers,
+                                                                        layer=layer, to=to)
+        ohe_rec, unique_recs, ix_recs = self._get_sparse_coefs(name='rec', layer_headers=layer_headers, layer=layer,
+                                                               to=to)
+        matrix = sparse.hstack((ohe_source, ohe_rec))
 
-            right_vector = layer_headers['y']
-            lsqr_res = sparse.linalg.lsqr(matrix, right_vector)
-            res = lsqr_res[0]
+        # Add opp to print info about results
+        parameters = sparse.linalg.lsqr(matrix, layer_headers['y'])
+        coefs = parameters[0]
 
-            self._update_params('source', unique_sources, res[:len(unique_sources)].reshape(-1, 1), [f'depth_{i}'])
-            self._update_params('rec', unique_recs, res[len(unique_sources):].reshape(-1, 1), [f'depth_{i}'])
+        if to == 'vel':
+            results, names = self._calculate_velocities(coefs, layer_headers, ix_sources, ix_recs, max_wv=max_wv)
+        elif to == 'depth':
+            results, names = self._get_depths(coefs, unique_sources, layer=layer)
+        self._update_params('source', unique_sources, results[0], names[0])
+        self._update_params('rec', unique_recs, results[1], names[1])
 
-    def _get_sparse_coefs(self, name, layer_headers, layer):
+    def _calculate_velocities(self, result, layer_headers, ix_sources, ix_recs, max_wv=None):
+        max_wv = np.min(layer_headers[['source_v2', 'rec_v2']].min()) if max_wv is None else max_wv
+        v2 = layer_headers.iloc[ix_sources]['source_v2'].tolist() + layer_headers.iloc[ix_recs]['rec_v2'].tolist()
+        avg_v2 = layer_headers.iloc[ix_sources]['avg_v2'].tolist() + layer_headers.iloc[ix_recs]['avg_v2'].tolist()
+        # What velocity to choose x1 or x2? min?
+        x1, _ = calculate_velocities(np.array(v2), np.array(avg_v2), result, max_wv)
+        sources = x1[: len(ix_sources)].reshape(-1, 1)
+        recs = x1[len(ix_sources): ].reshape(-1, 1)
+        return [sources, recs], ['source_v1', 'rec_v1']
+
+    def _get_depths(self, results, unique_sources, layer):
+        sources_depth = results[:len(unique_sources)].reshape(-1, 1)
+        recs_depth = results[len(unique_sources):].reshape(-1, 1)
+        names = [f'depth_{layer}', f'depth_{layer}']
+        return [sources_depth, recs_depth], names
+
+    def _get_layer_headers(self, headers, layer):
+        cross_left = headers.get([f"source_x{layer}", f"rec_x{layer}"]).min(axis=1)
+        cross_right = np.inf
+        if f"source_x{layer+1}" in headers.columns:
+            cross_right = headers.get([f"source_x{layer+1}", f"rec_x{layer+1}"]).max(axis=1)
+        return headers[(headers["offset"] >= cross_left) & (headers["offset"] <= cross_right)].copy()
+
+    def _fill_layer_params(self, layer_headers, layer):
+        layer_headers[f'avg_v{layer+1}'] = (layer_headers[f'source_v{layer+1}'] + layer_headers[f'rec_v{layer+1}']) / 2
+        offsets = layer_headers["offset"]
+        layer_headers['y'] = layer_headers[self.first_breaks_col] - offsets / layer_headers[f'avg_v{layer+1}']
+        # Drop traces with y < 0 since this cannot happend in real world
+        layer_headers = layer_headers[layer_headers['y'] > 0]
+        return layer_headers
+
+    def _get_sparse_coefs(self, name, layer_headers, layer, to):
         cols = self._get_cols(name)
         uniques, index, inverse = np.unique(layer_headers[cols], axis=0, return_index=True, return_inverse=True)
-        wv_params = layer_headers.iloc[index][[name+f'_v{layer}', name+f'_v{layer+1}', f'avg_v{layer+1}']].values.T
-        coefs = calculate_depth_coefs(*wv_params)
+        if to == 'vel':
+            coefs = getattr(self, f"{name}_params").loc[list(map(tuple, uniques))]["depth_1"].values
+        elif to == 'depth':
+            wv_params = layer_headers.iloc[index][[name+f'_v{layer}', name+f'_v{layer+1}', f'avg_v{layer+1}']].values.T
+            coefs = calculate_depth_coefs(*wv_params)
+        else:
+            raise ValueError('!!!')
+
         eye = sparse.eye((len(uniques)), format='csc')
-        return eye.multiply(coefs).tocsc()[inverse], uniques
+        return eye.multiply(coefs).tocsc()[inverse], uniques, index
 
     ### dump ###
     # Raw dumps, just to be able to somehow save results
