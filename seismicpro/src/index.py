@@ -137,7 +137,8 @@ class IndexPart(GatherContainer):
         survey_names = self.survey_names
         indexed_by = set(to_list(self.indexed_by))
         if (set(cols) - indexed_by) <= self.common_headers:
-            survey_names = [survey_names[0]]  # Filter only one survey since all of them share values of `cols` headers
+            # Filter only one survey since all of them share values of `cols` headers
+            survey_names = [survey_names[0]]
 
         self = maybe_copy(self, inplace)
         for sur in survey_names:
@@ -146,6 +147,27 @@ class IndexPart(GatherContainer):
         return self
 
     def apply(self, func, cols, res_cols=None, axis=None, unpack_args=False, inplace=False, **kwargs):
+        cols = to_list(cols)
+        res_cols = cols if res_cols is None else to_list(res_cols)
+
+        survey_names = self.survey_names
+        indexed_by = set(to_list(self.indexed_by))
+        if (set(cols) - indexed_by) <= self.common_headers:
+            # Apply func only to one survey since all of them share values of `cols` headers
+            survey_names = [survey_names[0]]
+
+        self = maybe_copy(self, inplace)
+        for sur in survey_names:
+            sur_cols = [col if col in indexed_by else (sur, col) for col in cols]
+            sur_res_cols = [(sur, col) for col in res_cols]
+            super().apply(func, cols=sur_cols, res_cols=sur_res_cols, axis=axis, unpack_args=unpack_args, inplace=True,
+                          **kwargs)
+
+        # Duplicate results for all surveys if func was applied only to the first one
+        if len(survey_names) == 1:
+            for sur in self.survey_names[1:]:
+                self[[(sur, col) for col in res_cols]] = self[[(survey_names[0], col) for col in res_cols]]
+            self.common_headers |= set(res_cols)
         return self
 
 
