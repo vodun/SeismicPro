@@ -241,13 +241,13 @@ class GatherContainer(TraceContainer):
         """Reconstruct an indexer on each headers assignment."""
         if not (headers.index.is_monotonic_increasing or headers.index.is_monotonic_decreasing):
             headers = headers.sort_index(kind="stable")
-        self.indexer = create_indexer(headers.index)
+        self._indexer = create_indexer(headers.index)
         self._headers = headers
 
     @property
     def indices(self):
         """pd.Index: indices of gathers."""
-        return self.indexer.unique_indices
+        return self._indexer.unique_indices
 
     @property
     def n_gathers(self):
@@ -267,12 +267,12 @@ class GatherContainer(TraceContainer):
         headers : pd.DataFrame
             Selected headers values.
         """
-        headers_indices = self.indexer.get_loc(indices)
+        headers_indices = self._indexer.get_loc(indices)
         return self.headers.iloc[headers_indices]
 
     def copy(self, ignore=None):
         ignore = set() if ignore is None else set(to_list(ignore))
-        return super().copy(ignore | {"indexer"})
+        return super().copy(ignore | {"_indexer"})
 
     def reindex(self, new_index, inplace=False):
         """Change the index of `self.headers` to `new_index`.

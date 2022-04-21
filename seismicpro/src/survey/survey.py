@@ -161,7 +161,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         # Set loaded survey headers and construct its fast indexer
         self._headers = None
-        self.indexer = None
+        self._indexer = None
         self.headers = headers
 
         # Define all stats-related attributes

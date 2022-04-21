@@ -17,7 +17,7 @@ from ..batchflow import DatasetIndex
 class IndexPart(GatherContainer):
     def __init__(self):
         self._headers = None
-        self.indexer = None
+        self._indexer = None
         self.common_headers = set()
         self.surveys_dict = {}
 
@@ -52,7 +52,7 @@ class IndexPart(GatherContainer):
 
         part = cls()
         part._headers = headers  # Avoid calling headers setter since the indexer is already calculated
-        part.indexer = survey.indexer
+        part._indexer = survey._indexer
         part.common_headers = common_headers
         part.surveys_dict = {survey.name: survey}
         return part
