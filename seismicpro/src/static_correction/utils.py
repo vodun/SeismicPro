@@ -10,17 +10,17 @@ def calculate_depth_coefs(v1, v2, avg_v2):
 
 
 def calculate_velocities(v2, avg_v2, coefs, max_wv):
-    sv2 = v2**2
-    savg_v2 = avg_v2**2
-    scoefs = coefs**2
+    sq_v2 = v2**2
+    sq_avg_v2 = avg_v2**2
+    sq_coefs = coefs**2
 
-    b = 2*v2*avg_v2 + sv2*savg_v2*scoefs
-    D = b**2 - 4 * sv2 * savg_v2 * (1 + savg_v2*scoefs)
+    b = 2*v2*avg_v2 + sq_v2*sq_avg_v2*sq_coefs
+    D = b**2 - 4 * sq_v2 * sq_avg_v2 * (1 + sq_avg_v2*sq_coefs)
     D = np.sqrt(np.clip(D, 0, None))
 
-    x1 = (b - D) / (2*avg_v2*scoefs + 2)
-    x1 = np.sqrt(np.clip(x1, 0, max_wv))
+    x1 = (b - D) / (2*sq_avg_v2*sq_coefs + 2)
+    x1 = np.clip(np.sqrt(np.clip(x1, 0, None)), None, max_wv)
 
-    x2 = (b + D) / (2*avg_v2*scoefs + 2)
-    x2 = np.sqrt(np.clip(x2, 0, max_wv))
+    x2 = (b + D) / (2*sq_avg_v2*sq_coefs + 2)
+    x2 = np.clip(np.sqrt(np.clip(x2, 0, None)), None, max_wv)
     return x1, x2
