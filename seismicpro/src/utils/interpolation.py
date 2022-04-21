@@ -118,19 +118,19 @@ def calculate_basis_polynomials(x_new, x, n):
 
     # Reflect indices from array borders
     div, mod = np.divmod(np.abs(indices), len(x))
-    indices = np.where(div % 2, np.abs(len(x) - mod - 2), mod).astype(np.int32)     
-    
+    indices = np.where(div % 2, np.abs(len(x) - mod - 2), mod).astype(np.int32)
+
     for i, (ix_indices, it) in enumerate(zip(indices, x_new)):
-    
-        # x coordinates of the samples required for interpolation, optionally prolonged fo reflected indices
+
+        # Reflect times accrordingly
         sign = div[i] % 2
         ix_x = ptp * div[i] + ptp * sign + x[ix_indices] * (-2 * sign + 1)
         ix_x *= np.sign(np.arange(leftmost_indices[i], leftmost_indices[i] + N) + 1e-9)
 
         for k in range(N):
-            for j in range(N): 
+            for j in range(N):
                 if k != j:
-                    polynomials[i, k] *= (it - ix_x[j]) / (ix_x[k] - ix_x[j]) 
+                    polynomials[i, k] *= (it - ix_x[j]) / (ix_x[k] - ix_x[j])
 
     return polynomials, indices
 

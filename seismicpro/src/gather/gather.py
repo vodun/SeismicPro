@@ -1034,7 +1034,7 @@ class Gather:
     @batch_method(target="t")
     def bandpass_filter(self, low=None, high=None, filter_size=81, **kwargs):
         """ Filter frequency spectrum of the gather.
-        Can act as a lowpass, bandpass or highpass filter. `low` and `high` serves as the range for 
+        Can act as a lowpass, bandpass or highpass filter. `low` and `high` serves as the range for
         the remaining freequencies and can be passed either solely or together.
 
         Examples
@@ -1061,7 +1061,7 @@ class Gather:
             The length of the filter
         kwargs : misc, optional
             Additional keyword arguments to the `scipy.firwin`
-        
+
         Returns
         -------
         self : Gather
@@ -1078,7 +1078,7 @@ class Gather:
 
     @batch_method(target="f")
     def resample(self, new_sample_rate, kind=3, anti_aliasing=True):
-        """ Changes the sample rate of the traces in the gather. 
+        """ Changes the sample rate of the traces in the gather.
         This imply increasing or decreasing the number of samples in the trace.
         In case new sample rate is greater that the current one, the anti aliasing filter is used
         to preserve freequency spectrum.
@@ -1091,7 +1091,7 @@ class Gather:
             Upper bound for the remaining frequencies
         anti_aliasing : bool
             Whether to apply anti-aliasing filter or not. Actual in case sample rate increases
-        
+
         Returns
         -------
         self : Gather

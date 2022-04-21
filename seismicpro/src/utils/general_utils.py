@@ -4,9 +4,6 @@ from functools import partial
 from concurrent.futures import Future, Executor
 
 import numpy as np
-from numba import njit
-
-from .interpolation import _times_to_indices
 
 
 def to_list(obj):
