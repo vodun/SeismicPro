@@ -536,7 +536,7 @@ class Gather:
         self.data = normalization.scale_standard(self.data, mean, std, np.float32(eps))
         return self
 
-    @batch_method(target='threads')
+    @batch_method(target='for')
     def scale_maxabs(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
         r"""Scale the gather by its maximum absolute value.
 
@@ -585,7 +585,7 @@ class Gather:
         self.data = normalization.scale_maxabs(self.data, min_value, max_value, clip, np.float32(eps))
         return self
 
-    @batch_method(target='threads')
+    @batch_method(target='for')
     def scale_minmax(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
         r"""Linearly scale the gather to a [0, 1] range.
 
