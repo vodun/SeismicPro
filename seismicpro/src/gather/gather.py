@@ -1053,11 +1053,11 @@ class Gather:
 
         Parameters
         ----------
-        low : int
+        low : int, optional
             Lower bound for the remaining frequencies
-        high : int
+        high : int, optional
             Upper bound for the remaining frequencies
-        filter_size : int
+        filter_size : int, defaults to 81
             The length of the filter
         kwargs : misc, optional
             Additional keyword arguments to the `scipy.firwin`
@@ -1079,17 +1079,19 @@ class Gather:
     @batch_method(target="f")
     def resample(self, new_sample_rate, kind=3, anti_aliasing=True):
         """ Changes the sample rate of the traces in the gather.
-        This imply increasing or decreasing the number of samples in the trace.
+        This implies increasing or decreasing the number of samples in the trace.
         In case new sample rate is greater that the current one, the anti aliasing filter is used
         to preserve freequency spectrum.
 
         Parameters
         ----------
-        new_sample_rate : flota
-            Lower bound for the remaining frequencies
-        kind : int
-            Upper bound for the remaining frequencies
-        anti_aliasing : bool
+        new_sample_rate : float
+            New sample rate
+        kind : int or str, defaults to 3
+            The interpolation method to use.
+            In case int, use piecewise polynomial interpolation with degree `kind`.
+            In case str, deligate interpolation to scipy.interp1d.
+        anti_aliasing : bool, defaults to True
             Whether to apply anti-aliasing filter or not. Actual in case sample rate increases
 
         Returns
