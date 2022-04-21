@@ -125,7 +125,7 @@ class SeismicBatch(Batch):
         single gather."""
         part = parent_index.parts[self.indices[pos]]
         survey = part.surveys_dict[src]
-        headers = part.headers[src]
+        headers = part.headers.get(src, part.headers[[]])  # Handle the case when no headers were loaded for a survey
         getattr(self, dst)[pos] = survey.load_gather(headers, **kwargs)
 
     @action

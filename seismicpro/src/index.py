@@ -588,7 +588,9 @@ class SeismicIndex(DatasetIndex):
             survey_name = self.survey_names[0]
         survey = index_part.surveys_dict[survey_name]
 
-        gather_headers = index_part.get_headers_by_indices((index,))[survey_name]
+        index_headers = index_part.get_headers_by_indices((index,))
+        # Handle the case when no headers were loaded for a survey
+        gather_headers = index_headers.get(survey_name, index_headers[[]])
         return survey.load_gather(headers=gather_headers, limits=limits, copy_headers=copy_headers)
 
     def sample_gather(self, part=None, survey_name=None, limits=None, copy_headers=False):
