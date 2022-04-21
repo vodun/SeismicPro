@@ -1033,10 +1033,39 @@ class Gather:
 
     @batch_method(target="t")
     def bandpass_filter(self, low=None, high=None, filter_size=81, **kwargs):
-        """ docs
+        """ Filter frequency spectrum of the gather.
+        Can act as a lowpass, bandpass or highpass filter. `low` and `high` serves as the range for 
+        the remaining freequencies and can be passed either solely or together.
 
-        Default `filter_size` is set to 81 to guarantee that transition bandwidth of the filter
+        Examples
+        --------
+        Apply highpass filter: remove all the freequencies bellow 30.
+        >>> gather.bandpass_filter(low=30)
+        Apply bandpass filter: remain  freequencies inside [30, 100] range.
+        >>> gather.bandpass_filter(low=30, high=100)
+        Apply lowpass filter,  remove all the freequencies above 100.
+        >>> gather.bandpass_filter(high=100)
+
+        Notes
+        -----
+        1. Default `filter_size` is set to 81 to guarantee that transition bandwidth of the filter
         does not exceed 10% of the Nyquist frequency for the default Hamming window.
+
+        Parameters
+        ----------
+        low : int
+            Lower bound for the remaining frequencies
+        high : int
+            Upper bound for the remaining frequencies
+        filter_size : int
+            The length of the filter
+        kwargs : misc, optional
+            Additional keyword arguments to the `scipy.firwin`
+        
+        Returns
+        -------
+        self : Gather
+            `self` with filtered freequency spectrum.
         """
         filter_size |= 1  # Guarantee that filter size is odd
         pass_zero = low is None
@@ -1049,8 +1078,24 @@ class Gather:
 
     @batch_method(target="f")
     def resample(self, new_sample_rate, kind=3, anti_aliasing=True):
-        """ if type(kind) == int, perform piecewise polynomial interpolation with polynomial degree = kind
-            if type(kind) == str, deligate interpolation to scipy.interpolate.intep1d.
+        """ Changes the sample rate of the traces in the gather. 
+        This imply increasing or decreasing the number of samples in the trace.
+        In case new sample rate is greater that the current one, the anti aliasing filter is used
+        to preserve freequency spectrum.
+
+        Parameters
+        ----------
+        new_sample_rate : flota
+            Lower bound for the remaining frequencies
+        kind : int
+            Upper bound for the remaining frequencies
+        anti_aliasing : bool
+            Whether to apply anti-aliasing filter or not. Actual in case sample rate increases
+        
+        Returns
+        -------
+        self : Gather
+            `self` with new sample rate
         """
         current_sample_rate = self.sample_rate
 
