@@ -128,10 +128,10 @@ def mute_gather(gather_data, muting_times, samples, fill_value):
 
 
 @njit(parallel=True)
-def apply_agc(data, factor=1, window=250, mode='abs'):
+def apply_agc(data, factor=1, window_size=125, mode='abs'):
     """ TODO """
     n_traces, trace_len = data.shape
-    win_left, win_right = window // 2, window - window // 2
+    win_left, win_right = window_size // 2, window_size - window_size // 2
     # start is the first trace index that fits the full window, end is the last.
     # AGC coefficients before start and after end are extrapolated.
     start, end = win_left, trace_len - win_right
@@ -144,8 +144,8 @@ def apply_agc(data, factor=1, window=250, mode='abs'):
         nonzero_counts_cumsum = np.cumsum(trace!=0)
 
         coefs = np.empty_like(trace)
-        coefs[start:end] = ((nonzero_counts_cumsum[:-window] - nonzero_counts_cumsum[window:])
-                            / (amplitudes_cumsum[:-window] - amplitudes_cumsum[window:] + 1e-15))
+        coefs[start:end] = ((nonzero_counts_cumsum[:-window_size] - nonzero_counts_cumsum[window_size:])
+                            / (amplitudes_cumsum[:-window_size] - amplitudes_cumsum[window_size:] + 1e-15))
         # Extrapolate AGC coefs for trace indices that don't fit the full window
         coefs[:start] = coefs[start]
         coefs[end:] = coefs[end-1]

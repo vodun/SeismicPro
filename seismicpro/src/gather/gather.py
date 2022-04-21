@@ -1030,13 +1030,17 @@ class Gather:
         return CroppedGather(self, origins, crop_shape, pad_mode, **kwargs)
 
     @batch_method(target="for")
-    def apply_agc(self, factor=1, window=250, mode='abs'):
+    def apply_agc(self, factor=1, window_size=250, mode='rms'):
         """ TODO """
+        # Cast window from ms to samples
+        window_size_samples = window_size // int(self.sample_rate)
+
         if mode not in ['abs', 'rms']:
             raise ValueError(f"mode should be either 'abs' or 'rms', but {mode} was given")
-        if (window < 3) or (window > self.n_samples-1):
-            raise ValueError(f'window should be at least 3 and and at most n_samples-1, but {window} was given')
-        self.data = apply_agc(data=self.data, factor=factor, window=window, mode=mode)
+        if (window_size_samples < 3) or (window_size_samples >= self.n_samples):
+            raise ValueError(f'window should be at least {3*self.sample_rate} and'
+                             f' {(self.n_samples-1)*self.sample_rate} at most, but {window_size} was given')
+        self.data = apply_agc(data=self.data, factor=factor, window_size=window_size_samples, mode=mode)
         return self
 
     @batch_method(target="for")
