@@ -1048,7 +1048,7 @@ class Gather:
             raise ValueError("Only VelocityCube or StackingVelocity instances can be passed as a stacking_velocity")
         self.data = apply_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
         return self
-    
+
     @batch_method(target="for")
     def undo_sdc(self, t_pow=1, v_pow=2, velocity=None):
         """ TODO """
