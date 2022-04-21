@@ -296,6 +296,7 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     def _post_filter(self, mask):
+        """Remove traces from gather data that correspond to filtered headers after `Gather.filter`."""
         self.data = self.data[mask]
 
     #------------------------------------------------------------------------#
