@@ -1031,7 +1031,26 @@ class Gather:
 
     @batch_method(target="for")
     def apply_agc(self, factor=1, window_size=250, mode='rms'):
-        """ TODO """
+        """ Apply automatic gain control.
+
+        Notes
+        -----
+        This type of gain amplification is irreversible.
+
+        Parameters
+        ----------
+        factor: numeric
+            Desired RMS amplitude level in the resulting gather.
+        window_size: int
+            Size of the window to calculate scaling coefficient in.
+        mode: str
+
+
+        Returns
+        -------
+        self : Gather
+            Gather with modified data.
+        """
         # Cast window from ms to samples
         window_size_samples = window_size // int(self.sample_rate)
 
