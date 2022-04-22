@@ -1,53 +1,117 @@
-"""Implementation of tests for seismic index"""
+"""Test SeismicIndex and SeismicDataset instantiation, splitting and stats collection"""
 
 import pytest
 
-from seismicpro import Survey, SeismicIndex
+from seismicpro import Survey, SeismicIndex, SeismicDataset
 
 
-def test_index_creation_from_survey(segy_path):
-    """test_index_creation_from_survey"""
-    survey = Survey(segy_path, header_index='FieldRecord')
-    _ = SeismicIndex(survey)
+HEADER_INDEX = ["FieldRecord", "TRACE_SEQUENCE_FILE", ["INLINE_3D", "CROSSLINE_3D"]]
+HEADER_COLS = ["FieldRecord", "TraceNumber"]  # Guarantee that a 1-to-1 merge is performed
 
-def test_index_creation_from_index(segy_path):
-    """test_index_creation_from_index"""
-    survey = Survey(segy_path, header_index='FieldRecord')
-    index = SeismicIndex(survey)
-    _ = SeismicIndex(index)
 
-@pytest.mark.parametrize('name1,name2', [pytest.param('name', 'name', marks=pytest.mark.xfail), ['name1', 'name2']])
-@pytest.mark.parametrize('header_index1,header_index2', [pytest.param('INLINE_3D', 'offset', marks=pytest.mark.xfail),
-                                                        ['FieldRecord', 'FieldRecord']])
-def test_index_with_two_surveys_merge(segy_path, header_index1, header_index2, name1, name2):
-    """test_index_with_two_surveys_merge"""
-    survey_one = Survey(segy_path, header_index=header_index1, name=name1)
-    survey_two = Survey(segy_path, header_index=header_index2, name=name2)
-    _ = SeismicIndex(survey_one, survey_two, mode='m')
+@pytest.mark.parametrize("header_index", HEADER_INDEX)
+class TestInit:
+    """Test `SeismicIndex` and `SeismicDataset` instantiation."""
 
-@pytest.mark.parametrize('name1,name2', [pytest.param('name1', 'name2', marks=pytest.mark.xfail), ['name', 'name']])
-@pytest.mark.parametrize('header_index1,header_index2', [pytest.param('INLINE_3D', 'offset', marks=pytest.mark.xfail),
-                                                        ['FieldRecord', 'FieldRecord']])
-def test_index_with_two_surveys_concat(segy_path, header_index1, header_index2, name1, name2):
-    """test_index_with_two_surveys_concat"""
-    survey_one = Survey(segy_path, header_index=header_index1, name=name1)
-    survey_two = Survey(segy_path, header_index=header_index2, name=name2)
-    _ = SeismicIndex(survey_one, survey_two, mode='c')
+    def test_from_survey(self, segy_path, header_index):
+        """Test instantiation from a single survey."""
+        survey = Survey(segy_path, header_index=header_index)
+        _ = SeismicIndex(survey)
 
-def test_index_with_multiple_merge_concats(segy_path):
-    """test_index_with_multiple_merge_concats"""
-    s1_before = Survey(segy_path, header_index='FieldRecord', name="before")
-    s2_before = Survey(segy_path, header_index='FieldRecord', name="before")
+    def test_from_index(self, segy_path, header_index):
+        """Test instantiation from an already created index."""
+        survey = Survey(segy_path, header_index=header_index)
+        index = SeismicIndex(survey)
+        _ = SeismicIndex(index)
 
-    s1_after = Survey(segy_path, header_index='FieldRecord', name="after")
-    s2_after = Survey(segy_path, header_index='FieldRecord', name="after")
+    def test_concat(self, segy_path, header_index):
+        """Test concatenation of two surveys."""
+        sur1 = Survey(segy_path, header_index=header_index, name="sur")
+        sur2 = Survey(segy_path, header_index=header_index, name="sur")
+        _ = SeismicIndex(sur1, sur2, mode="c")
 
-    index_before = SeismicIndex(s1_before, s2_before, mode="c")
-    index_after = SeismicIndex(s1_after, s2_after, mode="c")
-    _ = SeismicIndex(index_before, index_after, mode="m")
+    def test_concat_wrong_names_fails(self, segy_path, header_index):
+        """Concat must fail if surveys have different names."""
+        sur1 = Survey(segy_path, header_index=header_index, name="sur")
+        sur2 = Survey(segy_path, header_index=header_index, name="not_sur")
+        with pytest.raises(ValueError):
+            _ = SeismicIndex(sur1, sur2, mode="c")
 
-def test_index_split(segy_path):
-    """test_index_split"""
-    survey = Survey(segy_path, header_index='FieldRecord')
-    index = SeismicIndex(survey)
-    index.split()
+    def test_concat_wrong_index_fails(self, segy_path, header_index):
+        """Concat must fail if surveys are indexed by different headers."""
+        sur1 = Survey(segy_path, header_index=header_index, name="sur")
+        sur2 = Survey(segy_path, header_index="CDP", name="sur")
+        with pytest.raises(ValueError):
+            _ = SeismicIndex(sur1, sur2, mode="c")
+
+    def test_merge(self, segy_path, header_index):
+        """Test merging of two surveys."""
+        sur1 = Survey(segy_path, header_index=header_index, header_cols=HEADER_COLS, name="before")
+        sur2 = Survey(segy_path, header_index=header_index, header_cols=HEADER_COLS, name="after")
+        _ = SeismicIndex(sur1, sur2, mode="m")
+
+    def test_merge_wrong_names_fails(self, segy_path, header_index):
+        """Merge must fail if surveys have same names."""
+        sur1 = Survey(segy_path, header_index=header_index, header_cols=HEADER_COLS, name="sur")
+        sur2 = Survey(segy_path, header_index=header_index, header_cols=HEADER_COLS, name="sur")
+        with pytest.raises(ValueError):
+            _ = SeismicIndex(sur1, sur2, mode="m")
+
+    def test_merge_wrong_index_fails(self, segy_path, header_index):
+        """Merge must fail if surveys are indexed by different headers."""
+        sur1 = Survey(segy_path, header_index=header_index, header_cols=HEADER_COLS, name="before")
+        sur2 = Survey(segy_path, header_index="CDP", header_cols=HEADER_COLS, name="after")
+        with pytest.raises(ValueError):
+            _ = SeismicIndex(sur1, sur2, mode="m")
+
+    def test_merge_concat(self, segy_path, header_index):
+        """Test merge followed by concat."""
+        s1_before = Survey(segy_path, header_index=header_index, header_cols=HEADER_COLS, name="before")
+        s2_before = Survey(segy_path, header_index=header_index, header_cols=HEADER_COLS, name="before")
+
+        s1_after = Survey(segy_path, header_index=header_index, header_cols=HEADER_COLS, name="after")
+        s2_after = Survey(segy_path, header_index=header_index, header_cols=HEADER_COLS, name="after")
+
+        index_s1 = SeismicIndex(s1_before, s1_after, mode="m")
+        index_s2 = SeismicIndex(s2_before, s2_after, mode="m")
+        _ = SeismicIndex(index_s1, index_s2, mode="c")
+
+    def test_concat_merge(self, segy_path, header_index):
+        """Test concat followed by merge."""
+        s1_before = Survey(segy_path, header_index=header_index, header_cols=HEADER_COLS, name="before")
+        s2_before = Survey(segy_path, header_index=header_index, header_cols=HEADER_COLS, name="before")
+
+        s1_after = Survey(segy_path, header_index=header_index, header_cols=HEADER_COLS, name="after")
+        s2_after = Survey(segy_path, header_index=header_index, header_cols=HEADER_COLS, name="after")
+
+        index_before = SeismicIndex(s1_before, s2_before, mode="c")
+        index_after = SeismicIndex(s1_after, s2_after, mode="c")
+        _ = SeismicIndex(index_before, index_after, mode="m")
+
+
+@pytest.mark.parametrize("header_index", HEADER_INDEX)
+@pytest.mark.parametrize("test_class", [SeismicIndex, SeismicDataset])
+def test_index_split(test_class, segy_path, header_index):
+    """Test whether index or dataset `split` runs."""
+    survey = Survey(segy_path, header_index=header_index, bar=False)
+    test_obj = test_class(survey)
+    test_obj.split()
+
+
+@pytest.mark.parametrize("header_index", HEADER_INDEX)
+@pytest.mark.parametrize("test_class", [SeismicIndex, SeismicDataset])
+def test_index_collect_stats(test_class, segy_path, header_index):
+    """Test whether index or dataset `collect_stats` runs."""
+    survey = Survey(segy_path, header_index=header_index, bar=False)
+    test_obj = test_class(survey)
+    test_obj.collect_stats()
+
+
+@pytest.mark.parametrize("header_index", HEADER_INDEX)
+@pytest.mark.parametrize("test_class", [SeismicIndex, SeismicDataset])
+def test_index_split_collect_stats(test_class, segy_path, header_index):
+    """Test whether `collect_stats` runs for a subset of index or dataset."""
+    survey = Survey(segy_path, header_index=header_index, bar=False)
+    test_obj = test_class(survey)
+    test_obj.split(0.5)
+    test_obj.train.collect_stats()
