@@ -1033,12 +1033,12 @@ class Gather:
     def apply_agc(self, factor=1, window_size=250, mode='rms'):
         """ TODO """
         # Cast window from ms to samples
-        window_size_samples = window_size // int(self.sample_rate)
+        window_size_samples = int(window_size / self.sample_rate)
 
         if mode not in ['abs', 'rms']:
             raise ValueError(f"mode should be either 'abs' or 'rms', but {mode} was given")
         if (window_size_samples < 3) or (window_size_samples >= self.n_samples):
-            raise ValueError(f'window should be at least {3*self.sample_rate} and'
+            raise ValueError(f'window should be at least {3*self.sample_rate} milliseconds and'
                              f' {(self.n_samples-1)*self.sample_rate} at most, but {window_size} was given')
         self.data = apply_agc(data=self.data, factor=factor, window_size=window_size_samples, mode=mode)
         return self
