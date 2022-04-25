@@ -345,8 +345,9 @@ class WeatheringVelocity:
             Linear regression `coef` and `intercept`.
         """
         lin_reg = SGDRegressor(loss='huber', early_stopping=True, penalty=None, shuffle=True, epsilon=0.1,
-                               eta0=.05, alpha=0, tol=1e-4, fit_intercept=fit_intercept)
+                               eta0=.05, learning_rate='optimal', alpha=0.1, tol=1e-4, fit_intercept=fit_intercept)
         lin_reg.fit(x, y, coef_init=start_slope, intercept_init=start_time)
+        print(1 / lin_reg.coef_[0], lin_reg.intercept_, lin_reg.n_iter_)
         return lin_reg.coef_[0], lin_reg.intercept_
 
     def _calc_init_by_layers(self, n_layers):
@@ -371,11 +372,11 @@ class WeatheringVelocity:
         if n_layers is None or n_layers < 1:
             return {}
 
-        min_picking_times = self.picking_times.min() + 1  # normalization parameter.
+        max_picking_times = self.picking_times.max()  # normalization parameter.
         start_slope = 2/3  # base slope corresponding velocity is 1,5 km/s (v = 1 / slope)
-        start_time = 1  # base time, equal to minimum picking times with the `min_picking` normalization.
-        normalized_offsets = self.offsets / min_picking_times
-        normalized_times = self.picking_times / min_picking_times
+        start_time = 0  # base time
+        normalized_offsets = self.offsets / max_picking_times
+        normalized_times = self.picking_times / max_picking_times
 
         # split cross offsets on an equal intervals
         cross_offsets = np.linspace(0, normalized_offsets.max(), num=n_layers+1)
@@ -396,7 +397,7 @@ class WeatheringVelocity:
             start_time = times[i] + (slopes[i] - start_slope) * cross_offsets[i + 1]
             start_slope = slopes[i] * (n_layers / (n_layers + 1)) # raise base velocity for next layers (v = 1 / slope)
         velocities = 1 / slopes
-        init = np.hstack((times[0] * min_picking_times, cross_offsets[1:-1] * min_picking_times, velocities))
+        init = np.hstack((times[0] * max_picking_times, cross_offsets[1:-1] * max_picking_times, velocities))
         init = dict(zip(self._get_valid_keys(n_layers), init))
         return init
 
