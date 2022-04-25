@@ -64,7 +64,7 @@ class IndexPart(GatherContainer):
         drop_cols = np.column_stack([np.ptp(df.loc[:, (slice(None), col)], axis=1).astype(np.bool_) for col in cols])
         return df.loc[~np.any(drop_cols, axis=1)]
 
-    def merge(self, other, on=None, validate="1:1"):
+    def merge(self, other, on=None, validate_unique=True):
         self_indexed_by = set(to_list(self.indexed_by))
         other_indexed_by = set(to_list(other.indexed_by))
         if self_indexed_by != other_indexed_by:
@@ -90,6 +90,7 @@ class IndexPart(GatherContainer):
         left_on = to_list(self.indexed_by) + [(left_survey_name, header) for header in merge_on]
         right_on = to_list(other.indexed_by) + [(right_survey_name, header) for header in merge_on]
 
+        validate = "1:1" if validate_unique else "m:m"
         headers = pd.merge(left_df, right_df, how="inner", left_on=left_on, right_on=right_on, copy=True, sort=False,
                            validate=validate)
 
