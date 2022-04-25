@@ -13,9 +13,8 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from .muting import Muter
 from .cropped_gather import CroppedGather
 from .plot_corrections import NMOCorrectionPlot
-from .utils import correction, normalization
-from .utils import (convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins,
-                    apply_agc, apply_sdc, undo_sdc)
+from .utils import correction, normalization, gain
+from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
 from ..utils import (to_list, get_cols, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
                      set_text_formatting, add_colorbar, Coordinates)
 from ..semblance import Semblance, ResidualSemblance
@@ -1030,7 +1029,7 @@ class Gather:
         return CroppedGather(self, origins, crop_shape, pad_mode, **kwargs)
 
     @batch_method(target="for")
-    def apply_agc(self, factor=1, window_size=250, mode='rms'):
+    def apply_agc(self, window_size=250, mode='rms'):
         """ Apply automatic gain control.
 
         Notes
@@ -1059,7 +1058,7 @@ class Gather:
         if (window_size_samples < 3) or (window_size_samples >= self.n_samples):
             raise ValueError(f'window should be at least {3*self.sample_rate} milliseconds and'
                              f' {(self.n_samples-1)*self.sample_rate} at most, but {window_size} was given')
-        self.data = apply_agc(data=self.data, factor=factor, window_size=window_size_samples, mode=mode)
+        self.data = gain.apply_agc(data=self.data, window_size=window_size_samples, mode=mode)
         return self
 
     @batch_method(target="for")
@@ -1068,8 +1067,8 @@ class Gather:
         if velocity is None:
             velocity = DEFAULT_STACKING_VELOCITY
         if not isinstance(velocity, StackingVelocity):
-            raise ValueError("Only VelocityCube or StackingVelocity instances can be passed as a stacking_velocity")
-        self.data = apply_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
+            raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
+        self.data = gain.apply_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
         return self
 
     @batch_method(target="for")
@@ -1078,8 +1077,8 @@ class Gather:
         if velocity is None:
             velocity = DEFAULT_STACKING_VELOCITY
         if not isinstance(velocity, StackingVelocity):
-            raise ValueError("Only VelocityCube or StackingVelocity instances can be passed as a stacking_velocity")
-        self.data = undo_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
+            raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
+        self.data = gain.undo_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
         return self
 
 
