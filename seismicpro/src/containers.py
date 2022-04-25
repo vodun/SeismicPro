@@ -1,3 +1,10 @@
+"""Defines base containers - mixin classes that implement properties and basic processing logic for objects that store
+particular types of data:
+* `SamplesContainer` - implements extra properties for subclasses with defined `samples` attribute,
+* `TraceContainer` - implements properties and processing methods for subclasses with defined `headers` attribute,
+* `GatherContainer` - a subclass of `TraceContainer` that also implements fast selection of gather headers by index.
+"""
+
 from copy import deepcopy
 
 import numpy as np
@@ -8,6 +15,9 @@ from .utils import to_list, get_cols, create_indexer, maybe_copy
 
 
 class SamplesContainer:
+    """A mixin class that implements extra properties for concrete subclasses with defined `samples` attribute that
+    stores recording times for each trace value as a 1d `np.ndarray`."""
+
     @property
     def times(self):
         """1d np.ndarray of floats: Recording time for each trace value. Measured in milliseconds."""
@@ -25,6 +35,9 @@ class SamplesContainer:
 
 
 class TraceContainer:
+    """A mixin class that implements extra properties and processing methods for concrete subclasses with defined
+    `headers` attribute that stores loaded trace headers as a `pd.DataFrame`."""
+
     @property
     def indexed_by(self):
         """str or list of str: Names of header indices."""
@@ -72,6 +85,19 @@ class TraceContainer:
         self.headers[key] = val
 
     def copy(self, ignore=None):
+        """Perform a deepcopy of all attributes of `self` except for those specified in `ignore`, which are kept
+        unchanged.
+
+        Parameters
+        ----------
+        ignore : str or array-like of str, defaults to None
+            Attributes that won't be copied.
+
+        Returns
+        -------
+        copy : same type as self
+            Copy of `self`.
+        """
         ignore = set() if ignore is None else set(to_list(ignore))
         ignore_attrs = [getattr(self, attr) for attr in ignore]
 
@@ -122,6 +148,8 @@ class TraceContainer:
         return res.values
 
     def _post_filter(self, mask):
+        """Implement extra filtering logic of concrete subclass attributes if some of them should also be filtered
+        besides `headers.`"""
         _ = mask
         return
 
@@ -152,21 +180,21 @@ class TraceContainer:
             passed as a single arg. If `axis` is `None` and `unpack_args` is `True`, each column from `cols` is passed
             to the `cond` as an individual argument.
         inplace : bool, optional, defaults to False
-            Whether to perform filtering inplace or process a survey copy.
+            Whether to perform filtering inplace or process a copy.
         kwargs : misc, optional
             Additional keyword arguments to pass to `cond` or `pd.DataFrame.apply`.
 
         Returns
         -------
-        self : Survey
-            Filtered survey.
+        result : same type as self
+            Filtered `self`.
 
         Raises
         ------
         ValueError
             If `cond` returns more than one bool value for each row of `headers`.
         """
-        self = maybe_copy(self, inplace, ignore="headers")
+        self = maybe_copy(self, inplace, ignore="headers")  # pylint: disable=self-cls-assignment
         cols = to_list(cols)
         headers = pd.DataFrame(self[cols], columns=cols)
         mask = self._apply(cond, headers, axis=axis, unpack_args=unpack_args, **kwargs)
@@ -175,7 +203,8 @@ class TraceContainer:
         if mask.dtype != np.bool_:
             raise ValueError("cond must return a bool value for each header row")
         mask = mask[:, 0]
-        self.headers = self.headers.loc[mask].copy()  # Guarantee that a copy is set
+        # Guarantee that a copy is set
+        self.headers = self.headers.loc[mask].copy()  # pylint: disable=attribute-defined-outside-init
         self._post_filter(mask)
         return self
 
@@ -208,16 +237,16 @@ class TraceContainer:
             passed as a single arg. If `axis` is `None` and `unpack_args` is `True`, each column from `cols` is passed
             to the `func` as an individual argument.
         inplace : bool, optional, defaults to False
-            Whether to apply the function inplace or to a survey copy.
+            Whether to apply the function inplace or to a copy.
         kwargs : misc, optional
             Additional keyword arguments to pass to `func` or `pd.DataFrame.apply`.
 
         Returns
         -------
-        self : Survey
-            A survey with the function applied.
+        result : same type as self
+            `self` with the function applied.
         """
-        self = maybe_copy(self, inplace)
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         cols = to_list(cols)
         headers = pd.DataFrame(self[cols], columns=cols)
         res_cols = cols if res_cols is None else to_list(res_cols)
@@ -227,6 +256,10 @@ class TraceContainer:
 
 
 class GatherContainer(TraceContainer):
+    """A mixin class that implements extra properties and processing methods for concrete subclasses with defined
+    `headers` attribute that stores loaded trace headers for several gathers as a `pd.DataFrame` and means for fast
+    selection of gather headers by index."""
+
     def __len__(self):
         """The number of gathers."""
         return self.n_gathers
@@ -271,6 +304,19 @@ class GatherContainer(TraceContainer):
         return self.headers.iloc[headers_indices]
 
     def copy(self, ignore=None):
+        """Perform a deepcopy of all attributes of `self` except for indexer and those specified in `ignore`, which are
+        kept unchanged.
+
+        Parameters
+        ----------
+        ignore : str or array-like of str, defaults to None
+            Attributes that won't be copied.
+
+        Returns
+        -------
+        copy : same type as self
+            Copy of `self`.
+        """
         ignore = set() if ignore is None else set(to_list(ignore))
         return super().copy(ignore | {"_indexer"})
 
@@ -289,7 +335,7 @@ class GatherContainer(TraceContainer):
         self : same type as self
             Reindexed self.
         """
-        self = maybe_copy(self, inplace)
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         headers = self.headers
         headers.reset_index(inplace=True)
         headers.set_index(new_index, inplace=True)
