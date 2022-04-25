@@ -52,7 +52,7 @@ class IndexPart(GatherContainer):
 
         part = cls()
         part._headers = headers  # Avoid calling headers setter since the indexer is already calculated
-        part._indexer = survey._indexer
+        part._indexer = survey._indexer  # pylint: disable=protected-access
         part.common_headers = common_headers
         part.surveys_dict = {survey.name: survey}
         return part
@@ -180,7 +180,7 @@ def delegate_to_parts(*methods):
                 for part in self.parts:
                     getattr(part, method)(*args, inplace=True, **kwargs)
                 # Set _index explicitly since already created index is modified
-                self._index = tuple(part.indices for part in self.parts)
+                self._index = tuple(part.indices for part in self.parts)  # pylint: disable=protected-access
                 self.reset("iter")
 
                 if recursive:
