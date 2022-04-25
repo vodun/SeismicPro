@@ -347,7 +347,6 @@ class WeatheringVelocity:
         lin_reg = SGDRegressor(loss='huber', early_stopping=True, penalty=None, shuffle=True, epsilon=0.1,
                                eta0=.05, learning_rate='optimal', alpha=0.1, tol=1e-4, fit_intercept=fit_intercept)
         lin_reg.fit(x, y, coef_init=start_slope, intercept_init=start_time)
-        print(1 / lin_reg.coef_[0], lin_reg.intercept_, lin_reg.n_iter_)
         return lin_reg.coef_[0], lin_reg.intercept_
 
     def _calc_init_by_layers(self, n_layers):
