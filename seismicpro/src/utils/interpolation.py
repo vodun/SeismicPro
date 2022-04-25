@@ -104,8 +104,12 @@ def _times_to_indices(times, samples, round):
 @njit(nogil=True)
 def calculate_basis_polynomials(x_new, x, n):
     """ Calculate the values of basis polynomials for Lagrange interpolation. """
+
+    # Shift x to the zero, shift x_new accordingly. This does not affect interpolation
+    x -= x.min()
+    x_new -= x.min()
+
     N = n + 1
-    ptp = np.ptp(x)
     polynomials = np.ones((len(x_new), N))
 
     # For given point, n + 1 neighbor samples are required to construct polynomial, find the index of leftmsot one
@@ -117,20 +121,19 @@ def calculate_basis_polynomials(x_new, x, n):
     indices = leftmost_indices.reshape(-1, 1) + np.arange(N)
 
     # Reflect indices from array borders
-    div, mod = np.divmod(np.abs(indices), len(x))
-    indices = np.where(div % 2, np.abs(len(x) - mod - 2), mod).astype(np.int32)
+    div, mod = np.divmod(np.abs(indices), len(x) -1)
+    indices = np.where(div % 2, np.abs(len(x) - mod - 1), mod).astype(np.int32)
 
     for i, (ix_indices, it) in enumerate(zip(indices, x_new)):
 
         # Reflect times accrordingly
-        sign = div[i] % 2
-        ix_x = ptp * div[i] + ptp * sign + x[ix_indices] * (-2 * sign + 1)
-        ix_x *= np.sign(np.arange(leftmost_indices[i], leftmost_indices[i] + N) + 1e-9)
+        times = np.where(div[i] % 2, x.max() - x[ix_indices],  x[ix_indices])
+        times = (times + x.max() * div[i]) * np.sign(np.arange(leftmost_indices[i], leftmost_indices[i] + N) + 1e-3)
 
         for k in range(N):
             for j in range(N):
                 if k != j:
-                    polynomials[i, k] *= (it - ix_x[j]) / (ix_x[k] - ix_x[j])
+                    polynomials[i, k] *= (it - times[j]) / (times[k] - times[j])
 
     return polynomials, indices
 
