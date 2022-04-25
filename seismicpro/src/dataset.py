@@ -96,6 +96,10 @@ class SeismicDataset(Dataset):
         """Fix autocompletion for redirected methods."""
         return sorted(set(super().__dir__()) | set(dir(self.index)))
 
+    def __len__(self):
+        """The number of gathers in the dataset."""
+        return self.n_gathers
+
     def __str__(self):
         """Print dataset metadata including information about its batch class and index."""
         msg = f"""
