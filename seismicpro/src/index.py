@@ -115,7 +115,7 @@ class IndexPart(GatherContainer):
         if new_index_diff - self.common_headers:
             raise ValueError("IndexPart can be reindexed only with common headers")
 
-        self = maybe_copy(self, inplace)
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         new_diff_list = list(new_index_diff)
         self.headers[new_diff_list] = self.headers[((self.survey_names[0], new_ix) for new_ix in new_diff_list)]
         super().reindex(new_index, inplace=True)
@@ -141,7 +141,7 @@ class IndexPart(GatherContainer):
             # Filter only one survey since all of them share values of `cols` headers
             survey_names = [survey_names[0]]
 
-        self = maybe_copy(self, inplace)
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         for sur in survey_names:
             sur_cols = [col if col in indexed_by else (sur, col) for col in cols]
             super().filter(cond, cols=sur_cols, axis=axis, unpack_args=unpack_args, inplace=True, **kwargs)
@@ -157,7 +157,7 @@ class IndexPart(GatherContainer):
             # Apply func only to one survey since all of them share values of `cols` headers
             survey_names = [survey_names[0]]
 
-        self = maybe_copy(self, inplace)
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         for sur in survey_names:
             sur_cols = [col if col in indexed_by else (sur, col) for col in cols]
             sur_res_cols = [(sur, col) for col in res_cols]
