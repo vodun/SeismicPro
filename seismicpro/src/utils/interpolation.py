@@ -106,8 +106,8 @@ def calculate_basis_polynomials(x_new, x, n):
     """ Calculate the values of basis polynomials for Lagrange interpolation. """
 
     # Shift x to the zero, shift x_new accordingly. This does not affect interpolation
-    x -= x.min()
     x_new -= x.min()
+    x -= x.min()
 
     N = n + 1
     polynomials = np.ones((len(x_new), N))
