@@ -2,7 +2,6 @@
 
 import os
 import warnings
-from copy import deepcopy
 from textwrap import dedent
 
 import segyio
