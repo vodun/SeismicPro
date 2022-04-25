@@ -269,7 +269,7 @@ def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_st
         # Loop over the survey and put all the data into the new SEG-Y file
         TRACE_SEQUENCE_FILE = 0
 
-        for FieldRecord, source_location in enumerate(tqdm(source_coords, disable=not bar)):
+        for FieldRecord, source_location in enumerate(tqdm(source_coords, desc='Common shot gathers generated', disable=not bar)):
             active_receivers_coords = receiver_coords[active_receivers_mask[FieldRecord]]
 
             # TODO: maybe add trace with zero offset
