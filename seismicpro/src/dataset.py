@@ -10,12 +10,15 @@ from ..batchflow import Dataset
 
 
 def delegate_constructors(*constructors):
+    """Implement given `constructors` of `SeismicDataset` by calling the corresponding `SeismicIndex` `classmethod` and
+    then turning the resulting index into a dataset."""
     def decorator(cls):
         for constructor in constructors:
-            def constructor_fn(*args, constructor=constructor, batch_class=SeismicBatch, **kwargs):
-                index = getattr(SeismicIndex, constructor)(*args, **kwargs)
-                return cls(index, batch_class=batch_class)
-            setattr(cls, constructor, constructor_fn)
+            index_constructor = getattr(SeismicIndex, constructor)
+            @wraps(index_constructor)
+            def dataset_constructor(*args, index_constructor=index_constructor, batch_class=SeismicBatch, **kwargs):
+                return cls(index_constructor(*args, **kwargs), batch_class=batch_class)
+            setattr(cls, constructor, dataset_constructor)
         return cls
     return decorator
 
@@ -34,15 +37,14 @@ class SeismicDataset(Dataset):
     Let's consider a survey we want to process:
     >>> survey = Survey(path, header_index="FieldRecord", header_cols=["TraceNumber", "offset"], name="survey")
 
-    In most cases, dataset creation is identical to that of :class:`~index.SeismicIndex`:
+    Dataset creation is identical to that of :class:`~index.SeismicIndex`: several surveys can be combined together
+    either by merging or concatenating. Here we create a dataset from a single survey:
     >>> dataset = SeismicDataset(survey)
 
-    Similar to the :class:`~index.SeismicIndex` several surveys can be combined together either by merging or
-    concatenating. After the dataset is created, a subset of gathers can be obtained via
-    :func:`~SeismicDataset.next_batch` method:
+    After the dataset is created, a subset of gathers can be obtained via :func:`~SeismicDataset.next_batch` method:
     >>> batch = dataset.next_batch(10)
 
-    Here a batch of 10 gathers was created and can now be processed using the methods defined in
+    A batch of 10 gathers was created and can now be processed using the methods defined in
     :class:`~batch.SeismicBatch`. The batch does not contain any data yet and gather loading is usually the first
     method you want to call:
     >>> batch.load(src="survey")
