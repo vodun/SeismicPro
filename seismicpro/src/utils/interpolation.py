@@ -119,21 +119,26 @@ def calculate_basis_polynomials(x_new, x, n):
         leftmost_indices = np.ceil(_times_to_indices(x_new , x, False)) - N // 2
 
     indices = leftmost_indices.reshape(-1, 1) + np.arange(N)
+    sign = np.sign(indices + 1e-3)
 
     # Reflect indices from array borders
-    div, mod = np.divmod(np.abs(indices), len(x) -1)
+    div, mod = np.divmod(np.abs(indices), len(x) - 1)
     indices = np.where(div % 2, np.abs(len(x) - mod - 1), mod).astype(np.int32)
 
-    for i, (ix_indices, it) in enumerate(zip(indices, x_new)):
+    times = np.empty_like(indices, dtype=np.float32)
+    for i, ind in enumerate(indices):
+        times[i] = x[ind]
 
-        # Reflect times accrordingly
-        times = np.where(div[i] % 2, x.max() - x[ix_indices],  x[ix_indices])
-        times = (times + x.max() * div[i]) * np.sign(np.arange(leftmost_indices[i], leftmost_indices[i] + N) + 1e-3)
+    # Redflect times accordingly
+    times = np.where(div % 2, x.max() - times,  times)
+    times = (times + x.max() * div) * sign
+
+    for i, (time, it) in enumerate(zip(times, x_new)):
 
         for k in range(N):
             for j in range(N):
                 if k != j:
-                    polynomials[i, k] *= (it - times[j]) / (times[k] - times[j])
+                    polynomials[i, k] *= (it - time[j]) / (time[k] - time[j])
 
     return polynomials, indices
 
