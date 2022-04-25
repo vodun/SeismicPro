@@ -2,21 +2,19 @@
 
 import os
 import sys
-sys.path.append('../..')
+sys.path.insert(0, '../..')
 
 import numpy as np
 from seismicpro import Survey, make_prestack_segy
 
 def make_benchmark_data(path):
-    """ Generate a SEGY file with specific geometry for benchmark and save it to disk. """
+    """ Generate a SEGY file with specific geometry and filter it to obtain survey objects for benchmark. """
     # The geometry defined below should be changed only together with survey filtering parameters
     # to ensure that after filtering all the gathers \ supergathers have the same number of traces
     if not os.path.isfile(path):
         make_prestack_segy(path, survey_size=(400, 400), sources_step=(5, 5), receivers_step=(5, 5),
                            activation_dist=(50, 50), bin_size=(10, 10))
 
-def load_benchmark_data(path):
-    """ Load data from file and filter it to obtain survey objects for benchmark. """
     # Load headers and add synthetic FirstBreak times
     sur = Survey(path, header_index=['INLINE_3D', 'CROSSLINE_3D'],
                  header_cols='offset', name='raw')

@@ -1062,7 +1062,7 @@ class Gather:
         return self
 
     @batch_method(target="for")
-    def apply_sdc(self, t_pow=1, v_pow=2, velocity=None):
+    def apply_sdc(self, velocity=None, v_pow=2, t_pow=1):
         """ TODO """
         if velocity is None:
             velocity = DEFAULT_STACKING_VELOCITY
@@ -1072,7 +1072,7 @@ class Gather:
         return self
 
     @batch_method(target="for")
-    def undo_sdc(self, t_pow=1, v_pow=2, velocity=None):
+    def undo_sdc(self, velocity=None, v_pow=2, t_pow=1):
         """ TODO """
         if velocity is None:
             velocity = DEFAULT_STACKING_VELOCITY

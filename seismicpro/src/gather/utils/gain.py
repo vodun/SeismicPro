@@ -3,7 +3,7 @@
 import numpy as np
 from numba import njit, prange
 
-@njit(parallel=True)
+@njit(nogil=True, parallel=True)
 def apply_agc(data, window_size=125, mode='abs'):
     """ TODO """
     n_traces, trace_len = data.shape
@@ -31,7 +31,7 @@ def apply_agc(data, window_size=125, mode='abs'):
     return data
 
 
-@njit(parallel=True)
+@njit(nogil=True, parallel=True)
 def calculate_sdc_coefficient(v_pow, velocities, t_pow, times):
     """ TODO """
     sdc_coefficient = velocities**v_pow * times**t_pow
@@ -40,7 +40,7 @@ def calculate_sdc_coefficient(v_pow, velocities, t_pow, times):
     return sdc_coefficient
 
 
-@njit(parallel=True)
+@njit(nogil=True, parallel=True)
 def apply_sdc(data, v_pow, velocities, t_pow, times):
     """ TODO """
     sdc_coefficient = calculate_sdc_coefficient(v_pow, velocities, t_pow, times)
@@ -48,7 +48,7 @@ def apply_sdc(data, v_pow, velocities, t_pow, times):
         data[i] *= sdc_coefficient
     return data
 
-@njit(parallel=True)
+@njit(nogil=True, parallel=True)
 def undo_sdc(data, v_pow, velocities, t_pow, times):
     """ TODO """
     sdc_coefficient = calculate_sdc_coefficient(v_pow, velocities, t_pow, times)
