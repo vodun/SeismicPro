@@ -49,7 +49,7 @@ class StaticCorrection:
         unique_coords = np.unique(self.headers[cols], axis=0)
         wv_params = interpolator(unique_coords)
         length = wv_params.shape[1] // 2 + 1
-        names = [f"{name}_x{i+1}" for i in range(length-1)] + [f"{name}_v{i+1}" for i in range(length)]
+        names = [f"x{i+1}" for i in range(length-1)] + [f"v{i+1}" for i in range(length)]
         self._update_params(name=name, coords=unique_coords, values=wv_params, columns=names)
 
     def _update_params(self, name, coords, values, columns):
@@ -85,28 +85,29 @@ class StaticCorrection:
 
         if to == "depth":
             results = self._get_depths(coefs, unique_sources)
-            names = [f"depth_{layer}", f"depth_{layer}"]
+            name = f"depth_{layer}"
         elif to == "vel":
             results = self._calculate_velocities(coefs, layer_headers, ix_sources, ix_recs, max_wv=max_wv)
-            names = ["source_v1", "rec_v1"]
-        self._update_params("source", unique_sources, results[0], names[0])
-        self._update_params("rec", unique_recs, results[1], names[1])
+            name = 'v1'
+        self._update_params("source", unique_sources, results[0], name)
+        self._update_params("rec", unique_recs, results[1], name)
 
     def _get_layer_headers(self, layer):
-        # Add velocity and crossover params for sources and recs
+        # Add velocities and crossovers for sources and recs
         headers = self.headers.merge(self.source_params, on=self._get_cols("source"))
-        headers = headers.merge(self.rec_params, on=self._get_cols("rec"))
-        # Get traces for current layer by crossover offset
-        cross_left = headers.get([f"source_x{layer}", f"rec_x{layer}"]).min(axis=1)
+        headers = headers.merge(self.rec_params, on=self._get_cols("rec"), suffixes=("_source", "_rec"))
+
+        # Leave traces for current layer by crossover offset
+        cross_left = headers.get([f"x{layer}_source", f"x{layer}_rec"]).min(axis=1)
         cross_right = np.inf
-        if f"source_x{layer+1}" in headers.columns:
-            cross_right = headers.get([f"source_x{layer+1}", f"rec_x{layer+1}"]).max(axis=1)
+        if f"x{layer+1}_source" in headers.columns:
+            cross_right = headers.get([f"x{layer+1}_source", f"x{layer+1}_rec"]).max(axis=1)
         return headers[(headers["offset"] >= cross_left) & (headers["offset"] <= cross_right)].copy()
 
     def _fill_layer_params(self, headers, layer):
-        headers[f'avg_v{layer+1}'] = (headers[f'source_v{layer+1}'] + headers[f'rec_v{layer+1}']) / 2
+        headers[f'v{layer+1}_avg'] = (headers[f'v{layer+1}_source'] + headers[f'v{layer+1}_rec']) / 2
         offsets = headers["offset"]
-        headers['y'] = headers[self.first_breaks_col] - offsets / headers[f'avg_v{layer+1}']
+        headers['y'] = headers[self.first_breaks_col] - offsets / headers[f'v{layer+1}_avg']
         # Drop traces with y < 0 since this cannot happend in real world
         headers = headers[headers['y'] > 0]
         return headers
@@ -114,16 +115,20 @@ class StaticCorrection:
     def _get_sparse_coefs(self, name, headers, layer, to):
         cols = self._get_cols(name)
         uniques, index, inverse = np.unique(headers[cols], axis=0, return_index=True, return_inverse=True)
+        #TODO: rewrite!
         if to == 'depth':
-            wv_params = headers.iloc[index][[name+f'_v{layer}', name+f'_v{layer+1}', f'avg_v{layer+1}']].values.T
+            wv_params = headers[[f'v{layer}_{name}', f'v{layer+1}_{name}', f'v{layer+1}_avg']].values.T
             coefs = calculate_depth_coefs(*wv_params)
+            eye = sparse.eye((len(uniques)), format='csc')[inverse]
+            matrix = eye.multiply(coefs.reshape(-1, 1)).tocsc()
         elif to == 'vel':
-            coefs = getattr(self, f"{name}_params").loc[list(map(tuple, uniques))]["depth_1"].values
+            coefs = headers.iloc[index][f'depth_{layer}_{name}'].values
+            eye = sparse.eye((len(uniques)), format='csc')
+            matrix = eye.multiply(coefs).tocsc()[inverse]
         else:
             raise ValueError('!!!')
 
-        eye = sparse.eye((len(uniques)), format='csc')
-        return eye.multiply(coefs).tocsc()[inverse], uniques, index
+        return matrix, uniques, index
 
     def _get_depths(self, results, unique_sources):
         sources_depth = results[:len(unique_sources)].reshape(-1, 1)
@@ -131,15 +136,14 @@ class StaticCorrection:
         return [sources_depth, recs_depth]
 
     def _calculate_velocities(self, result, headers, ix_sources, ix_recs, max_wv=None):
-        max_wv = np.min(headers[["source_v2", "rec_v2"]].min()) if max_wv is None else max_wv
-        v2 = headers.iloc[ix_sources]["source_v2"].tolist() + headers.iloc[ix_recs]["rec_v2"].tolist()
-        avg_v2 = headers.iloc[ix_sources]["avg_v2"].tolist() + headers.iloc[ix_recs]["avg_v2"].tolist()
+        max_wv = np.min(headers[["v2_source", "v2_rec"]].min()) if max_wv is None else max_wv
+        v2 = headers.iloc[ix_sources]["v2_source"].tolist() + headers.iloc[ix_recs]["v2_rec"].tolist()
+        avg_v2 = headers.iloc[ix_sources]["v2_avg"].tolist() + headers.iloc[ix_recs]["v2_avg"].tolist()
         # What velocity to choose x1 or x2? min?
         x1, _ = calculate_velocities(np.array(v2), np.array(avg_v2), result, max_wv)
         sources = x1[: len(ix_sources)].reshape(-1, 1)
         recs = x1[len(ix_sources): ].reshape(-1, 1)
         return [sources, recs]
-
 
     ### dump ###
     # Raw dumps, just to be able to somehow save results
