@@ -134,7 +134,6 @@ def calculate_basis_polynomials(x_new, x, n):
     times = (times + x.max() * div) * sign
 
     for i, (time, it) in enumerate(zip(times, x_new)):
-
         for k in range(N):
             for j in range(N):
                 if k != j:
