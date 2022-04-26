@@ -112,7 +112,7 @@ def calculate_basis_polynomials(x_new, x, n):
     N = n + 1
     polynomials = np.ones((len(x_new), N))
 
-    # For given point, n + 1 neighbor samples are required to construct polynomial, find the index of leftmsot one
+    # For given point, n + 1 neighbor samples are required to construct polynomial, find the index of the leftmost one
     if N % 2 == 1:
         leftmost_indices = np.rint(_times_to_indices(x_new , x, False)) - N // 2
     else:
@@ -129,7 +129,7 @@ def calculate_basis_polynomials(x_new, x, n):
     for i, ind in enumerate(indices):
         times[i] = x[ind]
 
-    # Redflect times accordingly
+    # Reflect times accordingly
     times = np.where(div % 2, x.max() - times,  times)
     times = (times + x.max() * div) * sign
 
@@ -150,12 +150,13 @@ def piecewise_polynomial(x_new, x, y, n):
     y = np.atleast_2d(y)
     res = np.zeros((len(y), len(x_new)), dtype=y.dtype)
 
-    # calculate Lagrange basis polynomials only once: they are the same at given position for all the traces
+    # Calculate values of Lagrange basis polynomials only once: they are the same at given position for all the traces
     polynomials, indices = calculate_basis_polynomials(x_new, x, n)
 
     for j in prange(len(y)):  # pylint: disable=not-an-iterable
         for i, ix in enumerate(indices):
-            # interpolate at given point: multiply base polynomials and correspondoing function values and sum
+            # Interpolate function at given point by calculating dot product between values of Lagrange polynomials and
+            # function values at the reference samples
             for p in range(n + 1):
                 res[j, i] += polynomials[i, p] * y[j, ix[p]]
 

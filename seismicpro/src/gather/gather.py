@@ -1080,8 +1080,8 @@ class Gather:
     def resample(self, new_sample_rate, kind=3, anti_aliasing=True):
         """ Changes the sample rate of the traces in the gather.
         This implies increasing or decreasing the number of samples in the trace.
-        In case new sample rate is greater that the current one, the anti aliasing filter is used
-        to preserve freequency spectrum.
+        In case new sample rate is greater than the current one, the anti aliasing filter is used
+        to avoid freequency aliasing.
 
         Parameters
         ----------
@@ -1092,7 +1092,7 @@ class Gather:
             In case int, use piecewise polynomial interpolation with degree `kind`.
             In case str, deligate interpolation to scipy.interp1d.
         anti_aliasing : bool, defaults to True
-            Whether to apply anti-aliasing filter or not. Actual in case sample rate increases
+            Whether to apply anti-aliasing filter or not. Ignored in case of upsampling.
 
         Returns
         -------
@@ -1101,8 +1101,7 @@ class Gather:
         """
         current_sample_rate = self.sample_rate
 
-        # in case new sample rate becomes more, i.e. performing downsample,
-        # anti-aliasing filter is applied to preserve signal frequencies
+        # Anti-aliasing filter is optionally applied during downsampling to avoid frequency aliasing
         if new_sample_rate > current_sample_rate and anti_aliasing:
             # Smoothly attenuate frequencies starting from 0.8 of the new Nyquist frequency so that all frequencies
             # above are zeroed out
