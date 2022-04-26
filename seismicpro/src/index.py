@@ -37,9 +37,9 @@ class IndexPart(GatherContainer):
         return sorted(self.surveys_dict.keys())
 
     @classmethod
-    def from_attributes(cls, headers, surveys_dict, common_headers):
+    def from_attributes(cls, headers, surveys_dict, common_headers, copy_headers=False):
         part = cls()
-        part.headers = headers
+        part.headers = headers.copy(copy_headers)
         part.common_headers = common_headers
         part.surveys_dict = surveys_dict
         return part
@@ -58,11 +58,13 @@ class IndexPart(GatherContainer):
         return part
 
     @staticmethod
-    def _filter_equal(df, cols):
-        if not cols:
-            return df
-        drop_cols = np.column_stack([np.ptp(df.loc[:, (slice(None), col)], axis=1).astype(np.bool_) for col in cols])
-        return df.loc[~np.any(drop_cols, axis=1)]
+    def _filter_equal(headers, header_cols):
+        """Keep only those rows of `headers` where values of given headers are equal for each survey."""
+        if not header_cols:
+            return headers
+        drop_mask = np.column_stack([np.ptp(headers.loc[:, (slice(None), col)], axis=1).astype(np.bool_)
+                                     for col in header_cols])
+        return headers.loc[~np.any(drop_mask, axis=1)]
 
     def merge(self, other, on=None, validate_unique=True, copy_headers=False):
         self_indexed_by = set(to_list(self.indexed_by))
@@ -179,8 +181,7 @@ def delegate_to_parts(*methods):
                 self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
                 for part in self.parts:
                     getattr(part, method)(*args, inplace=True, **kwargs)
-                # Set _index explicitly since already created index is modified
-                self._index = tuple(part.indices for part in self.parts)  # pylint: disable=protected-access
+                # Explicitly reset iter since index parts were modified
                 self.reset("iter")
 
                 if recursive:
