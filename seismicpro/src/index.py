@@ -64,7 +64,7 @@ class IndexPart(GatherContainer):
         drop_cols = np.column_stack([np.ptp(df.loc[:, (slice(None), col)], axis=1).astype(np.bool_) for col in cols])
         return df.loc[~np.any(drop_cols, axis=1)]
 
-    def merge(self, other, on=None, validate_unique=True):
+    def merge(self, other, on=None, validate_unique=True, copy_headers=False):
         self_indexed_by = set(to_list(self.indexed_by))
         other_indexed_by = set(to_list(other.indexed_by))
         if self_indexed_by != other_indexed_by:
@@ -91,8 +91,8 @@ class IndexPart(GatherContainer):
         right_on = to_list(other.indexed_by) + [(right_survey_name, header) for header in merge_on]
 
         validate = "1:1" if validate_unique else "m:m"
-        headers = pd.merge(left_df, right_df, how="inner", left_on=left_on, right_on=right_on, copy=True, sort=False,
-                           validate=validate)
+        headers = pd.merge(left_df, right_df, how="inner", left_on=left_on, right_on=right_on, copy=copy_headers,
+                           sort=False, validate=validate)
 
         # Recalculate common headers in the merged DataFrame
         common_headers = on | {header for header in headers_to_check
@@ -244,12 +244,15 @@ class SeismicIndex(DatasetIndex):
     ----------
     parts : tuple of IndexPart
         Parts of the constructed index.
-    index : tuple of pd.Index
-        Unique identifiers of seismic gathers in each part of the index.
     """
     def __init__(self, *args, mode=None, copy_headers=False, **kwargs):
         self.parts = tuple()
         super().__init__(*args, mode=mode, copy_headers=copy_headers, **kwargs)
+
+    @property
+    def index(self):
+        """tuple of pd.Index: Unique identifiers of seismic gathers in each part of the index."""
+        return tuple(part.indices for part in self.parts)
 
     @property
     def n_parts(self):
@@ -297,6 +300,7 @@ class SeismicIndex(DatasetIndex):
 
     @property
     def splits(self):
+        """dict: A mapping from a name of non-empty train/test/validation split to its `SeismicIndex`."""
         return {split_name: getattr(self, split_name) for split_name in ("train", "test", "validation")
                                                       if getattr(self, split_name) is not None}
 
@@ -347,6 +351,32 @@ class SeismicIndex(DatasetIndex):
     #                         Index creation methods                         #
     #------------------------------------------------------------------------#
 
+    def build_index(self, *args, mode=None, copy_headers=False, **kwargs):
+        # Create an empty index if no args are given
+        if not args:
+            return
+
+        if mode is None:
+            if len(args) > 1:
+                raise ValueError("mode must be passed if several positional arguments are given")
+            mode = "c"
+
+        builders_dict = {
+            "m": self.merge,
+            "merge": self.merge,
+            "c": self.concat,
+            "concat": self.concat,
+        }
+        if mode not in builders_dict:
+            raise ValueError(f"Unknown mode {mode}")
+
+        # Convert all args to SeismicIndex and combine them into a single index
+        args_indices = self._args_to_indices(*args, copy_headers=False)
+        index = builders_dict[mode](*args_indices, copy_headers=copy_headers, **kwargs)
+
+        # Copy parts from the created index to self
+        self.parts = index.parts
+
     @classmethod
     def _args_to_indices(cls, *args, copy_headers=False):
         indices = []
@@ -363,36 +393,10 @@ class SeismicIndex(DatasetIndex):
         return indices
 
     @classmethod
-    def _combine_indices(cls, *indices, mode=None, **kwargs):
-        builders_dict = {
-            "m": cls.merge,
-            "merge": cls.merge,
-            "c": partial(cls.concat, copy_headers=False),
-            "concat": partial(cls.concat, copy_headers=False),
-        }
-        if mode not in builders_dict:
-            raise ValueError(f"Unknown mode {mode}")
-        return builders_dict[mode](*indices, **kwargs)
-
-    def build_index(self, *args, mode=None, copy_headers=False, **kwargs):
-        # Create an empty index if no args are given
-        if not args:
-            return tuple()
-
-        # Don't copy headers if args are merged since pandas.merge will return a copy further
-        if mode in {"m", "merge"}:
-            copy_headers = False
-
-        # Convert all args to SeismicIndex and combine them into a single index
-        args = self._args_to_indices(*args, copy_headers=copy_headers)
-        index = args[0] if len(args) == 1 else self._combine_indices(*args, mode=mode, **kwargs)
-
-        # Copy parts from the created index to self and return gather indices for each part
-        self.parts = index.parts
-        return index.index
-
-    @classmethod
     def from_parts(cls, *parts, copy_headers=False):
+        if not parts:
+            return cls()
+
         survey_names = parts[0].survey_names
         if any(survey_names != part.survey_names for part in parts[1:]):
             raise ValueError("Only parts with the same survey names can be concatenated into one index")
@@ -402,11 +406,10 @@ class SeismicIndex(DatasetIndex):
             raise ValueError("All parts must be indexed by the same columns")
 
         if copy_headers:
-            parts = [part.copy() for part in parts]
+            parts = tuple(part.copy() for part in parts)
 
         index = cls()
         index.parts = parts
-        index._index = tuple(part.indices for part in parts)
         index.reset("iter")
         return index
 
@@ -422,17 +425,18 @@ class SeismicIndex(DatasetIndex):
 
     @classmethod
     def concat(cls, *args, copy_headers=False):
-        indices = cls._args_to_indices(*args, copy_headers=copy_headers)
-        parts = sum([index.parts for index in indices], tuple())
+        args_indices = cls._args_to_indices(*args, copy_headers=copy_headers)
+        parts = sum([arg.parts for arg in args_indices], tuple())
         return cls.from_parts(*parts, copy_headers=False)
 
     @classmethod
-    def merge(cls, *args, **kwargs):
-        indices = cls._args_to_indices(*args, copy_headers=False)
-        if len({ix.n_parts for ix in indices}) != 1:
+    def merge(cls, *args, copy_headers=False, **kwargs):
+        args_indices = cls._args_to_indices(*args, copy_headers=False)
+        if len({arg.n_parts for arg in args_indices}) != 1:
             raise ValueError("All indices being merged must have the same number of parts")
-        ix_parts = [ix.parts for ix in indices]
-        merged_parts = [reduce(lambda x, y: x.merge(y, **kwargs), parts) for parts in zip(*ix_parts)]
+        args_parts = [arg.parts for arg in args_indices]
+        merged_parts = [reduce(lambda x, y: x.merge(y, **kwargs, copy_headers=copy_headers), parts)
+                        for parts in zip(*args_parts)]
 
         # Warn if the whole index or some of its parts are empty
         empty_parts = [i for i, part in enumerate(merged_parts) if not part]
