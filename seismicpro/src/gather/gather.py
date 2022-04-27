@@ -1039,11 +1039,11 @@ class Gather:
 
         Examples
         --------
-        Apply highpass filter: remove all the freequencies bellow 30.
+        Apply highpass filter: remove all the freequencies bellow 30 Hz.
         >>> gather.bandpass_filter(low=30)
-        Apply bandpass filter: remain  freequencies inside [30, 100] range.
+        Apply bandpass filter: keep freequencies within [30, 100] Hz range.
         >>> gather.bandpass_filter(low=30, high=100)
-        Apply lowpass filter,  remove all the freequencies above 100.
+        Apply lowpass filter, remove all the freequencies above 100 Hz.
         >>> gather.bandpass_filter(high=100)
 
         Notes
@@ -1089,8 +1089,7 @@ class Gather:
             New sample rate
         kind : int or str, defaults to 3
             The interpolation method to use.
-            In case int, use piecewise polynomial interpolation with degree `kind`.
-            In case str, deligate interpolation to scipy.interp1d.
+            If int, use piecewise polynomial interpolation with degree `kind`; if str, deligate interpolation to scipy.interp1d with mode `kind`.
         anti_aliasing : bool, defaults to True
             Whether to apply anti-aliasing filter or not. Ignored in case of upsampling.
 
