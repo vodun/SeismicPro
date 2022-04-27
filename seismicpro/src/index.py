@@ -2,7 +2,7 @@
 
 import os
 import warnings
-from functools import reduce
+from functools import wraps, reduce
 from textwrap import indent, dedent
 
 import numpy as np
@@ -15,6 +15,9 @@ from ..batchflow import DatasetIndex
 
 
 class IndexPart(GatherContainer):
+    """A class that represents a part of `SeismicIndex` which contains trace headers of several surveys being merged
+    together."""
+
     def __init__(self):
         self._headers = None
         self._indexer = None
@@ -22,11 +25,13 @@ class IndexPart(GatherContainer):
         self.surveys_dict = {}
 
     def __getitem__(self, key):
+        """Select values of headers by their names."""
         if isinstance(key, tuple):
             key = [key]
         return super().__getitem__(key)
 
     def __setitem__(self, key, value):
+        """Set given values to selected headers."""
         if isinstance(key, tuple):
             key = [key]
         return super().__setitem__(key, value)
@@ -38,6 +43,7 @@ class IndexPart(GatherContainer):
 
     @classmethod
     def from_attributes(cls, headers, surveys_dict, common_headers, copy_headers=False):
+        """Create a new index part from its attributes."""
         part = cls()
         part.headers = headers.copy(copy_headers)
         part.common_headers = common_headers
@@ -46,6 +52,10 @@ class IndexPart(GatherContainer):
 
     @classmethod
     def from_survey(cls, survey, copy_headers=False):
+        """Construct an index part from a single survey."""
+        if not isinstance(survey, Survey):
+            raise ValueError("survey must be an instance of Survey")
+
         headers = survey.headers.copy(copy_headers)
         common_headers = set(headers.columns)
         headers.columns = pd.MultiIndex.from_product([[survey.name], headers.columns])
@@ -67,6 +77,7 @@ class IndexPart(GatherContainer):
         return headers.loc[~np.any(drop_mask, axis=1)]
 
     def merge(self, other, on=None, validate_unique=True, copy_headers=False):
+        """Create a new `IndexPart` by merging trace headers of `self` and `other`."""
         self_indexed_by = set(to_list(self.indexed_by))
         other_indexed_by = set(to_list(other.indexed_by))
         if self_indexed_by != other_indexed_by:
@@ -102,13 +113,17 @@ class IndexPart(GatherContainer):
         return self.from_attributes(headers, {**self.surveys_dict, **other.surveys_dict}, common_headers)
 
     def create_subset(self, indices):
+        """Return a new `IndexPart` based on a subset of its indices given."""
         subset_headers = self.get_headers_by_indices(indices)
         return self.from_attributes(subset_headers, self.surveys_dict, self.common_headers)
 
     def copy(self, ignore=None):
+        """Perform a deepcopy of all part attributes except for `surveys_dict`, `_indexer` and those specified in
+        ignore, which are kept unchanged."""
         ignore = set() if ignore is None else set(to_list(ignore))
         return super().copy(ignore | {"surveys_dict"})
 
+    @wraps(GatherContainer.reindex)
     def reindex(self, new_index, inplace=False):
         old_index = to_list(self.indexed_by)
         new_index = to_list(new_index)
@@ -135,6 +150,7 @@ class IndexPart(GatherContainer):
         self.common_headers = (self.common_headers - new_index_diff) | old_index_diff
         return self
 
+    @wraps(GatherContainer.filter)
     def filter(self, cond, cols, axis=None, unpack_args=False, inplace=False, **kwargs):
         cols = to_list(cols)
         survey_names = self.survey_names
@@ -149,6 +165,7 @@ class IndexPart(GatherContainer):
             super().filter(cond, cols=sur_cols, axis=axis, unpack_args=unpack_args, inplace=True, **kwargs)
         return self
 
+    @wraps(GatherContainer.apply)
     def apply(self, func, cols, res_cols=None, axis=None, unpack_args=False, inplace=False, **kwargs):
         cols = to_list(cols)
         res_cols = cols if res_cols is None else to_list(res_cols)
