@@ -593,8 +593,9 @@ class SeismicIndex(DatasetIndex):
             An index of the gather to load. Must be one of `self.indices`.
         part : int
             Index part to get the gather from. May be omitted if index concatenation was not performed.
-        survey_name : str
-            Survey name to get the gather from. May be omitted if index merging was not performed.
+        survey_name : str or list of str
+            Survey name to get the gather from. If several names are given, a list of gathers from corresponding
+            surveys is returned. May be omitted if index merging was not performed.
         limits : int or tuple or slice or None, optional
             Time range for trace loading. `int` or `tuple` are used as arguments to init a `slice` object. If not
             given, `limits` passed to the corresponding `Survey.__init__` are used. Measured in samples.
@@ -603,8 +604,8 @@ class SeismicIndex(DatasetIndex):
 
         Returns
         -------
-        gather : Gather
-            Loaded gather instance.
+        gather : Gather or list of Gather
+            Loaded gather instance. List of gathers is returned if several survey names was passed.
         """
         if part is None and self.n_parts > 1:
             raise ValueError("part must be specified if the index is concatenated")
@@ -616,12 +617,20 @@ class SeismicIndex(DatasetIndex):
             raise ValueError("survey_name must be specified if the index is merged")
         if survey_name is None:
             survey_name = self.survey_names[0]
-        survey = index_part.surveys_dict[survey_name]
+
+        is_single_gather = isinstance(survey_name, str)
+        survey_names = to_list(survey_name)
+        surveys = [index_part.surveys_dict[name] for name in survey_names]
 
         index_headers = index_part.get_headers_by_indices((index,))
-        # Handle the case when no headers were loaded for a survey
-        gather_headers = index_headers.get(survey_name, index_headers[[]])
-        return survey.load_gather(headers=gather_headers, limits=limits, copy_headers=copy_headers)
+        empty_headers = index_headers[[]]  # Handle the case when no headers were loaded for a survey
+        gather_headers = [index_headers.get(name, empty_headers) for name in survey_names]
+
+        gathers = [survey.load_gather(headers=headers, limits=limits, copy_headers=copy_headers)
+                   for survey, headers in zip(surveys, gather_headers)]
+        if is_single_gather:
+            return gathers[0]
+        return gathers
 
     def sample_gather(self, part=None, survey_name=None, limits=None, copy_headers=False):
         """Load a random gather from the index.
@@ -631,7 +640,8 @@ class SeismicIndex(DatasetIndex):
         part : int
             Index part to sample the gather from. Chosen randomly if not given.
         survey_name : str
-            Survey name to sample the gather from. Chosen randomly if not given.
+            Survey name to sample the gather from. If several names are given, a list of gathers from corresponding
+            surveys is returned. Chosen randomly if not given.
         limits : int or tuple or slice or None, optional
             Time range for trace loading. `int` or `tuple` are used as arguments to init a `slice` object. If not
             given, `limits` passed to the corresponding `Survey.__init__` are used. Measured in samples.
@@ -640,8 +650,8 @@ class SeismicIndex(DatasetIndex):
 
         Returns
         -------
-        gather : Gather
-            Loaded gather instance.
+        gather : Gather or list of Gather
+            Loaded gather instance. List of gathers is returned if several survey names was passed.
         """
         if part is None:
             part_weights = np.array(self.n_gathers_by_part) / self.n_gathers
