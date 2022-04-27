@@ -20,7 +20,7 @@ from ..utils import (to_list, get_cols, validate_cols_exist, get_coords_cols, se
 from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, VelocityCube
 from ..decorators import batch_method, plotter
-from ..const import HDR_FIRST_BREAK, DEFAULT_STACKING_VELOCITY
+from ..const import HDR_FIRST_BREAK, DEFAULT_VELOCITY
 
 
 class Gather:
@@ -1030,25 +1030,21 @@ class Gather:
 
     @batch_method(target="for")
     def apply_agc(self, window_size=250, mode='rms'):
-        """ Apply automatic gain control.
-
-        Notes
-        -----
-        This type of gain amplification is irreversible.
+        """Calculate instantaneous of RMS amplitude AGC coefficients and apply them to gather data.
 
         Parameters
         ----------
-        factor: numeric
-            Desired RMS amplitude level in the resulting gather.
-        window_size: int
-            Size of the window to calculate scaling coefficient in.
-        mode: str
-
+        window_size : int
+            Window size to calculate AGC scaling coefficient in, measured in samples. Defaults to 125.
+        mode : str
+            Mode for AGC: if 'rms', root mean squared value of non-zero amplitudes in the given window is used as scaling
+            coefficient(RMS amplitude AGC), if 'abs' - mean of absolute non-zero amplitudes (instantaneous AGC).
+            Defaults to 'rms'.
 
         Returns
         -------
         self : Gather
-            Gather with modified data.
+            Gather with AGC applied to its data.
         """
         # Cast window from ms to samples
         window_size_samples = int(window_size / self.sample_rate)
@@ -1063,9 +1059,31 @@ class Gather:
 
     @batch_method(target="for")
     def apply_sdc(self, velocity=None, v_pow=2, t_pow=1):
-        """ TODO """
+        """Calculate spherical divergence correction coefficients and apply them to gather data.
+
+        SDC coefficients are a function of time and velocity:
+        .. math::
+            g(t) ~ velocity^{v_{pow}} * time^{t_{pow}}
+
+        where times correspond to self.times.
+
+        Parameters
+        ----------
+        velocities: StackingVelocity or None.
+            StackingVelocity that is used to obtain velocities at self.times, measured in meters / second.
+            If None, default StackingVelocity object is used.
+        v_pow : float
+            Velocity power value.
+        t_pow: float
+            Time power value.
+
+        Returns
+        -------
+        self : Gather
+            Gather with applied SDC.
+        """
         if velocity is None:
-            velocity = DEFAULT_STACKING_VELOCITY
+            velocity = DEFAULT_VELOCITY
         if not isinstance(velocity, StackingVelocity):
             raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
         self.data = gain.apply_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
@@ -1073,9 +1091,30 @@ class Gather:
 
     @batch_method(target="for")
     def undo_sdc(self, velocity=None, v_pow=2, t_pow=1):
-        """ TODO """
+        """Calculate spherical divergence correction coefficients and use them to undo previously applied SDC.
+
+        SDC coefficients are a function of time and velocity:
+        .. math::
+            g(t) ~ velocity^{v_{pow}} * time^{t_{pow}}
+
+        where times correspond to self.times.
+
+        Parameters
+        ----------
+        velocities: 1d np.ndarray
+            Array of RMS velocities at provided `times`, measured in meters / second.
+        v_pow : float
+            Velocity power value.
+        t_pow: float
+            Time power value.
+
+        Returns
+        -------
+        self : Gather
+            Gather without SDC.
+        """
         if velocity is None:
-            velocity = DEFAULT_STACKING_VELOCITY
+            velocity = DEFAULT_VELOCITY
         if not isinstance(velocity, StackingVelocity):
             raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
         self.data = gain.undo_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
