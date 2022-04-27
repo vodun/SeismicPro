@@ -1089,7 +1089,8 @@ class Gather:
             New sample rate
         kind : int or str, defaults to 3
             The interpolation method to use.
-            If int, use piecewise polynomial interpolation with degree `kind`; if str, deligate interpolation to scipy.interp1d with mode `kind`.
+            If int, use piecewise polynomial interpolation with degree `kind`;
+            if str, deligate interpolation to scipy.interp1d with mode `kind`.
         anti_aliasing : bool, defaults to True
             Whether to apply anti-aliasing filter or not. Ignored in case of upsampling.
 

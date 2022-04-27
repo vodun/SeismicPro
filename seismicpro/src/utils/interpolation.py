@@ -144,7 +144,7 @@ def calculate_basis_polynomials(x_new, x, n):
 
 @njit(nogil=True, parallel=True)
 def piecewise_polynomial(x_new, x, y, n):
-    """" Perform piecewise polynomial (with degree n) interpolation ."""
+    """" Perform piecewise polynomial (with degree n) interpolation . Note, x is expected to be sorted. """
     is_1d = (y.ndim == 1)
     y = np.atleast_2d(y)
     res = np.zeros((len(y), len(x_new)), dtype=y.dtype)
