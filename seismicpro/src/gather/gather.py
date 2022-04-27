@@ -5,9 +5,12 @@ import warnings
 from copy import deepcopy
 from textwrap import dedent
 
+import cv2
+import scipy
 import segyio
 import numpy as np
 import pandas as pd
+from scipy.signal import firwin
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .muting import Muter
@@ -16,7 +19,7 @@ from .plot_corrections import NMOCorrectionPlot
 from .utils import correction, normalization, gain
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
 from ..utils import (to_list, get_cols, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
-                     set_text_formatting, add_colorbar, Coordinates)
+                     set_text_formatting, add_colorbar, piecewise_polynomial, Coordinates)
 from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, VelocityCube
 from ..decorators import batch_method, plotter
@@ -1028,6 +1031,95 @@ class Gather:
         origins = make_origins(origins, self.shape, crop_shape, n_crops, stride)
         return CroppedGather(self, origins, crop_shape, pad_mode, **kwargs)
 
+    @batch_method(target="t")
+    def bandpass_filter(self, low=None, high=None, filter_size=81, **kwargs):
+        """ Filter frequency spectrum of the gather.
+        Can act as a lowpass, bandpass or highpass filter. `low` and `high` serves as the range for
+        the remaining freequencies and can be passed either solely or together.
+
+        Examples
+        --------
+        Apply highpass filter: remove all the freequencies bellow 30 Hz.
+        >>> gather.bandpass_filter(low=30)
+        Apply bandpass filter: keep freequencies within [30, 100] Hz range.
+        >>> gather.bandpass_filter(low=30, high=100)
+        Apply lowpass filter, remove all the freequencies above 100 Hz.
+        >>> gather.bandpass_filter(high=100)
+
+        Notes
+        -----
+        Default `filter_size` is set to 81 to guarantee that transition bandwidth of the filter
+        does not exceed 10% of the Nyquist frequency for the default Hamming window.
+
+        Parameters
+        ----------
+        low : int, optional
+            Lower bound for the remaining frequencies
+        high : int, optional
+            Upper bound for the remaining frequencies
+        filter_size : int, defaults to 81
+            The length of the filter
+        kwargs : misc, optional
+            Additional keyword arguments to the `scipy.firwin`
+
+        Returns
+        -------
+        self : Gather
+            `self` with filtered freequency spectrum.
+        """
+        filter_size |= 1  # Guarantee that filter size is odd
+        pass_zero = low is None
+        cutoffs = [cutoff for cutoff in [low, high] if cutoff is not None]
+
+        # Construct the filter and flip it since opencv computes crosscorrelation instead of convolution
+        kernel = firwin(filter_size, cutoffs, pass_zero=pass_zero, fs=1000 / self.sample_rate, **kwargs)[::-1]
+        cv2.filter2D(self.data, dst=self.data, ddepth=-1, kernel=kernel.reshape(1, -1))
+        return self
+
+    @batch_method(target="f")
+    def resample(self, new_sample_rate, kind=3, anti_aliasing=True):
+        """ Changes the sample rate of the traces in the gather.
+        This implies increasing or decreasing the number of samples in the trace.
+        In case new sample rate is greater than the current one, the anti aliasing filter is used
+        to avoid freequency aliasing.
+
+        Parameters
+        ----------
+        new_sample_rate : float
+            New sample rate
+        kind : int or str, defaults to 3
+            The interpolation method to use.
+            If int, use piecewise polynomial interpolation with degree `kind`;
+            if str, deligate interpolation to scipy.interp1d with mode `kind`.
+        anti_aliasing : bool, defaults to True
+            Whether to apply anti-aliasing filter or not. Ignored in case of upsampling.
+
+        Returns
+        -------
+        self : Gather
+            `self` with new sample rate
+        """
+        current_sample_rate = self.sample_rate
+
+        # Anti-aliasing filter is optionally applied during downsampling to avoid frequency aliasing
+        if new_sample_rate > current_sample_rate and anti_aliasing:
+            # Smoothly attenuate frequencies starting from 0.8 of the new Nyquist frequency so that all frequencies
+            # above are zeroed out
+            nyquist_frequency = 1000 / (2 * new_sample_rate)
+            filter_size = int(40 * new_sample_rate / current_sample_rate)
+            self.bandpass_filter(high=0.9 * nyquist_frequency, filter_size=filter_size, window="hann")
+
+        new_samples = np.arange(self.samples[0], self.samples[-1] + 1e-6, new_sample_rate, self.samples.dtype)
+
+        if isinstance(kind, int):
+            data_resampled = piecewise_polynomial(new_samples, self.samples, self.data, kind)
+        elif isinstance(kind, str):
+            data_resampled = scipy.interpolate.interp1d(self.samples, self.data, kind=kind)(new_samples)
+
+        self.data = data_resampled
+        self.samples = new_samples
+        return self
+
     @batch_method(target="for")
     def apply_agc(self, window_size=250, mode='rms'):
         """Calculate instantaneous of RMS amplitude AGC coefficients and apply them to gather data.
@@ -1037,8 +1129,9 @@ class Gather:
         window_size : int
             Window size to calculate AGC scaling coefficient in, measured in samples. Defaults to 125.
         mode : str
-            Mode for AGC: if 'rms', root mean squared value of non-zero amplitudes in the given window is used as scaling
-            coefficient(RMS amplitude AGC), if 'abs' - mean of absolute non-zero amplitudes (instantaneous AGC).
+            Mode for AGC: if 'rms', root mean squared value of non-zero amplitudes in the given window
+            is used as scaling coefficient(RMS amplitude AGC), if 'abs' - mean of absolute non-zero
+            amplitudes (instantaneous AGC).
             Defaults to 'rms'.
 
         Returns
@@ -1061,11 +1154,9 @@ class Gather:
     def apply_sdc(self, velocity=None, v_pow=2, t_pow=1):
         """Calculate spherical divergence correction coefficients and apply them to gather data.
 
-        SDC coefficients are a function of time and velocity:
-        .. math::
-            g(t) ~ velocity^{v_{pow}} * time^{t_{pow}}
-
-        where times correspond to self.times.
+        Notes
+        -----
+        SDC coefficients are a function of time and velocity, so self.times are used as time values.
 
         Parameters
         ----------
@@ -1093,11 +1184,9 @@ class Gather:
     def undo_sdc(self, velocity=None, v_pow=2, t_pow=1):
         """Calculate spherical divergence correction coefficients and use them to undo previously applied SDC.
 
-        SDC coefficients are a function of time and velocity:
-        .. math::
-            g(t) ~ velocity^{v_{pow}} * time^{t_{pow}}
-
-        where times correspond to self.times.
+        Notes
+        -----
+        SDC coefficients are a function of time and velocity, so self.times are used as time values.
 
         Parameters
         ----------
