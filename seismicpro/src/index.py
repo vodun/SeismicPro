@@ -2,8 +2,8 @@
 
 import os
 import warnings
+from functools import reduce
 from textwrap import indent, dedent
-from functools import partial, reduce
 
 import numpy as np
 import pandas as pd
@@ -426,9 +426,9 @@ class SeismicIndex(DatasetIndex):
 
     @classmethod
     def concat(cls, *args, copy_headers=False):
-        args_indices = cls._args_to_indices(*args, copy_headers=copy_headers)
+        args_indices = cls._args_to_indices(*args, copy_headers=False)
         parts = sum([arg.parts for arg in args_indices], tuple())
-        return cls.from_parts(*parts, copy_headers=False)
+        return cls.from_parts(*parts, copy_headers=copy_headers)
 
     @classmethod
     def merge(cls, *args, copy_headers=False, **kwargs):
