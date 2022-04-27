@@ -380,6 +380,7 @@ class SeismicIndex(DatasetIndex):
     #------------------------------------------------------------------------#
 
     def build_index(self, *args, mode=None, copy_headers=False, **kwargs):
+        """Build an index from `args` as described in :class:`~SeismicIndex` docs."""
         # Create an empty index if no args are given
         if not args:
             return
@@ -407,6 +408,7 @@ class SeismicIndex(DatasetIndex):
 
     @classmethod
     def _args_to_indices(cls, *args, copy_headers=False):
+        """Independently convert each positional argument to a `SeismicIndex`."""
         indices = []
         for arg in args:
             if isinstance(arg, Survey):
@@ -422,8 +424,25 @@ class SeismicIndex(DatasetIndex):
 
     @classmethod
     def from_parts(cls, *parts, copy_headers=False):
+        """Construct an index from its parts.
+
+        Parameters
+        ----------
+        parts : tuple of IndexPart
+            Index parts to convert to an index.
+        copy_headers : bool, optional, defaults to False
+            Whether to copy `headers` of parts.
+
+        Returns
+        -------
+        index : SeismicIndex
+            Constructed index.
+        """
         if not parts:
             return cls()
+
+        if not all(isinstance(part, IndexPart) for part in parts):
+            raise ValueError("All parts must be instances of IndexPart")
 
         survey_names = parts[0].survey_names
         if any(survey_names != part.survey_names for part in parts[1:]):
@@ -443,27 +462,105 @@ class SeismicIndex(DatasetIndex):
 
     @classmethod
     def from_survey(cls, survey, copy_headers=False):
+        """Construct an index from a single survey.
+
+        Parameters
+        ----------
+        survey : Survey
+            A survey used to build an index.
+        copy_headers : bool, optional, defaults to False
+            Whether to copy survey `headers`.
+
+        Returns
+        -------
+        index : SeismicIndex
+            Constructed index.
+        """
         return cls.from_parts(IndexPart.from_survey(survey, copy_headers=copy_headers))
 
     @classmethod
     def from_index(cls, index, copy_headers=False):
+        """Construct an index from an already created `SeismicIndex`. Leaves it unchanged if `copy_headers` is `False`,
+        returns a copy otherwise.
+
+        Parameters
+        ----------
+        index : SeismicIndex
+            Input index.
+        copy_headers : bool, optional, defaults to False
+            Whether to copy index `headers`.
+
+        Returns
+        -------
+        index : SeismicIndex
+            Constructed index.
+        """
+        if not isinstance(index, SeismicIndex):
+            raise ValueError("index must be an instance of SeismicIndex")
         if copy_headers:
             return index.copy()
         return index
 
     @classmethod
     def concat(cls, *args, copy_headers=False):
+        """Concatenate `args` into a single index.
+
+        Each positional argument must be an instance of `Survey`, `IndexPart` or `SeismicIndex`. All of them must be
+        indexed by the same headers. Underlying surveys of different arguments must have same `name`s.
+
+        Notes
+        -----
+        A detailed description of index concatenation can be found in :class:`~SeismicIndex` docs.
+
+        Parameters
+        ----------
+        args : tuple of Survey, IndexPart or SeismicIndex
+            Inputs to be concatenated.
+        copy_headers : bool, optional, defaults to False
+            Whether to copy `headers` of `args`.
+
+        Returns
+        -------
+        index : SeismicIndex
+            Concatenated index.
+        """
         args_indices = cls._args_to_indices(*args, copy_headers=False)
         parts = sum([arg.parts for arg in args_indices], tuple())
         return cls.from_parts(*parts, copy_headers=copy_headers)
 
     @classmethod
-    def merge(cls, *args, copy_headers=False, **kwargs):
+    def merge(cls, *args, on=None, validate_unique=True, copy_headers=False):
+        """Merge `args` into a single index.
+
+        Each positional argument must be an instance of `Survey`, `IndexPart` or `SeismicIndex`. All of them must be
+        indexed by the same headers. Underlying surveys of different arguments must have different `name`s.
+
+        Notes
+        -----
+        A detailed description of index merging can be found in :class:`~SeismicIndex` docs.
+
+        Parameters
+        ----------
+        args : tuple of Survey, IndexPart or SeismicIndex
+            Inputs to be merged.
+        on : str or list of str, optional
+            Headers to be used as join keys. If not given, all common headers are used except for `TRACE_SEQUENCE_FILE`
+            unless it is used to index `args`.
+        validate_unique : bool, optional, defaults to True
+            Check if merge keys are unique in all input `args`.
+        copy_headers : bool, optional, defaults to False
+            Whether to copy `headers` of `args`.
+
+        Returns
+        -------
+        index : SeismicIndex
+            Merged index.
+        """
         args_indices = cls._args_to_indices(*args, copy_headers=False)
         if len({arg.n_parts for arg in args_indices}) != 1:
             raise ValueError("All indices being merged must have the same number of parts")
         args_parts = [arg.parts for arg in args_indices]
-        merged_parts = [reduce(lambda x, y: x.merge(y, **kwargs, copy_headers=copy_headers), parts)
+        merged_parts = [reduce(lambda x, y: x.merge(y, on, validate_unique, copy_headers), parts)
                         for parts in zip(*args_parts)]
 
         # Warn if the whole index or some of its parts are empty
