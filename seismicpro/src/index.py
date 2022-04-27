@@ -585,6 +585,27 @@ class SeismicIndex(DatasetIndex):
     #------------------------------------------------------------------------#
 
     def get_gather(self, index, part=None, survey_name=None, limits=None, copy_headers=False):
+        """Load a gather with given `index`.
+
+        Parameters
+        ----------
+        index : int or 1d array-like
+            An index of the gather to load. Must be one of `self.indices`.
+        part : int
+            Index part to get the gather from. May be omitted if index concatenation was not performed.
+        survey_name : str
+            Survey name to get the gather from. May be omitted if index merging was not performed.
+        limits : int or tuple or slice or None, optional
+            Time range for trace loading. `int` or `tuple` are used as arguments to init a `slice` object. If not
+            given, `limits` passed to the corresponding `Survey.__init__` are used. Measured in samples.
+        copy_headers : bool, optional, defaults to False
+            Whether to copy the subset of index `headers` describing the gather.
+
+        Returns
+        -------
+        gather : Gather
+            Loaded gather instance.
+        """
         if part is None and self.n_parts > 1:
             raise ValueError("part must be specified if the index is concatenated")
         if part is None:
@@ -603,6 +624,25 @@ class SeismicIndex(DatasetIndex):
         return survey.load_gather(headers=gather_headers, limits=limits, copy_headers=copy_headers)
 
     def sample_gather(self, part=None, survey_name=None, limits=None, copy_headers=False):
+        """Load a random gather from the index.
+
+        Parameters
+        ----------
+        part : int
+            Index part to sample the gather from. Chosen randomly if not given.
+        survey_name : str
+            Survey name to sample the gather from. Chosen randomly if not given.
+        limits : int or tuple or slice or None, optional
+            Time range for trace loading. `int` or `tuple` are used as arguments to init a `slice` object. If not
+            given, `limits` passed to the corresponding `Survey.__init__` are used. Measured in samples.
+        copy_headers : bool, optional, defaults to False
+            Whether to copy the subset of index `headers` describing the gather.
+
+        Returns
+        -------
+        gather : Gather
+            Loaded gather instance.
+        """
         if part is None:
             part_weights = np.array(self.n_gathers_by_part) / self.n_gathers
             part = np.random.choice(self.n_parts, p=part_weights)
