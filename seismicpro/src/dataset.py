@@ -11,7 +11,8 @@ from ..batchflow import Dataset
 
 def delegate_constructors(*constructors):
     """Implement given `constructors` of `SeismicDataset` by calling the corresponding index constructor and then
-    turning the result into a dataset."""
+    turning the result into a dataset. In addition to all the arguments of the index method each created constructor
+    accepts `batch_class` argument with the same behavior as in `SeismicDataset.__init__`."""
     def decorator(cls):
         for constructor in constructors:
             index_constructor = getattr(cls.index_class, constructor)
@@ -24,14 +25,17 @@ def delegate_constructors(*constructors):
 
 
 def delegate_to_index(*methods):
+    """Implement given `methods` of `SeismicDataset` by calling the corresponding method of its index. Each created
+    method preserves the signature of the index method."""
     def decorator(cls):
         for method in methods:
-            def method_fn(self, *args, method=method, inplace=False, **kwargs):
-                index = getattr(self.index, method)(*args, inplace=inplace, **kwargs)
-                if not inplace:
-                    return self.from_index(index)
-                self.set_index(index)
-                return self
+            index_method = getattr(cls.index_class, method)
+            @wraps(index_method)
+            def method_fn(self, *args, index_method=index_method, inplace=False, **kwargs):
+                index = index_method(self, *args, inplace=inplace, **kwargs)
+                if inplace:
+                    return self.set_index(index)
+                return self.from_index(index)
             setattr(cls, method, method_fn)
         return cls
     return decorator
@@ -52,9 +56,12 @@ class SeismicDataset(Dataset):
     Let's consider a survey we want to process:
     >>> survey = Survey(path, header_index="FieldRecord", header_cols=["TraceNumber", "offset"], name="survey")
 
-    Dataset creation is identical to that of :class:`~index.SeismicIndex`: several surveys can be combined together
-    either by merging or concatenating. Here we create a dataset from a single survey:
+    Dataset creation is identical to that of :class:`~index.SeismicIndex`. Here we create a dataset from a single
+    survey:
     >>> dataset = SeismicDataset(survey)
+
+    Several surveys can be passed as well, in this case they will be combined together either by merging or
+    concatenating depending on the `mode` provided.
 
     After the dataset is created, a subset of gathers can be obtained via :func:`~SeismicDataset.next_batch` method:
     >>> batch = dataset.next_batch(10)
@@ -130,7 +137,7 @@ class SeismicDataset(Dataset):
 
     def set_index(self, index):
         self._index = index
-        self._iter_params = self.index._iter_params
+        self._iter_params = self.index._iter_params  # pylint: disable=protected-access
 
         # Recursively process splits
         for split_name, split in index.splits.items():
@@ -159,11 +166,11 @@ class SeismicDataset(Dataset):
             index = self.index.create_subset(index)
         return type(self)(index, batch_class=self.batch_class)
 
-    def copy(self):
-        return self.from_index(self.index.copy())
-
     @wraps(SeismicIndex.collect_stats)
     def collect_stats(self, n_quantile_traces=100000, quantile_precision=2, limits=None, bar=True):
         _ = self.index.collect_stats(n_quantile_traces=n_quantile_traces, quantile_precision=quantile_precision,
                                      limits=limits, bar=bar)
         return self
+
+    def copy(self, ignore=None):
+        return self.from_index(self.index.copy(ignore=ignore))

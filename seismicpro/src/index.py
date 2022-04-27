@@ -175,6 +175,9 @@ class IndexPart(GatherContainer):
 
 
 def delegate_to_parts(*methods):
+    """Implement given `methods` of `SeismicIndex` by calling the corresponding method of its parts. In addition to all
+    the arguments of the method of a part each created method accepts `recursive` flag which defines whether to process
+    `train`, `test` and `validation` subsets of the index in the same manner if they exist."""
     def decorator(cls):
         for method in methods:
             def method_fn(self, *args, method=method, recursive=True, inplace=False, **kwargs):
@@ -612,8 +615,9 @@ class SeismicIndex(DatasetIndex):
     #                       Index manipulation methods                       #
     #------------------------------------------------------------------------#
 
-    def copy(self):
-        self_copy = self.from_parts(*self.parts, copy_headers=True)
+    def copy(self, ignore=None):
+        parts_copy = [part.copy(ignore=ignore) for part in self.parts]
+        self_copy = self.from_parts(*parts_copy, copy_headers=False)
         for split_name, split in self.splits.items():
-            setattr(self, split_name, split.copy())
+            setattr(self_copy, split_name, split.copy())
         return self_copy
