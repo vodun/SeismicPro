@@ -205,9 +205,9 @@ class SeismicIndex(DatasetIndex):
     the same field before and after a given processing stage must be matched and compared).
 
     `SeismicIndex` consists of parts - instances of `IndexPart` class stored in `parts` attribute. Parts act as an
-    additional SEG-Y file identifier since different surveys may have non-unique `indices` making it impossible to
-    recover a source survey for a given gather by its index. New parts appear as a result of index concatenation, while
-    each of them represents several surveys being merged together. Each part contains the following main attributes:
+    additional SEG-Y file identifier after concatenation since different surveys may have non-unique `indices` making
+    it impossible to recover a source survey for a given gather by its index. Each part in turn represents several
+    surveys being merged together. It contains the following main attributes:
     - `indices` - unique identifiers of gathers in the part,
     - `headers` - merged trace headers from underlying surveys,
     - `surveys_dict` - a mapping from a survey name to the survey itself to further load traces.
