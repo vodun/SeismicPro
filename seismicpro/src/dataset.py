@@ -32,7 +32,7 @@ def delegate_to_index(*methods):
             index_method = getattr(cls.index_class, method)
             @wraps(index_method)
             def method_fn(self, *args, index_method=index_method, inplace=False, **kwargs):
-                index = index_method(self, *args, inplace=inplace, **kwargs)
+                index = index_method(self.index, *args, inplace=inplace, **kwargs)
                 if inplace:
                     return self.set_index(index)
                 return self.from_index(index)
