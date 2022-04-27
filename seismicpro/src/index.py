@@ -204,7 +204,31 @@ class SeismicIndex(DatasetIndex):
     (e.g. when several fields are being processed in the same way one after another) or merging (e.g. when traces from
     the same field before and after a given processing stage must be matched and compared).
 
-    TODO: finish docs
+    `SeismicIndex` consists of parts - instances of `IndexPart` class stored in `parts` attribute. Parts act as an
+    additional SEG-Y file identifier since different surveys may have non-unique `indices` making it impossible to
+    recover a source survey for a given gather by its index. New parts appear as a result of index concatenation, while
+    each of them represents several surveys being merged together. Each part contains the following main attributes:
+    - `indices` - unique identifiers of gathers in the part,
+    - `headers` - merged trace headers from underlying surveys,
+    - `surveys_dict` - a mapping from a survey name to the survey itself to further load traces.
+
+    Thus a gather in a `SeismicIndex` is identified by values of its `header_index`, part and survey name. It can be
+    obtained by calling :func:`~SeismicIndex.get_gather`. Iteration over gathers in the index is generally performed
+    via :func:`~SeismicIndex.next_batch`.
+
+    General algorithm of index instantiation looks as follows:
+    1. Independently transform each argument to `SeismicIndex`:
+        - instance of `SeismicIndex` is kept as is,
+        - `Survey` is transformed to a single part. Its `headers` replicate survey `headers` except for a new level
+          added to `DataFrame` columns with the name of the survey to avoid collisions during subsequent merges.
+       In both cases input `headers` can optionally be copied.
+    2. If a single argument is given, an index is already created.
+    3. Otherwise combine parts of created indices depending on the `mode` provided:
+        - "c" or "concat": Parts of the resulting index is simply a concatenation of all input parts with preserved
+          order. All parts must contain surveys with same `name`s.
+        - "m" or "merge": Parts with with same ordinal numbers are combined together by merging their `headers`. The
+          number of parts in all inputs must match and all the underlying surveys must have different `name`s.
+       In both cases all parts must be indexed by the same trace headers.
 
     Examples
     --------
