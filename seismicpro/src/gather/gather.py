@@ -16,14 +16,14 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from .muting import Muter
 from .cropped_gather import CroppedGather
 from .plot_corrections import NMOCorrectionPlot
-from .utils import correction, normalization
+from .utils import correction, normalization, gain
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
 from ..utils import (to_list, get_cols, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
                      set_text_formatting, add_colorbar, piecewise_polynomial, Coordinates)
 from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, VelocityCube
 from ..decorators import batch_method, plotter
-from ..const import HDR_FIRST_BREAK
+from ..const import HDR_FIRST_BREAK, DEFAULT_VELOCITY
 
 
 class Gather:
@@ -538,7 +538,7 @@ class Gather:
         self.data = normalization.scale_standard(self.data, mean, std, np.float32(eps))
         return self
 
-    @batch_method(target='threads')
+    @batch_method(target='for')
     def scale_maxabs(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
         r"""Scale the gather by its maximum absolute value.
 
@@ -587,7 +587,7 @@ class Gather:
         self.data = normalization.scale_maxabs(self.data, min_value, max_value, clip, np.float32(eps))
         return self
 
-    @batch_method(target='threads')
+    @batch_method(target='for')
     def scale_minmax(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
         r"""Linearly scale the gather to a [0, 1] range.
 
@@ -1048,7 +1048,7 @@ class Gather:
 
         Notes
         -----
-        1. Default `filter_size` is set to 81 to guarantee that transition bandwidth of the filter
+        Default `filter_size` is set to 81 to guarantee that transition bandwidth of the filter
         does not exceed 10% of the Nyquist frequency for the default Hamming window.
 
         Parameters
@@ -1119,6 +1119,94 @@ class Gather:
         self.data = data_resampled
         self.samples = new_samples
         return self
+
+    @batch_method(target="for")
+    def apply_agc(self, window_size=250, mode='rms'):
+        """Calculate instantaneous or RMS amplitude AGC coefficients and apply them to gather data.
+
+        Parameters
+        ----------
+        window_size : int, optional, defaults to 250
+            Window size to calculate AGC scaling coefficient in, measured in milliseconds.
+        mode : str, optional, defaults to 'rms'
+            Mode for AGC: if 'rms', root mean squared value of non-zero amplitudes in the given window
+            is used as scaling coefficient (RMS amplitude AGC), if 'abs' - mean of absolute non-zero
+            amplitudes (instantaneous AGC).
+
+        Raises
+        ------
+        ValueError
+            If window_size is less than (3 * sample_rate) milliseconds or larger than trace length.
+            If mode is neither 'rms' nor 'abs'.
+
+        Returns
+        -------
+        self : Gather
+            Gather with AGC applied to its data.
+        """
+        # Cast window from ms to samples
+        window_size_samples = int(window_size // self.sample_rate) + 1
+
+        if mode not in ['abs', 'rms']:
+            raise ValueError(f"mode should be either 'abs' or 'rms', but {mode} was given")
+        if (window_size_samples < 3) or (window_size_samples > self.n_samples):
+            raise ValueError(f'window should be at least {3*self.sample_rate} milliseconds and'
+                             f' {(self.n_samples-1)*self.sample_rate} at most, but {window_size} was given')
+        self.data = gain.apply_agc(data=self.data, window_size=window_size_samples, mode=mode)
+        return self
+
+    @batch_method(target="for")
+    def apply_sdc(self, velocity=None, v_pow=2, t_pow=1):
+        """Calculate spherical divergence correction coefficients and apply them to gather data.
+
+        Parameters
+        ----------
+        velocities: StackingVelocity or None, optional, defaults to None.
+            StackingVelocity that is used to obtain velocities at self.times, measured in meters / second.
+            If None, default StackingVelocity object is used.
+        v_pow : float, optional, defaults to 2
+            Velocity power value.
+        t_pow: float, optional, defaults to 1
+            Time power value.
+
+        Returns
+        -------
+        self : Gather
+            Gather with applied SDC.
+        """
+        if velocity is None:
+            velocity = DEFAULT_VELOCITY
+        if not isinstance(velocity, StackingVelocity):
+            raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
+        self.data = gain.apply_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
+        return self
+
+    @batch_method(target="for")
+    def undo_sdc(self, velocity=None, v_pow=2, t_pow=1):
+        """Calculate spherical divergence correction coefficients and use them to undo previously applied SDC.
+
+        Parameters
+        ----------
+        velocities: StackingVelocity or None, optional, defaults to None.
+            StackingVelocity that is used to obtain velocities at self.times, measured in meters / second.
+            If None, default StackingVelocity object is used.
+        v_pow : float, optional, defaults to 2
+            Velocity power value.
+        t_pow: float, optional, defaults to 1
+            Time power value.
+
+        Returns
+        -------
+        self : Gather
+            Gather without SDC.
+        """
+        if velocity is None:
+            velocity = DEFAULT_VELOCITY
+        if not isinstance(velocity, StackingVelocity):
+            raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
+        self.data = gain.undo_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
+        return self
+
 
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #
