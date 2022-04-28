@@ -111,7 +111,7 @@ class SeismicBatch(Batch):
             non_empty_parts = [i for i, n_gathers in enumerate(self.index.n_gathers_by_part) if n_gathers]
             combined_batch = type(self)(DatasetIndex(non_empty_parts), dataset=self.dataset, pipeline=self.pipeline)
             return combined_batch.load_combined_gather(src=src, dst=dst, parent_index=self.index, **kwargs)
-        return super().load(src=src, fmt=fmt, components=dst, **kwargs)
+        return super().load(src=src, fmt=fmt, dst=dst, **kwargs)
 
     @apply_to_each_component(target="for", fetch_method_target=False)
     def load_gather(self, pos, src, dst, **kwargs):
@@ -121,8 +121,7 @@ class SeismicBatch(Batch):
 
     @apply_to_each_component(target="for", fetch_method_target=False)
     def load_combined_gather(self, pos, src, dst, parent_index, **kwargs):
-        """Load all batch traces from a survey `src` and an index part with ordinal number `pos` in the batch into a
-        single gather."""
+        """Load all batch traces from a given part and survey into a single gather."""
         part = parent_index.parts[self.indices[pos]]
         survey = part.surveys_dict[src]
         headers = part.headers.get(src, part.headers[[]])  # Handle the case when no headers were loaded for a survey

@@ -22,7 +22,7 @@ lambda_func = lambda x: x
     [{"1": 2, 2: "a"}, [{"1": 2, 2: "a"}]],
     [lambda_func, [lambda_func]],
 
-    # Multiple argument as list or tuple
+    # Multiple arguments as list or tuple
     [("s1", "s2"), ["s1", "s2"]],
     [(func, func, func), [func, func, func]],
 
