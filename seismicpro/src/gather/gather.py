@@ -1145,7 +1145,7 @@ class Gather:
             Gather with AGC applied to its data.
         """
         # Cast window from ms to samples
-        window_size_samples = int(window_size / self.sample_rate)
+        window_size_samples = int(window_size // self.sample_rate) + 1
 
         if mode not in ['abs', 'rms']:
             raise ValueError(f"mode should be either 'abs' or 'rms', but {mode} was given")
