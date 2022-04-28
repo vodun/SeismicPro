@@ -4,22 +4,25 @@ import os
 import warnings
 from textwrap import dedent
 
+import cv2
+import scipy
 import segyio
 import numpy as np
+from scipy.signal import firwin
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .muting import Muter
 from .cropped_gather import CroppedGather
 from .plot_corrections import NMOCorrectionPlot
-from .utils import correction, normalization
+from .utils import correction, normalization, gain
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
 from ..utils import (to_list, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
-                     set_text_formatting, add_colorbar, Coordinates)
+                     set_text_formatting, add_colorbar, piecewise_polynomial, Coordinates)
 from ..containers import TraceContainer, SamplesContainer
 from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, VelocityCube
 from ..decorators import batch_method, plotter
-from ..const import HDR_FIRST_BREAK
+from ..const import HDR_FIRST_BREAK, DEFAULT_VELOCITY
 
 
 class Gather(TraceContainer, SamplesContainer):
@@ -499,7 +502,7 @@ class Gather(TraceContainer, SamplesContainer):
         self.data = normalization.scale_standard(self.data, mean, std, np.float32(eps))
         return self
 
-    @batch_method(target='threads')
+    @batch_method(target='for')
     def scale_maxabs(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
         r"""Scale the gather by its maximum absolute value.
 
@@ -548,7 +551,7 @@ class Gather(TraceContainer, SamplesContainer):
         self.data = normalization.scale_maxabs(self.data, min_value, max_value, clip, np.float32(eps))
         return self
 
-    @batch_method(target='threads')
+    @batch_method(target='for')
     def scale_minmax(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
         r"""Linearly scale the gather to a [0, 1] range.
 
@@ -956,7 +959,7 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     def crop(self, origins, crop_shape, n_crops=1, stride=None, pad_mode='constant', **kwargs):
-        """"Crop gather data.
+        """Crop gather data.
 
         Parameters
         ----------
@@ -991,6 +994,186 @@ class Gather(TraceContainer, SamplesContainer):
         """
         origins = make_origins(origins, self.shape, crop_shape, n_crops, stride)
         return CroppedGather(self, origins, crop_shape, pad_mode, **kwargs)
+
+    @batch_method(target="t")
+    def bandpass_filter(self, low=None, high=None, filter_size=81, **kwargs):
+        """ Filter frequency spectrum of the gather.
+
+        Can act as a lowpass, bandpass or highpass filter. `low` and `high` serve as the range for the remaining
+        frequencies and can be passed either solely or together.
+
+        Examples
+        --------
+        Apply highpass filter: remove all the frequencies bellow 30 Hz.
+        >>> gather.bandpass_filter(low=30)
+
+        Apply bandpass filter: keep frequencies within [30, 100] Hz range.
+        >>> gather.bandpass_filter(low=30, high=100)
+
+        Apply lowpass filter, remove all the frequencies above 100 Hz.
+        >>> gather.bandpass_filter(high=100)
+
+        Notes
+        -----
+        Default `filter_size` is set to 81 to guarantee that transition bandwidth of the filter does not exceed 10% of
+        the Nyquist frequency for the default Hamming window.
+
+        Parameters
+        ----------
+        low : int, optional
+            Lower bound for the remaining frequencies
+        high : int, optional
+            Upper bound for the remaining frequencies
+        filter_size : int, defaults to 81
+            The length of the filter
+        kwargs : misc, optional
+            Additional keyword arguments to the `scipy.firwin`
+
+        Returns
+        -------
+        self : Gather
+            `self` with filtered frequency spectrum.
+        """
+        filter_size |= 1  # Guarantee that filter size is odd
+        pass_zero = low is None
+        cutoffs = [cutoff for cutoff in [low, high] if cutoff is not None]
+
+        # Construct the filter and flip it since opencv computes crosscorrelation instead of convolution
+        kernel = firwin(filter_size, cutoffs, pass_zero=pass_zero, fs=1000 / self.sample_rate, **kwargs)[::-1]
+        cv2.filter2D(self.data, dst=self.data, ddepth=-1, kernel=kernel.reshape(1, -1))
+        return self
+
+    @batch_method(target="f")
+    def resample(self, new_sample_rate, kind=3, anti_aliasing=True):
+        """ Changes the sample rate of the traces in the gather.
+        This implies increasing or decreasing the number of samples in the trace.
+        In case new sample rate is greater than the current one, the anti aliasing filter is used
+        to avoid frequency aliasing.
+
+        Parameters
+        ----------
+        new_sample_rate : float
+            New sample rate
+        kind : int or str, defaults to 3
+            The interpolation method to use.
+            If int, use piecewise polynomial interpolation with degree `kind`;
+            if str, deligate interpolation to scipy.interp1d with mode `kind`.
+        anti_aliasing : bool, defaults to True
+            Whether to apply anti-aliasing filter or not. Ignored in case of upsampling.
+
+        Returns
+        -------
+        self : Gather
+            `self` with new sample rate
+        """
+        current_sample_rate = self.sample_rate
+
+        # Anti-aliasing filter is optionally applied during downsampling to avoid frequency aliasing
+        if new_sample_rate > current_sample_rate and anti_aliasing:
+            # Smoothly attenuate frequencies starting from 0.8 of the new Nyquist frequency so that all frequencies
+            # above are zeroed out
+            nyquist_frequency = 1000 / (2 * new_sample_rate)
+            filter_size = int(40 * new_sample_rate / current_sample_rate)
+            self.bandpass_filter(high=0.9 * nyquist_frequency, filter_size=filter_size, window="hann")
+
+        new_samples = np.arange(self.samples[0], self.samples[-1] + 1e-6, new_sample_rate, self.samples.dtype)
+
+        if isinstance(kind, int):
+            data_resampled = piecewise_polynomial(new_samples, self.samples, self.data, kind)
+        elif isinstance(kind, str):
+            data_resampled = scipy.interpolate.interp1d(self.samples, self.data, kind=kind)(new_samples)
+
+        self.data = data_resampled
+        self.samples = new_samples
+        return self
+
+    @batch_method(target="for")
+    def apply_agc(self, window_size=250, mode='rms'):
+        """Calculate instantaneous or RMS amplitude AGC coefficients and apply them to gather data.
+
+        Parameters
+        ----------
+        window_size : int, optional, defaults to 250
+            Window size to calculate AGC scaling coefficient in, measured in milliseconds.
+        mode : str, optional, defaults to 'rms'
+            Mode for AGC: if 'rms', root mean squared value of non-zero amplitudes in the given window
+            is used as scaling coefficient (RMS amplitude AGC), if 'abs' - mean of absolute non-zero
+            amplitudes (instantaneous AGC).
+
+        Raises
+        ------
+        ValueError
+            If window_size is less than (3 * sample_rate) milliseconds or larger than trace length.
+            If mode is neither 'rms' nor 'abs'.
+
+        Returns
+        -------
+        self : Gather
+            Gather with AGC applied to its data.
+        """
+        # Cast window from ms to samples
+        window_size_samples = int(window_size // self.sample_rate) + 1
+
+        if mode not in ['abs', 'rms']:
+            raise ValueError(f"mode should be either 'abs' or 'rms', but {mode} was given")
+        if (window_size_samples < 3) or (window_size_samples > self.n_samples):
+            raise ValueError(f'window should be at least {3*self.sample_rate} milliseconds and'
+                             f' {(self.n_samples-1)*self.sample_rate} at most, but {window_size} was given')
+        self.data = gain.apply_agc(data=self.data, window_size=window_size_samples, mode=mode)
+        return self
+
+    @batch_method(target="for")
+    def apply_sdc(self, velocity=None, v_pow=2, t_pow=1):
+        """Calculate spherical divergence correction coefficients and apply them to gather data.
+
+        Parameters
+        ----------
+        velocities: StackingVelocity or None, optional, defaults to None.
+            StackingVelocity that is used to obtain velocities at self.times, measured in meters / second.
+            If None, default StackingVelocity object is used.
+        v_pow : float, optional, defaults to 2
+            Velocity power value.
+        t_pow: float, optional, defaults to 1
+            Time power value.
+
+        Returns
+        -------
+        self : Gather
+            Gather with applied SDC.
+        """
+        if velocity is None:
+            velocity = DEFAULT_VELOCITY
+        if not isinstance(velocity, StackingVelocity):
+            raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
+        self.data = gain.apply_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
+        return self
+
+    @batch_method(target="for")
+    def undo_sdc(self, velocity=None, v_pow=2, t_pow=1):
+        """Calculate spherical divergence correction coefficients and use them to undo previously applied SDC.
+
+        Parameters
+        ----------
+        velocities: StackingVelocity or None, optional, defaults to None.
+            StackingVelocity that is used to obtain velocities at self.times, measured in meters / second.
+            If None, default StackingVelocity object is used.
+        v_pow : float, optional, defaults to 2
+            Velocity power value.
+        t_pow: float, optional, defaults to 1
+            Time power value.
+
+        Returns
+        -------
+        self : Gather
+            Gather without SDC.
+        """
+        if velocity is None:
+            velocity = DEFAULT_VELOCITY
+        if not isinstance(velocity, StackingVelocity):
+            raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
+        self.data = gain.undo_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
+        return self
+
 
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #
