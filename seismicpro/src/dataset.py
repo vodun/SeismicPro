@@ -200,6 +200,7 @@ class SeismicDataset(Dataset):
 
     @wraps(SeismicIndex.collect_stats)
     def collect_stats(self, n_quantile_traces=100000, quantile_precision=2, limits=None, bar=True):
+        """Collect trace data statistics for each survey in the dataset."""
         _ = self.index.collect_stats(n_quantile_traces=n_quantile_traces, quantile_precision=quantile_precision,
                                      limits=limits, bar=bar)
         return self
