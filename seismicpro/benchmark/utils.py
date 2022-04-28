@@ -19,13 +19,13 @@ def make_benchmark_data(path):
     sur = Survey(path, header_index=['INLINE_3D', 'CROSSLINE_3D'],
                  header_cols='offset', name='raw')
     sur.headers['FirstBreak'] = np.random.randint(0, 3000, len(sur.headers))
-    
+
     def edge_lines_filter(line, num_lines):
-        return (line > line.min() + num_lines) & (line < line.max() - num_lines)
+        return (line >= line.min() + num_lines) & (line <= line.max() - num_lines)
 
     # Drop three lines of CDPs from each side of the survey, since they have less traces than central ones
-    survey = (sur.filter(edge_lines_filter, 'CROSSLINE_3D', num_lines=2)
-                 .filter(edge_lines_filter, 'INLINE_3D', num_lines=2))
+    survey = (sur.filter(edge_lines_filter, 'CROSSLINE_3D', num_lines=3)
+                 .filter(edge_lines_filter, 'INLINE_3D', num_lines=3))
 
     sg_survey = survey.generate_supergathers((3,3), (1,1), (0,0))
     # Drop one line of supergathers from each side of the survey, since they have less traces than central ones
