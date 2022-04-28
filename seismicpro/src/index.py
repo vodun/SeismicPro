@@ -804,6 +804,19 @@ class SeismicIndex(DatasetIndex):
     #------------------------------------------------------------------------#
 
     def copy(self, ignore=None):
+        """Perform a deepcopy of the index by copying its parts. All attributes of each part are deepcopied except for
+        `surveys_dict`, `_indexer` and those specified in ignore, which are kept unchanged.
+
+        Parameters
+        ----------
+        ignore : str or array of str, defaults to None
+            Part attributes that won't be copied.
+
+        Returns
+        -------
+        copy : SeismicIndex
+            Copy of the index.
+        """
         parts_copy = [part.copy(ignore=ignore) for part in self.parts]
         self_copy = self.from_parts(*parts_copy, copy_headers=False)
         for split_name, split in self.splits.items():

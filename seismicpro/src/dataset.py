@@ -205,4 +205,17 @@ class SeismicDataset(Dataset):
         return self
 
     def copy(self, ignore=None):
+        """Perform a deepcopy of the dataset by copying its parts. All attributes of each part are deepcopied except
+        for `surveys_dict`, `_indexer` and those specified in ignore, which are kept unchanged.
+
+        Parameters
+        ----------
+        ignore : str or array of str, defaults to None
+            Part attributes that won't be copied.
+
+        Returns
+        -------
+        copy : SeismicDataset
+            Copy of the dataset.
+        """
         return self.from_index(self.index.copy(ignore=ignore))
