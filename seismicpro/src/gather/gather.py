@@ -151,16 +151,18 @@ class Gather(TraceContainer, SamplesContainer):
                 axis_indexer = list(axis_indexer)
             indices = indices + (axis_indexer, )
 
-        new_self = self.copy(ignore=['data', 'headers', 'samples'])
-        new_self.data = self.data[indices]
-        if new_self.data.ndim != 2:
+        data = self.data[indices]
+        if data.ndim != 2:
             raise ValueError("Data ndim is not preserved or joint indexation of gather attributes becomes ambiguous "
                              "after indexation")
-        if new_self.data.size == 0:
+        if data.size == 0:
             raise ValueError("Empty gather after indexation")
 
-        # The two-dimensional `indices` array describes the indices of the traces and samples to be obtained,
-        # respectively.
+        # Set indexed data attribute. Make it C-contiguous since otherwise some numba functions may fail
+        new_self = self.copy(ignore=['data', 'headers', 'samples'])
+        new_self.data = np.ascontiguousarray(data, dtype=self.data.dtype)
+
+        # The two-element `indices` tuple describes indices of traces and samples to be obtained respectively
         new_self.headers = self.headers.iloc[indices[0]]
         new_self.samples = self.samples[indices[1]]
 
