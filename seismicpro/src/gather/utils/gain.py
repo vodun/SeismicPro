@@ -12,7 +12,6 @@ def process_amp(amp, mode):
     amp = amp**2 if mode=='rms' else abs(amp)
     return amp, non_zero
 
-
 @njit(nogil=True, parallel=True)
 def apply_agc(data, window_size=125, mode='rms'):
     """Calculate instantaneous or RMS amplitude AGC coefficients and apply them to gather data.
@@ -71,7 +70,6 @@ def apply_agc(data, window_size=125, mode='rms'):
         data_res[i, end:] = coef * data[i, end:]
 
     return data_res
-
 
 @njit(nogil=True, parallel=True)
 def calculate_sdc_coefficient(v_pow, velocities, t_pow, times):

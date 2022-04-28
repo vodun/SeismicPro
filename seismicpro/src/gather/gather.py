@@ -1132,7 +1132,7 @@ class Gather:
             Mode for AGC: if 'rms', root mean squared value of non-zero amplitudes in the given window
             is used as scaling coefficient (RMS amplitude AGC), if 'abs' - mean of absolute non-zero
             amplitudes (instantaneous AGC).
-            
+
         Raises
         ------
         ValueError
@@ -1159,10 +1159,6 @@ class Gather:
     def apply_sdc(self, velocity=None, v_pow=2, t_pow=1):
         """Calculate spherical divergence correction coefficients and apply them to gather data.
 
-        Notes
-        -----
-        SDC coefficients are a function of time and velocity, so self.times are used as time values.
-
         Parameters
         ----------
         velocities: StackingVelocity or None, optional, defaults to None.
@@ -1188,10 +1184,6 @@ class Gather:
     @batch_method(target="for")
     def undo_sdc(self, velocity=None, v_pow=2, t_pow=1):
         """Calculate spherical divergence correction coefficients and use them to undo previously applied SDC.
-
-        Notes
-        -----
-        SDC coefficients are a function of time and velocity, so self.times are used as time values.
 
         Parameters
         ----------

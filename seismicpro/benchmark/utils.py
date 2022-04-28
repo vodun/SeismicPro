@@ -19,18 +19,17 @@ def make_benchmark_data(path):
     sur = Survey(path, header_index=['INLINE_3D', 'CROSSLINE_3D'],
                  header_cols='offset', name='raw')
     sur.headers['FirstBreak'] = np.random.randint(0, 3000, len(sur.headers))
+    
+    def edge_lines_filter(line, num_lines):
+        return (line > line.min() + num_lines) & (line < line.max() - num_lines)
 
     # Drop three lines of CDPs from each side of the survey, since they have less traces than central ones
-    cl_min, cl_max = sur['CROSSLINE_3D'].min(), sur['CROSSLINE_3D'].max()
-    il_min, il_max = sur['INLINE_3D'].min(), sur['INLINE_3D'].max()
-    survey = (sur.filter(lambda x: (x>cl_min+3) & (x<=cl_max-3), 'CROSSLINE_3D')
-                 .filter(lambda x: (x>il_min+3) & (x<=il_max-3), 'INLINE_3D'))
+    survey = (sur.filter(edge_lines_filter, 'CROSSLINE_3D', num_lines=2)
+                 .filter(edge_lines_filter, 'INLINE_3D', num_lines=2))
 
     sg_survey = survey.generate_supergathers((3,3), (1,1), (0,0))
     # Drop one line of supergathers from each side of the survey, since they have less traces than central ones
-    sgc_min, sgc_max = sg_survey['SUPERGATHER_CROSSLINE_3D'].min(), sg_survey['SUPERGATHER_CROSSLINE_3D'].max()
-    sgi_min, sgi_max = sg_survey['SUPERGATHER_INLINE_3D'].min(), sg_survey['SUPERGATHER_INLINE_3D'].max()
-    sg_survey = (sg_survey.filter(lambda x: (x>sgc_min+1) & (x<=sgc_max-1), 'SUPERGATHER_CROSSLINE_3D')
-                           .filter(lambda x: (x>sgi_min+1) & (x<=sgi_max-1), 'SUPERGATHER_INLINE_3D'))
+    sg_survey = (sg_survey.filter(edge_lines_filter, 'SUPERGATHER_CROSSLINE_3D', num_lines=1)
+                          .filter(edge_lines_filter, 'SUPERGATHER_INLINE_3D', num_lines=1))
 
     return survey, sg_survey
