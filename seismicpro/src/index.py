@@ -69,7 +69,7 @@ class IndexPart(GatherContainer):
 
     @staticmethod
     def _filter_equal(headers, header_cols):
-        """Keep only those rows of `headers` where values of given headers are equal for each survey."""
+        """Keep only those rows of `headers` where values of given headers are equal in all surveys."""
         if not header_cols:
             return headers
         drop_mask = np.column_stack([np.ptp(headers.loc[:, (slice(None), col)], axis=1).astype(np.bool_)
@@ -77,7 +77,7 @@ class IndexPart(GatherContainer):
         return headers.loc[~np.any(drop_mask, axis=1)]
 
     def merge(self, other, on=None, validate_unique=True, copy_headers=False):
-        """Create a new `IndexPart` by merging trace headers of `self` and `other`."""
+        """Create a new `IndexPart` by merging trace headers of `self` and `other` on given common headers."""
         self_indexed_by = set(to_list(self.indexed_by))
         other_indexed_by = set(to_list(other.indexed_by))
         if self_indexed_by != other_indexed_by:
@@ -119,7 +119,7 @@ class IndexPart(GatherContainer):
 
     def copy(self, ignore=None):
         """Perform a deepcopy of all part attributes except for `surveys_dict`, `_indexer` and those specified in
-        ignore, which are kept unchanged."""
+        `ignore`, which are kept unchanged."""
         ignore = set() if ignore is None else set(to_list(ignore))
         return super().copy(ignore | {"surveys_dict"})
 
@@ -233,24 +233,25 @@ class SeismicIndex(DatasetIndex):
     obtained by calling :func:`~SeismicIndex.get_gather`. Iteration over gathers in the index is generally performed
     via :func:`~SeismicIndex.next_batch`.
 
-    General algorithm of index instantiation looks as follows:
+    A complete algorithm of index instantiation looks as follows:
     1. Independently transform each argument to `SeismicIndex`:
         - instance of `SeismicIndex` is kept as is,
         - `Survey` is transformed to a single part. Its `headers` replicate survey `headers` except for a new level
-          added to `DataFrame` columns with the name of the survey to avoid collisions during subsequent merges.
+          added to `DataFrame` columns with the name of the survey. This is done to avoid headers collisions during
+          subsequent merges.
        In both cases input `headers` can optionally be copied.
-    2. If a single argument is given, an index is already created.
+    2. If a single argument was processed on the previous step, an index is already created.
     3. Otherwise combine parts of created indices depending on the `mode` provided:
         - "c" or "concat": Parts of the resulting index is simply a concatenation of all input parts with preserved
           order. All parts must contain surveys with same `name`s.
-        - "m" or "merge": Parts with with same ordinal numbers are combined together by merging their `headers`. The
-          number of parts in all inputs must match and all the underlying surveys must have different `name`s.
+        - "m" or "merge": Parts with same ordinal numbers are combined together by merging their `headers`. The number
+          of parts in all inputs must match and all the underlying surveys must have different `name`s.
        In both cases all parts must be indexed by the same trace headers.
 
     Examples
     --------
-    Let's consider 4 surveys, describing a single field before and after processing. Note that all of them have the
-    same `header_index`:
+    Let's consider 4 surveys describing a single field before and after processing. Note that all of them have the same
+    `header_index`:
     >>> s1_before = Survey(path, header_index=index_headers, name="before")
     >>> s2_before = Survey(path, header_index=index_headers, name="before")
 
@@ -268,7 +269,7 @@ class SeismicIndex(DatasetIndex):
     different `name`s:
     >>> index = SeismicIndex(s1_before, s1_after, mode="m")
 
-    Merge can follow concat and vice versa. A more complex case, covering both operations is shown below:
+    Merge can follow concat and vice versa. A more complex case, covering both operations is demonstrated below:
     >>> index_before = SeismicIndex(s1_before, s2_before, mode="c")
     >>> index_after = SeismicIndex(s1_after, s2_after, mode="c")
     >>> index = SeismicIndex(index_before, index_after, mode="m")
@@ -281,7 +282,7 @@ class SeismicIndex(DatasetIndex):
         A mode used to combine multiple `args` into a single index. If `None`, only one positional argument can be
         passed.
     copy_headers : bool, optional, defaults to False
-        Whether to copy a `DataFrame` of trace headers while constructing index parts.
+        Whether to copy `DataFrame`s of trace headers while constructing index parts.
     kwargs : misc, optional
         Additional keyword arguments to :func:`~SeismicIndex.merge` if the corresponding mode was chosen.
 
@@ -327,16 +328,16 @@ class SeismicIndex(DatasetIndex):
     @property
     def indexed_by(self):
         """str or list of str or None: Names of header indices of each part. `None` for empty index."""
-        if self.parts:
-            return self.parts[0].indexed_by
-        return None
+        if self.is_empty:
+            return None
+        return self.parts[0].indexed_by
 
     @property
     def survey_names(self):
         """list of str or None: Names of surveys in the index. `None` for empty index."""
-        if self.parts:
-            return self.parts[0].survey_names
-        return None
+        if self.is_empty:
+            return None
+        return self.parts[0].survey_names
 
     @property
     def is_empty(self):
@@ -505,7 +506,7 @@ class SeismicIndex(DatasetIndex):
         index : SeismicIndex
             Input index.
         copy_headers : bool, optional, defaults to False
-            Whether to copy index `headers`.
+            Whether to copy the index.
 
         Returns
         -------
@@ -805,7 +806,7 @@ class SeismicIndex(DatasetIndex):
 
     def copy(self, ignore=None):
         """Perform a deepcopy of the index by copying its parts. All attributes of each part are deepcopied except for
-        `surveys_dict`, `_indexer` and those specified in ignore, which are kept unchanged.
+        indexer, underlying surveys and those specified in `ignore`, which are kept unchanged.
 
         Parameters
         ----------
