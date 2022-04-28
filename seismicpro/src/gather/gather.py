@@ -1122,17 +1122,22 @@ class Gather:
 
     @batch_method(target="for")
     def apply_agc(self, window_size=250, mode='rms'):
-        """Calculate instantaneous of RMS amplitude AGC coefficients and apply them to gather data.
+        """Calculate instantaneous or RMS amplitude AGC coefficients and apply them to gather data.
 
         Parameters
         ----------
-        window_size : int
-            Window size to calculate AGC scaling coefficient in, measured in samples. Defaults to 125.
-        mode : str
+        window_size : int, optional, defaults to 250
+            Window size to calculate AGC scaling coefficient in, measured in milliseconds.
+        mode : str, optional, defaults to 'rms'
             Mode for AGC: if 'rms', root mean squared value of non-zero amplitudes in the given window
-            is used as scaling coefficient(RMS amplitude AGC), if 'abs' - mean of absolute non-zero
+            is used as scaling coefficient (RMS amplitude AGC), if 'abs' - mean of absolute non-zero
             amplitudes (instantaneous AGC).
-            Defaults to 'rms'.
+            
+        Raises
+        ------
+        ValueError
+            If window_size is less than (3 * sample_rate) milliseconds or larger than trace length.
+            If mode is neither 'rms' nor 'abs'.
 
         Returns
         -------
@@ -1144,7 +1149,7 @@ class Gather:
 
         if mode not in ['abs', 'rms']:
             raise ValueError(f"mode should be either 'abs' or 'rms', but {mode} was given")
-        if (window_size_samples < 3) or (window_size_samples >= self.n_samples):
+        if (window_size_samples < 3) or (window_size_samples > self.n_samples):
             raise ValueError(f'window should be at least {3*self.sample_rate} milliseconds and'
                              f' {(self.n_samples-1)*self.sample_rate} at most, but {window_size} was given')
         self.data = gain.apply_agc(data=self.data, window_size=window_size_samples, mode=mode)
@@ -1160,12 +1165,12 @@ class Gather:
 
         Parameters
         ----------
-        velocities: StackingVelocity or None.
+        velocities: StackingVelocity or None, optional, defaults to None.
             StackingVelocity that is used to obtain velocities at self.times, measured in meters / second.
             If None, default StackingVelocity object is used.
-        v_pow : float
+        v_pow : float, optional, defaults to 2
             Velocity power value.
-        t_pow: float
+        t_pow: float, optional, defaults to 1
             Time power value.
 
         Returns
@@ -1190,11 +1195,12 @@ class Gather:
 
         Parameters
         ----------
-        velocities: 1d np.ndarray
-            Array of RMS velocities at provided `times`, measured in meters / second.
-        v_pow : float
+        velocities: StackingVelocity or None, optional, defaults to None.
+            StackingVelocity that is used to obtain velocities at self.times, measured in meters / second.
+            If None, default StackingVelocity object is used.
+        v_pow : float, optional, defaults to 2
             Velocity power value.
-        t_pow: float
+        t_pow: float, optional, defaults to 1
             Time power value.
 
         Returns

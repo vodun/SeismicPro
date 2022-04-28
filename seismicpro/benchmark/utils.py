@@ -7,7 +7,9 @@ import numpy as np
 from seismicpro import Survey, make_prestack_segy
 
 def make_benchmark_data(path):
-    """ Generate a SEGY file with specific geometry and filter it to obtain survey objects for benchmark. """
+    """Generate a SEG-Y file with specific geometry so that CDP gathers contain the same number of
+    traces and construct survey objects for benchmark.
+    """
     # The geometry defined below should be changed only together with survey filtering parameters
     # to ensure that after filtering all the gathers \ supergathers have the same number of traces
     make_prestack_segy(path, survey_size=(400, 400), sources_step=(5, 5), receivers_step=(5, 5),

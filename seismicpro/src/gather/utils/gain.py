@@ -15,18 +15,17 @@ def process_amp(amp, mode):
 
 @njit(nogil=True, parallel=True)
 def apply_agc(data, window_size=125, mode='rms'):
-    """Calculate instantaneous of RMS amplitude AGC coefficients and apply them to gather data.
+    """Calculate instantaneous or RMS amplitude AGC coefficients and apply them to gather data.
 
     Parameters
     ----------
     data : 2d np.ndarray
         Gather data to apply AGC to.
-    window_size : int
-        Window size to calculate AGC scaling coefficient in, measured in samples. Defaults to 125.
-    mode : str
+    window_size : int, optional, defaults to 125
+        Window size to calculate AGC scaling coefficient in, measured in samples.
+    mode : str, optional, defaults to 'rms'
         Mode for AGC: if 'rms', root mean squared value of non-zero amplitudes in the given window is used as scaling
-        coefficient(RMS amplitude AGC), if 'abs' - mean of absolute non-zero amplitudes (instantaneous AGC).
-        Defaults to 'rms'.
+        coefficient (RMS amplitude AGC), if 'abs' - mean of absolute non-zero amplitudes (instantaneous AGC).
 
     Returns
     -------
@@ -39,41 +38,39 @@ def apply_agc(data, window_size=125, mode='rms'):
     # AGC coefficients before start and after end are extrapolated.
     start, end = win_left, trace_len - win_right
 
+    data_res = np.empty_like(data)
     for i in prange(n_traces):  # pylint: disable=not-an-iterable
-        trace = data[i]
-        coefs = np.empty_like(trace)
-
-        # Calculate AGC scaling factor for the first window
+        # Calculate AGC coef for the first window
         win_sum = np.float64(0)
         win_count = 0
         for j in range(window_size):
-            amp, non_zero = process_amp(trace[j], mode)
+            amp, non_zero = process_amp(data[i, j], mode)
             win_count += non_zero
             win_sum += amp
-        coefs[start] = win_count / (win_sum + 1e-15)
+        coef = win_count / (win_sum + 1e-15)
         if mode == 'rms':
-            coefs[start] = np.sqrt(coefs[start])
+            coef = np.sqrt(coef)
+        # Extrapolate first AGC coef for trace indices before start
+        data_res[i, : start + 1] = coef * data[i, : start + 1]
 
-        # Move the window by one trace element and recalculate the AGC factor
+        # Move the window by one trace element and recalculate the AGC coef
         for j in range(start + 1, end):
-            amp, non_zero = process_amp(trace[j + win_right - 1], mode)
+            amp, non_zero = process_amp(data[i, j + win_right - 1], mode)
             win_count += non_zero
             win_sum += amp
 
-            amp, non_zero = process_amp(trace[j - win_left - 1], mode)
+            amp, non_zero = process_amp(data[i, j - win_left - 1], mode)
             win_count -= non_zero
             win_sum -= amp
 
-            coefs[j] = win_count / (win_sum + 1e-15)
+            coef = win_count / (win_sum + 1e-15)
             if mode == 'rms':
-                coefs[j] = np.sqrt(coefs[j])
+                coef = np.sqrt(coef)
+            data_res[i, j] = coef * data[i, j]
+        # Extrapolate last AGC coef for trace indices after end
+        data_res[i, end:] = coef * data[i, end:]
 
-        # Extrapolate AGC coefs for trace indices that don't fit the full window
-        coefs[:start] = coefs[start]
-        coefs[end:] = coefs[end-1]
-
-        data[i] *= coefs
-    return data
+    return data_res
 
 
 @njit(nogil=True, parallel=True)
