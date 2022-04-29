@@ -36,7 +36,7 @@ def stat_segy(tmp_path_factory, request):
         return trace_data[TRACE_SEQUENCE_FILE - 1]
 
     path = tmp_path_factory.mktemp("stat") / "stat.sgy"
-    make_prestack_segy(path, survey_size=(4, 4), origin=(0, 0), sources_step=(3, 3), recievers_step=(1, 1),
+    make_prestack_segy(path, survey_size=(4, 4), origin=(0, 0), sources_step=(3, 3), receivers_step=(1, 1),
                         bin_size=(1, 1), activation_dist=(1, 1), n_samples=n_samples, sample_rate=2000, delay=0,
                         bar=False, trace_gen=gen_trace)
     return path, trace_data
@@ -46,22 +46,22 @@ class TestStats:
     """Test `collect_stats` method."""
 
     def test_no_mark_dead_warning(self, segy_path):
-        """Check that a warning is emmited when `collect_stats` is run before `mark_dead_races`"""
+        """Check that a warning is emitted when `collect_stats` is run before `mark_dead_races`"""
         survey = Survey(segy_path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset")
 
         with pytest.warns(RuntimeWarning):
             survey.collect_stats()
 
     @pytest.mark.parametrize("remove_dead", [True, False])
-    @pytest.mark.parametrize("limits", [slice(8), slice(-4, None)])
+    @pytest.mark.parametrize("init_limits", [slice(8), slice(-4, None)])
     @pytest.mark.parametrize("n_quantile_traces", [0, 10, 100])
     @pytest.mark.parametrize("quantile_precision", [1, 2])
     @pytest.mark.parametrize("stats_limits", [None, slice(5), slice(2, 8)])
-    def test_collect_stats(self, stat_segy, remove_dead,
-                           limits, n_quantile_traces, quantile_precision, stats_limits):
+    def test_collect_stats(self, stat_segy, init_limits, remove_dead, n_quantile_traces, quantile_precision,
+                           stats_limits):
         """Compare stats obtained by running `collect_stats` with the actual ones."""
         path, trace_data = stat_segy
-        survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset", limits=limits)
+        survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset", limits=init_limits)
         survey.mark_dead_traces(bar=False)
 
         if remove_dead:
@@ -69,10 +69,10 @@ class TestStats:
 
         survey_copy = survey.copy()
         survey.collect_stats(n_quantile_traces=n_quantile_traces, quantile_precision=quantile_precision,
-                             stats_limits=stats_limits, bar=True)
+                             limits=stats_limits, bar=True)
 
-        # stats_limits take priority over survey limits
-        stats_limits = limits if stats_limits is None else stats_limits
+        # stats_limits take priority over init_limits
+        stats_limits = init_limits if stats_limits is None else stats_limits
         trace_data = trace_data[:, stats_limits]
         if remove_dead:
             is_dead = np.isclose(trace_data.min(axis=1), trace_data.max(axis=1))

@@ -18,7 +18,7 @@ def get_hodograph(gather_data, time, offsets, velocity, sample_rate, fill_value=
     ----------
     gather_data : 2d np.ndarray
         Gather data to apply NMO correction to. The data is stored in a transposed form, compared to `Gather.data` due
-        to performance reasons, so that `gather_data.shape` is (trace_lenght, num_traces).
+        to performance reasons, so that `gather_data.shape` is (trace_length, num_traces).
     time : float
         Seismic wave travel time at zero offset. Measured in milliseconds.
     offsets : 1d np.ndarray
@@ -62,7 +62,7 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate):
     Parameters
     ----------
     gather_data : 2d np.ndarray
-        Gather data to apply NMO correction to with an ordinary shape of (num_traces, trace_lenght).
+        Gather data to apply NMO correction to with an ordinary shape of (num_traces, trace_length).
     times : 1d np.ndarray
         Recording time for each trace value. Measured in milliseconds.
     offsets : 1d np.ndarray
@@ -75,7 +75,7 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate):
     Returns
     -------
     corrected_gather : 2d array
-        NMO corrected gather with an ordinary shape of (num_traces, trace_lenght).
+        NMO corrected gather with an ordinary shape of (num_traces, trace_length).
     """
     # Transpose gather_data to increase performance
     gather_data = gather_data.T

@@ -1,38 +1,72 @@
-"""Implements SeismicDataset class that allows iterating over gathers in surveys by generating small subsets of data
-called batches"""
+"""Implements SeismicDataset class that allows for iteration over gathers in a survey or a group of surveys and their
+joint processing"""
 
+from functools import wraps
 from textwrap import dedent
-
-import numpy as np
 
 from .batch import SeismicBatch
 from .index import SeismicIndex
 from ..batchflow import Dataset
 
 
-class SeismicDataset(Dataset):
-    """A dataset, that generates batches of `SeismicBatch` class. Contains identifiers of seismic gathers from a
-    survey or a group of surveys and a specific `batch_class` to create and process small subsets of data.
+def delegate_constructors(*constructors):
+    """Implement given `constructors` of `SeismicDataset` by calling the corresponding index constructor and then
+    turning the result into a dataset. In addition to all the arguments of the index method each created constructor
+    accepts `batch_class` argument with the same behavior as in `SeismicDataset.__init__`."""
+    def decorator(cls):
+        for constructor in constructors:
+            index_constructor = getattr(cls.index_class, constructor)
+            @wraps(index_constructor)
+            def dataset_constructor(*args, index_constructor=index_constructor, batch_class=SeismicBatch, **kwargs):
+                return cls(index_constructor(*args, **kwargs), batch_class=batch_class)
+            setattr(cls, constructor, dataset_constructor)
+        return cls
+    return decorator
 
-    Usually, gather identification in a dataset is done using a :class:`~index.SeismicIndex`, which is constructed on
-    dataset creation if was not passed directly. Most of the :class:`~dataset.SeismicDataset` arguments are passed to a
-    :func:`~index.SeismicIndex.__init__` as is so please refer to its documentation to learn more about gather
-    indexing.
+
+def delegate_to_index(*methods):
+    """Implement given `methods` of `SeismicDataset` by calling the corresponding method of its index. Each created
+    method preserves the signature of the index method."""
+    def decorator(cls):
+        for method in methods:
+            index_method = getattr(cls.index_class, method)
+            @wraps(index_method)
+            def method_fn(self, *args, index_method=index_method, inplace=False, **kwargs):
+                index = index_method(self.index, *args, inplace=inplace, **kwargs)
+                if inplace:
+                    return self.set_index(index)
+                return self.from_index(index)
+            setattr(cls, method, method_fn)
+        return cls
+    return decorator
+
+
+@delegate_constructors("from_parts", "from_survey", "concat", "merge")
+@delegate_to_index("reindex", "filter", "apply")
+class SeismicDataset(Dataset):
+    """A dataset, that contains identifiers of seismic gathers from a survey or a group of surveys and allows for
+    generation of small subsets of gathers called batches for their joint processing.
+
+    Gather identification in a dataset is performed via :class:`~index.SeismicIndex`, which is constructed upon
+    dataset instantiation and stored in the `index` attribute. Moreover, the dataset redirects almost all method calls
+    to the underlying index, so please refer to its documentation to learn more about available functionality.
 
     Examples
     --------
     Let's consider a survey we want to process:
     >>> survey = Survey(path, header_index="FieldRecord", header_cols=["TraceNumber", "offset"], name="survey")
 
-    In most cases, dataset creation is identical to that of :class:`~index.SeismicIndex`:
-    >>> dataset = SeismicDataset(surveys=survey)
+    Dataset creation is identical to that of :class:`~index.SeismicIndex`. Here we create a dataset from a single
+    survey:
+    >>> dataset = SeismicDataset(survey)
 
-    Similar to the :class:`~index.SeismicIndex` several surveys can be combined together either by merging or
-    concatenating. After the dataset is created, a subset of gathers can be obtained via
-    :func:`~SeismicDataset.next_batch` method:
+    Several surveys can be passed as well, in this case they will be combined together either by merging or
+    concatenating depending on the `mode` provided.
+
+    After the dataset is created, a subset of gathers can be obtained via :func:`~SeismicDataset.next_batch` method:
     >>> batch = dataset.next_batch(10)
 
-    Here a batch of 10 gathers was created and can now be processed using the methods defined in
+    A batch of 10 gathers was created and can now be processed using the methods defined in
     :class:`~batch.SeismicBatch`. The batch does not contain any data yet and gather loading is usually the first
     method you want to call:
     >>> batch.load(src="survey")
@@ -41,150 +75,148 @@ class SeismicDataset(Dataset):
 
     Parameters
     ----------
-    index : DatasetIndex or None, optional
-        Unique identifiers of seismic gathers in a dataset. If `index` is not given, it is constructed by instantiating
-        a :class:`~index.SeismicIndex` with passed `surveys`, `mode` and `kwargs`.
-    surveys : Survey or list of Survey, optional
-        Surveys to use to construct an index.
+    args : tuple of Survey, IndexPart or SeismicIndex
+        A sequence of surveys, indices or parts to construct an index of the dataset.
     mode : {"c", "concat", "m", "merge", None}, optional, defaults to None
-        A mode used to combine multiple surveys into an index. If `None`, only a single survey can be passes to a
-        `surveys` arg.
-    batch_class : type, optional, dafaults to SeismicBatch
-        A class of batches, generated by a dataset. Must be inherited from :class:`~batchflow.Batch`.
+        A mode used to combine multiple `args` into a single index. If `None`, only one positional argument can be
+        passed.
+    copy_headers : bool, optional, defaults to False
+        Whether to copy `DataFrame`s of trace headers while constructing index parts.
+    batch_class : type, optional, defaults to SeismicBatch
+        A class of batches, generated by the dataset. Must be inherited from :class:`~batchflow.Batch`.
     kwargs : misc, optional
-        Additional keyword arguments to `SeismicIndex.__init__`.
+        Additional keyword arguments to :func:`~SeismicIndex.merge` if the corresponding mode was chosen.
 
     Attributes
     ----------
-    index : DatasetIndex
-        Unique identifiers of seismic gathers in the constructed dataset. Usually has :class:`~index.SeismicIndex` type
-        and contains combined headers of all the surveys used to create it in this case.
+    index : SeismicIndex
+        Unique identifiers of seismic gathers in the constructed dataset. Contains combined trace headers and
+        references to surveys to get gathers from.
     batch_class : type
-        A class of batches, generated by a dataset. Usually has :class:`~batch.SeismicBatch` type.
+        A class of batches, generated by the dataset. Usually has :class:`~batch.SeismicBatch` type.
     """
-    def __init__(self, index=None, surveys=None, mode=None, batch_class=SeismicBatch, **kwargs):
-        if index is None:
-            index = SeismicIndex(surveys=surveys, mode=mode, **kwargs)
-        super().__init__(index, batch_class=batch_class, **kwargs)
+    index_class = SeismicIndex
+
+    def __init__(self, *args, mode=None, copy_headers=False, batch_class=SeismicBatch, **kwargs):
+        index = self.index_class(*args, mode=mode, copy_headers=copy_headers, **kwargs)
+        super().__init__(index, batch_class=batch_class)
+
+    def __getattr__(self, name):
+        """Redirect requests to undefined attributes and methods to the underlying index."""
+        return getattr(self.index, name)
+
+    def __dir__(self):
+        """Fix autocompletion for redirected methods."""
+        return sorted(set(super().__dir__()) | set(dir(self.index)))
+
+    def __len__(self):
+        """The number of gathers in the dataset."""
+        return self.n_gathers
 
     def __str__(self):
-        """Print dataset metadata including information about its index and batch class."""
-        msg = dedent(f"""
-        Dataset index:             {self.index.__class__}
+        """Print dataset metadata including information about its batch class and index."""
+        msg = f"""
         Batch class:               {self.batch_class}
+        Index class:               {type(self.index)}
 
-        """)
-        if isinstance(self.index, SeismicIndex):
-            msg += self.index._get_index_info(indents='', prefix='dataset.index')
-            for survey_name, survey_list in self.index.surveys_dict.items():
-                for concat_id, survey in enumerate(survey_list):
-                    msg += f"\n{'_'*79}\nSurvey named '{survey_name}' with CONCAT_ID {concat_id}.\n" + str(survey)
-        else:
-            msg += str(self.index)
-        return msg
+        """
+        return (dedent(msg) + str(self.index)).strip()
 
     def info(self):
-        """Print dataset metadata including information about its index and batch class."""
+        """Print dataset metadata including information about its batch class and index."""
         print(self)
 
-    def create_subset(self, index):
-        """Return a new dataset object based on the subset of indices given.
-
-        Notes
-        -----
-        During the call subset of `self.index.headers` is calculated which may take a while for large indices.
+    @classmethod
+    def from_index(cls, index, copy_headers=False, batch_class=SeismicBatch):
+        """Construct a dataset from a `SeismicIndex`. Recursively create all subsets defined for the index.
 
         Parameters
         ----------
-        index : SeismicIndex or pd.MultiIndex
-            Index values of the subset to create a new `SeismicDataset` object for.
+        index : SeismicIndex
+            Unique identifiers of seismic gathers in the dataset.
+        copy_headers : bool, optional, defaults to False
+            Whether to copy `DataFrame`s of trace headers of index parts while constructing the dataset.
+        batch_class : type, optional, defaults to SeismicBatch
+            A class of batches, generated by the dataset. Must be inherited from :class:`~batchflow.Batch`.
+
+        Returns
+        -------
+        dataset : SeismicDataset
+            Created dataset.
+        """
+        if copy_headers:
+            index = index.copy()
+        dataset = cls(index, copy_headers=False, batch_class=batch_class)
+        for split_name, split_index in dataset.splits.items():
+            setattr(dataset, split_name, cls(split_index, copy_headers=False, batch_class=batch_class))
+        return dataset
+
+    def set_index(self, index):
+        """Set a new index for the dataset. Recursively update indices for all subsets.
+
+        Parameters
+        ----------
+        index : SeismicIndex
+            A new index to be set.
+
+        Returns
+        -------
+        dataset : SeismicDataset
+            Dataset with updated index.
+        """
+        self._index = index
+        self._iter_params = self.index._iter_params  # pylint: disable=protected-access
+
+        # Recursively process splits
+        for split_name in ("train", "test", "validation"):
+            index_split = getattr(index, split_name)
+            dataset_split = getattr(self, split_name)
+
+            if dataset_split is not None and index_split is not None:
+                dataset_split.set_index(index_split)
+            elif dataset_split is None and index_split is not None:
+                setattr(self, split_name, self.from_index(index_split))
+            elif dataset_split is not None and index_split is None:
+                setattr(self, split_name, None)
+        return self
+
+    def create_subset(self, index):
+        """Return a new dataset object based on a subset of its indices given.
+
+        Parameters
+        ----------
+        index : SeismicIndex or tuple of pd.Index
+            Gather indices of the subset to create a new `SeismicDataset` object for. If `tuple` of `pd.Index`, each
+            item defines gather indices of the corresponding part in `self`.
 
         Returns
         -------
         subset : SeismicDataset
             A subset of the dataset.
         """
-        if not isinstance(index, SeismicIndex):
+        if not isinstance(index, self.index_class):
             index = self.index.create_subset(index)
-        return type(self).from_dataset(self, index)
+        return type(self)(index, batch_class=self.batch_class)
 
-    def reindex(self, new_index, reindex_nested=False, reindex_surveys=False):
-        """Perform inplace reindexation of the index of `self` with new headers columns.
+    @wraps(SeismicIndex.collect_stats)
+    def collect_stats(self, n_quantile_traces=100000, quantile_precision=2, limits=None, bar=True):
+        """Collect trace data statistics for each survey in the dataset."""
+        _ = self.index.collect_stats(n_quantile_traces=n_quantile_traces, quantile_precision=quantile_precision,
+                                     limits=limits, bar=bar)
+        return self
+
+    def copy(self, ignore=None):
+        """Perform a deepcopy of the dataset by copying its parts. All attributes of each part are deepcopied except
+        for indexer, underlying surveys and those specified in `ignore`, which are kept unchanged.
 
         Parameters
         ----------
-        new_index : str or list of str
-            Headers columns to become a new index. Note, that `CONCAT_ID` is always preserved in the index and should
-            not be specified.
-        reindex_nested : bool, optional, defaults to False
-            Whether to reindex `train`, `test` and `validation` parts of the index.
-        reindex_surveys : bool, optional, defaults to False
-            Whether to reindex all underlying surveys.
+        ignore : str or array of str, defaults to None
+            Part attributes that won't be copied.
 
         Returns
         -------
-        self : SeismicDataset
-            `self` reindexed inplace.
+        copy : SeismicDataset
+            Copy of the dataset.
         """
-        self.index.reindex(new_index, reindex_nested=reindex_nested, reindex_surveys=reindex_surveys, inplace=True)
-        return self
-
-    def collect_stats(self, n_quantile_traces=100000, quantile_precision=2, stats_limits=None, bar=True):
-        """Collect the following trace data statistics for each survey in the dataset:
-        1. Min and max amplitude,
-        2. Mean amplitude and trace standard deviation,
-        3. Approximation of trace data quantiles with given precision,
-        4. The number of dead traces.
-
-        Since fair quantile calculation requires simultaneous loading of all traces from the file we avoid such memory
-        overhead by calculating approximate quantiles for a small subset of `n_quantile_traces` traces selected
-        randomly. Moreover, only a set of quantiles defined by `quantile_precision` is calculated, the rest of them are
-        linearly interpolated by the collected ones.
-
-        After the method is executed all calculated values can be obtained via corresponding attributes for all the
-        surveys in the dataset and theirs `has_stats` flag is set to `True`.
-
-        Examples
-        --------
-        Statistics calculation for the whole dataset can be done as follows:
-        >>> survey = Survey(path, header_index="FieldRecord", header_cols=["TraceNumber", "offset"], name="survey")
-        >>> dataset = SeismicDataset(surveys=survey).collect_stats()
-
-        After a train-test split is performed, `train` and `test` parts of the dataset share lots of their attributes
-        in common allowing for `collect_stats` to be used to calculate statistics for the training set and be available
-        for gathers in the testing set avoiding data leakage during machine learning model training:
-        >>> dataset.split()
-        >>> dataset.train.collect_stats()
-        >>> dataset.test.next_batch(1).load(src="survey").scale_standard(src="survey", use_global=True)
-
-        But note that if no gathers from a particular survey were included in the training set its stats won't be
-        collected!
-
-        Parameters
-        ----------
-        n_quantile_traces : positive int, optional, defaults to 100000
-            The number of traces to use for quantiles estimation.
-        quantile_precision : positive int, optional, defaults to 2
-            Calculate an approximate quantile for each q with `quantile_precision` decimal places. All other quantiles
-            will be linearly interpolated on request.
-        stats_limits : int or tuple or slice, optional
-            Time limits to be used for statistics calculation. `int` or `tuple` are used as arguments to init a `slice`
-            object. If not given, whole traces are used. Measured in samples.
-        bar : bool, optional, defaults to True
-            Whether to show a progress bar.
-
-        Returns
-        -------
-        dataset : SeismicDataset
-            A dataset with collected stats. Sets `has_stats` flag to `True` and updates statistics attributes inplace
-            for each of the underlying surveys.
-        """
-        concat_ids = self.indices.get_level_values(0)
-        indices = self.indices.droplevel(0)
-        for concat_id in np.unique(concat_ids):
-            concat_id_indices = indices[concat_ids == concat_id]
-            for survey_list in self.index.surveys_dict.values():
-                survey_list[concat_id].collect_stats(indices=concat_id_indices, n_quantile_traces=n_quantile_traces,
-                                                     quantile_precision=quantile_precision, stats_limits=stats_limits,
-                                                     bar=bar)
-        return self
+        return self.from_index(self.index.copy(ignore=ignore))

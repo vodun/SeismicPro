@@ -3,7 +3,32 @@
 import numpy as np
 from numba import njit
 
-from . import general_utils
+
+@njit(nogil=True)
+def clip_inplace(data, data_min, data_max):
+    """Limit the `data` values. May change `data` inplace.
+
+    `data` values outside [`data_min`, `data_max`] interval are clipped to the interval edges.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Data to clip.
+    data_min : int, float
+        Minimum value of the interval.
+    data_max : int, float
+        Maximum value of the interval.
+
+    Returns
+    -------
+    data : np.ndarray
+        Clipped data with the same shape.
+    """
+    data_shape = data.shape
+    data = data.reshape(-1)  # may return a copy but usually a view
+    for i in range(len(data)):  # pylint: disable=consider-using-enumerate
+        data[i] = min(max(data[i], data_min), data_max)
+    return data.reshape(data_shape)
 
 
 @njit(nogil=True)
@@ -28,13 +53,12 @@ def scale_standard(data, mean, std, eps):
     data : np.ndarray
         Scaled data with unchanged shape.
     """
-    data = (data - mean) / (std + eps)
-    return data
+    return (data - mean) / (std + eps)
 
 
 @njit(nogil=True)
 def scale_maxabs(data, min_value, max_value, clip, eps):
-    r"""Scale `data` using the following formula:
+    r"""Scale `data` inplace using the following formula:
 
     :math:`S = \frac{data}{max(|min_value|, |max_value|) + eps}`
 
@@ -59,17 +83,18 @@ def scale_maxabs(data, min_value, max_value, clip, eps):
         Scaled data with unchanged shape.
     """
     max_abs = np.maximum(np.abs(min_value), np.abs(max_value))
-    # Use np.atleast_2d(array).T to make the array 2-dimentional by adding dummy trailing axes
+    max_abs += eps
+    # Use np.atleast_2d(array).T to make the array 2-dimensional by adding dummy trailing axes
     # for further broadcasting to work tracewise
-    data /= np.atleast_2d(np.asarray(max_abs)).T + eps
+    data /= np.atleast_2d(np.asarray(max_abs)).T
     if clip:
-        data = general_utils.clip(data, np.float32(-1), np.float32(1))
+        data = clip_inplace(data, np.float32(-1), np.float32(1))
     return data
 
 
 @njit(nogil=True)
 def scale_minmax(data, min_value, max_value, clip, eps):
-    r"""Scale `data` using the following formula:
+    r"""Scale `data` inplace using the following formula:
 
     :math:`S = \frac{data - min_value}{max_value - min_value + eps}`
 
@@ -93,11 +118,13 @@ def scale_minmax(data, min_value, max_value, clip, eps):
     data : np.ndarray
         Scaled data with unchanged shape.
     """
-    # Use np.atleast_2d(array).T to make the array 2-dimentional by adding dummy trailing axes
+    # Use np.atleast_2d(array).T to make the array 2-dimensional by adding dummy trailing axes
     # for further broadcasting to work tracewise
     min_value = np.atleast_2d(np.asarray(min_value)).T
     max_value = np.atleast_2d(np.asarray(max_value)).T
-    data = (data - min_value) / (max_value - min_value + eps)
+    max_value += eps
+    data -= min_value
+    data /= max_value - min_value
     if clip:
-        data = general_utils.clip(data, np.float32(0), np.float32(1))
+        data = clip_inplace(data, np.float32(0), np.float32(1))
     return data
