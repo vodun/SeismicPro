@@ -5,7 +5,6 @@ from scipy import signal
 
 def generate_trace(reflection_event_times=(20, 1400, 2400), reflection_event_amplitude=(6.0, -12.0, 8.0),
                    nmo_velocity=(1.6, 2.0, 2.4), wavelet_lenght=50, wavelet_width=5, **kwargs):
-
     """Generates a seismic trace using reflectivity parameters and trace's headers with Ricker impulse.
 
     Parameters
@@ -21,7 +20,8 @@ def generate_trace(reflection_event_times=(20, 1400, 2400), reflection_event_amp
     wavelet_width : int, defaults to 5
          Width parameter of the wavelet itself. Equivalent of `a` parameter of `scipy.signal.ricker`.
     kwargs : dict
-        Dict with trace header values.
+        Dict with trace header values. This function uses TRACE_SAMPLE_COUNT, TRACE_SAMPLE_INTERVAL and
+        offset.
 
     Returns
     -------

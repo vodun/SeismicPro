@@ -2,18 +2,10 @@
 
 ---
 
-This section contains tutorials with indepth overview of `SeismicPro` functionality and key entities.
+The following tutorials provide an indepth overview of `SeismicPro` functionality and key entities:
 
-Available tutorials:
-
-* [Survey](./1_Survey_tutorial.ipynb)
-* [Gather](./2_Gather_tutorial.ipynb)
-
-Planned to be released:
-* Semblance
-* Stacking
-* Metrics
-* Plotting
+* [Survey](./1_Survey.ipynb) - a lightweight wrapper around a SEG-Y file which provides access to its headers and means to load seismic traces.
+* [Gather](./2_Gather.ipynb) - an object that stores traces and headers of a seismic gather and provides an interface for its processing.
 
 ---
 
