@@ -32,7 +32,8 @@ def generate_trace(reflection_event_times=(20, 1400, 2400), reflection_event_amp
     n_samples = kwargs.get('TRACE_SAMPLE_COUNT')
     sample_rate = kwargs.get('TRACE_SAMPLE_INTERVAL')
     offset = kwargs.get('offset')
-    times = np.array(reflection_event_times) / (sample_rate / 1000) # cast to samples
+    sample_rate = sample_rate / 1000 # cast sample rate (dt) from microsec to millisec
+    times = np.array(reflection_event_times) / sample_rate # cast to samples
     reflections = np.array(reflection_event_amplitude)
     velocities = np.array(nmo_velocity)
     
@@ -41,7 +42,7 @@ def generate_trace(reflection_event_times=(20, 1400, 2400), reflection_event_amp
         raise ValueError("'reflection_event_times', 'reflection_event_amplitude' and 'nmo_velocity' should have equal lengths")
 
     # Inversed normal moveout
-    shifted_times = ((times**2 + offset**2 / (velocities * (sample_rate / 1000))**2)**0.5).astype(int)
+    shifted_times = ((times**2 + offset**2 / (velocities * sample_rate)**2)**0.5).astype(int)
     ref_series = np.zeros(max(n_samples, max(shifted_times)) + 1)
 
     # Tweak reflection event amplitudes to make Survey and Gathers statistics differ
@@ -50,6 +51,7 @@ def generate_trace(reflection_event_times=(20, 1400, 2400), reflection_event_amp
     ref_series[shifted_times] = reflections
     ref_series[min(shifted_times):] += np.random.normal(1, 0.5, size=len(ref_series)-min(shifted_times))
 
+    # Generate "seismic" signal by convolving reflectivity series with the "impulse" wavelet
     trace = np.convolve(ref_series, signal.ricker(wavelet_lenght, wavelet_width), mode='same')[:n_samples]
     trace = trace.astype(np.float32)
 
