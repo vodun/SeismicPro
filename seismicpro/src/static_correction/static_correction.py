@@ -80,26 +80,34 @@ class StaticCorrection:
         updated_params = updated_params.drop(columns=updated_params.filter(regex="_drop$").columns)
         setattr(self, f"{name}_params", updated_params)
 
-    def optimize(self, n_iters=1, max_wv=None):
+    def optimize(self, n_iters=1, max_wv=None, depth_tol=1e-4, vel_tol=1e-8):
         """!!!"""
-        self.update_layer_params(layer=1, to="depth")
-        for layer in range(1, n_iters+1):
-            self.update_layer_params(layer=1, to="vel", max_wv=max_wv)
-            self.update_layer_params(layer=layer, to="depth")
+        self.update_depth(layer=1, tol=depth_tol)
+        for _ in tqdm(range(1, n_iters+1)):
+            self.update_velocity(max_wv=max_wv, tol=vel_tol)
+            self.update_depth(layer=1, tol=depth_tol)
 
-    def update_depth(self, layer, n_iters=3000):
+    def update_depth(self, layer, n_iters=3000, tol=1e-4):
         layer_headers = self._fill_layer_params(headers=self.headers, layer=layer)
         ohe_source, unique_sources, ix_sources = self._get_sparse_depths("source", layer_headers, layer)
         ohe_rec, unique_recs, ix_recs = self._get_sparse_depths("rec", layer_headers, layer)
         matrix = sparse.hstack((ohe_source, ohe_rec))
 
         if 'depth_1' in self.source_params.columns:
-            coefs =  layer_headers.iloc[ix_sources]['depth_1_source'].tolist() + layer_headers.iloc[ix_recs]['depth_1_rec'].tolist()
+            coefs = layer_headers.iloc[ix_sources]['depth_1_source'].tolist() + layer_headers.iloc[ix_recs]['depth_1_rec'].tolist()
         else:
             coefs = np.zeros(matrix.shape[1])
+        # Add param for n_iters to stop
+        prev_iters = [np.inf for _ in range(10)]
+        prev_coefs = coefs
         for _ in tqdm(range(n_iters)):
             coefs = sparse.linalg.lsmr(matrix, layer_headers['y'], x0=np.array(coefs), maxiter=1)[0]
             coefs = np.clip(coefs, 0, None)
+            prev_iters.append(np.mean(coefs - prev_coefs))
+            prev_iters.pop(0)
+            if np.mean(prev_iters) < tol:
+                break
+            prev_coefs = coefs
 
         self._update_params("source", unique_sources, coefs[:len(unique_sources)].reshape(-1, 1), 'depth_1')
         self._update_params("rec", unique_recs, coefs[len(unique_sources):].reshape(-1, 1), 'depth_1')
@@ -127,8 +135,8 @@ class StaticCorrection:
 
     def update_velocity(self, max_wv=None, tol=1e-8, approach='rough'):
         layer_headers = self._fill_layer_params(headers=self.headers, layer=1)
-        ohe_source, unique_sources, ix_sources = self._get_sparse_coefs("source", layer_headers, 1, to="vel")
-        ohe_rec, unique_recs, ix_recs = self._get_sparse_coefs("rec", layer_headers, 1, to="vel")
+        ohe_source, unique_sources, ix_sources = self._get_sparse_velocities("source", layer_headers, 1)
+        ohe_rec, unique_recs, ix_recs = self._get_sparse_velocities("rec", layer_headers, 1)
         matrix = sparse.hstack((ohe_source, ohe_rec))
 
         coefs = layer_headers.iloc[ix_sources]['v1_source'].tolist() + layer_headers.iloc[ix_recs]['v1_rec'].tolist()
