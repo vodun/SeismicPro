@@ -896,7 +896,7 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @batch_method(target="for", args_to_unpack="weathering_velocity") # benchmark it
-    def apply_lmo(self, weathering_velocity, fill_value=0, delay=100):
+    def apply_lmo(self, weathering_velocity, fill_value=0, delay=100, event_headers=None):
         """Perform gather linear moveout correction using given weathering velocity.
 
         Parameters
@@ -920,6 +920,9 @@ class Gather:
         """
         if not isinstance(weathering_velocity, WeatheringVelocity):
             raise ValueError("Only WeatheringVelocity instances can be passed as a `weathering_velocity`")
+        event_headers = [] if event_headers is None else event_headers
+        event_headers = (set(to_list(event_headers['headers'])) if isinstance(event_headers, dict) 
+                                                                else set(to_list(event_headers)))
         data = np.full_like(self.data, fill_value)
         base_step = times_to_indices(weathering_velocity(self.offsets), self.samples, round=True).astype(int)
         delay = times_to_indices(np.full(self.shape[0], delay), self.samples, round=True).astype(int)
@@ -928,6 +931,8 @@ class Gather:
         lenght = np.maximum(self.shape[1] - start_lmo - start_raw, 0)
         for i in range(self.n_traces):
             data[i, start_lmo[i]:start_lmo[i] + lenght[i]] = self.data[i, start_raw[i]:start_raw[i] + lenght[i]]
+        for header in event_headers: # unique
+            self[header] -= start_raw.reshape(-1, 1) * self.sample_rate
         self.data = data
         return self
 
