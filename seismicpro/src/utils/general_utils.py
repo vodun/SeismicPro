@@ -47,6 +47,11 @@ def align_args(reference_arg, *args):
     return reference_arg, *processed_args
 
 
+def get_first_defined(*args):
+    """Return the first non-`None` argument. Return `None` if no `args` are passed or all of them are `None`s."""
+    return next((arg for arg in args if arg is not None), None)
+
+
 INDEX_TO_COORDS = {
     # Shot index
     "FieldRecord": ("SourceX", "SourceY"),

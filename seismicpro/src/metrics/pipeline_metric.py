@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from .metrics import define_metric, Metric, PartialMetric
-from ..utils import to_list
+from ..utils import to_list, get_first_defined
 from ...batchflow import Pipeline
 
 
@@ -310,12 +310,12 @@ def define_pipeline_metric(metric, metric_name):
         raise ValueError(f"metric must be either a subclass of PipelineMetric or a callable but {type(metric)} given")
 
     if is_callable:
-        metric_name = metric_name or metric.__name__
+        metric_name = get_first_defined(metric_name, metric.__name__)
         if metric_name == "<lambda>":
             raise ValueError("metric_name must be passed for lambda metrics")
         return define_metric(base_cls=PipelineMetric, name=metric_name, calc=staticmethod(metric))
 
-    metric_name = metric_name or metric.name
+    metric_name = get_first_defined(metric_name, metric.name)
     if metric_name is None:
         raise ValueError("metric_name must be passed if not defined in metric class")
     return PartialMetric(metric, name=metric_name)
