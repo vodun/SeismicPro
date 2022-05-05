@@ -6,6 +6,7 @@ from functools import partial
 import numpy as np
 import matplotlib.pyplot as plt
 
+from .index import SeismicIndex
 from .gather import Gather, CroppedGather
 from .gather.utils.crop_utils import make_origins
 from .semblance import Semblance, ResidualSemblance
@@ -76,6 +77,13 @@ class SeismicBatch(Batch):
             if self.components is None or comp not in self.components:
                 self.add_components(comp, init=self.array_of_nones)
         return np.arange(len(self))
+
+    @property
+    def flat_indices(self):
+        """np.ndarray: Unique identifiers of seismic gathers in the batch flattened into a 1d array."""
+        if isinstance(self.index, SeismicIndex):
+            return np.concatenate(self.indices)
+        return self.indices
 
     @action
     def load(self, src=None, dst=None, fmt="sgy", combined=False, **kwargs):
@@ -555,7 +563,7 @@ class SeismicBatch(Batch):
             title_template = kwargs.pop("title")
             args_to_unpack = set(to_list(plotter_params["args_to_unpack"]))
 
-            for i, index in enumerate(self.indices):
+            for i, index in enumerate(self.flat_indices):
                 # Unpack required plotter arguments by getting the value of specified component with given index
                 unpacked_args = {}
                 for arg_name in args_to_unpack & kwargs.keys():
