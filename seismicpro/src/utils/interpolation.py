@@ -1,7 +1,7 @@
 """Implements a class for linear 1d interpolation and extrapolation"""
 
 import numpy as np
-from numba import njit
+from numba import njit, prange
 
 
 @njit(nogil=True)
@@ -60,3 +60,105 @@ class interp1d:
         is_scalar_input = (x.ndim == 0)
         res = interpolate(x.ravel(), self.x, self.y, self.left_slope, self.right_slope)
         return res.item() if is_scalar_input else res
+
+
+@njit(nogil=True)
+def times_to_indices(times, samples, round=False):
+    """Convert `times` to their indices in the increasing `samples` array. If some value of `times` is not present
+    in `samples`, its index is linearly interpolated or extrapolated by the other indices of `samples`.
+
+    Parameters
+    ----------
+    times : 1d np.ndarray of floats
+        Time values to convert to indices.
+    samples : 1d np.ndarray of floats
+        Recording time for each trace value.
+    round : bool, optional, defaults to False
+        If `True`, round the obtained float indices to the nearest integer. Values exactly halfway between two adjacent
+        integers are rounded to the nearest even one.
+
+    Returns
+    -------
+    indices : 1d np.ndarray
+        Array with positions of `times` in `samples`.
+
+    Raises
+    ------
+    ValueError
+        If `samples` is not increasing.
+    """
+    for i in range(len(samples) - 1):
+        if samples[i+1] <= samples[i]:
+            raise ValueError('The `samples` array must be increasing.')
+    return _times_to_indices(times=times, samples=samples, round=round)
+
+
+@njit(nogil=True)
+def _times_to_indices(times, samples, round):
+    left_slope = 1 / (samples[1] - samples[0])
+    right_slope = 1 / (samples[-1] - samples[-2])
+    float_position = interpolate(times, samples, np.arange(len(samples), dtype=np.float32), left_slope, right_slope)
+    return np.rint(float_position) if round else float_position
+
+
+@njit(nogil=True)
+def calculate_basis_polynomials(x_new, x, n):
+    """ Calculate the values of basis polynomials for Lagrange interpolation. """
+
+    # Shift x to the zero, shift x_new accordingly. This does not affect interpolation
+    x_new -= x.min()
+    x -= x.min()
+
+    N = n + 1
+    polynomials = np.ones((len(x_new), N))
+
+    # For given point, n + 1 neighbor samples are required to construct polynomial, find the index of the leftmost one
+    if N % 2 == 1:
+        leftmost_indices = np.rint(_times_to_indices(x_new , x, False)) - N // 2
+    else:
+        leftmost_indices = np.ceil(_times_to_indices(x_new , x, False)) - N // 2
+
+    indices = leftmost_indices.reshape(-1, 1) + np.arange(N)
+    sign = np.sign(indices + 1e-3)
+
+    # Reflect indices from array borders
+    div, mod = np.divmod(np.abs(indices), len(x) - 1)
+    indices = np.where(div % 2, np.abs(len(x) - mod - 1), mod).astype(np.int32)
+
+    times = np.empty_like(indices, dtype=np.float32)
+    for i, ind in enumerate(indices):
+        times[i] = x[ind]
+
+    # Reflect times accordingly
+    times = np.where(div % 2, x.max() - times,  times)
+    times = (times + x.max() * div) * sign
+
+    for i, (time, it) in enumerate(zip(times, x_new)):
+        for k in range(N):
+            for j in range(N):
+                if k != j:
+                    polynomials[i, k] *= (it - time[j]) / (time[k] - time[j])
+
+    return polynomials, indices
+
+
+@njit(nogil=True, parallel=True)
+def piecewise_polynomial(x_new, x, y, n):
+    """" Perform piecewise polynomial (with degree n) interpolation . Note, x is expected to be sorted. """
+    is_1d = (y.ndim == 1)
+    y = np.atleast_2d(y)
+    res = np.zeros((len(y), len(x_new)), dtype=y.dtype)
+
+    # Calculate values of Lagrange basis polynomials only once: they are the same at given position for all the traces
+    polynomials, indices = calculate_basis_polynomials(x_new, x, n)
+
+    for j in prange(len(y)):  # pylint: disable=not-an-iterable
+        for i, ix in enumerate(indices):
+            # Interpolate function at given point by calculating dot product between values of Lagrange polynomials and
+            # function values at the reference samples
+            for p in range(n + 1):
+                res[j, i] += polynomials[i, p] * y[j, ix[p]]
+
+    if is_1d:
+        return res[0]
+    return res
