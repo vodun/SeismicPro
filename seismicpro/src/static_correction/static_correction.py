@@ -30,7 +30,6 @@ class StaticCorrection:
         self.source_params = self._create_params_df(name="source")
         self.rec_params = self._create_params_df(name="rec")
 
-        self._add_cols_to_params("source", columns="SourceDepth")
         self._add_wv_to_params("source", interpolator=interpolator)
         self._add_wv_to_params("rec", interpolator=interpolator)
 
@@ -40,13 +39,6 @@ class StaticCorrection:
         coord_names = self._get_cols(name)
         unique_coords = np.unique(self.headers[coord_names], axis=0).astype(np.int32)
         return pd.DataFrame(unique_coords, columns=coord_names).set_index(coord_names)
-
-    def _add_cols_to_params(self, name, columns):
-        coord_names = self._get_cols(name)
-        data = self.headers[coord_names + to_list(columns)].drop_duplicates().values
-        if data.shape[0] != getattr(self, f"{name}_params").shape[0]:
-            raise ValueError("Value in column(s) to add must be unique for each source/rec.")
-        self._update_params(name=name, coords=data[:, :2], values=data[:, 2:], columns=columns)
 
     def _add_wv_to_params(self, name, interpolator):
         unique_coords = to_list(getattr(self, f"{name}_params").index)
@@ -194,12 +186,30 @@ class StaticCorrection:
 
     ### plotters ###
 
+    def _add_cols_to_params(self, name, columns):
+        coord_names = self._get_cols(name)
+        data = self.headers[coord_names + to_list(columns)].drop_duplicates().values
+        if data.shape[0] != getattr(self, f"{name}_params").shape[0]:
+            raise ValueError("Value in column(s) to add must be unique for each source/rec.")
+        self._update_params(name=name, coords=data[:, :2], values=data[:, 2:], columns=columns)
+
     def plot_depths(self, layer):
         _, ax = plt.subplots(1, 2, figsize=(12, 5), tight_layout=True)
-        mm_source = MetricMap(self.source_params.index, self.source_params[f'depth_{layer}'])
-        mm_source.plot(title='sources depth', ax=ax[0])
-        mm_rec = MetricMap(self.rec_params.index, self.rec_params[f'depth_{layer}'])
-        mm_rec.plot(title='receivers depth', ax=ax[1])
+        source_cols = self._get_cols("source")
+        source_depths = self.source_params[[f"depth_{layer}"]]
+        uphole = self.headers[source_cols + ["SourceDepth"]].drop_duplicates()
+        source_depths = source_depths.merge(uphole, on=source_cols)[[f"depth_{layer}", "SourceDepth"]].sum(axis=1)
+        mm_source = MetricMap(self.source_params.index, source_depths)
+        mm_source.plot(title="sources depth", ax=ax[0])
+        mm_rec = MetricMap(self.rec_params.index, self.rec_params[f"depth_{layer}"])
+        mm_rec.plot(title="receivers depth", ax=ax[1])
+
+    def plot_attrs(self, name):
+        _, ax = plt.subplots(1, 2, figsize=(12, 5), tight_layout=True)
+        mm_source = MetricMap(self.source_params.index, self.source_params[name])
+        mm_source.plot(title=f"sources {name}", ax=ax[0])
+        mm_rec = MetricMap(self.rec_params.index, self.rec_params[name])
+        mm_rec.plot(title=f"receivers {name}", ax=ax[1])
 
     def plot_applied_static_map(self, column, datum, **kwargs):
         survey = self.survey.copy()
