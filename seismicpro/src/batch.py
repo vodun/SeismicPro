@@ -605,7 +605,7 @@ class SeismicBatch(Batch):
         # Define axes layout and perform plotting
         fig_width = max(sum(plotter["width"] for plotter in plotters_row) for plotters_row in plotters)
         row_heights = [max(plotter["height"] for plotter in plotters_row) for plotters_row in plotters]
-        fig = plt.figure(figsize=(fig_width, sum(row_heights)), constrained_layout=True)
+        fig = plt.figure(figsize=(fig_width, sum(row_heights)), tight_layout=True)
         gridspecs = fig.add_gridspec(len(plotters), 1, height_ratios=row_heights)
 
         for gridspecs_row, plotters_row in zip(gridspecs, plotters):
