@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from ..utils import to_list, Coordinates
+from ..utils import to_list, get_first_defined, Coordinates
 
 
 def parse_coords(coords, coords_cols=None):
@@ -33,7 +33,7 @@ def parse_coords(coords, coords_cols=None):
     else:
         raise ValueError(f"Unsupported type of coords {type(coords)}")
 
-    coords_cols = coords_cols or data_coords_cols or ("X", "Y")
+    coords_cols = get_first_defined(coords_cols, data_coords_cols, ("X", "Y"))
     coords_cols = to_list(coords_cols)
     if len(coords_cols) != 2:
         raise ValueError(f"List of coordinates names must have length 2 but {len(coords_cols)} was given.")
@@ -63,5 +63,5 @@ def parse_metric_values(metric_values, metric_name=None, metric_type=None):
         if metric_values.ndim != 1:
             raise ValueError(err_msg)
 
-    metric_name = metric_name or data_metric_name or getattr(metric_type, "name") or "metric"
+    metric_name = get_first_defined(metric_name, data_metric_name, getattr(metric_type, "name"), "metric")
     return metric_values, metric_name

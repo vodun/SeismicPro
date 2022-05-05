@@ -7,7 +7,7 @@ from matplotlib import colors as mcolors
 from .interactive_map import ScatterMapPlot, BinarizedMapPlot
 from .utils import parse_coords, parse_metric_values
 from ..decorators import plotter
-from ..utils import to_list, add_colorbar, calculate_axis_limits, set_ticks, set_text_formatting
+from ..utils import to_list, get_first_defined, add_colorbar, calculate_axis_limits, set_ticks, set_text_formatting
 
 
 class BaseMetricMap:
@@ -112,8 +112,8 @@ class BaseMetricMap:
         """Plot the metric map."""
         is_lower_better = self.is_lower_better if is_lower_better is None else is_lower_better
         vmin_vmax_passed = (vmin is not None) or (vmax is not None)
-        vmin = vmin or self.vmin or self.min_value
-        vmax = vmax or self.vmax or self.max_value
+        vmin = get_first_defined(vmin, self.vmin, self.min_value)
+        vmax = get_first_defined(vmax, self.vmax, self.max_value)
 
         if (not vmin_vmax_passed) and (is_lower_better is None) and center_colorbar:
             norm = self.get_centered_norm(clip_threshold_quantile)
