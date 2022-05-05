@@ -14,9 +14,10 @@ EPS = 1e-10
 
 class TracewiseMetric(PipelineMetric):
 
-    views = ("plot", "plot_res", "plot_image_filter", "plot_worst_trace", "plot_wiggle")
+    views = ("plot_res", "plot_image_filter", "plot_worst_trace", "plot_wiggle")
 
-    threshold=10
+    threshold = 10
+    top_ax_y_scale='linear'
 
 
     @staticmethod
@@ -37,9 +38,9 @@ class TracewiseMetric(PipelineMetric):
         return res
 
     @classmethod
-    def aggr(cls, res, tracewize=False):
+    def aggr(cls, res, tracewise=False):
         fn = np.nanmax if cls.is_lower_better else np.nanmin
-        if tracewize:
+        if tracewise:
             return res if res.ndim == 1 else fn(res, axis=1)
         return fn(res)
 
@@ -48,22 +49,17 @@ class TracewiseMetric(PipelineMetric):
         return cls.aggr(cls.filter_res(gather))
 
     @pass_calc_args
-    def plot(cls, gather, ax, **kwargs):
-        gather.plot(ax=ax, **kwargs)
-        set_title(ax, gather)
-
-    @pass_calc_args
     def plot_res(cls, gather, ax, **kwargs):
         gather.plot(ax=ax, **kwargs)
         divider = make_axes_locatable(ax)
 
-        res = cls.aggr(cls.filter_res(gather), tracewize=True)
+        res = cls.aggr(cls.filter_res(gather), tracewise=True)
 
         top_ax = divider.append_axes("top", sharex=ax, size="12%", pad=0.05)
         top_ax.plot(res, '.--')
         top_ax.axhline(cls.threshold, alpha=0.5)
         top_ax.xaxis.set_visible(False)
-        top_ax.set_yscale('log')
+        top_ax.set_yscale(cls.top_ax_y_scale)
 
         set_title(top_ax, gather)
 
@@ -110,6 +106,8 @@ def wiggle_plot_with_filter(arr, flt, ax, flt_color='red', std=0.1, **kwargs):
     y_coords = np.arange(n_samples)
 
     if flt.ndim == 1 or flt.ndim == 2 and flt.shape[1] == 1:
+        if flt.ndim == 2:
+            flt = flt.squeeze(axis=1)
         flt = np.stack([flt]*arr.shape[1], axis=1)
 
     blurred = make_mask(flt)
@@ -140,6 +138,8 @@ def image_filter(arr, flt, ax, **kwargs):
 
 
     if flt.ndim == 1 or flt.ndim == 2 and flt.shape[1] == 1:
+        if flt.ndim == 2:
+            flt = flt.squeeze(axis=1)
         flt = np.stack([flt]*arr.shape[1], axis=1)
 
     flt = make_mask(flt)
