@@ -401,6 +401,8 @@ class SeismicIndex(DatasetIndex):
         """Build an index from `args` as described in :class:`~SeismicIndex` docs."""
         # Create an empty index if no args are given
         if not args:
+            if kwargs:
+                raise ValueError(f"Unexpected arguments {', '.join(kwargs.keys())}")
             return
 
         if mode is None:
