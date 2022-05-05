@@ -98,6 +98,7 @@ class SeismicDataset(Dataset):
     index_class = SeismicIndex
 
     def __init__(self, *args, mode=None, copy_headers=False, batch_class=SeismicBatch, **kwargs):
+        args = tuple(arg.index if isinstance(arg, SeismicDataset) else arg for arg in args)
         index = self.index_class(*args, mode=mode, copy_headers=copy_headers, **kwargs)
         super().__init__(index, batch_class=batch_class)
 
