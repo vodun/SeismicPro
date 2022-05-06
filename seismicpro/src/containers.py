@@ -264,6 +264,10 @@ class GatherContainer(TraceContainer):
         """The number of gathers."""
         return self.n_gathers
 
+    def __contains__(self, index):
+        """Returns whether a gather with given `index` is presented in `headers`."""
+        return index in self.indices
+
     @property
     def headers(self):
         """pd.DataFrame: loaded trace headers."""

@@ -87,6 +87,9 @@ class Metric:
 
     @staticmethod
     def combine_init_params(*params):
+        """Combine metric parameters memorized for different batches of data into a single `dict` of keyword arguments.
+        Should be redefined in child metric classes if complex accumulation logic is reqired, returns the last
+        parameters `dict` by default."""
         return params[-1]
 
 
@@ -110,20 +113,24 @@ class PartialMetric:
 
     @property
     def kwargs(self):
+        """dict: keyword arguments memorized for future metric instantiation."""
         if len(self._kwargs) > 1:
             self._kwargs = [self.metric_type.combine_init_params(*self._kwargs)]
         return self._kwargs[0]
 
     def __getattr__(self, name):
+        """Get a value of metric attribute either from memorized parameters or its class attributes."""
         if name in self.kwargs:
             return self.kwargs[name]
         return getattr(self.metric_type, name)
 
     def __call__(self, *args, **kwargs):
+        """Instantiate a metric using memorized and passed parameters."""
         kwargs = {**self.kwargs, **kwargs}
         return self.metric_type(*args, **kwargs)
 
     def update(self, other):
+        """Combine memorized parameters of `self` and `other` and store them in `self`."""
         self._kwargs += other._kwargs  # pylint: disable=protected-access
 
 

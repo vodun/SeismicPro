@@ -90,7 +90,7 @@ class MetricsAccumulator:
 
     @property
     def metrics(self):
-        """pd.DataFrame: collected coordinates, metrics and indices."""
+        """pd.DataFrame: collected metrics and their coordinates."""
         if len(self.metrics_list) > 1:
             self.metrics_list = [pd.concat(self.metrics_list)]
         return self.metrics_list[0]

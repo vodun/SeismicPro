@@ -7,7 +7,6 @@ from functools import partial
 from collections import defaultdict
 
 import numpy as np
-import pandas as pd
 
 from .metrics import define_metric, Metric, PartialMetric
 from ..utils import to_list, get_first_defined
@@ -118,8 +117,8 @@ class PipelineMetric(Metric):
         An ordinal number of the `calculate_metric` action produced the current metric.
     coords_cols : array-like with 2 elements, optional
         Names of the dataset headers used to extract X and Y coordinates from.
-    coords_to_indices : dict
-        A mapping from spatial coordinates to the corresponding indices of the dataset for which the pipeline was
+    coords_to_pos : dict, optional
+        A mapping from spatial coordinates to the ordinal numbers of indices in the dataset for which the pipeline was
         executed.
     kwargs : misc, optional
         Additional keyword arguments to :func:`~Metric.__init__`.
@@ -137,29 +136,22 @@ class PipelineMetric(Metric):
         Default views of the metric to display on click on a metric map in interactive mode.
     dataset : SeismicDataset
         The dataset for which the metric was calculated.
-    coords_dataset : SeismicDataset
-        The `dataset` reindexed by `coords_cols`.
+    coords_dataset : SeismicDataset or None
+        The `dataset` reindexed by `coords_cols` if they were given.
     plot_pipeline : Pipeline
         The `pipeline` up to the `calculate_metric` method.
     coords_cols : array-like with 2 elements, optional
         Names of the dataset headers used to extract X and Y coordinates from.
-    coords_to_indices : dict
-        A mapping from spatial coordinates to the corresponding indices of the dataset for which the pipeline was
+    coords_to_pos : dict or None
+        A mapping from spatial coordinates to the ordinal numbers of indices in the dataset for which the pipeline was
         executed.
     """
     args_to_unpack = "all"
 
-    def __init__(self, pipeline, calculate_metric_index, coords_cols, coords_to_pos=None, **kwargs):
-        # coords_to_indices = None
-        # if self.stores_indices:
-        #     # Rename metrics coordinates columns to avoid possible collision with index names which breaks groupby
-        #     renamed_metrics = self.metrics.rename(columns=dict(zip(self.coords_cols, ["X", "Y"])))
-        #     coords_to_indices = renamed_metrics.groupby(by=["X", "Y"]).groups
-        #     coords_to_indices = {coords: indices.unique() for coords, indices in coords_to_indices.items()}
-
+    def __init__(self, pipeline, calculate_metric_index, coords_cols=None, coords_to_pos=None, **kwargs):
         super().__init__(**kwargs)
         self.dataset = pipeline.dataset
-        self.coords_dataset = self.dataset.reindex(coords_cols, recursive=False)
+        self.coords_dataset = None if coords_cols is None else self.dataset.reindex(coords_cols, recursive=False)
 
         self.coords_cols = coords_cols
         self.coords_to_pos = coords_to_pos
@@ -182,35 +174,36 @@ class PipelineMetric(Metric):
 
     @staticmethod
     def combine_init_params(*params):
-        # TODO: validate all other attributes for is-equality
+        """Combine metric parameters memorized for different batches of data into a single `dict` of keyword arguments
+        by merging `dict`s under "coords_to_pos" key and taking the last value in `params` for all other keys."""
+        merged_params = {key: val for param in params for key, val in param.items()}
         params_coords_to_pos = [param["coords_to_pos"] for param in params if "coords_to_pos" in param]
         if not params_coords_to_pos:
-            return params[-1]
+            return merged_params
         merged_coords_to_pos = defaultdict(list)
         for coords_to_pos in params_coords_to_pos:
             for key, val in coords_to_pos.items():
                 merged_coords_to_pos[key].extend(val)
-        return {**params[-1], "coords_to_pos": merged_coords_to_pos}
+        return {**merged_params, "coords_to_pos": merged_coords_to_pos}
 
     def make_batch(self, coords, batch_src, pipeline):
         """Construct a batch for given spatial `coords` and execute the `pipeline` for it. The batch can be generated
         either directly from coords if `batch_src` is "coords" or from the corresponding index if `batch_src` is
         "index"."""
-        if batch_src not in {"index", "coords"}:
-            raise ValueError("Unknown source to get the batch from. Available options are 'index' and 'coords'.")
         if batch_src == "index":
             if self.coords_to_pos is None:
-                raise ValueError("Unable to use indices to get the batch by coordinates since they were not passed "
-                                 "during metric instantiation. Please specify batch_src='coords'.")
-            subset = self.dataset.create_subset(self.dataset.subset_by_pos(self.coords_to_pos[coords]))
+                raise ValueError("Unable to use indices to get the batch by coordinates since coords_to_pos was not "
+                                 "passed during metric instantiation. Please specify batch_src='coords'.")
+            subset_index = self.dataset.subset_by_pos(self.coords_to_pos[coords])
+        elif batch_src == "coords":
+            if self.coords_dataset is None:
+                raise ValueError("Unable to use coordinates to get the batch since coords_cols were not passed "
+                                 "during metric instantiation. Please specify batch_src='index'.")
+            subset_index = tuple(coords if coords in part else [] for part in self.coords_dataset.parts)
         else:
-            indices = []
-            for concat_id in range(self.coords_dataset.index.next_concat_id):
-                index_candidate = (concat_id,) + coords
-                if index_candidate in self.coords_dataset.index.index_to_headers_pos:
-                    indices.append(index_candidate)
-            subset = self.coords_dataset.create_subset(pd.MultiIndex.from_tuples(indices))
+            raise ValueError("Unknown source to get the batch from. Available options are 'index' and 'coords'.")
 
+        subset = self.dataset.create_subset(subset_index)
         if len(subset) > 1:
             # TODO: try moving to MapBinPlot in this case
             warnings.warn("Multiple gathers exist for given coordinates, only the first one is shown", RuntimeWarning)
