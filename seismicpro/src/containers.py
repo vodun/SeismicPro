@@ -287,6 +287,36 @@ class GatherContainer(TraceContainer):
         """int: The number of gathers."""
         return len(self.indices)
 
+    def get_traces_locs(self, indices):
+        """Get positions of traces in `headers` by `indices` of their gathers.
+
+        Parameters
+        ----------
+        indices : array-like
+            Indices of gathers to get trace locations for.
+
+        Returns
+        -------
+        locations : array-like
+            Locations of traces of the requested gathers.
+        """
+        return self._indexer.get_locs_in_indices(indices)
+
+    def get_gathers_locs(self, indices):
+        """Get ordinal positions of gathers in the container by their `indices`.
+
+        Parameters
+        ----------
+        indices : array-like
+            Indices of gathers to get ordinal positions for.
+
+        Returns
+        -------
+        locations : np.ndarray
+            Locations of the requested gathers.
+        """
+        return self._indexer.get_locs_in_unique_indices(indices)
+
     def get_headers_by_indices(self, indices):
         """Return headers for gathers with given `indices`.
 
@@ -300,8 +330,7 @@ class GatherContainer(TraceContainer):
         headers : pd.DataFrame
             Selected headers values.
         """
-        headers_indices = self._indexer.get_traces_locs(indices)
-        return self.headers.iloc[headers_indices]
+        return self.headers.iloc[self.get_traces_locs(indices)]
 
     def copy(self, ignore=None):
         """Perform a deepcopy of all attributes of `self` except for indexer and those specified in `ignore`, which are

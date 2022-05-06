@@ -459,19 +459,21 @@ class SeismicBatch(Batch):
         metric = define_pipeline_metric(metric, metric_name)
         unpacked_args, first_arg = metric.unpack_calc_args(self, *args, **kwargs)
 
+        # Calculate metric values and their coordinates
         coords_items = first_arg if coords_component is None else getattr(self, coords_component)
         coords = [item.get_coords(coords_cols) for item in coords_items]
         values = [metric.calc(*args, **kwargs) for args, kwargs in unpacked_args]
 
-        # Construct a mapping from coordinates to ordinal positions of gathers in the dataset index
-        dataset_index_pos = [part._indexer.get_gathers_locs(indices)
-                             for part, indices in zip(self.dataset.parts, self.indices)]
-        pos_offsets = np.cumsum([0] + self.dataset.n_gathers_by_part[:-1])
-        dataset_index_pos = np.concatenate([pos + offset for pos, offset in zip(dataset_index_pos, pos_offsets)])
+        # Construct a mapping from coordinates to ordinal numbers of gathers in the dataset index.
+        # Later used by PipelineMetric to generate a batch by coordinates of a click on an interactive metric map.
+        part_offsets = np.cumsum([0] + self.dataset.n_gathers_by_part[:-1])
+        part_index_pos = [part.get_gathers_locs(indices) for part, indices in zip(self.dataset.parts, self.indices)]
+        dataset_index_pos = np.concatenate([pos + offset for pos, offset in zip(part_index_pos, part_offsets)])
         coords_to_pos = defaultdict(list)
         for coord, pos in zip(coords, dataset_index_pos):
             coords_to_pos[tuple(coord)].append(pos)
 
+        # Construct a metric and its accumulator
         metric = PartialMetric(metric, pipeline=self.pipeline, calculate_metric_index=self._num_calculated_metrics,
                                coords_to_pos=coords_to_pos)
         accumulator = MetricsAccumulator(coords, **{metric.name: {"values": values, "metric_type": metric}})
