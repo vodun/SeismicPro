@@ -16,7 +16,12 @@ class BaseIndexer:
         self.index = index
         self.unique_indices = None
 
-    def get_loc(self, indices):
+    def get_traces_locs(self, indices):
+        """Get locations of `indices` values in the source index."""
+        _ = indices
+        raise NotImplementedError
+
+    def get_gathers_locs(self, indices):
         """Get locations of `indices` values in the source index."""
         _ = indices
         raise NotImplementedError
@@ -29,9 +34,11 @@ class TraceIndexer(BaseIndexer):
     def __init__(self, index):
         super().__init__(index)
         self.unique_indices = index
-        _ = self.get_loc(index[:1])  # Warmup of `get_loc`: the first call is way slower than the following ones
 
-    def get_loc(self, indices):
+        # Warmup of `get_traces_locs`: the first call is way slower than the following ones
+        _ = self.get_traces_locs(index[:1])
+
+    def get_traces_locs(self, indices):
         """Get locations of `indices` values in the source index.
 
         Parameters
@@ -45,6 +52,9 @@ class TraceIndexer(BaseIndexer):
             Locations of the requested indices.
         """
         return self.index.get_indexer(indices)
+    
+    def get_gathers_locs(self, indices):
+        return self.get_traces_locs(indices)
 
 
 class GatherIndexer(BaseIndexer):
@@ -59,7 +69,7 @@ class GatherIndexer(BaseIndexer):
         self.unique_indices = index[unique_indices_pos]
         self.index_to_headers_pos = {ix: range(*args) for ix, *args in zip(self.unique_indices, ix_start, ix_end)}
 
-    def get_loc(self, indices):
+    def get_traces_locs(self, indices):
         """Get locations of `indices` values in the source index.
 
         Parameters
@@ -73,6 +83,10 @@ class GatherIndexer(BaseIndexer):
             Locations of the requested gathers.
         """
         return list(chain.from_iterable(self.index_to_headers_pos[item] for item in indices))
+
+    def get_gathers_locs(self, indices):
+        # TODO: validate that indices exist
+        return np.searchsorted(self.unique_indices, indices)
 
 
 def create_indexer(index):

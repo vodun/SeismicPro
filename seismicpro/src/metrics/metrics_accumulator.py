@@ -42,9 +42,6 @@ class MetricsAccumulator:
     coords_cols : array-like with 2 elements, optional
         Names of X and Y coordinates. Usually names of survey headers used to extract coordinates from. Defaults to
         ("X", "Y") if not given and cannot be inferred from `coords`.
-    indices : pandas.Index, optional
-        Dataset indices, that produced corresponding `coords` and metric values. May be used by `PipelineMetric` to
-        speed up batch generation on click on an interactive metric map.
     kwargs : misc
         Metrics and their values to accumulate. Each `kwargs` item define metric name and its values in one of the
         following formats:
@@ -53,7 +50,6 @@ class MetricsAccumulator:
         * A `dict` with the following keys:
             * "values" - metric values as a 1d array-like or an array of 1d arrays as explained above,
             * "metric_type" - the class of the metric (optional, defaults to `Metric`),
-            * Any other key-value pairs will be used to further instantiate the metric class.
 
     Attributes
     ----------
@@ -66,10 +62,10 @@ class MetricsAccumulator:
     metrics_types : list of subclasses of Metric
         Types of accumulated metrics.
     """
-    def __init__(self, coords, *, coords_cols=None, indices=None, **kwargs):
+    def __init__(self, coords, *, coords_cols=None, **kwargs):
         super().__init__()
         coords, coords_cols = parse_coords(coords, coords_cols)
-        metrics_df = pd.DataFrame(coords, columns=coords_cols, index=indices)
+        metrics_df = pd.DataFrame(coords, columns=coords_cols)
 
         metrics_types = {}
         metrics_names = []
@@ -77,17 +73,20 @@ class MetricsAccumulator:
             if not isinstance(metric_val, dict):
                 metric_val = {"values": metric_val}
             metric_val = {"metric_type": Metric, **metric_val}
-            metric_values = metric_val.pop("values")
-            metric_type = metric_val.pop("metric_type")
-            metrics_df[metric_name] = metric_values
-            metrics_types[metric_name] = PartialMetric(metric_type, **metric_val)
+
+            expected_keys = {"values", "metric_type"}
+            if metric_val.keys() != expected_keys:
+                raise ValueError(f"If metric value is dict, its keys must be only {', '.join(expected_keys)}")
+
+            # Cast metric type to degenerate PartialMetric to simplify append logic
+            metrics_types[metric_name] = PartialMetric(metric_val["metric_type"])
+            metrics_df[metric_name] = metric_val["values"]
             metrics_names.append(metric_name)
 
         self.coords_cols = coords_cols
         self.metrics_list = [metrics_df]
         self.metrics_names = metrics_names
         self.metrics_types = metrics_types
-        self.stores_indices = indices is not None
 
     @property
     def metrics(self):
@@ -101,11 +100,9 @@ class MetricsAccumulator:
         # TODO: allow for accumulation of different metrics
         if (set(self.coords_cols) != set(other.coords_cols)) or (set(self.metrics_names) != set(other.metrics_names)):
             raise ValueError("Only MetricsAccumulator with the same coordinates columns and metrics can be appended")
-        if ((self.stores_indices != other.stores_indices) or
-            (self.metrics_list[0].index.names != other.metrics_list[0].index.names)):
-            raise ValueError("Both accumulators must store the same types of indices")
         self.metrics_list += other.metrics_list
-        self.metrics_types = other.metrics_types
+        for name in self.metrics_names:
+            self.metrics_types[name].update(other.metrics_types[name])
 
     def _parse_requested_metrics(self, metrics):
         is_single_metric = isinstance(metrics, str) or metrics is None and len(self.metrics_names) == 1
@@ -161,16 +158,9 @@ class MetricsAccumulator:
         metrics, is_single_metric = self._parse_requested_metrics(metrics)
         metrics, agg, bin_size = align_args(metrics, agg, bin_size)
 
-        coords_to_indices = None
-        if self.stores_indices:
-            # Rename metrics coordinates columns to avoid possible collision with index names which breaks groupby
-            renamed_metrics = self.metrics.rename(columns=dict(zip(self.coords_cols, ["X", "Y"])))
-            coords_to_indices = renamed_metrics.groupby(by=["X", "Y"]).groups
-            coords_to_indices = {coords: indices.unique() for coords, indices in coords_to_indices.items()}
-
         metrics_maps = []
         for metric, metric_agg, metric_bin_size in zip(metrics, agg, bin_size):
-            metric_type = PartialMetric(self.metrics_types[metric], coords_to_indices=coords_to_indices)
+            metric_type = self.metrics_types[metric]
             metric_map = metric_type.map_class(self.metrics[self.coords_cols], self.metrics[metric],
                                                metric=metric_type, agg=metric_agg, bin_size=metric_bin_size)
             metrics_maps.append(metric_map)

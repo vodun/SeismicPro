@@ -300,7 +300,7 @@ class GatherContainer(TraceContainer):
         headers : pd.DataFrame
             Selected headers values.
         """
-        headers_indices = self._indexer.get_loc(indices)
+        headers_indices = self._indexer.get_traces_locs(indices)
         return self.headers.iloc[headers_indices]
 
     def copy(self, ignore=None):

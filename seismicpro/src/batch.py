@@ -2,6 +2,7 @@
 
 from string import Formatter
 from functools import partial
+from collections import defaultdict
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -10,7 +11,7 @@ from .index import SeismicIndex
 from .gather import Gather, CroppedGather
 from .gather.utils.crop_utils import make_origins
 from .semblance import Semblance, ResidualSemblance
-from .metrics import define_pipeline_metric, MetricsAccumulator
+from .metrics import define_pipeline_metric, PartialMetric, MetricsAccumulator
 from .decorators import create_batch_methods, apply_to_each_component
 from .utils import to_list, as_dict, save_figure
 from ..batchflow import action, inbatch_parallel, save_data_to, Batch, DatasetIndex, NamedExpression
@@ -429,7 +430,7 @@ class SeismicBatch(Batch):
         metric : subclass of PipelineMetric or callable
             The metric to calculate.
         metric_name : str or None, optional
-            A name of the calculated metric. Obligatory if `metric` is `lambda`.
+            A name of the calculated metric. Obligatory if `metric` is `lambda` or undefined in metric class.
         coords_component : str, optional
             A component name to extract coordinates from. If not given, the first argument passed to the metric
             calculation function is used.
@@ -453,19 +454,27 @@ class SeismicBatch(Batch):
         ValueError
             If wrong type of `metric` is passed.
             If `metric` is `lambda` and `metric_name` is not given.
+            If `metric` is a subclass of `PipelineMetric` and `metric.name` is `None`.
         """
         metric = define_pipeline_metric(metric, metric_name)
         unpacked_args, first_arg = metric.unpack_calc_args(self, *args, **kwargs)
 
         coords_items = first_arg if coords_component is None else getattr(self, coords_component)
         coords = [item.get_coords(coords_cols) for item in coords_items]
-        metric_params = {
-            "values": [metric.calc(*args, **kwargs) for args, kwargs in unpacked_args],
-            "metric_type": metric,
-            "pipeline": self.pipeline,
-            "calculate_metric_index": self._num_calculated_metrics,
-        }
-        accumulator = MetricsAccumulator(coords, indices=self.indices, **{metric.name: metric_params})
+        values = [metric.calc(*args, **kwargs) for args, kwargs in unpacked_args]
+
+        # Construct a mapping from coordinates to ordinal positions of gathers in the dataset index
+        dataset_index_pos = [part._indexer.get_gathers_locs(indices)
+                             for part, indices in zip(self.dataset.parts, self.indices)]
+        pos_offsets = np.cumsum([0] + self.dataset.n_gathers_by_part[:-1])
+        dataset_index_pos = np.concatenate([pos + offset for pos, offset in zip(dataset_index_pos, pos_offsets)])
+        coords_to_pos = defaultdict(list)
+        for coord, pos in zip(coords, dataset_index_pos):
+            coords_to_pos[tuple(coord)].append(pos)
+
+        metric = PartialMetric(metric, pipeline=self.pipeline, calculate_metric_index=self._num_calculated_metrics,
+                               coords_to_pos=coords_to_pos)
+        accumulator = MetricsAccumulator(coords, **{metric.name: {"values": values, "metric_type": metric}})
 
         if save_to is not None:
             save_data_to(data=accumulator, dst=save_to, batch=self)

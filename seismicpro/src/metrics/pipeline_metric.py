@@ -4,6 +4,7 @@ components on its interactive maps"""
 import warnings
 from inspect import signature
 from functools import partial
+from collections import defaultdict
 
 import numpy as np
 import pandas as pd
@@ -148,13 +149,20 @@ class PipelineMetric(Metric):
     """
     args_to_unpack = "all"
 
-    def __init__(self, pipeline, calculate_metric_index, coords_cols, coords_to_indices, **kwargs):
+    def __init__(self, pipeline, calculate_metric_index, coords_cols, coords_to_pos=None, **kwargs):
+        # coords_to_indices = None
+        # if self.stores_indices:
+        #     # Rename metrics coordinates columns to avoid possible collision with index names which breaks groupby
+        #     renamed_metrics = self.metrics.rename(columns=dict(zip(self.coords_cols, ["X", "Y"])))
+        #     coords_to_indices = renamed_metrics.groupby(by=["X", "Y"]).groups
+        #     coords_to_indices = {coords: indices.unique() for coords, indices in coords_to_indices.items()}
+
         super().__init__(**kwargs)
         self.dataset = pipeline.dataset
-        self.coords_dataset = self.dataset.copy().reindex(coords_cols)
+        self.coords_dataset = self.dataset.reindex(coords_cols, recursive=False)
 
         self.coords_cols = coords_cols
-        self.coords_to_indices = coords_to_indices
+        self.coords_to_pos = coords_to_pos
 
         # Slice the pipeline in which the metric was calculated up to its calculate_metric call
         calculate_metric_indices = [i for i, action in enumerate(pipeline._actions)
@@ -172,6 +180,18 @@ class PipelineMetric(Metric):
         """Return an already calculated metric. May be overridden in child classes."""
         return metric
 
+    @staticmethod
+    def combine_init_params(*params):
+        # TODO: validate all other attributes for is-equality
+        params_coords_to_pos = [param["coords_to_pos"] for param in params if "coords_to_pos" in param]
+        if not params_coords_to_pos:
+            return params[-1]
+        merged_coords_to_pos = defaultdict(list)
+        for coords_to_pos in params_coords_to_pos:
+            for key, val in coords_to_pos.items():
+                merged_coords_to_pos[key].extend(val)
+        return {**params[-1], "coords_to_pos": merged_coords_to_pos}
+
     def make_batch(self, coords, batch_src, pipeline):
         """Construct a batch for given spatial `coords` and execute the `pipeline` for it. The batch can be generated
         either directly from coords if `batch_src` is "coords" or from the corresponding index if `batch_src` is
@@ -179,10 +199,10 @@ class PipelineMetric(Metric):
         if batch_src not in {"index", "coords"}:
             raise ValueError("Unknown source to get the batch from. Available options are 'index' and 'coords'.")
         if batch_src == "index":
-            if self.coords_to_indices is None:
+            if self.coords_to_pos is None:
                 raise ValueError("Unable to use indices to get the batch by coordinates since they were not passed "
                                  "during metric instantiation. Please specify batch_src='coords'.")
-            subset = self.dataset.create_subset(self.coords_to_indices[coords])
+            subset = self.dataset.create_subset(self.dataset.subset_by_pos(self.coords_to_pos[coords]))
         else:
             indices = []
             for concat_id in range(self.coords_dataset.index.next_concat_id):

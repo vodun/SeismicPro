@@ -1,7 +1,5 @@
 """Implements base classes for metric calculation"""
 
-from functools import partial
-
 from .metric_map import MetricMap
 from ..utils import to_list
 
@@ -87,28 +85,46 @@ class Metric:
         plotter."""
         return [getattr(self, view) for view in to_list(self.views)], kwargs
 
+    @staticmethod
+    def combine_init_params(*params):
+        return params[-1]
+
 
 class PartialMetric:
-    """Return an object which behaves like `Metric` but memorizes positional arguments `args` and keyword arguments
-    `kwargs` for further instantiation.
+    """Return an object which behaves like `Metric` but memorizes keyword arguments `kwargs` for further instantiation.
 
     Metric instantiation may be very time-consuming, that's why it is performed only during first interactive plotting
     of its map. `PartialMetric` allows conveniently memorizing arguments for metric `__init__` and postpone its call
     until the metric instance is actually needed. Moreover, `PartialMetric` can be applied to another `PartialMetric`,
     so that processing methods may consequently add new arguments.
     """
-    def __init__(self, metric, *args, **kwargs):
-        if not(isinstance(metric, PartialMetric) or isinstance(metric, type) and issubclass(metric, Metric)):
+    def __init__(self, metric, **kwargs):
+        if isinstance(metric, type) and issubclass(metric, Metric):
+            self.metric_type = metric
+            self._kwargs = [kwargs]
+        elif isinstance(metric, PartialMetric):
+            self.metric_type = metric.metric_type
+            self._kwargs = [{**metric.kwargs, **kwargs}]
+        else:
             raise ValueError("metric must be either an instance of PartialMetric or a subclass of Metric")
-        self.metric = partial(metric, *args, **kwargs)
+
+    @property
+    def kwargs(self):
+        if len(self._kwargs) > 1:
+            self._kwargs = [self.metric_type.combine_init_params(*self._kwargs)]
+        return self._kwargs[0]
 
     def __getattr__(self, name):
-        if name in self.metric.keywords:
-            return self.metric.keywords[name]
-        return getattr(self.metric.func, name)
+        if name in self.kwargs:
+            return self.kwargs[name]
+        return getattr(self.metric_type, name)
 
     def __call__(self, *args, **kwargs):
-        return self.metric(*args, **kwargs)
+        kwargs = {**self.kwargs, **kwargs}
+        return self.metric_type(*args, **kwargs)
+
+    def update(self, other):
+        self._kwargs += other._kwargs  # pylint: disable=protected-access
 
 
 def define_metric(cls_name="MetricPlaceholder", base_cls=Metric, **kwargs):
