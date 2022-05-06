@@ -195,15 +195,16 @@ class PipelineMetric(Metric):
                 raise ValueError("Unable to use indices to get the batch by coordinates since coords_to_pos was not "
                                  "passed during metric instantiation. Please specify batch_src='coords'.")
             subset_index = self.dataset.subset_by_pos(self.coords_to_pos[coords])
+            subset = self.dataset.create_subset(subset_index)
         elif batch_src == "coords":
             if self.coords_dataset is None:
                 raise ValueError("Unable to use coordinates to get the batch since coords_cols were not passed "
                                  "during metric instantiation. Please specify batch_src='index'.")
-            subset_index = tuple(coords if coords in part else [] for part in self.coords_dataset.parts)
+            subset_index = tuple([coords] if coords in part else [] for part in self.coords_dataset.parts)
+            subset = self.coords_dataset.create_subset(subset_index)
         else:
             raise ValueError("Unknown source to get the batch from. Available options are 'index' and 'coords'.")
 
-        subset = self.dataset.create_subset(subset_index)
         if len(subset) > 1:
             # TODO: try moving to MapBinPlot in this case
             warnings.warn("Multiple gathers exist for given coordinates, only the first one is shown", RuntimeWarning)
