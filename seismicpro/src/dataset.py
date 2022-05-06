@@ -75,8 +75,8 @@ class SeismicDataset(Dataset):
 
     Parameters
     ----------
-    args : tuple of Survey, IndexPart or SeismicIndex
-        A sequence of surveys, indices or parts to construct an index of the dataset.
+    args : tuple of Survey, IndexPart, SeismicIndex or SeismicDataset
+        A sequence of surveys, parts, indices or datasets to construct an index of the dataset.
     mode : {"c", "concat", "m", "merge", None}, optional, defaults to None
         A mode used to combine multiple `args` into a single index. If `None`, only one positional argument can be
         passed.
