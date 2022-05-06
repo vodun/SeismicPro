@@ -22,9 +22,19 @@ class BaseIndexer:
         raise NotImplementedError
 
     def get_locs_in_unique_indices(self, indices):
-        """Get locations of `indices` values in unique indices of the source index."""
-        _ = indices
-        raise NotImplementedError
+        """Get locations of `indices` values in unique indices of the source index.
+
+        Parameters
+        ----------
+        indices : array-like
+            Indices to get locations for.
+
+        Returns
+        -------
+        locations : np.ndarray
+            Locations of the requested indices.
+        """
+        return self.unique_indices.get_indexer(indices)
 
 
 class UniqueIndexer(BaseIndexer):
@@ -35,7 +45,8 @@ class UniqueIndexer(BaseIndexer):
         super().__init__(index)
         self.unique_indices = index
 
-        # Warmup of `get_locs_in_indices`: the first call is way slower than the following ones
+        # Warmup of `get_locs_in_indices`: the first call is way slower than the following ones. Running
+        # `get_locs_in_unique_indices` is unnecessary since both index and unique_indices refer to the same object.
         _ = self.get_locs_in_indices(index[:1])
 
     def get_locs_in_indices(self, indices):
@@ -53,22 +64,6 @@ class UniqueIndexer(BaseIndexer):
         """
         return self.index.get_indexer(indices)
 
-    def get_locs_in_unique_indices(self, indices):
-        """Get locations of `indices` values in unique indices of the source index. Equivalent to `get_locs_in_indices`
-        since the underlying index is unique.
-
-        Parameters
-        ----------
-        indices : array-like
-            Indices to get locations for.
-
-        Returns
-        -------
-        locations : np.ndarray
-            Locations of the requested indices.
-        """
-        return self.get_locs_in_indices(indices)
-
 
 class NonUniqueIndexer(BaseIndexer):
     """Construct an indexer for monotonic, but non-unique `index`. Should not be instantiated directly, use
@@ -80,7 +75,10 @@ class NonUniqueIndexer(BaseIndexer):
         ix_start = unique_indices_pos
         ix_end = chain(unique_indices_pos[1:], [len(index)])
         self.unique_indices = index[unique_indices_pos]
-        self.index_to_headers_pos = {ix: range(*args) for ix, *args in zip(self.unique_indices, ix_start, ix_end)}
+        self.index_to_pos = {ix: range(*args) for ix, *args in zip(self.unique_indices, ix_start, ix_end)}
+
+        # Warmup of `get_locs_in_unique_indices`: the first call is way slower than the following ones
+        _ = self.get_locs_in_unique_indices(index[:1])
 
     def get_locs_in_indices(self, indices):
         """Get locations of `indices` values in the source index.
@@ -95,25 +93,7 @@ class NonUniqueIndexer(BaseIndexer):
         locations : np.ndarray
             Locations of the requested indices.
         """
-        return list(chain.from_iterable(self.index_to_headers_pos[item] for item in indices))
-
-    def get_locs_in_unique_indices(self, indices):
-        """Get locations of `indices` values in unique indices of the source index.
-
-        Parameters
-        ----------
-        indices : array-like
-            Indices to get locations for.
-
-        Returns
-        -------
-        locations : np.ndarray
-            Locations of the requested indices.
-        """
-        pos = np.searchsorted(self.unique_indices, indices)
-        if (pos >= len(self.unique_indices)).any() or not np.array_equal(self.unique_indices[pos], indices):
-            raise ValueError("Unknown indices to get gather locs for")
-        return pos
+        return list(chain.from_iterable(self.index_to_pos[item] for item in indices))
 
 
 def create_indexer(index):
