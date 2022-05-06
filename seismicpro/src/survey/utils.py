@@ -48,8 +48,8 @@ def calculate_stats_mult(traces):
     n_traces = len(traces)
     traces_min = np.full(n_traces, np.inf, dtype=traces.dtype)
     traces_max = np.full(n_traces, -np.inf, dtype=traces.dtype)
-    traces_sum = np.zeros(n_traces, dtype=traces.dtype)
-    traces_sq_sum = np.zeros(n_traces, dtype=traces.dtype)
+    traces_sum = np.zeros((n_traces, 1), dtype=traces.dtype)
+    traces_sq_sum = np.zeros((n_traces, 1), dtype=traces.dtype)
 
     for i in range(n_traces):
         for sample in traces[i]:

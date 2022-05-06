@@ -21,7 +21,7 @@ from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
 from ..utils import to_list, maybe_copy, get_cols, has_maxabs_clips, calc_spikes, create_indexer
 from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_CLIP, HDR_FIRST_BREAK, HDR_SPIKES, HDR_AUTOCORR, \
-                    HDR_ABS_VALS, HDR_ALMOST_DEAD_TRACE
+                    HDR_ABS_VALS, HDR_STD, EPS
 
 
 class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-instance-attributes
@@ -526,11 +526,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         n_samples = len(self.file_samples[limits])
         n_traces = len(traces_pos)
 
-        # trace = np.empty(n_samples, dtype=np.float32)
-
         indicators = [HDR_DEAD_TRACE, HDR_CLIP]
-        indicators_val = [] #HDR_SPIKES, HDR_AUTOCORR, HDR_ABS_VALS, HDR_ALMOST_DEAD_TRACE]
-        indices = {k: np.empty(n_traces, dtype=np.bool8) for k in indicators + indicators_val}
+        indicators_val = [HDR_SPIKES, HDR_AUTOCORR, HDR_STD]
+        buffers = {k: np.empty(n_traces, dtype=np.bool8) for k in indicators}
+        buffers.update({k: np.empty(n_traces, dtype=np.float32) for k in indicators_val})
 
 
         data = np.empty((batch_size, n_samples), dtype=np.float32)
@@ -546,20 +545,27 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                 trace_min, trace_max, trace_sum, trace_sq_sum = calculate_stats_mult(traces)
 
                 dead_traces = np.isclose(trace_min, trace_max, rtol=1e-09, atol=0.0)
-                clips = has_maxabs_clips(traces) & ~dead_traces
+                clips = has_maxabs_clips(traces)
 
+                curr_ind = slice(tr_index - len(dead_traces) + 1, tr_index + 1)
 
-                indices[HDR_DEAD_TRACE][tr_index - len(dead_traces) + 1 : tr_index + 1] = dead_traces
-                indices[HDR_CLIP][tr_index - len(dead_traces) + 1 : tr_index + 1] = clips
+                buffers[HDR_DEAD_TRACE][curr_ind] = dead_traces
+                buffers[HDR_CLIP][curr_ind] = clips
 
-        self.n_dead_traces = sum(indices[HDR_DEAD_TRACE])
+                std = np.sqrt((trace_sq_sum / n_samples) - (trace_sum / n_samples)**2)
+                norm_traces = (traces - trace_sum/n_samples)/(std + EPS)
 
-        # for hdr in indicators:
-        #     self.headers[hdr] = False
-        #     self.headers.iloc[indices[hdr], self.headers.columns.get_loc(hdr)] = True
+                spikes = np.max(calc_spikes(norm_traces), axis=1)
+                autocorr = np.sum(norm_traces[...,1:] * norm_traces[..., :-1], axis=1)/n_samples
 
-        for hdr in indicators:
-            self.headers[hdr] = indices[hdr]
+                buffers[HDR_SPIKES][curr_ind] = spikes
+                buffers[HDR_AUTOCORR][curr_ind] = autocorr
+                buffers[HDR_STD][curr_ind] = std.squeeze(1)
+
+        self.n_dead_traces = sum(buffers[HDR_DEAD_TRACE])
+
+        for hdr in buffers:
+            self.headers[hdr] = buffers[hdr]
 
         return self
 

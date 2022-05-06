@@ -3,6 +3,8 @@
 from .stacking_velocity import StackingVelocity
 
 
+EPS = 1e-10
+
 # Size of trace headers in a SEG-Y file in bytes
 TRACE_HEADER_SIZE = 240
 
@@ -30,4 +32,6 @@ DEFAULT_VELOCITY = StackingVelocity.from_points(
 HDR_SPIKES = 'Spikes'
 HDR_AUTOCORR = 'Autocorr'
 HDR_ABS_VALS = 'AbsVals'
-HDR_ALMOST_DEAD_TRACE = 'AlmostDeadTrace'
+HDR_STD = 'TraceStd'
+
+

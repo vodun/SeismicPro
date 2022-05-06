@@ -5,7 +5,7 @@ from concurrent.futures import Future, Executor
 import numpy as np
 
 from numba import njit
-from scipy import signal
+from scipy import signal, fft
 
 import numpy as np
 
@@ -218,8 +218,9 @@ def has_maxabs_clips(traces):
     return np.any(get_maxabs_clips(traces), axis=-1)
 
 def calc_spikes(arr):
-    running_mean = signal.fftconvolve(arr, [1,1,1], mode='valid')/3
-    return (np.abs(arr[1:-1] - running_mean))
+    with fft.set_workers(25):
+        running_mean = signal.fftconvolve(arr, [[1,1,1]], mode='valid', axes=1)/3
+    return (np.abs(arr[...,1:-1] - running_mean))
 
 class Coordinates:
     """Define spatial coordinates of an object."""
