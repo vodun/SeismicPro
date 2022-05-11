@@ -10,6 +10,8 @@ import numpy as np
 import pandas as pd
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+from numba import njit
+
 from .muting import Muter
 from .cropped_gather import CroppedGather
 from .plot_corrections import NMOCorrectionPlot, LMOCorrectionPlot
@@ -22,6 +24,7 @@ from ..stacking_velocity import StackingVelocity, VelocityCube
 from ..weathering_velocity import WeatheringVelocity
 from ..decorators import batch_method, plotter
 from ..const import HDR_FIRST_BREAK
+
 
 class Gather:
     """A class representing a single seismic gather.
@@ -728,7 +731,7 @@ class Gather:
     @batch_method(target='for')
     def calculate_weathering_velocity(self, first_breaks_col=HDR_FIRST_BREAK, n_layers=None, init=None, bounds=None,
                                       ascending_velocity=True, freeze_t0=False, **kwargs):
-        """Calculate the weathering velocities.
+        """Calculate the WeatheringVelocity object.
 
         Method creates the WeatheringVelocity instance that fits and stores the parameters of a velocity model of
         the first few subsurface layers. Read the WeatheringVelocity docs for more infomation.
@@ -895,7 +898,7 @@ class Gather:
     #                           Gather corrections                           #
     #------------------------------------------------------------------------#
 
-    @batch_method(target="for", args_to_unpack="weathering_velocity") # benchmark it
+    @batch_method(target="threads", args_to_unpack="weathering_velocity") # benchmark it
     def apply_lmo(self, weathering_velocity, fill_value=0, delay=100, event_headers=None):
         """Perform gather linear moveout correction using given weathering velocity.
 
@@ -904,9 +907,10 @@ class Gather:
         weathering_velocity : WeatheringVelocity
             Weathering velocity object to perform LMO correction with.
         fill_value : int or float, defaults to 0
-            Value to fill in the empty parts of the traces.
+            Fill value to use for the amplitudes outside the gather bounds after moveout.
         delay : int, defaults to 100
-            Moveout delay. Measured in milliseconds.
+            Milliseconds to substract from the result of moveout correction.
+            Used to center the first breaks hodograph around delay instead of 0.
 
         Returns
         -------
@@ -916,24 +920,19 @@ class Gather:
         Raises
         ------
         ValueError
-            If `stacking_velocity` is not a `WeatheringVelocity` instance.
+            If `weathering_velocity` is not a `WeatheringVelocity` instance.
         """
         if not isinstance(weathering_velocity, WeatheringVelocity):
             raise ValueError("Only WeatheringVelocity instances can be passed as a `weathering_velocity`")
         event_headers = [] if event_headers is None else event_headers
-        event_headers = (set(to_list(event_headers['headers'])) if isinstance(event_headers, dict) 
+        event_headers = (set(to_list(event_headers['headers'])) if isinstance(event_headers, dict)
                                                                 else set(to_list(event_headers)))
-        data = np.full_like(self.data, fill_value)
-        base_step = times_to_indices(weathering_velocity(self.offsets), self.samples, round=True).astype(int)
-        delay = times_to_indices(np.full(self.shape[0], delay), self.samples, round=True).astype(int)
-        start_lmo = np.maximum(delay - base_step, 0)
-        start_raw = np.maximum(base_step - delay, 0)
-        lenght = np.maximum(self.shape[1] - start_lmo - start_raw, 0)
-        for i in range(self.n_traces):
-            data[i, start_lmo[i]:start_lmo[i] + lenght[i]] = self.data[i, start_raw[i]:start_raw[i] + lenght[i]]
-        for header in event_headers: # unique
-            self[header] -= start_raw.reshape(-1, 1) * self.sample_rate
+        picking_estimate = times_to_indices(weathering_velocity(self.offsets), self.samples, round=True).astype(int)
+        delay_indicies = times_to_indices(np.full(self.shape[0], delay), self.samples, round=True).astype(int)
+        data = correction.apply_lmo(self.data, picking_estimate, delay_indicies, fill_value)
         self.data = data
+        for header in event_headers:
+            self[header] -= (picking_estimate - delay_indicies).reshape(-1, 1) * self.sample_rate
         return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
@@ -1441,7 +1440,7 @@ class Gather:
 
         Parameters
         ----------
-        min_vel : float, optional, defaults to 1500
+        min_vel : float, optional, defaults to 800
             Minimum seismic velocity value for NMO correction. Measured in meters/seconds.
         max_vel : float, optional, defaults to 6000
             Maximum seismic velocity value for NMO correction. Measured in meters/seconds.
