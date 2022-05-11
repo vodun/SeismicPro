@@ -84,3 +84,16 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate):
         corrected_gather_data[i] = get_hodograph(gather_data, time, offsets, stacking_velocity, sample_rate,
                                                  fill_value=np.nan)
     return np.ascontiguousarray(corrected_gather_data.T)
+
+@njit(nogil=True)
+def apply_lmo(gather_data, picking_estimate, delay, fill_value):
+    """TODO: docs"""
+    data = np.full_like(gather_data, fill_value)
+    n_traces, trace_lenght = data.shape
+    start_lmo = np.maximum(delay - picking_estimate, 0)
+    start_raw = np.maximum(picking_estimate - delay, 0)
+    traces_lenght_lmo = np.maximum(trace_lenght - start_lmo - start_raw, 0)
+    for i in range(n_traces):
+        data[i, start_lmo[i]:start_lmo[i] + traces_lenght_lmo[i]] = \
+            gather_data[i, start_raw[i]:start_raw[i] + traces_lenght_lmo[i]]
+    return data
