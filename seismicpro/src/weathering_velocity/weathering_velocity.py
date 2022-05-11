@@ -1,4 +1,4 @@
-"""Implements WeatheringVelocity class to fit piecewise function and store parameters of a fitted function."""
+"""Implements WeatheringVelocity class to estimate nearsurface refractors velocities."""
 
 from functools import partial
 
@@ -17,7 +17,8 @@ class WeatheringVelocity:
 
     The weathering model is a velocity model of the first few subsurface layers. The class uses the intercept time,
     cross offsets and velocities values as the weathering model parameters. The weathering model could be present as
-    a piecewise linear function the picking time from the offsets. Also referred to as the weathering velocity curve.
+    a piecewise linear function of the picking time from the offsets. Also referred to as the weathering velocity
+    curve.
     Since the class uses the first break picking time to fit the detected velocities, any detected underlaying layers
     should have a higher velocity than any of the overlaying.
 
@@ -63,7 +64,7 @@ class WeatheringVelocity:
     --------
     Note: `gather.calculate_weathering_velocity` uses `from_picking` classmethod to create the WeatheringVelocity.
 
-    A Weathering Velocity object with starting initial parameters for two layers weathering model:
+    A Weathering Velocity object with initial parameters for two layers weathering model:
     >>> weathering_velocity = gather.calculate_weathering_velocity(init={'t0': 100, 'x1': 1500, 'v1': 2, 'v2': 3})
 
     A Weathering Velocity object with bounds for fitted intercept time and velocity of the first layer for the one
@@ -80,6 +81,23 @@ class WeatheringVelocity:
 
     A Weathering Velocity object with known parameters (avoid the fitting procedure):
     >>> weathering_velocity = WeatheringVelocity.from_params(params={'t0': 100, 'x1': 1500, 'v1': 2, 'v2': 3})
+
+    Attributes
+    ----------
+    offsets : 1d ndarray
+        Offsets of traces. Measured in meters.
+    picking_times : 1d ndarray
+        Picking times of traces. Measured in milliseconds.
+    init : dict
+        The inital values used to fit the parameters of the weathering model. Includes the calculated non-passed
+        keys and values. Have the common key notation.
+    bounds : dict
+        The left and right bounds used to fit the parameters of the weathering model. Includes the calculated
+        non-passed keys and values. Have the common key notation.
+    n_layers : int
+        Number of the weathering model layers used to fit the parameters of the weathering model.
+    params : dict
+        The fitted parameters of a weathering model. Have the common key notation.
     """
     def __init__(self):
         self.offsets = None
@@ -98,7 +116,7 @@ class WeatheringVelocity:
         self._model_params = None
 
     @classmethod
-    def from_picking(cls, offsets, picking_times, n_layers=None, init=None, bounds=None, ascending_velocity=True,
+    def from_picking(cls, offsets, picking_times, init=None, bounds=None, n_layers=None, ascending_velocity=True,
                  freeze_t0=False, **kwargs):
         """Method fits the weathering model parameters from the offsets and the first break picking times.
 
@@ -111,7 +129,7 @@ class WeatheringVelocity:
         init : dict, defaults to None
             Initial parameters of a weathering model.
         bounds : dict, defaults to None
-            Left and right bounds of the weathering model parameters.
+            Lower and upper bounds of the weathering model parameters.
         n_layers : int, defaults to None
             Number of layers of a weathering model.
         ascending_velocity : bool, defaults to True
@@ -120,23 +138,6 @@ class WeatheringVelocity:
             Avoid the fitting `t0`.
         kwargs : dict, optional
             Additional keyword arguments to `scipy.optimize.minimize`.
-
-        Attributes
-        ----------
-        offsets : 1d ndarray
-            Offsets of traces. Measured in meters.
-        picking_times : 1d ndarray
-            Picking times of traces. Measured in milliseconds.
-        init : dict
-            The inital values used to fit the parameters of the weathering model. Includes the calculated non-passed
-            keys and values. Have the common key notation.
-        bounds : dict
-            The left and right bounds used to fit the parameters of the weathering model. Includes the calculated
-            non-passed keys and values. Have the common key notation.
-        n_layers : int
-            Number of the weathering model layers used to fit the parameters of the weathering model.
-        params : dict
-            The fitted parameters of a weathering model. Have the common key notation.
 
         Raises
         ------
@@ -297,7 +298,6 @@ class WeatheringVelocity:
         ------
         ValueError
             If given `loss` does not exist.
-
         """
         self._piecewise_offsets, self._piecewise_times = \
             self._update_piecewise_coords(self._piecewise_offsets, self._piecewise_times, args, self.n_layers)
@@ -390,10 +390,10 @@ class WeatheringVelocity:
                                                           fit_intercept=(i==0))
             else:
                 slopes[i] = start_slope
-                times[i] = start_time - start_slope * normalized_offsets.min() * (i==0)  # add first layer correction
+                times[i] = start_time
             slopes[i] = max(.167, slopes[i])  # move maximal velocity to 6 km/s
             times[i] = max([0, times[i]])  # move minimal time to zero
-            start_time = times[i] + (slopes[i] - start_slope) * cross_offsets[i + 1]
+            start_time = times[i] + (start_slope - slopes[i]) * cross_offsets[i + 1]
             start_slope = slopes[i] * (n_layers / (n_layers + 1)) # raise base velocity for next layers (v = 1 / slope)
         velocities = 1 / slopes
         init = np.hstack((times[0] * max_picking_times, cross_offsets[1:-1] * max_picking_times, velocities))
@@ -407,7 +407,8 @@ class WeatheringVelocity:
     def _calc_bounds_by_init(self):
         """Method returns dict with calculated bounds from a init dict."""
         bounds = {key: [val / 2, val * 2] for key, val in self.init.items()}
-        bounds['t0'] = [min(0, bounds['t0'][0]), max(200, bounds['t0'][1])]
+        if 't0' in self.init:
+            bounds['t0'] = [min(0, bounds['t0'][0]), max(200, bounds['t0'][1])]
         return bounds
 
     def _check_values(self, init, bounds):
@@ -481,7 +482,7 @@ class WeatheringVelocity:
 
     @plotter(figsize=(10, 5))
     def plot(self, *, ax=None, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_times=None,
-            compared_params=None, **kwargs):
+            compared_params=None, txt_kwargs=None, **kwargs):
         """Plot the WeatheringVelocity data, fitted curve, cross offsets, and additional information.
 
         Parameters
@@ -497,8 +498,7 @@ class WeatheringVelocity:
         threshold_times : int or float, optional. Defaults to None
             Neighborhood margins of the fitted curve to fill in the area inside. If None the area don't show.
         compared_params : dict, optional, defaults to None
-            Dict with the weathering velocity params. Uses to plot an additional the weathering velocity curve.
-            Should have the common keys notation.
+            Dict with the valid weathering velocity params. Used to plot an additional the weathering velocity curve.
         kwargs : dict, optional
             Additional keyword arguments to the plotter.
 
@@ -508,25 +508,24 @@ class WeatheringVelocity:
             WeatheringVelocity without changes.
         """
 
-        txt_kwargs = kwargs.pop('txt_kwargs', {})
         (title, x_ticker, y_ticker, txt_kwargs), kwargs = set_text_formatting(title, x_ticker, y_ticker, txt_kwargs,
                                                                               **kwargs)
         set_ticks(ax, "x", tick_labels=None, label="offset, m", **x_ticker)
         set_ticks(ax, "y", tick_labels=None, label="time, ms", **y_ticker)
 
         if self.picking_times is not None:
-            ax.scatter(self.offsets, self.picking_times, s=1, color='black', label='fbp points')
-        ax.plot(self._piecewise_offsets, self._piecewise_times, '-', color='red', label='fitted piecewise function')
+            ax.scatter(self.offsets, self.picking_times, s=1, color='black', label='First Breaks')
+        ax.plot(self._piecewise_offsets, self._piecewise_times, '-', color='red', label='Weathering velocity curve')
         for i in range(self.n_layers - 1):
             ax.axvline(self._piecewise_offsets[i+1], 0, ls='--', color='blue',
-                       label='crossover point(s)' if i == 0 else None)
+                       label='crossover point' if self.n_layers <= 2 else 'crossover points' if i == 0 else None)
         if show_params:
             params = [self.params[key] for key in self._valid_keys]
             txt_info = f"t0 : {params[0]:.2f} ms"
             if self.n_layers > 1:
                 txt_info += '\ncrossover offsets : ' + ', '.join(f"{round(x)}" for x in params[1:self.n_layers]) + ' m'
             txt_info += '\nvelocities : ' + ', '.join(f"{v:.2f}" for v in params[self.n_layers:]) + ' km/s'
-            txt_kwargs = {**{'fontsize': 15, 'va': 'top'}, **txt_kwargs}
+            txt_kwargs = {'fontsize': 15, 'va': 'top', **txt_kwargs}
             txt_ident = txt_kwargs.pop('ident', (.03, .94))
             ax.text(*txt_ident, txt_info, transform=ax.transAxes, **txt_kwargs)
 
@@ -540,5 +539,5 @@ class WeatheringVelocity:
         ax.set_xlim(0)
         ax.set_ylim(0)
         ax.legend(loc='lower right')
-        ax.set_title(**{"label": None}, **title)
+        ax.set_title(**{"label": None, **title})
         return self
