@@ -4,7 +4,7 @@ from time import time
 
 import matplotlib.pyplot as plt
 
-from .general_utils import align_args, MissingModule
+from .general_utils import get_first_defined, align_args, MissingModule
 
 # Safe import of modules for interactive plotting
 try:
@@ -276,7 +276,7 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
 
     def set_title(self, title=None):
         """Update the plot title. If `title` is not given, the default title of the current view is used."""
-        title = title or self.title
+        title = get_first_defined(title, self.title)
         self.title_widget.value = TITLE_TEMPLATE.format(style=TITLE_STYLE, title=title)
 
     def clear(self):
