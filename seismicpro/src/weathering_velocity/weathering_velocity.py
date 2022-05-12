@@ -26,16 +26,16 @@ class WeatheringVelocity:
     If you have the weathering model parameters.
     `from_params` - create the WeatheringVelocity by parameters of the weathering model.
         Parameters : `params`.
-            `params` : dict with weathering model parameters. Read the common keys notation below.
+            `params` : dict with weathering model parameters. Read the valid keys notation below.
 
     If you haven't the weathering model parameters.
     `from_picking` - create the WeatheringVelocity by the first break picking data and estimate parameters
                      of the weathering model.
         Data : first break picking times and the corresponding offsets.
         Parameters : `init`, `bounds`, `n_layers`.
-            `init` : dict with the estimate weathering model parameters. Read the common keys notation below.
+            `init` : dict with the estimate weathering model parameters. Read the valid keys notation below.
             `bounds` : dict with left and right bound for each weathering model parameter.
-                    Read the common keys notation below.
+                    Read the valid keys notation below.
             `n_layers` : the quantity of the weathering model layers.
 
     The WeatheringVelocity created with `from_picking` classmethod could calculate the missing parameters from
@@ -49,20 +49,21 @@ class WeatheringVelocity:
                     calculated from `init`. Calculates `bounds` from `init` first and uses the above rule.
     Note: All passed parameters have a greater priority than any calculated parameters.
 
-    Common keys notation.
-        `init`, `bounds` and `params` is dicts with the common key notation.
+    Valid keys notation.
+        `init`, `bounds` and `params` is dicts with the valid key notation.
             `t0`: a intercept time of the first subweathering layer. Same as double wave travel time to the first
                   refractor. Measured in milliseconds.
             `x{i}`: cross offset. The offset where refracted wave from the i-th layer comes at the same time with
                     a refracted wave from the next underlaying layer. Measured in meters.
             `v{i}`: velocity of the i-th layer. Measured in kilometers/seconds.
-        Note: in some case a direct wave could be detected on the close offsets. In this point `v1` is mean velocity
-        of the direct wave layer, and `x1` is cross offsets where direct wave comes at the same time with a refracted
-        wave from the first subweathering layer.
 
     Examples
     --------
-    Note: `gather.calculate_weathering_velocity` uses `from_picking` classmethod to create the WeatheringVelocity.
+    First create the Survey and load the first break picking.
+    >>> survey = Survey(survey_path, header_index="FieldRecord", header_cols="offset")
+    >>> survey = survey.load_first_breaks(picking_path)
+    Second load a randomly selected common source gather.
+    >>> gather = survey.sample_gather()
 
     A Weathering Velocity object with initial parameters for two layers weathering model:
     >>> weathering_velocity = gather.calculate_weathering_velocity(init={'t0': 100, 'x1': 1500, 'v1': 2, 'v2': 3})
@@ -152,7 +153,7 @@ class WeatheringVelocity:
         self = cls()
         init = {} if init is None else init
         bounds = {} if bounds is None else bounds
-        self._check_values(init, bounds)
+        self._validate_values(init, bounds)
 
         self.offsets = offsets
         self.picking_times = picking_times
@@ -160,7 +161,7 @@ class WeatheringVelocity:
 
         self.init = {**self._calc_init_by_layers(n_layers), **self._calc_init_by_bounds(bounds), **init}
         self.bounds = {**self._calc_bounds_by_init(), **bounds}
-        self._check_keys(self.bounds)
+        self._validate_keys(self.bounds)
         self.n_layers = len(self.bounds) // 2
         self._valid_keys = self._get_valid_keys()
 
@@ -173,7 +174,7 @@ class WeatheringVelocity:
         self._piecewise_offsets, self._piecewise_times = \
             self._update_piecewise_coords(self._piecewise_offsets, self._piecewise_times, list(self.init.values()),
                                           self.n_layers)
-        self._empty_layers = self._mask_empty_layers(list(self.init.values()))
+        self._empty_layers = np.histogram(self.offsets, self._piecewise_offsets)[0] ==  0
 
         # constraints define
         constraint_offset = {  # crossoffsets ascend
@@ -228,7 +229,7 @@ class WeatheringVelocity:
         """
         self = cls()
 
-        self._check_keys(params)
+        self._validate_keys(params)
         self.n_layers = len(params) // 2
         self._valid_keys = self._get_valid_keys(self.n_layers)
         self.params = {key: params[key] for key in self._valid_keys}
@@ -319,7 +320,7 @@ class WeatheringVelocity:
         raise ValueError('Unknown loss type for `loss_piecewise_linear`.')
 
     def _get_valid_keys(self, n_layers=None):
-        """Returns a valid list with keys based on `n_layers` or `self.n_layers`."""
+        """Returns a list with the valid keys based on `n_layers` or `self.n_layers`."""
         n_layers = self.n_layers if n_layers is None else n_layers
         return ['t0'] + [f'x{i+1}' for i in range(n_layers - 1)] + [f'v{i+1}' for i in range(n_layers)]
 
@@ -372,31 +373,32 @@ class WeatheringVelocity:
             return {}
 
         max_picking_times = self.picking_times.max()  # normalization parameter.
-        start_slope = 2/3  # base slope corresponding velocity is 1,5 km/s (v = 1 / slope)
-        start_time = 0  # base time
+        initial_slope = 2/3  # base slope corresponding velocity is 1,5 km/s (v = 1 / slope)
+        initial_time = 0  # base time
         normalized_offsets = self.offsets / max_picking_times
         normalized_times = self.picking_times / max_picking_times
 
         # split cross offsets on an equal intervals
         cross_offsets = np.linspace(0, normalized_offsets.max(), num=n_layers+1)
-        slopes = np.empty(n_layers)
-        times = np.empty(n_layers)
+        current_slope = np.empty(n_layers)
+        current_time = np.empty(n_layers)
 
         for i in range(n_layers):  # inside the loop work with normalized data only
             mask = (normalized_offsets > cross_offsets[i]) & (normalized_offsets <= cross_offsets[i + 1])
             if mask.sum() > 1:  # at least two point to fit
-                slopes[i], times[i] = self._fit_regressor(normalized_offsets[mask].reshape(-1, 1),
-                                                          normalized_times[mask], start_slope, start_time,
+                current_slope[i], current_time[i] = self._fit_regressor(normalized_offsets[mask].reshape(-1, 1),
+                                                          normalized_times[mask], initial_slope, initial_time,
                                                           fit_intercept=(i==0))
             else:
-                slopes[i] = start_slope
-                times[i] = start_time
-            slopes[i] = max(.167, slopes[i])  # move maximal velocity to 6 km/s
-            times[i] = max([0, times[i]])  # move minimal time to zero
-            start_time = times[i] + (start_slope - slopes[i]) * cross_offsets[i + 1]
-            start_slope = slopes[i] * (n_layers / (n_layers + 1)) # raise base velocity for next layers (v = 1 / slope)
-        velocities = 1 / slopes
-        init = np.hstack((times[0] * max_picking_times, cross_offsets[1:-1] * max_picking_times, velocities))
+                current_slope[i] = initial_slope
+                current_time[i] = initial_time
+            current_slope[i] = max(.167, current_slope[i])  # move maximal velocity to 6 km/s
+            current_time[i] = max([0, current_time[i]])  # move minimal time to zero
+            initial_time = current_time[i] + (initial_slope - current_slope[i]) * cross_offsets[i + 1]
+            # raise base velocity for next layers (v = 1 / slope)
+            initial_slope = current_slope[i] * (n_layers / (n_layers + 1))
+        velocities = 1 / current_slope
+        init = [current_time[0] * max_picking_times, *cross_offsets[1:-1] * max_picking_times, *velocities]
         init = dict(zip(self._get_valid_keys(n_layers), init))
         return init
 
@@ -411,7 +413,7 @@ class WeatheringVelocity:
             bounds['t0'] = [min(0, bounds['t0'][0]), max(200, bounds['t0'][1])]
         return bounds
 
-    def _check_values(self, init, bounds):
+    def _validate_values(self, init, bounds):
         """Check the values of an `init` and `bounds` dicts."""
         negative_init = {key: val for key, val in init.items() if val < 0}
         if negative_init:
@@ -427,7 +429,7 @@ class WeatheringVelocity:
         if outbounds_keys:
             raise ValueError(f"Init parameters are out of the bounds for {outbounds_keys} key(s).")
 
-    def _check_keys(self, checked_dict):
+    def _validate_keys(self, checked_dict):
         """Check the keys of given dict for a minimum quantity, an excessive, and an insufficient."""
         expected_layers = len(checked_dict) // 2
         if expected_layers < 1:
@@ -439,13 +441,6 @@ class WeatheringVelocity:
         excessive_keys = set(checked_dict.keys()) - set(self._get_valid_keys(expected_layers))
         if excessive_keys:
             raise ValueError(f"Excessive parameters to fit a weathering velocity curve. Remove {excessive_keys}.")
-
-    def _mask_empty_layers(self, params):
-        """Method checks the layers for data and returns boolean mask. The mask value is `True` if no data is found."""
-        cross_offsets = [0, *params[1:self.n_layers], self.offsets.max()]
-        mask = [self.offsets[(self.offsets > cross_offsets[i]) & (self.offsets <= cross_offsets[i+1])].shape[0] < 1
-                for i in range(self.n_layers)]
-        return np.array(mask, dtype=bool)
 
     def _params_postprocceissing(self, params, ascending_velocity):
         """Checks the params and fix it if constraints are not met."""
