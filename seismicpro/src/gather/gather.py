@@ -13,13 +13,9 @@ import pandas as pd
 from scipy.signal import firwin
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-from numba import njit
-
 from .muting import Muter
 from .cropped_gather import CroppedGather
 from .plot_corrections import NMOCorrectionPlot, LMOCorrectionPlot
-from .utils import correction, normalization
-from .plot_corrections import NMOCorrectionPlot
 from .utils import correction, normalization, gain
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
 from ..utils import (to_list, get_cols, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
@@ -1613,7 +1609,7 @@ class Gather:
         """Perform interactive LMO correction of the gather with the selected velocity of the 1-layer weathering model.
 
         The plot provides 2 views:
-        * Corrected gahted (default). LMO correction is performed on the fly with the celocity controlled by a slider
+        * Corrected gather (default). LMO correction is performed on the fly with the velocity controlled by a slider
         on top of the plot.
         * Source gather. This view disables the velocity slider.
 
