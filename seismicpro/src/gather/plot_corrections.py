@@ -118,13 +118,13 @@ class LMOCorrectionPlot(CorrectionPlot):
         """Dict: parameters of the 1-layer weathering mode."""
         return {'t0': 0, 'v1': self.plotter.slider.value / 1000}
 
-    def corrected_gather(self, event_headers=None):
+    def lmo_gather(self, event_headers=None):
         """Gather: LMO corrected gather."""
         wv = WeatheringVelocity.from_params(self.params)
         return self.gather.copy(ignore=["data", "samples"]).apply_lmo(wv, event_headers=event_headers)
 
     def plot_corrected_gather(self, ax, **kwargs):
         """Plot the corrected gather."""
-        (self.corrected_gather(event_headers=kwargs.get('event_headers'))
+        (self.lmo_gather(event_headers=kwargs.get('event_headers'))
             .plot(ax=ax, y_ticker={"step_labels": 100}, **kwargs))
         ax.grid(which='major', axis='y', color='k', linestyle='--')
