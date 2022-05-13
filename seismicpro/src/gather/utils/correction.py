@@ -87,13 +87,30 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate):
 
 @njit(nogil=True)
 def apply_lmo(gather_data, picking_estimate, delay, fill_value):
-    """TODO: docs"""
-    data = np.full_like(gather_data, fill_value)
-    n_traces, trace_lenght = data.shape
+    """Perform gather linear moveout correction with given estimate picking for each trace.
+
+    Parameters
+    ----------
+    gather_data : 2d np.ndarray
+        Gather data to apply LMO correction to with an ordinary shape of (num_traces, trace_length).
+    picking_estimate : 1d np.ndarray
+        Estimate times of first break picking for each traces with shape (num_traces,).
+    delay : int
+        Number of samples to substract from the result of linear moveout correction.
+    fill_value: float
+        Value used to fill the amplitudes outside the gather bounds after moveout.
+
+    Returns
+    -------
+    corrected_gather : 2d array
+        LMO corrected gather with an ordinary shape of (num_traces, trace_length).
+    """
+    corrected_gather = np.full_like(gather_data, fill_value)
+    n_traces, trace_lenght = corrected_gather.shape
     start_lmo = np.maximum(delay - picking_estimate, 0)
     start_raw = np.maximum(picking_estimate - delay, 0)
     traces_lenght_lmo = np.maximum(trace_lenght - start_lmo - start_raw, 0)
     for i in range(n_traces):
-        data[i, start_lmo[i]:start_lmo[i] + traces_lenght_lmo[i]] = \
+        corrected_gather[i, start_lmo[i]:start_lmo[i] + traces_lenght_lmo[i]] = \
             gather_data[i, start_raw[i]:start_raw[i] + traces_lenght_lmo[i]]
-    return data
+    return corrected_gather
