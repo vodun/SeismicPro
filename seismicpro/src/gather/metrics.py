@@ -7,8 +7,10 @@ from ..const import HDR_FIRST_BREAK
 
 
 class FirstBreaksOutliers(PipelineMetric):
-    """Calculate a weathering metric. Weathering metric is fraction of first breaking times that stands out from
-    a weathering velocity curve (piecewise linear function) more than threshold.
+    """Calculates the first break outliers metric.
+
+    The outlier is considered to be the first break time that stands out from the expected arrival time
+    (weathering velocity curve) for more than threshold.
     """
     name = "weathering_metrics"
     vmin = 0
