@@ -900,18 +900,18 @@ class Gather:
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", args_to_unpack="weathering_velocity") # benchmark it
-    def apply_lmo(self, weathering_velocity, fill_value=0, delay=100, event_headers=None):
+    def apply_lmo(self, weathering_velocity, delay=100, fill_value=0, event_headers=None):
         """Perform gather linear moveout correction using given weathering velocity.
 
         Parameters
         ----------
         weathering_velocity : WeatheringVelocity
             Weathering velocity object to perform LMO correction with.
-        fill_value : int or float, defaults to 0
-            Fill value to use for the amplitudes outside the gather bounds after moveout.
-        delay : int, defaults to 100
-            Milliseconds to substract from the result of moveout correction.
-            Used to center the first breaks hodograph around delay instead of 0.
+        delay : float, defaults to 100
+            Milliseconds to substract from the result of moveout correction. Used to center the first breaks hodograph
+            around delay instead of 0.
+        fill_value : float, defaults to 0
+            Value used to fill the amplitudes outside the gather bounds after moveout.
 
         Returns
         -------

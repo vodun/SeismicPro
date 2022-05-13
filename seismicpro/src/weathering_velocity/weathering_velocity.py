@@ -10,6 +10,7 @@ from ..decorators import plotter
 from ..utils import set_ticks, set_text_formatting
 from ..utils.interpolation import interp1d
 
+
 # pylint: disable=too-many-instance-attributes, protected-access
 class WeatheringVelocity:
     """The class fits and stores parameters of a weathering model based on gather's offsets and first break picking
@@ -417,13 +418,13 @@ class WeatheringVelocity:
         """Check the values of an `init` and `bounds` dicts."""
         negative_init = {key: val for key, val in init.items() if val < 0}
         if negative_init:
-            raise ValueError(f"Init parameters contain negative values {str(negative_init)[1:-1]}")
+            raise ValueError(f"Init parameters contain negative values {negative_init}.")
         negative_bounds = {key: val for key, val in bounds.items() if min(val) < 0}
         if negative_bounds:
-            raise ValueError(f"Bounds parameters contain negative values {str(negative_bounds)[1:-1]}")
+            raise ValueError(f"Bounds parameters contain negative values {negative_bounds}.")
         reversed_bounds = {key: [left, right] for key, [left, right] in bounds.items() if left > right}
         if reversed_bounds:
-            raise ValueError(f"Left bound is greater than right bound for {list(reversed_bounds.keys())} key(s).")
+            raise ValueError(f"Left bound is greater than right bound for {reversed_bounds}.")
         both_keys = {*init.keys()} & {*bounds.keys()}
         outbounds_keys = {key for key in both_keys if init[key] < bounds[key][0] or init[key] > bounds[key][1]}
         if outbounds_keys:
