@@ -749,17 +749,17 @@ class SeismicIndex(DatasetIndex):
             Loaded gather instance. List of gathers is returned if several survey names was passed.
         """
         if part is None and self.n_parts > 1:
-            raise ValueError("part must be specified if the index is concatenated")
+            raise ValueError("part must be specified if the index is constructed by concatenation")
         if part is None:
             part = 0
         index_part = self.parts[part]
 
         if survey_name is None and len(self.survey_names) > 1:
-            raise ValueError("survey_name must be specified if the index is merged")
+            raise ValueError("survey_name must be specified if the index is constructed by merging")
         if survey_name is None:
             survey_name = self.survey_names[0]
 
-        is_single_gather = isinstance(survey_name, str)
+        is_single_survey = isinstance(survey_name, str)
         survey_names = to_list(survey_name)
         surveys = [index_part.surveys_dict[name] for name in survey_names]
 
@@ -769,7 +769,7 @@ class SeismicIndex(DatasetIndex):
 
         gathers = [survey.load_gather(headers=headers, limits=limits, copy_headers=copy_headers)
                    for survey, headers in zip(surveys, gather_headers)]
-        if is_single_gather:
+        if is_single_survey:
             return gathers[0]
         return gathers
 

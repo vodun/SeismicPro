@@ -430,7 +430,8 @@ class SeismicBatch(Batch):
         metric : subclass of PipelineMetric or callable
             The metric to calculate.
         metric_name : str or None, optional
-            A name of the calculated metric. Obligatory if `metric` is `lambda` or undefined in metric class.
+            A name of the calculated metric. Obligatory if `metric` is `lambda` or `name` attribute is not overridden
+            in the metric class.
         coords_component : str, optional
             A component name to extract coordinates from. If not given, the first argument passed to the metric
             calculation function is used.

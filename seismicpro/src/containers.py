@@ -5,6 +5,7 @@ particular types of data:
 * `GatherContainer` - a subclass of `TraceContainer` that also implements fast selection of gather headers by index.
 """
 
+import warnings
 from copy import deepcopy
 
 import numpy as np
@@ -149,7 +150,7 @@ class TraceContainer:
 
     def _post_filter(self, mask):
         """Implement extra filtering logic of concrete subclass attributes if some of them should also be filtered
-        besides `headers.`"""
+        besides `headers`."""
         _ = mask
         return
 
@@ -205,6 +206,8 @@ class TraceContainer:
         mask = mask[:, 0]
         # Guarantee that a copy is set
         self.headers = self.headers.loc[mask].copy()  # pylint: disable=attribute-defined-outside-init
+        if len(self.headers) == 0:
+            warnings.warn("Empty headers after filtering", RuntimeWarning)
         self._post_filter(mask)
         return self
 
