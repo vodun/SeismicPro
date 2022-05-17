@@ -729,10 +729,9 @@ class Gather:
             f.write(rows_as_str)
         return self
 
-    @batch_method(target='for')  # fit_intercept is debug params
+    @batch_method(target='for')
     def calculate_weathering_velocity(self, first_breaks_col=HDR_FIRST_BREAK, n_layers=None, init=None, bounds=None,
-                                      acsending_velocities=True, freeze_t0=False, negative_t0=False,
-                                      fit_intercept=False, **kwargs):
+                                      acsending_velocities=True, freeze_t0=False, negative_t0=False, **kwargs):
         """Calculate the WeatheringVelocity object from offsets and first break times.
 
         Method creates a WeatheringVelocity instance, fits the parameters of weathering model (intercept time, cross
@@ -769,7 +768,7 @@ class Gather:
         return WeatheringVelocity.from_picking(offsets=self.offsets, picking_times=self[first_breaks_col].ravel(),
                                                n_layers=n_layers, init=init, bounds=bounds,
                                                acsending_velocities=acsending_velocities, freeze_t0=freeze_t0,
-                                               negative_t0=negative_t0, fit_intercept=fit_intercept, **kwargs)
+                                               negative_t0=negative_t0, **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #
