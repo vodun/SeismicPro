@@ -354,7 +354,7 @@ class SeismicIndex(DatasetIndex):
         """The number of gathers in the index."""
         return self.n_gathers
 
-    def get_index_info(self, index_path="index", indent_size=0):
+    def get_index_info(self, index_path="index", indent_size=0, split_delimiter=""):
         """Recursively fetch index description string from the index itself and all the nested subindices."""
         if self.is_empty:
             return "Empty index"
@@ -378,16 +378,19 @@ class SeismicIndex(DatasetIndex):
 
         # Recursively fetch info about index splits
         for split_name, split in self.splits.items():
-            msg += "_" * 79 + "\n" + split.get_index_info(f"{index_path}.{split_name}", indent_size+4)
+            msg += split_delimiter + "\n" + split.get_index_info(f"{index_path}.{split_name}", indent_size+4,
+                                                                 split_delimiter=split_delimiter)
         return msg
 
     def __str__(self):
         """Print index metadata including information about its parts and underlying surveys."""
-        msg = self.get_index_info()
+        delimiter_placeholder = "{delimiter}"
+        msg = self.get_index_info(split_delimiter=delimiter_placeholder)
         for i, part in enumerate(self.parts):
             for sur in part.survey_names:
-                msg += "_" * 79 + "\n\n" + f"Part {i}, Survey {sur}\n\n" + str(part.surveys_dict[sur]) + "\n"
-        return msg.strip()
+                msg += delimiter_placeholder + f"\n\nPart {i}, Survey {sur}\n\n" + str(part.surveys_dict[sur]) + "\n"
+        delimiter = "_" * max(len(line) for line in msg.splitlines())
+        return msg.strip().format(delimiter=delimiter)
 
     def info(self):
         """Print index metadata including information about its parts and underlying surveys."""
