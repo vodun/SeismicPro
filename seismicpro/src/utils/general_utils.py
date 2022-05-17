@@ -9,7 +9,7 @@ import numpy as np
 def to_list(obj):
     """Cast an object to a list. Almost identical to `list(obj)` for 1-D objects, except for `str`, which won't be
     split into separate letters but transformed into a list of a single element."""
-    if isinstance(obj, (list, tuple, set)):
+    if isinstance(obj, (list, tuple, set, np.ndarray)):
         return list(obj)
     return [obj]
 
