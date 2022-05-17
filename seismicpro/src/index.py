@@ -291,9 +291,20 @@ class SeismicIndex(DatasetIndex):
     parts : tuple of IndexPart
         Parts of the constructed index.
     """
-    def __init__(self, *args, mode=None, copy_headers=False, **kwargs):
+    def __init__(self, *args, mode=None, copy_headers=False, **kwargs):  # pylint: disable=super-init-not-called
         self.parts = tuple()
-        super().__init__(*args, mode=mode, copy_headers=copy_headers, **kwargs)
+        self.train = None
+        self.test = None
+        self.validation = None
+
+        if args:
+            index = self.build_index(*args, mode=mode, copy_headers=copy_headers, **kwargs)
+            self.__dict__ = index.__dict__
+        elif kwargs:
+            raise ValueError("No kwargs must be passed if an empty index is being created")
+
+        self._iter_params = None
+        self.reset("iter")
 
     @property
     def index(self):
@@ -400,31 +411,29 @@ class SeismicIndex(DatasetIndex):
     #                         Index creation methods                         #
     #------------------------------------------------------------------------#
 
-    def build_index(self, *args, mode=None, copy_headers=False, **kwargs):
+    @classmethod
+    def build_index(cls, *args, mode=None, copy_headers=False, **kwargs):
         """Build an index from `args` as described in :class:`~SeismicIndex` docs."""
         # Create an empty index if no args are given
         if not args:
-            if kwargs:
-                raise ValueError("No kwargs must be passed if an empty index is being created")
-            return
+            return cls(**kwargs)
 
         # Select an appropriate builder by passed mode
         if mode is None and len(args) > 1:
             raise ValueError("mode must be specified if multiple positional arguments are given")
         builders_dict = {
-            None: self.from_index,
-            "m": self.merge,
-            "merge": self.merge,
-            "c": self.concat,
-            "concat": self.concat,
+            None: cls.from_index,
+            "m": cls.merge,
+            "merge": cls.merge,
+            "c": cls.concat,
+            "concat": cls.concat,
         }
         if mode not in builders_dict:
             raise ValueError(f"Unknown mode {mode}")
 
         # Convert all args to SeismicIndex and combine them into a single index
-        indices = self._args_to_indices(*args)
-        index = builders_dict[mode](*indices, copy_headers=copy_headers, **kwargs)
-        self.parts = index.parts
+        indices = cls._args_to_indices(*args)
+        return builders_dict[mode](*indices, copy_headers=copy_headers, **kwargs)
 
     @classmethod
     def _args_to_indices(cls, *args):
@@ -595,11 +604,6 @@ class SeismicIndex(DatasetIndex):
     #------------------------------------------------------------------------#
     #                 DatasetIndex interface implementation                  #
     #------------------------------------------------------------------------#
-
-    def build_pos(self):
-        """Implement degenerate `get_pos` to decrease computational complexity since `SeismicIndex` provides its own
-        interface to get gathers from each of its parts."""
-        return None
 
     def index_by_pos(self, pos):
         """Return gather index and part by its position in the index.
