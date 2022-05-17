@@ -122,9 +122,9 @@ class WeatheringVelocity:
         self._piecewise_times = None
         self._model_params = None
 
-    @classmethod   # fit_intercept is debug parameter
+    @classmethod
     def from_picking(cls, offsets, picking_times, init=None, bounds=None, n_layers=None, acsending_velocities=True,
-                     freeze_t0=False, negative_t0=False, fit_intercept=False, **kwargs):
+                     freeze_t0=False, negative_t0=False, **kwargs):
         """Method fits the weathering model parameters from the offsets and the first break picking times.
 
         Parameters
@@ -166,7 +166,7 @@ class WeatheringVelocity:
         self.picking_times = picking_times
         self.max_offset = offsets.max()
 
-        self.init = {**self._calc_init_by_layers(n_layers, fit_intercept), **self._calc_init_by_bounds(bounds), **init}
+        self.init = {**self._calc_init_by_layers(n_layers), **self._calc_init_by_bounds(bounds), **init}
         self.bounds = {**self._calc_bounds_by_init(), **bounds}
         self._validate_keys(self.bounds)
         self.n_layers = len(self.bounds) // 2
@@ -340,7 +340,7 @@ class WeatheringVelocity:
             constraints_list.append(constraint_velocity)
         return constraints_list
 
-    def _fit_regressor(self, x, y, start_slope, start_time, fit_intercept):
+    def _fit_regressor(self, x, y, start_slope, start_time):
         """Method fits the linear regression by given data and initinal values.
 
         Parameters
@@ -353,8 +353,6 @@ class WeatheringVelocity:
             Starting coefficient to fit a linear regression.
         start_time : float
             Starting intercept to fit a linear regression.
-        fit_intercept : bool
-            Fit the intercept with `True` or hold it with `False`.
 
         Returns
         -------
@@ -362,11 +360,11 @@ class WeatheringVelocity:
             Linear regression `coef` and `intercept`.
         """
         lin_reg = SGDRegressor(loss='huber', early_stopping=True, penalty=None, shuffle=True, epsilon=0.1, eta0=.1,
-                               alpha=0., tol=1e-6, fit_intercept=fit_intercept)
+                               alpha=0., tol=1e-6)
         lin_reg.fit(x, y, coef_init=start_slope, intercept_init=start_time)
         return lin_reg.coef_[0], lin_reg.intercept_
 
-    def _calc_init_by_layers(self, n_layers, fit_intercept):
+    def _calc_init_by_layers(self, n_layers):
         """Calculates `init` dict by a given an estimated quantity of layers.
 
         Method splits the picking times into `n_layers` equal part by cross offsets and fits a separate linear
@@ -402,17 +400,15 @@ class WeatheringVelocity:
 
         for i in range(n_layers):  # inside the loop work with normalized data only
             mask = (normalized_offsets > cross_offsets[i]) & (normalized_offsets <= cross_offsets[i + 1])
-            _fit_intercept = True if fit_intercept else i==0  # debug parameter
             if mask.sum() > 1:  # at least two point to fit
                 current_slope[i], current_time[i] = \
-                    self._fit_regressor(normalized_offsets[mask].reshape(-1, 1) - cross_offsets[i],
-                                        normalized_times[mask], initial_slope, initial_time,
-                                        fit_intercept=_fit_intercept)
+                    self._fit_regressor(normalized_offsets[mask].reshape(-1, 1), normalized_times[mask],
+                                        initial_slope, initial_time)
             else:
                 current_slope[i] = initial_slope
                 current_time[i] = initial_time
-            # raise base velocity for next layers (v = 1 / slope)
-            current_slope[i] = max(.167, current_slope[i])  # move maximal velocity to 6 km/s
+            # move maximal velocity to 6 km/s
+            current_slope[i] = max(.167 * self.max_offset / max_picking_times, current_slope[i])
             current_time[i] =  current_time[i] if self.negative_t0 else max(0, current_time[i])
             # raise base velocity for next layers (v = 1 / slope)
             initial_slope = current_slope[i] * (n_layers / (n_layers + 1))
@@ -533,12 +529,13 @@ class WeatheringVelocity:
         set_ticks(ax, "y", tick_labels=None, label="time, ms", **y_ticker)
 
         if self.picking_times is not None:
-            ax.scatter(self.offsets, self.picking_times, s=1, color='black', label='First Breaks')
+            ax.scatter(self.offsets, self.picking_times, s=1, color='black', label='first breaks')
         ax.plot(self._piecewise_offsets, self._piecewise_times, '-', color=kwargs.get('curve_color', 'red'),
-                label='Weathering velocity curve')
+                label=kwargs.get('curve_label', 'weathering velocity curve'))
+        crossoffset_label = kwargs.get('crossoffset_label', 'crossover point')
         for i in range(self.n_layers - 1):
             ax.axvline(self._piecewise_offsets[i+1], 0, ls='--', color=kwargs.get('crossover_color', 'blue'),
-                       label='Crossover point' if self.n_layers <= 2 else 'Crossover points' if i == 0 else None)
+                       label=crossoffset_label if self.n_layers <= 2 else crossoffset_label + 's' if i == 0 else None)
         if show_params:
             params = [self.params[key] for key in self._valid_keys]
             txt_info = f"t0 : {params[0]:.2f} ms"
@@ -555,7 +552,13 @@ class WeatheringVelocity:
                             label=f'+/- {threshold_times}ms threshold area', alpha=.2)
         if compared_params is not None:
             compared_wv = WeatheringVelocity.from_params(compared_params)
-            compared_wv.plot(ax=ax, show_params=False, curve_color='#ff7900', crossover_color='green')
+            compared_wv._piecewise_times[-1] = (compared_wv._piecewise_times[-1] +
+                (self.max_offset - compared_wv._piecewise_offsets[-1]) / list(compared_wv.params.values())[-1])
+            compared_wv._piecewise_offsets[-1] = self.max_offset
+
+            compared_wv.plot(ax=ax, show_params=False, curve_color='#ff7900', crossover_color='green',
+                             curve_label='compared weathering velocity curve',
+                             crossoffset_label='compared crossover point')
         ax.set_xlim(0)
         ax.set_ylim(0)
         ax.legend(loc='lower right')
