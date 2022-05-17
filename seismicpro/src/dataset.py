@@ -197,7 +197,12 @@ class SeismicDataset(Dataset):
         """
         if not isinstance(index, self.index_class):
             index = self.index.create_subset(index)
-        return type(self)(index, batch_class=self.batch_class)
+
+        # Preserve a reference to the passed index in order to synchronize dataset.<subset>.index and
+        # dataset.index.<subset> after splitting
+        subset = type(self)(batch_class=self.batch_class)
+        subset.set_index(index)
+        return subset
 
     @wraps(SeismicIndex.collect_stats)
     def collect_stats(self, n_quantile_traces=100000, quantile_precision=2, limits=None, bar=True):
