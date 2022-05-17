@@ -405,15 +405,12 @@ class SeismicIndex(DatasetIndex):
         # Create an empty index if no args are given
         if not args:
             if kwargs:
-                raise ValueError(f"Unexpected arguments {', '.join(kwargs.keys())}")
+                raise ValueError("No kwargs must be passed if an empty index is being created")
             return
 
-        if mode is None:
-            if len(args) > 1:
-                raise ValueError("mode must be passed if several positional arguments are given")
-            mode = "c"
-
+        # Select an appropriate builder by passed mode
         builders_dict = {
+            None: self.from_index,
             "m": self.merge,
             "merge": self.merge,
             "c": self.concat,
@@ -423,14 +420,12 @@ class SeismicIndex(DatasetIndex):
             raise ValueError(f"Unknown mode {mode}")
 
         # Convert all args to SeismicIndex and combine them into a single index
-        args_indices = self._args_to_indices(*args, copy_headers=False)
-        index = builders_dict[mode](*args_indices, copy_headers=copy_headers, **kwargs)
-
-        # Copy parts from the created index to self
+        indices = self._args_to_indices(*args)
+        index = builders_dict[mode](*indices, copy_headers=copy_headers, **kwargs)
         self.parts = index.parts
 
     @classmethod
-    def _args_to_indices(cls, *args, copy_headers=False):
+    def _args_to_indices(cls, *args):
         """Independently convert each positional argument to a `SeismicIndex`."""
         indices = []
         for arg in args:
@@ -442,7 +437,7 @@ class SeismicIndex(DatasetIndex):
                 builder = cls.from_index
             else:
                 raise ValueError(f"Unsupported type {type(arg)} to convert to index")
-            indices.append(builder(arg, copy_headers=copy_headers))
+            indices.append(builder(arg, copy_headers=False))
         return indices
 
     @classmethod
@@ -547,8 +542,8 @@ class SeismicIndex(DatasetIndex):
         index : SeismicIndex
             Concatenated index.
         """
-        args_indices = cls._args_to_indices(*args, copy_headers=False)
-        parts = sum([arg.parts for arg in args_indices], tuple())
+        indices = cls._args_to_indices(*args)
+        parts = sum([ix.parts for ix in indices], tuple())
         return cls.from_parts(*parts, copy_headers=copy_headers)
 
     @classmethod
@@ -579,12 +574,12 @@ class SeismicIndex(DatasetIndex):
         index : SeismicIndex
             Merged index.
         """
-        args_indices = cls._args_to_indices(*args, copy_headers=False)
-        if len({arg.n_parts for arg in args_indices}) != 1:
+        indices = cls._args_to_indices(*args)
+        if len({ix.n_parts for ix in indices}) != 1:
             raise ValueError("All indices being merged must have the same number of parts")
-        args_parts = [arg.parts for arg in args_indices]
+        indices_parts = [ix.parts for ix in indices]
         merged_parts = [reduce(lambda x, y: x.merge(y, on, validate_unique, copy_headers), parts)
-                        for parts in zip(*args_parts)]
+                        for parts in zip(*indices_parts)]
 
         # Warn if the whole index or some of its parts are empty
         empty_parts = [i for i, part in enumerate(merged_parts) if not part]
