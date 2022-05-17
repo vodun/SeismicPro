@@ -729,13 +729,20 @@ class Gather:
             f.write(rows_as_str)
         return self
 
-    @batch_method(target='for')
+    @batch_method(target='for')  # fit_intercept is debug params
     def calculate_weathering_velocity(self, first_breaks_col=HDR_FIRST_BREAK, n_layers=None, init=None, bounds=None,
-                                      ascending_velocity=True, freeze_t0=False, **kwargs):
-        """Calculate the WeatheringVelocity object.
+                                      acsending_velocities=True, freeze_t0=False, negative_t0=False,
+                                      fit_intercept=False, **kwargs):
+        """Calculate the WeatheringVelocity object from offsets and first break times.
 
-        Method creates the WeatheringVelocity instance that fits and stores the parameters of a velocity model of
-        the first few subsurface layers. Read the WeatheringVelocity docs for more infomation.
+        Method creates a WeatheringVelocity instance, fits the parameters of weathering model (intercept time, cross
+        offsets and velocities) of first N subsurface layers and stores fitted parameters.
+        Read the WeatheringVelocity docs for a detail infomation.
+
+        Examples
+        --------
+        >>> weathering_velocity = gather.calculate_weathering_velocity(n_layer=2)
+        Note: the offsets and first break picking should be preloaded.
 
         Parameters
         ----------
@@ -750,7 +757,7 @@ class Gather:
         ascending_velocity : bool, defaults to True
             Keeps the ascend of the fitted velocities from i-th layer to i+1 layer.
         freeze_t0 : bool, defaults to False
-            Avoid the fitting `t0`.
+            Avoid the fitting intercept time ('t0').
         kwargs : dict, optional
             Additional keyword arguments to `scipy.optimize.minimize`.
 
@@ -761,7 +768,8 @@ class Gather:
         """
         return WeatheringVelocity.from_picking(offsets=self.offsets, picking_times=self[first_breaks_col].ravel(),
                                                n_layers=n_layers, init=init, bounds=bounds,
-                                               ascending_velocity=ascending_velocity, freeze_t0=freeze_t0, **kwargs)
+                                               acsending_velocities=acsending_velocities, freeze_t0=freeze_t0,
+                                               negative_t0=negative_t0, fit_intercept=fit_intercept, **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #
