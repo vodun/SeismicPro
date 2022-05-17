@@ -25,13 +25,13 @@ class WeatheringVelocity:
 
     The class could be created with `from_params` and `from_picking` classmethods.
     If you have the weathering model parameters.
-    `from_params` - create the WeatheringVelocity by parameters of the weathering model.
+    `from_params` - create a WeatheringVelocity instance and store parameters of the weathering model.
         Parameters : `params`.
             `params` : dict with weathering model parameters. Read the valid keys notation below.
 
-    If you haven't the weathering model parameters.
-    `from_picking` - create the WeatheringVelocity by the first break picking data and estimate parameters
-                     of the weathering model.
+    If you have the estimate weathering model parameters.
+    `from_picking` - create a WeatheringVelocity instance, fit the parameters of the weathering model by the offsets,
+                     first break picking data and estimate parameters of the weathering model.
         Data : first break picking times and the corresponding offsets.
         Parameters : `init`, `bounds`, `n_layers`.
             `init` : dict with the estimate weathering model parameters. Read the valid keys notation below.
@@ -60,26 +60,30 @@ class WeatheringVelocity:
 
     Examples
     --------
-    First create the Survey and load the first break picking.
+    Create the Survey and load the first break picking.
     >>> survey = Survey(survey_path, header_index="FieldRecord", header_cols="offset")
     >>> survey = survey.load_first_breaks(picking_path)
-    Second load a randomly selected common source gather.
+    Load a randomly selected common source gather.
     >>> gather = survey.sample_gather()
 
-    A Weathering Velocity object with initial parameters for two layers weathering model:
-    >>> weathering_velocity = gather.calculate_weathering_velocity(init={'t0': 100, 'x1': 1500, 'v1': 2, 'v2': 3})
+    Create the WeatheringVelocity instance with `from_picking` method for two layers weathering model.
+    >>> offsets = gahter.offsets
+    >>> picking = gather['FirstBreak'].ravel()
+    >>> weathering_velocity = WeatheringVelocity.from_picking(offsets, picking, n_layers=2)
+    Note: Gather's method `calculate_weathering_velocity` uses the `from_picking` classmethod.
 
-    A Weathering Velocity object with bounds for fitted intercept time and velocity of the first layer for the one
+    A WeatheringVelocity object with initial parameters for two layers weathering model:
+    >>> initial_params = {'t0': 100, 'x1': 1500, 'v1': 2, 'v2': 3}
+    >>> weathering_velocity = WeatheringVelocity.from_picking(offsets, picking, init=initial_params)
+
+    A WeatheringVelocity object with bounds for fitted intercept time and velocity of the first layer for the one
     layer weathering model:
-    >>> weathering_velocity = gather.calculate_weathering_velocity(bounds={'t0': [0, 200], 'v1': [1, 3]})
-
-    A Weathering Velocity object for three layers weathering model:
-    >>> weathering_velocity = gather.calculate_weathering_velocity(n_layers=3)
+    >>> weathering_velocity = WeatheringVelocity.from_picking(offsets, picking, bounds={'t0': [0, 200], 'v1': [1, 3]})
 
     Also mixing parameters are possible (two layers weathering model):
-    >>> weathering_velocity = gather.calculate_weathering_velocity(init={'x1': 200, 'v1': 2},
-                                                                   bounds={'t0': [0, 50]},
-                                                                   n_layers=2)
+    >>> weathering_velocity = WeatheringVelocity.from_picking(offsets, picking, init={'x1': 200, 'v1': 1},
+                                                                                bounds={'t0': [0, 50]},
+                                                                                n_layers=3)
 
     A Weathering Velocity object with known parameters (avoid the fitting procedure):
     >>> weathering_velocity = WeatheringVelocity.from_params(params={'t0': 100, 'x1': 1500, 'v1': 2, 'v2': 3})
@@ -108,6 +112,7 @@ class WeatheringVelocity:
         self.init = None
         self.bounds = None
         self.n_layers = None
+        self.negative_t0 = None
         self.params = None
         self.interpolator = lambda offsets: np.zeros_like(offsets, dtype=np.float32)
 
@@ -117,9 +122,9 @@ class WeatheringVelocity:
         self._piecewise_times = None
         self._model_params = None
 
-    @classmethod
-    def from_picking(cls, offsets, picking_times, init=None, bounds=None, n_layers=None, ascending_velocity=True,
-                 freeze_t0=False, **kwargs):
+    @classmethod   # fit_intercept is debug parameter
+    def from_picking(cls, offsets, picking_times, init=None, bounds=None, n_layers=None, acsending_velocities=True,
+                     freeze_t0=False, negative_t0=False, fit_intercept=False, **kwargs):
         """Method fits the weathering model parameters from the offsets and the first break picking times.
 
         Parameters
@@ -134,7 +139,7 @@ class WeatheringVelocity:
             Lower and upper bounds of the weathering model parameters.
         n_layers : int, defaults to None
             Number of layers of a weathering model.
-        ascending_velocity : bool, defaults to True
+        acsending_velocities : bool, defaults to True
             Keep the ascend of the fitted velocities from i-th layer to i+1 layer.
         freeze_t0 : bool, defaults to False
             Avoid the fitting `t0`.
@@ -154,13 +159,14 @@ class WeatheringVelocity:
         self = cls()
         init = {} if init is None else init
         bounds = {} if bounds is None else bounds
+        self.negative_t0 = negative_t0
         self._validate_values(init, bounds)
 
         self.offsets = offsets
         self.picking_times = picking_times
         self.max_offset = offsets.max()
 
-        self.init = {**self._calc_init_by_layers(n_layers), **self._calc_init_by_bounds(bounds), **init}
+        self.init = {**self._calc_init_by_layers(n_layers, fit_intercept), **self._calc_init_by_bounds(bounds), **init}
         self.bounds = {**self._calc_bounds_by_init(), **bounds}
         self._validate_keys(self.bounds)
         self.n_layers = len(self.bounds) // 2
@@ -177,33 +183,17 @@ class WeatheringVelocity:
                                           self.n_layers)
         self._empty_layers = np.histogram(self.offsets, self._piecewise_offsets)[0] ==  0
 
-        # constraints define
-        constraint_offset = {  # crossoffsets ascend
-            "type": "ineq",
-            "fun": lambda x: np.diff(np.concatenate((x[1:self.n_layers], [self.max_offset])))}
-        constraint_velocity = {"type": "ineq", "fun": lambda x: np.diff(x[self.n_layers:]) }  # velocities ascend
-        constraint_freeze_velocity = {  # freeze the velocity if no data for layer is found.
-            "type": "eq",
-            "fun": lambda x: np.array(list(self.init.values()))[self.n_layers:][self._empty_layers]
-                             - x[self.n_layers:][self._empty_layers]}
-        constraint_freeze_t0 = {  # freeze the intercept time if no data for layer is found.
-            "type": "eq",
-            "fun": lambda x: np.array(list(self.init.values()))[:1][self._empty_layers[:1]]
-                                      - x[:1][self._empty_layers[:1]]}
-        constraint_freeze_init_t0 = {"type": "eq", "fun": lambda x: x[0] - self.init['t0']} # freeze `t0` at init value
-        constraints = [constraint_offset, constraint_freeze_velocity]
-        constraints.append(constraint_freeze_init_t0 if freeze_t0 else constraint_freeze_t0)
-        if ascending_velocity:
-            constraints.append(constraint_velocity)
+        constraints_list = self._get_constraints(acsending_velocities, freeze_t0)
 
         # fitting piecewise linear regression
         partial_loss_func = partial(self.loss_piecewise_linear, loss=kwargs.pop('loss', 'L1'),
                                     huber_coef=kwargs.pop('huber_coef', .1))
-        minimizer_kwargs = {'method': 'SLSQP', 'constraints': constraints, **kwargs}
+        minimizer_kwargs = {'method': 'SLSQP', 'constraints': constraints_list, **kwargs}
         self._model_params = optimize.minimize(partial_loss_func, x0=list(self.init.values()),
                                                bounds=list(self.bounds.values()), **minimizer_kwargs)
-        self.params = dict(zip(self._valid_keys, self._params_postprocceissing(self._model_params.x,
-                                                                               ascending_velocity=ascending_velocity)))
+        self.params = dict(zip(self._valid_keys,
+                               self._params_postprocceissing(self._model_params.x,
+                                                             ascending_velocity=acsending_velocities)))
         self.interpolator = interp1d(self._piecewise_offsets, self._piecewise_times)
         return self
 
@@ -325,6 +315,31 @@ class WeatheringVelocity:
         n_layers = self.n_layers if n_layers is None else n_layers
         return ['t0'] + [f'x{i+1}' for i in range(n_layers - 1)] + [f'v{i+1}' for i in range(n_layers)]
 
+    def _get_constraints(self, acsending_velocities, freeze_t0):
+        """Return list with constaints based on parameters."""
+        constraint_offset = {  # cross offsets ascend
+            "type": "ineq",
+            "fun": lambda x: np.diff(np.concatenate((x[1:self.n_layers], [self.max_offset])))}
+        constraint_velocity = {  # velocities ascend
+            "type": "ineq",
+            "fun": lambda x: np.diff(x[self.n_layers:])}
+        constraint_freeze_velocity = {  # freeze the velocity if no data for layer is found.
+            "type": "eq",
+            "fun": lambda x: np.array(list(self.init.values()))[self.n_layers:][self._empty_layers]
+                             - x[self.n_layers:][self._empty_layers]}
+        constraint_freeze_t0 = {  # freeze the intercept time if no data for layer is found.
+            "type": "eq",
+            "fun": lambda x: np.array(list(self.init.values()))[:1][self._empty_layers[:1]]
+                                      - x[:1][self._empty_layers[:1]]}
+        constraint_freeze_init_t0 = {  # freeze `t0` at init value
+            "type": "eq",
+            "fun": lambda x: x[0] - self.init['t0']}
+        constraints_list = [constraint_offset, constraint_freeze_velocity]
+        constraints_list.append(constraint_freeze_init_t0 if freeze_t0 else constraint_freeze_t0)
+        if acsending_velocities:
+            constraints_list.append(constraint_velocity)
+        return constraints_list
+
     def _fit_regressor(self, x, y, start_slope, start_time, fit_intercept):
         """Method fits the linear regression by given data and initinal values.
 
@@ -346,12 +361,12 @@ class WeatheringVelocity:
         params : tuple
             Linear regression `coef` and `intercept`.
         """
-        lin_reg = SGDRegressor(loss='huber', early_stopping=True, penalty=None, shuffle=True, epsilon=0.1,
-                               eta0=.05, learning_rate='optimal', alpha=0.1, tol=1e-4, fit_intercept=fit_intercept)
+        lin_reg = SGDRegressor(loss='huber', early_stopping=True, penalty=None, shuffle=True, epsilon=0.1, eta0=.1,
+                               alpha=0., tol=1e-6, fit_intercept=fit_intercept)
         lin_reg.fit(x, y, coef_init=start_slope, intercept_init=start_time)
         return lin_reg.coef_[0], lin_reg.intercept_
 
-    def _calc_init_by_layers(self, n_layers):
+    def _calc_init_by_layers(self, n_layers, fit_intercept):
         """Calculates `init` dict by a given an estimated quantity of layers.
 
         Method splits the picking times into `n_layers` equal part by cross offsets and fits a separate linear
@@ -374,32 +389,37 @@ class WeatheringVelocity:
             return {}
 
         max_picking_times = self.picking_times.max()  # normalization parameter.
-        initial_slope = 2/3  # base slope corresponding velocity is 1,5 km/s (v = 1 / slope)
-        initial_time = 0  # base time
-        normalized_offsets = self.offsets / max_picking_times
+        initial_slope = 2 / 3  # base slope corresponding velocity is 1,5 km/s (v = 1 / slope)
+        initial_slope = initial_slope * self.max_offset / max_picking_times  # add normalization
+        initial_time = 0
+        normalized_offsets = self.offsets / self.max_offset
         normalized_times = self.picking_times / max_picking_times
 
         # split cross offsets on an equal intervals
-        cross_offsets = np.linspace(0, normalized_offsets.max(), num=n_layers+1)
+        cross_offsets = np.linspace(0, 1, num=n_layers+1)
         current_slope = np.empty(n_layers)
         current_time = np.empty(n_layers)
 
         for i in range(n_layers):  # inside the loop work with normalized data only
             mask = (normalized_offsets > cross_offsets[i]) & (normalized_offsets <= cross_offsets[i + 1])
+            _fit_intercept = True if fit_intercept else i==0  # debug parameter
             if mask.sum() > 1:  # at least two point to fit
-                current_slope[i], current_time[i] = self._fit_regressor(normalized_offsets[mask].reshape(-1, 1),
-                                                          normalized_times[mask], initial_slope, initial_time,
-                                                          fit_intercept=(i==0))
+                current_slope[i], current_time[i] = \
+                    self._fit_regressor(normalized_offsets[mask].reshape(-1, 1) - cross_offsets[i],
+                                        normalized_times[mask], initial_slope, initial_time,
+                                        fit_intercept=_fit_intercept)
             else:
                 current_slope[i] = initial_slope
                 current_time[i] = initial_time
+            # raise base velocity for next layers (v = 1 / slope)
             current_slope[i] = max(.167, current_slope[i])  # move maximal velocity to 6 km/s
-            current_time[i] = max([0, current_time[i]])  # move minimal time to zero
-            initial_time = current_time[i] + (initial_slope - current_slope[i]) * cross_offsets[i + 1]
+            current_time[i] =  current_time[i] if self.negative_t0 else max(0, current_time[i])
             # raise base velocity for next layers (v = 1 / slope)
             initial_slope = current_slope[i] * (n_layers / (n_layers + 1))
-        velocities = 1 / current_slope
-        init = [current_time[0] * max_picking_times, *cross_offsets[1:-1] * max_picking_times, *velocities]
+            initial_time = current_time[i] + (cross_offsets[i + 1] - cross_offsets[i]) * current_slope[i]
+            # initial_time = current_time[i] + (current_slope[i] - initial_slope) * cross_offsets[i + 1]
+        velocities = 1 / (current_slope * max_picking_times / self.max_offset)
+        init = [current_time[0] * max_picking_times, *cross_offsets[1:-1] * self.max_offset, *velocities]
         init = dict(zip(self._get_valid_keys(n_layers), init))
         return init
 
@@ -411,7 +431,8 @@ class WeatheringVelocity:
         """Method returns dict with calculated bounds from a init dict."""
         bounds = {key: [val / 2, val * 2] for key, val in self.init.items()}
         if 't0' in self.init:
-            bounds['t0'] = [min(0, bounds['t0'][0]), max(200, bounds['t0'][1])]
+            lower_bound = -200 if self.negative_t0 else 0
+            bounds['t0'] = [min(lower_bound, bounds['t0'][0]), max(200, bounds['t0'][1])]
         return bounds
 
     def _validate_values(self, init, bounds):
@@ -420,6 +441,8 @@ class WeatheringVelocity:
         if negative_init:
             raise ValueError(f"Init parameters contain negative values {negative_init}.")
         negative_bounds = {key: val for key, val in bounds.items() if min(val) < 0}
+        if self.negative_t0:
+            negative_bounds.pop('t0', None)
         if negative_bounds:
             raise ValueError(f"Bounds parameters contain negative values {negative_bounds}.")
         reversed_bounds = {key: [left, right] for key, [left, right] in bounds.items() if left > right}
@@ -444,12 +467,12 @@ class WeatheringVelocity:
             raise ValueError(f"Excessive parameters to fit a weathering velocity curve. Remove {excessive_keys}.")
 
     def _params_postprocceissing(self, params, ascending_velocity):
-        """Checks the params and fix it if constraints are not met."""
-        mask_offsets = self._piecewise_offsets[2:] - params[1:self.n_layers] < 0 # piecewise_offsets contain max_offset
-        params[1:self.n_layers][mask_offsets] = self._piecewise_offsets[2:][mask_offsets]
-        if ascending_velocity:
+        """Checks the parameters and fix it if constraints are not met."""
+        mask_offsets = self._piecewise_offsets[2:] - params[1:self.n_layers] < 0
+        params[1:self.n_layers][mask_offsets] = self._piecewise_offsets[2:][mask_offsets]  # move cross offsets
+        if ascending_velocity:  # move velocities
             for i in range(self.n_layers, 2 * self.n_layers - 1):
-                params[i+1] = params[i] if params[i+1] - params[i] < 0 else params[i+1]
+                params[i + 1] = max(params[i], params[i + 1])
         return params
 
     def _calc_coords_from_params(self, params, max_offset=np.nan):
@@ -511,10 +534,11 @@ class WeatheringVelocity:
 
         if self.picking_times is not None:
             ax.scatter(self.offsets, self.picking_times, s=1, color='black', label='First Breaks')
-        ax.plot(self._piecewise_offsets, self._piecewise_times, '-', color='red', label='Weathering velocity curve')
+        ax.plot(self._piecewise_offsets, self._piecewise_times, '-', color=kwargs.get('curve_color', 'red'),
+                label='Weathering velocity curve')
         for i in range(self.n_layers - 1):
-            ax.axvline(self._piecewise_offsets[i+1], 0, ls='--', color='blue',
-                       label='crossover point' if self.n_layers <= 2 else 'crossover points' if i == 0 else None)
+            ax.axvline(self._piecewise_offsets[i+1], 0, ls='--', color=kwargs.get('crossover_color', 'blue'),
+                       label='Crossover point' if self.n_layers <= 2 else 'Crossover points' if i == 0 else None)
         if show_params:
             params = [self.params[key] for key in self._valid_keys]
             txt_info = f"t0 : {params[0]:.2f} ms"
@@ -530,8 +554,8 @@ class WeatheringVelocity:
                             self._piecewise_times + threshold_times, color='red',
                             label=f'+/- {threshold_times}ms threshold area', alpha=.2)
         if compared_params is not None:
-            compared_offsets, compared_times = self._calc_coords_from_params(compared_params, self.max_offset)
-            ax.plot(compared_offsets, compared_times, '-', color='#ff7900', label='compared piecewise function')
+            compared_wv = WeatheringVelocity.from_params(compared_params)
+            compared_wv.plot(ax=ax, show_params=False, curve_color='#ff7900', crossover_color='green')
         ax.set_xlim(0)
         ax.set_ylim(0)
         ax.legend(loc='lower right')
