@@ -409,6 +409,8 @@ class SeismicIndex(DatasetIndex):
             return
 
         # Select an appropriate builder by passed mode
+        if mode is None and len(args) > 1:
+            raise ValueError("mode must be specified if multiple positional arguments are given")
         builders_dict = {
             None: self.from_index,
             "m": self.merge,
