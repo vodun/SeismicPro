@@ -15,9 +15,10 @@ from .muting import Muter
 from .cropped_gather import CroppedGather
 from .plot_corrections import NMOCorrectionPlot, LMOCorrectionPlot
 from .utils import correction, normalization, gain
-from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
+from .utils import (convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins,
+                    calculate_columns_diff)
 from ..utils import (to_list, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
-                     set_text_formatting, add_colorbar, piecewise_polynomial, Coordinates)
+                     set_text_formatting, add_colorbar, piecewise_polynomial, sample_uniform_ring, Coordinates)
 from ..containers import TraceContainer, SamplesContainer
 from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, VelocityCube
@@ -942,6 +943,83 @@ class Gather(TraceContainer, SamplesContainer):
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
         self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms, self.sample_rate)
         return self
+
+    @batch_method(target="for")
+    def break_geometry(self, shift=None, min_radius=30, max_radius=50, update_lmo=False,
+                       first_break_col=HDR_FIRST_BREAK):
+        """Break the gather by shifting the source point and update the offsets."""
+        gather = self.copy()
+        source_x, source_y, group_x, group_y = gather['SourceX', 'SourceY', 'GroupX', 'GroupY'].T
+        if shift is None:
+            shift = sample_uniform_ring(min_radius, max_radius)
+        new_source_x = source_x + shift[0]
+        new_source_y = source_y + shift[1]
+        new_offset = ((group_x - new_source_x) ** 2 + (group_y - new_source_y) ** 2) ** .5
+        gather['SourceX', 'SourceY', 'offset'] = np.array([new_source_x, new_source_y, new_offset]).T
+        if update_lmo:  # think about
+            gather = gather.calculate_lmo_difference(first_break_col=first_break_col)
+        return gather
+
+    def calculate_group_vectors(self):
+        """Calculate vector for source point to group point"""
+        dx = self['GroupX'] - self['SourceX']
+        dy = self['GroupY'] - self['SourceY']
+        return dx.ravel(), dy.ravel()
+
+    @batch_method(target="for")
+    def calculate_lmo_difference(self, wv=None, first_break_col=HDR_FIRST_BREAK):  # maybe move in metrics
+        """Calculate difference between first break value and the expected arrival time (weathering velocity curve)."""
+        if wv is None:
+            wv = self.calculate_weathering_velocity(n_layers=1, loss='cauchy')
+        self['lmo_diff'] = self[first_break_col] - wv(self.offsets).reshape((-1, 1))
+        return self
+
+    @batch_method(target="for")
+    def slice_gather(self, n=100):
+        """Return gather with N first traces."""
+        return self[:n]
+
+    @batch_method(target="for")
+    def calculate_direction_by_grid_search(self, n_steps=36, at_least=10): # worse algo
+        """Calculate direction of expected true source point by grid search."""
+        x = np.linspace(0, 2*np.pi, n_steps)
+        base = np.array([np.cos(x), np.sin(x)]).T
+        vectors = np.array(self.calculate_group_vectors()).T
+        print(base.shape, vectors.shape)
+        direction_max = np.zeros(2)
+        direction_min = np.zeros(2)
+        diff_max = 0
+        diff_min = np.inf
+        diff_max_std = 0
+        diff_min_std = 0
+        for i in range(n_steps):
+            signs = np.sign(np.cross(vectors, base[i]))
+            if sum(signs == 1) >= at_least and sum(signs == -1) >= at_least:
+                gather_1 = self[signs == 1]
+                gather_2 = self[signs == -1]
+                diff_mu, std = calculate_columns_diff(gather_1, gather_2)
+                if diff_mu > diff_max:
+                    direction_max = base[i]
+                    diff_max = diff_mu
+                    diff_max_std = std
+                if diff_mu < diff_min:
+                    direction_min = base[i]
+                    diff_min = diff_mu
+                    diff_min_std = std
+        return direction_max, diff_max, diff_max_std
+
+    @batch_method(target="for")
+    def calculate_direction_by_minimize(self, lmo_diff_col="lmo_diff"): # algo
+        """Calculate direction of expected true source point by `scipy.minimize`."""
+        data = np.array(self.calculate_group_vectors(), self[lmo_diff_col].ravel()).T
+        print(data.shape)
+        print(data[:10])
+
+
+        return
+
+
+
 
     #------------------------------------------------------------------------#
     #                       General processing methods                       #

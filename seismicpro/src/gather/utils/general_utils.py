@@ -4,6 +4,7 @@ import numpy as np
 from numba import njit, prange
 
 from ...utils import times_to_indices
+from scipy.stats import norm
 
 
 @njit(nogil=True)
@@ -125,3 +126,10 @@ def mute_gather(gather_data, muting_times, samples, fill_value):
     mask = mask.reshape(-1)
     gather_data[~mask] = fill_value
     return gather_data.reshape(data_shape)
+
+
+def calculate_columns_diff(gather_1, gather_2, col='lmo_diff'):
+    """Calculate mean between same column of two gathers."""
+    mu_1, std_1 = norm.fit(gather_1[col])
+    mu_2, std_2 = norm.fit(gather_2[col])
+    return mu_2 - mu_1, max(std_1, std_2)

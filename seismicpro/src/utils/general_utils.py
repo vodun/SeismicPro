@@ -27,6 +27,15 @@ def unique_indices_sorted(arr):
     return np.where(mask)[0]
 
 
+def sample_uniform_ring(min_radius, max_radius):
+    """Sample random point at ring from uniform distribution."""
+    x = np.random.randint(-max_radius, max_radius)
+    y = np.random.randint(-max_radius, max_radius)
+    if (x ** 2 + y ** 2 < min_radius ** 2) or (x ** 2 + y ** 2 > max_radius ** 2):
+        return sample_uniform_ring(min_radius, max_radius)
+    return x, y
+
+
 def align_args(reference_arg, *args):
     """Convert `reference_arg` and each arg from `args` to lists so that their lengths match the number of elements in
     the `reference_arg`. If some arg contains a single element, its value will is repeated. If some arg is an

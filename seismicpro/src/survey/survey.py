@@ -652,6 +652,16 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.n_dead_traces = 0
         return self
 
+    def update_headers(self, headers_x=['SourceX', 'GroupX'], headers_y=['SourceY', 'GroupY'], factor=2):
+        """Scale the headers on the given factor."""
+        if isinstance(factor, (int, float)):
+            factor = (factor, factor)
+        for header in headers_x:
+            self[header] = np.array(self[header] * factor[0], dtype=int)
+        for header in headers_y:
+            self[header] = np.array(self[header] * factor[1], dtype=int)
+        return self
+
     #------------------------------------------------------------------------#
     #                         Task specific methods                          #
     #------------------------------------------------------------------------#
