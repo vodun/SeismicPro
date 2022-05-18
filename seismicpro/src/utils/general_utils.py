@@ -9,10 +9,9 @@ import numpy as np
 def to_list(obj):
     """Cast an object to a list. Almost identical to `list(obj)` for 1-D objects, except for `str`, which won't be
     split into separate letters but transformed into a list of a single element."""
-    obj = np.array(obj)
-    if obj.ndim == 0:
-        obj = obj.ravel()
-    return obj.tolist()
+    if isinstance(obj, (list, tuple, set, np.ndarray)):
+        return list(obj)
+    return [obj]
 
 
 def maybe_copy(obj, inplace=False, **kwargs):

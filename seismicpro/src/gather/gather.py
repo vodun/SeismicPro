@@ -2,14 +2,12 @@
 
 import os
 import warnings
-from copy import deepcopy
 from textwrap import dedent
 
 import cv2
 import scipy
 import segyio
 import numpy as np
-import pandas as pd
 from scipy.signal import firwin
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
@@ -18,8 +16,9 @@ from .cropped_gather import CroppedGather
 from .plot_corrections import NMOCorrectionPlot, LMOCorrectionPlot
 from .utils import correction, normalization, gain
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
-from ..utils import (to_list, get_cols, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
+from ..utils import (to_list, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
                      set_text_formatting, add_colorbar, piecewise_polynomial, Coordinates)
+from ..containers import TraceContainer, SamplesContainer
 from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, VelocityCube
 from ..weathering_velocity import WeatheringVelocity
@@ -27,7 +26,7 @@ from ..decorators import batch_method, plotter
 from ..const import HDR_FIRST_BREAK, DEFAULT_VELOCITY
 
 
-class Gather:
+class Gather(TraceContainer, SamplesContainer):
     """A class representing a single seismic gather.
 
     A gather is a collection of seismic traces that share some common acquisition parameter (same index value of the
@@ -83,14 +82,6 @@ class Gather:
         self.sort_by = None
 
     @property
-    def indexed_by(self):
-        """str or list of str: Names of header indices."""
-        index_names = list(self.headers.index.names)
-        if len(index_names) == 1:
-            return index_names[0]
-        return index_names
-
-    @property
     def index(self):
         """int or tuple of int or None: Unique index values of the gather. `None` if the gather is combined."""
         indices = self.headers.index.drop_duplicates()
@@ -107,29 +98,14 @@ class Gather:
         raise ValueError("`sample_rate` is not defined, since `samples` are not regular.")
 
     @property
-    def times(self):
-        """1d np.ndarray of floats: Recording time for each trace value. Measured in milliseconds."""
-        return self.samples
-
-    @property
     def offsets(self):
         """1d np.ndarray of floats: The distance between source and receiver for each trace. Measured in meters."""
-        return self.headers['offset'].values
+        return self["offset"].ravel()
 
     @property
     def shape(self):
         """tuple with 2 elements: The number of traces in the gather and trace length in samples."""
         return self.data.shape
-
-    @property
-    def n_traces(self):
-        """int: The number of traces in the gather."""
-        return self.shape[0]
-
-    @property
-    def n_samples(self):
-        """int: Trace length in samples."""
-        return self.shape[1]
 
     def __getitem__(self, key):
         """Either select gather headers values by their names or create a new `Gather` with specified traces and
@@ -162,7 +138,7 @@ class Gather:
         # If key is str or array of str, treat it as names of headers columns
         keys_array = np.array(to_list(key))
         if keys_array.dtype.type == np.str_:
-            return get_cols(self.headers, keys_array)
+            return super().__getitem__(key)
 
         # Perform traces and samples selection
         key = (key, ) if not isinstance(key, tuple) else key
@@ -179,16 +155,18 @@ class Gather:
                 axis_indexer = list(axis_indexer)
             indices = indices + (axis_indexer, )
 
-        new_self = self.copy(ignore=['data', 'headers', 'samples'])
-        new_self.data = self.data[indices]
-        if new_self.data.ndim != 2:
+        data = self.data[indices]
+        if data.ndim != 2:
             raise ValueError("Data ndim is not preserved or joint indexation of gather attributes becomes ambiguous "
                              "after indexation")
-        if new_self.data.size == 0:
+        if data.size == 0:
             raise ValueError("Empty gather after indexation")
 
-        # The two-dimensional `indices` array describes the indices of the traces and samples to be obtained,
-        # respectively.
+        # Set indexed data attribute. Make it C-contiguous since otherwise some numba functions may fail
+        new_self = self.copy(ignore=['data', 'headers', 'samples'])
+        new_self.data = np.ascontiguousarray(data, dtype=self.data.dtype)
+
+        # The two-element `indices` tuple describes indices of traces and samples to be obtained respectively
         new_self.headers = self.headers.iloc[indices[0]]
         new_self.samples = self.samples[indices[1]]
 
@@ -196,20 +174,6 @@ class Gather:
         if new_self.sort_by is not None and not new_self.headers[new_self.sort_by].is_monotonic_increasing:
             new_self.sort_by = None
         return new_self
-
-    def __setitem__(self, key, value):
-        """Set given values to selected gather headers.
-
-        Parameters
-        ----------
-        key : str or list of str
-            Gather headers to set values for.
-        value : np.ndarray
-            Headers values to set.
-        """
-        key = to_list(key)
-        val = pd.DataFrame(value, columns=key, index=self.headers.index)
-        self.headers[key] = val
 
     def __str__(self):
         """Print gather metadata including information about its survey, headers and traces."""
@@ -240,7 +204,7 @@ class Gather:
          min | max:                  {np.min(self.data):>10.2f} | {np.max(self.data):<10.2f}
          q01 | q99:                  {self.get_quantile(0.01):>10.2f} | {self.get_quantile(0.99):<10.2f}
         """
-        return dedent(msg)
+        return dedent(msg).strip()
 
     def info(self):
         """Print gather metadata including information about its survey, headers and traces."""
@@ -300,12 +264,8 @@ class Gather:
         copy : Gather
             Copy of the gather.
         """
-        ignore_attrs = set() if ignore is None else set(to_list(ignore))
-        ignore_attrs = [getattr(self, attr) for attr in ignore_attrs | {'survey'}]
-
-        # Construct a memo dict with attributes, that should not be copied
-        memo = {id(attr): attr for attr in ignore_attrs}
-        return deepcopy(self, memo)
+        ignore = set() if ignore is None else set(to_list(ignore))
+        return super().copy(ignore | {"survey"})
 
     @batch_method(target='for')
     def get_item(self, *args):
@@ -339,6 +299,10 @@ class Gather:
         if (required_sorting is not None) and (self.sort_by != required_sorting):
             raise ValueError(f"Gather should be sorted by {required_sorting} not {self.sort_by}")
         return self
+
+    def _post_filter(self, mask):
+        """Remove traces from gather data that correspond to filtered headers after `Gather.filter`."""
+        self.data = self.data[mask]
 
     #------------------------------------------------------------------------#
     #                              Dump methods                              #
@@ -1074,7 +1038,7 @@ class Gather:
         return self
 
     def crop(self, origins, crop_shape, n_crops=1, stride=None, pad_mode='constant', **kwargs):
-        """"Crop gather data.
+        """Crop gather data.
 
         Parameters
         ----------
@@ -1113,22 +1077,25 @@ class Gather:
     @batch_method(target="t")
     def bandpass_filter(self, low=None, high=None, filter_size=81, **kwargs):
         """ Filter frequency spectrum of the gather.
-        Can act as a lowpass, bandpass or highpass filter. `low` and `high` serves as the range for
-        the remaining freequencies and can be passed either solely or together.
+
+        Can act as a lowpass, bandpass or highpass filter. `low` and `high` serve as the range for the remaining
+        frequencies and can be passed either solely or together.
 
         Examples
         --------
-        Apply highpass filter: remove all the freequencies bellow 30 Hz.
+        Apply highpass filter: remove all the frequencies bellow 30 Hz.
         >>> gather.bandpass_filter(low=30)
-        Apply bandpass filter: keep freequencies within [30, 100] Hz range.
+
+        Apply bandpass filter: keep frequencies within [30, 100] Hz range.
         >>> gather.bandpass_filter(low=30, high=100)
-        Apply lowpass filter, remove all the freequencies above 100 Hz.
+
+        Apply lowpass filter, remove all the frequencies above 100 Hz.
         >>> gather.bandpass_filter(high=100)
 
         Notes
         -----
-        Default `filter_size` is set to 81 to guarantee that transition bandwidth of the filter
-        does not exceed 10% of the Nyquist frequency for the default Hamming window.
+        Default `filter_size` is set to 81 to guarantee that transition bandwidth of the filter does not exceed 10% of
+        the Nyquist frequency for the default Hamming window.
 
         Parameters
         ----------
@@ -1144,7 +1111,7 @@ class Gather:
         Returns
         -------
         self : Gather
-            `self` with filtered freequency spectrum.
+            `self` with filtered frequency spectrum.
         """
         filter_size |= 1  # Guarantee that filter size is odd
         pass_zero = low is None
@@ -1160,7 +1127,7 @@ class Gather:
         """ Changes the sample rate of the traces in the gather.
         This implies increasing or decreasing the number of samples in the trace.
         In case new sample rate is greater than the current one, the anti aliasing filter is used
-        to avoid freequency aliasing.
+        to avoid frequency aliasing.
 
         Parameters
         ----------
