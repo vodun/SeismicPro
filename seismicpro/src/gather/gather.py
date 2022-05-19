@@ -1010,7 +1010,7 @@ class Gather:
         dt = 0
         for i in range(1, static_corr.n_layers):
             layer_depth = min(dist_from_surface, params[f'depth_{i}'])
-            dt += layer_depth / params[f'{name}_v{i}']
+            dt += layer_depth / params[f'v{i}']
             dist_from_surface = dist_from_surface - layer_depth
         return dt
 
