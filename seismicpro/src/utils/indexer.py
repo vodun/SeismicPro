@@ -16,28 +16,46 @@ class BaseIndexer:
         self.index = index
         self.unique_indices = None
 
-    def get_loc(self, indices):
+    def get_locs_in_indices(self, indices):
         """Get locations of `indices` values in the source index."""
         _ = indices
         raise NotImplementedError
 
+    def get_locs_in_unique_indices(self, indices):
+        """Get locations of `indices` values in unique indices of the source index.
 
-class TraceIndexer(BaseIndexer):
+        Parameters
+        ----------
+        indices : array-like
+            Indices to get locations for.
+
+        Returns
+        -------
+        locations : np.ndarray
+            Locations of the requested indices.
+        """
+        return self.unique_indices.get_indexer(indices)
+
+
+class UniqueIndexer(BaseIndexer):
     """Construct an indexer for unique monotonic `index`. Should not be instantiated directly, use `create_indexer`
     function instead.
     """
     def __init__(self, index):
         super().__init__(index)
         self.unique_indices = index
-        _ = self.get_loc(index[:1])  # Warmup of `get_loc`: the first call is way slower than the following ones
 
-    def get_loc(self, indices):
+        # Warmup of `get_locs_in_indices`: the first call is way slower than the following ones. Running
+        # `get_locs_in_unique_indices` is unnecessary since both index and unique_indices refer to the same object.
+        _ = self.get_locs_in_indices(index[:1])
+
+    def get_locs_in_indices(self, indices):
         """Get locations of `indices` values in the source index.
 
         Parameters
         ----------
         indices : array-like
-            Indices of traces to get locations for.
+            Indices to get locations for.
 
         Returns
         -------
@@ -47,7 +65,7 @@ class TraceIndexer(BaseIndexer):
         return self.index.get_indexer(indices)
 
 
-class GatherIndexer(BaseIndexer):
+class NonUniqueIndexer(BaseIndexer):
     """Construct an indexer for monotonic, but non-unique `index`. Should not be instantiated directly, use
     `create_indexer` function instead.
     """
@@ -57,22 +75,25 @@ class GatherIndexer(BaseIndexer):
         ix_start = unique_indices_pos
         ix_end = chain(unique_indices_pos[1:], [len(index)])
         self.unique_indices = index[unique_indices_pos]
-        self.index_to_headers_pos = {ix: range(*args) for ix, *args in zip(self.unique_indices, ix_start, ix_end)}
+        self.index_to_pos = {ix: range(*args) for ix, *args in zip(self.unique_indices, ix_start, ix_end)}
 
-    def get_loc(self, indices):
+        # Warmup of `get_locs_in_unique_indices`: the first call is way slower than the following ones
+        _ = self.get_locs_in_unique_indices(index[:1])
+
+    def get_locs_in_indices(self, indices):
         """Get locations of `indices` values in the source index.
 
         Parameters
         ----------
         indices : array-like
-            Indices of gathers to get locations for.
+            Indices to get locations for.
 
         Returns
         -------
-        locations : list
-            Locations of the requested gathers.
+        locations : np.ndarray
+            Locations of the requested indices.
         """
-        return list(chain.from_iterable(self.index_to_headers_pos[item] for item in indices))
+        return list(chain.from_iterable(self.index_to_pos[item] for item in indices))
 
 
 def create_indexer(index):
@@ -82,7 +103,8 @@ def create_indexer(index):
       constructed to speed up lookups from `O(logN)` to `O(1)`,
     * If `index` is non-monotonic, an error is raised.
 
-    The returned object implements `get_loc` method that returns locations of given `indices` in the `index`.
+    The returned object provides fast indexing interface via its `get_locs_in_indices` and `get_locs_in_unique_indices`
+    methods.
 
     Parameters
     ----------
@@ -97,5 +119,5 @@ def create_indexer(index):
     if not (index.is_monotonic_increasing or index.is_monotonic_decreasing):
         raise ValueError("Indexer can be created only for monotonic indices")
     if index.is_unique:
-        return TraceIndexer(index)
-    return GatherIndexer(index)
+        return UniqueIndexer(index)
+    return NonUniqueIndexer(index)

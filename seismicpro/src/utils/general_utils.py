@@ -4,18 +4,14 @@ from functools import partial
 from concurrent.futures import Future, Executor
 
 import numpy as np
-from numba import njit
-
-from .interpolation import interpolate
 
 
 def to_list(obj):
     """Cast an object to a list. Almost identical to `list(obj)` for 1-D objects, except for `str`, which won't be
     split into separate letters but transformed into a list of a single element."""
-    obj = np.array(obj)
-    if obj.ndim == 0:
-        obj = obj.ravel()
-    return obj.tolist()
+    if isinstance(obj, (list, tuple, set, np.ndarray)):
+        return list(obj)
+    return [obj]
 
 
 def maybe_copy(obj, inplace=False, **kwargs):
@@ -45,6 +41,11 @@ def align_args(reference_arg, *args):
             raise ValueError("Lengths of all passed arguments must match")
         processed_args.append(arg)
     return reference_arg, *processed_args
+
+
+def get_first_defined(*args):
+    """Return the first non-`None` argument. Return `None` if no `args` are passed or all of them are `None`s."""
+    return next((arg for arg in args if arg is not None), None)
 
 
 INDEX_TO_COORDS = {
@@ -101,40 +102,6 @@ def get_cols(df, cols):
         col_values = df[col] if col in df.columns else df.index.get_level_values(col)
         res.append(col_values.values)
     return np.column_stack(res)
-
-
-@njit(nogil=True)
-def times_to_indices(times, samples, round=False):
-    """Convert `times` to their indices in the increasing `samples` array. If some value of `times` is not present
-    in `samples`, its index is linearly interpolated or extrapolated by the other indices of `samples`.
-
-    Parameters
-    ----------
-    times : 1d np.ndarray of floats
-        Time values to convert to indices.
-    samples : 1d np.ndarray of floats
-        Recording time for each trace value.
-    round : bool, optional, defaults to False
-        If `True`, round the obtained float indices to the nearest integer. Values exactly halfway between two adjacent
-        integers are rounded to the nearest even one.
-
-    Returns
-    -------
-    indices : 1d np.ndarray
-        Array with positions of `times` in `samples`.
-
-    Raises
-    ------
-    ValueError
-        If `samples` is not increasing.
-    """
-    for i in range(len(samples) - 1):
-        if samples[i+1] <= samples[i]:
-            raise ValueError('The `samples` array must be increasing.')
-    left_slope = 1 / (samples[1] - samples[0])
-    right_slope = 1 / (samples[-1] - samples[-2])
-    float_position = interpolate(times, samples, np.arange(len(samples), dtype=np.float32), left_slope, right_slope)
-    return np.rint(float_position) if round else float_position
 
 
 class Coordinates:

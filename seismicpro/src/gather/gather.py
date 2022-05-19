@@ -2,28 +2,31 @@
 
 import os
 import warnings
-from copy import deepcopy
 from textwrap import dedent
 
+import cv2
+import scipy
 import segyio
 import numpy as np
-import pandas as pd
+from scipy.signal import firwin
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .muting import Muter
 from .cropped_gather import CroppedGather
 from .plot_corrections import NMOCorrectionPlot, LMOCorrectionPlot
-from .utils import correction, normalization
+from .utils import correction, normalization, gain
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
-from ..utils import (to_list, get_cols, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
-                     set_text_formatting, add_colorbar, Coordinates)
+from ..utils import (to_list, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
+                     set_text_formatting, add_colorbar, piecewise_polynomial, Coordinates)
+from ..containers import TraceContainer, SamplesContainer
 from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, VelocityCube
 from ..weathering_velocity import WeatheringVelocity
 from ..decorators import batch_method, plotter
-from ..const import HDR_FIRST_BREAK
+from ..const import HDR_FIRST_BREAK, DEFAULT_VELOCITY
 
-class Gather:
+
+class Gather(TraceContainer, SamplesContainer):
     """A class representing a single seismic gather.
 
     A gather is a collection of seismic traces that share some common acquisition parameter (same index value of the
@@ -79,14 +82,6 @@ class Gather:
         self.sort_by = None
 
     @property
-    def indexed_by(self):
-        """str or list of str: Names of header indices."""
-        index_names = list(self.headers.index.names)
-        if len(index_names) == 1:
-            return index_names[0]
-        return index_names
-
-    @property
     def index(self):
         """int or tuple of int or None: Unique index values of the gather. `None` if the gather is combined."""
         indices = self.headers.index.drop_duplicates()
@@ -103,29 +98,14 @@ class Gather:
         raise ValueError("`sample_rate` is not defined, since `samples` are not regular.")
 
     @property
-    def times(self):
-        """1d np.ndarray of floats: Recording time for each trace value. Measured in milliseconds."""
-        return self.samples
-
-    @property
     def offsets(self):
         """1d np.ndarray of floats: The distance between source and receiver for each trace. Measured in meters."""
-        return self.headers['offset'].values
+        return self["offset"].ravel()
 
     @property
     def shape(self):
         """tuple with 2 elements: The number of traces in the gather and trace length in samples."""
         return self.data.shape
-
-    @property
-    def n_traces(self):
-        """int: The number of traces in the gather."""
-        return self.shape[0]
-
-    @property
-    def n_samples(self):
-        """int: Trace length in samples."""
-        return self.shape[1]
 
     def __getitem__(self, key):
         """Either select gather headers values by their names or create a new `Gather` with specified traces and
@@ -158,7 +138,7 @@ class Gather:
         # If key is str or array of str, treat it as names of headers columns
         keys_array = np.array(to_list(key))
         if keys_array.dtype.type == np.str_:
-            return get_cols(self.headers, keys_array)
+            return super().__getitem__(key)
 
         # Perform traces and samples selection
         key = (key, ) if not isinstance(key, tuple) else key
@@ -175,16 +155,18 @@ class Gather:
                 axis_indexer = list(axis_indexer)
             indices = indices + (axis_indexer, )
 
-        new_self = self.copy(ignore=['data', 'headers', 'samples'])
-        new_self.data = self.data[indices]
-        if new_self.data.ndim != 2:
+        data = self.data[indices]
+        if data.ndim != 2:
             raise ValueError("Data ndim is not preserved or joint indexation of gather attributes becomes ambiguous "
                              "after indexation")
-        if new_self.data.size == 0:
+        if data.size == 0:
             raise ValueError("Empty gather after indexation")
 
-        # The two-dimensional `indices` array describes the indices of the traces and samples to be obtained,
-        # respectively.
+        # Set indexed data attribute. Make it C-contiguous since otherwise some numba functions may fail
+        new_self = self.copy(ignore=['data', 'headers', 'samples'])
+        new_self.data = np.ascontiguousarray(data, dtype=self.data.dtype)
+
+        # The two-element `indices` tuple describes indices of traces and samples to be obtained respectively
         new_self.headers = self.headers.iloc[indices[0]]
         new_self.samples = self.samples[indices[1]]
 
@@ -192,20 +174,6 @@ class Gather:
         if new_self.sort_by is not None and not new_self.headers[new_self.sort_by].is_monotonic_increasing:
             new_self.sort_by = None
         return new_self
-
-    def __setitem__(self, key, value):
-        """Set given values to selected gather headers.
-
-        Parameters
-        ----------
-        key : str or list of str
-            Gather headers to set values for.
-        value : np.ndarray
-            Headers values to set.
-        """
-        key = to_list(key)
-        val = pd.DataFrame(value, columns=key, index=self.headers.index)
-        self.headers[key] = val
 
     def __str__(self):
         """Print gather metadata including information about its survey, headers and traces."""
@@ -236,7 +204,7 @@ class Gather:
          min | max:                  {np.min(self.data):>10.2f} | {np.max(self.data):<10.2f}
          q01 | q99:                  {self.get_quantile(0.01):>10.2f} | {self.get_quantile(0.99):<10.2f}
         """
-        return dedent(msg)
+        return dedent(msg).strip()
 
     def info(self):
         """Print gather metadata including information about its survey, headers and traces."""
@@ -296,12 +264,8 @@ class Gather:
         copy : Gather
             Copy of the gather.
         """
-        ignore_attrs = set() if ignore is None else set(to_list(ignore))
-        ignore_attrs = [getattr(self, attr) for attr in ignore_attrs | {'survey'}]
-
-        # Construct a memo dict with attributes, that should not be copied
-        memo = {id(attr): attr for attr in ignore_attrs}
-        return deepcopy(self, memo)
+        ignore = set() if ignore is None else set(to_list(ignore))
+        return super().copy(ignore | {"survey"})
 
     @batch_method(target='for')
     def get_item(self, *args):
@@ -335,6 +299,10 @@ class Gather:
         if (required_sorting is not None) and (self.sort_by != required_sorting):
             raise ValueError(f"Gather should be sorted by {required_sorting} not {self.sort_by}")
         return self
+
+    def _post_filter(self, mask):
+        """Remove traces from gather data that correspond to filtered headers after `Gather.filter`."""
+        self.data = self.data[mask]
 
     #------------------------------------------------------------------------#
     #                              Dump methods                              #
@@ -535,7 +503,7 @@ class Gather:
         self.data = normalization.scale_standard(self.data, mean, std, np.float32(eps))
         return self
 
-    @batch_method(target='threads')
+    @batch_method(target='for')
     def scale_maxabs(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
         r"""Scale the gather by its maximum absolute value.
 
@@ -584,7 +552,7 @@ class Gather:
         self.data = normalization.scale_maxabs(self.data, min_value, max_value, clip, np.float32(eps))
         return self
 
-    @batch_method(target='threads')
+    @batch_method(target='for')
     def scale_minmax(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
         r"""Linearly scale the gather to a [0, 1] range.
 
@@ -727,11 +695,17 @@ class Gather:
 
     @batch_method(target='for')
     def calculate_weathering_velocity(self, first_breaks_col=HDR_FIRST_BREAK, n_layers=None, init=None, bounds=None,
-                                      ascending_velocity=True, freeze_t0=False, **kwargs):
-        """Calculate the weathering velocities.
+                                      acsending_velocities=True, freeze_t0=False, negative_t0=False, **kwargs):
+        """Calculate the WeatheringVelocity object from offsets and first break times.
 
-        Method creates the WeatheringVelocity instance that fits and stores the parameters of a velocity model of
-        the first few subsurface layers. Read the WeatheringVelocity docs for more infomation.
+        Method creates a WeatheringVelocity instance, fits the parameters of weathering model (intercept time, cross
+        offsets and velocities) of first N subsurface layers and stores fitted parameters.
+        Read the WeatheringVelocity docs for a detail infomation.
+
+        Examples
+        --------
+        >>> weathering_velocity = gather.calculate_weathering_velocity(n_layer=2)
+        Note: the offsets and first break picking should be preloaded.
 
         Parameters
         ----------
@@ -746,7 +720,7 @@ class Gather:
         ascending_velocity : bool, defaults to True
             Keeps the ascend of the fitted velocities from i-th layer to i+1 layer.
         freeze_t0 : bool, defaults to False
-            Avoid the fitting `t0`.
+            Avoid the fitting intercept time ('t0').
         kwargs : dict, optional
             Additional keyword arguments to `scipy.optimize.minimize`.
 
@@ -757,7 +731,8 @@ class Gather:
         """
         return WeatheringVelocity.from_picking(offsets=self.offsets, picking_times=self[first_breaks_col].ravel(),
                                                n_layers=n_layers, init=init, bounds=bounds,
-                                               ascending_velocity=ascending_velocity, freeze_t0=freeze_t0, **kwargs)
+                                               acsending_velocities=acsending_velocities, freeze_t0=freeze_t0,
+                                               negative_t0=negative_t0, **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #
@@ -895,18 +870,19 @@ class Gather:
     #                           Gather corrections                           #
     #------------------------------------------------------------------------#
 
-    @batch_method(target="for", args_to_unpack="weathering_velocity") # benchmark it
-    def apply_lmo(self, weathering_velocity, fill_value=0, delay=100):
+    @batch_method(target="threads", args_to_unpack="weathering_velocity") # benchmark it
+    def apply_lmo(self, weathering_velocity, delay=100, fill_value=0, event_headers=None):
         """Perform gather linear moveout correction using given weathering velocity.
 
         Parameters
         ----------
         weathering_velocity : WeatheringVelocity
             Weathering velocity object to perform LMO correction with.
-        fill_value : int or float, defaults to 0
-            Value to fill in the empty parts of the traces.
-        delay : int, defaults to 100
-            Moveout delay. Measured in milliseconds.
+        delay : float, defaults to 100
+            Milliseconds to substract from the result of moveout correction. Used to center the first breaks hodograph
+            around delay instead of 0.
+        fill_value : float, defaults to 0
+            Value used to fill the amplitudes outside the gather bounds after moveout.
 
         Returns
         -------
@@ -916,19 +892,19 @@ class Gather:
         Raises
         ------
         ValueError
-            If `stacking_velocity` is not a `WeatheringVelocity` instance.
+            If `weathering_velocity` is not a `WeatheringVelocity` instance.
         """
         if not isinstance(weathering_velocity, WeatheringVelocity):
             raise ValueError("Only WeatheringVelocity instances can be passed as a `weathering_velocity`")
-        data = np.full_like(self.data, fill_value)
-        base_step = times_to_indices(weathering_velocity(self.offsets), self.samples, round=True).astype(int)
-        delay = times_to_indices(np.full(self.shape[0], delay), self.samples, round=True).astype(int)
-        start_lmo = np.maximum(delay - base_step, 0)
-        start_raw = np.maximum(base_step - delay, 0)
-        lenght = np.maximum(self.shape[1] - start_lmo - start_raw, 0)
-        for i in range(self.n_traces):
-            data[i, start_lmo[i]:start_lmo[i] + lenght[i]] = self.data[i, start_raw[i]:start_raw[i] + lenght[i]]
+        event_headers = [] if event_headers is None else event_headers
+        event_headers = (set(to_list(event_headers['headers'])) if isinstance(event_headers, dict)
+                                                                else set(to_list(event_headers)))
+        picking_estimate = times_to_indices(weathering_velocity(self.offsets), self.samples, round=True).astype(int)
+        delay_indicies = times_to_indices(np.full(self.shape[0], delay), self.samples, round=True).astype(int)
+        data = correction.apply_lmo(self.data, picking_estimate, delay_indicies, fill_value)
         self.data = data
+        for header in event_headers:
+            self[header] -= (picking_estimate - delay_indicies).reshape(-1, 1) * self.sample_rate
         return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
@@ -1109,7 +1085,7 @@ class Gather:
         return self
 
     def crop(self, origins, crop_shape, n_crops=1, stride=None, pad_mode='constant', **kwargs):
-        """"Crop gather data.
+        """Crop gather data.
 
         Parameters
         ----------
@@ -1144,6 +1120,186 @@ class Gather:
         """
         origins = make_origins(origins, self.shape, crop_shape, n_crops, stride)
         return CroppedGather(self, origins, crop_shape, pad_mode, **kwargs)
+
+    @batch_method(target="t")
+    def bandpass_filter(self, low=None, high=None, filter_size=81, **kwargs):
+        """ Filter frequency spectrum of the gather.
+
+        Can act as a lowpass, bandpass or highpass filter. `low` and `high` serve as the range for the remaining
+        frequencies and can be passed either solely or together.
+
+        Examples
+        --------
+        Apply highpass filter: remove all the frequencies bellow 30 Hz.
+        >>> gather.bandpass_filter(low=30)
+
+        Apply bandpass filter: keep frequencies within [30, 100] Hz range.
+        >>> gather.bandpass_filter(low=30, high=100)
+
+        Apply lowpass filter, remove all the frequencies above 100 Hz.
+        >>> gather.bandpass_filter(high=100)
+
+        Notes
+        -----
+        Default `filter_size` is set to 81 to guarantee that transition bandwidth of the filter does not exceed 10% of
+        the Nyquist frequency for the default Hamming window.
+
+        Parameters
+        ----------
+        low : int, optional
+            Lower bound for the remaining frequencies
+        high : int, optional
+            Upper bound for the remaining frequencies
+        filter_size : int, defaults to 81
+            The length of the filter
+        kwargs : misc, optional
+            Additional keyword arguments to the `scipy.firwin`
+
+        Returns
+        -------
+        self : Gather
+            `self` with filtered frequency spectrum.
+        """
+        filter_size |= 1  # Guarantee that filter size is odd
+        pass_zero = low is None
+        cutoffs = [cutoff for cutoff in [low, high] if cutoff is not None]
+
+        # Construct the filter and flip it since opencv computes crosscorrelation instead of convolution
+        kernel = firwin(filter_size, cutoffs, pass_zero=pass_zero, fs=1000 / self.sample_rate, **kwargs)[::-1]
+        cv2.filter2D(self.data, dst=self.data, ddepth=-1, kernel=kernel.reshape(1, -1))
+        return self
+
+    @batch_method(target="f")
+    def resample(self, new_sample_rate, kind=3, anti_aliasing=True):
+        """ Changes the sample rate of the traces in the gather.
+        This implies increasing or decreasing the number of samples in the trace.
+        In case new sample rate is greater than the current one, the anti aliasing filter is used
+        to avoid frequency aliasing.
+
+        Parameters
+        ----------
+        new_sample_rate : float
+            New sample rate
+        kind : int or str, defaults to 3
+            The interpolation method to use.
+            If int, use piecewise polynomial interpolation with degree `kind`;
+            if str, deligate interpolation to scipy.interp1d with mode `kind`.
+        anti_aliasing : bool, defaults to True
+            Whether to apply anti-aliasing filter or not. Ignored in case of upsampling.
+
+        Returns
+        -------
+        self : Gather
+            `self` with new sample rate
+        """
+        current_sample_rate = self.sample_rate
+
+        # Anti-aliasing filter is optionally applied during downsampling to avoid frequency aliasing
+        if new_sample_rate > current_sample_rate and anti_aliasing:
+            # Smoothly attenuate frequencies starting from 0.8 of the new Nyquist frequency so that all frequencies
+            # above are zeroed out
+            nyquist_frequency = 1000 / (2 * new_sample_rate)
+            filter_size = int(40 * new_sample_rate / current_sample_rate)
+            self.bandpass_filter(high=0.9 * nyquist_frequency, filter_size=filter_size, window="hann")
+
+        new_samples = np.arange(self.samples[0], self.samples[-1] + 1e-6, new_sample_rate, self.samples.dtype)
+
+        if isinstance(kind, int):
+            data_resampled = piecewise_polynomial(new_samples, self.samples, self.data, kind)
+        elif isinstance(kind, str):
+            data_resampled = scipy.interpolate.interp1d(self.samples, self.data, kind=kind)(new_samples)
+
+        self.data = data_resampled
+        self.samples = new_samples
+        return self
+
+    @batch_method(target="for")
+    def apply_agc(self, window_size=250, mode='rms'):
+        """Calculate instantaneous or RMS amplitude AGC coefficients and apply them to gather data.
+
+        Parameters
+        ----------
+        window_size : int, optional, defaults to 250
+            Window size to calculate AGC scaling coefficient in, measured in milliseconds.
+        mode : str, optional, defaults to 'rms'
+            Mode for AGC: if 'rms', root mean squared value of non-zero amplitudes in the given window
+            is used as scaling coefficient (RMS amplitude AGC), if 'abs' - mean of absolute non-zero
+            amplitudes (instantaneous AGC).
+
+        Raises
+        ------
+        ValueError
+            If window_size is less than (3 * sample_rate) milliseconds or larger than trace length.
+            If mode is neither 'rms' nor 'abs'.
+
+        Returns
+        -------
+        self : Gather
+            Gather with AGC applied to its data.
+        """
+        # Cast window from ms to samples
+        window_size_samples = int(window_size // self.sample_rate) + 1
+
+        if mode not in ['abs', 'rms']:
+            raise ValueError(f"mode should be either 'abs' or 'rms', but {mode} was given")
+        if (window_size_samples < 3) or (window_size_samples > self.n_samples):
+            raise ValueError(f'window should be at least {3*self.sample_rate} milliseconds and'
+                             f' {(self.n_samples-1)*self.sample_rate} at most, but {window_size} was given')
+        self.data = gain.apply_agc(data=self.data, window_size=window_size_samples, mode=mode)
+        return self
+
+    @batch_method(target="for")
+    def apply_sdc(self, velocity=None, v_pow=2, t_pow=1):
+        """Calculate spherical divergence correction coefficients and apply them to gather data.
+
+        Parameters
+        ----------
+        velocities: StackingVelocity or None, optional, defaults to None.
+            StackingVelocity that is used to obtain velocities at self.times, measured in meters / second.
+            If None, default StackingVelocity object is used.
+        v_pow : float, optional, defaults to 2
+            Velocity power value.
+        t_pow: float, optional, defaults to 1
+            Time power value.
+
+        Returns
+        -------
+        self : Gather
+            Gather with applied SDC.
+        """
+        if velocity is None:
+            velocity = DEFAULT_VELOCITY
+        if not isinstance(velocity, StackingVelocity):
+            raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
+        self.data = gain.apply_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
+        return self
+
+    @batch_method(target="for")
+    def undo_sdc(self, velocity=None, v_pow=2, t_pow=1):
+        """Calculate spherical divergence correction coefficients and use them to undo previously applied SDC.
+
+        Parameters
+        ----------
+        velocities: StackingVelocity or None, optional, defaults to None.
+            StackingVelocity that is used to obtain velocities at self.times, measured in meters / second.
+            If None, default StackingVelocity object is used.
+        v_pow : float, optional, defaults to 2
+            Velocity power value.
+        t_pow: float, optional, defaults to 1
+            Time power value.
+
+        Returns
+        -------
+        self : Gather
+            Gather without SDC.
+        """
+        if velocity is None:
+            velocity = DEFAULT_VELOCITY
+        if not isinstance(velocity, StackingVelocity):
+            raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
+        self.data = gain.undo_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
+        return self
+
 
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #
@@ -1474,7 +1630,7 @@ class Gather:
         """Perform interactive LMO correction of the gather with the selected velocity of the 1-layer weathering model.
 
         The plot provides 2 views:
-        * Corrected gahted (default). LMO correction is performed on the fly with the celocity controlled by a slider
+        * Corrected gather (default). LMO correction is performed on the fly with the velocity controlled by a slider
         on top of the plot.
         * Source gather. This view disables the velocity slider.
 
@@ -1483,7 +1639,7 @@ class Gather:
 
         Parameters
         ----------
-        min_vel : float, optional, defaults to 1500
+        min_vel : float, optional, defaults to 800
             Minimum seismic velocity value for NMO correction. Measured in meters/seconds.
         max_vel : float, optional, defaults to 6000
             Maximum seismic velocity value for NMO correction. Measured in meters/seconds.

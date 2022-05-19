@@ -109,22 +109,27 @@ class NMOCorrectionPlot(CorrectionPlot):
 
 class LMOCorrectionPlot(CorrectionPlot):
     """Interactive LMO correction plot."""
+    def __init__(self, gather, min_vel, max_vel, figsize, **kwargs):
+        super().__init__(gather, min_vel, max_vel, figsize, **kwargs)
+        self.event_headers = None
+
     def get_title(self):
         """Get title of the LMO correction view."""
         return f"Linear moveout correction with {(self.params['v1'] * 1000):.0f} m/s"
 
     @property
+    def params(self):
+        """Dict: parameters of the 1-layer weathering mode."""
+        return {'t0': 0, 'v1': self.plotter.slider.value / 1000}
+
+    @property
     def corrected_gather(self):
         """Gather: LMO corrected gather."""
         wv = WeatheringVelocity.from_params(self.params)
-        return self.gather.copy(ignore=["headers", "data", "samples"]).apply_lmo(wv)
-
-    @property
-    def params(self):
-        """Dict: 1-layer weathering model parameters"""
-        return {'t0': 0, 'v1': self.plotter.slider.value / 1000}
+        return self.gather.copy(ignore=["data", "samples"]).apply_lmo(wv, event_headers=self.event_headers)
 
     def plot_corrected_gather(self, ax, **kwargs):
         """Plot the corrected gather."""
-        self.corrected_gather.plot(ax=ax, y_ticker={"step_ticks": int(100 // self.gather.sample_rate)}, **kwargs)
+        self.event_headers = kwargs.get('event_headers')
+        self.corrected_gather.plot(ax=ax, y_ticker={"step_labels": 100}, **kwargs)
         ax.grid(which='major', axis='y', color='k', linestyle='--')
