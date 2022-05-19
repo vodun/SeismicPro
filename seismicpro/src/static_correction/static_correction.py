@@ -7,6 +7,7 @@ from tqdm.auto import tqdm
 from .utils import calculate_depth_coefs, calculate_wv_by_v2, calculate_velocities
 from seismicpro.src.utils import to_list
 from seismicpro.src.metrics import MetricMap
+from seismicpro.src.interpolator import RBFInterpolator
 
 
 DEFAULT_COLS = {
@@ -28,8 +29,11 @@ class StaticCorrection:
         self.headers = pd.DataFrame(self.survey[headers_cols], columns=headers_cols)
 
         self.source_params = self._create_params_df(name="source")
+        self.source_headers = []
         self.rec_params = self._create_params_df(name="rec")
+        self.rec_headers = []
 
+        self._add_cols_to_params("source", columns="SourceDepth")
         self._add_wv_to_params("source", interpolator=interpolator)
         self._add_wv_to_params("rec", interpolator=interpolator)
 
@@ -40,8 +44,16 @@ class StaticCorrection:
         unique_coords = np.unique(self.headers[coord_names], axis=0).astype(np.int32)
         return pd.DataFrame(unique_coords, columns=coord_names).set_index(coord_names)
 
+    def _add_cols_to_params(self, name, columns):
+        coord_names = self._get_cols(name)
+        data = self.headers[coord_names + to_list(columns)].drop_duplicates().values
+        if data.shape[0] != getattr(self, f"{name}_params").shape[0]:
+            raise ValueError("Value in column(s) to add must be unique for each source/rec.")
+        getattr(self, f"{name}_headers").extend(to_list(columns))
+        self._update_params(name=name, coords=data[:, :2], values=data[:, 2:], columns=columns)
+
     def _add_wv_to_params(self, name, interpolator):
-        unique_coords = to_list(getattr(self, f"{name}_params").index)
+        unique_coords = getattr(self, f"{name}_params").index.to_frame().values
         wv_params = interpolator(unique_coords)
         self.n_layers = wv_params.shape[1] // 2 + 1
 
@@ -72,42 +84,42 @@ class StaticCorrection:
         updated_params = updated_params.drop(columns=updated_params.filter(regex="_drop$").columns)
         setattr(self, f"{name}_params", updated_params)
 
-    def optimize(self, n_iters=1, max_wv=None, depth_tol=1e-4, vel_tol=1e-8):
+    def optimize(self, depth_tol=1e-7):
         """!!!"""
         self.update_depth(layer=1, tol=depth_tol)
-        for _ in tqdm(range(1, n_iters+1)):
-            self.update_velocity(max_wv=max_wv, tol=vel_tol)
-            self.update_depth(layer=1, tol=depth_tol)
+        self.update_depth(layer=2, tol=depth_tol)
 
-    def update_depth(self, layer, n_iters=3000, tol=1e-4):
+    def update_depth(self, layer, tol=1e-7):
         layer_headers = self._fill_layer_params(headers=self.headers, layer=layer)
         ohe_source, unique_sources, ix_sources = self._get_sparse_depths("source", layer_headers, layer)
         ohe_rec, unique_recs, ix_recs = self._get_sparse_depths("rec", layer_headers, layer)
         matrix = sparse.hstack((ohe_source, ohe_rec))
 
-        if 'depth_1' in self.source_params.columns:
-            coefs = layer_headers.iloc[ix_sources]['depth_1_source'].tolist() + layer_headers.iloc[ix_recs]['depth_1_rec'].tolist()
+        if f'depth_{layer}' in self.source_params.columns:
+            coefs = (layer_headers.iloc[ix_sources][f'depth_{layer}_source'].tolist()
+                     + layer_headers.iloc[ix_recs][f'depth_{layer}_rec'].tolist())
         else:
             coefs = np.zeros(matrix.shape[1])
-        # Add param for n_iters to stop
-        prev_iters = [np.inf for _ in range(10)]
-        prev_coefs = coefs
-        for _ in tqdm(range(n_iters)):
-            coefs = sparse.linalg.lsmr(matrix, layer_headers['y'], x0=np.array(coefs), maxiter=1)[0]
-            coefs = np.clip(coefs, 0, None)
-            prev_iters.append(np.mean(coefs - prev_coefs))
-            prev_iters.pop(0)
-            if np.mean(prev_iters) < tol:
-                break
-            prev_coefs = coefs
+        coefs = sparse.linalg.lsqr(matrix, layer_headers['y'], atol=tol, btol=tol, x0=coefs)[0]
 
-        self._update_params("source", unique_sources, coefs[:len(unique_sources)].reshape(-1, 1), 'depth_1')
-        self._update_params("rec", unique_recs, coefs[len(unique_sources):].reshape(-1, 1), 'depth_1')
+        upholes = layer_headers.iloc[ix_sources]["SourceDepth"].values
+        source_depths = coefs[:len(unique_sources)] + upholes
+        rec_depths = coefs[len(unique_sources):]
+
+        source_interp = RBFInterpolator(unique_sources, source_depths)
+        rec_interp = RBFInterpolator(unique_recs, rec_depths)
+
+        source_depths = (source_depths + rec_interp.interpolate(unique_sources)) / 2 - upholes
+        rec_depths = (rec_depths + source_interp.interpolate(unique_recs)) / 2
+
+        self._update_params("source", unique_sources, source_depths.reshape(-1, 1), f"depth_{layer}")
+        self._update_params("rec", unique_recs, rec_depths.reshape(-1, 1), f"depth_{layer}")
 
     def _fill_layer_params(self, headers, layer):
         headers = headers[headers["layer"] == layer]
-        headers = headers.merge(self.source_params, on=self._get_cols("source"))
-        headers = headers.merge(self.rec_params, on=self._get_cols("rec"), suffixes=("_source", "_rec"))
+        headers = headers.merge(self.source_params, on=self._get_cols("source") + self.source_headers)
+        headers = headers.merge(self.rec_params, on=self._get_cols("rec") + self.rec_headers,
+                                suffixes=("_source", "_rec"))
 
         headers[f'v{layer+1}_avg'] = (headers[f'v{layer+1}_source'] + headers[f'v{layer+1}_rec']) / 2
         offsets = headers["offset"]
@@ -135,6 +147,8 @@ class StaticCorrection:
         result = sparse.linalg.lsmr(matrix, layer_headers['y'], x0=np.array(coefs), atol=tol, btol=tol)[0]
 
         velocities = self._calculate_velocities(result, layer_headers, ix_sources, ix_recs, max_wv, approach)
+
+
         self._update_params("source", unique_sources, velocities[0], 'v1')
         self._update_params("rec", unique_recs, velocities[1], 'v1')
 
@@ -186,12 +200,12 @@ class StaticCorrection:
 
     ### plotters ###
 
-    def _add_cols_to_params(self, name, columns):
-        coord_names = self._get_cols(name)
-        data = self.headers[coord_names + to_list(columns)].drop_duplicates().values
-        if data.shape[0] != getattr(self, f"{name}_params").shape[0]:
-            raise ValueError("Value in column(s) to add must be unique for each source/rec.")
-        self._update_params(name=name, coords=data[:, :2], values=data[:, 2:], columns=columns)
+    # def _add_cols_to_params(self, name, columns):
+    #     coord_names = self._get_cols(name)
+    #     data = self.headers[coord_names + to_list(columns)].drop_duplicates().values
+    #     if data.shape[0] != getattr(self, f"{name}_params").shape[0]:
+    #         raise ValueError("Value in column(s) to add must be unique for each source/rec.")
+    #     self._update_params(name=name, coords=data[:, :2], values=data[:, 2:], columns=columns)
 
     def plot_depths(self, layer):
         _, ax = plt.subplots(1, 2, figsize=(12, 5), tight_layout=True)
