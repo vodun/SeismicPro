@@ -27,12 +27,11 @@ def unique_indices_sorted(arr):
     return np.where(mask)[0]
 
 
-def sample_uniform_ring(min_radius, max_radius):
+def sample_from_uniform_ring(min_radius, max_radius):
     """Sample random point at ring from uniform distribution."""
-    x = np.random.randint(-max_radius, max_radius)
-    y = np.random.randint(-max_radius, max_radius)
+    x, y = np.random.randint(-max_radius, max_radius, size=2)
     if (x ** 2 + y ** 2 < min_radius ** 2) or (x ** 2 + y ** 2 > max_radius ** 2):
-        return sample_uniform_ring(min_radius, max_radius)
+        return sample_from_uniform_ring(min_radius, max_radius)
     return x, y
 
 
