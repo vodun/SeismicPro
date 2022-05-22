@@ -952,8 +952,9 @@ class Gather(TraceContainer, SamplesContainer):
             raise ValueError('!!')
 
         new_data = np.zeros(self.shape)
+        headers = self.headers.reset_index()
         for i, trace in enumerate(self.data):
-            header = self.headers.iloc[i]
+            header = headers.iloc[i]
             dt = (self._calculate_dt(name='source', header=header, datum=datum)
                   + self._calculate_dt(name='rec', header=header, datum=datum) - header["SourceUpholeTime"])
             shift = np.int32(dt // self.sample_rate)
@@ -975,7 +976,7 @@ class Gather(TraceContainer, SamplesContainer):
             raise ValueError("some")
         static_corr = self.survey.static_corr
         cols = static_corr._get_cols(name)
-        index = tuple(np.int32(header[cols]))
+        index = tuple(np.int32(header[cols]).reshape(-1))
         params = getattr(static_corr, f"{name}_params").loc[index]
         # Calculate distance from surface to datum
 

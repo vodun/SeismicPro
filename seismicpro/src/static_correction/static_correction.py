@@ -106,11 +106,11 @@ class StaticCorrection:
         source_depths = coefs[:len(unique_sources)] + upholes
         rec_depths = coefs[len(unique_sources):]
 
-        source_interp = RBFInterpolator(unique_sources, source_depths)
-        rec_interp = RBFInterpolator(unique_recs, rec_depths)
+        # source_interp = RBFInterpolator(unique_sources, source_depths)
+        # rec_interp = RBFInterpolator(unique_recs, rec_depths)
 
-        source_depths = (source_depths + rec_interp.interpolate(unique_sources)) / 2 - upholes
-        rec_depths = (rec_depths + source_interp.interpolate(unique_recs)) / 2
+        # source_depths = (source_depths + rec_interp.interpolate(unique_sources)) / 2 - upholes
+        # rec_depths = (rec_depths + source_interp.interpolate(unique_recs)) / 2
 
         self._update_params("source", unique_sources, source_depths.reshape(-1, 1), f"depth_{layer}")
         self._update_params("rec", unique_recs, rec_depths.reshape(-1, 1), f"depth_{layer}")
@@ -147,7 +147,6 @@ class StaticCorrection:
         result = sparse.linalg.lsmr(matrix, layer_headers['y'], x0=np.array(coefs), atol=tol, btol=tol)[0]
 
         velocities = self._calculate_velocities(result, layer_headers, ix_sources, ix_recs, max_wv, approach)
-
 
         self._update_params("source", unique_sources, velocities[0], 'v1')
         self._update_params("rec", unique_recs, velocities[1], 'v1')
@@ -199,13 +198,6 @@ class StaticCorrection:
                 f.write(line)
 
     ### plotters ###
-
-    # def _add_cols_to_params(self, name, columns):
-    #     coord_names = self._get_cols(name)
-    #     data = self.headers[coord_names + to_list(columns)].drop_duplicates().values
-    #     if data.shape[0] != getattr(self, f"{name}_params").shape[0]:
-    #         raise ValueError("Value in column(s) to add must be unique for each source/rec.")
-    #     self._update_params(name=name, coords=data[:, :2], values=data[:, 2:], columns=columns)
 
     def plot_depths(self, layer):
         _, ax = plt.subplots(1, 2, figsize=(12, 5), tight_layout=True)
