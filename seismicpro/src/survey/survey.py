@@ -493,8 +493,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     def load_traces_mmap(self, traces_pos, limits=None):
         limits = self.limits if limits is None else self._process_limits(limits)
-        traces = ibm_to_ieee(self.traces_mmap[traces_pos, limits.start:limits.stop], endian=self.endian)
-        return traces[:, ::limits.step]  # Applying step to the result is way faster than to the mmap
+        return ibm_to_ieee(self.traces_mmap[traces_pos, limits.start:limits.stop], endian=self.endian,
+                           step=limits.step)  # Slicing mmap with step is way more expensive
 
     def load_traces(self, traces_pos, limits=None):
         loader = self.load_traces_segyio if self.use_segyio_trace_loader else self.load_traces_mmap
