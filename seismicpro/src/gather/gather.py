@@ -900,29 +900,20 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target="for")
-    def get_central_cdp(self):
+    def get_central_gather(self):
         """Get a central CDP gather from a supergather.
 
-        A supergather has `SUPERGATHER_INLINE_3D` and `SUPERGATHER_CROSSLINE_3D` headers columns, whose values are
-        equal to values in `INLINE_3D` and `CROSSLINE_3D` only for traces from the central CDP gather. Read more about
+        A supergather has `SUPERGATHER_INLINE_3D` and `SUPERGATHER_CROSSLINE_3D` headers columns, whose values equal to
+        values of `INLINE_3D` and `CROSSLINE_3D` only for traces from the central CDP gather. Read more about
         supergather generation in :func:`~Survey.generate_supergathers` docs.
 
         Returns
         -------
         self : Gather
             `self` with only traces from the central CDP gather kept. Updates `self.headers` and `self.data` inplace.
-
-        Raises
-        ------
-        ValueError
-            If any of the `INLINE_3D`, `CROSSLINE_3D`, `SUPERGATHER_INLINE_3D` or `SUPERGATHER_CROSSLINE_3D` columns
-            are not in `headers`.
         """
-        self.validate(required_header_cols=["INLINE_3D", "SUPERGATHER_INLINE_3D",
-                                            "CROSSLINE_3D", "SUPERGATHER_CROSSLINE_3D"])
-        headers = self.headers.reset_index()
-        mask = ((headers["SUPERGATHER_INLINE_3D"] == headers["INLINE_3D"]) &
-                (headers["SUPERGATHER_CROSSLINE_3D"] == headers["CROSSLINE_3D"])).values
+        mask = np.all(self["INLINE_3D", "CROSSLINE_3D"] == self["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"],
+                      axis=1)
         self.headers = self.headers.loc[mask]
         self.data = self.data[mask]
         return self
