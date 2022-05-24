@@ -12,7 +12,7 @@ import pandas as pd
 from tqdm.auto import tqdm
 from scipy.interpolate import interp1d
 
-from .headers import load_headers
+from .headers import load_headers, ibm_to_ieee
 from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
 from .utils import calculate_stats, create_supergather_index
@@ -121,7 +121,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         The number of traces with constant value (dead traces). None until `mark_dead_traces` is called.
     """
     def __init__(self, path, header_index, header_cols=None, name=None, limits=None, endian="big", chunk_size=25000,
-                 n_workers=None, bar=True):
+                 n_workers=None, bar=True, use_segyio_trace_loader=False):
         self.path = os.path.abspath(path)
         self.name = os.path.splitext(os.path.basename(self.path))[0] if name is None else name
 
@@ -148,6 +148,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         # Open the SEG-Y file and memory map it
         if endian not in ENDIANNESS:
             raise ValueError(f"Unknown endian, must be one of {', '.join(ENDIANNESS)}")
+        self.endian = endian
         self.segy_handler = segyio.open(self.path, mode="r", endian=endian, ignore_geometry=True)
         self.segy_handler.mmap()
 
@@ -180,6 +181,15 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self._headers = None
         self._indexer = None
         self.headers = headers
+
+        # Optionally create a memory map over traces data
+        self.use_segyio_trace_loader = use_segyio_trace_loader or self.segy_handler._fmt != 1
+        if self.use_segyio_trace_loader:
+            self.traces_mmap = None
+        else:
+            dtype = np.dtype([("headers", np.uint8, 240), ("trace", np.uint8, (self.n_samples, 4))])
+            self.traces_mmap = np.memmap(filename=self.path, mode="r", shape=self.n_traces, dtype=dtype,
+                                         offset=file_metrics["trace0"])
 
         # Define all stats-related attributes
         self.has_stats = False
@@ -335,7 +345,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         # Accumulate min, max, mean and std values of survey traces
         for pos in tqdm(traces_pos, desc=f"Calculating statistics for survey {self.name}",
                         total=n_traces, disable=not bar):
-            self.load_trace(buf=trace, index=pos, limits=limits, trace_length=n_samples)
+            self.load_trace_segyio(buf=trace, index=pos, limits=limits, trace_length=n_samples)
             trace_min, trace_max, trace_sum, trace_sq_sum = calculate_stats(trace)
 
             global_min = min(trace_min, global_min)
@@ -395,7 +405,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         dead_indices = []
         for tr_index, pos in tqdm(enumerate(traces_pos), desc=f"Detecting dead traces for survey {self.name}",
                                   total=len(self.headers), disable=not bar):
-            self.load_trace(buf=trace, index=pos, limits=limits, trace_length=n_samples)
+            self.load_trace_segyio(buf=trace, index=pos, limits=limits, trace_length=n_samples)
             trace_min, trace_max, *_ = calculate_stats(trace)
 
             if math.isclose(trace_min, trace_max):
@@ -439,6 +449,59 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     #                            Loading methods                             #
     #------------------------------------------------------------------------#
 
+    def load_trace_segyio(self, buf, index, limits, trace_length):
+        """Load a single trace from a SEG-Y file by its position.
+
+        In order to optimize trace loading process, we use `segyio`'s low-level function `xfd.gettr`. Description of
+        its arguments is given below:
+            1. A buffer to write the loaded trace to,
+            2. An index of the trace in a SEG-Y file to load,
+            3. Unknown arg (always 1),
+            4. Unknown arg (always 1),
+            5. An index of the first trace element to load,
+            6. An index of the last trace element to load,
+            7. Trace element loading step,
+            8. The overall number of samples to load.
+
+        Parameters
+        ----------
+        buf : 1d np.ndarray of float32
+            An empty array to save the loaded trace.
+        index : int
+            Trace position in the file.
+        limits : slice
+            Trace time range to load. Measured in samples.
+        trace_length : int
+            Total number of samples to load.
+
+        Returns
+        -------
+        trace : 1d np.ndarray of float32
+            Loaded trace.
+        """
+        return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
+
+    def load_traces_segyio(self, traces_pos, limits=None):
+        limits = self.limits if limits is None else self._process_limits(limits)
+        samples = self.file_samples[limits]
+        n_samples = len(samples)
+
+        traces = np.empty((len(traces_pos), n_samples), dtype=self.segy_handler.dtype)
+        for i, pos in enumerate(traces_pos):
+            self.load_trace_segyio(buf=traces[i], index=pos, limits=limits, trace_length=n_samples)
+        return traces
+
+    def load_traces_mmap(self, traces_pos, limits=None):
+        limits = self.limits if limits is None else self._process_limits(limits)
+        return ibm_to_ieee(self.traces_mmap["trace"][traces_pos, limits], endian=self.endian)
+
+    def load_traces(self, traces_pos, limits=None):
+        loader = self.load_traces_segyio if self.use_segyio_trace_loader else self.load_traces_mmap
+        traces = loader(traces_pos, limits=limits)
+        if traces.dtype == np.float32:
+            return traces
+        return traces.astype(np.float32)
+
     def load_gather(self, headers, limits=None, copy_headers=False):
         """Load a gather with given `headers`.
 
@@ -460,17 +523,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if copy_headers:
             headers = headers.copy()
         traces_pos = get_cols(headers, "TRACE_SEQUENCE_FILE").ravel() - 1
-
         limits = self.limits if limits is None else self._process_limits(limits)
         samples = self.file_samples[limits]
-        n_samples = len(samples)
-
-        data = np.empty((len(traces_pos), n_samples), dtype=np.float32)
-        for i, pos in enumerate(traces_pos):
-            self.load_trace(buf=data[i], index=pos, limits=limits, trace_length=n_samples)
-
-        gather = Gather(headers=headers, data=data, samples=samples, survey=self)
-        return gather
+        data = self.load_traces(traces_pos, limits=limits)
+        return Gather(headers=headers, data=data, samples=samples, survey=self)
 
     def get_gather(self, index, limits=None, copy_headers=False):
         """Load a gather with given `index`.
@@ -509,38 +565,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             Loaded gather instance.
         """
         return self.get_gather(index=np.random.choice(self.indices), limits=limits, copy_headers=copy_headers)
-
-    def load_trace(self, buf, index, limits, trace_length):
-        """Load a single trace from a SEG-Y file by its position.
-
-        In order to optimize trace loading process, we use `segyio`'s low-level function `xfd.gettr`. Description of
-        its arguments is given below:
-            1. A buffer to write the loaded trace to,
-            2. An index of the trace in a SEG-Y file to load,
-            3. Unknown arg (always 1),
-            4. Unknown arg (always 1),
-            5. An index of the first trace element to load,
-            6. An index of the last trace element to load,
-            7. Trace element loading step,
-            8. The overall number of samples to load.
-
-        Parameters
-        ----------
-        buf : 1d np.ndarray of float32
-            An empty array to save the loaded trace.
-        index : int
-            Trace position in the file.
-        limits : slice
-            Trace time range to load. Measured in samples.
-        trace_length : int
-            Total number of samples to load.
-
-        Returns
-        -------
-        trace : 1d np.ndarray of float32
-            Loaded trace.
-        """
-        return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
 
     # pylint: disable=anomalous-backslash-in-string
     def load_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col=HDR_FIRST_BREAK,

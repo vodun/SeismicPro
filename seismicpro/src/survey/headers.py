@@ -10,6 +10,7 @@ import segyio
 import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
+from numba import njit, prange
 
 from ..const import TRACE_HEADER_SIZE, ENDIANNESS
 from ..utils import ForPoolExecutor
@@ -95,3 +96,19 @@ def load_headers(path, headers_to_load, trace_data_offset, trace_size, n_traces,
                 future.add_done_callback(partial(callback, start_pos=start))
 
     return pd.DataFrame(headers, columns=headers_order)
+
+
+@njit(nogil=True, parallel=True)
+def ibm_to_ieee(bytes_arr, endian="big"):
+    a, b, c, d = bytes_arr[:, :, 0], bytes_arr[:, :, 1], bytes_arr[:, :, 2], bytes_arr[:, :, 3]
+    if (endian != "big") and (endian != "msb"):
+        a, b, c, d = d, c, b, a
+    res = np.empty_like(a, dtype=np.float32)
+    for i in prange(a.shape[0]):
+        for j in range(a.shape[1]):
+            res[i, j] = (((np.int32(b[i, j]) << 8) | c[i, j]) << 8) | d[i, j]
+            res[i, j] /= np.float32(2)**24
+            res[i, j] *= np.float32(16)**(np.int8(a[i, j] & 0x7f) - 64)
+            if (a[i, j] & 0x80) > 0:
+                res[i, j] = -res[i, j]
+    return res
