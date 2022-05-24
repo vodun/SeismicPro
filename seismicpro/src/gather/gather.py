@@ -931,26 +931,22 @@ class Gather(TraceContainer, SamplesContainer):
     def stack(self):
         """Stack a gather by calculating mean value of all non-nan amplitudes for each time over the offset axis.
 
-        The gather after stacking contains only one trace. Its `headers` is indexed by `INLINE_3D` and `CROSSLINE_3D`
-        and has a single `TRACE_SEQUENCE_FILE` header with a value of 1.
+        The gather being stacked must be indexed by `INLINE_3D` and `CROSSLINE_3D` and contain traces from a single CDP
+        gather. The resulting stacked gather will contain a single trace with `headers` matching those of the first
+        input trace.
 
-        Notes
-        -----
-        Only a CDP gather indexed by `INLINE_3D` and `CROSSLINE_3D` can be stacked.
-
-        Raises
-        ------
-        ValueError
-            If the gather is not indexed by `INLINE_3D` and `CROSSLINE_3D` or traces from multiple CDP gathers are
-            being stacked
+        Returns
+        -------
+        gather : Gather
+            Stacked gather.
         """
-        line_cols = ["INLINE_3D", "CROSSLINE_3D"]
-        self.validate(required_header_cols=line_cols)
-        headers = self.headers.reset_index()[line_cols].drop_duplicates()
-        if len(headers) != 1:
+        if set(self.indexed_by) != {"INLINE_3D", "CROSSLINE_3D"}:
+            raise ValueError("The gather must be indexed by INLINE_3D and CROSSLINE_3D")
+        if self.index is None:
             raise ValueError("Only a single CDP gather can be stacked")
-        self.headers = headers.set_index(line_cols)
-        self.headers["TRACE_SEQUENCE_FILE"] = 1
+
+        # Preserve headers of the first trace of the gather being stacked
+        self.headers = self.headers.iloc[[0]]
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
@@ -1173,7 +1169,6 @@ class Gather(TraceContainer, SamplesContainer):
             raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
         self.data = gain.undo_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
         return self
-
 
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #
