@@ -307,8 +307,8 @@ class Gather(TraceContainer, SamplesContainer):
     #                              Dump methods                              #
     #------------------------------------------------------------------------#
 
-    @batch_method(target='for', force=True, copy_src=False)
-    def dump(self, path, name=None, copy_header=False):
+    @batch_method(target='for', force=True)
+    def dump(self, path, name=None, retain_parent_segy_headers=True):
         """Save the gather to a `.sgy` file.
 
         Notes
@@ -328,8 +328,8 @@ class Gather(TraceContainer, SamplesContainer):
         name : str, optional, defaults to None
             The name of the file. If `None`, the concatenation of the survey name and the value of gather index will
             be used.
-        copy_header : bool, optional, defaults to False
-            Whether to copy the headers that weren't loaded during Survey creation from the parent SEG-Y file.
+        retain_parent_segy_headers : bool, optional, defaults to True
+            Whether to copy the headers that weren't loaded during `Survey` creation from the parent SEG-Y file.
 
         Returns
         -------
@@ -390,7 +390,7 @@ class Gather(TraceContainer, SamplesContainer):
             # Dump traces and their headers. Optionally copy headers from the parent SEG-Y file.
             dump_handler.trace = self.data
             for i, dump_h in trace_headers_dict.items():
-                if copy_header:
+                if retain_parent_segy_headers:
                     dump_handler.header[i].update(parent_handler.header[trace_ids[i]])
                 dump_handler.header[i].update({**dump_h, segyio.TraceField.TRACE_SAMPLE_INTERVAL: sample_rate})
         return self
