@@ -31,7 +31,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     an instance of `Gather` class by calling either :func:`~Survey.get_gather` or :func:`~Survey.sample_gather`
     method.
 
-    The resulting gather type depends on `header_index` argument, passed during `Survey` creation: traces are grouped
+    The resulting gather type depends on `header_index` argument passed during `Survey` creation: traces are grouped
     into gathers by the common value of headers, defined by `header_index`. Some frequently used values of
     `header_index` are:
     - 'TRACE_SEQUENCE_FILE' - to get individual traces,
@@ -40,9 +40,13 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     - ['INLINE_3D', 'CROSSLINE_3D'] - to get common midpoint gathers.
 
     `header_cols` argument specifies all other trace headers to load to further be available in gather processing
-    pipelines. Note that `TRACE_SEQUENCE_FILE` header is not loaded from the file but always automatically
-    reconstructed. All loaded headers are stored in a `headers` attribute as a `pd.DataFrame` with `header_index`
-    columns set as its index.
+    pipelines. All loaded headers are stored in a `headers` attribute as a `pd.DataFrame` with `header_index` columns
+    set as its index.
+
+    Values of both `header_index` and `header_cols` must be any of those specified in
+    https://segyio.readthedocs.io/en/latest/segyio.html#trace-header-keys except for `UnassignedInt1` and
+    `UnassignedInt2` since they are treated differently from all other headers by `segyio`. Also, `TRACE_SEQUENCE_FILE`
+    header is not loaded from the file but always automatically reconstructed.
 
     The survey sample rate is calculated by two values stored in:
     * bytes 3217-3218 of the binary header, called `Interval` in `segyio`,
@@ -61,10 +65,16 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     path : str
         A path to the source SEG-Y file.
     header_index : str or list of str
-        Trace headers to be used to group traces into gathers.
-    header_cols : str or list of str, optional
-        Extra trace headers to load. If not given, only headers from `header_index` are loaded and a
-        `TRACE_SEQUENCE_FILE` header is created automatically.
+        Trace headers to be used to group traces into gathers. Must be any of those specified in
+        https://segyio.readthedocs.io/en/latest/segyio.html#trace-header-keys except for `UnassignedInt1` and
+        `UnassignedInt2`.
+    header_cols : str or list of str or "all", optional
+        Extra trace headers to load. Must be any of those specified in
+        https://segyio.readthedocs.io/en/latest/segyio.html#trace-header-keys except for `UnassignedInt1` and
+        `UnassignedInt2`.
+        If not given, only headers from `header_index` are loaded and `TRACE_SEQUENCE_FILE` header is reconstructed
+        automatically if not in the index.
+        If "all", all available headers are loaded.
     name : str, optional
         Survey name. If not given, source file name is used. This name is mainly used to identify the survey when it is
         added to an index, see :class:`~index.SeismicIndex` docs for more info.
@@ -115,17 +125,25 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.path = os.path.abspath(path)
         self.name = os.path.splitext(os.path.basename(self.path))[0] if name is None else name
 
+        # Forbid loading UnassignedInt1 and UnassignedInt2 headers since they are treated differently from all other
+        # headers by `segyio`
+        allowed_headers = set(segyio.tracefield.keys.keys()) - {"UnassignedInt1", "UnassignedInt2"}
+
+        header_index = to_list(header_index)
         if header_cols is None:
             header_cols = set()
         elif header_cols == "all":
-            header_cols = set(segyio.tracefield.keys.keys())
+            header_cols = allowed_headers
         else:
             header_cols = set(to_list(header_cols))
-        header_index = to_list(header_index)
 
         # TRACE_SEQUENCE_FILE is not loaded but reconstructed manually since sometimes it is undefined in the file but
         # we rely on it during gather loading
         headers_to_load = (set(header_index) | header_cols) - {"TRACE_SEQUENCE_FILE"}
+
+        unknown_headers = headers_to_load - allowed_headers
+        if unknown_headers:
+            raise ValueError(f"Unknown headers {', '.join(unknown_headers)}")
 
         # Open the SEG-Y file and memory map it
         if endian not in ENDIANNESS:
