@@ -19,7 +19,7 @@ class TestBenchmark:
     def test_benchmark_runs(self, segy_path, method_name, method_kwargs, root_pipeline):
         """Test benchmark"""
         survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'], header_cols='offset', name='raw')
-        dataset = SeismicDataset(surveys=survey)
+        dataset = SeismicDataset(survey)
         load_bm = Benchmark(method_name=method_name, method_kwargs=method_kwargs, targets=('for', 'threads'),
                             batch_sizes=[1, 5, 10], dataset=dataset, root_pipeline=root_pipeline)
         load_bm.run(n_iters=3, bar=False, shuffle=42)

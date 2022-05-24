@@ -1,19 +1,219 @@
 """Implements SeismicIndex class that allows for iteration over gathers in a survey or a group of surveys"""
 
 import os
-from copy import copy, deepcopy
-from itertools import chain
-from functools import reduce
-from textwrap import dedent, indent
+import warnings
+from functools import wraps, reduce
+from textwrap import indent, dedent
 
 import numpy as np
 import pandas as pd
 
 from .survey import Survey
-from .utils import maybe_copy, unique_indices_sorted
+from .containers import GatherContainer
+from .utils import to_list, maybe_copy
 from ..batchflow import DatasetIndex
 
 
+class IndexPart(GatherContainer):
+    """A class that represents a part of `SeismicIndex` which contains trace headers of several surveys being merged
+    together."""
+
+    def __init__(self):
+        self._headers = None
+        self._indexer = None
+        self.common_headers = set()
+        self.surveys_dict = {}
+
+    def __getitem__(self, key):
+        """Select values of headers by their names."""
+        if isinstance(key, tuple):
+            key = [key]
+        return super().__getitem__(key)
+
+    def __setitem__(self, key, value):
+        """Set given values to selected headers."""
+        if isinstance(key, tuple):
+            key = [key]
+        return super().__setitem__(key, value)
+
+    @property
+    def survey_names(self):
+        """list of str: names of surveys in the index part."""
+        return sorted(self.surveys_dict.keys())
+
+    @classmethod
+    def from_attributes(cls, headers, surveys_dict, common_headers, copy_headers=False):
+        """Create a new index part from its attributes."""
+        part = cls()
+        part.headers = headers.copy(copy_headers)
+        part.common_headers = common_headers
+        part.surveys_dict = surveys_dict
+        return part
+
+    @classmethod
+    def from_survey(cls, survey, copy_headers=False):
+        """Construct an index part from a single survey."""
+        if not isinstance(survey, Survey):
+            raise ValueError("survey must be an instance of Survey")
+
+        headers = survey.headers.copy(copy_headers)
+        common_headers = set(headers.columns)
+        headers.columns = pd.MultiIndex.from_product([[survey.name], headers.columns])
+
+        part = cls()
+        part._headers = headers  # Avoid calling headers setter since the indexer is already calculated
+        part._indexer = survey._indexer  # pylint: disable=protected-access
+        part.common_headers = common_headers
+        part.surveys_dict = {survey.name: survey}
+        return part
+
+    @staticmethod
+    def _filter_equal(headers, header_cols):
+        """Keep only those rows of `headers` where values of given headers are equal in all surveys."""
+        if not header_cols:
+            return headers
+        drop_mask = np.column_stack([np.ptp(headers.loc[:, (slice(None), col)], axis=1).astype(np.bool_)
+                                     for col in header_cols])
+        return headers.loc[~np.any(drop_mask, axis=1)]
+
+    def merge(self, other, on=None, validate_unique=True, copy_headers=False):
+        """Create a new `IndexPart` by merging trace headers of `self` and `other` on given common headers."""
+        self_indexed_by = set(to_list(self.indexed_by))
+        other_indexed_by = set(to_list(other.indexed_by))
+        if self_indexed_by != other_indexed_by:
+            raise ValueError("All parts must be indexed by the same headers")
+        if set(self.survey_names) & set(other.survey_names):
+            raise ValueError("Only surveys with unique names can be merged")
+
+        possibly_common_headers = self.common_headers & other.common_headers
+        if on is None:
+            on = possibly_common_headers - {"TRACE_SEQUENCE_FILE"}
+            left_df = self.headers
+            right_df = other.headers
+        else:
+            on = set(to_list(on)) - self_indexed_by
+            # Filter both self and other by equal values of on
+            left_df = self._filter_equal(self.headers, on - self.common_headers)
+            right_df = self._filter_equal(other.headers, on - other.common_headers)
+        headers_to_check = possibly_common_headers - on
+
+        merge_on = sorted(on)
+        left_survey_name = self.survey_names[0]
+        right_survey_name = other.survey_names[0]
+        left_on = to_list(self.indexed_by) + [(left_survey_name, header) for header in merge_on]
+        right_on = to_list(other.indexed_by) + [(right_survey_name, header) for header in merge_on]
+
+        validate = "1:1" if validate_unique else "m:m"
+        headers = pd.merge(left_df, right_df, how="inner", left_on=left_on, right_on=right_on, copy=copy_headers,
+                           sort=False, validate=validate)
+
+        # Recalculate common headers in the merged DataFrame
+        common_headers = on | {header for header in headers_to_check
+                                      if headers[left_survey_name, header].equals(headers[right_survey_name, header])}
+        return self.from_attributes(headers, {**self.surveys_dict, **other.surveys_dict}, common_headers)
+
+    def create_subset(self, indices):
+        """Return a new `IndexPart` based on a subset of its indices given."""
+        subset_headers = self.get_headers_by_indices(indices)
+        return self.from_attributes(subset_headers, self.surveys_dict, self.common_headers)
+
+    def copy(self, ignore=None):
+        """Perform a deepcopy of all part attributes except for `surveys_dict`, `_indexer` and those specified in
+        `ignore`, which are kept unchanged."""
+        ignore = set() if ignore is None else set(to_list(ignore))
+        return super().copy(ignore | {"surveys_dict"})
+
+    @wraps(GatherContainer.reindex)
+    def reindex(self, new_index, inplace=False):
+        old_index = to_list(self.indexed_by)
+        new_index = to_list(new_index)
+        new_index_diff = set(new_index) - set(old_index)
+        old_index_diff = set(old_index) - set(new_index)
+        if new_index_diff - self.common_headers:
+            raise ValueError("IndexPart can be reindexed only with common headers")
+
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        new_diff_list = list(new_index_diff)
+        self.headers[new_diff_list] = self.headers[((self.survey_names[0], new_ix) for new_ix in new_diff_list)]
+        super().reindex(new_index, inplace=True)
+
+        # Copy old index to each survey
+        for sur in self.survey_names:
+            for old_ix in old_index_diff:
+                self.headers[(sur, old_ix)] = self.headers[(old_ix, "")]
+
+        # Drop unwanted headers
+        cols_to_drop = ([(sur, new_ix) for sur in self.survey_names for new_ix in new_index_diff] +
+                        [(old_ix, "") for old_ix in old_index_diff])
+        self.headers.drop(columns=cols_to_drop, inplace=True)
+
+        self.common_headers = (self.common_headers - new_index_diff) | old_index_diff
+        return self
+
+    @wraps(GatherContainer.filter)
+    def filter(self, cond, cols, axis=None, unpack_args=False, inplace=False, **kwargs):
+        cols = to_list(cols)
+        survey_names = self.survey_names
+        indexed_by = set(to_list(self.indexed_by))
+        if (set(cols) - indexed_by) <= self.common_headers:
+            # Filter only one survey since all of them share values of `cols` headers
+            survey_names = [survey_names[0]]
+
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        for sur in survey_names:
+            sur_cols = [col if col in indexed_by else (sur, col) for col in cols]
+            super().filter(cond, cols=sur_cols, axis=axis, unpack_args=unpack_args, inplace=True, **kwargs)
+        return self
+
+    @wraps(GatherContainer.apply)
+    def apply(self, func, cols, res_cols=None, axis=None, unpack_args=False, inplace=False, **kwargs):
+        cols = to_list(cols)
+        res_cols = cols if res_cols is None else to_list(res_cols)
+
+        survey_names = self.survey_names
+        indexed_by = set(to_list(self.indexed_by))
+        if (set(cols) - indexed_by) <= self.common_headers:
+            # Apply func only to one survey since all of them share values of `cols` headers
+            survey_names = [survey_names[0]]
+
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        for sur in survey_names:
+            sur_cols = [col if col in indexed_by else (sur, col) for col in cols]
+            sur_res_cols = [(sur, col) for col in res_cols]
+            super().apply(func, cols=sur_cols, res_cols=sur_res_cols, axis=axis, unpack_args=unpack_args, inplace=True,
+                          **kwargs)
+
+        # Duplicate results for all surveys if func was applied only to the first one
+        if len(survey_names) == 1:
+            for sur in self.survey_names[1:]:
+                self[[(sur, col) for col in res_cols]] = self[[(survey_names[0], col) for col in res_cols]]
+            self.common_headers |= set(res_cols)
+        return self
+
+
+def delegate_to_parts(*methods):
+    """Implement given `methods` of `SeismicIndex` by calling the corresponding method of its parts. In addition to all
+    the arguments of the method of a part each created method accepts `recursive` flag which defines whether to process
+    `train`, `test` and `validation` subsets of the index in the same manner if they exist."""
+    def decorator(cls):
+        for method in methods:
+            def method_fn(self, *args, method=method, recursive=True, inplace=False, **kwargs):
+                self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+                for part in self.parts:
+                    getattr(part, method)(*args, inplace=True, **kwargs)
+                # Explicitly reset iter since index parts were modified
+                self.reset("iter")
+
+                if recursive:
+                    for split in self.splits.values():
+                        getattr(split, method)(*args, recursive=True, inplace=True, **kwargs)
+                return self
+            setattr(cls, method, method_fn)
+        return cls
+    return decorator
+
+
+@delegate_to_parts("reindex", "filter", "apply")
 class SeismicIndex(DatasetIndex):
     """A class that enumerates gathers in a survey or a group of surveys and allows iterating over them.
 
@@ -21,45 +221,37 @@ class SeismicIndex(DatasetIndex):
     (e.g. when several fields are being processed in the same way one after another) or merging (e.g. when traces from
     the same field before and after a given processing stage must be matched and compared).
 
-    In order to enumerate seismic gathers from different surveys, an instance of `SeismicIndex` stores combined headers
-    of all the surveys in its `headers` attribute and unique identifiers of all the resulting seismic gathers as a
-    `pd.MultiIndex` in its `index` attribute.
+    `SeismicIndex` consists of parts - instances of `IndexPart` class stored in `parts` attribute. Parts act as an
+    additional SEG-Y file identifier after concatenation since different surveys may have non-unique `indices` making
+    it impossible to recover a source survey for a given gather by its index. Each part in turn represents several
+    surveys being merged together. It contains the following main attributes:
+    - `indices` - unique identifiers of gathers in the part,
+    - `headers` - merged trace headers from underlying surveys,
+    - `surveys_dict` - a mapping from a survey name to the survey itself to further load traces.
 
-    `SeismicIndex` object can be created either from a single survey or a list of surveys:
-    1. A single survey is handled in a straightforward way: `headers` attribute of the resulting index is a copy of
-       survey headers with an extra `CONCAT_ID` column with zero value added to its index to the left. This column is
-       redundant in case of a single survey but allows for unambiguous survey identification when concatenation is
-       performed.
-    2. If several surveys are passed they must be created with the same `header_index`. First, they are independently
-       converted to `SeismicIndex` as described above and then the `headers` attribute of the resulting index is built
-       depending on the given `mode`:
-        - "c" or "concat":
-          All the surveys must have the same `name`. `CONCAT_ID` column is updated to be the ordinal number of a survey
-          in the list for each of the created indices and then headers concatenation is performed via `pd.concat`. Here
-          `CONCAT_ID` acts as a survey identifier since traces from different SEG-Y files may have the same headers
-          making it impossible to recover a source survey for a trace with given headers.
-        - "m" or "merge":
-          All the surveys must have different `name` specified. In this case, `headers` are obtained by joining survey
-          headers via `pd.merge`. By default, merging is performed by all the headers columns including `CONCAT_ID`
-          allowing for several groups of concatenated surveys to be consequently merged.
+    Thus a gather in a `SeismicIndex` is identified by values of its `header_index`, part and survey name. It can be
+    obtained by calling :func:`~SeismicIndex.get_gather`. Iteration over gathers in the index is generally performed
+    via :func:`~SeismicIndex.next_batch`.
 
-    `SeismicIndex` keeps track of all the surveys used during its creation in a `surveys_dict` attribute with the
-    following structure:
-    `{survey_name_1: [survey_1_1, survey_1_2, survey_1_N],
-      ...,
-      survey_name_M: [survey_M_1, survey_M_2, survey_M_N],
-     }`
-    Dict keys here are the names of surveys being merged, while values are lists with the same length equal to the
-    number of concatenated surveys.
-
-    Thus, base survey to get a gather with given headers from is determined by both its name and `CONCAT_ID`. The
-    gather itself can be obtained by calling :func:`~SeismicIndex.get_gather` method, while iteration over gathers is
-    performed via :func:`~SeismicIndex.next_batch`.
+    A complete algorithm of index instantiation looks as follows:
+    1. Independently transform each argument to `SeismicIndex`:
+        - instance of `SeismicIndex` is kept as is,
+        - `Survey` is transformed to a single part. Its `headers` replicate survey `headers` except for a new level
+          added to `DataFrame` columns with the name of the survey. This is done to avoid headers collisions during
+          subsequent merges.
+       In both cases input `headers` can optionally be copied.
+    2. If a single argument was processed on the previous step, an index is already created.
+    3. Otherwise combine parts of created indices depending on the `mode` provided:
+        - "c" or "concat": Parts of the resulting index is simply a concatenation of all input parts with preserved
+          order. All parts must contain surveys with same `name`s.
+        - "m" or "merge": Parts with same ordinal numbers are combined together by merging their `headers`. The number
+          of parts in all inputs must match and all the underlying surveys must have different `name`s.
+       In both cases all parts must be indexed by the same trace headers.
 
     Examples
     --------
-    Let's consider 4 surveys, describing a single field before and after processing. Note that all of them have the
-    same `header_index`:
+    Let's consider 4 surveys describing a single field before and after processing. Note that all of them have the same
+    `header_index`:
     >>> s1_before = Survey(path, header_index=index_headers, name="before")
     >>> s2_before = Survey(path, header_index=index_headers, name="before")
 
@@ -67,372 +259,283 @@ class SeismicIndex(DatasetIndex):
     >>> s2_after = Survey(path, header_index=index_headers, name="after")
 
     An index can be created from a single survey in the following way:
-    >>> index = SeismicIndex(surveys=s1_before)
+    >>> index = SeismicIndex(s1_before)
 
     If `s1_before` and `s2_before` represent different parts of the same field, they can be concatenated into one index
     to iterate over the whole field and process it at once. Both surveys must have the same `name`:
-    >>> index = SeismicIndex(surveys=[s1_before, s2_before], mode="c")
+    >>> index = SeismicIndex(s1_before, s2_before, mode="c")
 
     Gathers before and after given processing stage can be matched using merge operation. Both surveys must have
     different `name`s:
-    >>> index = SeismicIndex(surveys=[s1_before, s1_after], mode="m")
+    >>> index = SeismicIndex(s1_before, s1_after, mode="m")
 
-    Merge can follow concat and vice versa. A more complex case, covering both operations is shown below:
-    >>> index_before = SeismicIndex(surveys=[s1_before, s2_before], mode="c")
-    >>> index_after = SeismicIndex(surveys=[s1_after, s2_after], mode="c")
-    >>> index = SeismicIndex(surveys=[index_before, index_after], mode="m")
+    Merge can follow concat and vice versa. A more complex case, covering both operations is demonstrated below:
+    >>> index_before = SeismicIndex(s1_before, s2_before, mode="c")
+    >>> index_after = SeismicIndex(s1_after, s2_after, mode="c")
+    >>> index = SeismicIndex(index_before, index_after, mode="m")
 
     Parameters
     ----------
-    index : SeismicIndex, optional
-        Base index to use as is if no surveys were passed.
-    surveys : Survey or list of Survey, optional
-        Surveys to use to construct an index.
+    args : tuple of Survey, IndexPart or SeismicIndex
+        A sequence of surveys, indices or parts to construct an index.
     mode : {"c", "concat", "m", "merge", None}, optional, defaults to None
-        A mode used to combine multiple surveys into an index. If `None`, only a single survey can be passes to a
-        `surveys` arg.
+        A mode used to combine multiple `args` into a single index. If `None`, only one positional argument can be
+        passed.
+    copy_headers : bool, optional, defaults to False
+        Whether to copy `DataFrame`s of trace headers while constructing index parts.
     kwargs : misc, optional
-        Additional keyword arguments to index builder method for given `mode` (currently :func:`~SeismicIndex.merge` or
-        :func:`~SeismicIndex.concat`).
+        Additional keyword arguments to :func:`~SeismicIndex.merge` if the corresponding mode was chosen.
 
     Attributes
     ----------
-    headers : pd.DataFrame
-        Combined headers of all the surveys used to create the index.
-    surveys_dict : dict
-        A dict, tracking surveys used to create the index. Its keys are the names of surveys being merged, while values
-        are lists with the same length equal to the number of concatenated surveys.
-    index : pd.MultiIndex
-        Unique identifiers of seismic gathers in the constructed index.
-    index_to_headers_pos : dict
-        A mapping from an index value to a range of corresponding `headers` rows.
+    parts : tuple of IndexPart
+        Parts of the constructed index.
     """
-    def __init__(self, index=None, surveys=None, mode=None, **kwargs):
-        self.headers = None
-        self.surveys_dict = None
-        self.index_to_headers_pos = None
-        super().__init__(index=index, surveys=surveys, mode=mode, **kwargs)
+    def __init__(self, *args, mode=None, copy_headers=False, **kwargs):  # pylint: disable=super-init-not-called
+        self.parts = tuple()
+        self.train = None
+        self.test = None
+        self.validation = None
+
+        if args:
+            index = self.build_index(*args, mode=mode, copy_headers=copy_headers, **kwargs)
+            self.__dict__ = index.__dict__
+        elif kwargs:
+            raise ValueError("No kwargs must be passed if an empty index is being created")
+
+        self._iter_params = None
+        self.reset("iter")
 
     @property
-    def next_concat_id(self):
-        """int: The number of concatenated surveys in the index."""
-        return max(len(surveys) for surveys in self.surveys_dict.values())
+    def index(self):
+        """tuple of pd.Index: Unique identifiers of seismic gathers in each part of the index."""
+        return tuple(part.indices for part in self.parts)
 
-    def _get_index_info(self, indents, prefix):
+    @property
+    def n_parts(self):
+        """int: The number of parts in the index."""
+        return len(self.parts)
+
+    @property
+    def n_gathers_by_part(self):
+        """int: The number of gathers in each part of the index."""
+        return [part.n_gathers for part in self.parts]
+
+    @property
+    def n_gathers(self):
+        """int: The number of gathers in the index."""
+        return sum(self.n_gathers_by_part)
+
+    @property
+    def n_traces_by_part(self):
+        """int: The number of traces in each part of the index."""
+        return [part.n_traces for part in self.parts]
+
+    @property
+    def n_traces(self):
+        """int: The number of traces in the index."""
+        return sum(self.n_traces_by_part)
+
+    @property
+    def indexed_by(self):
+        """str or list of str or None: Names of header indices of each part. `None` for empty index."""
+        if self.is_empty:
+            return None
+        return self.parts[0].indexed_by
+
+    @property
+    def survey_names(self):
+        """list of str or None: Names of surveys in the index. `None` for empty index."""
+        if self.is_empty:
+            return None
+        return self.parts[0].survey_names
+
+    @property
+    def is_empty(self):
+        """bool: Whether the index is empty."""
+        return self.n_parts == 0
+
+    @property
+    def splits(self):
+        """dict: A mapping from a name of non-empty train/test/validation split to its `SeismicIndex`."""
+        return {split_name: getattr(self, split_name) for split_name in ("train", "test", "validation")
+                                                      if getattr(self, split_name) is not None}
+
+    def __len__(self):
+        """The number of gathers in the index."""
+        return self.n_gathers
+
+    def get_index_info(self, index_path="index", indent_size=0, split_delimiter=""):
         """Recursively fetch index description string from the index itself and all the nested subindices."""
-        groupped_headers = self.headers.index.to_frame(index=False).groupby(by="CONCAT_ID")
-        data = [[name, len(group), len(group.drop_duplicates())] for name, group in groupped_headers]
-        info_df = pd.DataFrame.from_records(data, columns=["CONCAT_ID", "Num Traces", "Num Gathers"],
-                                            index='CONCAT_ID')
+        if self.is_empty:
+            return "Empty index"
 
-        for sur_name in self.surveys_dict.keys():
-            for ix, sur in enumerate(self.surveys_dict[sur_name]):
-                file_name = os.path.basename(sur.path) if sur is not None else None
-                info_df.loc[ix, 'Survey ' + sur_name] = file_name
-        info_df.sort_index(inplace=True)
-
-        split_names = ['train', 'test', 'validation']
-        split_indices = [(getattr(self, name), name) for name in split_names if getattr(self, name) is not None]
+        info_df = pd.DataFrame({"Gathers": self.n_gathers_by_part, "Traces": self.n_traces_by_part},
+                               index=pd.RangeIndex(self.n_parts, name="Part"))
+        for sur in self.survey_names:
+            info_df[f"Survey {sur}"] = [os.path.basename(part.surveys_dict[sur].path) for part in self.parts]
 
         msg = f"""
-        {prefix} info:
+        {index_path} info:
 
+        Indexed by:                {", ".join(to_list(self.indexed_by))}
+        Number of gathers:         {self.n_gathers}
+        Number of traces:          {self.n_traces}
+        Is split:                  {self.is_split}
 
-        Index name(s):             {', '.join(self.headers.index.names)}
-        Number of traces:          {np.nansum(info_df["Num Traces"])}
-        Number of gathers:         {np.nansum(info_df["Num Gathers"])}
-        Is split:                  {any(split_indices)}
-
-
-        The table describes surveys contained in the index:
+        Index parts info:
         """
-        msg = dedent(msg) + info_df.to_string() + '\n'
+        msg = indent(dedent(msg) + info_df.to_string() + "\n", " " * indent_size)
 
-        nested_indices_msg = ""
-        for index, name in split_indices:
-            # pylint: disable=protected-access
-            index_msg = index._get_index_info(indents=indents + '    ', prefix=prefix + '.' + name)
-            # pylint: enable=protected-access
-            nested_indices_msg += f"\n{'_'*79}" + index_msg
-        return indent(msg, indents) + nested_indices_msg
+        # Recursively fetch info about index splits
+        for split_name, split in self.splits.items():
+            msg += split_delimiter + "\n" + split.get_index_info(f"{index_path}.{split_name}", indent_size+4,
+                                                                 split_delimiter=split_delimiter)
+        return msg
 
     def __str__(self):
-        """Print index metadata including information about its surveys and total number of traces and gathers."""
-        return self._get_index_info(indents='', prefix="index")
+        """Print index metadata including information about its parts and underlying surveys."""
+        delimiter_placeholder = "{delimiter}"
+        msg = self.get_index_info(split_delimiter=delimiter_placeholder)
+        for i, part in enumerate(self.parts):
+            for sur in part.survey_names:
+                msg += delimiter_placeholder + f"\n\nPart {i}, Survey {sur}\n\n" + str(part.surveys_dict[sur]) + "\n"
+        delimiter = "_" * max(len(line) for line in msg.splitlines())
+        return msg.strip().format(delimiter=delimiter)
 
     def info(self):
-        """Print index metadata including information about its surveys and total number of traces and gathers."""
+        """Print index metadata including information about its parts and underlying surveys."""
         print(self)
 
     #------------------------------------------------------------------------#
     #                         Index creation methods                         #
     #------------------------------------------------------------------------#
 
-    def build_index(self, index=None, surveys=None, mode=None, **kwargs):
-        """Build an index from args in the following way:
-        1. If both `index` and `surveys` are `None` an empty index is created.
-        2. If `surveys` is given then index is created according to the `mode` specified.
-        3. Otherwise passed `index` is used as is.
+    @classmethod
+    def build_index(cls, *args, mode=None, copy_headers=False, **kwargs):
+        """Build an index from `args` as described in :class:`~SeismicIndex` docs."""
+        # Create an empty index if no args are given
+        if not args:
+            return cls(**kwargs)
 
-        Parameters
-        ----------
-        index : SeismicIndex, optional
-            Base index to use as is if no surveys were passed.
-        surveys : Survey or list of Survey, optional
-            Surveys to use to construct an index.
-        mode : {"c", "concat", "m", "merge", None}
-            A mode used to combine multiple surveys into an index. If `None`, only a single survey can be passes to a
-            `surveys` arg.
-        kwargs : misc, optional
-            Additional keyword arguments to index builder method for given `mode` (currently
-            :func:`~SeismicIndex.merge` or :func:`~SeismicIndex.concat`).
+        # Select an appropriate builder by passed mode
+        if mode is None and len(args) > 1:
+            raise ValueError("mode must be specified if multiple positional arguments are given")
+        builders_dict = {
+            None: cls.from_index,
+            "m": cls.merge,
+            "merge": cls.merge,
+            "c": cls.concat,
+            "concat": cls.concat,
+        }
+        if mode not in builders_dict:
+            raise ValueError(f"Unknown mode {mode}")
 
-        Returns
-        -------
-        index : pd.MultiIndex
-            Unique identifiers of seismic gathers in the constructed index.
-
-        Raises
-        ------
-        ValueError
-            If unknown `mode` was passed.
-        TypeError
-            If `index` of a wrong type was passed.
-        """
-        # Create an empty index if both index and surveys are not specified
-        if index is None and surveys is None:
-            return None
-
-        # If surveys are passed, choose index builder depending on given mode
-        if surveys is not None:
-            builders_dict = {
-                "m": SeismicIndex.merge,
-                "c": SeismicIndex.concat,
-                "merge": SeismicIndex.merge,
-                "concat": SeismicIndex.concat,
-                None: SeismicIndex.from_survey,
-            }
-            if mode not in builders_dict:
-                raise ValueError(f"Unknown mode {mode}")
-            index = builders_dict[mode](surveys, **kwargs)
-
-        # Check that passed or created index has SeismicIndex type
-        if not isinstance(index, SeismicIndex):
-            raise TypeError(f"SeismicIndex instance is expected as an index, but {type(index)} was given")
-
-        # Copy internal attributes from passed or created index into self
-        self.headers = index.headers
-        self.surveys_dict = index.surveys_dict
-        self.index_to_headers_pos = index.index_to_headers_pos
-        return index.index
-
-    def update(self, headers, surveys_dict, index=None, index_to_headers_pos=None):
-        """Update an index with attributes passed.
-
-        Parameters
-        ----------
-        headers : pd.DataFrame
-            Headers of the index.
-        surveys_dict : dict
-            A dict of surveys used by the index. Its keys are the names of surveys being merged, while values are lists
-            with the same length equal to the number of concatenated surveys.
-        index : pd.MultiIndex, optional
-            Unique identifiers of seismic gathers in the constructed index. If not given, calculated by passed
-            `headers`.
-        index_to_headers_pos : dict, optional
-            A mapping from an index value to a range of corresponding `headers` rows. If not given, calculated by
-            passed `headers`.
-
-        Returns
-        -------
-        self : SeismicIndex
-            Self with updated attributes.
-
-        Raises
-        ------
-        ValueError
-            If `headers` index is not monotonically increasing.
-        """
-        self.headers = headers
-        self.surveys_dict = surveys_dict
-
-        if index is None:
-            # Calculate unique header indices. This approach is way faster, than pd.unique or np.unique since we
-            # guarantee that the index of the header is monotonic
-            if not headers.index.is_monotonic_increasing:
-                raise ValueError("Headers index must be monotonically increasing")
-            unique_header_indices = unique_indices_sorted(headers.index.to_frame().values)
-            index = headers.index[unique_header_indices]
-
-            # Calculate a mapping from index value to its position in headers to further speed up create_subset
-            index_to_headers_pos = {}
-            start_pos = unique_header_indices
-            end_pos = chain(unique_header_indices[1:], [len(headers)])
-            for ix, start, end in zip(index, start_pos, end_pos):
-                index_to_headers_pos[ix] = range(start, end)
-
-        # Set _index explicitly since already created index is modified
-        self._index = index
-        self.index_to_headers_pos = index_to_headers_pos
-
-        # Reset iter params to ensure that valid iteration over changed indices is performed
-        self.reset("iter")
-        return self
+        # Convert all args to SeismicIndex and combine them into a single index
+        indices = cls._args_to_indices(*args)
+        return builders_dict[mode](*indices, copy_headers=copy_headers, **kwargs)
 
     @classmethod
-    def from_attributes(cls, headers, surveys_dict, index=None, index_to_headers_pos=None):
-        """Create a new `SeismicIndex` instance from its attributes.
+    def _args_to_indices(cls, *args):
+        """Independently convert each positional argument to a `SeismicIndex`."""
+        indices = []
+        for arg in args:
+            if isinstance(arg, Survey):
+                builder = cls.from_survey
+            elif isinstance(arg, IndexPart):
+                builder = cls.from_parts
+            elif isinstance(arg, SeismicIndex):
+                builder = cls.from_index
+            else:
+                raise ValueError(f"Unsupported type {type(arg)} to convert to index")
+            indices.append(builder(arg, copy_headers=False))
+        return indices
+
+    @classmethod
+    def from_parts(cls, *parts, copy_headers=False):
+        """Construct an index from its parts.
 
         Parameters
         ----------
-        headers : pd.DataFrame
-            Headers of the index being created.
-        surveys_dict : dict
-            A dict of surveys used by the index. Its keys are the names of surveys being merged, while values are lists
-            with the same length equal to the number of concatenated surveys.
-        index : pd.MultiIndex, optional
-            Unique identifiers of seismic gathers in the constructed index. If not given, calculated by passed
-            `headers`.
-        index_to_headers_pos : dict, optional
-            A mapping from an index value to a range of corresponding `headers` rows. If not given, calculated by
-            passed `headers`.
+        parts : tuple of IndexPart
+            Index parts to convert to an index.
+        copy_headers : bool, optional, defaults to False
+            Whether to copy `headers` of parts.
 
         Returns
         -------
         index : SeismicIndex
             Constructed index.
-
-        Raises
-        ------
-        ValueError
-            If `headers` index is not monotonically increasing.
         """
-        return cls().update(headers, surveys_dict, index, index_to_headers_pos)
+        if not parts:
+            return cls()
+
+        if not all(isinstance(part, IndexPart) for part in parts):
+            raise ValueError("All parts must be instances of IndexPart")
+
+        survey_names = parts[0].survey_names
+        if any(survey_names != part.survey_names for part in parts[1:]):
+            raise ValueError("Only parts with the same survey names can be concatenated into one index")
+
+        indexed_by = parts[0].indexed_by
+        if any(indexed_by != part.indexed_by for part in parts[1:]):
+            raise ValueError("All parts must be indexed by the same columns")
+
+        if copy_headers:
+            parts = tuple(part.copy() for part in parts)
+
+        index = cls()
+        index.parts = parts
+        index.reset("iter")
+        return index
 
     @classmethod
-    def from_survey(cls, survey):
-        """Create a new `SeismicIndex` instance from a single survey.
-
-        `headers` attribute of the resulting index is a copy of survey `headers` with an extra `CONCAT_ID` column with
-        zero value added to its index to the left.
+    def from_survey(cls, survey, copy_headers=False):
+        """Construct an index from a single survey.
 
         Parameters
         ----------
         survey : Survey
             A survey used to build an index.
+        copy_headers : bool, optional, defaults to False
+            Whether to copy survey `headers`.
 
         Returns
         -------
         index : SeismicIndex
             Constructed index.
-
-        Raises
-        ------
-        TypeError
-            If `survey` of a wrong type was passed.
         """
-        if not isinstance(survey, Survey):
-            raise TypeError(f"Survey instance is expected, but {type(survey)} was given. "
-                             "Probably you forgot to specify the mode")
-
-        # Copy headers from survey and create zero CONCAT_ID column as the first index level
-        headers = survey.headers.copy()
-        old_index = headers.index.names
-        headers.reset_index(inplace=True)
-        headers["CONCAT_ID"] = 0
-        headers.set_index(["CONCAT_ID"] + old_index, inplace=True)
-
-        surveys_dict = {survey.name: [survey]}
-        return cls.from_attributes(headers=headers, surveys_dict=surveys_dict)
-
-    @staticmethod
-    def _surveys_to_indices(surveys):
-        """Cast each element of a list of `Survey` or `SeismicIndex` instances to a `SeismicIndex` type."""
-        survey_indices = []
-        for survey in surveys:
-            if not isinstance(survey, SeismicIndex):
-                if not isinstance(survey, Survey):
-                    raise ValueError("Each survey must have either Survey or SeismicIndex type, "
-                                     f"but {type(survey)} was given")
-                survey = SeismicIndex(surveys=survey)
-            survey_indices.append(survey)
-        return survey_indices
+        return cls.from_parts(IndexPart.from_survey(survey, copy_headers=copy_headers))
 
     @classmethod
-    def _merge_two_indices(cls, x, y, **kwargs):
-        """Merge two `SeismicIndex` instances into one."""
-        intersect_keys = x.surveys_dict.keys() & y.surveys_dict.keys()
-        if intersect_keys:
-            raise ValueError("Only surveys with unique names can be merged, "
-                             f"but {', '.join(intersect_keys)} are duplicated")
-
-        x_index_columns = x.index.names
-        y_index_columns = y.index.names
-        if x_index_columns != y_index_columns:
-            raise ValueError("All indices must be indexed by the same columns")
-
-        headers = pd.merge(x.headers.reset_index(), y.headers.reset_index(), **kwargs)
-        if headers.empty:
-            raise ValueError("Empty index after merge")
-
-        surveys_dict = {**x.surveys_dict, **y.surveys_dict}
-        max_len = max(x.next_concat_id, y.next_concat_id)
-        dropped_ids = np.setdiff1d(np.arange(max_len), np.unique(headers["CONCAT_ID"]))
-        for survey in surveys_dict:
-            # Pad lists in surveys_dict to max len for further concat to work correctly
-            surveys_dict[survey] += [None] * (max_len - len(surveys_dict[survey]))
-            # If some CONCAT_IDs were dropped after merge, set the corresponding survey values to None
-            for concat_id in dropped_ids:
-                surveys_dict[survey][concat_id] = None
-
-        return cls.from_attributes(headers=headers.set_index(x_index_columns), surveys_dict=surveys_dict)
-
-    @classmethod
-    def merge(cls, surveys, **kwargs):
-        """Merge several surveys into a single index.
-
-        All the surveys being merged must be created with the same `header_index`, but have different `name`s. First,
-        they are independently converted to `SeismicIndex` and then the resulting index `headers` are calculated by
-        joining the obtained headers via `pd.merge`. By default, merging is performed by all the columns including
-        `CONCAT_ID` allowing for several groups of concatenated surveys to be consequently merged.
-
-        Notes
-        -----
-        A detailed description of index merging can be found in :class:`~SeismicIndex` docs.
+    def from_index(cls, index, copy_headers=False):
+        """Construct an index from an already created `SeismicIndex`. Leaves it unchanged if `copy_headers` is `False`,
+        returns a copy otherwise.
 
         Parameters
         ----------
-        surveys : list of Survey
-            A list of surveys to be merged.
-        kwargs : misc, optional
-            Additional keyword arguments to :func:`~pandas.merge`.
+        index : SeismicIndex
+            Input index.
+        copy_headers : bool, optional, defaults to False
+            Whether to copy the index.
 
         Returns
         -------
         index : SeismicIndex
-            Merged index.
-
-        Raises
-        ------
-        ValueError
-            If surveys with same names were passed.
-            If survey headers are not indexed by the same columns.
-            If an empty index was obtained after merging.
+            Constructed index.
         """
-        indices = cls._surveys_to_indices(surveys)
-        index = reduce(lambda x, y: cls._merge_two_indices(x, y, **kwargs), indices)
+        if not isinstance(index, SeismicIndex):
+            raise ValueError("index must be an instance of SeismicIndex")
+        if copy_headers:
+            return index.copy()
         return index
 
     @classmethod
-    def concat(cls, surveys, **kwargs):
-        """Concatenate several surveys into a single index.
+    def concat(cls, *args, copy_headers=False):
+        """Concatenate `args` into a single index.
 
-        All the surveys being concatenated must be created with the same `header_index`, and have the same `name`.
-        First, they are independently converted to `SeismicIndex` and then `CONCAT_ID` column is updated to be the
-        ordinal number of a survey in the list for each of the created indices. The resulting index `headers` are
-        calculated by concatenating the obtained headers via `pd.concat`. `CONCAT_ID` acts as a survey identifier since
-        traces from different SEG-Y files may have the same headers making it impossible to recover a source survey for
-        a trace with given headers.
+        Each positional argument must be an instance of `Survey`, `IndexPart` or `SeismicIndex`. All of them must be
+        indexed by the same headers. Underlying surveys of different arguments must have same `name`s.
 
         Notes
         -----
@@ -440,86 +543,114 @@ class SeismicIndex(DatasetIndex):
 
         Parameters
         ----------
-        surveys : list of Survey
-            A list of surveys to be concatenated.
-        kwargs : misc, optional
-            Additional keyword arguments to :func:`~pandas.concat`.
+        args : tuple of Survey, IndexPart or SeismicIndex
+            Inputs to be concatenated.
+        copy_headers : bool, optional, defaults to False
+            Whether to copy `headers` of `args`.
 
         Returns
         -------
         index : SeismicIndex
             Concatenated index.
-
-        Raises
-        ------
-        ValueError
-            If surveys with different names were passed.
-            If survey headers are not indexed by the same columns.
         """
-        indices = cls._surveys_to_indices(surveys)
-        survey_names = indices[0].surveys_dict.keys()
-        if any(survey_names != index.surveys_dict.keys() for index in indices):
-            raise ValueError("Only surveys with the same names can be concatenated")
+        indices = cls._args_to_indices(*args)
+        parts = sum([ix.parts for ix in indices], tuple())
+        return cls.from_parts(*parts, copy_headers=copy_headers)
 
-        index_columns = indices[0].headers.index.names
-        if any(index_columns != index.headers.index.names for index in indices):
-            raise ValueError("All indices must be indexed by the same columns")
+    @classmethod
+    def merge(cls, *args, on=None, validate_unique=True, copy_headers=False):
+        """Merge `args` into a single index.
 
-        # Update CONCAT_ID values in all the indices to avoid collisions after concatenation
-        headers_list = []
-        concat_id_shift = 0
-        for index in indices:
-            headers = index.headers.copy()
-            concat_id = headers.index.levels[0] + concat_id_shift
-            headers.index = headers.index.set_levels(concat_id, "CONCAT_ID")
+        Each positional argument must be an instance of `Survey`, `IndexPart` or `SeismicIndex`. All of them must be
+        indexed by the same headers. Underlying surveys of different arguments must have different `name`s.
 
-            headers_list.append(headers)
-            concat_id_shift += index.next_concat_id
+        Notes
+        -----
+        A detailed description of index merging can be found in :class:`~SeismicIndex` docs.
 
-        headers = pd.concat(headers_list, **kwargs)
-        surveys_dict = {survey_name: sum([index.surveys_dict[survey_name] for index in indices], [])
-                        for survey_name in survey_names}
-        return cls.from_attributes(headers=headers, surveys_dict=surveys_dict)
+        Parameters
+        ----------
+        args : tuple of Survey, IndexPart or SeismicIndex
+            Inputs to be merged.
+        on : str or list of str, optional
+            Headers to be used as join keys. If not given, all common headers are used except for `TRACE_SEQUENCE_FILE`
+            unless it is used to index `args`.
+        validate_unique : bool, optional, defaults to True
+            Check if merge keys are unique in all input `args`.
+        copy_headers : bool, optional, defaults to False
+            Whether to copy `headers` of `args`.
+
+        Returns
+        -------
+        index : SeismicIndex
+            Merged index.
+        """
+        indices = cls._args_to_indices(*args)
+        if len({ix.n_parts for ix in indices}) != 1:
+            raise ValueError("All indices being merged must have the same number of parts")
+        indices_parts = [ix.parts for ix in indices]
+        merged_parts = [reduce(lambda x, y: x.merge(y, on, validate_unique, copy_headers), parts)
+                        for parts in zip(*indices_parts)]
+
+        # Warn if the whole index or some of its parts are empty
+        empty_parts = [i for i, part in enumerate(merged_parts) if not part]
+        if len(empty_parts) == len(merged_parts):
+            warnings.warn("Empty index after merge", RuntimeWarning)
+        elif empty_parts:
+            warnings.warn(f"Empty parts {empty_parts} after merge", RuntimeWarning)
+
+        return cls.from_parts(*merged_parts, copy_headers=False)
 
     #------------------------------------------------------------------------#
     #                 DatasetIndex interface implementation                  #
     #------------------------------------------------------------------------#
 
-    def build_pos(self):
-        """Implement degenerative `get_pos` to decrease computational complexity since `pd.MultiIndex` provides its own
-        interface to get a position of a value in the index."""
-        return None
-
-    def get_pos(self, index):
-        """Return a position of an item in the index.
-
-        Notes
-        -----
-        Unlike `BatchFlow` `DatasetIndex.get_pos`, only a single index value is allowed.
+    def index_by_pos(self, pos):
+        """Return gather index and part by its position in the index.
 
         Parameters
         ----------
-        index : tuple
-            Multiindex value to return position of.
+        pos : int
+            Ordinal number of the gather in the index.
 
         Returns
         -------
-        pos : int
-            Position of the given item.
+        index : int or tuple
+            Gather index.
+        part : int
+            Index part to get the gather from.
         """
-        return self.index.get_loc(index)
+        part_pos_borders = np.cumsum([0] + self.n_gathers_by_part)
+        part = np.searchsorted(part_pos_borders[1:], pos, side="right")
+        return self.indices[part][pos - part_pos_borders[part]], part
 
-    def create_subset(self, index):
-        """Return a new index object based on the subset of indices given.
-
-        Notes
-        -----
-        During the call subset of `self.headers` is calculated which may take a while for large indices.
+    def subset_by_pos(self, pos):
+        """Return a subset of gather indices by their positions in the index.
 
         Parameters
         ----------
-        index : SeismicIndex or pd.MultiIndex
-            Index values of the subset to create a new `SeismicIndex` object for.
+        pos : int or array-like of int
+            Ordinal numbers of gathers in the index.
+
+        Returns
+        -------
+        indices : list of pd.Index
+            Gather indices of the subset by each index part.
+        """
+        pos = np.sort(np.atleast_1d(pos))
+        part_pos_borders = np.cumsum([0] + self.n_gathers_by_part)
+        pos_by_part = np.split(pos, np.searchsorted(pos, part_pos_borders[1:]))
+        part_indices = [part_pos - part_start for part_pos, part_start in zip(pos_by_part, part_pos_borders[:-1])]
+        return tuple(index[subset] for index, subset in zip(self.index, part_indices))
+
+    def create_subset(self, index):
+        """Return a new index object based on a subset of its indices given.
+
+        Parameters
+        ----------
+        index : SeismicIndex or tuple of pd.Index
+            Gather indices of the subset to create a new `SeismicIndex` object for. If `tuple` of `pd.Index`, each item
+            defines gather indices of the corresponding part in `self`.
 
         Returns
         -------
@@ -528,142 +659,173 @@ class SeismicIndex(DatasetIndex):
         """
         if isinstance(index, SeismicIndex):
             index = index.index
+        if len(index) != self.n_parts:
+            raise ValueError("Index length must match the number of parts")
+        return self.from_parts(*[part.create_subset(ix) for part, ix in zip(self.parts, index)], copy_headers=False)
 
-        # Sort index of the subset. Otherwise subset.headers may become unsorted in pipelines with shuffle=True
-        # resulting in non-working .loc
-        index, _ = index.sortlevel()
+    #------------------------------------------------------------------------#
+    #                     Statistics computation methods                     #
+    #------------------------------------------------------------------------#
 
-        # Calculate positions of indices in header to perform .iloc instead of .loc, which is orders of magnitude
-        # faster, and update index_to_headers_pos dict for further create_subset to work correctly
-        headers_indices = []
-        index_to_headers_pos = {}
-        curr_index = 0
-        for item in index:
-            item_indices = self.index_to_headers_pos[item]
-            headers_indices.append(item_indices)
-            index_to_headers_pos[item] = range(curr_index, curr_index + len(item_indices))
-            curr_index += len(item_indices)
+    def collect_stats(self, n_quantile_traces=100000, quantile_precision=2, limits=None, bar=True):
+        """Collect the following trace data statistics for each survey in the index or a dataset:
+        1. Min and max amplitude,
+        2. Mean amplitude and trace standard deviation,
+        3. Approximation of trace data quantiles with given precision.
 
-        headers = self.headers.iloc[list(chain.from_iterable(headers_indices))]
-        subset = self.from_attributes(headers=headers, surveys_dict=self.surveys_dict, index=index,
-                                      index_to_headers_pos=index_to_headers_pos)
-        return subset
+        Since fair quantile calculation requires simultaneous loading of all traces from the file we avoid such memory
+        overhead by calculating approximate quantiles for a small subset of `n_quantile_traces` traces selected
+        randomly. Only a set of quantiles defined by `quantile_precision` is calculated, the rest of them are linearly
+        interpolated by the collected ones.
+
+        After the method is executed all calculated values can be obtained via corresponding attributes of the surveys
+        in the index and their `has_stats` flag is set to `True`.
+
+        Examples
+        --------
+        Statistics calculation for the whole index can be done as follows:
+        >>> survey = Survey(path, header_index="FieldRecord", header_cols=["TraceNumber", "offset"], name="survey")
+        >>> index = SeismicIndex(survey).collect_stats()
+
+        Statistics can be calculated for a dataset as well:
+        >>> dataset = SeismicDataset(index).collect_stats()
+
+        After a train-test split is performed, `train` and `test` refer to the very same `Survey` instances. This
+        allows for `collect_stats` to be used to calculate statistics for the training set and then use them to
+        normalize gathers from the testing set to avoid data leakage during machine learning model training:
+        >>> dataset.split()
+        >>> dataset.train.collect_stats()
+        >>> dataset.test.next_batch(1).load(src="survey").scale_standard(src="survey", use_global=True)
+
+        Note that if no gathers from a particular survey were included in the training set its stats won't be
+        collected!
+
+        Parameters
+        ----------
+        n_quantile_traces : positive int, optional, defaults to 100000
+            The number of traces to use for quantiles estimation.
+        quantile_precision : positive int, optional, defaults to 2
+            Calculate an approximate quantile for each q with `quantile_precision` decimal places. All other quantiles
+            will be linearly interpolated on request.
+        limits : int or tuple or slice, optional
+            Time limits to be used for statistics calculation. `int` or `tuple` are used as arguments to init a `slice`
+            object. If not given, `limits` passed to `Survey.__init__` are used. Measured in samples.
+        bar : bool, optional, defaults to True
+            Whether to show a progress bar.
+
+        Returns
+        -------
+        self : same type as self
+            An index or a dataset with collected stats. Sets `has_stats` flag to `True` and updates statistics
+            attributes inplace for each of the underlying surveys.
+        """
+        for part in self.parts:
+            for sur in part.surveys_dict.values():
+                sur.collect_stats(indices=part.indices, n_quantile_traces=n_quantile_traces,
+                                  quantile_precision=quantile_precision, limits=limits, bar=bar)
+        return self
+
+    #------------------------------------------------------------------------#
+    #                            Loading methods                             #
+    #------------------------------------------------------------------------#
+
+    def get_gather(self, index, part=None, survey_name=None, limits=None, copy_headers=False):
+        """Load a gather with given `index`.
+
+        Parameters
+        ----------
+        index : int or 1d array-like
+            An index of the gather to load. Must be one of `self.indices`.
+        part : int
+            Index part to get the gather from. May be omitted if index concatenation was not performed.
+        survey_name : str or list of str
+            Survey name to get the gather from. If several names are given, a list of gathers from corresponding
+            surveys is returned. May be omitted if index merging was not performed.
+        limits : int or tuple or slice or None, optional
+            Time range for trace loading. `int` or `tuple` are used as arguments to init a `slice` object. If not
+            given, `limits` passed to the corresponding `Survey.__init__` are used. Measured in samples.
+        copy_headers : bool, optional, defaults to False
+            Whether to copy the subset of index `headers` describing the gather.
+
+        Returns
+        -------
+        gather : Gather or list of Gather
+            Loaded gather instance. List of gathers is returned if several survey names was passed.
+        """
+        if part is None and self.n_parts > 1:
+            raise ValueError("part must be specified if the index is constructed by concatenation")
+        if part is None:
+            part = 0
+        index_part = self.parts[part]
+
+        if survey_name is None and len(self.survey_names) > 1:
+            raise ValueError("survey_name must be specified if the index is constructed by merging")
+        if survey_name is None:
+            survey_name = self.survey_names[0]
+
+        is_single_survey = isinstance(survey_name, str)
+        survey_names = to_list(survey_name)
+        surveys = [index_part.surveys_dict[name] for name in survey_names]
+
+        index_headers = index_part.get_headers_by_indices((index,))
+        empty_headers = index_headers[[]]  # Handle the case when no headers were loaded for a survey
+        gather_headers = [index_headers.get(name, empty_headers) for name in survey_names]
+
+        gathers = [survey.load_gather(headers=headers, limits=limits, copy_headers=copy_headers)
+                   for survey, headers in zip(surveys, gather_headers)]
+        if is_single_survey:
+            return gathers[0]
+        return gathers
+
+    def sample_gather(self, part=None, survey_name=None, limits=None, copy_headers=False):
+        """Load a random gather from the index.
+
+        Parameters
+        ----------
+        part : int
+            Index part to sample the gather from. Chosen randomly if not given.
+        survey_name : str
+            Survey name to sample the gather from. If several names are given, a list of gathers from corresponding
+            surveys is returned. Chosen randomly if not given.
+        limits : int or tuple or slice or None, optional
+            Time range for trace loading. `int` or `tuple` are used as arguments to init a `slice` object. If not
+            given, `limits` passed to the corresponding `Survey.__init__` are used. Measured in samples.
+        copy_headers : bool, optional, defaults to False
+            Whether to copy the subset of index `headers` describing the gather.
+
+        Returns
+        -------
+        gather : Gather or list of Gather
+            Loaded gather instance. List of gathers is returned if several survey names was passed.
+        """
+        if part is None:
+            part_weights = np.array(self.n_gathers_by_part) / self.n_gathers
+            part = np.random.choice(self.n_parts, p=part_weights)
+        if survey_name is None:
+            survey_name = np.random.choice(self.survey_names)
+        index = np.random.choice(self.parts[part].indices)
+        return self.get_gather(index, part, survey_name, limits=limits, copy_headers=copy_headers)
 
     #------------------------------------------------------------------------#
     #                       Index manipulation methods                       #
     #------------------------------------------------------------------------#
 
-    def __copy__(self):
-        """Perform a deepcopy of all index attributes except for `surveys_dict` which will refer to the original
-        object."""
-        surveys_dict = self.surveys_dict
-        self.surveys_dict = None
-
-        split_names = ["train", "test", "validation"]
-        splits = []
-        for split_name in split_names:
-            splits.append(getattr(self, split_name))
-            setattr(self, split_name, None)
-
-        self_copy = deepcopy(self)
-        self.surveys_dict = surveys_dict
-        self_copy.surveys_dict = surveys_dict
-
-        for split_name, split in zip(split_names, splits):
-            setattr(self, split_name, split)
-            setattr(self_copy, split_name, copy(split))
-        return self_copy
-
-    def copy(self, copy_surveys=False):
-        """Perform a deepcopy of all index attributes except for `surveys_dict`, which will be copied only if
-        `copy_surveys` is `True`.
+    def copy(self, ignore=None):
+        """Perform a deepcopy of the index by copying its parts. All attributes of each part are deepcopied except for
+        indexer, underlying surveys and those specified in `ignore`, which are kept unchanged.
 
         Parameters
         ----------
-        copy_surveys : bool, optional, defaults to True
-            Whether to deepcopy information about surveys in the index.
+        ignore : str or array of str, defaults to None
+            Part attributes that won't be copied.
 
         Returns
         -------
         copy : SeismicIndex
-            A copy of the index.
+            Copy of the index.
         """
-        if copy_surveys:
-            return deepcopy(self)
-        return copy(self)
-
-    def get_gather(self, survey_name, concat_id, gather_index, **kwargs):
-        """Get a gather from a given survey by its index.
-
-        Parameters
-        ----------
-        survey_name : str
-            Survey name to get the gather from.
-        concat_id : int
-            Concatenation index of the source survey.
-        gather_index : pd.MultiIndex
-            Indices of gather traces to get.
-        kwargs : misc, optional
-            Additional keyword arguments to :func:`~Survey.load_gather`.
-
-        Returns
-        -------
-        gather : Gather
-            Loaded gather.
-
-        Raises
-        ------
-        KeyError
-            If unknown survey name was passed.
-        """
-        if survey_name not in self.surveys_dict:
-            err_msg = "Unknown survey name {}, the index contains only {}"
-            raise KeyError(err_msg.format(survey_name, ", ".join(self.surveys_dict.keys())))
-        survey = self.surveys_dict[survey_name][concat_id]
-        gather_headers = self.headers.loc[concat_id].loc[gather_index]
-        return survey.load_gather(headers=gather_headers, **kwargs)
-
-    def reindex(self, new_index, reindex_nested=False, reindex_surveys=False, inplace=False, **kwargs):
-        """Reindex `self` with new headers columns.
-
-        Parameters
-        ----------
-        new_index : str or list of str
-            Headers columns to become a new index. Note, that `CONCAT_ID` is always preserved in the index and should
-            not be specified.
-        reindex_nested : bool, optional, defaults to False
-            Whether to reindex `train`, `test` and `validation` parts of the index.
-        reindex_surveys : bool, optional, defaults to False
-            Whether to reindex all underlying surveys.
-        inplace : bool, optional, defaults to False
-            Whether to perform reindexation inplace or return a new index instance.
-        kwargs : misc, optional
-            Additional keyword arguments to :func:`~general_utils.maybe_copy` to copy the index if `inplace` is
-            `False`.
-
-        Returns
-        -------
-        index : SeismicIndex
-            Reindexed `self`.
-        """
-        self = maybe_copy(self, inplace, **kwargs)  # pylint: disable=self-cls-assignment
-
-        # Reindex headers, keeping CONCAT_ID column in it
-        headers = self.headers.reset_index(level=self.headers.index.names[1:])
-        headers = headers.set_index(new_index, append=True).sort_index()
-        self.update(headers, self.surveys_dict)
-
-        if reindex_nested:
-            for split_name in ["train", "test", "validation"]:
-                split = getattr(self, split_name)
-                if split is not None:
-                    split.reindex(new_index, reindex_nested=True, reindex_surveys=False, inplace=True)
-
-        # Reindex all the underlying surveys if needed
-        if reindex_surveys:
-            for surveys in self.surveys_dict.values():
-                for survey in surveys:
-                    # None survey values can be created by _merge_two_indices
-                    if survey is not None:
-                        survey.reindex(new_index, inplace=True)
-        return self
+        parts_copy = [part.copy(ignore=ignore) for part in self.parts]
+        self_copy = self.from_parts(*parts_copy, copy_headers=False)
+        for split_name, split in self.splits.items():
+            setattr(self_copy, split_name, split.copy())
+        return self_copy

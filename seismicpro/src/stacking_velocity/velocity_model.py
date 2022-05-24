@@ -79,7 +79,7 @@ def create_edges(semblance, times, velocities, start_velocity_range, end_velocit
         for prev_time_ix, prev_vel_ix in prev_nodes:
             for curr_time_ix, curr_vel_ix in curr_nodes:
                 # Connect two nodes only if:
-                # 1. they are a starting node and an auxilliary one
+                # 1. they are a starting node and an auxiliary one
                 # 2. current velocity is no less then the previous one, but also does not exceed it by more than
                 #    max_vel_step, determined by max_acceleration provided
                 if not ((prev_time_ix == -1) or (prev_vel_ix <= curr_vel_ix <= prev_vel_ix + max_vel_step)):

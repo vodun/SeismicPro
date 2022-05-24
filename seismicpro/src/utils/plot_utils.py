@@ -1,11 +1,12 @@
-"""Utilily functions for visualization"""
+"""Utility functions for visualization"""
 
 # pylint: disable=invalid-name
 from functools import partial
 
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib import ticker, colors as mcolors
+from matplotlib import ticker
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+
 
 def as_dict(val, key):
     """Construct a dict with a {`key`: `val`} structure if given `val` is not a `dict`, or copy `val` otherwise."""
@@ -13,16 +14,74 @@ def as_dict(val, key):
 
 
 def save_figure(fig, fname, dpi=100, bbox_inches="tight", pad_inches=0.1, **kwargs):
-    """Save the given figure. All `args` and `kwargs` are passed directly into `matplotlib.pyplot.savefig`."""
+    """Save the given figure. All `args` and `kwargs` are passed directly to `matplotlib.pyplot.savefig`."""
     fig.savefig(fname, dpi=dpi, bbox_inches=bbox_inches, pad_inches=pad_inches, **kwargs)
+
+
+def calculate_axis_limits(coords):
+    """Calculate axis limits by coordinates of items being plotted. Mimics default matplotlib behavior."""
+    coords = np.array(coords)
+    min_coord = coords.min()
+    max_coord = coords.max()
+    margin_candidates = 0.05 * np.array([max_coord - min_coord, abs(max_coord), 1])
+    margin = margin_candidates[~np.isclose(margin_candidates, 0)][0]
+    return (min_coord - margin, max_coord + margin)
+
+
+TEXT_FORMATTING_ARGS = {"fontsize", "fontfamily", "fontweight"}
+
+
+def get_text_formatting_kwargs(**kwargs):
+    """Get text formatting parameters from `kwargs`."""
+    return {key: val for key, val in kwargs.items() if key in TEXT_FORMATTING_ARGS}
+
 
 def set_text_formatting(*args, **kwargs):
     """Pop text formatting parameters from `kwargs` and set them as defaults for each of `args` tranformed to dict."""
-    FORMAT_ARGS = {'fontsize', 'fontfamily', 'fontweight'}
-
-    global_formatting = {arg: kwargs.pop(arg) for arg in FORMAT_ARGS if arg in kwargs}
-    text_args = ({**global_formatting, **({} if arg is None else as_dict(arg, key="label"))} for arg in args)
+    global_formatting = {arg: kwargs.pop(arg) for arg in TEXT_FORMATTING_ARGS if arg in kwargs}
+    text_args = [{**global_formatting, **({} if arg is None else as_dict(arg, key="label"))} for arg in args]
     return text_args, kwargs
+
+
+def add_colorbar(ax, artist, colorbar, divider=None, y_ticker=None):
+    """Add a colorbar to the axes.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axes to add a colorbar to.
+    artist : matplotlib.cm.ScalarMappable
+        A mappable artist described by the colorbar.
+    colorbar : bool or dict
+        If `False` does not add a colorbar. If `True`, adds a colorbar with default parameters. If `dict`, defines
+        keyword arguments for `matplotlib.figure.Figure.colorbar`.
+    divider : mpl_toolkits.axes_grid1.axes_divider.AxesDivider, optional
+        A divider of `ax`. If given, will be used to create child axes for the colorbar.
+    y_ticker : dict, optional
+        Parameters to control text formatting of y ticks of the created colorbar.
+    """
+    if not isinstance(colorbar, (bool, dict)):
+        raise ValueError(f"colorbar must be bool or dict but {type(colorbar)} was passed")
+    if colorbar is False:
+        return
+    colorbar = {} if colorbar is True else colorbar
+    if divider is None:
+        divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    ax.figure.colorbar(artist, cax=cax, **colorbar)
+    if y_ticker is not None:
+        format_subplot_yticklabels(cax, **y_ticker)
+
+
+def format_subplot_yticklabels(ax, fontsize=None, fontfamily=None, fontweight=None, **kwargs):
+    """Set text formatting of y ticks of `ax` axes. This method is mainly used to format ticks on subplots such as a
+    colorbar. It updates only font size, family and weight and does not support tick rotation."""
+    _ = kwargs
+    for tick in ax.get_yticklabels():
+        tick.set_fontsize(fontsize)
+        tick.set_fontfamily(fontfamily)
+        tick.set_fontweight(fontweight)
+
 
 def set_ticks(ax, axis, label='', tick_labels=None, num=None, step_ticks=None, step_labels=None, round_to=0, **kwargs):
     """Set ticks and labels for `x` or `y` axis depending on the `axis`.
@@ -128,73 +187,3 @@ def _pop_rotation_kwargs(kwargs):
     if rotation is not None:
         rotation_kwargs = {"rotation": rotation, "ha": "right", "rotation_mode": "anchor", **rotation_kwargs}
     return rotation_kwargs
-
-
-def plot_metrics_map(metrics_map, cmap=None, title=None, figsize=(10, 7),  # pylint: disable=too-many-arguments
-                     pad=False, fontsize=11, ticks_range_x=None, ticks_range_y=None,
-                     x_ticker=None, y_ticker=None, save_to=None, **kwargs):
-    """Plot a map with metric values.
-
-    Notes
-    -----
-    The map is drawn with `origin='lower'` by default, keep it in mind when passing arguments, related to axes ticks.
-
-    Parameters
-    ----------
-    metrics_map : array-like
-        Array with aggregated metrics values.
-    cmap : str or `~matplotlib.colors.Colormap`, optional
-        `~matplotlib.imshow` colormap.
-    title : str, optional
-        The title of the plot.
-    figsize : array-like with length 2, optional, defaults to (10, 7)
-        Output figure size.
-    pad : bool, optional, defaults to False
-        If `True`, edges of the figure will be padded with a thin white line. Otherwise, the figure will remain
-        unchanged.
-    fontsize : int, optional, defaults to 11
-        The size of the text on the plot.
-    ticks_range_x : array-like with length 2, optional, defaults to None
-        Min and max value of labels on the x-axis.
-    ticks_range_y : array-like with length 2, optional, defaults to None
-        Min and max value of labels on the y-axis.
-    x_ticker : dict, optional, defaults to None
-        Parameters for ticks and ticklabels formatting for the x-axis; see `.utils.set_ticks` for more details.
-    y_ticker : dict, optional, defaults to None
-        Parameters for ticks and ticklabels formatting for the y-axis; see `.utils.set_ticks` for more details.
-    save_to : str or dict, optional, defaults to None
-        If `str`, a path to save the figure to.
-        If `dict`, should contain keyword arguments to pass to `matplotlib.pyplot.savefig`. In this case, the path
-        is stored under the `fname` key.
-        Otherwise, the figure is not saved.
-    kwargs : misc, optional
-        Additional named arguments for :func:`matplotlib.pyplot.imshow`.
-    """
-    if cmap is None:
-        colors = ((0.0, 0.6, 0.0), (.66, 1, 0), (0.9, 0.0, 0.0))
-        cmap = mcolors.LinearSegmentedColormap.from_list('cmap', colors)
-        cmap.set_under('black')
-        cmap.set_over('red')
-
-    origin = kwargs.pop('origin', 'lower')
-    aspect = kwargs.pop('aspect', 'auto')
-    fig, ax = plt.subplots(figsize=figsize)
-    img = ax.imshow(metrics_map, origin=origin, cmap=cmap, aspect=aspect, **kwargs)
-
-    if pad:
-        ax.use_sticky_edges = False
-        ax.margins(x=0.01, y=0.01)
-
-    ax.set_title(title, fontsize=fontsize)
-    cbar = fig.colorbar(img, extend='both', ax=ax)
-    cbar.ax.tick_params(labelsize=fontsize)
-
-    x_ticker = {} if x_ticker is None else x_ticker
-    y_ticker = {} if y_ticker is None else y_ticker
-    set_ticks(ax, "x", None, np.linspace(*ticks_range_x, metrics_map.shape[1]), **x_ticker)
-    set_ticks(ax, "y", None, np.linspace(*ticks_range_y, metrics_map.shape[0]), **y_ticker)
-
-    if save_to is not None:
-        save_kwargs = as_dict(save_to, key="fname")
-        save_figure(fig, **save_kwargs)
-    plt.show()

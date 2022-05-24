@@ -7,11 +7,10 @@ from numba.typed import List
 from scipy.ndimage import median_filter
 from matplotlib import colors as mcolors
 
-from .decorators import batch_method, plotter
-from .velocity_model import calculate_stacking_velocity
-from .velocity_cube import StackingVelocity
-from .utils import as_dict, set_ticks, set_text_formatting
-from .utils.correction import get_hodograph
+from ..decorators import batch_method, plotter
+from ..stacking_velocity import StackingVelocity, calculate_stacking_velocity
+from ..utils import as_dict, set_ticks, set_text_formatting
+from ..gather.utils.correction import get_hodograph
 
 
 class BaseCoherency:

@@ -24,8 +24,9 @@ def _update_method_params(method, decorator_name, **decorator_params):
 def plotter(figsize, args_to_unpack=None):
     """Expand the functionality of a plotting method by defining figure creation and saving.
 
-    The decorated method is supposed to accept an `ax` argument. If it's not passed during the call, the decorator
-    creates it with the `figsize` provided.
+    The decorated method is supposed to accept an `ax` argument. If it's not passed during the call and the plot is not
+    interactive, the decorator creates it with the `figsize` provided.
+
     A new argument is added for the decorated method:
     save_to : str or dict, optional, defaults to None
         If `str`, a path to save the figure to.
@@ -55,15 +56,17 @@ def plotter(figsize, args_to_unpack=None):
     def decorator(method):
         @wraps(method)
         def plot(*args, **kwargs):
-            if "ax" in kwargs:
+            # Don't create axes if they are already passed or the plot is interactive
+            if "ax" in kwargs or kwargs.get("interactive"):
                 return method(*args, **kwargs)
-            fig, ax = plt.subplots(1, 1, figsize=kwargs.pop("figsize", figsize))
+
+            # Create a figure and axes. Add tight_layout to always correctly show colorbar ticks.
+            fig, ax = plt.subplots(1, 1, figsize=kwargs.pop("figsize", figsize), tight_layout=True)
             save_to = kwargs.pop("save_to", None)
             output = method(*args, ax=ax, **kwargs)
             if save_to is not None:
                 save_kwargs = as_dict(save_to, key="fname")
                 save_figure(fig, **save_kwargs)
-            plt.show()
             return output
         return _update_method_params(plot, "plotter", figsize=figsize, args_to_unpack=args_to_unpack)
     return decorator
@@ -82,7 +85,7 @@ def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src
     dst : str or list of str, optional
         Names of components to store the results. Must match the length of `src`. If not given, the processing is
         performed inplace. If a component with a name specified in `dst` does not exist, it will be created using
-        :func:`~batch.SeismicBatch._init_component` method.
+        :func:`~batch.SeismicBatch.init_component` method.
 
     Parameters
     ----------
@@ -156,7 +159,7 @@ def _apply_to_each_component(method, target, fetch_method_target):
             if len(self) == 1:
                 src_method_target = "for"
 
-            parallel_method = inbatch_parallel(init="_init_component", target=src_method_target)(method)
+            parallel_method = inbatch_parallel(init="init_component", target=src_method_target)(method)
             parallel_method(self, *args, src=src, dst=dst, **kwargs)
         return self
     return decorated_method
@@ -167,7 +170,7 @@ def apply_to_each_component(*args, target="for", fetch_method_target=True):
     in the corresponding components of `dst`.
 
     If a component with a name specified in `dst` does not exist, it will be created using
-    :func:`~batch.SeismicBatch._init_component` method.
+    :func:`~batch.SeismicBatch.init_component` method.
 
     Parameters
     ----------
@@ -175,7 +178,7 @@ def apply_to_each_component(*args, target="for", fetch_method_target=True):
         Default `inbatch_parallel` target to use when processing component elements with the method if it was not
         decorated by `batch_method` or `target` was not passed in `kwargs` during method call.
     fetch_method_target : bool, optional, defaults to True
-        Whether to try to fetch `target` from method attributes if it was decorated by `batch_method`.
+        Whether to try to fetch `target` from method attributes if it was decorated with `batch_method`.
 
     Returns
     -------
@@ -204,7 +207,7 @@ def create_batch_methods(*component_classes):
     dst : str or list of str, optional
         Names of components to store the results. Must match the length of `src`. If not given, the processing is
         performed inplace. If a component with a name specified in `dst` does not exist, it will be created using
-        :func:`~batch.SeismicBatch._init_component` method.
+        :func:`~batch.SeismicBatch.init_component` method.
 
     Parameters
     ----------
@@ -234,9 +237,8 @@ def create_batch_methods(*component_classes):
 
         # TODO: dynamically generate docstring
         def create_method(method_name):
-            def method(self, index, *args, src=None, dst=None, **kwargs):
-                # Get an object corresponding to the given index from src component and copy it if needed
-                pos = self.index.get_pos(index)
+            def method(self, pos, *args, src=None, dst=None, **kwargs):
+                # Get an object corresponding to the given pos from src component and copy it if needed
                 obj = getattr(self, src)[pos]
                 obj_method_params = getattr(obj, method_name).method_params["batch_method"]
                 if obj_method_params["copy_src"] and src != dst:

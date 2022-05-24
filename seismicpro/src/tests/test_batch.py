@@ -12,7 +12,7 @@ from seismicpro.batchflow import Pipeline, L
 def dataset(segy_path):
     """dataset"""
     survey = Survey(segy_path, header_index='FieldRecord', name='raw')
-    return SeismicDataset(surveys=survey)
+    return SeismicDataset(survey)
 
 def test_batch_load(dataset):
     """test_batch_load"""
@@ -22,7 +22,7 @@ def test_batch_load(dataset):
 def test_batch_load_combined(segy_path):
     """test_batch_load_combined"""
     survey = Survey(segy_path, header_index='TRACE_SEQUENCE_FILE', name='raw')
-    dataset = SeismicDataset(surveys=survey)
+    dataset = SeismicDataset(survey)
     batch = dataset.next_batch(200)
     batch = batch.load(src='raw', combined=True)
     assert len(batch.raw) == 1

@@ -2,16 +2,19 @@
 
 from string import Formatter
 from functools import partial
+from collections import defaultdict
 
 import numpy as np
 import matplotlib.pyplot as plt
 
-from .gather import Gather
+from .index import SeismicIndex
+from .gather import Gather, CroppedGather
+from .gather.utils.crop_utils import make_origins
 from .coherency import Coherency, ResidualCoherency
-from .cropped_gather import CroppedGather
+from .metrics import define_pipeline_metric, PartialMetric, MetricsAccumulator
 from .decorators import create_batch_methods, apply_to_each_component
-from .utils import to_list, as_dict, save_figure, make_origins
-from ..batchflow import action, inbatch_parallel, Batch, DatasetIndex, NamedExpression
+from .utils import to_list, as_dict, save_figure
+from ..batchflow import action, inbatch_parallel, save_data_to, Batch, DatasetIndex, NamedExpression
 
 
 @create_batch_methods(Gather, CroppedGather, Coherency, ResidualCoherency)
@@ -32,7 +35,7 @@ class SeismicBatch(Batch):
     --------
     Usually a batch is created from a `SeismicDataset` instance by calling :func:`~SeismicDataset.next_batch` method:
     >>> survey = Survey(path, header_index="FieldRecord", header_cols=["TraceNumber", "offset"], name="survey")
-    >>> dataset = SeismicDataset(surveys=survey)
+    >>> dataset = SeismicDataset(survey)
     >>> batch = dataset.next_batch(10)
 
     Here a batch of 10 gathers was created and can now be processed using the methods defined in
@@ -58,51 +61,53 @@ class SeismicBatch(Batch):
     ----------
     index : DatasetIndex
         Unique identifiers of seismic gathers in the batch. Usually has :class:`~index.SeismicIndex` type.
-    components : tuple
+    components : tuple of str or None
         Names of the created components. Each of them can be accessed as a usual attribute.
     """
-    @property
-    def nested_indices(self):
-        """list: indices of the batch each additionally wrapped into a list. If used as an `init` function in
-        `inbatch_parallel` decorator, each index will be passed to its parallelly executed callable as a tuple, not
-        individual level values."""
-        if isinstance(self.indices, np.ndarray):
-            return self.indices.tolist()
-        return [[index] for index in self.indices]
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._num_calculated_metrics = 0
 
-    def _init_component(self, *args, dst=None, **kwargs):
-        """Create and preallocate new attributes with names listed in `dst` if they don't exist and return
-        `self.nested_indices`. This method is typically used as a default `init` function in `inbatch_parallel`
+    def init_component(self, *args, dst=None, **kwargs):
+        """Create and preallocate new attributes with names listed in `dst` if they don't exist and return ordinal
+        numbers of batch items. This method is typically used as a default `init` function in `inbatch_parallel`
         decorator."""
         _ = args, kwargs
         dst = [] if dst is None else to_list(dst)
         for comp in dst:
             if self.components is None or comp not in self.components:
                 self.add_components(comp, init=self.array_of_nones)
-        return self.nested_indices
+        return np.arange(len(self))
+
+    @property
+    def flat_indices(self):
+        """np.ndarray: Unique identifiers of seismic gathers in the batch flattened into a 1d array."""
+        if isinstance(self.index, SeismicIndex):
+            return np.concatenate(self.indices)
+        return self.indices
 
     @action
-    def load(self, src=None, fmt="sgy", components=None, combined=False, **kwargs):
+    def load(self, src=None, dst=None, fmt="sgy", combined=False, **kwargs):
         """Load seismic gathers into batch components.
 
         Parameters
         ----------
         src : str or list of str, optional
             Survey names to load gathers from.
+        dst : str or list of str, optional
+            Batch components to store the result in. Equals to `src` if not given.
         fmt : str, optional, defaults to "sgy"
             Data format to load gathers from.
-        components : str or list of str, optional
-            Batch components to store the result in. Equals to `src` if not given.
         combined : bool, optional, defaults to False
-            If `False`, load gathers by corresponding index value. If `True`, group all batch traces from a particular
-            survey into a single gather increasing loading speed by reducing the number of `.loc`s performed.
+            If `False`, load gathers by corresponding index value. If `True`, group all traces from a particular survey
+            into a single gather. Increases loading speed by reducing the number of `DataFrame` indexations performed.
         kwargs : misc, optional
             Additional keyword arguments to :func:`~Survey.load_gather`.
 
         Returns
         -------
         batch : SeismicBatch
-            A batch with loaded gathers. Creates or updates `src` components inplace.
+            A batch with loaded gathers. Creates or updates `dst` components inplace.
 
         Raises
         ------
@@ -111,34 +116,25 @@ class SeismicBatch(Batch):
         """
         if isinstance(fmt, str) and fmt.lower() in {"sgy", "segy"}:
             if not combined:
-                return self._load_gather(src=src, dst=components, **kwargs)
-            unique_files = self.indices.unique(level=0)
-            combined_batch = type(self)(DatasetIndex(unique_files), dataset=self.dataset, pipeline=self.pipeline)
-            # pylint: disable=protected-access
-            return combined_batch._load_combined_gather(src=src, dst=components, parent_index=self.index, **kwargs)
-            # pylint: enable=protected-access
-        return super().load(src=src, fmt=fmt, components=components, **kwargs)
+                return self.load_gather(src=src, dst=dst, **kwargs)
+            non_empty_parts = [i for i, n_gathers in enumerate(self.index.n_gathers_by_part) if n_gathers]
+            combined_batch = type(self)(DatasetIndex(non_empty_parts), dataset=self.dataset, pipeline=self.pipeline)
+            return combined_batch.load_combined_gather(src=src, dst=dst, parent_index=self.index, **kwargs)
+        return super().load(src=src, fmt=fmt, dst=dst, **kwargs)
 
     @apply_to_each_component(target="for", fetch_method_target=False)
-    def _load_gather(self, index, src, dst, **kwargs):
-        """Load a gather with given `index` from a survey called `src`."""
-        pos = self.index.get_pos(index)
-        concat_id, gather_index = index[0], index[1:]
-        # Unpack tuple in case of non-multiindex survey
-        if len(gather_index) == 1:
-            gather_index = gather_index[0]
-        # Guarantee, that a DataFrame is always returned after .loc, regardless of pandas behaviour
-        gather_index = slice(gather_index, gather_index)
-        getattr(self, dst)[pos] = self.index.get_gather(survey_name=src, concat_id=concat_id,
-                                                        gather_index=gather_index, **kwargs)
+    def load_gather(self, pos, src, dst, **kwargs):
+        """Load a gather with ordinal number `pos` in the batch from a survey `src`."""
+        index, part = self.index.index_by_pos(pos)
+        getattr(self, dst)[pos] = self.index.get_gather(index, part=part, survey_name=src, **kwargs)
 
     @apply_to_each_component(target="for", fetch_method_target=False)
-    def _load_combined_gather(self, index, src, dst, parent_index, **kwargs):
-        """Load all batch traces from a survey called `src` with `CONCAT_ID` equal to `index` into a single gather."""
-        pos = self.index.get_pos(index)
-        gather_index = parent_index.indices.to_frame().loc[index].index
-        getattr(self, dst)[pos] = parent_index.get_gather(survey_name=src, concat_id=index,
-                                                          gather_index=gather_index, **kwargs)
+    def load_combined_gather(self, pos, src, dst, parent_index, **kwargs):
+        """Load all batch traces from a given part and survey into a single gather."""
+        part = parent_index.parts[self.indices[pos]]
+        survey = part.surveys_dict[src]
+        headers = part.headers.get(src, part.headers[[]])  # Handle the case when no headers were loaded for a survey
+        getattr(self, dst)[pos] = survey.load_gather(headers, **kwargs)
 
     @action
     def update_velocity_cube(self, velocity_cube, src):
@@ -235,7 +231,7 @@ class SeismicBatch(Batch):
 
     @action(no_eval='dst')
     def split_model_outputs(self, src, dst, shapes):
-        """Split data into multiple sub-arrays whose shapes along zero axis if defined by `shapes`.
+        """Split data into multiple sub-arrays whose shapes along zero axis are defined by `shapes`.
 
         Usually gather data for each batch element is stacked or concatenated along zero axis using
         :func:`SeismicBatch.make_model_inputs` before being passed to a model. This method performs a reverse operation
@@ -263,8 +259,8 @@ class SeismicBatch(Batch):
         >>> batch.predictions.shape
         (3, 1, 1500)
 
-        Predictions are split into 3 subarrays with a signle trace in each of them to match the number of traces in the
-        correponding gathers:
+        Predictions are split into 3 subarrays with a single trace in each of them to match the number of traces in the
+        corresponding gathers:
         >>> len(batch.outputs)
         3
         >>> batch.outputs[0].shape
@@ -307,8 +303,8 @@ class SeismicBatch(Batch):
         return self
 
     @action
-    @inbatch_parallel(init='_init_component', target='for')
-    def crop(self, idx, src, origins, crop_shape, dst=None, joint=True, n_crops=1, stride=None, **kwargs):
+    @inbatch_parallel(init='init_component', target='for')
+    def crop(self, pos, src, origins, crop_shape, dst=None, joint=True, n_crops=1, stride=None, **kwargs):
         """Crop batch components.
 
         Parameters
@@ -361,8 +357,6 @@ class SeismicBatch(Batch):
         if len(src_list) != len(dst_list):
             raise ValueError("src and dst should have the same length.")
 
-        pos = self.index.get_pos(idx)
-
         if joint:
             src_shapes = set()
             src_types = set()
@@ -384,6 +378,110 @@ class SeismicBatch(Batch):
             src_cropped = src_obj.crop(origins, crop_shape, n_crops, stride, **kwargs)
             setattr(self[pos], dst, src_cropped)
 
+        return self
+
+    @action(no_eval="save_to")
+    def calculate_metric(self, metric, *args, metric_name=None, coords_component=None, coords_cols="auto",
+                         save_to=None, **kwargs):
+        """Calculate a metric for each batch element and store the results into an accumulator.
+
+        The passed metric must be either a subclass of `PipelineMetric` or a `callable`. In the latter case, a new
+        subclass of `PipelineMetric` is created with its `calc` method defined by the `callable`. The metric class is
+        provided with information about the pipeline it was calculated in which allows restoring metric calculation
+        context during interactive metric map plotting.
+
+        Examples
+        --------
+        1. Calculate a metric, that estimates signal leakage after seismic processing by CDP gathers:
+
+        Create a dataset with surveys before and after processing being merged:
+        >>> header_index = ["INLINE_3D", "CROSSLINE_3D"]
+        >>> header_cols = "offset"
+        >>> survey_before = Survey(path_before, header_index=header_index, header_cols=header_cols, name="before")
+        >>> survey_after = Survey(path_after, header_index=header_index, header_cols=header_cols, name="after")
+        >>> dataset = SeismicDataset(survey_before, survey_after, mode="m")
+
+        Iterate over the dataset and calculate the metric:
+        >>> pipeline = (dataset
+        ...     .pipeline()
+        ...     .load(src=["before", "after"])
+        ...     .calculate_metric(SignalLeakage, "before", "after", velocities=np.linspace(1500, 5500, 100),
+        ...                       save_to=V("accumulator", mode="a"))
+        ... )
+        >>> pipeline.run(batch_size=16, n_epochs=1)
+
+        Extract the created metric accumulator, construct the map and plot it:
+        >>> leakage_map = pipeline.v("accumulator").construct_map()
+        >>> leakage_map.plot(interactive=True)  # works only in JupyterLab with `%matplotlib widget` magic executed
+
+        2. Calculate standard deviation of gather amplitudes using a lambda-function:
+        >>> pipeline = (dataset
+        ...     .pipeline()
+        ...     .load(src="before")
+        ...     .calculate_metric(lambda gather: gather.data.std(), "before", metric_name="std",
+        ...                       save_to=V("accumulator", mode="a"))
+        ... )
+        >>> pipeline.run(batch_size=16, n_epochs=1)
+        >>> std_map = pipeline.v("accumulator").construct_map()
+        >>> std_map.plot(interactive=True, plot_component="before")
+
+        Parameters
+        ----------
+        metric : subclass of PipelineMetric or callable
+            The metric to calculate.
+        metric_name : str or None, optional
+            A name of the calculated metric. Obligatory if `metric` is `lambda` or `name` attribute is not overridden
+            in the metric class.
+        coords_component : str, optional
+            A component name to extract coordinates from. If not given, the first argument passed to the metric
+            calculation function is used.
+        coords_cols : "auto" or 2 element array-like, optional, defaults to "auto"
+            Headers columns of `coords_component` objects to get coordinates from. If "auto", tries inferring them
+            automatically by the type of headers index.
+        save_to : NamedExpression
+            A named expression to save the constructed `MetricsAccumulator` instance to.
+        args : misc, optional
+            Additional positional arguments to the metric calculation function.
+        kwargs : misc, optional
+            Additional keyword arguments to the metric calculation function.
+
+        Returns
+        -------
+        self : SeismicBatch
+            The batch with increased `_num_calculated_metrics` counter.
+
+        Raises
+        ------
+        ValueError
+            If wrong type of `metric` is passed.
+            If `metric` is `lambda` and `metric_name` is not given.
+            If `metric` is a subclass of `PipelineMetric` and `metric.name` is `None`.
+        """
+        metric = define_pipeline_metric(metric, metric_name)
+        unpacked_args, first_arg = metric.unpack_calc_args(self, *args, **kwargs)
+
+        # Calculate metric values and their coordinates
+        coords_items = first_arg if coords_component is None else getattr(self, coords_component)
+        coords = [item.get_coords(coords_cols) for item in coords_items]
+        values = [metric.calc(*args, **kwargs) for args, kwargs in unpacked_args]
+
+        # Construct a mapping from coordinates to ordinal numbers of gathers in the dataset index.
+        # Later used by PipelineMetric to generate a batch by coordinates of a click on an interactive metric map.
+        part_offsets = np.cumsum([0] + self.dataset.n_gathers_by_part[:-1])
+        part_index_pos = [part.get_gathers_locs(indices) for part, indices in zip(self.dataset.parts, self.indices)]
+        dataset_index_pos = np.concatenate([pos + offset for pos, offset in zip(part_index_pos, part_offsets)])
+        coords_to_pos = defaultdict(list)
+        for coord, pos in zip(coords, dataset_index_pos):
+            coords_to_pos[tuple(coord)].append(pos)
+
+        # Construct a metric and its accumulator
+        metric = PartialMetric(metric, pipeline=self.pipeline, calculate_metric_index=self._num_calculated_metrics,
+                               coords_to_pos=coords_to_pos)
+        accumulator = MetricsAccumulator(coords, **{metric.name: {"values": values, "metric_type": metric}})
+
+        if save_to is not None:
+            save_data_to(data=accumulator, dst=save_to, batch=self)
+        self._num_calculated_metrics += 1
         return self
 
     @action
@@ -447,7 +545,7 @@ class SeismicBatch(Batch):
             If the length of `src_kwargs` when passed as a list does not match the length of `src`.
             If any of the components' `plot` method is not decorated with `plotter` decorator.
         """
-        # Consturct a list of plot kwargs for each component in src
+        # Construct a list of plot kwargs for each component in src
         src_list = to_list(src)
         if src_kwargs is None:
             src_kwargs = [{} for _ in range(len(src_list))]
@@ -477,7 +575,7 @@ class SeismicBatch(Batch):
             title_template = kwargs.pop("title")
             args_to_unpack = set(to_list(plotter_params["args_to_unpack"]))
 
-            for i, index in enumerate(self.indices):
+            for i, index in enumerate(self.flat_indices):
                 # Unpack required plotter arguments by getting the value of specified component with given index
                 unpacked_args = {}
                 for arg_name in args_to_unpack & kwargs.keys():
@@ -518,9 +616,9 @@ class SeismicBatch(Batch):
 
         # Define axes layout and perform plotting
         fig_width = max(sum(plotter["width"] for plotter in plotters_row) for plotters_row in plotters)
-        row_heigths = [max(plotter["height"] for plotter in plotters_row) for plotters_row in plotters]
-        fig = plt.figure(figsize=(fig_width, sum(row_heigths)), constrained_layout=True)
-        gridspecs = fig.add_gridspec(len(plotters), 1, height_ratios=row_heigths)
+        row_heights = [max(plotter["height"] for plotter in plotters_row) for plotters_row in plotters]
+        fig = plt.figure(figsize=(fig_width, sum(row_heights)), tight_layout=True)
+        gridspecs = fig.add_gridspec(len(plotters), 1, height_ratios=row_heights)
 
         for gridspecs_row, plotters_row in zip(gridspecs, plotters):
             n_cols = len(plotters_row)
@@ -539,5 +637,4 @@ class SeismicBatch(Batch):
         if save_to is not None:
             save_kwargs = as_dict(save_to, key="fname")
             save_figure(fig, **save_kwargs)
-        plt.show()
         return self
