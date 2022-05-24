@@ -189,7 +189,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         else:
             dtype = np.dtype([("headers", np.uint8, 240), ("trace", np.uint8, (self.n_samples, 4))])
             self.traces_mmap = np.memmap(filename=self.path, mode="r", shape=self.n_traces, dtype=dtype,
-                                         offset=file_metrics["trace0"])
+                                         offset=file_metrics["trace0"])["trace"]
 
         # Define all stats-related attributes
         self.has_stats = False
@@ -493,7 +493,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     def load_traces_mmap(self, traces_pos, limits=None):
         limits = self.limits if limits is None else self._process_limits(limits)
-        return ibm_to_ieee(self.traces_mmap["trace"][traces_pos, limits], endian=self.endian)
+        traces = ibm_to_ieee(self.traces_mmap[traces_pos, limits.start:limits.stop], endian=self.endian)
+        return traces[:, ::limits.step]  # Applying step to the result is way faster than to the mmap
 
     def load_traces(self, traces_pos, limits=None):
         loader = self.load_traces_segyio if self.use_segyio_trace_loader else self.load_traces_mmap
