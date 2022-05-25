@@ -9,6 +9,9 @@ from . import assert_survey_loaded, assert_surveys_equal, assert_survey_limits_s
 from ..conftest import FILE_NAME, N_SAMPLES
 
 
+ALL_HEADERS = set(segyio.tracefield.keys.keys()) - {"UnassignedInt1", "UnassignedInt2"}
+
+
 HEADER_INDEX = [
     # Single header index passed as a string, list or tuple:
     ["TRACE_SEQUENCE_FILE", {"TRACE_SEQUENCE_FILE"}],
@@ -26,7 +29,7 @@ HEADER_COLS = [
     [None, set()],
 
     # Load all SEG-Y headers
-    ["all", set(segyio.tracefield.keys.keys())],
+    ["all", ALL_HEADERS],
 
     # Load a single extra header passed as a string, list or tuple:
     ["offset", {"offset"}],
@@ -67,11 +70,12 @@ class TestInit:
     """Test `Survey` instantiation."""
 
     @pytest.mark.parametrize("chunk_size, n_workers, bar", WORKERS)
-    def test_headers_loading(self, segy_path, chunk_size, n_workers, bar):
+    @pytest.mark.parametrize("use_segyio_trace_loader", [True, False])
+    def test_headers_loading(self, segy_path, chunk_size, n_workers, bar, use_segyio_trace_loader):
         """Test sequential and parallel loading of survey trace headers."""
-        survey = Survey(segy_path, header_index="FieldRecord", header_cols="all", name="raw",
-                        chunk_size=chunk_size, n_workers=n_workers, bar=bar)
-        assert_survey_loaded(survey, segy_path, "raw", {"FieldRecord"}, set(segyio.tracefield.keys.keys()))
+        survey = Survey(segy_path, header_index="FieldRecord", header_cols="all", name="raw", chunk_size=chunk_size,
+                        n_workers=n_workers, bar=bar, use_segyio_trace_loader=use_segyio_trace_loader)
+        assert_survey_loaded(survey, segy_path, "raw", {"FieldRecord"}, ALL_HEADERS)
 
     @pytest.mark.parametrize("header_index, expected_index", HEADER_INDEX)
     @pytest.mark.parametrize("header_cols, expected_cols", HEADER_COLS)
