@@ -267,12 +267,12 @@ def test_gather_stacking_velocity(gather):
     stacking_velocity = StackingVelocity.from_points(times=[0, 3000], velocities=[1600, 3500])
     gather.apply_nmo(stacking_velocity=stacking_velocity)
 
-def test_gather_get_central_cdp(segy_path):
-    """test_gather_get_central_cdp"""
+def test_gather_get_central_gather(segy_path):
+    """test_gather_get_central_gather"""
     survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'], header_cols=['offset', 'FieldRecord'])
     survey = survey.generate_supergathers()
     gather = survey.get_gather((0, 0))
-    gather.get_central_cdp()
+    gather.get_central_gather()
 
 def test_gather_stack(gather):
     """test_gather_stack"""
