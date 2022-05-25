@@ -46,25 +46,34 @@ class TracewiseMetric(PipelineMetric):
         return res
 
     @classmethod
-    def aggr(cls, gather, tracewise=False):
+    def aggr(cls, gather, from_headers=False, tracewise=False):
+
+        twm_hdr = '_'.join(['twm', cls.__name__, gather.survey.name])
+
+        if from_headers and twm_hdr in gather.headers:
+            return gather.headers[twm_hdr].values
 
         res = cls.filter_res(gather)
 
         fn = np.nanmax if cls.is_lower_better else np.nanmin
+
+        tw_res = res if res.ndim == 1 else fn(res, axis=1)
+        gather.headers[twm_hdr] = tw_res
+
         if tracewise:
-            return res if res.ndim == 1 else fn(res, axis=1)
-        return fn(res)
+            return tw_res
+        return fn(tw_res)
 
     @classmethod
-    def calc(cls, gather):
-        return cls.aggr(gather, tracewise=False)
+    def calc(cls, gather, from_headers=False):
+        return cls.aggr(gather, from_headers, tracewise=False)
 
     @pass_calc_args
-    def plot_res(cls, gather, ax, **kwargs):
+    def plot_res(cls, gather, ax, from_headers=False, **kwargs):
         gather.plot(ax=ax, **kwargs)
         divider = make_axes_locatable(ax)
 
-        res = cls.aggr(gather, tracewise=True)
+        res = cls.aggr(gather, from_headers, tracewise=True)
 
         top_ax = divider.append_axes("top", sharex=ax, size="12%", pad=0.05)
         top_ax.plot(res, '.--')
@@ -75,21 +84,21 @@ class TracewiseMetric(PipelineMetric):
         set_title(top_ax, gather)
 
     @pass_calc_args
-    def plot_wiggle(cls, gather, ax, **kwargs):
+    def plot_wiggle(cls, gather, ax, from_headers=False, **kwargs):
         fn = np.greater_equal if cls.is_lower_better else np.less_equal
         res = fn(cls.filter_res(gather), cls.threshold)
         wiggle_plot_with_filter(gather.data, res, ax, std=0.5)
         set_title(ax, gather)
 
     @pass_calc_args
-    def plot_image_filter(cls, gather, ax, **kwargs):
+    def plot_image_filter(cls, gather, ax, from_headers=False, **kwargs):
         fn = np.greater_equal if cls.is_lower_better else np.less_equal
         res = fn(cls.filter_res(gather), cls.threshold)
         image_filter(gather.data, res, ax)
         set_title(ax, gather)
 
     @pass_calc_args
-    def plot_worst_trace(cls, gather, ax, **kwargs):
+    def plot_worst_trace(cls, gather, ax, from_headers=False, **kwargs):
         res = cls.filter_res(gather)
         plot_worst_trace(ax, gather.data, gather.headers.TraceNumber.values, res, is_lower_better=cls.is_lower_better)
         set_title(ax, gather)
@@ -292,7 +301,8 @@ def add_metric(ppl, metric_cls, src='raw', **kwargs):
     ppl =  ppl.init_variable(acc_name).calculate_metric(metric_cls, gather=src, save_to=V(acc_name, mode="a"), **kwargs)
 
     acc_name =  '_'.join(['twm', metric_cls.__name__, src])
+    ppl = ppl.init_variable(acc_name, []).call(lambda gathers: [metric_cls.aggr(gather, tracewise=True, from_headers=True) for gather in gathers], B(src), save_to=V(acc_name, mode="e"))
 
-    return ppl.init_variable(acc_name, []).call(lambda gathers: [metric_cls.aggr(gather, tracewise=True) for gather in gathers], B(src), save_to=V(acc_name, mode="e"))
+    return ppl
 
 
