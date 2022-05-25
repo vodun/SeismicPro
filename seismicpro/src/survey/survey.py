@@ -206,7 +206,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.trace_dtype = self.segy_handler.dtype
         self.use_segyio_trace_loader = use_segyio_trace_loader or self.segy_format not in format_to_mmap_dtype
         if not self.use_segyio_trace_loader:
-            trace_shape = self.n_samples if self.segy_format != 1 else (self.n_samples, 4)
+            trace_shape = self.n_file_samples if self.segy_format != 1 else (self.n_file_samples, 4)
             mmap_trace_dtype = np.dtype([("headers", np.uint8, 240),
                                          ("trace", format_to_mmap_dtype[self.segy_format], trace_shape)])
             self.traces_mmap = np.memmap(filename=self.path, mode="r", shape=self.n_traces, dtype=mmap_trace_dtype,
@@ -308,7 +308,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return trace.min(), trace.max(), trace.mean(), trace.var()
 
     def collect_stats(self, indices=None, n_quantile_traces=100000, quantile_precision=2, limits=None,
-                      chunk_size=25000, bar=True):
+                      chunk_size=100000, bar=True):
         """Collect the following statistics by iterating over survey traces:
         1. Min and max amplitude,
         2. Mean amplitude and trace standard deviation,
@@ -335,7 +335,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         limits : int or tuple or slice, optional
             Time limits to be used for statistics calculation. `int` or `tuple` are used as arguments to init a `slice`
             object. If not given, `limits` passed to `__init__` are used. Measured in samples.
-        chunk_size : int, optional, defaults to 25000
+        chunk_size : int, optional, defaults to 100000
             The number of traces to process at once.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
@@ -406,13 +406,13 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         if n_quantile_traces == 0:
             q = [0, 1]
-            quantiles = [global_min, global_max]
+            quantiles = [self.min, self.max]
         else:
             # Calculate all q-quantiles from 0 to 1 with step 1 / 10**quantile_precision
             q = np.round(np.linspace(0, 1, num=10**quantile_precision), decimals=quantile_precision)
             quantiles = np.nanquantile(np.concatenate(quantile_traces_buffer), q=q)
             # 0 and 1 quantiles are replaced with actual min and max values respectively
-            quantiles[0], quantiles[-1] = global_min, global_max
+            quantiles[0], quantiles[-1] = self.min, self.max
         self.quantile_interpolator = interp1d(q, quantiles)
 
         self.has_stats = True
