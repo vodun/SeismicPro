@@ -309,7 +309,7 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
         ----------
         display_box : bool, optional, defaults to True
             Whether to display the plot in a JupyterLab frontend. Generally should be set to `False` if a parent object
-            creates several `InteractivePlot` instances and controlls their plotting.
+            creates several `InteractivePlot` instances and controls their plotting.
         """
         self.redraw(clear=False)
         if self.is_clickable and self.init_click_coords is not None:

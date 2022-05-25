@@ -131,6 +131,7 @@ class BaseMetricMap:
 
         (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
         map_obj = self._plot_map(ax, is_lower_better=is_lower_better, cmap=cmap, norm=norm, **kwargs)
+
         ax.set_title(**{"label": self.plot_title, **title})
         ax.ticklabel_format(style="plain", useOffset=False)
         if keep_aspect:
@@ -241,10 +242,20 @@ class ScatterMap(BaseMetricMap):
             sort_key = lambda col: (col - global_mean).abs()
         # Guarantee that extreme values are always displayed on top of the others
         map_data = self.map_data.sort_values(ascending=is_lower_better, key=sort_key)
+
         coords_x, coords_y = map_data.index.to_frame().values.T
         ax.set_xlim(*calculate_axis_limits(coords_x))
         ax.set_ylim(*calculate_axis_limits(coords_y))
-        return ax.scatter(coords_x, coords_y, c=map_data, **kwargs)
+        ax.scatter(coords_x, coords_y, c=map_data, **kwargs)
+        metric_data = self.metric_data.copy()
+        metric_data.set_index(["SourceX", "SourceY"], inplace=True)
+        metric_data[["arrow_x", "arrow_y"]] = np.array([list(items.values()) for items in metric_data[self.metric_name]]).reshape(-1, 2)
+        metric_data.drop(self.metric_name, axis=1, inplace=True)
+
+        metric_data = map_data.to_frame().join(metric_data, how="inner")
+
+        return ax.quiver(coords_x, coords_y, metric_data["arrow_x"], metric_data["arrow_y"],
+                         scale=150/map_data.values, scale_units='inches', alpha=.8)
 
 
 class BinarizedMap(BaseMetricMap):

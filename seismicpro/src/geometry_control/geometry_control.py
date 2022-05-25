@@ -3,6 +3,7 @@ from functools import partial
 import numpy as np
 from scipy import optimize
 from scipy.stats import norm
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from ..decorators import plotter
 from ..utils.plot_utils import add_colorbar
@@ -31,7 +32,7 @@ class GeometryControl:
         self.weathering_velocity = gather.calculate_weathering_velocity(n_layers=n_layers)
         self.gather = self.calculate_lmo_difference(self.gather, wv=self.weathering_velocity)
         self.cut_gather = self.slice_gather(self.gather)
-        self.calculate_direction_by_grid_search(self.cut_gather, grid_steps=grid_steps)
+        self.calculate_direction_by_grid_search(self.cut_gather, grid_steps=grid_steps, **kwargs)
         return self
 
     @classmethod
@@ -107,11 +108,11 @@ class GeometryControl:
         mu_2, std_2 = norm.fit(gather_2[col])
         return mu_2 - mu_1, max(std_1, std_2)
 
-    def calculate_direction_by_minimize(self, gather, loss_func, lmo_diff_col="lmo_diff", **kwargs): # algo
+    def calculate_direction_by_minimize(self, gather, loss_func, lmo_diff_col="lmo_diff", **kwargs):
         """Calculate direction of expected true source point by `scipy.minimize`."""
         self.data = np.array([*self.calculate_group_vectors(gather), gather[lmo_diff_col].ravel()]).T
-        coord_norm = np.max(np.abs(self.data[:, :2]))
-        times_norm = np.max(np.abs(self.data[:, 2]))
+        # coord_norm = np.max(np.abs(self.data[:, :2]))
+        # times_norm = np.max(np.abs(self.data[:, 2]))
         self.norm_data = self.data #/ np.array([coord_norm, coord_norm, times_norm])  # normalization should be there
         self._model_params = optimize.minimize(loss_func, x0=[0, 0], method='Nelder-Mead', **kwargs)
         direction = self._model_params.x
@@ -123,6 +124,7 @@ class GeometryControl:
         self.difference = self.get_difference()
 
     def get_difference(self):
+        """Return difference between the picking times after LMO in two gather parts separated by a transverse line."""
         vectors = np.array(self.calculate_group_vectors(self.cut_gather)).T
         signs = np.sign(np.cross(vectors, self.transverse))
         if sum(signs == 1) >= 1 and sum(signs == -1) >= 1:
@@ -132,7 +134,11 @@ class GeometryControl:
             return np.abs(diff)
         return np.nan
 
-    def loss_calculation(self, args, loss='L1'):  # func : z = a*x + b*y, args : [a, b]
+    def loss_calculation(self, args, loss='L1'):
+        """Calculate loss between plane and picking times after LMO in receiver points.
+
+        func : z = a*x + b*y, args : [a, b]
+        """
         expected = np.matmul(args, self.norm_data[:, :2].T)
         self._debug.append(expected)
         true = self.data[:, 2]
@@ -146,20 +152,22 @@ class GeometryControl:
         raise ValueError
 
     @plotter(figsize=(10, 5))
-    def plot(self, *, ax=None, title=None, x_ticker=None, y_ticker=None, res=None, c=None, **kwargs):
+    def plot(self, *, ax=None, title=None, x_ticker=None, y_ticker=None, c=None, colorbar=True, **kwargs):
         """Plot the receiver points, lmo shift, transverse line and quiver towards the increasing lmo shift."""
         (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
-        set_ticks(ax, "x", tick_labels=None, label="source_x", **x_ticker)
-        set_ticks(ax, "y", tick_labels=None, label="source_y", **y_ticker)
 
         if c is None:
             c = self.data[:, 2]
         source_x = np.array((self.gather['SourceX'][0][0], self.gather['SourceX'][0][0]))
         source_y = np.array((self.gather['SourceY'][0][0], self.gather['SourceY'][0][0]))
-        ax.scatter(self.data[:, 0] + source_x[0], self.data[:, 1] + source_y[0], c=c)
+        img = ax.scatter(self.data[:, 0] + source_x[0], self.data[:, 1] + source_y[0], cmap="turbo",
+                         c=c, vmin=-c.max(), vmax=c.max())
         ax.plot(np.array([-self.transverse[0], self.transverse[0]]) * self.gather.offsets.max() / 2 + source_x,
                 np.array([-self.transverse[1], self.transverse[1]]) * self.gather.offsets.max() / 2 + source_y)
         ax.quiver(source_x[0], source_y[0], self.direction[0], self.direction[1],
                   scale=30/self.difference, scale_units='inches')
-        # add_colorbar(ax, img, colorbar=True, y_ticker=None)
         ax.set_title(**{"label": None, **title})
+        divider = make_axes_locatable(ax)
+        add_colorbar(ax, img, colorbar, divider=divider, y_ticker=y_ticker)
+        set_ticks(ax, "x", tick_labels=None, label="source_x", **x_ticker)
+        set_ticks(ax, "y", tick_labels=None, label="source_y", **y_ticker)
