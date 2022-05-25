@@ -16,7 +16,7 @@ from scipy.interpolate import interp1d
 from .headers import load_headers
 from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
-from .utils import calculate_stats, create_supergather_index
+from .utils import create_supergather_index
 from ..gather import Gather
 from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
@@ -301,7 +301,14 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     #                     Statistics computation methods                     #
     #------------------------------------------------------------------------#
 
-    def collect_stats(self, indices=None, n_quantile_traces=100000, quantile_precision=2, limits=None, bar=True):
+    @staticmethod
+    @njit(nogil=True, parallel=True)
+    def calculate_trace_stats(trace):
+        """Calculate min, max, mean and var of trace amplitudes."""
+        return trace.min(), trace.max(), trace.mean(), trace.var()
+
+    def collect_stats(self, indices=None, n_quantile_traces=100000, quantile_precision=2, limits=None,
+                      chunk_size=25000, bar=True):
         """Collect the following statistics by iterating over survey traces:
         1. Min and max amplitude,
         2. Mean amplitude and trace standard deviation,
@@ -328,6 +335,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         limits : int or tuple or slice, optional
             Time limits to be used for statistics calculation. `int` or `tuple` are used as arguments to init a `slice`
             object. If not given, `limits` passed to `__init__` are used. Measured in samples.
+        chunk_size : int, optional, defaults to 25000
+            The number of traces to process at once.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
 
@@ -340,50 +349,60 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             warnings.warn("The survey was not checked for dead traces or they were not removed. "
                           "Run `remove_dead_traces` first.", RuntimeWarning)
 
+        limits = self.limits if limits is None else self._process_limits(limits)
         headers = self.headers
         if indices is not None:
             headers = self.get_headers_by_indices(indices)
         n_traces = len(headers)
-        traces_pos = get_cols(headers, "TRACE_SEQUENCE_FILE").ravel() - 1
-        np.random.shuffle(traces_pos)
-
-        limits = self.limits if limits is None else self._process_limits(limits)
-        n_samples = len(self.file_samples[limits])
 
         if n_quantile_traces < 0:
             raise ValueError("n_quantile_traces must be non-negative")
         # Clip n_quantile_traces if it's greater than the total number of traces
-        n_quantile_traces = min(n_quantile_traces, n_traces)
+        n_quantile_traces = min(n_traces, n_quantile_traces)
 
-        global_min, global_max = np.inf, -np.inf
-        global_sum, global_sq_sum = 0, 0
-        traces_length = 0
+        # Sort traces by TRACE_SEQUENCE_FILE: sequential access to trace amplitudes is much faster than random
+        traces_pos = np.sort(get_cols(headers, "TRACE_SEQUENCE_FILE").ravel() - 1)
+        quantile_traces_mask = np.zeros(n_traces, dtype=np.bool_)
+        quantile_traces_mask[np.random.choice(n_traces, size=n_quantile_traces, replace=False)] = True
 
-        traces_buf = np.empty((n_quantile_traces, n_samples), dtype=np.float32)
-        trace = np.empty(n_samples, dtype=np.float32)
+        # Split traces by chunks
+        n_chunks, last_chunk_size = divmod(n_traces, chunk_size)
+        chunk_sizes = [chunk_size] * n_chunks
+        if last_chunk_size:
+            n_chunks += 1
+            chunk_sizes += [last_chunk_size]
+        chunk_borders = np.cumsum(chunk_sizes[:-1])
+        chunk_traces_pos = np.split(traces_pos, chunk_borders)
+        chunk_quantile_traces_mask = np.split(quantile_traces_mask, chunk_borders)
 
-        quantile_traces_counter = 0
-        # Accumulate min, max, mean and std values of survey traces
-        for pos in tqdm(traces_pos, desc=f"Calculating statistics for survey {self.name}",
-                        total=n_traces, disable=not bar):
-            self.load_trace_segyio(buf=trace, index=pos, limits=limits, trace_length=n_samples)
-            trace_min, trace_max, trace_sum, trace_sq_sum = calculate_stats(trace)
+        # Define buffers. chunk_mean, chunk_var and chunk_weights have float64 dtype to be numerically stable
+        quantile_traces_buffer = []
+        global_min, global_max = np.float32("inf"), np.float32("-inf")
+        mean_buffer = np.empty(n_chunks, dtype=np.float64)
+        var_buffer = np.empty(n_chunks, dtype=np.float64)
+        chunk_weights = np.array(chunk_sizes, dtype=np.float64) / n_traces
 
-            global_min = min(trace_min, global_min)
-            global_max = max(trace_max, global_max)
-            global_sum += trace_sum
-            global_sq_sum += trace_sq_sum
-            traces_length += len(trace)
+        # Accumulate min, max, mean and var values of traces chunks
+        with tqdm(total=n_traces, desc=f"Processed traces in survey {self.name}", disable=not bar) as pbar:
+            for i, (chunk_pos, chunk_quantile_mask) in enumerate(zip(chunk_traces_pos, chunk_quantile_traces_mask)):
+                chunk_traces = self.load_traces(chunk_pos, limits=limits)
+                if chunk_quantile_mask.any():
+                    quantile_traces_buffer.append(chunk_traces[chunk_quantile_mask].ravel())
 
-            # Sample random traces to calculate approximate quantiles
-            if quantile_traces_counter < n_quantile_traces:
-                traces_buf[quantile_traces_counter] = trace
-                quantile_traces_counter += 1
+                chunk_min, chunk_max, chunk_mean, chunk_var = self.calculate_trace_stats(chunk_traces.ravel())
+                global_min = min(chunk_min, global_min)
+                global_max = max(chunk_max, global_max)
+                mean_buffer[i] = chunk_mean
+                var_buffer[i] = chunk_var
+                pbar.update(len(chunk_traces))
+
+        global_mean = np.average(mean_buffer, weights=chunk_weights)
+        global_var = np.average(var_buffer + (mean_buffer - global_mean)**2, weights=chunk_weights)
 
         self.min = np.float32(global_min)
         self.max = np.float32(global_max)
-        self.mean = np.float32(global_sum / traces_length)
-        self.std = np.float32(np.sqrt((global_sq_sum / traces_length) - (global_sum / traces_length)**2))
+        self.mean = np.float32(global_mean)
+        self.std = np.float32(np.sqrt(global_var))
 
         if n_quantile_traces == 0:
             q = [0, 1]
@@ -391,7 +410,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         else:
             # Calculate all q-quantiles from 0 to 1 with step 1 / 10**quantile_precision
             q = np.round(np.linspace(0, 1, num=10**quantile_precision), decimals=quantile_precision)
-            quantiles = np.nanquantile(traces_buf.ravel(), q=q)
+            quantiles = np.nanquantile(np.concatenate(quantile_traces_buffer), q=q)
             # 0 and 1 quantiles are replaced with actual min and max values respectively
             quantiles[0], quantiles[-1] = global_min, global_max
         self.quantile_interpolator = interp1d(q, quantiles)
@@ -427,7 +446,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         for tr_index, pos in tqdm(enumerate(traces_pos), desc=f"Detecting dead traces for survey {self.name}",
                                   total=len(self.headers), disable=not bar):
             self.load_trace_segyio(buf=trace, index=pos, limits=limits, trace_length=n_samples)
-            trace_min, trace_max, *_ = calculate_stats(trace)
+            trace_min, trace_max, *_ = self.calculate_trace_stats(trace)
 
             if math.isclose(trace_min, trace_max):
                 dead_indices.append(tr_index)

@@ -5,19 +5,6 @@ from numba import njit
 
 
 @njit(nogil=True)
-def calculate_stats(trace):
-    """Calculate min, max, sum and sum of squares of trace amplitudes."""
-    trace_min, trace_max = np.inf, -np.inf
-    trace_sum, trace_sq_sum = 0, 0
-    for sample in trace:
-        trace_min = min(sample, trace_min)
-        trace_max = max(sample, trace_max)
-        trace_sum += sample
-        trace_sq_sum += sample**2
-    return trace_min, trace_max, trace_sum, trace_sq_sum
-
-
-@njit(nogil=True)
 def create_supergather_index(centers, size):
     """Create a mapping from supergather centers to coordinates of gathers in them.
 
