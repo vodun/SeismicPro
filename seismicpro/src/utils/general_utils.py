@@ -9,7 +9,7 @@ import numpy as np
 def to_list(obj):
     """Cast an object to a list. Almost identical to `list(obj)` for 1-D objects, except for `str`, which won't be
     split into separate letters but transformed into a list of a single element."""
-    if isinstance(obj, (list, tuple, set)):
+    if isinstance(obj, (list, tuple, set, np.ndarray)):
         return list(obj)
     return [obj]
 
@@ -41,6 +41,11 @@ def align_args(reference_arg, *args):
             raise ValueError("Lengths of all passed arguments must match")
         processed_args.append(arg)
     return reference_arg, *processed_args
+
+
+def get_first_defined(*args):
+    """Return the first non-`None` argument. Return `None` if no `args` are passed or all of them are `None`s."""
+    return next((arg for arg in args if arg is not None), None)
 
 
 INDEX_TO_COORDS = {

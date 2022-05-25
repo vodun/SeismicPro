@@ -291,9 +291,20 @@ class SeismicIndex(DatasetIndex):
     parts : tuple of IndexPart
         Parts of the constructed index.
     """
-    def __init__(self, *args, mode=None, copy_headers=False, **kwargs):
+    def __init__(self, *args, mode=None, copy_headers=False, **kwargs):  # pylint: disable=super-init-not-called
         self.parts = tuple()
-        super().__init__(*args, mode=mode, copy_headers=copy_headers, **kwargs)
+        self.train = None
+        self.test = None
+        self.validation = None
+
+        if args:
+            index = self.build_index(*args, mode=mode, copy_headers=copy_headers, **kwargs)
+            self.__dict__ = index.__dict__
+        elif kwargs:
+            raise ValueError("No kwargs must be passed if an empty index is being created")
+
+        self._iter_params = None
+        self.reset("iter")
 
     @property
     def index(self):
@@ -354,7 +365,7 @@ class SeismicIndex(DatasetIndex):
         """The number of gathers in the index."""
         return self.n_gathers
 
-    def get_index_info(self, index_path="index", indent_size=0):
+    def get_index_info(self, index_path="index", indent_size=0, split_delimiter=""):
         """Recursively fetch index description string from the index itself and all the nested subindices."""
         if self.is_empty:
             return "Empty index"
@@ -378,16 +389,19 @@ class SeismicIndex(DatasetIndex):
 
         # Recursively fetch info about index splits
         for split_name, split in self.splits.items():
-            msg += "_" * 79 + "\n" + split.get_index_info(f"{index_path}.{split_name}", indent_size+4)
+            msg += split_delimiter + "\n" + split.get_index_info(f"{index_path}.{split_name}", indent_size+4,
+                                                                 split_delimiter=split_delimiter)
         return msg
 
     def __str__(self):
         """Print index metadata including information about its parts and underlying surveys."""
-        msg = self.get_index_info()
+        delimiter_placeholder = "{delimiter}"
+        msg = self.get_index_info(split_delimiter=delimiter_placeholder)
         for i, part in enumerate(self.parts):
             for sur in part.survey_names:
-                msg += "_" * 79 + "\n\n" + f"Part {i}, Survey {sur}\n\n" + str(part.surveys_dict[sur]) + "\n"
-        return msg.strip()
+                msg += delimiter_placeholder + f"\n\nPart {i}, Survey {sur}\n\n" + str(part.surveys_dict[sur]) + "\n"
+        delimiter = "_" * max(len(line) for line in msg.splitlines())
+        return msg.strip().format(delimiter=delimiter)
 
     def info(self):
         """Print index metadata including information about its parts and underlying surveys."""
@@ -397,35 +411,32 @@ class SeismicIndex(DatasetIndex):
     #                         Index creation methods                         #
     #------------------------------------------------------------------------#
 
-    def build_index(self, *args, mode=None, copy_headers=False, **kwargs):
+    @classmethod
+    def build_index(cls, *args, mode=None, copy_headers=False, **kwargs):
         """Build an index from `args` as described in :class:`~SeismicIndex` docs."""
         # Create an empty index if no args are given
         if not args:
-            return
+            return cls(**kwargs)
 
-        if mode is None:
-            if len(args) > 1:
-                raise ValueError("mode must be passed if several positional arguments are given")
-            mode = "c"
-
+        # Select an appropriate builder by passed mode
+        if mode is None and len(args) > 1:
+            raise ValueError("mode must be specified if multiple positional arguments are given")
         builders_dict = {
-            "m": self.merge,
-            "merge": self.merge,
-            "c": self.concat,
-            "concat": self.concat,
+            None: cls.from_index,
+            "m": cls.merge,
+            "merge": cls.merge,
+            "c": cls.concat,
+            "concat": cls.concat,
         }
         if mode not in builders_dict:
             raise ValueError(f"Unknown mode {mode}")
 
         # Convert all args to SeismicIndex and combine them into a single index
-        args_indices = self._args_to_indices(*args, copy_headers=False)
-        index = builders_dict[mode](*args_indices, copy_headers=copy_headers, **kwargs)
-
-        # Copy parts from the created index to self
-        self.parts = index.parts
+        indices = cls._args_to_indices(*args)
+        return builders_dict[mode](*indices, copy_headers=copy_headers, **kwargs)
 
     @classmethod
-    def _args_to_indices(cls, *args, copy_headers=False):
+    def _args_to_indices(cls, *args):
         """Independently convert each positional argument to a `SeismicIndex`."""
         indices = []
         for arg in args:
@@ -437,7 +448,7 @@ class SeismicIndex(DatasetIndex):
                 builder = cls.from_index
             else:
                 raise ValueError(f"Unsupported type {type(arg)} to convert to index")
-            indices.append(builder(arg, copy_headers=copy_headers))
+            indices.append(builder(arg, copy_headers=False))
         return indices
 
     @classmethod
@@ -542,8 +553,8 @@ class SeismicIndex(DatasetIndex):
         index : SeismicIndex
             Concatenated index.
         """
-        args_indices = cls._args_to_indices(*args, copy_headers=False)
-        parts = sum([arg.parts for arg in args_indices], tuple())
+        indices = cls._args_to_indices(*args)
+        parts = sum([ix.parts for ix in indices], tuple())
         return cls.from_parts(*parts, copy_headers=copy_headers)
 
     @classmethod
@@ -574,12 +585,12 @@ class SeismicIndex(DatasetIndex):
         index : SeismicIndex
             Merged index.
         """
-        args_indices = cls._args_to_indices(*args, copy_headers=False)
-        if len({arg.n_parts for arg in args_indices}) != 1:
+        indices = cls._args_to_indices(*args)
+        if len({ix.n_parts for ix in indices}) != 1:
             raise ValueError("All indices being merged must have the same number of parts")
-        args_parts = [arg.parts for arg in args_indices]
+        indices_parts = [ix.parts for ix in indices]
         merged_parts = [reduce(lambda x, y: x.merge(y, on, validate_unique, copy_headers), parts)
-                        for parts in zip(*args_parts)]
+                        for parts in zip(*indices_parts)]
 
         # Warn if the whole index or some of its parts are empty
         empty_parts = [i for i, part in enumerate(merged_parts) if not part]
@@ -593,11 +604,6 @@ class SeismicIndex(DatasetIndex):
     #------------------------------------------------------------------------#
     #                 DatasetIndex interface implementation                  #
     #------------------------------------------------------------------------#
-
-    def build_pos(self):
-        """Implement degenerate `get_pos` to decrease computational complexity since `SeismicIndex` provides its own
-        interface to get gathers from each of its parts."""
-        return None
 
     def index_by_pos(self, pos):
         """Return gather index and part by its position in the index.
@@ -747,17 +753,17 @@ class SeismicIndex(DatasetIndex):
             Loaded gather instance. List of gathers is returned if several survey names was passed.
         """
         if part is None and self.n_parts > 1:
-            raise ValueError("part must be specified if the index is concatenated")
+            raise ValueError("part must be specified if the index is constructed by concatenation")
         if part is None:
             part = 0
         index_part = self.parts[part]
 
         if survey_name is None and len(self.survey_names) > 1:
-            raise ValueError("survey_name must be specified if the index is merged")
+            raise ValueError("survey_name must be specified if the index is constructed by merging")
         if survey_name is None:
             survey_name = self.survey_names[0]
 
-        is_single_gather = isinstance(survey_name, str)
+        is_single_survey = isinstance(survey_name, str)
         survey_names = to_list(survey_name)
         surveys = [index_part.surveys_dict[name] for name in survey_names]
 
@@ -767,7 +773,7 @@ class SeismicIndex(DatasetIndex):
 
         gathers = [survey.load_gather(headers=headers, limits=limits, copy_headers=copy_headers)
                    for survey, headers in zip(surveys, gather_headers)]
-        if is_single_gather:
+        if is_single_survey:
             return gathers[0]
         return gathers
 

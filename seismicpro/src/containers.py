@@ -5,6 +5,7 @@ particular types of data:
 * `GatherContainer` - a subclass of `TraceContainer` that also implements fast selection of gather headers by index.
 """
 
+import warnings
 from copy import deepcopy
 
 import numpy as np
@@ -149,7 +150,7 @@ class TraceContainer:
 
     def _post_filter(self, mask):
         """Implement extra filtering logic of concrete subclass attributes if some of them should also be filtered
-        besides `headers.`"""
+        besides `headers`."""
         _ = mask
         return
 
@@ -205,6 +206,8 @@ class TraceContainer:
         mask = mask[:, 0]
         # Guarantee that a copy is set
         self.headers = self.headers.loc[mask].copy()  # pylint: disable=attribute-defined-outside-init
+        if len(self.headers) == 0:
+            warnings.warn("Empty headers after filtering", RuntimeWarning)
         self._post_filter(mask)
         return self
 
@@ -264,6 +267,10 @@ class GatherContainer(TraceContainer):
         """The number of gathers."""
         return self.n_gathers
 
+    def __contains__(self, index):
+        """Returns whether a gather with given `index` is presented in `headers`."""
+        return index in self.indices
+
     @property
     def headers(self):
         """pd.DataFrame: loaded trace headers."""
@@ -287,6 +294,36 @@ class GatherContainer(TraceContainer):
         """int: The number of gathers."""
         return len(self.indices)
 
+    def get_traces_locs(self, indices):
+        """Get positions of traces in `headers` by `indices` of their gathers.
+
+        Parameters
+        ----------
+        indices : array-like
+            Indices of gathers to get trace locations for.
+
+        Returns
+        -------
+        locations : array-like
+            Locations of traces of the requested gathers.
+        """
+        return self._indexer.get_locs_in_indices(indices)
+
+    def get_gathers_locs(self, indices):
+        """Get ordinal positions of gathers in the container by their `indices`.
+
+        Parameters
+        ----------
+        indices : array-like
+            Indices of gathers to get ordinal positions for.
+
+        Returns
+        -------
+        locations : np.ndarray
+            Locations of the requested gathers.
+        """
+        return self._indexer.get_locs_in_unique_indices(indices)
+
     def get_headers_by_indices(self, indices):
         """Return headers for gathers with given `indices`.
 
@@ -300,8 +337,7 @@ class GatherContainer(TraceContainer):
         headers : pd.DataFrame
             Selected headers values.
         """
-        headers_indices = self._indexer.get_loc(indices)
-        return self.headers.iloc[headers_indices]
+        return self.headers.iloc[self.get_traces_locs(indices)]
 
     def copy(self, ignore=None):
         """Perform a deepcopy of all attributes of `self` except for indexer and those specified in `ignore`, which are

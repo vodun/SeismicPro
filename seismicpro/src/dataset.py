@@ -75,8 +75,8 @@ class SeismicDataset(Dataset):
 
     Parameters
     ----------
-    args : tuple of Survey, IndexPart or SeismicIndex
-        A sequence of surveys, indices or parts to construct an index of the dataset.
+    args : tuple of Survey, IndexPart, SeismicIndex or SeismicDataset
+        A sequence of surveys, parts, indices or datasets to construct an index of the dataset.
     mode : {"c", "concat", "m", "merge", None}, optional, defaults to None
         A mode used to combine multiple `args` into a single index. If `None`, only one positional argument can be
         passed.
@@ -98,8 +98,12 @@ class SeismicDataset(Dataset):
     index_class = SeismicIndex
 
     def __init__(self, *args, mode=None, copy_headers=False, batch_class=SeismicBatch, **kwargs):
+        args = tuple(arg.index if isinstance(arg, SeismicDataset) else arg for arg in args)
         index = self.index_class(*args, mode=mode, copy_headers=copy_headers, **kwargs)
-        super().__init__(index, batch_class=batch_class)
+
+        # Correctly set index if it has already been split
+        super().__init__(None, batch_class=batch_class)
+        self.set_index(index)
 
     def __getattr__(self, name):
         """Redirect requests to undefined attributes and methods to the underlying index."""
@@ -144,12 +148,7 @@ class SeismicDataset(Dataset):
         dataset : SeismicDataset
             Created dataset.
         """
-        if copy_headers:
-            index = index.copy()
-        dataset = cls(index, copy_headers=False, batch_class=batch_class)
-        for split_name, split_index in dataset.splits.items():
-            setattr(dataset, split_name, cls(split_index, copy_headers=False, batch_class=batch_class))
-        return dataset
+        return cls(index, copy_headers=copy_headers, batch_class=batch_class)
 
     def set_index(self, index):
         """Set a new index for the dataset. Recursively update indices for all subsets.
@@ -175,7 +174,8 @@ class SeismicDataset(Dataset):
             if dataset_split is not None and index_split is not None:
                 dataset_split.set_index(index_split)
             elif dataset_split is None and index_split is not None:
-                setattr(self, split_name, self.from_index(index_split))
+                split = self.from_index(index_split, copy_headers=False, batch_class=self.batch_class)
+                setattr(self, split_name, split)
             elif dataset_split is not None and index_split is None:
                 setattr(self, split_name, None)
         return self
@@ -196,7 +196,7 @@ class SeismicDataset(Dataset):
         """
         if not isinstance(index, self.index_class):
             index = self.index.create_subset(index)
-        return type(self)(index, batch_class=self.batch_class)
+        return type(self)(index, copy_headers=False, batch_class=self.batch_class)
 
     @wraps(SeismicIndex.collect_stats)
     def collect_stats(self, n_quantile_traces=100000, quantile_precision=2, limits=None, bar=True):

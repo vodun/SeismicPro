@@ -2,14 +2,16 @@
 
 from string import Formatter
 from functools import partial
+from collections import defaultdict
 
 import numpy as np
 import matplotlib.pyplot as plt
 
+from .index import SeismicIndex
 from .gather import Gather, CroppedGather
 from .gather.utils.crop_utils import make_origins
 from .semblance import Semblance, ResidualSemblance
-from .metrics import define_pipeline_metric, MetricsAccumulator
+from .metrics import define_pipeline_metric, PartialMetric, MetricsAccumulator
 from .decorators import create_batch_methods, apply_to_each_component
 from .utils import to_list, as_dict, save_figure
 from ..batchflow import action, inbatch_parallel, save_data_to, Batch, DatasetIndex, NamedExpression
@@ -76,6 +78,13 @@ class SeismicBatch(Batch):
             if self.components is None or comp not in self.components:
                 self.add_components(comp, init=self.array_of_nones)
         return np.arange(len(self))
+
+    @property
+    def flat_indices(self):
+        """np.ndarray: Unique identifiers of seismic gathers in the batch flattened into a 1d array."""
+        if isinstance(self.index, SeismicIndex):
+            return np.concatenate(self.indices)
+        return self.indices
 
     @action
     def load(self, src=None, dst=None, fmt="sgy", combined=False, **kwargs):
@@ -421,7 +430,8 @@ class SeismicBatch(Batch):
         metric : subclass of PipelineMetric or callable
             The metric to calculate.
         metric_name : str or None, optional
-            A name of the calculated metric. Obligatory if `metric` is `lambda`.
+            A name of the calculated metric. Obligatory if `metric` is `lambda` or `name` attribute is not overridden
+            in the metric class.
         coords_component : str, optional
             A component name to extract coordinates from. If not given, the first argument passed to the metric
             calculation function is used.
@@ -445,19 +455,29 @@ class SeismicBatch(Batch):
         ValueError
             If wrong type of `metric` is passed.
             If `metric` is `lambda` and `metric_name` is not given.
+            If `metric` is a subclass of `PipelineMetric` and `metric.name` is `None`.
         """
         metric = define_pipeline_metric(metric, metric_name)
         unpacked_args, first_arg = metric.unpack_calc_args(self, *args, **kwargs)
 
+        # Calculate metric values and their coordinates
         coords_items = first_arg if coords_component is None else getattr(self, coords_component)
         coords = [item.get_coords(coords_cols) for item in coords_items]
-        metric_params = {
-            "values": [metric.calc(*args, **kwargs) for args, kwargs in unpacked_args],
-            "metric_type": metric,
-            "pipeline": self.pipeline,
-            "calculate_metric_index": self._num_calculated_metrics,
-        }
-        accumulator = MetricsAccumulator(coords, indices=self.indices, **{metric.name: metric_params})
+        values = [metric.calc(*args, **kwargs) for args, kwargs in unpacked_args]
+
+        # Construct a mapping from coordinates to ordinal numbers of gathers in the dataset index.
+        # Later used by PipelineMetric to generate a batch by coordinates of a click on an interactive metric map.
+        part_offsets = np.cumsum([0] + self.dataset.n_gathers_by_part[:-1])
+        part_index_pos = [part.get_gathers_locs(indices) for part, indices in zip(self.dataset.parts, self.indices)]
+        dataset_index_pos = np.concatenate([pos + offset for pos, offset in zip(part_index_pos, part_offsets)])
+        coords_to_pos = defaultdict(list)
+        for coord, pos in zip(coords, dataset_index_pos):
+            coords_to_pos[tuple(coord)].append(pos)
+
+        # Construct a metric and its accumulator
+        metric = PartialMetric(metric, pipeline=self.pipeline, calculate_metric_index=self._num_calculated_metrics,
+                               coords_to_pos=coords_to_pos)
+        accumulator = MetricsAccumulator(coords, **{metric.name: {"values": values, "metric_type": metric}})
 
         if save_to is not None:
             save_data_to(data=accumulator, dst=save_to, batch=self)
@@ -555,7 +575,7 @@ class SeismicBatch(Batch):
             title_template = kwargs.pop("title")
             args_to_unpack = set(to_list(plotter_params["args_to_unpack"]))
 
-            for i, index in enumerate(self.indices):
+            for i, index in enumerate(self.flat_indices):
                 # Unpack required plotter arguments by getting the value of specified component with given index
                 unpacked_args = {}
                 for arg_name in args_to_unpack & kwargs.keys():
@@ -597,7 +617,7 @@ class SeismicBatch(Batch):
         # Define axes layout and perform plotting
         fig_width = max(sum(plotter["width"] for plotter in plotters_row) for plotters_row in plotters)
         row_heights = [max(plotter["height"] for plotter in plotters_row) for plotters_row in plotters]
-        fig = plt.figure(figsize=(fig_width, sum(row_heights)), constrained_layout=True)
+        fig = plt.figure(figsize=(fig_width, sum(row_heights)), tight_layout=True)
         gridspecs = fig.add_gridspec(len(plotters), 1, height_ratios=row_heights)
 
         for gridspecs_row, plotters_row in zip(gridspecs, plotters):

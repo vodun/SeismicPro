@@ -8,7 +8,7 @@ import numpy as np
 
 from seismicpro.src.utils.indexer import create_indexer
 
-from ..indexer.asserters import assert_indexers_equal
+from ..utils import assert_indexers_equal
 
 
 # Define default tolerances to check if two float values are close
