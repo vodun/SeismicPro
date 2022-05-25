@@ -164,7 +164,7 @@ def strip_clip_indicator(clip_ind):
 def get_cliplen_indicator(traces):
     traces = np.atleast_1d(traces)
 
-    indicator = (np.abs(traces[..., 1:] - traces[..., :-1]) < 1e-8).astype(np.int32)
+    indicator = (traces[..., 1:] == traces[..., :-1]).astype(np.int32)
 
     for i in range(1, indicator.shape[-1]):
         indicator[..., i] += indicator[..., i-1] * (indicator[..., i] == 1)
@@ -221,6 +221,55 @@ def calc_spikes(arr):
     with fft.set_workers(25):
         running_mean = signal.fftconvolve(arr, [[1,1,1]], mode='valid', axes=1)/3
     return (np.abs(arr[...,1:-1] - running_mean))
+
+@njit
+def fill_nulls(arr):
+
+    n_samples = arr.shape[1]
+
+    for i in range(arr.shape[0]):
+        nan_indices = np.nonzero(np.isnan(arr[i]))[0]
+        if len(nan_indices) > 0:
+            j = nan_indices[-1]+1
+            if j < n_samples:
+                arr[i, :j] = arr[i, j]
+
+@njit(nogil=True)
+def get_const_indicator(traces, cmpval=None):
+
+    if cmpval is None:
+        indicator = (traces[..., 1:] == traces[..., :-1])
+    else:
+        indicator = (traces[..., 1:] == cmpval)
+
+    brdr_zeros = np.zeros(traces.shape[:-1]+(1,), dtype=np.bool8)
+    indicator = np.concatenate((brdr_zeros, indicator), axis=-1)
+
+    return indicator.astype(np.int32)
+
+@njit(nogil=True)
+def get_constlen_indicator(traces, cmpval=None):
+
+    old_shape = traces.shape
+
+    traces = np.atleast_2d(traces)
+
+    indicator = get_const_indicator(traces, cmpval)
+
+
+    for i in range(1, indicator.shape[-1]):
+        indicator[..., i] += indicator[..., i-1] * (indicator[..., i] == 1)
+
+
+    for j in range(0, indicator.shape[-2]):
+        for i in range(indicator.shape[-1] - 1, 0, -1):
+            if indicator[..., j, i] != 0 and indicator[..., j, i - 1] != 0:
+                indicator[..., j, i - 1] = indicator[..., j, i]
+
+    if cmpval is None:
+        indicator += (indicator > 0).astype(np.int32)
+
+    return indicator.reshape(*old_shape)
 
 class Coordinates:
     """Define spatial coordinates of an object."""

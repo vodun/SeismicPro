@@ -6,9 +6,11 @@ from scipy import signal
 
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+from seismicpro.batchflow import V, B
 
 from .pipeline_metric import PipelineMetric, pass_calc_args
 from ..const import HDR_DEAD_TRACE
+from ..utils import fill_nulls, get_constlen_indicator, calc_spikes
 
 EPS = 1e-10
 
@@ -24,21 +26,30 @@ class TracewiseMetric(PipelineMetric):
     def get_res(gather, **kwargs):
         raise NotImplementedError
 
+    @staticmethod
+    def norm_data(gather):
+        traces = gather.data
+        return (traces - np.nanmean(traces, axis=1, keepdims=True))/(np.nanstd(traces, axis=1, keepdims=True) + EPS)
+
+
     @classmethod
     def filter_res(cls, gather):
         res = cls.get_res(gather)
 
         if HDR_DEAD_TRACE in gather.headers:
-            res[gather.headers[HDR_DEAD_TRACE]] = None
+            res[gather.headers[HDR_DEAD_TRACE]] = np.nan
 
         if res.ndim == 2 and res.shape[1] != 1:
-            leading_zeros = np.zeros((gather.n_traces, gather.n_samples - res.shape[1]), dtype=int)
-            res = np.concatenate((leading_zeros, res.astype(int)), axis=1)
+            leading_zeros = np.zeros((gather.n_traces, gather.n_samples - res.shape[1]), dtype=res.dtype)
+            res = np.concatenate((leading_zeros, res), axis=1)
 
         return res
 
     @classmethod
-    def aggr(cls, res, tracewise=False):
+    def aggr(cls, gather, tracewise=False):
+
+        res = cls.filter_res(gather)
+
         fn = np.nanmax if cls.is_lower_better else np.nanmin
         if tracewise:
             return res if res.ndim == 1 else fn(res, axis=1)
@@ -46,14 +57,14 @@ class TracewiseMetric(PipelineMetric):
 
     @classmethod
     def calc(cls, gather):
-        return cls.aggr(cls.filter_res(gather))
+        return cls.aggr(gather, tracewise=False)
 
     @pass_calc_args
     def plot_res(cls, gather, ax, **kwargs):
         gather.plot(ax=ax, **kwargs)
         divider = make_axes_locatable(ax)
 
-        res = cls.aggr(cls.filter_res(gather), tracewise=True)
+        res = cls.aggr(gather, tracewise=True)
 
         top_ax = divider.append_axes("top", sharex=ax, size="12%", pad=0.05)
         top_ax.plot(res, '.--')
@@ -144,7 +155,7 @@ def image_filter(arr, flt, ax, **kwargs):
 
     flt = make_mask(flt)
 
-    vmin, vmax = np.quantile(arr, q=[0.05, 0.95])
+    vmin, vmax = np.nanquantile(arr, q=[0.05, 0.95])
     kwargs = {"cmap": "gray", "aspect": "auto", "vmin": vmin, "vmax": vmax, **kwargs}
     ax.imshow(arr.T, **kwargs)
     ax.imshow(flt.T, alpha=0.5, cmap='Reds', aspect='auto')
@@ -181,4 +192,107 @@ def plot_worst_trace(ax, arr, tns, flt, std=0.5, is_lower_better=True, **kwargs)
         ax.text(i, 0, f"{tns_[i]}", color=col)
 
     ax.invert_yaxis()
+
+
+class SpikesMetric(TracewiseMetric):
+    name = "spikes"
+    min_value = 0
+    max_value = None
+    is_lower_better = True
+
+    threshold=2
+
+    @staticmethod
+    def get_res(gather):
+
+        norm_data = TracewiseMetric.norm_data(gather)
+        fill_nulls(norm_data)
+
+        res = calc_spikes(norm_data)
+        return np.pad(res, ((0,0), (1, 1)))
+
+
+class AutocorrMetric(TracewiseMetric):
+    name = "autocorr"
+    is_lower_better = False
+    threshold = 0.9
+
+    @staticmethod
+    def get_res(gather):
+        norm_data = TracewiseMetric.norm_data(gather)
+        return np.nansum(norm_data[...,1:] * norm_data[..., :-1], axis=1)/(gather.n_samples - np.isnan(gather.data).sum(axis=1))
+
+
+class TraceMeanAbs(TracewiseMetric):
+    name = "trace_meanabs"
+    is_lower_better = True
+    threshold = 0.1
+    top_ax_y_scale = 'log'
+
+
+    @staticmethod
+    def get_res(gather):
+        return np.abs(gather.data.mean(axis=1) / (gather.data.std(axis=1) + EPS))
+
+class MaxClipsLenMetric(TracewiseMetric):
+    name = "max_clips_len"
+    min_value = 1
+    max_value = None
+    is_lower_better = True
+
+    threshold = 3
+
+    @staticmethod
+    def get_res(gather):
+
+        maxes = gather.data.max(axis=-1, keepdims=True)
+        mins = gather.data.min(axis=-1, keepdims=True)
+
+        res_plus = get_constlen_indicator(gather.data, cmpval=maxes)
+        res_minus = get_constlen_indicator(gather.data, cmpval=mins)
+
+        return (res_plus + res_minus).astype(np.float32)
+
+class ConstLenMetric(TracewiseMetric):
+    name = "const_len"
+    is_lower_better = True
+    threshold = 4
+
+    @staticmethod
+    def get_res(gather):
+        res = get_constlen_indicator(gather.data)
+        return res.astype(np.float32)
+
+class StdFraqMetricGlob(TracewiseMetric):
+    name = "std_fraq_glob"
+    min_value = None
+    max_value = None
+    is_lower_better = False
+    threshold = -2
+
+    @staticmethod
+    def get_res(gather):
+        res = np.log10(gather.data.std(axis=1) / gather.survey.std)
+        return res
+
+class StdFraqMetric(TracewiseMetric):
+    name = "std_fraq"
+    min_value = None
+    max_value = None
+    is_lower_better = False
+    threshold = -2
+
+    @staticmethod
+    def get_res(gather):
+        res = np.log10(gather.data.std(axis=1) / gather.data.std())
+        return res
+
+def add_metric(ppl, metric_cls, src='raw', **kwargs):
+    acc_name = '_'.join(['mmap', metric_cls.__name__, src])
+    ppl =  ppl.init_variable(acc_name).calculate_metric(metric_cls, gather=src, save_to=V(acc_name, mode="a"), **kwargs)
+
+    acc_name =  '_'.join(['twm', metric_cls.__name__, src])
+
+    return ppl.init_variable(acc_name, []).call(lambda gathers: [metric_cls.aggr(gather, tracewise=True) for gather in gathers], B(src), save_to=V(acc_name, mode="e"))
+
 
