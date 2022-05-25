@@ -514,21 +514,20 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     @staticmethod
     @njit(nogil=True, parallel=True)
-    def ibm_to_ieee(bytes_arr, step=1, is_big_endian=True):
-        a, b, c, d = bytes_arr[:, :, 0], bytes_arr[:, :, 1], bytes_arr[:, :, 2], bytes_arr[:, :, 3]
+    def ibm_to_ieee(arr, step=1, is_big_endian=True):
+        a, b, c, d = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2], arr[:, :, 3]
         if not is_big_endian:
             a, b, c, d = d, c, b, a
-        res = np.empty_like(a, dtype=np.float32)
-        for i in prange(a.shape[0]):  # pylint: disable=not-an-iterable
-            for j in range(a.shape[1]):
-                if j % step != 0:
-                    continue
-                res[i, j] = (((np.int32(b[i, j]) << 8) | c[i, j]) << 8) | d[i, j]
+        res = np.empty((arr.shape[0], arr.shape[1] // step), dtype=np.float32)
+        for i in prange(res.shape[0]):  # pylint: disable=not-an-iterable
+            for j in range(res.shape[1]):
+                arr_j = j * step
+                res[i, j] = (((np.int32(b[i, arr_j]) << 8) | c[i, arr_j]) << 8) | d[i, arr_j]
                 res[i, j] /= np.float32(2)**24
-                res[i, j] *= np.float32(16)**(np.int8(a[i, j] & 0x7f) - 64)
-                if (a[i, j] & 0x80) > 0:
+                res[i, j] *= np.float32(16)**(np.int8(a[i, arr_j] & 0x7f) - 64)
+                if (a[i, arr_j] & 0x80) > 0:
                     res[i, j] = -res[i, j]
-        return res[:, ::step]
+        return res
 
     def load_traces_mmap(self, traces_pos, limits=None):
         limits = self.limits if limits is None else self._process_limits(limits)
