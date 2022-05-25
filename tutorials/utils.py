@@ -5,18 +5,18 @@ from scipy import signal
 
 def generate_trace(reflection_event_times=(20, 1400, 2400), reflection_event_amplitude=(6.0, -12.0, 8.0),
                    nmo_velocity=(1.6, 2.0, 2.4), wavelet_lenght=50, wavelet_width=5, **kwargs):
-    """Generates a seismic trace using reflectivity parameters and trace's headers with Ricker impulse.
+    """Generates a seismic trace with Ricker impulse using reflectivity parameters and trace's headers.
 
     Parameters
     ----------
-    reflection_event_time : 1d-darray, defaults to (20, 1400, 2400)
+    reflection_event_time : 1d np.ndarray, defaults to (20, 1400, 2400)
         Zero-offset times of reflection events measured in ms.
-    reflection_event_amplitude : 1d-darray, defaults to (6.0, -12.0, 8.0)
+    reflection_event_amplitude : 1d np.ndarray, defaults to (6.0, -12.0, 8.0)
         Amplitudes of reflection events.
-    nmo_velocity : 1d-darray, defaults to (1.6, 2.0, 2.4)
+    nmo_velocity : 1d np.ndarray, defaults to (1.6, 2.0, 2.4)
         NMO velocities for the reflection events, m/ms.
     wavelet_lenght : int, defaults to 50
-        Overall lenght of the vector with Ricker vawelet. Equivalent of `points` parameter of `scipy.signal.ricker`.
+        Overall lenght of the vector with Ricker wavelet. Equivalent of `points` parameter of `scipy.signal.ricker`.
     wavelet_width : int, defaults to 5
          Width parameter of the wavelet itself. Equivalent of `a` parameter of `scipy.signal.ricker`.
     kwargs : dict
