@@ -10,9 +10,10 @@ import segyio
 import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
+from numba import njit, prange
 from scipy.interpolate import interp1d
 
-from .headers import load_headers, ibm_to_ieee
+from .headers import load_headers
 from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
 from .utils import calculate_stats, create_supergather_index
@@ -182,13 +183,33 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self._indexer = None
         self.headers = headers
 
+        # Data format code defined by bytes 3225–3226 of the binary header that can be conveniently loaded using numpy
+        # memmap. Currently only 3-byte integers are not supported and result in a fallback to loading using segyio.
+        endian_str = ">" if self.endian in {"big", "msb"} else "<"
+        format_to_mmap_dtype = {
+            1: np.uint8,  # IBM 4-byte float: read as 4 bytes and then manually transformed to an IEEE float32
+            2: endian_str + "i4",
+            3: endian_str + "i2",
+            5: endian_str + "f4",
+            6: endian_str + "f8",
+            8: np.int8,
+            9: endian_str + "i8",
+            10: endian_str + "u4",
+            11: endian_str + "u2",
+            12: endian_str + "u8",
+            16: np.uint8,
+        }
+
         # Optionally create a memory map over traces data
-        self.use_segyio_trace_loader = use_segyio_trace_loader or self.segy_handler._fmt != 1
-        if self.use_segyio_trace_loader:
-            self.traces_mmap = None
-        else:
-            dtype = np.dtype([("headers", np.uint8, 240), ("trace", np.uint8, (self.n_samples, 4))])
-            self.traces_mmap = np.memmap(filename=self.path, mode="r", shape=self.n_traces, dtype=dtype,
+        self.traces_mmap = None
+        self.segy_format = file_metrics["format"]
+        self.trace_dtype = self.segy_handler.dtype
+        self.use_segyio_trace_loader = use_segyio_trace_loader or self.segy_format not in format_to_mmap_dtype
+        if not self.use_segyio_trace_loader:
+            trace_shape = self.n_samples if self.segy_format != 1 else (self.n_samples, 4)
+            mmap_trace_dtype = np.dtype([("headers", np.uint8, 240),
+                                         ("trace", format_to_mmap_dtype[self.segy_format], trace_shape)])
+            self.traces_mmap = np.memmap(filename=self.path, mode="r", shape=self.n_traces, dtype=mmap_trace_dtype,
                                          offset=file_metrics["trace0"])["trace"]
 
         # Define all stats-related attributes
@@ -401,7 +422,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         traces_pos = self["TRACE_SEQUENCE_FILE"].ravel() - 1
         n_samples = len(self.file_samples[limits])
 
-        trace = np.empty(n_samples, dtype=np.float32)
+        trace = np.empty(n_samples, dtype=self.trace_dtype)
         dead_indices = []
         for tr_index, pos in tqdm(enumerate(traces_pos), desc=f"Detecting dead traces for survey {self.name}",
                                   total=len(self.headers), disable=not bar):
@@ -465,7 +486,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Parameters
         ----------
-        buf : 1d np.ndarray of float32
+        buf : 1d np.ndarray of self.trace_dtype
             An empty array to save the loaded trace.
         index : int
             Trace position in the file.
@@ -476,7 +497,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Returns
         -------
-        trace : 1d np.ndarray of float32
+        trace : 1d np.ndarray of self.trace_dtype
             Loaded trace.
         """
         return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
@@ -486,22 +507,42 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         samples = self.file_samples[limits]
         n_samples = len(samples)
 
-        traces = np.empty((len(traces_pos), n_samples), dtype=self.segy_handler.dtype)
+        traces = np.empty((len(traces_pos), n_samples), dtype=self.trace_dtype)
         for i, pos in enumerate(traces_pos):
             self.load_trace_segyio(buf=traces[i], index=pos, limits=limits, trace_length=n_samples)
         return traces
 
+    @staticmethod
+    @njit(nogil=True, parallel=True)
+    def ibm_to_ieee(bytes_arr, step=1, is_big_endian=True):
+        a, b, c, d = bytes_arr[:, :, 0], bytes_arr[:, :, 1], bytes_arr[:, :, 2], bytes_arr[:, :, 3]
+        if not is_big_endian:
+            a, b, c, d = d, c, b, a
+        res = np.empty_like(a, dtype=np.float32)
+        for i in prange(a.shape[0]):  # pylint: disable=not-an-iterable
+            for j in range(a.shape[1]):
+                if j % step != 0:
+                    continue
+                res[i, j] = (((np.int32(b[i, j]) << 8) | c[i, j]) << 8) | d[i, j]
+                res[i, j] /= np.float32(2)**24
+                res[i, j] *= np.float32(16)**(np.int8(a[i, j] & 0x7f) - 64)
+                if (a[i, j] & 0x80) > 0:
+                    res[i, j] = -res[i, j]
+        return res[:, ::step]
+
     def load_traces_mmap(self, traces_pos, limits=None):
         limits = self.limits if limits is None else self._process_limits(limits)
-        return ibm_to_ieee(self.traces_mmap[traces_pos, limits.start:limits.stop], endian=self.endian,
-                           step=limits.step)  # Slicing mmap with step is way more expensive
+        if self.segy_format == 1:  # IBM 4-byte float
+            # Slicing mmap with step is way more expensive than handling step during conversion to IEEE float32
+            return self.ibm_to_ieee(self.traces_mmap[traces_pos, limits.start:limits.stop], step=limits.step,
+                                    is_big_endian=self.endian in {"big", "msb"})
+        return self.traces_mmap[traces_pos, limits]
 
     def load_traces(self, traces_pos, limits=None):
         loader = self.load_traces_segyio if self.use_segyio_trace_loader else self.load_traces_mmap
         traces = loader(traces_pos, limits=limits)
-        if traces.dtype == np.float32:
-            return traces
-        return traces.astype(np.float32)
+        # Cast the result to a C-contiguous float32 array regardless of the dtype in the source file
+        return np.require(traces, dtype=np.float32, requirements="C")
 
     def load_gather(self, headers, limits=None, copy_headers=False):
         """Load a gather with given `headers`.
