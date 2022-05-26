@@ -124,7 +124,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         The number of traces with constant value (dead traces). None until `mark_dead_traces` is called.
     """
     def __init__(self, path, header_index, header_cols=None, name=None, limits=None, endian="big", chunk_size=25000,
-                 n_workers=None, bar=True, use_segyio_trace_loader=False):
+                 n_workers=None, bar=True, use_segyio_trace_loader=False):  # pylint: disable=too-many-arguments
         self.path = os.path.abspath(path)
         self.name = os.path.splitext(os.path.basename(self.path))[0] if name is None else name
 
@@ -314,7 +314,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     #------------------------------------------------------------------------#
 
     def collect_stats(self, indices=None, n_quantile_traces=100000, quantile_precision=2, limits=None,
-                      chunk_size=100000, bar=True):
+                      chunk_size=100000, bar=True):  # pylint: disable=too-many-statements
         """Collect the following statistics by iterating over survey traces:
         1. Min and max amplitude,
         2. Mean amplitude and trace standard deviation,
