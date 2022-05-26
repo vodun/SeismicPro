@@ -123,8 +123,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     n_dead_traces : int
         The number of traces with constant value (dead traces). None until `mark_dead_traces` is called.
     """
+
+    # pylint: disable-next=too-many-arguments, too-many-statements
     def __init__(self, path, header_index, header_cols=None, name=None, limits=None, endian="big", chunk_size=25000,
-                 n_workers=None, bar=True, use_segyio_trace_loader=False):  # pylint: disable=too-many-arguments
+                 n_workers=None, bar=True, use_segyio_trace_loader=False):
         self.path = os.path.abspath(path)
         self.name = os.path.splitext(os.path.basename(self.path))[0] if name is None else name
 
@@ -313,8 +315,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     #                     Statistics computation methods                     #
     #------------------------------------------------------------------------#
 
+    # pylint: disable-next=too-many-statements
     def collect_stats(self, indices=None, n_quantile_traces=100000, quantile_precision=2, limits=None,
-                      chunk_size=100000, bar=True):  # pylint: disable=too-many-statements
+                      chunk_size=100000, bar=True):
         """Collect the following statistics by iterating over survey traces:
         1. Min and max amplitude,
         2. Mean amplitude and trace standard deviation,
@@ -342,7 +345,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             Time limits to be used for statistics calculation. `int` or `tuple` are used as arguments to init a `slice`
             object. If not given, `limits` passed to `__init__` are used. Measured in samples.
         chunk_size : int, optional, defaults to 100000
-            The number of traces to process at once.
+            The number of traces to be processed at once.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
 
