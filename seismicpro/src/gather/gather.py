@@ -922,18 +922,16 @@ class Gather(TraceContainer, SamplesContainer):
     def stack(self):
         """Stack a gather by calculating mean value of all non-nan amplitudes for each time over the offset axis.
 
-        The gather being stacked must be indexed by `INLINE_3D` and `CROSSLINE_3D` and contain traces from a single CDP
-        gather. The resulting stacked gather will contain a single trace with `headers` matching those of the first
-        input trace.
+        The gather being stacked must contain traces from a single bin. The resulting gather will contain a single
+        trace with `headers` matching those of the first input trace.
 
         Returns
         -------
         gather : Gather
             Stacked gather.
         """
-        if set(self.indexed_by) != {"INLINE_3D", "CROSSLINE_3D"}:
-            raise ValueError("The gather must be indexed by INLINE_3D and CROSSLINE_3D")
-        if self.index is None:
+        lines = self[["INLINE_3D", "CROSSLINE_3D"]]
+        if (lines != lines[0]).any():
             raise ValueError("Only a single CDP gather can be stacked")
 
         # Preserve headers of the first trace of the gather being stacked
