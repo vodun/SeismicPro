@@ -31,7 +31,7 @@ def stat_segy(tmp_path_factory, request):
     trace_data = trace_gen(n_traces, n_samples)
 
     def gen_trace(TRACE_SEQUENCE_FILE, **kwargs):  # pylint: disable=invalid-name
-        """Return a corresponding trace from a pregenerated data."""
+        """Return a corresponding trace from pregenerated data."""
         _ = kwargs
         return trace_data[TRACE_SEQUENCE_FILE - 1]
 
