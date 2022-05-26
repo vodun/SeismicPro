@@ -12,7 +12,7 @@ def make_benchmark_data(path):
     """
     # The geometry defined below should be changed only together with survey filtering parameters
     # to ensure that after filtering all the gathers \ supergathers have the same number of traces
-    make_prestack_segy(path, survey_size=(400, 400), sources_step=(5, 5), receivers_step=(5, 5),
+    make_prestack_segy(path, fmt=1, survey_size=(400, 400), sources_step=(5, 5), receivers_step=(5, 5),
                        activation_dist=(50, 50), bin_size=(10, 10))
 
     # Load headers and add synthetic FirstBreak times
