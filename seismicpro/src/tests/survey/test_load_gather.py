@@ -1,5 +1,6 @@
 """Test Gather loading methods"""
 
+# pylint: disable=redefined-outer-name
 import pytest
 import numpy as np
 
@@ -58,3 +59,27 @@ class TestLoad:
         trace_data = trace_data[traces_pos, limits]
         loaded_data = survey.load_traces(traces_pos, limits=load_limits)
         assert np.allclose(loaded_data, trace_data)
+
+    @pytest.mark.parametrize("init_limits", [slice(None), slice(5)])
+    @pytest.mark.parametrize("load_limits", [None, slice(2, 15, 5)])
+    @pytest.mark.parametrize("traces_pos", [
+        [5],  # Single trace
+        [1, 2, 3],  # Multiple traces
+        [8, 8, 8],  # Duplicated traces
+        np.arange(16),  # All traces
+    ])
+    def test_load_gather(self, load_segy, init_limits, load_limits, traces_pos):
+        """Test gather loading by its headers."""
+        path, trace_data = load_segy
+        survey = Survey(path, header_index="FieldRecord", limits=init_limits, bar=False)
+
+        gather_headers = survey.headers.iloc[traces_pos]
+        gather = survey.load_gather(gather_headers, limits=load_limits)
+
+        # load_limits take priority over init_limits
+        limits = init_limits if load_limits is None else load_limits
+        gather_data = trace_data[traces_pos, limits]
+
+        assert gather.headers.equals(gather_headers)
+        assert np.allclose(gather.data, gather_data)
+        assert np.allclose(gather.samples, survey.file_samples[limits])
