@@ -10,13 +10,12 @@ import segyio
 import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
-from numba import njit, prange
 from scipy.interpolate import interp1d
 
 from .headers import load_headers
 from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
-from .utils import create_supergather_index
+from .utils import ibm_to_ieee, calculate_trace_stats, create_supergather_index
 from ..gather import Gather
 from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
@@ -301,12 +300,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     #                     Statistics computation methods                     #
     #------------------------------------------------------------------------#
 
-    @staticmethod
-    @njit(nogil=True, parallel=True)
-    def calculate_trace_stats(trace):
-        """Calculate min, max, mean and var of trace amplitudes."""
-        return trace.min(), trace.max(), trace.mean(), trace.var()
-
     def collect_stats(self, indices=None, n_quantile_traces=100000, quantile_precision=2, limits=None,
                       chunk_size=100000, bar=True):
         """Collect the following statistics by iterating over survey traces:
@@ -389,7 +382,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                 if chunk_quantile_mask.any():
                     quantile_traces_buffer.append(chunk_traces[chunk_quantile_mask].ravel())
 
-                chunk_min, chunk_max, chunk_mean, chunk_var = self.calculate_trace_stats(chunk_traces.ravel())
+                chunk_min, chunk_max, chunk_mean, chunk_var = calculate_trace_stats(chunk_traces.ravel())
                 global_min = min(chunk_min, global_min)
                 global_max = max(chunk_max, global_max)
                 mean_buffer[i] = chunk_mean
@@ -446,7 +439,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         for tr_index, pos in tqdm(enumerate(traces_pos), desc=f"Detecting dead traces for survey {self.name}",
                                   total=len(self.headers), disable=not bar):
             self.load_trace_segyio(buf=trace, index=pos, limits=limits, trace_length=n_samples)
-            trace_min, trace_max, *_ = self.calculate_trace_stats(trace)
+            trace_min, trace_max, *_ = calculate_trace_stats(trace)
 
             if math.isclose(trace_min, trace_max):
                 dead_indices.append(tr_index)
@@ -531,30 +524,19 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             self.load_trace_segyio(buf=traces[i], index=pos, limits=limits, trace_length=n_samples)
         return traces
 
-    @staticmethod
-    @njit(nogil=True, parallel=True)
-    def ibm_to_ieee(arr, step=1, is_big_endian=True):
-        a, b, c, d = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2], arr[:, :, 3]
-        if not is_big_endian:
-            a, b, c, d = d, c, b, a
-        res = np.empty((arr.shape[0], arr.shape[1] // step), dtype=np.float32)
-        for i in prange(res.shape[0]):  # pylint: disable=not-an-iterable
-            for j in range(res.shape[1]):
-                arr_j = j * step
-                res[i, j] = (((np.int32(b[i, arr_j]) << 8) | c[i, arr_j]) << 8) | d[i, arr_j]
-                res[i, j] /= np.float32(2)**24
-                res[i, j] *= np.float32(16)**(np.int8(a[i, arr_j] & 0x7f) - 64)
-                if (a[i, arr_j] & 0x80) > 0:
-                    res[i, j] = -res[i, j]
-        return res
-
     def load_traces_mmap(self, traces_pos, limits=None):
         limits = self.limits if limits is None else self._process_limits(limits)
-        if self.segy_format == 1:  # IBM 4-byte float
-            # Slicing mmap with step is way more expensive than handling step during conversion to IEEE float32
-            return self.ibm_to_ieee(self.traces_mmap[traces_pos, limits.start:limits.stop], step=limits.step,
-                                    is_big_endian=self.endian in {"big", "msb"})
-        return self.traces_mmap[traces_pos, limits]
+        if self.segy_format != 1:
+            return self.traces_mmap[traces_pos, limits]
+        # IBM 4-byte float case: reading from mmap with step is way more expensive
+        # than loading the whole trace with consequent slicing
+        traces = self.traces_mmap[traces_pos, limits.start:limits.stop]
+        if limits.step != 1:
+            traces = traces[:, ::limits.step]
+        traces_bytes = (traces[:, :, 0], traces[:, :, 1], traces[:, :, 2], traces[:, :, 3])
+        if self.endian in {"little", "lsb"}:
+            traces_bytes = traces_bytes[::-1]
+        return ibm_to_ieee(*traces_bytes)
 
     def load_traces(self, traces_pos, limits=None):
         loader = self.load_traces_segyio if self.use_segyio_trace_loader else self.load_traces_mmap

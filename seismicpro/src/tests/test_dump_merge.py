@@ -17,7 +17,8 @@ from .test_gather import compare_gathers
 @pytest.mark.parametrize('header_index', ['FieldRecord', 'TRACE_SEQUENCE_FILE'])
 @pytest.mark.parametrize('header_cols', [None, 'TraceNumber', 'all'])
 @pytest.mark.parametrize('dump_index', [1, 3])
-def test_dump_single_gather(segy_path, tmp_path, name, retain_parent_segy_headers, header_index, header_cols, dump_index):
+def test_dump_single_gather(segy_path, tmp_path, name, retain_parent_segy_headers, header_index, header_cols,
+                            dump_index):
     survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name)
     expected_gather = survey.get_gather(dump_index)
     expected_gather.dump(path=tmp_path, name=name, retain_parent_segy_headers=retain_parent_segy_headers)

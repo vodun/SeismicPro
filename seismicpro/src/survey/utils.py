@@ -1,7 +1,29 @@
 """General survey processing utils"""
 
 import numpy as np
-from numba import njit
+from numba import njit, prange
+
+
+@njit(nogil=True, parallel=True)
+def calculate_trace_stats(trace):
+    """Calculate min, max, mean and var of trace amplitudes."""
+    return trace.min(), trace.max(), trace.mean(), trace.var()
+
+
+@njit(nogil=True, parallel=True)
+def ibm_to_ieee(hh, hl, lh, ll):
+    """Convert 4 arrays representing individual bytes of IBM 4-byte floats into a single array of floats. Input arrays
+    are ordered from most to least significant bytes and have `np.uint8` dtypes. The result is returned as an
+    `np.float32` array."""
+    res = np.empty_like(hh, dtype=np.float32)
+    for i in prange(res.shape[0]):  # pylint: disable=not-an-iterable
+        for j in prange(res.shape[1]):  # pylint: disable=not-an-iterable
+            mant = (((np.int32(hl[i, j]) << 8) | lh[i, j]) << 8) | ll[i, j]
+            if hh[i, j] & 0x80:
+                mant = -mant
+            exp16 = (np.int8(hh[i, j]) & np.int8(0x7f)) - 70
+            res[i, j] = mant * 16.0**exp16
+    return res
 
 
 @njit(nogil=True)
