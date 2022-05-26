@@ -1,10 +1,12 @@
 """Implements Muter class to define a boundary above which gather values will be zeroed out"""
 
 import numpy as np
+from numba import njit, prange
 from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
 
 from ..utils import read_single_vfunc
+from .utils.general_utils import compute_crossovers_times
 
 
 class Muter:
@@ -125,6 +127,24 @@ class Muter:
         self = cls()
         self.muter = lambda offsets: (offsets - intercept) / velocity
         return self
+
+    @classmethod
+    def from_stacking_velocity(cls, stacking_velocity, max_stretch_factor=0.65, crossover_mute=True, times=None, offsets=None):
+        """ docs """
+        # if (times is None) and (stacking_velocity.times is not None):
+        #     times = stacking_velocity.times
+        # else:
+        #     raise ValueError('Provide times')
+        
+        velocity = stacking_velocity(times) / 1000
+        stretch_offsets = velocity * times * np.sqrt((1 + max_stretch_factor)**2 - 1)
+        muter = cls.from_points(stretch_offsets, times)
+        
+        if crossover_mute:
+            crossover_times = compute_crossovers_times(times, offsets, velocity)
+            muter = cls.from_points(offsets, np.maximum(crossover_times, muter(offsets)))
+        
+        return muter 
 
     def __call__(self, offsets):
         """Returns times up to which muting should be performed for given offsets.

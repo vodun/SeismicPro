@@ -456,7 +456,7 @@ class Coherency(BaseCoherency):
 
     @batch_method(target="for", copy_src=False)
     def calculate_stacking_velocity(self, start_velocity_range=(1400, 1800), end_velocity_range=(2500, 5000),
-                                    max_acceleration=None, n_times=25, n_velocities=25, coords_columns="index"):
+                                    max_acceleration=None, n_times=25, n_velocities=25, coords_columns="auto"):
         """Calculate stacking velocity by vertical velocity semblance.
 
         Notes
