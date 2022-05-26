@@ -36,18 +36,21 @@ def load_segy(tmp_path_factory, request):
     return path, trace_data
 
 
+TRACES_POS = [  # Ordinal number of traces to load
+    [0],  # Single trace
+    [1, 5, 3, 2],  # Multiple traces
+    [6, 6, 10, 10, 10],  # Duplicated traces
+    np.arange(16),  # All traces
+]
+
+
+@pytest.mark.parametrize("init_limits", [slice(None), slice(2, 15, 5), slice(10)])
+@pytest.mark.parametrize("load_limits", [None, slice(None, None, 2), slice(-5, None)])
 class TestLoad:
     """Test `Gather` loading methods."""
 
-    @pytest.mark.parametrize("init_limits", [slice(None), slice(10)])
-    @pytest.mark.parametrize("load_limits", [None, slice(None, None, 2), slice(-5, None)])
     @pytest.mark.parametrize("use_segyio_trace_loader", [True, False])
-    @pytest.mark.parametrize("traces_pos", [
-        [0],  # Single trace
-        [1, 5, 3, 2],  # Multiple traces
-        [6, 6, 10, 10, 10],  # Duplicated traces
-        np.arange(16),  # All traces
-    ])
+    @pytest.mark.parametrize("traces_pos", TRACES_POS)
     def test_load_traces(self, load_segy, init_limits, load_limits, use_segyio_trace_loader, traces_pos):
         """Compare loaded traces with the actual ones."""
         path, trace_data = load_segy
@@ -60,14 +63,7 @@ class TestLoad:
         loaded_data = survey.load_traces(traces_pos, limits=load_limits)
         assert np.allclose(loaded_data, trace_data)
 
-    @pytest.mark.parametrize("init_limits", [slice(None), slice(5)])
-    @pytest.mark.parametrize("load_limits", [None, slice(2, 15, 5)])
-    @pytest.mark.parametrize("traces_pos", [
-        [5],  # Single trace
-        [1, 2, 3],  # Multiple traces
-        [8, 8, 8],  # Duplicated traces
-        np.arange(16),  # All traces
-    ])
+    @pytest.mark.parametrize("traces_pos", TRACES_POS)
     def test_load_gather(self, load_segy, init_limits, load_limits, traces_pos):
         """Test gather loading by its headers."""
         path, trace_data = load_segy
@@ -81,5 +77,44 @@ class TestLoad:
         gather_data = trace_data[traces_pos, limits]
 
         assert gather.headers.equals(gather_headers)
+        assert np.allclose(gather.data, gather_data)
+        assert np.allclose(gather.samples, survey.file_samples[limits])
+
+    def test_get_gather(self, load_segy, init_limits, load_limits):
+        """Test gather loading by its index."""
+        path, trace_data = load_segy
+        survey = Survey(path, header_index="FieldRecord", limits=init_limits, bar=False)
+        index = np.random.choice(survey.indices)
+        gather = survey.get_gather(index, limits=load_limits)
+
+        assert gather.index == index
+
+        gather_headers = survey.get_headers_by_indices([index])
+        assert gather.headers.equals(gather_headers)
+
+        # load_limits take priority over init_limits
+        limits = init_limits if load_limits is None else load_limits
+        traces_pos = gather["TRACE_SEQUENCE_FILE"].ravel() - 1
+        gather_data = trace_data[traces_pos, limits]
+
+        assert np.allclose(gather.data, gather_data)
+        assert np.allclose(gather.samples, survey.file_samples[limits])
+
+    def test_sample_gather(self, load_segy, init_limits, load_limits):
+        """Test gather sampling."""
+        path, trace_data = load_segy
+        survey = Survey(path, header_index="FieldRecord", limits=init_limits, bar=False)
+        gather = survey.sample_gather(limits=load_limits)
+
+        assert gather.index is not None  # Unique index
+
+        gather_headers = survey.get_headers_by_indices([gather.index])
+        assert gather.headers.equals(gather_headers)
+
+        # load_limits take priority over init_limits
+        limits = init_limits if load_limits is None else load_limits
+        traces_pos = gather["TRACE_SEQUENCE_FILE"].ravel() - 1
+        gather_data = trace_data[traces_pos, limits]
+
         assert np.allclose(gather.data, gather_data)
         assert np.allclose(gather.samples, survey.file_samples[limits])
