@@ -90,6 +90,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         cores.
     bar : bool, optional, defaults to True
         Whether to show survey loading progress bar.
+    use_segyio_trace_loader : bool, optional, defaults to False
+        Whether to use `segyio` trace loading methods or try optimizing data fetching using `numpy` memory mapping. May
+        degrade performance if enabled.
 
     Attributes
     ----------
@@ -164,7 +167,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         # Load trace headers
         file_metrics = self.segy_handler.xfd.metrics()
-        headers = load_headers(path, headers_to_load, trace_data_offset=file_metrics["trace0"],
+        self.segy_format = file_metrics["format"]
+        self.trace_data_offset = file_metrics["trace0"]
+        headers = load_headers(path, headers_to_load, trace_data_offset=self.trace_data_offset,
                                trace_size=file_metrics["trace_bsize"], n_traces=file_metrics["tracecount"],
                                endian=endian, chunk_size=chunk_size, n_workers=n_workers, bar=bar)
 
@@ -200,16 +205,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         }
 
         # Optionally create a memory map over traces data
-        self.traces_mmap = None
-        self.segy_format = file_metrics["format"]
-        self.trace_dtype = self.segy_handler.dtype
-        self.use_segyio_trace_loader = use_segyio_trace_loader or self.segy_format not in format_to_mmap_dtype
-        if not self.use_segyio_trace_loader:
-            trace_shape = self.n_file_samples if self.segy_format != 1 else (self.n_file_samples, 4)
-            mmap_trace_dtype = np.dtype([("headers", np.uint8, 240),
-                                         ("trace", format_to_mmap_dtype[self.segy_format], trace_shape)])
-            self.traces_mmap = np.memmap(filename=self.path, mode="r", shape=self.n_traces, dtype=mmap_trace_dtype,
-                                         offset=file_metrics["trace0"])["trace"]
+        self.trace_dtype = self.segy_handler.dtype  # Appropriate data type of a buffer to load a trace into
+        self.segy_trace_dtype = format_to_mmap_dtype.get(self.segy_format)  # Physical data type of traces on disc
+        self.use_segyio_trace_loader = use_segyio_trace_loader or self.segy_trace_dtype is None
+        self.traces_mmap = self._construct_traces_mmap()
 
         # Define all stats-related attributes
         self.has_stats = False
@@ -221,7 +220,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.n_dead_traces = None
 
     def _infer_sample_rate(self):
-        """Get sample rate from file headers"""
+        """Get sample rate from file headers."""
         bin_sample_rate = self.segy_handler.bin[segyio.BinField.Interval]
         trace_sample_rate = self.segy_handler.header[0][segyio.TraceField.TRACE_SAMPLE_INTERVAL]
         # 0 means undefined sample rate, so it is removed from the set of sample rate values.
@@ -231,6 +230,15 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                              "the binary header) and `TRACE_SAMPLE_INTERVAL` (bytes 117-118 in the header of the "
                              "first trace are undefined or they have different values.")
         return union_sample_rate.pop() / 1000  # Convert sample rate from microseconds to milliseconds
+
+    def _construct_traces_mmap(self):
+        """Memory map traces data."""
+        if self.use_segyio_trace_loader:
+            return None
+        trace_shape = self.n_file_samples if self.segy_format != 1 else (self.n_file_samples, 4)
+        mmap_trace_dtype = np.dtype([("headers", np.uint8, 240), ("trace", self.segy_trace_dtype, trace_shape)])
+        return np.memmap(filename=self.path, mode="r", shape=self.n_traces, dtype=mmap_trace_dtype,
+                         offset=self.trace_data_offset)["trace"]
 
     @property
     def n_file_samples(self):
@@ -247,16 +255,20 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.segy_handler.close()
 
     def __getstate__(self):
-        """Create a survey's pickling state from its `__dict__` by setting SEG-Y file handler to `None`."""
+        """Create a survey's pickling state from its `__dict__` by setting SEG-Y file handler and memory mapped trace
+        data to `None`."""
         state = copy(self.__dict__)
         state["segy_handler"] = None
+        state["traces_mmap"] = None
         return state
 
     def __setstate__(self, state):
-        """Recreate a survey from unpickled state and reopen its source SEG-Y file."""
+        """Recreate a survey from unpickled state, reopen its source SEG-Y file and reconstruct a memory map over
+        traces data."""
         self.__dict__ = state
         self.segy_handler = segyio.open(self.path, ignore_geometry=True)
         self.segy_handler.mmap()
+        self.traces_mmap = self._construct_traces_mmap()
 
     def __str__(self):
         """Print survey metadata including information about source file and trace statistics if they were
