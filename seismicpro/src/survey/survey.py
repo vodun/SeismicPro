@@ -169,8 +169,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         file_metrics = self.segy_handler.xfd.metrics()
         self.segy_format = file_metrics["format"]
         self.trace_data_offset = file_metrics["trace0"]
+        self.n_file_traces = file_metrics["tracecount"]
         headers = load_headers(path, headers_to_load, trace_data_offset=self.trace_data_offset,
-                               trace_size=file_metrics["trace_bsize"], n_traces=file_metrics["tracecount"],
+                               trace_size=file_metrics["trace_bsize"], n_traces=self.n_file_traces,
                                endian=endian, chunk_size=chunk_size, n_workers=n_workers, bar=bar)
 
         # Reconstruct TRACE_SEQUENCE_FILE header
@@ -237,7 +238,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             return None
         trace_shape = self.n_file_samples if self.segy_format != 1 else (self.n_file_samples, 4)
         mmap_trace_dtype = np.dtype([("headers", np.uint8, 240), ("trace", self.segy_trace_dtype, trace_shape)])
-        return np.memmap(filename=self.path, mode="r", shape=self.n_traces, dtype=mmap_trace_dtype,
+        return np.memmap(filename=self.path, mode="r", shape=self.n_file_traces, dtype=mmap_trace_dtype,
                          offset=self.trace_data_offset)["trace"]
 
     @property

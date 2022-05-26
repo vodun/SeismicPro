@@ -63,6 +63,23 @@ class TestLoad:
         loaded_data = survey.load_traces(traces_pos, limits=load_limits)
         assert np.allclose(loaded_data, trace_data)
 
+    @pytest.mark.parametrize("traces_pos", [[7], [11, 13]])
+    def test_load_traces_after_mmap_reconstruction(self, load_segy, init_limits, load_limits, traces_pos):
+        """Compare loaded traces with the actual ones after the memory map is reconstructed."""
+        path, trace_data = load_segy
+        survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", limits=init_limits,
+                        use_segyio_trace_loader=False, bar=False)
+
+        # The number of traces will change after filter. Memory map is reconstructed after copy and must remember
+        # original data shape.
+        survey = survey.filter(lambda tsf: tsf % 2 == 1, "TRACE_SEQUENCE_FILE", inplace=True).copy()
+
+        # load_limits take priority over init_limits
+        limits = init_limits if load_limits is None else load_limits
+        trace_data = trace_data[traces_pos, limits]
+        loaded_data = survey.load_traces(traces_pos, limits=load_limits)
+        assert np.allclose(loaded_data, trace_data)
+
     @pytest.mark.parametrize("traces_pos", TRACES_POS)
     def test_load_gather(self, load_segy, init_limits, load_limits, traces_pos):
         """Test gather loading by its headers."""
