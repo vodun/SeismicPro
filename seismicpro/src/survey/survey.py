@@ -531,6 +531,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
 
     def load_traces_segyio(self, traces_pos, limits=None):
+        """Load traces by their positions in the SEG-Y file using low-level `segyio` interface."""
         limits = self.limits if limits is None else self._process_limits(limits)
         samples = self.file_samples[limits]
         n_samples = len(samples)
@@ -541,6 +542,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return traces
 
     def load_traces_mmap(self, traces_pos, limits=None):
+        """Load traces by their positions in the SEG-Y file from memory mapped trace data."""
         limits = self.limits if limits is None else self._process_limits(limits)
         if self.segy_format != 1:
             return self.traces_mmap[traces_pos, limits]
@@ -555,6 +557,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return ibm_to_ieee(*traces_bytes)
 
     def load_traces(self, traces_pos, limits=None):
+        """Load traces by their positions in the SEG-Y file."""
         loader = self.load_traces_segyio if self.use_segyio_trace_loader else self.load_traces_mmap
         traces = loader(traces_pos, limits=limits)
         # Cast the result to a C-contiguous float32 array regardless of the dtype in the source file
