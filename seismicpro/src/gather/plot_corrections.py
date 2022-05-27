@@ -115,12 +115,12 @@ class LMOCorrectionPlot(CorrectionPlot):
 
     def get_title(self):
         """Get title of the LMO correction view."""
-        return f"Linear moveout correction with {(self.params['v1'] * 1000):.0f} m/s"
+        return f"Linear moveout correction with {(self.params['v1']):.0f} m/s"
 
     @property
     def params(self):
         """Dict: parameters of the 1-layer weathering mode."""
-        return {'t0': 0, 'v1': self.plotter.slider.value / 1000}
+        return {'t0': 0, 'v1': self.plotter.slider.value}
 
     @property
     def corrected_gather(self):

@@ -222,7 +222,7 @@ class WeatheringVelocity:
         self.params = {key: params[key] for key in self._valid_keys}
 
         self._piecewise_offsets, self._piecewise_times = \
-            self._create_piecewise_coords(self.n_layers, self.params[f'x{self.n_layers-1}'] + 1000)
+            self._create_piecewise_coords(self.n_layers, self.params.get(f'x{self.n_layers-1}', 0) + 1000)
         self._piecewise_offsets, self._piecewise_times = \
             self._update_piecewise_coords(self._piecewise_offsets, self._piecewise_times,
                                           self._ms_to_kms(self.params, as_array=True), self.n_layers)
