@@ -24,14 +24,12 @@ class WeatheringVelocity:
     should have a higher velocity than any of the overlaying.
 
     The class could be created with `from_params` and `from_picking` classmethods.
-    If you have the weathering model parameters.
-    `from_params` - create a WeatheringVelocity instance and store parameters of the weathering model.
+    `from_params` - creates a WeatheringVelocity instance and stores the given parameters of the weathering model.
         Parameters : `params`.
-            `params` : dict with weathering model parameters. Read the valid keys notation below.
+            `params` : dict with the weathering model parameters. Key have the common notation.
 
-    If you have the estimate weathering model parameters.
-    `from_picking` - create a WeatheringVelocity instance, fit the parameters of the weathering model by the offsets,
-                     first break picking data and estimate parameters of the weathering model.
+    `from_picking` - creates a WeatheringVelocity instance, fits the parameters of the weathering model by the offsets,
+                     first break picking data, estimate parameters of the weathering model and stores it.
         Data : first break picking times and the corresponding offsets.
         Parameters : `init`, `bounds`, `n_layers`.
             `init` : dict with the estimate weathering model parameters. Read the valid keys notation below.
@@ -112,7 +110,6 @@ class WeatheringVelocity:
         self.init = None
         self.bounds = None
         self.n_layers = None
-        self.negative_t0 = None
         self.params = None
         self.interpolator = lambda offsets: np.zeros_like(offsets, dtype=np.float32)
 
@@ -124,7 +121,7 @@ class WeatheringVelocity:
 
     @classmethod
     def from_picking(cls, offsets, picking_times, init=None, bounds=None, n_layers=None, acsending_velocities=True,
-                     freeze_t0=False, negative_t0=False, **kwargs):
+                     freeze_t0=False, **kwargs):
         """Method fits the weathering model parameters from the offsets and the first break picking times.
 
         Parameters
@@ -159,7 +156,6 @@ class WeatheringVelocity:
         self = cls()
         init = {} if init is None else init
         bounds = {} if bounds is None else bounds
-        self.negative_t0 = negative_t0
         self._validate_values(init, bounds)
 
         self.offsets = offsets
@@ -409,7 +405,7 @@ class WeatheringVelocity:
                 current_time[i] = initial_time
             # move maximal velocity to 6 km/s
             current_slope[i] = max(.167 * self.max_offset / max_picking_times, current_slope[i])
-            current_time[i] =  current_time[i] if self.negative_t0 else max(0, current_time[i])
+            current_time[i] =  max(0, current_time[i])
             # raise base velocity for next layers (v = 1 / slope)
             initial_slope = current_slope[i] * (n_layers / (n_layers + 1))
             initial_time = current_time[i] + (cross_offsets[i + 1] - cross_offsets[i]) * current_slope[i]
@@ -427,8 +423,7 @@ class WeatheringVelocity:
         """Method returns dict with calculated bounds from a init dict."""
         bounds = {key: [val / 2, val * 2] for key, val in self.init.items()}
         if 't0' in self.init:
-            lower_bound = -200 if self.negative_t0 else 0
-            bounds['t0'] = [min(lower_bound, bounds['t0'][0]), max(200, bounds['t0'][1])]
+            bounds['t0'] = [min(0, bounds['t0'][0]), max(200, bounds['t0'][1])]
         return bounds
 
     def _validate_values(self, init, bounds):
@@ -437,8 +432,6 @@ class WeatheringVelocity:
         if negative_init:
             raise ValueError(f"Init parameters contain negative values {negative_init}.")
         negative_bounds = {key: val for key, val in bounds.items() if min(val) < 0}
-        if self.negative_t0:
-            negative_bounds.pop('t0', None)
         if negative_bounds:
             raise ValueError(f"Bounds parameters contain negative values {negative_bounds}.")
         reversed_bounds = {key: [left, right] for key, [left, right] in bounds.items() if left > right}
