@@ -175,8 +175,8 @@ class WeatheringVelocity:
         # piecewise func parameters
         self._piecewise_offsets, self._piecewise_times = self._create_piecewise_coords(self.n_layers, offsets.max())
         self._piecewise_offsets, self._piecewise_times = \
-            self._update_piecewise_coords(self._piecewise_offsets, self._piecewise_times, list(self.init.values()),
-                                          self.n_layers)
+            self._update_piecewise_coords(self._piecewise_offsets, self._piecewise_times,
+                                          self._ms_to_kms(self.init, as_array=True), self.n_layers)
         self._empty_layers = np.histogram(self.offsets, self._piecewise_offsets)[0] ==  0
 
         constraints_list = self._get_constraints(acsending_velocities, freeze_t0)
@@ -185,8 +185,8 @@ class WeatheringVelocity:
         partial_loss_func = partial(self.loss_piecewise_linear, loss=kwargs.pop('loss', 'L1'),
                                     huber_coef=kwargs.pop('huber_coef', .1))
         minimizer_kwargs = {'method': 'SLSQP', 'constraints': constraints_list, **kwargs}
-        self._model_params = optimize.minimize(partial_loss_func, x0=list(self.init.values()),
-                                               bounds=list(self.bounds.values()), **minimizer_kwargs)
+        self._model_params = optimize.minimize(partial_loss_func, x0=self._ms_to_kms(self.init, as_array=True),
+                                               bounds=self._ms_to_kms(self.bounds, as_array=True), **minimizer_kwargs)
         self.params = dict(zip(self._valid_keys,
                                self._params_postprocceissing(self._model_params.x,
                                                              ascending_velocity=acsending_velocities)))
@@ -222,10 +222,10 @@ class WeatheringVelocity:
         self.params = {key: params[key] for key in self._valid_keys}
 
         self._piecewise_offsets, self._piecewise_times = \
-            self._create_piecewise_coords(self.n_layers, list(self.params.values())[self.n_layers-1] + 1000)
+            self._create_piecewise_coords(self.n_layers, self.params[f'x{self.n_layers-1}'] + 1000)
         self._piecewise_offsets, self._piecewise_times = \
             self._update_piecewise_coords(self._piecewise_offsets, self._piecewise_times,
-                                          list(self.params.values()), self.n_layers)
+                                          self._ms_to_kms(self.params, as_array=True), self.n_layers)
         self.interpolator = interp1d(self._piecewise_offsets, self._piecewise_times)
         return self
 
@@ -321,11 +321,11 @@ class WeatheringVelocity:
             "fun": lambda x: np.diff(x[self.n_layers:])}
         constraint_freeze_velocity = {  # freeze the velocity if no data for layer is found.
             "type": "eq",
-            "fun": lambda x: np.array(list(self.init.values()))[self.n_layers:][self._empty_layers]
+            "fun": lambda x: self._ms_to_kms(self.init, as_array=True)[self.n_layers:][self._empty_layers]
                              - x[self.n_layers:][self._empty_layers]}
         constraint_freeze_t0 = {  # freeze the intercept time if no data for layer is found.
             "type": "eq",
-            "fun": lambda x: np.array(list(self.init.values()))[:1][self._empty_layers[:1]]
+            "fun": lambda x: self._ms_to_kms(self.init, as_array=True)[:1][self._empty_layers[:1]]
                                       - x[:1][self._empty_layers[:1]]}
         constraint_freeze_init_t0 = {  # freeze `t0` at init value
             "type": "eq",
@@ -411,7 +411,7 @@ class WeatheringVelocity:
             initial_time = current_time[i] + (cross_offsets[i + 1] - cross_offsets[i]) * current_slope[i]
             # initial_time = current_time[i] + (current_slope[i] - initial_slope) * cross_offsets[i + 1]
         velocities = 1 / (current_slope * max_picking_times / self.max_offset)
-        init = [current_time[0] * max_picking_times, *cross_offsets[1:-1] * self.max_offset, *velocities]
+        init = [current_time[0] * max_picking_times, *cross_offsets[1:-1] * self.max_offset, *(velocities * 1000)]
         init = dict(zip(self._get_valid_keys(n_layers), init))
         return init
 
@@ -457,6 +457,7 @@ class WeatheringVelocity:
 
     def _params_postprocceissing(self, params, ascending_velocity):
         """Checks the parameters and fix it if constraints are not met."""
+        params[self.n_layers:] *= 1000
         mask_offsets = self._piecewise_offsets[2:] - params[1:self.n_layers] < 0
         params[1:self.n_layers][mask_offsets] = self._piecewise_offsets[2:][mask_offsets]  # move cross offsets
         if ascending_velocity:  # move velocities
@@ -464,7 +465,17 @@ class WeatheringVelocity:
                 params[i + 1] = max(params[i], params[i + 1])
         return params
 
-    def _calc_coords_from_params(self, params, max_offset=np.nan):
+    def _ms_to_kms(self, params, as_array=False):
+        """Turns velocity in the given dict from m/s to km/s."""
+        # print("params: ", params)
+        values = np.array(list(params.values()))
+        # print("values: ", values)
+        values[self.n_layers:] = values[self.n_layers:] / 1000
+        if as_array:
+            return values
+        return dict(zip(self._valid_keys, values))
+
+    def _calc_coords_from_params(self, params, max_offset=np.nan):  # not used now
         """Method calculate coords for the piecewise linear curve from params dict.
 
         Parameters
@@ -534,8 +545,8 @@ class WeatheringVelocity:
             txt_info = f"t0 : {params[0]:.2f} ms"
             if self.n_layers > 1:
                 txt_info += '\ncrossover offsets : ' + ', '.join(f"{round(x)}" for x in params[1:self.n_layers]) + ' m'
-            txt_info += '\nvelocities : ' + ', '.join(f"{v:.2f}" for v in params[self.n_layers:]) + ' km/s'
-            txt_kwargs = {'fontsize': 15, 'va': 'top', **txt_kwargs}
+            txt_info += '\nvelocities : ' + ', '.join(f"{v:.0f}" for v in params[self.n_layers:]) + ' m/s'
+            txt_kwargs = {'fontsize': 12, 'va': 'top', **txt_kwargs}
             txt_ident = txt_kwargs.pop('ident', (.03, .94))
             ax.text(*txt_ident, txt_info, transform=ax.transAxes, **txt_kwargs)
 
