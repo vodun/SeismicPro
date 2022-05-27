@@ -36,9 +36,10 @@ class GeometryControl:
         return self
 
     @classmethod
-    def by_minimize(cls, gather, n_layers=1, **kwargs):
+    def by_minimize(cls, gather, n_layers=1, set_diff="times", **kwargs):
         self = cls()
 
+        self.diff_type = set_diff
         self._debug = []
         self.gather = gather.sort(by='offset')
         self.weathering_velocity = gather.calculate_weathering_velocity(n_layers=n_layers)
@@ -121,7 +122,14 @@ class GeometryControl:
 
         self.direction = direction / value
         self.transverse = np.matmul(self.direction, normal_turn)
-        self.difference = self.get_difference()
+
+        if self.diff_type == "times":
+            self.difference = self.get_difference()  # or value
+        if self.diff_type == "slope":
+            self.difference = np.degrees(np.arctan(value))
+        if self.diff_type == "value":
+            self.difference = value * 100
+
 
     def get_difference(self):
         """Return difference between the picking times after LMO in two gather parts separated by a transverse line."""
@@ -164,10 +172,12 @@ class GeometryControl:
                          c=c, vmin=-c.max(), vmax=c.max())
         ax.plot(np.array([-self.transverse[0], self.transverse[0]]) * self.gather.offsets.max() / 2 + source_x,
                 np.array([-self.transverse[1], self.transverse[1]]) * self.gather.offsets.max() / 2 + source_y)
+        scaler = {"times": 30, "slope": 3, "value": 4}
+        scale_value = scaler[self.diff_type]
         ax.quiver(source_x[0], source_y[0], self.direction[0], self.direction[1],
-                  scale=30/self.difference, scale_units='inches')
+                  scale=scale_value/self.difference, scale_units='inches')
         ax.set_title(**{"label": None, **title})
         divider = make_axes_locatable(ax)
         add_colorbar(ax, img, colorbar, divider=divider, y_ticker=y_ticker)
-        set_ticks(ax, "x", tick_labels=None, label="source_x", **x_ticker)
-        set_ticks(ax, "y", tick_labels=None, label="source_y", **y_ticker)
+        set_ticks(ax, "x", tick_labels=None, label="x", **x_ticker)
+        set_ticks(ax, "y", tick_labels=None, label="y", **y_ticker)

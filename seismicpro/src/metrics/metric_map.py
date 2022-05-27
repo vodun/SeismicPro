@@ -249,13 +249,15 @@ class ScatterMap(BaseMetricMap):
         ax.scatter(coords_x, coords_y, c=map_data, **kwargs)
         metric_data = self.metric_data.copy()
         metric_data.set_index(["SourceX", "SourceY"], inplace=True)
-        metric_data[["arrow_x", "arrow_y"]] = np.array([list(items.values()) for items in metric_data[self.metric_name]]).reshape(-1, 2)
+        metric_data[["arrow_x", "arrow_y"]] = np.array([list(items.values())
+                                                        for items in metric_data[self.metric_name]]).reshape(-1, 2)
         metric_data.drop(self.metric_name, axis=1, inplace=True)
 
         metric_data = map_data.to_frame().join(metric_data, how="inner")
-
+        scaler = {"times": 150, "slope": 15, "value": 20}
+        scale_value = scaler["slope"]
         return ax.quiver(coords_x, coords_y, metric_data["arrow_x"], metric_data["arrow_y"],
-                         scale=150/map_data.values, scale_units='inches', alpha=.8)
+                         scale=scale_value/map_data.values, scale_units='inches', alpha=.8)
 
 
 class BinarizedMap(BaseMetricMap):

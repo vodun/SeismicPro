@@ -961,9 +961,9 @@ class Gather(TraceContainer, SamplesContainer):
         return gather
 
     @batch_method(target="for")
-    def calculate_geometry_control(self):
+    def calculate_geometry_control(self, **kwargs):
         """Calculate GeometryControl object with azimutal difference of expected and true first break picking times."""
-        return GeometryControl.by_minimize(self)
+        return GeometryControl.by_minimize(self, **kwargs)
 
     #------------------------------------------------------------------------#
     #                       General processing methods                       #

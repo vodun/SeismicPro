@@ -11,7 +11,8 @@ class GeomControlMetric(PipelineMetric):
     name = "geom_control"
     is_lower_better = True
     vmin = 0
-    vmax = 40
+    vmax = 40 if getattr(self, vmax) is None else getattr(self, vmax)
+    print(vmax)
 
     @classmethod
     def calc(cls, gather, geom_control, **kwargs):
