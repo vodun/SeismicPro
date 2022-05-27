@@ -16,6 +16,13 @@ EPS = 1e-10
 
 class TracewiseMetric(PipelineMetric):
 
+    args_to_unpack = "gather"
+
+
+    min_value = None
+    max_value = None
+    is_lower_better = True
+
     views = ("plot_res", "plot_image_filter", "plot_worst_trace", "plot_wiggle")
 
     threshold = 10
@@ -46,30 +53,31 @@ class TracewiseMetric(PipelineMetric):
         return res
 
     @classmethod
-    def aggr(cls, gather, from_headers=False, tracewise=False):
+    def aggr(cls, gather, from_headers=None, to_headers=None, tracewise=False):
 
-        twm_hdr = '_'.join(['twm', cls.__name__, gather.survey.name])
-
-        if from_headers and twm_hdr in gather.headers:
-            return gather.headers[twm_hdr].values
+        if from_headers and from_headers in gather.headers:
+            return gather.headers[from_headers].values
 
         res = cls.filter_res(gather)
 
         fn = np.nanmax if cls.is_lower_better else np.nanmin
 
         tw_res = res if res.ndim == 1 else fn(res, axis=1)
-        gather.headers[twm_hdr] = tw_res
+
+        if to_headers:
+            twm_hdr = to_headers if isinstance(to_headers, str) else (from_headers or '_'.join(['twm', cls.__name__, gather.survey.name]))
+            gather.headers[twm_hdr] = tw_res
 
         if tracewise:
             return tw_res
         return fn(tw_res)
 
     @classmethod
-    def calc(cls, gather, from_headers=False):
-        return cls.aggr(gather, from_headers, tracewise=False)
+    def calc(cls, gather, from_headers=None, to_headers=None):
+        return cls.aggr(gather, from_headers, to_headers, tracewise=False)
 
     @pass_calc_args
-    def plot_res(cls, gather, ax, from_headers=False, **kwargs):
+    def plot_res(cls, gather, ax, from_headers=None, to_headers=None, **kwargs):
         gather.plot(ax=ax, **kwargs)
         divider = make_axes_locatable(ax)
 
@@ -84,21 +92,21 @@ class TracewiseMetric(PipelineMetric):
         set_title(top_ax, gather)
 
     @pass_calc_args
-    def plot_wiggle(cls, gather, ax, from_headers=False, **kwargs):
+    def plot_wiggle(cls, gather, ax, from_headers=None, to_headers=None, **kwargs):
         fn = np.greater_equal if cls.is_lower_better else np.less_equal
         res = fn(cls.filter_res(gather), cls.threshold)
         wiggle_plot_with_filter(gather.data, res, ax, std=0.5)
         set_title(ax, gather)
 
     @pass_calc_args
-    def plot_image_filter(cls, gather, ax, from_headers=False, **kwargs):
+    def plot_image_filter(cls, gather, ax, from_headers=None, to_headers=None, **kwargs):
         fn = np.greater_equal if cls.is_lower_better else np.less_equal
         res = fn(cls.filter_res(gather), cls.threshold)
         image_filter(gather.data, res, ax)
         set_title(ax, gather)
 
     @pass_calc_args
-    def plot_worst_trace(cls, gather, ax, from_headers=False, **kwargs):
+    def plot_worst_trace(cls, gather, ax, from_headers=None, to_headers=None, **kwargs):
         res = cls.filter_res(gather)
         plot_worst_trace(ax, gather.data, gather.headers.TraceNumber.values, res, is_lower_better=cls.is_lower_better)
         set_title(ax, gather)
@@ -298,10 +306,15 @@ class StdFraqMetric(TracewiseMetric):
 
 def add_metric(ppl, metric_cls, src='raw', **kwargs):
     acc_name = '_'.join(['mmap', metric_cls.__name__, src])
-    ppl =  ppl.init_variable(acc_name).calculate_metric(metric_cls, gather=src, save_to=V(acc_name, mode="a"), **kwargs)
-
-    acc_name =  '_'.join(['twm', metric_cls.__name__, src])
-    ppl = ppl.init_variable(acc_name, []).call(lambda gathers: [metric_cls.aggr(gather, tracewise=True, from_headers=True) for gather in gathers], B(src), save_to=V(acc_name, mode="e"))
+    twm_name =  '_'.join(['twm', metric_cls.__name__, src])
+    ppl = (ppl
+           .init_variable(acc_name)
+           .calculate_metric(metric_cls, gather=src, save_to=V(acc_name, mode="a"), to_headers=twm_name, **kwargs)
+           ########## trace-wise metics to ppl variable #####################
+           .init_variable(twm_name, [])
+           .apply_parallel(metric_cls.aggr, src=src, dst=twm_name, from_headers=twm_name, tracewise=True)
+           .update(V(twm_name, mode='e'), B(twm_name))
+    )
 
     return ppl
 
