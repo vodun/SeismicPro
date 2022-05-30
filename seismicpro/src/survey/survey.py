@@ -15,13 +15,12 @@ from scipy.interpolate import interp1d
 from .headers import load_headers
 from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
-from .utils import ibm_to_ieee, calculate_trace_stats, create_supergather_index, calculate_stats_mult
+from .utils import ibm_to_ieee, calculate_trace_stats, create_supergather_index
 from ..gather import Gather
 from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
-from ..utils import to_list, maybe_copy, get_cols, has_maxabs_clips, calc_spikes, create_indexer
-from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_CLIP, HDR_FIRST_BREAK, HDR_SPIKES, HDR_AUTOCORR, \
-                    HDR_ABS_VALS, HDR_STD, EPS
+from ..utils import to_list, maybe_copy, get_cols
+from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK
 
 
 class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-instance-attributes
@@ -457,115 +456,18 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         trace = np.empty(n_samples, dtype=self.trace_dtype)
 
-        indicators = [HDR_DEAD_TRACE, HDR_CLIP]
-        indicators_val = [] #HDR_SPIKES, HDR_AUTOCORR, HDR_ABS_VALS, HDR_ALMOST_DEAD_TRACE]
-        indices = {k: [] for k in indicators + indicators_val}
-
+        dead_indices = []
         for tr_index, pos in tqdm(enumerate(traces_pos), desc=f"Detecting dead traces for survey {self.name}",
                                   total=len(self.headers), disable=not bar):
             self.load_trace_segyio(buf=trace, index=pos, limits=limits, trace_length=n_samples)
-            trace_min, trace_max, trace_mean, trace_var = calculate_trace_stats(trace)
+            trace_min, trace_max, *_ = calculate_stats(trace)
 
-            if math.isclose(trace_min, trace_max, rel_tol=1e-09, abs_tol=0.0):
-                indices[HDR_DEAD_TRACE].append(tr_index)
+            if math.isclose(trace_min, trace_max):
+                dead_indices.append(tr_index)
 
-                # for hdr in indicators_val:
-                #     indices[hdr].append(None)
-
-            elif has_maxabs_clips(trace):
-                indices[HDR_CLIP].append(tr_index)
-
-            # else:
-            #     std = np.sqrt((trace_sq_sum / n_samples) - (trace_sum / n_samples)**2)
-            #     norm_trace = (trace - trace_sum/n_samples)/std
-
-            #     if has_maxabs_clips(norm_trace):
-            #         indices[HDR_CLIP].append(tr_index)
-
-            #     spikes = calc_spikes(norm_trace)
-
-            #     indices[HDR_SPIKES].append(np.max(spikes))
-            #     indices[HDR_AUTOCORR].append(np.sum(norm_trace[1:]*norm_trace[:-1])/n_samples)
-            #     indices[HDR_ABS_VALS].append(std/max(trace_max, -trace_min))
-            #     indices[HDR_ALMOST_DEAD_TRACE].append(std)
-
-        self.n_dead_traces = len(indices[HDR_DEAD_TRACE])
-
-        for hdr in indicators:
-            self.headers[hdr] = False
-            self.headers.iloc[indices[hdr], self.headers.columns.get_loc(hdr)] = True
-
-        for hdr in indicators_val:
-            self.headers[hdr] = indices[hdr]
-
-        return self
-
-
-    def mark_dead_traces_batch(self, batch_size, limits=None, bar=True):
-        """Mark dead traces (those having constant amplitudes) by setting a value of a new `DeadTrace`
-        header to `True` and store the overall number of dead traces in the `n_dead_traces` attribute.
-
-        Parameters
-        ----------
-        limits : int or tuple or slice or None, optional, defaults to None
-            Time range that is used to detect dead traces.
-            `int` or `tuple` are used as arguments to init a `slice` object.
-            If None, whole traces are loaded. Measured in samples.
-        bar : bool, optional, defaults to True
-            Whether to show a progress bar.
-
-        Returns
-        -------
-        survey : Survey
-            The same survey with a new `DeadTrace` header created.
-        """
-
-        limits = self.limits if limits is None else self._process_limits(limits)
-
-        traces_pos = self["TRACE_SEQUENCE_FILE"].ravel() - 1
-        n_samples = len(self.file_samples[limits])
-        n_traces = len(traces_pos)
-
-        indicators = [HDR_DEAD_TRACE, HDR_CLIP]
-        indicators_val = [HDR_SPIKES, HDR_AUTOCORR, HDR_STD]
-        buffers = {k: np.empty(n_traces, dtype=np.bool8) for k in indicators}
-        buffers.update({k: np.empty(n_traces, dtype=np.float32) for k in indicators_val})
-
-
-        data = np.empty((batch_size, n_samples), dtype=np.float32)
-
-        for tr_index, pos in tqdm(enumerate(traces_pos), desc=f"Detecting dead traces for survey {self.name}",
-                                  total=n_traces, disable=not bar):
-            trace = data[tr_index % batch_size]
-            self.load_trace(buf=trace, index=pos, limits=limits, trace_length=n_samples)
-
-            if tr_index == n_traces - 1 or tr_index % batch_size == batch_size - 1:
-                traces = data[:tr_index % batch_size + 1]
-
-                trace_min, trace_max, trace_sum, trace_sq_sum = calculate_stats_mult(traces)
-
-                dead_traces = np.isclose(trace_min, trace_max, rtol=1e-09, atol=0.0)
-                clips = has_maxabs_clips(traces)
-
-                curr_ind = slice(tr_index - len(dead_traces) + 1, tr_index + 1)
-
-                buffers[HDR_DEAD_TRACE][curr_ind] = dead_traces
-                buffers[HDR_CLIP][curr_ind] = clips
-
-                std = np.sqrt((trace_sq_sum / n_samples) - (trace_sum / n_samples)**2)
-                norm_traces = (traces - trace_sum/n_samples)/(std + EPS)
-
-                spikes = np.max(calc_spikes(norm_traces), axis=1)
-                autocorr = np.sum(norm_traces[...,1:] * norm_traces[..., :-1], axis=1)/n_samples
-
-                buffers[HDR_SPIKES][curr_ind] = spikes
-                buffers[HDR_AUTOCORR][curr_ind] = autocorr
-                buffers[HDR_STD][curr_ind] = std.squeeze(1)
-
-        self.n_dead_traces = sum(buffers[HDR_DEAD_TRACE])
-
-        for hdr in buffers:
-            self.headers[hdr] = buffers[hdr]
+        self.n_dead_traces = len(dead_indices)
+        self.headers[HDR_DEAD_TRACE] = False
+        self.headers.iloc[dead_indices, self.headers.columns.get_loc(HDR_DEAD_TRACE)] = True
 
         return self
 

@@ -42,25 +42,6 @@ def ibm_to_ieee(hh, hl, lh, ll):
 
 
 @njit(nogil=True)
-def calculate_stats_mult(traces):
-    """Calculate min, max, sum and sum of squares of trace amplitudes."""
-
-    n_traces = len(traces)
-    traces_min = np.full(n_traces, np.inf, dtype=traces.dtype)
-    traces_max = np.full(n_traces, -np.inf, dtype=traces.dtype)
-    traces_sum = np.zeros((n_traces, 1), dtype=traces.dtype)
-    traces_sq_sum = np.zeros((n_traces, 1), dtype=traces.dtype)
-
-    for i in range(n_traces):
-        for sample in traces[i]:
-            traces_min[i] = min(sample, traces_min[i])
-            traces_max[i] = max(sample, traces_max[i])
-            traces_sum[i] += sample
-            traces_sq_sum[i] += sample**2
-    return traces_min, traces_max, traces_sum, traces_sq_sum
-
-
-@njit(nogil=True)
 def create_supergather_index(centers, size):
     """Create a mapping from supergather centers to coordinates of gathers in them.
 
