@@ -112,11 +112,11 @@ stacking_pipeline = (dataset
                                  start_velocity_range=START_VELOCITY_RANGE,
                                  end_velocity_range=END_VELOCITY_RANGE,
                                  n_times=N_TIMES, n_velocities=N_VELOCITIES)
-    .get_central_cdp(src="raw")
+    .get_central_gather(src="raw")
     .apply_nmo(src="raw", stacking_velocity="velocity")
     .mute(src="raw", muter=muter, fill_value=np.nan)
     .stack(src="raw")
-    .dump(src="raw", path=STACK_TRACE_PATH, copy_header=False)
+    .dump(src="raw", path=STACK_TRACE_PATH)
 )
 
 stacking_pipeline.run(BATCH_SIZE, n_epochs=1)
