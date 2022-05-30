@@ -1,4 +1,4 @@
-"""Implementation of tests for survey"""
+"""Implementation of tests for Gather"""
 
 # pylint: disable=redefined-outer-name
 from itertools import product, combinations
@@ -44,11 +44,8 @@ def compare_gathers(first, second, drop_cols=None, check_types=False, same_surve
     first_headers = first.headers.reset_index()
     second_headers = second.headers.reset_index()
     if drop_cols:
-        first.validate(required_header_cols=drop_cols)
-        second.validate(required_header_cols=drop_cols)
-
-        first_headers.drop(columns=drop_cols, inplace=True)
-        second_headers.drop(columns=drop_cols, inplace=True)
+        first_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
+        second_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
 
     assert len(first_headers) == len(second_headers)
     if len(first_headers) > 0:
@@ -236,11 +233,6 @@ def test_gather_get_coords(gather):
 def test_gather_sort(gather):
     """test_gather_sort"""
     gather.sort(by='offset')
-
-def test_gather_validate(gather):
-    """test_gather_validate"""
-    gather.sort(by='offset')
-    gather.validate(required_header_cols=['offset', 'FieldRecord'], required_sorting='offset')
 
 def test_gather_muting(gather):
     """test_gather_muting"""

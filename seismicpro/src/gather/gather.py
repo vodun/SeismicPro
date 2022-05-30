@@ -271,34 +271,6 @@ class Gather(TraceContainer, SamplesContainer):
         """An interface for `self.__getitem__` method."""
         return self[args if len(args) > 1 else args[0]]
 
-    def validate(self, required_header_cols=None, required_sorting=None):
-        """Perform the following checks for a gather:
-            1. Its headers contain all columns from `required_header_cols`,
-            2. It is sorted by `required_sorting` header.
-
-        Parameters
-        ----------
-        required_header_cols : None or str or array-like of str, defaults to None
-            Required gather headers columns. If `None`, no check is performed.
-        required_sorting : None or str, defaults to None
-            Required gather sorting. If `None`, no check is performed.
-
-        Returns
-        -------
-        self : Gather
-            Self unchanged.
-
-        Raises
-        ------
-        ValueError
-            If any of checks above failed.
-        """
-        if required_header_cols is not None:
-            validate_cols_exist(self.headers, required_header_cols)
-        if (required_sorting is not None) and (self.sort_by != required_sorting):
-            raise ValueError(f"Gather should be sorted by {required_sorting} not {self.sort_by}")
-        return self
-
     def _post_filter(self, mask):
         """Remove traces from gather data that correspond to filtered headers after `Gather.filter`."""
         self.data = self.data[mask]
