@@ -16,8 +16,8 @@ from .cropped_gather import CroppedGather
 from .plot_corrections import NMOCorrectionPlot
 from .utils import correction, normalization, gain
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
-from ..utils import (to_list, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
-                     set_text_formatting, add_colorbar, piecewise_polynomial, Coordinates)
+from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_yticklabels, set_text_formatting,
+                     add_colorbar, piecewise_polynomial, Coordinates)
 from ..containers import TraceContainer, SamplesContainer
 from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, VelocityCube
@@ -1014,7 +1014,7 @@ class Gather(TraceContainer, SamplesContainer):
         kind : int or str, defaults to 3
             The interpolation method to use.
             If int, use piecewise polynomial interpolation with degree `kind`;
-            if str, deligate interpolation to scipy.interp1d with mode `kind`.
+            if str, delegate interpolation to scipy.interp1d with mode `kind`.
         anti_aliasing : bool, defaults to True
             Whether to apply anti-aliasing filter or not. Ignored in case of upsampling.
 
