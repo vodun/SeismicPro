@@ -82,7 +82,9 @@ class Gather(TraceContainer, SamplesContainer):
 
     @property
     def index(self):
-        """int or tuple of int or None: Common value of `Survey`'s `header_index` that define traces of the gather. `None` if the gather is combined."""
+        """int or tuple of int or None: Common value of `Survey`'s `header_index` that define traces of the gather.
+        `None` if the gather is combined.
+        """
         indices = self.headers.index.drop_duplicates()
         if len(indices) != 1:
             return None
