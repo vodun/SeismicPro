@@ -17,7 +17,7 @@ from .plot_corrections import NMOCorrectionPlot
 from .utils import correction, normalization, gain
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
 from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_yticklabels, set_text_formatting,
-                     add_colorbar, piecewise_polynomial, Coordinates)
+                     add_colorbar, piecewise_polynomial, Coordinates, dump_header)
 from ..containers import TraceContainer, SamplesContainer
 from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, VelocityCube
@@ -685,15 +685,7 @@ class Gather(TraceContainer, SamplesContainer):
             Gather unchanged
         """
 
-        rows = self[to_list(trace_id_cols) + [header_col]]
-
-        # SEG-Y specification states that all headers values are integers, but first break values can be float
-        row_fmt = '{:{col_space}.0f}' * (rows.shape[1] - 1) + '{:{col_space}.2f}\n'
-        fmt = row_fmt * len(rows)
-        rows_as_str = fmt.format(*rows.ravel(), col_space=col_space)
-
-        with open(path, 'a', encoding=encoding) as f:
-            f.write(rows_as_str)
+        dump_header(self, path, header_col, trace_id_cols, col_space, encoding)
         return self
 
     #------------------------------------------------------------------------#
