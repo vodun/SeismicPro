@@ -96,7 +96,7 @@ class BaseCoherency:
 
     @staticmethod
     @njit(nogil=True, fastmath={'ninf'}, parallel=True)
-    def stacked_amplitude_2(corrected_gather):
+    def stacked_amplitude(corrected_gather):
         numerator = np.zeros(corrected_gather.shape[0])
         denominator = np.ones(corrected_gather.shape[0])
         for i in prange(corrected_gather.shape[0]):
@@ -105,7 +105,7 @@ class BaseCoherency:
 
     @staticmethod
     @njit(nogil=True, fastmath={'ninf'}, parallel=True)
-    def normalized_stacked_amplitude_2(corrected_gather):
+    def normalized_stacked_amplitude(corrected_gather):
         numerator = np.zeros(corrected_gather.shape[0])
         denominator = np.zeros(corrected_gather.shape[0])
         for i in prange(corrected_gather.shape[0]):
