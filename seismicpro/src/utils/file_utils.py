@@ -22,7 +22,7 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=False, keep_exts=(
     out_path : str
         A path to the resulting merged file.
     recursive : bool, optional, defaults to False
-        Whether to treat '**' pattern in `in_paths` as zero or more directories to perfrom a recursive file search.
+        Whether to treat '**' pattern in `in_paths` as zero or more directories to perform a recursive file search.
     mmap : bool, optional, defaults to False
         Whether to perform memory mapping of input files. Setting this flag to `True` may result in faster reads.
     keep_exts : None, array-like, optional, defaults to ("sgy", "segy")
@@ -30,7 +30,7 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=False, keep_exts=(
     delete_in_files : bool, optional, defaults to False
         Whether to delete source files, defined by `in_paths`.
     bar : bool, optional, defaults to True
-        Whether to show the progres bar.
+        Whether to show the progress bar.
 
     Raises
     ------
@@ -224,7 +224,7 @@ def make_prestack_segy(path, fmt=5, survey_size=(1000, 1000), origin=(0, 0), sou
     bin_size : tuple of ints, defaults to (50, 50)
         Size of a CDP bin in meters.
     activation_dist : tuple of ints, defaults to (500, 500)
-        Maximum distance from source to active receiver along each axis. Each source activates a rectanglar field of
+        Maximum distance from source to active receiver along each axis. Each source activates a rectangular field of
         receivers with source at its center and shape (2 * activation_dist[0], 2 * activation_dist[1])
     n_samples : int, defaults to 1500
         Number of samples in traces.
