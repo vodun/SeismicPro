@@ -722,7 +722,7 @@ class Gather(TraceContainer, SamplesContainer):
         freeze_t0 : bool, defaults to False
             Avoid the fitting intercept time ('t0').
         kwargs : dict, optional
-            Additional keyword arguments to `scipy.optimize.minimize`.
+            Additional keyword arguments.
 
         Returns
         -------

@@ -23,68 +23,60 @@ class WeatheringVelocity:
     Since the class uses the first break picking time to fit the detected velocities, any detected underlaying layers
     should have a higher velocity than any of the overlaying.
 
-    The class could be created with `from_params` and `from_picking` classmethods.
+    The class could be created from `from_params` and `from_picking` classmethods.
     `from_params` - creates a WeatheringVelocity instance and stores the given parameters of the weathering model.
         Parameters : `params`.
-            `params` : dict with the weathering model parameters. Key have the common notation.
+            `params` : dict with the weathering model parameters. Keys have the valid notation
 
     `from_picking` - creates a WeatheringVelocity instance, fits the parameters of the weathering model by the offsets,
                      first break picking data, estimate parameters of the weathering model and stores it.
         Data : first break picking times and the corresponding offsets.
-        Parameters : `init`, `bounds`, `n_layers`.
-            `init` : dict with the estimate weathering model parameters. Read the valid keys notation below.
-            `bounds` : dict with left and right bound for each weathering model parameter.
-                    Read the valid keys notation below.
-            `n_layers` : the quantity of the weathering model layers.
-
-    The WeatheringVelocity created with `from_picking` classmethod could calculate the missing parameters from
-    the passed parameters.
-    Rules for the calculating missing parameters:
-        `init` : calculated from `bounds`. lower bound + (upper bounds - lower bounds) / 3
-                 calculated from `n_layers`. Read `_calc_init_by_layers` docs to get more info.
-        `bounds` : calculated from `init`. The lower bound is init / 2, the upper bound is init * 2.
-                   calculated from `n_layers`. `init` calculates first and uses the above expression.
-        `n_layers`: calculated from `bounds`. Half of the the `bounds` keys.
-                    calculated from `init`. Calculates `bounds` from `init` first and uses the above rule.
-    Note: All passed parameters have a greater priority than any calculated parameters.
+        Parameters : `init`, `bounds` or `n_layers`.
+            `init` : dict with the estimate weathering model parameters. Keys have the valid notation.
+            `bounds` : dict with left and right bounds for each weathering model parameter. Keys have the valid
+                       notation.
+            `n_layers` : quantity of the weathering model layers.
 
     Valid keys notation.
-        `init`, `bounds` and `params` is dicts with the valid key notation.
-            `t0`: a intercept time of the first subweathering layer. Same as double wave travel time to the first
-                  refractor. Measured in milliseconds.
-            `x{i}`: cross offset. The offset where refracted wave from the i-th layer comes at the same time with
-                    a refracted wave from the next underlaying layer. Measured in meters.
-            `v{i}`: velocity of the i-th layer. Measured in kilometers/seconds.
+        `t0`: a intercept time of the first subweathering layer. Same as double wave travel time to the first
+                refractor. Measured in milliseconds.
+        `x{i}`: cross offset. The offset where refracted wave from the i-th layer comes at the same time with
+                a refracted wave from the next underlaying layer. Measured in meters.
+        `v{i}`: velocity of the i-th layer. Measured in meters per seconds.
+
+    The WeatheringVelocity created with `from_picking` classmethod calculates the missing parameters from passed
+    parameters. The passed and calculated `init`, `bounds` and `n_layers` parameters are stored in class atributes with
+    corresponding names.
 
     Examples
     --------
-    Create the Survey and load the first break picking.
-    >>> survey = Survey(survey_path, header_index="FieldRecord", header_cols="offset")
-    >>> survey = survey.load_first_breaks(picking_path)
-    Load a randomly selected common source gather.
-    >>> gather = survey.sample_gather()
+    Create the WeatheringVelocity instance with `from_picking` classmethod (avoid the fitting procedure):
+    >>> weathering_velocity = WeatheringVelocity.from_params(params={'t0': 100, 'x1': 1500, 'v1': 2, 'v2': 3})
 
-    Create the WeatheringVelocity instance with `from_picking` method for two layers weathering model.
+    Using `from_picking` classmethod to create the WeatheringVelocity instance.
+    Create the Survey and load the first break picking.
+    >>> survey = Survey(survey_path, header_index="FieldRecord", header_cols=["offset", "TraceNumber"])
+    >>> survey = survey.load_first_breaks(picking_path)
+    Load the offsets and picking times from a randomly selected common source gather.
+    >>> gather = survey.sample_gather()
     >>> offsets = gahter.offsets
     >>> picking = gather['FirstBreak'].ravel()
+
+    Two layers weathering model by `n_layers`:
     >>> weathering_velocity = WeatheringVelocity.from_picking(offsets, picking, n_layers=2)
     Note: Gather's method `calculate_weathering_velocity` uses the `from_picking` classmethod.
 
-    A WeatheringVelocity object with initial parameters for two layers weathering model:
+    Two layers weathering model by `init`:
     >>> initial_params = {'t0': 100, 'x1': 1500, 'v1': 2, 'v2': 3}
     >>> weathering_velocity = WeatheringVelocity.from_picking(offsets, picking, init=initial_params)
 
-    A WeatheringVelocity object with bounds for fitted intercept time and velocity of the first layer for the one
-    layer weathering model:
+    One layers weathering model by `bounds`:
     >>> weathering_velocity = WeatheringVelocity.from_picking(offsets, picking, bounds={'t0': [0, 200], 'v1': [1, 3]})
 
-    Also mixing parameters are possible (two layers weathering model):
+    Three layers weathering model by mixing parameters:
     >>> weathering_velocity = WeatheringVelocity.from_picking(offsets, picking, init={'x1': 200, 'v1': 1},
                                                                                 bounds={'t0': [0, 50]},
                                                                                 n_layers=3)
-
-    A Weathering Velocity object with known parameters (avoid the fitting procedure):
-    >>> weathering_velocity = WeatheringVelocity.from_params(params={'t0': 100, 'x1': 1500, 'v1': 2, 'v2': 3})
 
     Attributes
     ----------
@@ -94,14 +86,14 @@ class WeatheringVelocity:
         Picking times of traces. Measured in milliseconds.
     init : dict
         The inital values used to fit the parameters of the weathering model. Includes the calculated non-passed
-        keys and values. Have the common key notation.
+        keys and values. Have the valid key notation.
     bounds : dict
         The left and right bounds used to fit the parameters of the weathering model. Includes the calculated
-        non-passed keys and values. Have the common key notation.
+        non-passed keys and values. Have the valid key notation.
     n_layers : int
         Number of the weathering model layers used to fit the parameters of the weathering model.
     params : dict
-        The fitted parameters of a weathering model. Have the common key notation.
+        The fitted parameters of a weathering model. Have the valid key notation.
     """
     def __init__(self):
         self.offsets = None
@@ -176,7 +168,7 @@ class WeatheringVelocity:
         self._piecewise_offsets, self._piecewise_times = self._create_piecewise_coords(self.n_layers, offsets.max())
         self._piecewise_offsets, self._piecewise_times = \
             self._update_piecewise_coords(self._piecewise_offsets, self._piecewise_times,
-                                          self._ms_to_kms(self.init, as_array=True), self.n_layers)
+                                          self._ms_to_kms(self.init), self.n_layers)
         self._empty_layers = np.histogram(self.offsets, self._piecewise_offsets)[0] ==  0
 
         constraints_list = self._get_constraints(acsending_velocities, freeze_t0)
@@ -185,8 +177,8 @@ class WeatheringVelocity:
         partial_loss_func = partial(self.loss_piecewise_linear, loss=kwargs.pop('loss', 'L1'),
                                     huber_coef=kwargs.pop('huber_coef', .1))
         minimizer_kwargs = {'method': 'SLSQP', 'constraints': constraints_list, **kwargs}
-        self._model_params = optimize.minimize(partial_loss_func, x0=self._ms_to_kms(self.init, as_array=True),
-                                               bounds=self._ms_to_kms(self.bounds, as_array=True), **minimizer_kwargs)
+        self._model_params = optimize.minimize(partial_loss_func, x0=self._ms_to_kms(self.init),
+                                               bounds=self._ms_to_kms(self.bounds), **minimizer_kwargs)
         self.params = dict(zip(self._valid_keys,
                                self._params_postprocceissing(self._model_params.x,
                                                              ascending_velocity=acsending_velocities)))
@@ -224,13 +216,13 @@ class WeatheringVelocity:
         self._piecewise_offsets, self._piecewise_times = \
             self._create_piecewise_coords(self.n_layers, self.params.get(f'x{self.n_layers-1}', 0) + 1000)
         self._piecewise_offsets, self._piecewise_times = \
-            self._update_piecewise_coords(self._piecewise_offsets, self._piecewise_times,
-                                          self._ms_to_kms(self.params, as_array=True), self.n_layers)
+            self._update_piecewise_coords(self._piecewise_offsets, self._piecewise_times, self._ms_to_kms(self.params),
+                                          self.n_layers)
         self.interpolator = interp1d(self._piecewise_offsets, self._piecewise_times)
         return self
 
     def __call__(self, offsets):
-        """Return predicted picking times using the offsets and fitted parameters of the weathering model."""
+        """Return the predicted picking times using the offsets and fitted parameters of the weathering model."""
         return self.interpolator(offsets)
 
     def __getattr__(self, key):
@@ -261,11 +253,13 @@ class WeatheringVelocity:
 
         Piecewise linear function is defined by the given `args`. `args` should be list-like and have the following
         structure:
-            args[0] : t0
+            args[0] : intercept time in milliseconds.
             args[1:n_layers] : cross offsets points in meters.
             args[n_layers:] : velocities of each weathering model layer in km/s.
             Total lenght of args should be n_layers * 2.
-        The list-like initial is due to the `scipy.optimize.minimize`.
+
+        Notes: 'init', 'bounds' and 'params' store velocity in m/s unlike args for `loss_piecewise_linear`.
+                The list-like initial is due to the `scipy.optimize.minimize`.
 
         Parameters
         ----------
@@ -321,11 +315,11 @@ class WeatheringVelocity:
             "fun": lambda x: np.diff(x[self.n_layers:])}
         constraint_freeze_velocity = {  # freeze the velocity if no data for layer is found.
             "type": "eq",
-            "fun": lambda x: self._ms_to_kms(self.init, as_array=True)[self.n_layers:][self._empty_layers]
+            "fun": lambda x: self._ms_to_kms(self.init)[self.n_layers:][self._empty_layers]
                              - x[self.n_layers:][self._empty_layers]}
         constraint_freeze_t0 = {  # freeze the intercept time if no data for layer is found.
             "type": "eq",
-            "fun": lambda x: self._ms_to_kms(self.init, as_array=True)[:1][self._empty_layers[:1]]
+            "fun": lambda x: self._ms_to_kms(self.init)[:1][self._empty_layers[:1]]
                                       - x[:1][self._empty_layers[:1]]}
         constraint_freeze_init_t0 = {  # freeze `t0` at init value
             "type": "eq",
@@ -364,10 +358,9 @@ class WeatheringVelocity:
         """Calculates `init` dict by a given an estimated quantity of layers.
 
         Method splits the picking times into `n_layers` equal part by cross offsets and fits a separate linear
-        regression on each part. Fitting the coefficient and intercept for the first part and fitting the coefficient
-        only for any next part. These linear functions are compiled together as a piecewise linear function.
-        Parameters of this piecewise function are recalculated to the weathering model parameters and returned as
-        `init` dict.
+        regression on each part. These linear functions are compiled together as a piecewise linear function.
+        Parameters of this piecewise function are calculated to the weathering model parameters and returned as `init`
+        dict.
 
         Parameters
         ----------
@@ -465,7 +458,7 @@ class WeatheringVelocity:
                 params[i + 1] = max(params[i], params[i + 1])
         return params
 
-    def _ms_to_kms(self, params, as_array=False):
+    def _ms_to_kms(self, params, as_array=True):
         """Turns velocity in the given dict from m/s to km/s."""
         # print("params: ", params)
         values = np.array(list(params.values()))
