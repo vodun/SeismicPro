@@ -401,8 +401,7 @@ class WeatheringVelocity:
             current_time[i] =  max(0, current_time[i])
             # raise base velocity for next layers (v = 1 / slope)
             initial_slope = current_slope[i] * (n_layers / (n_layers + 1))
-            initial_time = current_time[i] + (cross_offsets[i + 1] - cross_offsets[i]) * current_slope[i]
-            # initial_time = current_time[i] + (current_slope[i] - initial_slope) * cross_offsets[i + 1]
+            initial_time = current_time[i] + (current_slope[i] - initial_slope) * cross_offsets[i + 1]
         velocities = 1 / (current_slope * max_picking_times / self.max_offset)
         init = [current_time[0] * max_picking_times, *cross_offsets[1:-1] * self.max_offset, *(velocities * 1000)]
         init = dict(zip(self._get_valid_keys(n_layers), init))
@@ -451,18 +450,17 @@ class WeatheringVelocity:
     def _params_postprocceissing(self, params, ascending_velocity):
         """Checks the parameters and fix it if constraints are not met."""
         params[self.n_layers:] *= 1000
+        # used `self._piecewise_offsets - params` because `self._piecewise_offsets` is the same array with max_offset
         mask_offsets = self._piecewise_offsets[2:] - params[1:self.n_layers] < 0
-        params[1:self.n_layers][mask_offsets] = self._piecewise_offsets[2:][mask_offsets]  # move cross offsets
-        if ascending_velocity:  # move velocities
-            for i in range(self.n_layers, 2 * self.n_layers - 1):
-                params[i + 1] = max(params[i], params[i + 1])
+        params[1:self.n_layers][mask_offsets] = self._piecewise_offsets[2:][mask_offsets]
+        if ascending_velocity:
+            mask_velocity = np.diff(params[self.n_layers:]) < 0
+            params[self.n_layers:-1][mask_velocity] = params[self.n_layers + 1:][mask_velocity]
         return params
 
     def _ms_to_kms(self, params, as_array=True):
-        """Turns velocity in the given dict from m/s to km/s."""
-        # print("params: ", params)
+        """Turns velocity in the given valid dict of parameters from m/s to km/s."""
         values = np.array(list(params.values()))
-        # print("values: ", values)
         values[self.n_layers:] = values[self.n_layers:] / 1000
         if as_array:
             return values
