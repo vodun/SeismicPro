@@ -1,4 +1,4 @@
-""" Utilities test """
+""" Constant subsequences for QC """
 
 import pytest
 import numpy as np
@@ -15,6 +15,7 @@ CLIP_IND_PARAMS = [
 ]
 @pytest.mark.parametrize("arr,cmpval,expected", CLIP_IND_PARAMS)
 def test_get_const_indicator(arr, cmpval, expected):
+    """Test constant subsequence indicator"""
     assert np.allclose(get_const_indicator(np.asarray(arr), cmpval).astype(int), np.asarray(expected))
 
 CLIPLEN_IND_PARAMS = [
@@ -26,4 +27,5 @@ CLIPLEN_IND_PARAMS = [
 ]
 @pytest.mark.parametrize("arr,cmpval,expected", CLIPLEN_IND_PARAMS)
 def test_get_constlen_indicator(arr, cmpval, expected):
+    """Test constant subsequence length indicator"""
     assert np.allclose(get_constlen_indicator(np.asarray(arr), cmpval).astype(int), np.asarray(expected))

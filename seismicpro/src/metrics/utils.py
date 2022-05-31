@@ -77,6 +77,7 @@ def calc_spikes(arr):
 
 @njit
 def fill_nulls(arr):
+    """"Fill leading null values of array's row with the first non null value in a row."""
 
     n_samples = arr.shape[1]
 
@@ -89,6 +90,21 @@ def fill_nulls(arr):
 
 @njit(nogil=True)
 def get_const_indicator(traces, cmpval=None):
+    """Indicator of constant subsequences.
+
+    Parameters
+    ----------
+    traces : np.array
+        traces to analyse
+    cmpval : float or None, optional
+        If not None, only subsequences of this value are considered,
+        otherwize, of any constant value, by default None
+
+    Returns
+    -------
+    np.array
+        ???????????????
+    """
 
     if cmpval is None:
         indicator = (traces[..., 1:] == traces[..., :-1])
@@ -102,6 +118,7 @@ def get_const_indicator(traces, cmpval=None):
 
 @njit(nogil=True)
 def get_constlen_indicator(traces, cmpval=None):
+    """?????????????????????????????"""
 
     old_shape = traces.shape
 

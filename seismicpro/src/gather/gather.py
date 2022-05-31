@@ -659,7 +659,8 @@ class Gather(TraceContainer, SamplesContainer):
                                 col_space=col_space, encoding=encoding)
 
     @batch_method(target='for', use_lock=True)
-    def dump_header(self, path, header_col, trace_id_cols=('FieldRecord', 'TraceNumber'), col_space=8, encoding="UTF-8"):
+    def dump_header(self, path, header_col, trace_id_cols=('FieldRecord', 'TraceNumber'),
+                    col_space=8, encoding="UTF-8"):
         """ Save values from a heders column to a file.
 
         Each line in the resulting file corresponds to one trace, where all columns but
