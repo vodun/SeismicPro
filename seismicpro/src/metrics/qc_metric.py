@@ -151,8 +151,8 @@ class TracewiseMetric(PipelineMetric):
     def plot_worst_trace(cls, gather, ax, **kwargs):
         """Wiggle plot of the trace with the worst indicator value and 2 its neighboring traces."""
         _ = kwargs
-        res = cls.filter_res(gather)
-        plot_worst_trace(ax, gather.data, gather.headers.TraceNumber.values, res, is_lower_better=cls.is_lower_better)
+        res = cls.aggr(gather, tracewise=True)
+        plot_worst_trace(ax, gather.data, gather.headers.TraceNumber.values, res, cls.is_lower_better)
         set_title(ax, gather)
 
 
@@ -242,7 +242,7 @@ def image_filter(traces, mask, ax, **kwargs):
     ax.imshow(traces.T, **kwargs)
     ax.imshow(mask.T, alpha=0.5, cmap='Reds', aspect='auto')
 
-def plot_worst_trace(ax, traces, trace_numbers, indicators, std=0.5, is_lower_better=True, **kwargs):
+def plot_worst_trace(ax, traces, trace_numbers, indicators, max_is_worse, std=0.5, **kwargs):
     """Wiggle plot of the trace with the worst indicator value
     and 2 its neighboring traces (with respect to TraceNumbers).
 
@@ -251,25 +251,22 @@ def plot_worst_trace(ax, traces, trace_numbers, indicators, std=0.5, is_lower_be
     ax : matplotlib.axes.Axes
         An axis of the figure to plot on.
     traces : np.array
-        array of traces
+        Array of traces.
     trace_numbers : np.array
-        TraceNumbers of provided traces
+        TraceNumbers of provided traces.
     indicators : np.array of shape `traces.shape` or `(traces.shape[0], )`
-        indicators to select the worst trace
+        Indicators to select the worst trace.
+    max_is_worse : bool
+        Specifies what type of extemum corresponds to the worst trace.
     std : float, optional
-        scaling coefficient for traces amplitudes, by default 0.5
-    is_lower_better : bool, optional
-        ??????, by default True
+        Scaling coefficient for traces amplitudes, by default 0.5
     """
 
     _, n_samples = traces.shape
 
-    func, idx_func = (np.max, np.argmax) if is_lower_better else (np.min, np.argmin)
+    fn = np.argmax if max_is_worse else np.argmin
+    worst_tr_idx = fn(indicators)
 
-    if indicators.ndim == 2:
-        indicators = func(indicators, axis=1)
-
-    worst_tr_idx = idx_func(indicators, axis=0)
     if worst_tr_idx == 0:
         indices, colors = (0, 1, 2), ('red', 'black', 'black')
     elif worst_tr_idx == n_samples - 1:
