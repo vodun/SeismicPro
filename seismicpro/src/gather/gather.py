@@ -82,7 +82,9 @@ class Gather(TraceContainer, SamplesContainer):
 
     @property
     def index(self):
-        """int or tuple of int or None: Unique index values of the gather. `None` if the gather is combined."""
+        """int or tuple of int or None: Common value of `Survey`'s `header_index` that define traces of the gather.
+        `None` if the gather is combined.
+        """
         indices = self.headers.index.drop_duplicates()
         if len(indices) != 1:
             return None
@@ -1188,9 +1190,9 @@ class Gather(TraceContainer, SamplesContainer):
         - `seismogram`: a 2d grayscale image of seismic traces. This mode supports the following `kwargs`:
             * `colorbar`: whether to add a colorbar to the right of the gather plot (defaults to `False`). If `dict`,
               defines extra keyword arguments for `matplotlib.figure.Figure.colorbar`,
-            * `qvmin`, `qvmax`: quantile range of amplitude values covered by the colormap (defaults to 0.1 and 0.9),
+            * `q_vmin`, `q_vmax`: quantile range of amplitude values covered by the colormap (defaults to 0.1 and 0.9),
             * Any additional arguments for `matplotlib.pyplot.imshow`. Note, that `vmin` and `vmax` arguments take
-              priority over `qvmin` and `qvmax` respectively.
+              priority over `q_vmin` and `q_vmax` respectively.
         - `wiggle`: an amplitude vs time plot for each trace of the gather as an oscillating line around its mean
           amplitude. This mode supports the following `kwargs`:
             * `norm_tracewise`: specifies whether to standardize each trace independently or use gather mean amplitude
@@ -1327,11 +1329,11 @@ class Gather(TraceContainer, SamplesContainer):
 
     # pylint: disable=too-many-arguments
     def _plot_seismogram(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src='time', colorbar=False,
-                         qvmin=0.1, qvmax=0.9, event_headers=None, top_header=None, **kwargs):
+                         q_vmin=0.1, q_vmax=0.9, event_headers=None, top_header=None, **kwargs):
         """Plot the gather as a 2d grayscale image of seismic traces."""
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
-        vmin, vmax = self.get_quantile([qvmin, qvmax])
+        vmin, vmax = self.get_quantile([q_vmin, q_vmax])
         kwargs = {"cmap": "gray", "aspect": "auto", "vmin": vmin, "vmax": vmax, **kwargs}
         img = ax.imshow(self.data.T, **kwargs)
         add_colorbar(ax, img, colorbar, divider, y_ticker)
