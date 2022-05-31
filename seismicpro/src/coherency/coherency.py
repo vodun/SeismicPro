@@ -95,45 +95,32 @@ class BaseCoherency:
         return self.gather.get_coords(coords_columns)
 
     @staticmethod
-    @njit(nogil=True, fastmath=True, parallel=True)
-    def stacked_amplitude(corrected_gather, normalize_mute=True):
+    @njit(nogil=True, fastmath={'ninf'}, parallel=True)
+    def stacked_amplitude_2(corrected_gather):
         numerator = np.zeros(corrected_gather.shape[0])
         denominator = np.ones(corrected_gather.shape[0])
         for i in prange(corrected_gather.shape[0]):
-            for j in range(0, corrected_gather.shape[1]):
-                numerator[i] += corrected_gather[i, j]
-            if normalize_mute:
-                numerator[i] = abs(numerator[i]) / max(np.count_nonzero(corrected_gather[i, :]), 1)
-            else:
-                numerator[i] = abs(numerator[i]) / max(len(corrected_gather[i, :]), 1)
+            numerator[i] = np.nanmean(corrected_gather[i, :])
         return numerator, denominator
 
     @staticmethod
-    @njit(nogil=True, fastmath=True, parallel=True)
-    def normalized_stacked_amplitude(corrected_gather, normalize_mute=True):
+    @njit(nogil=True, fastmath={'ninf'}, parallel=True)
+    def normalized_stacked_amplitude_2(corrected_gather):
         numerator = np.zeros(corrected_gather.shape[0])
         denominator = np.zeros(corrected_gather.shape[0])
         for i in prange(corrected_gather.shape[0]):
-            for j in range(0, corrected_gather.shape[1]):
-                numerator[i] += corrected_gather[i, j]
-                denominator[i] += abs(corrected_gather[i, j])
-            numerator[i] = abs(numerator[i])
+            numerator[i] = np.abs(np.nansum(corrected_gather[i, :]))
+            denominator[i] = np.nansum(np.abs(corrected_gather[i, :]))
         return numerator, denominator
 
     @staticmethod
-    @njit(nogil=True, fastmath=True, parallel=True)
-    def semblance(corrected_gather, normalize_mute=True):
+    @njit(nogil=True, fastmath={'ninf'}, parallel=True)
+    def semblance(corrected_gather):
         numerator = np.zeros(corrected_gather.shape[0])
         denominator = np.zeros(corrected_gather.shape[0])
         for i in prange(corrected_gather.shape[0]):
-            for j in range(0, corrected_gather.shape[1]):
-                numerator[i] += corrected_gather[i, j]
-                denominator[i] += corrected_gather[i, j]**2
-            numerator[i] **= 2
-            if normalize_mute:
-                denominator[i] *= np.count_nonzero(corrected_gather[i, :])
-            else:
-                denominator[i] *= len(corrected_gather[i, :])
+            numerator[i] = np.nanmean(corrected_gather[i, :]) ** 2
+            denominator[i] = np.nansum(corrected_gather[i, :] ** 2)
         return numerator, denominator
 
     @staticmethod
