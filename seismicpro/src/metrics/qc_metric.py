@@ -10,7 +10,7 @@ from seismicpro.batchflow import V, B
 
 from .pipeline_metric import PipelineMetric, pass_calc_args
 from ..const import HDR_DEAD_TRACE
-from ..utils import fill_nulls, get_constlen_indicator, calc_spikes
+from .utils import fill_nulls, get_constlen_indicator, calc_spikes
 
 EPS = 1e-10
 
@@ -237,7 +237,7 @@ class AutocorrMetric(TracewiseMetric):
     @staticmethod
     def get_res(gather):
         norm_data = TracewiseMetric.norm_data(gather)
-        return np.nansum(norm_data[...,1:] * norm_data[..., :-1], axis=1)/(gather.n_samples - np.isnan(gather.data).sum(axis=1))
+        return np.nansum(norm_data[...,1:] * norm_data[..., :-1], axis=1)/(gather.n_samples - np.isnan(gather.data).sum(axis=1) + EPS)
 
 
 class TraceMeanAbs(TracewiseMetric):

@@ -5,7 +5,7 @@ import pytest
 import numpy as np
 
 from seismicpro import Survey, make_prestack_segy
-from seismicpro.src.const import HDR_DEAD_TRACE, HDR_CLIP
+from seismicpro.src.const import HDR_DEAD_TRACE
 
 from . import assert_surveys_equal, assert_survey_processed_inplace
 
@@ -145,7 +145,6 @@ class TestDeadTraces:
         survey_copy.headers = survey_copy.headers.loc[~is_dead]
         survey_copy.n_dead_traces = 0
         survey_copy.headers[HDR_DEAD_TRACE] = False
-        survey_copy.headers[HDR_CLIP] = False
 
         # Validate that dead traces are not present
         assert survey_filtered.n_dead_traces == 0
@@ -173,6 +172,5 @@ class TestDeadTraces:
         is_dead = np.isclose(trace_data.min(axis=1), trace_data.max(axis=1))
         survey_copy.headers[HDR_DEAD_TRACE] = is_dead
         survey_copy.n_dead_traces = np.sum(is_dead)
-        survey_copy.headers[HDR_CLIP] = False
 
         assert_surveys_equal(survey, survey_copy)
