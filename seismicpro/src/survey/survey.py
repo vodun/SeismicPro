@@ -317,7 +317,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     # pylint: disable-next=too-many-statements
     def collect_stats(self, indices=None, n_quantile_traces=100000, quantile_precision=2, limits=None,
-                      chunk_size=100000, bar=True):
+                      chunk_size=10000, bar=True):
         """Collect the following statistics by iterating over survey traces:
         1. Min and max amplitude,
         2. Mean amplitude and trace standard deviation,
@@ -344,7 +344,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         limits : int or tuple or slice, optional
             Time limits to be used for statistics calculation. `int` or `tuple` are used as arguments to init a `slice`
             object. If not given, `limits` passed to `__init__` are used. Measured in samples.
-        chunk_size : int, optional, defaults to 100000
+        chunk_size : int, optional, defaults to 10000
             The number of traces to be processed at once.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
@@ -405,9 +405,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                 var_buffer[i] = chunk_var
                 pbar.update(len(chunk_traces))
 
+        # Calculate global survey mean and variance by its values in chunks
         global_mean = np.average(mean_buffer, weights=chunk_weights)
         global_var = np.average(var_buffer + (mean_buffer - global_mean)**2, weights=chunk_weights)
 
+        # Cast all calculated statistics to float32
         self.min = np.float32(global_min)
         self.max = np.float32(global_max)
         self.mean = np.float32(global_mean)
