@@ -183,7 +183,6 @@ def dump_header(obj_with_headers, path, header_col, trace_id_cols=('FieldRecord'
         f.write(rows_as_str)
 
 
-
 class Coordinates:
     """Define spatial coordinates of an object."""
     def __init__(self, *args, names=None):

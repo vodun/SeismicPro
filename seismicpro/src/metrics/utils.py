@@ -1,10 +1,10 @@
 """Utility functions for coordinates and metric values processing"""
 
 import numpy as np
+import scipy as sp
 import pandas as pd
 
 from numba import njit
-from scipy import signal, fft
 
 from ..utils import to_list, get_first_defined, Coordinates
 
@@ -71,8 +71,9 @@ def parse_metric_values(metric_values, metric_name=None, metric_type=None):
 
 
 def calc_spikes(arr):
-    with fft.set_workers(25):
-        running_mean = signal.fftconvolve(arr, [[1,1,1]], mode='valid', axes=1)/3
+    """Calculate spikes indicator."""
+    with sp.fft.set_workers(25):
+        running_mean = sp.signal.fftconvolve(arr, [[1,1,1]], mode='valid', axes=1)/3
     return np.abs(arr[...,1:-1] - running_mean)
 
 @njit

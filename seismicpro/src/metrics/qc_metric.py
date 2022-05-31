@@ -10,10 +10,9 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from seismicpro.batchflow import V, B
 
 from .pipeline_metric import PipelineMetric, pass_calc_args
-from ..const import HDR_DEAD_TRACE
+from ..const import HDR_DEAD_TRACE, EPS
 from .utils import fill_nulls, get_constlen_indicator, calc_spikes
 
-EPS = 1e-10
 
 class TracewiseMetric(PipelineMetric):
     """Base class for tracewise metrics with addidional plotters and aggregations
@@ -108,7 +107,7 @@ class TracewiseMetric(PipelineMetric):
         return fn(tw_res)
 
     @classmethod
-    def calc(cls, gather, from_headers=None, to_headers=None):
+    def calc(cls, gather, from_headers=None, to_headers=None): # pylint: disable=arguments-renamed
         """Return an already calculated metric."""
         return cls.aggr(gather, from_headers, to_headers, tracewise=False)
 
