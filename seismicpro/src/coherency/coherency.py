@@ -134,7 +134,7 @@ class BaseCoherency:
         return numerator, denominator
 
     @staticmethod
-    @njit(nogil=True, fastmath=True, parallel=True)
+    @njit(nogil=True, fastmath={'ninf'}, parallel=True)
     def calc_single_velocity_semblance(nmo_func, coherency_func, gather_data, times, offsets, velocity, sample_rate, win_size,
                                        t_min_ix, t_max_ix, ix, split):  # pylint: disable=too-many-arguments
         """Calculate semblance for given velocity and time range.
@@ -171,19 +171,19 @@ class BaseCoherency:
                                     dtype=np.float32)
         for i in prange(t_win_size_min_ix, t_win_size_max_ix):
             nmo_func(gather_data, times[i], offsets, velocity, sample_rate,
-                     out=corrected_gather[i - t_win_size_min_ix], fill_value=0)
+                     out=corrected_gather[i - t_win_size_min_ix], fill_value=np.nan)
 
-        if split:
-            normalize_mute=True
-            gathers = [corrected_gather.T[i] for i in ix]
-            stacks = np.empty( (corrected_gather.shape[0], len(ix)), dtype=np.float32 )
-            for i in prange(len(gathers)):
-                gather = gathers[i]
-                for j in range(corrected_gather.shape[0]):
-                    stacks[j, i] = np.sum(gather[:, j]) / max(np.count_nonzero(gather[:, j]), 1)
+        # if split:
+        #     normalize_mute=True
+        #     gathers = [corrected_gather.T[i] for i in ix]
+        #     stacks = np.empty( (corrected_gather.shape[0], len(ix)), dtype=np.float32 )
+        #     for i in prange(len(gathers)):
+        #         gather = gathers[i]
+        #         for j in range(corrected_gather.shape[0]):
+        #             stacks[j, i] = np.sum(gather[:, j]) / max(np.count_nonzero(gather[:, j]), 1)
 
-            corrected_gather = stacks
-            normalize_mute = False
+        #     corrected_gather = stacks
+        #     normalize_mute = False
 
         # if split:
         #     gathers = [corrected_gather.T[i] for i in ix]
