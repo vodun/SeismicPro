@@ -3,10 +3,10 @@
 ![SeismicPro](https://user-images.githubusercontent.com/19351782/125063408-1bcdab80-e0b8-11eb-96c2-719bc640da36.png)
 
 <p align="center">
-  <a href="">Docs</a> •
+  <!-- <a href="">Docs</a> • -->
   <a href="#installation">Installation</a> •
   <a href="#getting-started">Getting Started</a> •
-  <a href="tutorials">Tutorials</a> •
+  <a href="#tutorials">Tutorials</a> •
   <a href="#citing-seismicpro">Citation</a>
 </p>
 
@@ -122,6 +122,7 @@ stacking_pipeline = (dataset
 stacking_pipeline.run(BATCH_SIZE, n_epochs=1)
 ```
 
+## Tutorials
 You can get more familiar with the framework and its functionality by reading [SeismicPro tutorials](tutorials).
 
 ## Citing SeismicPro
