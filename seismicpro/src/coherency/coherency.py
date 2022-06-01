@@ -51,9 +51,10 @@ class BaseCoherency:
         if self.coherency_func is None:
             raise ValueError(f"Unknown mode {mode}")
 
-        ix = list(self.gather.headers.reset_index().groupby(['INLINE_3D', 'CROSSLINE_3D']).groups.values())
-        self.ix = [i.values for i in ix]
-        self.ix = List(self.ix)
+        # ix = list(self.gather.headers.reset_index().groupby(['INLINE_3D', 'CROSSLINE_3D']).groups.values())
+        # self.ix = [i.values for i in ix]
+        # self.ix = List(self.ix)
+        self.ix = None
 
     @property
     def times(self):
@@ -129,8 +130,8 @@ class BaseCoherency:
         numerator = np.zeros(corrected_gather.shape[0])
         denominator = np.zeros(corrected_gather.shape[0])
         for i in prange(corrected_gather.shape[0]):
-            numerator[i] = np.nanmean(corrected_gather[i, :]) ** 2
-            denominator[i] = np.nansum(corrected_gather[i, :] ** 2)
+            numerator[i] = (np.nansum(corrected_gather[i, :]) ** 2) 
+            denominator[i] = np.nansum(corrected_gather[i, :] ** 2) * sum(~np.isnan(corrected_gather[i, :]))
         return numerator, denominator
 
     @staticmethod
@@ -201,6 +202,9 @@ class BaseCoherency:
         #     numerator, denominator = coherency_func(corrected_gather, True)
 
         numerator, denominator = coherency_func(corrected_gather)
+        numerator[np.isnan(numerator)] = 0
+        denominator[np.isnan(denominator)] = 0
+
         semblance_slice = np.zeros(t_max_ix - t_min_ix, dtype=np.float32)
         for t in prange(t_min_ix, t_max_ix):
             t_rel = t - t_win_size_min_ix
