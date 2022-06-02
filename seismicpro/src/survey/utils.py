@@ -9,7 +9,8 @@ def calculate_trace_stats(trace):
     """Calculate min, max, mean and var of trace amplitudes."""
     trace_min = trace_max = trace[0]
 
-    # Store accumulators for sum and sum of squares as float64 for numerical stability
+    # Traces are generally centered around zero so variance is calculated in a single pass by accumulating sum and
+    # sum of squares of trace amplitudes as float64 for numerical stability
     trace_sum = np.float64(trace[0])
     trace_sum_sq = trace_sum**2
 
@@ -18,7 +19,7 @@ def calculate_trace_stats(trace):
         trace_max = max(sample, trace_max)
         sample64 = np.float64(sample)
         trace_sum += sample64
-        trace_sum_sq += sample64**2  # Should be numerically stable since traces are generally centered around zero
+        trace_sum_sq += sample64**2
     trace_mean = trace_sum / len(trace)
     trace_var = trace_sum_sq / len(trace) - trace_mean**2
     return trace_min, trace_max, trace_mean, trace_var

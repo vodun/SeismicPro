@@ -191,7 +191,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.headers = headers
 
         # Data format code defined by bytes 3225–3226 of the binary header that can be conveniently loaded using numpy
-        # memmap. Currently only 3-byte integers are not supported and result in a fallback to loading using segyio.
+        # memmap. Currently only 3-byte integers (codes 7 and 15) and 4-byte fixed-point floats (code 4) are not
+        # supported and result in a fallback to loading using segyio.
         endian_str = ">" if self.endian in {"big", "msb"} else "<"
         format_to_mmap_dtype = {
             1: np.uint8,  # IBM 4-byte float: read as 4 bytes and then manually transformed to an IEEE float32
@@ -392,7 +393,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         chunk_weights = np.array(chunk_sizes, dtype=np.float64) / n_traces
 
         # Accumulate min, max, mean and var values of traces chunks
-        with tqdm(total=n_traces, desc=f"Processed traces in survey {self.name}", disable=not bar) as pbar:
+        bar_desc = f"Calculating statistics for traces in survey {self.name}"
+        with tqdm(total=n_traces, desc=bar_desc, disable=not bar) as pbar:
             for i, (chunk_pos, chunk_quantile_mask) in enumerate(zip(chunk_traces_pos, chunk_quantile_traces_mask)):
                 chunk_traces = self.load_traces(chunk_pos, limits=limits)
                 if chunk_quantile_mask.any():
