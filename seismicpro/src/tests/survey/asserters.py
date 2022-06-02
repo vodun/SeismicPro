@@ -13,7 +13,7 @@ from ..utils import assert_indexers_equal
 
 # Define default tolerances to check if two float values are close
 RTOL = 1e-5
-ATOL = 1e-8
+ATOL = 1e-7
 
 
 def assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers, rtol=RTOL, atol=ATOL):

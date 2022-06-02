@@ -16,8 +16,8 @@ from .cropped_gather import CroppedGather
 from .plot_corrections import NMOCorrectionPlot
 from .utils import correction, normalization, gain
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
-from ..utils import (to_list, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
-                     set_text_formatting, add_colorbar, piecewise_polynomial, Coordinates)
+from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_yticklabels, set_text_formatting,
+                     add_colorbar, piecewise_polynomial, Coordinates)
 from ..containers import TraceContainer, SamplesContainer
 from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, VelocityCube
@@ -32,10 +32,10 @@ class Gather(TraceContainer, SamplesContainer):
     generating survey header in our case). Unlike `Survey`, `Gather` instance stores loaded seismic traces along with
     a corresponding subset of its parent survey header.
 
-    `Gather` instance can be created in three main ways:
-    1. Either by calling `Survey.sample_gather` to get a randomly selected gather,
-    2. Or by calling `Survey.get_gather` to get a particular gather by its index value,
-    3. Or by calling `Index.get_gather` to get a particular gather by its index value from a specified survey.
+    `Gather` instance is generally created by calling one of the following methods of a `Survey`, `SeismicIndex` or
+    `SeismicDataset`:
+    1. `sample_gather` - to get a randomly selected gather,
+    2. `get_gather` - to get a particular gather by its index value.
 
     Most of the methods change gather data inplace, thus `Gather.copy` may come in handy to keep the original gather
     available.
@@ -273,34 +273,6 @@ class Gather(TraceContainer, SamplesContainer):
         """An interface for `self.__getitem__` method."""
         return self[args if len(args) > 1 else args[0]]
 
-    def validate(self, required_header_cols=None, required_sorting=None):
-        """Perform the following checks for a gather:
-            1. Its headers contain all columns from `required_header_cols`,
-            2. It is sorted by `required_sorting` header.
-
-        Parameters
-        ----------
-        required_header_cols : None or str or array-like of str, defaults to None
-            Required gather headers columns. If `None`, no check is performed.
-        required_sorting : None or str, defaults to None
-            Required gather sorting. If `None`, no check is performed.
-
-        Returns
-        -------
-        self : Gather
-            Self unchanged.
-
-        Raises
-        ------
-        ValueError
-            If any of checks above failed.
-        """
-        if required_header_cols is not None:
-            validate_cols_exist(self.headers, required_header_cols)
-        if (required_sorting is not None) and (self.sort_by != required_sorting):
-            raise ValueError(f"Gather should be sorted by {required_sorting} not {self.sort_by}")
-        return self
-
     def _post_filter(self, mask):
         """Remove traces from gather data that correspond to filtered headers after `Gather.filter`."""
         self.data = self.data[mask]
@@ -309,8 +281,8 @@ class Gather(TraceContainer, SamplesContainer):
     #                              Dump methods                              #
     #------------------------------------------------------------------------#
 
-    @batch_method(target='for', force=True, copy_src=False)
-    def dump(self, path, name=None, copy_header=False):
+    @batch_method(target='for', force=True)
+    def dump(self, path, name=None, retain_parent_segy_headers=True):
         """Save the gather to a `.sgy` file.
 
         Notes
@@ -330,8 +302,8 @@ class Gather(TraceContainer, SamplesContainer):
         name : str, optional, defaults to None
             The name of the file. If `None`, the concatenation of the survey name and the value of gather index will
             be used.
-        copy_header : bool, optional, defaults to False
-            Whether to copy the headers that weren't loaded during Survey creation from the parent SEG-Y file.
+        retain_parent_segy_headers : bool, optional, defaults to True
+            Whether to copy the headers that weren't loaded during `Survey` creation from the parent SEG-Y file.
 
         Returns
         -------
@@ -392,7 +364,7 @@ class Gather(TraceContainer, SamplesContainer):
             # Dump traces and their headers. Optionally copy headers from the parent SEG-Y file.
             dump_handler.trace = self.data
             for i, dump_h in trace_headers_dict.items():
-                if copy_header:
+                if retain_parent_segy_headers:
                     dump_handler.header[i].update(parent_handler.header[trace_ids[i]])
                 dump_handler.header[i].update({**dump_h, segyio.TraceField.TRACE_SAMPLE_INTERVAL: sample_rate})
         return self
@@ -902,29 +874,20 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target="for")
-    def get_central_cdp(self):
+    def get_central_gather(self):
         """Get a central CDP gather from a supergather.
 
-        A supergather has `SUPERGATHER_INLINE_3D` and `SUPERGATHER_CROSSLINE_3D` headers columns, whose values are
-        equal to values in `INLINE_3D` and `CROSSLINE_3D` only for traces from the central CDP gather. Read more about
+        A supergather has `SUPERGATHER_INLINE_3D` and `SUPERGATHER_CROSSLINE_3D` headers columns, whose values equal to
+        values of `INLINE_3D` and `CROSSLINE_3D` only for traces from the central CDP gather. Read more about
         supergather generation in :func:`~Survey.generate_supergathers` docs.
 
         Returns
         -------
         self : Gather
             `self` with only traces from the central CDP gather kept. Updates `self.headers` and `self.data` inplace.
-
-        Raises
-        ------
-        ValueError
-            If any of the `INLINE_3D`, `CROSSLINE_3D`, `SUPERGATHER_INLINE_3D` or `SUPERGATHER_CROSSLINE_3D` columns
-            are not in `headers`.
         """
-        self.validate(required_header_cols=["INLINE_3D", "SUPERGATHER_INLINE_3D",
-                                            "CROSSLINE_3D", "SUPERGATHER_CROSSLINE_3D"])
-        headers = self.headers.reset_index()
-        mask = ((headers["SUPERGATHER_INLINE_3D"] == headers["INLINE_3D"]) &
-                (headers["SUPERGATHER_CROSSLINE_3D"] == headers["CROSSLINE_3D"])).values
+        mask = np.all(self["INLINE_3D", "CROSSLINE_3D"] == self["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"],
+                      axis=1)
         self.headers = self.headers.loc[mask]
         self.data = self.data[mask]
         return self
@@ -933,26 +896,20 @@ class Gather(TraceContainer, SamplesContainer):
     def stack(self):
         """Stack a gather by calculating mean value of all non-nan amplitudes for each time over the offset axis.
 
-        The gather after stacking contains only one trace. Its `headers` is indexed by `INLINE_3D` and `CROSSLINE_3D`
-        and has a single `TRACE_SEQUENCE_FILE` header with a value of 1.
+        The gather being stacked must contain traces from a single bin. The resulting gather will contain a single
+        trace with `headers` matching those of the first input trace.
 
-        Notes
-        -----
-        Only a CDP gather indexed by `INLINE_3D` and `CROSSLINE_3D` can be stacked.
-
-        Raises
-        ------
-        ValueError
-            If the gather is not indexed by `INLINE_3D` and `CROSSLINE_3D` or traces from multiple CDP gathers are
-            being stacked
+        Returns
+        -------
+        gather : Gather
+            Stacked gather.
         """
-        line_cols = ["INLINE_3D", "CROSSLINE_3D"]
-        self.validate(required_header_cols=line_cols)
-        headers = self.headers.reset_index()[line_cols].drop_duplicates()
-        if len(headers) != 1:
+        lines = self[["INLINE_3D", "CROSSLINE_3D"]]
+        if (lines != lines[0]).any():
             raise ValueError("Only a single CDP gather can be stacked")
-        self.headers = headers.set_index(line_cols)
-        self.headers["TRACE_SEQUENCE_FILE"] = 1
+
+        # Preserve headers of the first trace of the gather being stacked
+        self.headers = self.headers.iloc[[0]]
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
@@ -1059,7 +1016,7 @@ class Gather(TraceContainer, SamplesContainer):
         kind : int or str, defaults to 3
             The interpolation method to use.
             If int, use piecewise polynomial interpolation with degree `kind`;
-            if str, deligate interpolation to scipy.interp1d with mode `kind`.
+            if str, delegate interpolation to scipy.interp1d with mode `kind`.
         anti_aliasing : bool, defaults to True
             Whether to apply anti-aliasing filter or not. Ignored in case of upsampling.
 
@@ -1175,7 +1132,6 @@ class Gather(TraceContainer, SamplesContainer):
             raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
         self.data = gain.undo_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
         return self
-
 
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #
