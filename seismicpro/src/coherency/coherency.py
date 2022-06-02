@@ -216,7 +216,7 @@ class BaseCoherency:
     @staticmethod
     def _plot(semblance, title=None, x_label=None, x_ticklabels=None,  # pylint: disable=too-many-arguments
               x_ticker=None, y_ticklabels=None, y_ticker=None, grid=False, stacking_times_ix=None,
-              stacking_velocities_ix=None, colorbar=True, ax=None, **kwargs):
+              stacking_velocities_ix=None, colorbar=True, ax=None, levels = 10, **kwargs):
         """Plot vertical velocity semblance and, optionally, stacking velocity.
         Parameters
         ----------
@@ -253,15 +253,16 @@ class BaseCoherency:
 
         # Split the range of semblance amplitudes into 16 levels on a log scale,
         # that will further be used as colormap bins
-        max_val = np.max(semblance)
-        levels = (np.logspace(0, 1, num=16, base=500) / 500) * max_val
-        levels[0] = 0
+        # max_val = np.max(semblance)
+        # levels = (np.logspace(0, 1, num=16, base=500) / 500) * max_val
+        # levels[0] = 0
 
         # Add level lines and colorize the graph
-        norm = mcolors.BoundaryNorm(boundaries=levels, ncolors=256)
+        cmap = mcolors.Colormap('seismic')
+        norm = mcolors.BoundaryNorm(np.linspace(0, semblance.max(), levels), cmap.N)
         x_grid, y_grid = np.meshgrid(np.arange(0, semblance.shape[1]), np.arange(0, semblance.shape[0]))
         ax.contour(x_grid, y_grid, semblance, levels, colors='k', linewidths=.5, alpha=.5)
-        img = ax.imshow(semblance, norm=norm, aspect='auto', cmap='seismic')
+        img = ax.imshow(semblance, norm=norm, aspect='auto', cmap=cmap)
         add_colorbar(ax, img, colorbar, y_ticker=y_ticker)
         ax.set_title(**{"label": None, **title})
 
