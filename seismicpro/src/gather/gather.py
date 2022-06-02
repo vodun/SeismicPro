@@ -1580,7 +1580,7 @@ class Gather(TraceContainer, SamplesContainer):
         NMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, **kwargs).plot()
 
     def plot_lmo_correction(self, min_vel=800, max_vel=6000, figsize=(6, 4.5), **kwargs):
-        """Perform interactive LMO correction of the gather with the selected velocity of the 1-layer weathering model.
+        """Perform interactive LMO correction of the gather with the selected velocity.
 
         The plot provides 2 views:
         * Corrected gather (default). LMO correction is performed on the fly with the velocity controlled by a slider
@@ -1593,9 +1593,9 @@ class Gather(TraceContainer, SamplesContainer):
         Parameters
         ----------
         min_vel : float, optional, defaults to 800
-            Minimum seismic velocity value for NMO correction. Measured in meters/seconds.
+            Minimum velocity value for LMO correction. Measured in meters/seconds.
         max_vel : float, optional, defaults to 6000
-            Maximum seismic velocity value for NMO correction. Measured in meters/seconds.
+            Maximum velocity value for LMO correction. Measured in meters/seconds.
         figsize : tuple with 2 elements, optional, defaults to (6, 4.5)
             Size of the created figure. Measured in inches.
         kwargs : misc, optional
