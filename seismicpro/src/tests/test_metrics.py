@@ -7,6 +7,7 @@ from seismicpro.src.metrics.qc_metric import MaxClipsLenMetric, ConstLenMetric
 
 
 class DummyGather:
+    """Dummy object with `data` attribute to emulate gathers in metrics """
     def __init__(self, data):
         self.data = np.asarray(data)
 
@@ -19,7 +20,7 @@ CLIPS_PARAMS = [
     (np.asarray([[1, 2, 2, 0], [1, 1, 2, 3]]), np.asarray([[0, 2, 2, 1], [2, 2, 0, 1]])),
 ]
 @pytest.mark.parametrize("arr,expected", CLIPS_PARAMS)
-def test_MaxClipsLenMetric(arr, expected):
+def test_clips(arr, expected):
     """Test MaxClipsLenMetric"""
     assert np.allclose(MaxClipsLenMetric.get_res(DummyGather(arr)).astype(int), np.asarray(expected))
 
@@ -32,7 +33,7 @@ CLIPLEN_IND_PARAMS = [
     (np.asarray([[1, 2, 2, 0], [1, 1, 2, 3]]), np.asarray([[0, 2, 2, 0], [2, 2, 0, 0]])),
 ]
 @pytest.mark.parametrize("arr,expected", CLIPLEN_IND_PARAMS)
-def test_ConstLenMetric(arr, expected):
+def test_const_subseq(arr, expected):
     """Test ConstLenMetric"""
     assert np.allclose(ConstLenMetric.get_res(DummyGather(arr)).astype(int), np.asarray(expected))
 
