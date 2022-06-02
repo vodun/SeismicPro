@@ -238,7 +238,7 @@ class ScatterMap(BaseMetricMap):
         if is_lower_better is None:
             is_lower_better = True
             global_mean = self.map_data.mean()
-            sort_key = lambda col: (col - global_mean).abs()
+            sort_key = lambda col: (col - global_mean).abs()  # pylint: disable=unnecessary-lambda-assignment
         # Guarantee that extreme values are always displayed on top of the others
         map_data = self.map_data.sort_values(ascending=is_lower_better, key=sort_key)
         coords_x, coords_y = map_data.index.to_frame().values.T
