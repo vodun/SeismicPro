@@ -694,9 +694,9 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target='for')
-    def calculate_weathering_velocity(self, first_breaks_col=HDR_FIRST_BREAK, n_layers=None, init=None, bounds=None,
+    def calculate_weathering_velocity(self, first_breaks_col=HDR_FIRST_BREAK, init=None, bounds=None, n_layers=None,
                                       acsending_velocities=True, freeze_t0=False, **kwargs):
-        """Calculate the WeatheringVelocity object from offsets and first break times.
+        """Calculate the WeatheringVelocity object from the offsets and first break times.
 
         Method creates a WeatheringVelocity instance, fits the parameters of weathering model (intercept time, cross
         offsets and velocities) of first N subsurface layers and stores fitted parameters.
@@ -711,12 +711,12 @@ class Gather(TraceContainer, SamplesContainer):
         ----------
         first_breaks_col : str, defaults to HDR_FIRST_BREAK
             Column name from `self.headers` where first breaking times are stored.
-        n_layers : int or None, defaults to None
-            Number of the weathering model layers.
         init : dict or None, defaults to None
             Initial values for a weathering model.
         bounds : dict or None, defaults to None
             Bounds for the weathering model parameters.
+        n_layers : int or None, defaults to None
+            Number of the weathering model layers.
         ascending_velocity : bool, defaults to True
             Keeps the ascend of the fitted velocities from i-th layer to i+1 layer.
         freeze_t0 : bool, defaults to False
@@ -730,7 +730,7 @@ class Gather(TraceContainer, SamplesContainer):
             Calculated WeatheringVelocity instance.
         """
         return WeatheringVelocity.from_picking(offsets=self.offsets, picking_times=self[first_breaks_col].ravel(),
-                                               n_layers=n_layers, init=init, bounds=bounds,
+                                               init=init, bounds=bounds, n_layers=n_layers,
                                                acsending_velocities=acsending_velocities, freeze_t0=freeze_t0,
                                                **kwargs)
 
@@ -872,7 +872,7 @@ class Gather(TraceContainer, SamplesContainer):
 
     @batch_method(target="threads", args_to_unpack="weathering_velocity") # benchmark it
     def apply_lmo(self, weathering_velocity, delay=100, fill_value=0, event_headers=None):
-        """Perform gather linear moveout correction using given weathering velocity.
+        """Perform a gather linear moveout correction using the given weathering velocity.
 
         Parameters
         ----------
