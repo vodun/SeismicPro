@@ -11,7 +11,7 @@ from seismicpro.batchflow import V, B
 
 from .pipeline_metric import PipelineMetric, pass_calc_args
 from ..const import HDR_DEAD_TRACE, EPS
-from .utils import fill_nulls, get_constlen_indicator, calc_spikes, get_clips
+from .utils import fill_nulls, calc_spikes, get_val_subseq, get_const_subseq
 
 
 class TracewiseMetric(PipelineMetric):
@@ -349,8 +349,12 @@ class MaxClipsLenMetric(TracewiseMetric):
     def get_res(gather):
         """QC indicator implementation."""
         traces = gather.data
-        res_plus = get_clips(traces, mode='max')
-        res_minus = get_clips(traces, mode='min')
+
+        maxes = traces.max(axis=-1, keepdims=True)
+        mins = traces.min(axis=-1, keepdims=True)
+
+        res_plus = get_val_subseq(traces, maxes)
+        res_minus = get_val_subseq(traces, mins)
 
         return (res_plus + res_minus).astype(np.float32)
 
@@ -363,7 +367,7 @@ class ConstLenMetric(TracewiseMetric):
     @staticmethod
     def get_res(gather):
         """QC indicator implementation."""
-        res = get_constlen_indicator(gather.data)
+        res = get_const_subseq(gather.data)
         return res.astype(np.float32)
 
 class StdFraqMetricGlob(TracewiseMetric):

@@ -90,19 +90,17 @@ def fill_nulls(arr):
                 arr[i, :j] = arr[i, j]
 
 @njit(nogil=True)
-def get_clips(traces, mode):
+def get_val_subseq(traces, cmpval):
+    """Indicator of constant subsequences equal to given value."""
 
     old_shape = traces.shape
     traces = np.atleast_2d(traces)
 
-    indicators = np.full_like(traces, fill_value=0, dtype=np.int16)
-    for t, trace in enumerate(traces):
-        val = trace.max() if mode == 'max' else trace.min()
+    indicators = (traces == cmpval).astype(np.int16)
 
-        indicators[t] = (trace == val).astype(np.int16)
-
+    for t, indicator in enumerate(indicators):
         counter = 0
-        for i, sample in enumerate(indicators[t]):
+        for i, sample in enumerate(indicator):
             if sample == 1:
                 counter += 1
             else:
@@ -110,58 +108,32 @@ def get_clips(traces, mode):
                     indicators[t, i - counter: i] = counter
                 counter = 0
 
+        if counter > 1:
+            indicators[t, -counter:] = counter
+
     return indicators.reshape(*old_shape)
 
 
 @njit(nogil=True)
-def get_const_indicator(traces, cmpval=None):
-    """Indicator of constant subsequences.
-
-    Parameters
-    ----------
-    traces : np.array
-        traces to analyse
-    cmpval : float or None, optional
-        If not None, only subsequences of this value are considered,
-        otherwize, of any constant value, by default None
-
-    Returns
-    -------
-    np.array
-        ???????????????
-    """
-
-    if cmpval is None:
-        indicator = (traces[..., 1:] == traces[..., :-1])
-    else:
-        indicator = (traces[..., 1:] == cmpval)
-
-    brdr_zeros = np.zeros(traces.shape[:-1]+(1,), dtype=np.bool8)
-    indicator = np.concatenate((brdr_zeros, indicator), axis=-1)
-
-    return indicator.astype(np.int32)
-
-@njit(nogil=True)
-def get_constlen_indicator(traces, cmpval=None):
-    """?????????????????????????????"""
+def get_const_subseq(traces):
+    """Indicator of constant subsequences."""
 
     old_shape = traces.shape
-
     traces = np.atleast_2d(traces)
 
-    indicator = get_const_indicator(traces, cmpval)
+    indicators = np.full_like(traces, fill_value=0, dtype=np.int16)
+    indicators[:, 1:] = (traces[..., 1:] == traces[..., :-1]).astype(np.int16)
+    for t, indicator in enumerate(indicators):
+        counter = 0
+        for i, sample in enumerate(indicator):
+            if sample == 1:
+                counter += 1
+            else:
+                if counter > 0:
+                    indicators[t, i - counter - 1: i] = counter + 1
+                counter = 0
 
+        if counter > 0:
+            indicators[t, -counter - 1:] = counter + 1
 
-    for i in range(1, indicator.shape[-1]):
-        indicator[..., i] += indicator[..., i-1] * (indicator[..., i] == 1)
-
-
-    for j in range(0, indicator.shape[-2]):
-        for i in range(indicator.shape[-1] - 1, 0, -1):
-            if indicator[..., j, i] != 0 and indicator[..., j, i - 1] != 0:
-                indicator[..., j, i - 1] = indicator[..., j, i]
-
-    if cmpval is None:
-        indicator += (indicator > 0).astype(np.int32)
-
-    return indicator.reshape(*old_shape)
+    return indicators.reshape(*old_shape)
