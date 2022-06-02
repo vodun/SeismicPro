@@ -90,6 +90,30 @@ def fill_nulls(arr):
                 arr[i, :j] = arr[i, j]
 
 @njit(nogil=True)
+def get_clips(traces, mode):
+
+    old_shape = traces.shape
+    traces = np.atleast_2d(traces)
+
+    indicators = np.full_like(traces, fill_value=0, dtype=np.int16)
+    for t, trace in enumerate(traces):
+        val = trace.max() if mode == 'max' else trace.min()
+
+        indicators[t] = (trace == val).astype(np.int16)
+
+        counter = 0
+        for i, sample in enumerate(indicators[t]):
+            if sample == 1:
+                counter += 1
+            else:
+                if counter > 1:
+                    indicators[t, i - counter: i] = counter
+                counter = 0
+
+    return indicators.reshape(*old_shape)
+
+
+@njit(nogil=True)
 def get_const_indicator(traces, cmpval=None):
     """Indicator of constant subsequences.
 

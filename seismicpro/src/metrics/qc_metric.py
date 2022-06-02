@@ -11,7 +11,7 @@ from seismicpro.batchflow import V, B
 
 from .pipeline_metric import PipelineMetric, pass_calc_args
 from ..const import HDR_DEAD_TRACE, EPS
-from .utils import fill_nulls, get_constlen_indicator, calc_spikes
+from .utils import fill_nulls, get_constlen_indicator, calc_spikes, get_clips
 
 
 class TracewiseMetric(PipelineMetric):
@@ -348,11 +348,9 @@ class MaxClipsLenMetric(TracewiseMetric):
     @staticmethod
     def get_res(gather):
         """QC indicator implementation."""
-        maxes = gather.data.max(axis=-1, keepdims=True)
-        mins = gather.data.min(axis=-1, keepdims=True)
-
-        res_plus = get_constlen_indicator(gather.data, cmpval=maxes)
-        res_minus = get_constlen_indicator(gather.data, cmpval=mins)
+        traces = gather.data
+        res_plus = get_clips(traces, mode='max')
+        res_minus = get_clips(traces, mode='min')
 
         return (res_plus + res_minus).astype(np.float32)
 
@@ -382,7 +380,7 @@ class StdFraqMetricGlob(TracewiseMetric):
         res = np.log10(gather.data.std(axis=1) / gather.survey.std)
         return res
 
-def add_metric(ppl, metric_cls, src='raw', **kwargs):
+def add_metric(ppl, metric_cls, src, **kwargs):
     """Add PipelineMetrics to a pipeline, and write corresponding tracewise aggregations to a pipeline variable."""
     acc_name = '_'.join(['mmap', metric_cls.__name__, src])
     twm_name =  '_'.join(['twm', metric_cls.__name__, src])
