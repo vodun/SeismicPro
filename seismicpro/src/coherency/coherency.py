@@ -6,6 +6,7 @@ from numba import njit, prange
 from numba.typed import List
 from scipy.ndimage import median_filter
 from matplotlib import colors as mcolors
+import matplotlib.pyplot as plt
 
 from .interactive_plot import SemblancePlot
 from ..decorators import batch_method, plotter
@@ -216,7 +217,7 @@ class BaseCoherency:
     @staticmethod
     def _plot(semblance, title=None, x_label=None, x_ticklabels=None,  # pylint: disable=too-many-arguments
               x_ticker=None, y_ticklabels=None, y_ticker=None, grid=False, stacking_times_ix=None,
-              stacking_velocities_ix=None, colorbar=True, ax=None, levels = 10, **kwargs):
+              stacking_velocities_ix=None, colorbar=True, ax=None, levels = 10, vmax=1, **kwargs):
         """Plot vertical velocity semblance and, optionally, stacking velocity.
         Parameters
         ----------
@@ -258,10 +259,10 @@ class BaseCoherency:
         # levels[0] = 0
 
         # Add level lines and colorize the graph
-        cmap = mcolors.Colormap('seismic')
-        norm = mcolors.BoundaryNorm(np.linspace(0, semblance.max(), levels), cmap.N)
+        cmap = plt.get_cmap('seismic')
+        norm = mcolors.BoundaryNorm(np.linspace(0, vmax, levels), cmap.N)
         x_grid, y_grid = np.meshgrid(np.arange(0, semblance.shape[1]), np.arange(0, semblance.shape[0]))
-        ax.contour(x_grid, y_grid, semblance, levels, colors='k', linewidths=.5, alpha=.5)
+#        ax.contour(x_grid, y_grid, semblance, levels, colors='k', linewidths=.5, alpha=.5)
         img = ax.imshow(semblance, norm=norm, aspect='auto', cmap=cmap)
         add_colorbar(ax, img, colorbar, y_ticker=y_ticker)
         ax.set_title(**{"label": None, **title})
