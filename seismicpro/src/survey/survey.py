@@ -460,7 +460,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         for tr_index, pos in tqdm(enumerate(traces_pos), desc=f"Detecting dead traces for survey {self.name}",
                                   total=len(self.headers), disable=not bar):
             self.load_trace_segyio(buf=trace, index=pos, limits=limits, trace_length=n_samples)
-            trace_min, trace_max, *_ = calculate_stats(trace)
+            trace_min, trace_max, *_ = calculate_trace_stats(trace)
 
             if math.isclose(trace_min, trace_max):
                 dead_indices.append(tr_index)
