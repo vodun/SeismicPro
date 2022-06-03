@@ -62,13 +62,13 @@ class BaseSemblance:
 
         Parameters
         ----------
-        coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
+        coords_cols : "auto" or 2 element array-like, defaults to "auto"
             - If `None`, `Coordinates` with two `None` elements is returned. Their names are "X" and "Y" respectively.
             - If "auto", columns of headers index of the underlying gather define headers columns to get coordinates
               from (e.g. 'FieldRecord' is mapped to a ("SourceX", "SourceY") pair).
             - If 2 element array-like, `coords_cols` directly define underlying gather headers to get coordinates from.
-            In the last two cases index or column values are supposed to be unique for all traces in the underlying
-            gather and the names of the returned coordinates correspond to source headers columns.
+            Index or column values are supposed to be unique for all traces in the underlying gather and the names of
+            the returned coordinates correspond to source headers columns.
 
         Returns
         -------
@@ -427,7 +427,8 @@ class Semblance(BaseSemblance):
             The number of evenly spaced points to split velocity range into for each time to generate graph edges.
         coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
             Header columns of the underlying gather to get spatial coordinates of the semblance from. See
-            :func:`~Semblance.get_coords` for more details.
+            :func:`~Semblance.get_coords` for more details. If `None`, the resulting stacking velocity instance will
+            have undefined coordinates and won't be able to be added to a `StackingVelocityField`.
 
         Returns
         -------
@@ -439,11 +440,12 @@ class Semblance(BaseSemblance):
         ValueError
             If no stacking velocity was found for given parameters.
         """
-        inline, crossline = self.get_coords(coords_cols)
+        if coords is not None:
+            coords = self.get_coords(coords_cols)
         times, velocities, _ = calculate_stacking_velocity(self.semblance, self.times, self.velocities,
                                                            start_velocity_range, end_velocity_range, max_acceleration,
                                                            n_times, n_velocities)
-        return StackingVelocity.from_points(times, velocities, inline, crossline)
+        return StackingVelocity.from_points(times, velocities, coords=coords)
 
 
 class ResidualSemblance(BaseSemblance):

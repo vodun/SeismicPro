@@ -20,7 +20,7 @@ from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_ytickla
                      add_colorbar, piecewise_polynomial, Coordinates)
 from ..containers import TraceContainer, SamplesContainer
 from ..semblance import Semblance, ResidualSemblance
-from ..stacking_velocity import StackingVelocity, VelocityCube
+from ..stacking_velocity import StackingVelocity, StackingVelocityField
 from ..decorators import batch_method, plotter
 from ..const import HDR_FIRST_BREAK, DEFAULT_VELOCITY
 
@@ -216,13 +216,12 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
-            - If `None`, `Coordinates` with two `None` elements is returned. Their names are "X" and "Y" respectively.
+        coords_cols : "auto" or 2 element array-like, defaults to "auto"
             - If "auto", columns of headers index define headers columns to get coordinates from (e.g. 'FieldRecord' is
               mapped to a ("SourceX", "SourceY") pair).
             - If 2 element array-like, `coords_cols` directly define gather headers to get coordinates from.
-            In the last two cases index or column values are supposed to be unique for all traces in the gather and the
-            names of the returned coordinates correspond to source headers columns.
+            Index or column values are supposed to be unique for all traces in the gather and the names of the returned
+            coordinates correspond to source headers columns.
 
         Returns
         -------
@@ -234,12 +233,10 @@ class Gather(TraceContainer, SamplesContainer):
         ValueError
             If gather coordinates are non-unique or more than 2 columns were passed.
         """
-        if coords_cols is None:
-            return Coordinates()
         if coords_cols == "auto":
             coords_cols = get_coords_cols(self.indexed_by)
-        coords = np.unique(self[coords_cols], axis=0)
-        if coords.shape[0] != 1:
+        coords = self[coords_cols]
+        if (coords != coords[0]).any():
             raise ValueError("Gather coordinates are non-unique")
         if coords.shape[1] != 2:
             raise ValueError(f"Gather position must be defined by exactly two coordinates, not {coords.shape[1]}")
@@ -816,7 +813,7 @@ class Gather(TraceContainer, SamplesContainer):
             Stacking velocities to perform NMO correction with. `StackingVelocity` instance is used directly. If
             `VelocityCube` instance is passed, a `StackingVelocity` corresponding to gather coordinates is fetched
             from it.
-        coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
+        coords_cols : "auto" or 2 element array-like, defaults to "auto"
             Header columns to get spatial coordinates of the gather from to fetch `StackingVelocity` from
             `VelocityCube`. See :func:`~Gather.get_coords` for more details.
 
@@ -830,10 +827,10 @@ class Gather(TraceContainer, SamplesContainer):
         ValueError
             If `stacking_velocity` is not a `StackingVelocity` or `VelocityCube` instance.
         """
-        if isinstance(stacking_velocity, VelocityCube):
-            stacking_velocity = stacking_velocity(*self.get_coords(coords_cols), create_interpolator=False)
+        if isinstance(stacking_velocity, StackingVelocityField):
+            stacking_velocity = stacking_velocity(self.get_coords(coords_cols))
         if not isinstance(stacking_velocity, StackingVelocity):
-            raise ValueError("Only VelocityCube or StackingVelocity instances can be passed as a stacking_velocity")
+            raise ValueError("Only StackingVelocityField or StackingVelocity instances can be passed as a stacking_velocity")
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
         self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms, self.sample_rate)
         return self

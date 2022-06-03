@@ -65,11 +65,6 @@ INDEX_TO_COORDS = {
     "CDP": ("CDP_X", "CDP_Y"),
     ("CDP_X", "CDP_Y"): ("CDP_X", "CDP_Y"),
     ("INLINE_3D", "CROSSLINE_3D"): ("INLINE_3D", "CROSSLINE_3D"),
-
-    # Supergather index
-    ("SUPERGATHER_SourceX", "SUPERGATHER_SourceY"): ("SUPERGATHER_SourceX", "SUPERGATHER_SourceY"),
-    ("SUPERGATHER_GroupX", "SUPERGATHER_GroupY"): ("SUPERGATHER_GroupX", "SUPERGATHER_GroupY"),
-    ("SUPERGATHER_CDP_X", "SUPERGATHER_CDP_Y"): ("SUPERGATHER_CDP_X", "SUPERGATHER_CDP_Y"),
     ("SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"): ("SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"),
 }
 # Ignore order of elements in each key
@@ -107,18 +102,15 @@ def get_cols(df, cols):
 class Coordinates:
     """Define spatial coordinates of an object."""
     def __init__(self, *args, names=None):
+        if len(args) != 2:
+            raise ValueError("Exactly two coordinates must be passed.")
+        self.coords = args
+
         if names is None:
             names = ("X", "Y")
         names = tuple(to_list(names))
         if len(names) != 2:
             raise ValueError("Exactly two names must be passed.")
-
-        if not args:
-            args = (None, None)
-        if len(args) != 2:
-            raise ValueError("Exactly two coordinates must be passed.")
-
-        self.coords = args
         self.names = names
 
     def __repr__(self):

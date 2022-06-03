@@ -2,19 +2,19 @@
 for spatial velocity interpolation"""
 
 import os
-import warnings
+from functools import reduce
 
 import numpy as np
 from tqdm.contrib.concurrent import thread_map
 from sklearn.neighbors import NearestNeighbors
 
 from .stacking_velocity import StackingVelocity
-from .velocity_interpolator import VelocityInterpolator
 from .metrics import VELOCITY_QC_METRICS, StackingVelocityMetric
-from ..utils import to_list, read_vfunc, dump_vfunc
+from ..field import VFUNCField
+from ..utils import to_list
 
 
-class VelocityCube:
+class StackingVelocityField(VFUNCField):
     """A class for storing and interpolating stacking velocity data over a field.
 
     Velocities used for seismic cube stacking are usually picked on a sparse grid of inlines and crosslines and then
@@ -69,149 +69,21 @@ class VelocityCube:
     is_dirty_interpolator : bool
         Whether the cube was updated after the interpolator was created.
     """
-    def __init__(self, path=None, create_interpolator=True):
-        self.stacking_velocities_dict = {}
-        self.interpolator = None
-        self.is_dirty_interpolator = True
-        if path is not None:
-            self.load(path)
-            if create_interpolator:
-                self.create_interpolator()
+    field_object_class = StackingVelocity
 
-    @property
-    def has_interpolator(self):
-        """bool: Whether the velocity interpolator was created."""
-        return self.interpolator is not None
+    def get_mean_velocity(self):
+        return self.field_object_class.from_weighted_instances(list(self.object_container.values()))
 
-    def load(self, path):
-        """Load a velocity cube from a file with vertical functions in Paradigm Echos VFUNC format.
+    def interpolate(self, coords, times):
+        if not self.has_interpolator:
+            raise ValueError("Field interpolator was not created, call create_interpolator method first")
+        weighted_coords = self.interpolator.get_weighted_coords(coords)
+        base_velocities_coords = set.union(*[set(coord_weights.keys()) for coord_weights in weighted_coords])
+        base_velocities = {coords: self.object_container[coords](times) for coords in base_velocities_coords}
+        return np.array([reduce(lambda x, y: x + y, [base_velocities[coords] * weight for coords, weight in coord_weights.items()])
+                         for coord_weights in weighted_coords])
 
-        The file may have one or more records with the following structure:
-        VFUNC [inline] [crossline]
-        [time_1] [velocity_1] [time_2] [velocity_2] ... [time_n] [velocity_n]
-
-        Parameters
-        ----------
-        path : str
-            A path to the source file.
-
-        Returns
-        -------
-        self : VelocityCube
-            Self with loaded stacking velocities. Changes `stacking_velocities_dict` inplace and sets the
-            `is_dirty_interpolator` flag to `True`.
-        """
-        for inline, crossline, times, velocities in read_vfunc(path):
-            stacking_velocity = StackingVelocity.from_points(times, velocities, inline, crossline)
-            self.stacking_velocities_dict[(inline, crossline)] = stacking_velocity
-        self.is_dirty_interpolator = True
-        return self
-
-    def dump(self, path):
-        """Dump all the vertical functions of the cube to a file in VFUNC format.
-
-        Notes
-        -----
-        See more about the format in :func:`~utils.file_utils.dump_vfunc`.
-
-        Parameters
-        ----------
-        path : str
-            A path to the created file.
-        """
-        vfunc_list = []
-        for (inline, crossline), stacking_velocity in self.stacking_velocities_dict.items():
-            vfunc_list.append((inline, crossline, stacking_velocity.times, stacking_velocity.velocities))
-        dump_vfunc(path, vfunc_list)
-
-    def update(self, stacking_velocities):
-        """Update a velocity cube with given stacking velocities.
-
-        Notes
-        -----
-        All passed `StackingVelocity` instances must have not-None coordinates.
-
-        Parameters
-        ----------
-        stacking_velocities : StackingVelocity or list of StackingVelocity
-            Stacking velocities to update the cube with.
-
-        Returns
-        -------
-        self : VelocityCube
-            Self with loaded stacking velocities. Changes `stacking_velocities_dict` inplace and sets the
-            `is_dirty_interpolator` flag to `True` if passed `stacking_velocities` is not empty.
-
-        Raises
-        ------
-        TypeError
-            If wrong type of `stacking_velocities` was passed.
-        ValueError
-            If any of the passed stacking velocities has `None` coordinates.
-        """
-        stacking_velocities = to_list(stacking_velocities)
-        if not all(isinstance(vel, StackingVelocity) for vel in stacking_velocities):
-            raise TypeError("The cube can be updated only with `StackingVelocity` instances")
-        if not all(vel.has_coords for vel in stacking_velocities):
-            raise ValueError("All passed `StackingVelocity` instances must have not-None coordinates")
-        for vel in stacking_velocities:
-            self.stacking_velocities_dict[tuple(vel.coords)] = vel
-        if stacking_velocities:
-            self.is_dirty_interpolator = True
-        return self
-
-    def create_interpolator(self):
-        """Create velocity interpolator from stacking velocities in the cube.
-
-        Returns
-        -------
-        self : VelocityCube
-            Self with created interpolator. Updates `interpolator` inplace and sets the `is_dirty_interpolator` flag to
-            `False`.
-
-        Raises
-        ------
-        ValueError
-            If velocity cube is empty.
-        """
-        if not self.stacking_velocities_dict:
-            raise ValueError("No stacking velocities passed")
-        self.interpolator = VelocityInterpolator(self.stacking_velocities_dict)
-        self.is_dirty_interpolator = False
-        return self
-
-    def __call__(self, inline, crossline, create_interpolator=True):
-        """Interpolate stacking velocity at given `inline` and `crossline`.
-
-        Parameters
-        ----------
-        inline : int
-            An inline to interpolate stacking velocity at.
-        crossline : int
-            A crossline to interpolate stacking velocity at.
-        create_interpolator : bool, optional, defaults to True
-            Whether to create a velocity interpolator if it does not exist.
-
-        Returns
-        -------
-        stacking_velocity : StackingVelocity
-            Interpolated stacking velocity at (`inline`, `crossline`).
-
-        Raises
-        ------
-        ValueError
-            If velocity interpolator does not exist and `create_interpolator` flag is set to `False`.
-        """
-        if create_interpolator and (not self.has_interpolator or self.is_dirty_interpolator):
-            self.create_interpolator()
-        elif not create_interpolator:
-            if not self.has_interpolator:
-                raise ValueError("Velocity interpolator must be created first")
-            if self.is_dirty_interpolator:
-                warnings.warn("Dirty interpolator is being used", RuntimeWarning)
-        return self.interpolator(inline, crossline)
-
-    def qc(self, win_radius, times, coords=None, metrics=None, n_workers=None, bar=True): #pylint: disable=invalid-name
+    def qc(self, win_radius, metrics=None, coords=None, times=None, n_workers=None, bar=True):
         """Perform quality control of the velocity cube by calculating spatial-window-based metrics for its stacking
         velocities evaluated at given `times`.
 
@@ -255,14 +127,18 @@ class VelocityCube:
         if not all(isinstance(metric, type) and issubclass(metric, StackingVelocityMetric) for metric in metrics):
             raise ValueError("All passed metrics must be subclasses of StackingVelocityMetric")
 
-        # Calculate stacking velocities at given times for each of coords
-        if not self.has_interpolator:
-            self.create_interpolator()
         if coords is None:
-            coords = list(self.stacking_velocities_dict.keys())
+            coords = self.coords
         coords = np.array(coords)
+
+        if times is None:
+            if not self.has_survey:
+                raise ValueError("times must be passed if the field ...")
+            times = self.survey.times
         times = np.array(times)
-        velocities = self.interpolator.interpolate(coords, times)
+
+        # Calculate stacking velocities at given times for each of coords
+        velocities = self.interpolate(coords, times)
 
         # Select all neighboring stacking velocities for each of coords
         if n_workers is None:
