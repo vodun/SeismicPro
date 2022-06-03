@@ -36,4 +36,3 @@ CLIPLEN_IND_PARAMS = [
 def test_const_subseq(arr, expected):
     """Test ConstLenMetric"""
     assert np.allclose(ConstLenMetric.get_res(DummyGather(arr)).astype(int), np.asarray(expected))
-
