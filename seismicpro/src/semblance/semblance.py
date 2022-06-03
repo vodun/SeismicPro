@@ -440,8 +440,7 @@ class Semblance(BaseSemblance):
         ValueError
             If no stacking velocity was found for given parameters.
         """
-        if coords is not None:
-            coords = self.get_coords(coords_cols)
+        coords = None if coords_cols is None else self.get_coords(coords_cols)
         times, velocities, _ = calculate_stacking_velocity(self.semblance, self.times, self.velocities,
                                                            start_velocity_range, end_velocity_range, max_acceleration,
                                                            n_times, n_velocities)
