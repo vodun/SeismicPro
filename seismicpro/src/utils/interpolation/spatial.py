@@ -166,7 +166,8 @@ class BaseDelaunayInterpolator(SpatialInterpolator):
             min_x, min_y = np.min(self.coords, axis=0) - 1
             max_x, max_y = np.max(self.coords, axis=0) + 1
             corner_coords = [(min_x, min_y), (min_x, max_y), (max_x, min_y), (max_x, max_y)]
-            self.tri = Delaunay(np.concatenate([self.coords, corner_coords]), incremental=False)
+            self.coords = np.concatenate([self.coords, corner_coords])
+            self.tri = Delaunay(self.coords, incremental=False)
             if self.values is not None:
                 self.values = np.concatenate([self.values, np.zeros((4, self.values.shape[1]), dtype=self.values.dtype)])
 

@@ -113,6 +113,7 @@ class StackingVelocity:
         if weights is None:
             weights = np.ones_like(instances)
             weights /= weights.sum()
+        weights = np.array(weights)
         times = np.unique(np.concatenate([inst.times for inst in instances]))
         velocities = np.stack([inst(times) for inst in instances])
         return cls.from_points(times, (velocities * weights[:, None]).sum(axis=0), coords=coords)
