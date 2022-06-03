@@ -179,42 +179,6 @@ def dump_header(obj_with_headers, path, header_col, trace_id_cols=('FieldRecord'
         f.write(rows_as_str)
 
 
-class Coordinates:
-    """Define spatial coordinates of an object."""
-    def __init__(self, *args, names=None):
-        if names is None:
-            names = ("X", "Y")
-        names = tuple(to_list(names))
-        if len(names) != 2:
-            raise ValueError("Exactly two names must be passed.")
-
-        if not args:
-            args = (None, None)
-        if len(args) != 2:
-            raise ValueError("Exactly two coordinates must be passed.")
-
-        self.coords = args
-        self.names = names
-
-    def __repr__(self):
-        return f"Coordinates({self.coords[0]}, {self.coords[1]}, names={self.names})"
-
-    def __str__(self):
-        return f"({self.names[0]}: {self.coords[0]}, {self.names[1]}: {self.coords[1]})"
-
-    def __iter__(self):
-        return iter(self.coords)
-
-    def __len__(self):
-        return len(self.coords)
-
-    def __getitem__(self, key):
-        return self.coords[key]
-
-    def __array__(self, dtype=None):
-        return np.array(self.coords, dtype=dtype)
-
-
 class MissingModule:
     """Postpone raising missing module error for `module_name` until it is being actually accessed in code."""
     def __init__(self, module_name):
