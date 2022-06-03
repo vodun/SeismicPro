@@ -73,7 +73,7 @@ def parse_metric_values(metric_values, metric_name=None, metric_type=None):
 def calc_spikes(arr):
     with fft.set_workers(25):
         running_mean = signal.fftconvolve(arr, [[1,1,1]], mode='valid', axes=1)/3
-    return (np.abs(arr[...,1:-1] - running_mean))
+    return np.abs(arr[...,1:-1] - running_mean)
 
 @njit
 def fill_nulls(arr):

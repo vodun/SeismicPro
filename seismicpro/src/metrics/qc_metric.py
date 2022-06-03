@@ -115,6 +115,7 @@ class TracewiseMetric(PipelineMetric):
     @pass_calc_args
     def plot_res(cls, gather, ax, from_headers=None, to_headers=None, **kwargs):
         """Gather plot with tracewise indicator on a separate axis"""
+        _ = to_headers
         gather.plot(ax=ax, **kwargs)
         divider = make_axes_locatable(ax)
 
@@ -129,24 +130,27 @@ class TracewiseMetric(PipelineMetric):
         set_title(top_ax, gather)
 
     @pass_calc_args
-    def plot_wiggle(cls, gather, ax, from_headers=None, to_headers=None, **kwargs):
+    def plot_wiggle(cls, gather, ax, **kwargs):
         """"Gather wiggle plot where samples with indicator above/blow `cls.threshold` are in red."""
+        _ = kwargs
         fn = np.greater_equal if cls.is_lower_better else np.less_equal
         res = fn(cls.filter_res(gather), cls.threshold)
         wiggle_plot_with_filter(gather.data, res, ax, std=0.5)
         set_title(ax, gather)
 
     @pass_calc_args
-    def plot_image_filter(cls, gather, ax, from_headers=None, to_headers=None, **kwargs):
+    def plot_image_filter(cls, gather, ax, **kwargs):
         """Gather plot where samples with indicator above/blow `cls.threshold` are highlited."""
+        _ = kwargs
         fn = np.greater_equal if cls.is_lower_better else np.less_equal
         res = fn(cls.filter_res(gather), cls.threshold)
         image_filter(gather.data, res, ax)
         set_title(ax, gather)
 
     @pass_calc_args
-    def plot_worst_trace(cls, gather, ax, from_headers=None, to_headers=None, **kwargs):
+    def plot_worst_trace(cls, gather, ax, **kwargs):
         """Wiggle plot of the trace with the worst indicator value and 2 its neighboring traces."""
+        _ = kwargs
         res = cls.filter_res(gather)
         plot_worst_trace(ax, gather.data, gather.headers.TraceNumber.values, res, is_lower_better=cls.is_lower_better)
         set_title(ax, gather)
@@ -310,7 +314,7 @@ class SpikesMetric(TracewiseMetric):
 
 
 class AutocorrMetric(TracewiseMetric):
-
+    """Autocorrelation with shift 1"""
     name = "autocorr"
     is_lower_better = False
     threshold = 0.9
@@ -396,5 +400,3 @@ def add_metric(ppl, metric_cls, src='raw', **kwargs):
     )
 
     return ppl
-
-
