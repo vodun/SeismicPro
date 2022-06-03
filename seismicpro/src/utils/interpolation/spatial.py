@@ -167,7 +167,8 @@ class BaseDelaunayInterpolator(SpatialInterpolator):
             max_x, max_y = np.max(self.coords, axis=0) + 1
             corner_coords = [(min_x, min_y), (min_x, max_y), (max_x, min_y), (max_x, max_y)]
             self.tri = Delaunay(np.concatenate([self.coords, corner_coords]), incremental=False)
-            self.values = np.concatenate([self.values, np.zeros((4, self.values.shape[1]), dtype=self.values.dtype)])
+            if self.values is not None:
+                self.values = np.concatenate([self.values, np.zeros((4, self.values.shape[1]), dtype=self.values.dtype)])
 
         # Perform the first auxiliary call of the tri for it to work properly in different processes.
         # Otherwise interpolation may fail if called in a pipeline with prefetch with mpc target.
