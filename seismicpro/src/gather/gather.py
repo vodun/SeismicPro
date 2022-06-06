@@ -471,8 +471,8 @@ class Gather(TraceContainer, SamplesContainer):
             mean = self.survey.mean
             std = self.survey.std
         else:
-            mean = self._apply_agg_func(func=np.mean, tracewise=tracewise, keepdims=True)
-            std = self._apply_agg_func(func=np.std, tracewise=tracewise, keepdims=True)
+            mean = self._apply_agg_func(func=np.nanmean, tracewise=tracewise, keepdims=True)
+            std = self._apply_agg_func(func=np.nanstd, tracewise=tracewise, keepdims=True)
         self.data = normalization.scale_standard(self.data, mean, std, np.float32(eps))
         return self
 

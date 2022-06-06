@@ -51,8 +51,8 @@ def compare_gathers(first, second, drop_cols=None, check_types=False, same_surve
     if len(first_headers) > 0:
         assert first_headers.equals(second_headers)
 
-    assert np.allclose(first.data, second.data)
-    assert np.allclose(first.samples, second.samples)
+    assert np.allclose(first.data, second.data, equal_nan=True)
+    assert np.allclose(first.samples, second.samples, equal_nan=True)
 
     if check_types:
         for attr in NUMPY_ATTRS:
@@ -210,8 +210,13 @@ def norm_data(traces, tracewise):
 
 
 @pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
-def test_gather_scale_standard(gather, tracewise, use_global):
+@pytest.mark.parametrize('use_muter', [False, True, 0])
+def test_gather_scale_standard(gather, tracewise, use_global, use_muter):
     """test_gather_scale_standard"""
+    if use_muter is not False:
+        muter = gather.create_muter()
+        gather = gather.mute(muter, fill_value=np.nan if use_muter is True else use_muter)
+
     gather2 = gather.copy()
     gather.scale_standard(tracewise=tracewise, use_global=use_global)
 
