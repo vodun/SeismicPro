@@ -88,6 +88,10 @@ class WeatheringVelocity:
         Offsets of traces. Measured in meters.
     picking_times : 1d ndarray
         Picking times of traces. Measured in milliseconds.
+    max_offsets : float
+        Maximum offset value.
+    coords : Coordinates
+        Coordinates object.
     init : dict
         The inital values used to fit the parameters of the weathering model. Includes the calculated non-passed
         keys and values. Have the valid key notation.
@@ -98,6 +102,8 @@ class WeatheringVelocity:
         Number of the weathering model layers used to fit the parameters of the weathering model.
     params : dict
         The parameters of a weathering model. Have the valid key notation.
+    interpolator : callable
+        An interpolator returning expected first breaking by given offset.
     """
     def __init__(self):
         self.offsets = None
@@ -581,7 +587,7 @@ class WeatheringVelocity:
             compared_wv = WeatheringVelocity.from_params(compared_params)
             compared_wv._piecewise_times[-1] = (compared_wv._piecewise_times[-1] +
                 (self.max_offset - compared_wv._piecewise_offsets[-1]) / list(compared_wv.params.values())[-1])
-            compared_wv._piecewise_offsets[-1] = self.max_offset 
+            compared_wv._piecewise_offsets[-1] = self.max_offset
 
             compared_wv.plot(ax=ax, show_params=False, curve_color='#ff7900', crossover_color='green',
                              curve_label='compared weathering velocity curve',

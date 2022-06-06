@@ -695,7 +695,7 @@ class Gather(TraceContainer, SamplesContainer):
 
     @batch_method(target='for')
     def calculate_weathering_velocity(self, first_breaks_col=HDR_FIRST_BREAK, init=None, bounds=None, n_layers=None,
-                                      acsending_velocities=True, freeze_t0=False, **kwargs):
+                                      acsending_velocities=True, freeze_t0=False, coords_cols="auto", **kwargs):
         """Calculate the WeatheringVelocity using the offsets and first break times.
 
         Method creates a WeatheringVelocity instance, fits the parameters of weathering model (intercept time, cross
@@ -729,12 +729,13 @@ class Gather(TraceContainer, SamplesContainer):
         WeatheringVelocity
             Calculated WeatheringVelocity instance.
         """
-        if all([param is None for param in (init, bounds, n_layers)]):
+        if all((param is None for param in (init, bounds, n_layers))):
             raise ValueError("One of `init`, `bounds` or `n_layers` should be defined.")
+        coords = None if coords_cols is None else self.get_coords(coords_cols)
         return WeatheringVelocity.from_picking(offsets=self.offsets, picking_times=self[first_breaks_col].ravel(),
                                                init=init, bounds=bounds, n_layers=n_layers,
                                                acsending_velocities=acsending_velocities, freeze_t0=freeze_t0,
-                                               **kwargs)
+                                               coords=coords, **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #
