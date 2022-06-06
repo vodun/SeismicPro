@@ -263,7 +263,7 @@ def test_gather_scale_maxabs(gather, tracewise, use_global, use_muter):
     else:
         kwargs = dict(axis=(1 if tracewise else None), keepdims=True)
         scale = np.maximum(np.abs(np.nanmin(gather2.data, **kwargs)), np.abs(np.nanmax(gather2.data, **kwargs)))
-    gather2.data /= scale
+    gather2.data /= (scale + EPS)
 
     compare_gathers(gather, gather2)
 
