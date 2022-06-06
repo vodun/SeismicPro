@@ -22,7 +22,7 @@ from ..containers import TraceContainer, SamplesContainer
 from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, VelocityCube
 from ..decorators import batch_method, plotter
-from ..const import HDR_FIRST_BREAK, DEFAULT_VELOCITY
+from ..const import EPS, HDR_FIRST_BREAK, DEFAULT_VELOCITY
 
 
 class Gather(TraceContainer, SamplesContainer):
@@ -430,7 +430,7 @@ class Gather(TraceContainer, SamplesContainer):
         return quantiles.item() if not tracewise and quantiles.ndim == 0 else quantiles
 
     @batch_method(target='threads')
-    def scale_standard(self, tracewise=True, use_global=False, eps=1e-10):
+    def scale_standard(self, tracewise=True, use_global=False, eps=EPS):
         r"""Standardize the gather by removing the mean and scaling to unit variance.
 
         The standard score of a gather `g` is calculated as:
@@ -477,7 +477,7 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target='for')
-    def scale_maxabs(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
+    def scale_maxabs(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=EPS):
         r"""Scale the gather by its maximum absolute value.
 
         Maxabs scale of the gather `g` is calculated as:
@@ -526,7 +526,7 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target='for')
-    def scale_minmax(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
+    def scale_minmax(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=EPS):
         r"""Linearly scale the gather to a [0, 1] range.
 
         The transformation of the gather `g` is given by:

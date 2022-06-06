@@ -8,7 +8,7 @@ import numpy as np
 
 from seismicpro import Survey, StackingVelocity
 from seismicpro.src.utils import to_list
-from seismicpro.src.const import HDR_FIRST_BREAK
+from seismicpro.src.const import HDR_FIRST_BREAK, EPS
 
 
 # Constants
@@ -205,10 +205,22 @@ def test_gather_get_quantile(gather, tracewise, use_global, q):
     # # check that quantile has the same type as q
     gather.get_quantile(q=q, tracewise=tracewise, use_global=use_global)
 
+def norm_data(traces, tracewise):
+    return (traces - np.nanmean(traces, axis=1 if tracewise else None, keepdims=True))/(np.nanstd(traces, axis=1 if tracewise else None, keepdims=True) + EPS)
+
+
 @pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
 def test_gather_scale_standard(gather, tracewise, use_global):
     """test_gather_scale_standard"""
+    gather2 = gather.copy()
     gather.scale_standard(tracewise=tracewise, use_global=use_global)
+
+    if not use_global:
+        gather2.data = norm_data(gather2.data, tracewise)
+    else:
+        gather2.data = (gather2.data - gather2.survey.mean)/(gather2.survey.std + EPS)
+
+    compare_gathers(gather, gather2)
 
 @pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
 def test_gather_scale_minmax(gather, tracewise, use_global):
