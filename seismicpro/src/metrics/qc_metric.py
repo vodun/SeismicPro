@@ -302,10 +302,10 @@ class SpikesMetric(TracewiseMetric):
     @staticmethod
     def get_res(gather):
         """QC indicator implementation."""
-        norm_data = TracewiseMetric.norm_data(gather)
-        fill_nulls(norm_data)
+        traces = gather.data.copy()
+        fill_nulls(traces)
 
-        res = calc_spikes(norm_data)
+        res = calc_spikes(traces)
         return np.pad(res, ((0,0), (1, 1)))
 
 
@@ -318,8 +318,7 @@ class AutocorrMetric(TracewiseMetric):
     @staticmethod
     def get_res(gather):
         """QC indicator implementation."""
-        norm_data = TracewiseMetric.norm_data(gather)
-        return (np.nansum(norm_data[...,1:] * norm_data[..., :-1], axis=1) /
+        return (np.nansum(gather.data[...,1:] * gather.data[..., :-1], axis=1) /
                 (gather.n_samples - np.isnan(gather.data).sum(axis=1) + EPS))
 
 
