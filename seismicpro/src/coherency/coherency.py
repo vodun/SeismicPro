@@ -260,7 +260,7 @@ class BaseCoherency:
 
         # Add level lines and colorize the graph
         cmap = plt.get_cmap('seismic')
-        norm = mcolors.BoundaryNorm(np.linspace(0, vmax, levels), cmap.N)
+        norm = mcolors.BoundaryNorm(np.linspace(0, semblance.max(), levels), cmap.N)
         x_grid, y_grid = np.meshgrid(np.arange(0, semblance.shape[1]), np.arange(0, semblance.shape[0]))
 #        ax.contour(x_grid, y_grid, semblance, levels, colors='k', linewidths=.5, alpha=.5)
         img = ax.imshow(semblance, norm=norm, aspect='auto', cmap=cmap)
