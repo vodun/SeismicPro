@@ -205,9 +205,6 @@ def test_gather_get_quantile(gather, tracewise, use_global, q):
     # # check that quantile has the same type as q
     gather.get_quantile(q=q, tracewise=tracewise, use_global=use_global)
 
-def norm_data(traces, tracewise):
-    return (traces - np.nanmean(traces, axis=1 if tracewise else None, keepdims=True))/(np.nanstd(traces, axis=1 if tracewise else None, keepdims=True) + EPS)
-
 
 @pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
 @pytest.mark.parametrize('use_muter', [False, True, 0])
@@ -220,22 +217,55 @@ def test_gather_scale_standard(gather, tracewise, use_global, use_muter):
     gather2 = gather.copy()
     gather.scale_standard(tracewise=tracewise, use_global=use_global)
 
-    if not use_global:
-        gather2.data = norm_data(gather2.data, tracewise)
-    else:
+    if use_global:
         gather2.data = (gather2.data - gather2.survey.mean)/(gather2.survey.std + EPS)
+    else:
+        kwargs = dict(axis=(1 if tracewise else None), keepdims=True)
+        gather2.data = (gather2.data - np.nanmean(gather2.data, **kwargs))/(np.nanstd(gather2.data, **kwargs) + EPS)
 
     compare_gathers(gather, gather2)
 
 @pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
-def test_gather_scale_minmax(gather, tracewise, use_global):
+@pytest.mark.parametrize('use_muter', [False, True, 0])
+def test_gather_scale_minmax(gather, tracewise, use_global, use_muter):
     """test_gather_scale_minmax"""
+    if use_muter is not False:
+        muter = gather.create_muter()
+        gather = gather.mute(muter, fill_value=np.nan if use_muter is True else use_muter)
+
+    gather2 = gather.copy()
     gather.scale_minmax(tracewise=tracewise, use_global=use_global)
 
+    if use_global:
+        vmin, vmax = gather2.survey.min, gather2.survey.max
+    else:
+        kwargs = dict(axis=(1 if tracewise else None), keepdims=True)
+        vmin, vmax = np.nanmin(gather2.data, **kwargs), np.nanmax(gather2.data, **kwargs)
+
+    gather2.data = (gather2.data - vmin)/(vmax - vmin + EPS)
+
+    compare_gathers(gather, gather2)
+
+
 @pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
-def test_gather_scale_maxabs(gather, tracewise, use_global):
+@pytest.mark.parametrize('use_muter', [False, True, 0])
+def test_gather_scale_maxabs(gather, tracewise, use_global, use_muter):
     """test_gather_scale_minmax"""
+    if use_muter is not False:
+        muter = gather.create_muter()
+        gather = gather.mute(muter, fill_value=np.nan if use_muter is True else use_muter)
+
+    gather2 = gather.copy()
     gather.scale_maxabs(tracewise=tracewise, use_global=use_global)
+
+    if use_global:
+        scale = max(abs(gather2.survey.min), abs(gather2.survey.max)) + EPS
+    else:
+        kwargs = dict(axis=(1 if tracewise else None), keepdims=True)
+        scale = np.maximum(np.abs(np.nanmin(gather2.data, **kwargs)), np.abs(np.nanmax(gather2.data, **kwargs)))
+    gather2.data /= scale
+
+    compare_gathers(gather, gather2)
 
 def test_gather_mask_to_pick_and_pick_to_mask(gather):
     """test_gather_mask_to_pick"""
