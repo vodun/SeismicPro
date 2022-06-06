@@ -98,6 +98,7 @@ class WeatheringVelocity:
         self.offsets = None
         self.picking_times = None
         self.max_offset = None
+        self.coords = None
         self.init = None
         self.bounds = None
         self.n_layers = None
@@ -112,7 +113,7 @@ class WeatheringVelocity:
 
     @classmethod
     def from_picking(cls, offsets, picking_times, init=None, bounds=None, n_layers=None, acsending_velocities=True,
-                     freeze_t0=False, **kwargs):
+                     freeze_t0=False, coords=None, **kwargs):
         """Method fits the weathering model parameters from the offsets and the first break picking times.
 
         Parameters
@@ -152,6 +153,7 @@ class WeatheringVelocity:
         self.offsets = offsets
         self.picking_times = picking_times
         self.max_offset = offsets.max()
+        self.coords = coords
 
         self.init = {**self._calc_init_by_layers(n_layers), **self._calc_init_by_bounds(bounds), **init}
         self.bounds = {**self._calc_bounds_by_init(), **bounds}
@@ -227,6 +229,30 @@ class WeatheringVelocity:
     def __getattr__(self, key):
         return self.params[key]
 
+    def __getitem__(self, value):
+        """Return ndarray with i-th refractor parameters (start offset, end offset, velocity). Starts from 0."""
+        if value >= self.n_layers:
+            raise IndexError(f"Index {value} is out of bounds.")
+        velocity = self.params.get(f"v{value+1}", None)
+        return np.hstack([self._piecewise_offsets[value:value+2], velocity])
+
+    def has_coords(self):
+        """bool: Whether weathering velocity coords are not-None."""
+        return self.coords is not None
+
+    def get_coords(self, *args, **kwargs):
+        """Get spatial coordinates of the stacking velocity.
+
+        Ignores all passed arguments but accept them to preserve general `get_coords` interface.
+
+        Returns
+        -------
+        coords : Coordinates
+            Weathering velocity spatial coordinates.
+        """
+        _ = args, kwargs
+        return self.coords
+
     def _create_piecewise_coords(self, n_layers, max_offset=np.nan):
         """Create two array corresponding to the piecewise linear function coords."""
         offsets = np.zeros(n_layers + 1)
@@ -254,7 +280,7 @@ class WeatheringVelocity:
         structure:
             args[0] : intercept time in milliseconds.
             args[1:n_layers] : cross offsets points in meters.
-            args[n_layers:] : velocities of each weathering model layer in km/s.
+            args[n_layers:] : velocities of each weathering model layer in kilometers/seconds.
             Total lenght of args should be n_layers * 2.
 
         Notes: 'init', 'bounds' and 'params' store velocity in m/s unlike args for `loss_piecewise_linear`.

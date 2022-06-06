@@ -106,7 +106,7 @@ def apply_lmo(gather_data, picking_estimate, delay, fill_value):
         LMO corrected gather with an ordinary shape of (num_traces, trace_length).
     """
     corrected_gather = np.full_like(gather_data, fill_value)
-    n_traces, trace_lenght = corrected_gather.shape
+    n_traces, trace_lenght = gather_data.shape
     start_lmo = np.maximum(delay - picking_estimate, 0)
     start_raw = np.maximum(picking_estimate - delay, 0)
     traces_lenght_lmo = np.maximum(trace_lenght - start_lmo - start_raw, 0)
