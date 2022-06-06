@@ -22,11 +22,7 @@ class WeatheringVelocity:
     Since the class uses the first break picking time to fit the detected velocities, any detected underlaying layers
     should have a higher velocity than any of the overlaying.
 
-    The class could be created from `from_params` and `from_picking` classmethods.
-    `from_params` - creates a WeatheringVelocity instance and stores the given parameters of the weathering model.
-        Parameters : `params`.
-            `params` : dict with the weathering model parameters. Keys have the valid notation.
-
+    The class could be created from `from_picking`, `from_params`, and `from_constant` classmethods.
     `from_picking` - creates a WeatheringVelocity instance, fits the parameters of the weathering model by the offsets,
                      first break picking data, estimate parameters of the weathering model and stores the fitted
                      parameters.
@@ -36,6 +32,15 @@ class WeatheringVelocity:
             `bounds` : dict with left and right bounds for each weathering model parameter. Keys have the valid
                        notation.
             `n_layers` : quantity of the weathering model layers.
+
+    `from_params` - creates a WeatheringVelocity instance and stores the given parameters of the weathering model.
+        Parameters : `params`.
+            `params` : dict with the weathering model parameters. Keys have the valid notation.
+
+    `from_constant` - creates a WeatheringVelocity instance with the 1-layer weathering model with zero intercept time
+                    and given velocity. Stored parameters of the weathering model in `params`.
+        Parameters : `velocity`.
+            `velocity` : velocity of a single layer of weathering model.
 
     Valid keys notation.
         `t0`: a intercept time of the first subweathering layer. Same as double wave travel time to the first
@@ -187,7 +192,7 @@ class WeatheringVelocity:
         return self
 
     @classmethod
-    def from_params(cls, params):
+    def from_params(cls, params, coords=None):
         """Create WeatheringVelocity instanse from parameters.
 
         Parameters should be dict with valid key notation.
@@ -213,6 +218,7 @@ class WeatheringVelocity:
         self.n_layers = len(params) // 2
         self._valid_keys = self._get_valid_keys(self.n_layers)
         self.params = {key: params[key] for key in self._valid_keys}
+        self.coords = coords
 
         self._piecewise_offsets, self._piecewise_times = \
             self._create_piecewise_coords(self.n_layers, self.params.get(f'x{self.n_layers-1}', 0) + 1000)
@@ -221,6 +227,31 @@ class WeatheringVelocity:
                                           self.n_layers)
         self.interpolator = interp1d(self._piecewise_offsets, self._piecewise_times)
         return self
+
+    @classmethod
+    def from_constant(cls, velocity, coords=None):
+        """Create WeatheringVelocity instanse with constant velocity and intercept time is 0.
+
+        Parameters
+        ----------
+        velocity : float,
+            Constant velocity for the 1-layer weathering model.
+
+        Returns
+        -------
+        WeatheringVelocity
+            WeatheringVelocity instance based on velocity.
+
+        Raises
+        ------
+        ValueError
+            If passed `velocity` is negative.
+        """
+        self = cls()
+
+        if velocity < 0:
+            raise ValueError("Velocity should not be negative.")
+        return self.from_params({"t0": 0, "v1": velocity}, coords=coords)
 
     def __call__(self, offsets):
         """Return the predicted picking times using the offsets."""
@@ -550,7 +581,7 @@ class WeatheringVelocity:
             compared_wv = WeatheringVelocity.from_params(compared_params)
             compared_wv._piecewise_times[-1] = (compared_wv._piecewise_times[-1] +
                 (self.max_offset - compared_wv._piecewise_offsets[-1]) / list(compared_wv.params.values())[-1])
-            compared_wv._piecewise_offsets[-1] = self.max_offset
+            compared_wv._piecewise_offsets[-1] = self.max_offset 
 
             compared_wv.plot(ax=ax, show_params=False, curve_color='#ff7900', crossover_color='green',
                              curve_label='compared weathering velocity curve',

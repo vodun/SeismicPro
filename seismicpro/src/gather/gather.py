@@ -696,7 +696,7 @@ class Gather(TraceContainer, SamplesContainer):
     @batch_method(target='for')
     def calculate_weathering_velocity(self, first_breaks_col=HDR_FIRST_BREAK, init=None, bounds=None, n_layers=None,
                                       acsending_velocities=True, freeze_t0=False, **kwargs):
-        """Calculate the WeatheringVelocity object from the offsets and first break times.
+        """Calculate the WeatheringVelocity using the offsets and first break times.
 
         Method creates a WeatheringVelocity instance, fits the parameters of weathering model (intercept time, cross
         offsets and velocities) of first N subsurface layers and stores fitted parameters.
@@ -704,7 +704,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         Examples
         --------
-        >>> weathering_velocity = gather.calculate_weathering_velocity(n_layer=2)
+        >>> weathering_velocity = gather.calculate_weathering_velocity(n_layers=2)
         Note: the offsets and first break picking should be preloaded.
 
         Parameters
@@ -729,6 +729,8 @@ class Gather(TraceContainer, SamplesContainer):
         WeatheringVelocity
             Calculated WeatheringVelocity instance.
         """
+        if all([param is None for param in (init, bounds, n_layers)]):
+            raise ValueError("One of `init`, `bounds` or `n_layers` should be defined.")
         return WeatheringVelocity.from_picking(offsets=self.offsets, picking_times=self[first_breaks_col].ravel(),
                                                init=init, bounds=bounds, n_layers=n_layers,
                                                acsending_velocities=acsending_velocities, freeze_t0=freeze_t0,
@@ -899,12 +901,12 @@ class Gather(TraceContainer, SamplesContainer):
         event_headers = [] if event_headers is None else event_headers
         event_headers = (set(to_list(event_headers['headers'])) if isinstance(event_headers, dict)
                                                                 else set(to_list(event_headers)))
-        picking_estimate = times_to_indices(weathering_velocity(self.offsets), self.samples, round=True).astype(int)
+        fb_estimate = times_to_indices(weathering_velocity(self.offsets), self.samples, round=True).astype(int)
         delay_indicies = times_to_indices(np.full(self.shape[0], delay), self.samples, round=True).astype(int)
-        data = correction.apply_lmo(self.data, picking_estimate, delay_indicies, fill_value)
+        data = correction.apply_lmo(self.data, fb_estimate, delay_indicies, fill_value)
         self.data = data
         for header in event_headers:
-            self[header] -= (picking_estimate - delay_indicies).reshape(-1, 1) * self.sample_rate
+            self[header] -= (fb_estimate - delay_indicies).reshape(-1, 1) * self.sample_rate
         return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
