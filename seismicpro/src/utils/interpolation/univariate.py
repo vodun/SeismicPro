@@ -1,4 +1,4 @@
-"""Implements a class for linear 1d interpolation and extrapolation"""
+"""Implements classes and functions for 1d interpolation and extrapolation"""
 
 import numpy as np
 from numba import njit, prange
