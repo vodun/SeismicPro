@@ -27,19 +27,19 @@ class WeatheringVelocity:
                      first break picking data, estimate parameters of the weathering model and stores the fitted
                      parameters.
         Data : first break picking times and the corresponding offsets.
-        Parameters : `init`, `bounds` or `n_layers`.
+        Parameters : `init`, `bounds` or/and `n_layers`
             `init` : dict with the estimate weathering model parameters. Keys have the valid notation.
             `bounds` : dict with left and right bounds for each weathering model parameter. Keys have the valid
                        notation.
-            `n_layers` : quantity of the weathering model layers.
+            `n_layers` : number of the weathering model layers.
 
     `from_params` - creates a WeatheringVelocity instance and stores the given parameters of the weathering model.
-        Parameters : `params`.
+        Parameters : `params`
             `params` : dict with the weathering model parameters. Keys have the valid notation.
 
-    `from_constant` - creates a WeatheringVelocity instance with the 1-layer weathering model with zero intercept time
-                    and given velocity. Stored parameters of the weathering model in `params`.
-        Parameters : `velocity`.
+    `from_constant` - creates a WeatheringVelocity instance based on the 1-layer weathering model with zero intercept
+                      time and given velocity. Stored parameters of the weathering model in `params`.
+        Parameters : `velocity`
             `velocity` : velocity of a single layer of weathering model.
 
     Valid keys notation.
@@ -201,7 +201,7 @@ class WeatheringVelocity:
     def from_params(cls, params, coords=None):
         """Create WeatheringVelocity instanse from parameters.
 
-        Parameters should be dict with valid key notation.
+        Parameters should be dict with the valid key notation.
 
         Parameters
         ----------
@@ -369,7 +369,6 @@ class WeatheringVelocity:
 
     def _get_constraints(self, acsending_velocities, freeze_t0):
         """Return list with constaints."""
-        # print(list(self.init.values())[:1][self._empty_layers[:1]])
         constraint_offset = {  # cross offsets ascend.
             "type": "ineq",
             "fun": lambda x: np.diff(np.concatenate((x[1:self.n_layers], [self.max_offset])))}

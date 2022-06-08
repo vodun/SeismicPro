@@ -705,7 +705,8 @@ class Gather(TraceContainer, SamplesContainer):
         Examples
         --------
         >>> weathering_velocity = gather.calculate_weathering_velocity(n_layers=2)
-        Note: the offsets and first break picking should be preloaded.
+        Notes: The offsets and first break picking should be preloaded.
+               The headers corresponding to gather's coordinates should be preloaded or use `coords_cols=None`.
 
         Parameters
         ----------
@@ -723,6 +724,10 @@ class Gather(TraceContainer, SamplesContainer):
             Avoid the fitting intercept time ('t0').
         kwargs : dict, optional
             Additional keyword arguments.
+        coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
+            Header columns to get spatial coordinates of the gather from to fetch `WeatheringVelocity` from
+            `WeatheringCube`. See :func:`~Gather.get_coords` for more details.
+            # TODO: update `WeatheringCube` naming
 
         Returns
         -------
