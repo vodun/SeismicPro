@@ -694,9 +694,9 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target='for')
-    def calculate_weathering_velocity(self, first_breaks_col=HDR_FIRST_BREAK, n_layers=None, init=None, bounds=None,
-                                      acsending_velocities=True, freeze_t0=False, negative_t0=False, **kwargs):
-        """Calculate the WeatheringVelocity object from offsets and first break times.
+    def calculate_weathering_velocity(self, first_breaks_col=HDR_FIRST_BREAK, init=None, bounds=None, n_layers=None,
+                                      acsending_velocities=True, freeze_t0=False, coords_cols="auto", **kwargs):
+        """Calculate the WeatheringVelocity using the offsets and first break times.
 
         Method creates a WeatheringVelocity instance, fits the parameters of weathering model (intercept time, cross
         offsets and velocities) of first N subsurface layers and stores fitted parameters.
@@ -704,35 +704,43 @@ class Gather(TraceContainer, SamplesContainer):
 
         Examples
         --------
-        >>> weathering_velocity = gather.calculate_weathering_velocity(n_layer=2)
-        Note: the offsets and first break picking should be preloaded.
+        >>> weathering_velocity = gather.calculate_weathering_velocity(n_layers=2)
+        Notes: The offsets and first break picking should be preloaded.
+               The headers corresponding to gather's coordinates should be preloaded or use `coords_cols=None`.
 
         Parameters
         ----------
         first_breaks_col : str, defaults to HDR_FIRST_BREAK
             Column name from `self.headers` where first breaking times are stored.
-        n_layers : int or None, defaults to None
-            Number of the weathering model layers.
         init : dict or None, defaults to None
             Initial values for a weathering model.
         bounds : dict or None, defaults to None
             Bounds for the weathering model parameters.
+        n_layers : int or None, defaults to None
+            Number of the weathering model layers.
         ascending_velocity : bool, defaults to True
             Keeps the ascend of the fitted velocities from i-th layer to i+1 layer.
         freeze_t0 : bool, defaults to False
             Avoid the fitting intercept time ('t0').
         kwargs : dict, optional
-            Additional keyword arguments to `scipy.optimize.minimize`.
+            Additional keyword arguments.
+        coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
+            Header columns to get spatial coordinates of the gather from to fetch `WeatheringVelocity` from
+            `WeatheringCube`. See :func:`~Gather.get_coords` for more details.
+            # TODO: update `WeatheringCube` naming
 
         Returns
         -------
         WeatheringVelocity
             Calculated WeatheringVelocity instance.
         """
+        if all((param is None for param in (init, bounds, n_layers))):
+            raise ValueError("One of `init`, `bounds` or `n_layers` should be defined.")
+        coords = None if coords_cols is None else self.get_coords(coords_cols)
         return WeatheringVelocity.from_picking(offsets=self.offsets, picking_times=self[first_breaks_col].ravel(),
-                                               n_layers=n_layers, init=init, bounds=bounds,
+                                               init=init, bounds=bounds, n_layers=n_layers,
                                                acsending_velocities=acsending_velocities, freeze_t0=freeze_t0,
-                                               negative_t0=negative_t0, **kwargs)
+                                               coords=coords, **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #
@@ -872,7 +880,7 @@ class Gather(TraceContainer, SamplesContainer):
 
     @batch_method(target="threads", args_to_unpack="weathering_velocity") # benchmark it
     def apply_lmo(self, weathering_velocity, delay=100, fill_value=0, event_headers=None):
-        """Perform gather linear moveout correction using given weathering velocity.
+        """Perform a gather linear moveout correction using the given weathering velocity.
 
         Parameters
         ----------
@@ -899,12 +907,12 @@ class Gather(TraceContainer, SamplesContainer):
         event_headers = [] if event_headers is None else event_headers
         event_headers = (set(to_list(event_headers['headers'])) if isinstance(event_headers, dict)
                                                                 else set(to_list(event_headers)))
-        picking_estimate = times_to_indices(weathering_velocity(self.offsets), self.samples, round=True).astype(int)
+        fb_estimate = times_to_indices(weathering_velocity(self.offsets), self.samples, round=True).astype(int)
         delay_indicies = times_to_indices(np.full(self.shape[0], delay), self.samples, round=True).astype(int)
-        data = correction.apply_lmo(self.data, picking_estimate, delay_indicies, fill_value)
+        data = correction.apply_lmo(self.data, fb_estimate, delay_indicies, fill_value)
         self.data = data
         for header in event_headers:
-            self[header] -= (picking_estimate - delay_indicies).reshape(-1, 1) * self.sample_rate
+            self[header] -= (fb_estimate - delay_indicies).reshape(-1, 1) * self.sample_rate
         return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
@@ -1628,7 +1636,7 @@ class Gather(TraceContainer, SamplesContainer):
         NMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, **kwargs).plot()
 
     def plot_lmo_correction(self, min_vel=800, max_vel=6000, figsize=(6, 4.5), **kwargs):
-        """Perform interactive LMO correction of the gather with the selected velocity of the 1-layer weathering model.
+        """Perform interactive LMO correction of the gather with the selected velocity.
 
         The plot provides 2 views:
         * Corrected gather (default). LMO correction is performed on the fly with the velocity controlled by a slider
@@ -1641,9 +1649,9 @@ class Gather(TraceContainer, SamplesContainer):
         Parameters
         ----------
         min_vel : float, optional, defaults to 800
-            Minimum seismic velocity value for NMO correction. Measured in meters/seconds.
+            Minimum velocity value for LMO correction. Measured in meters/seconds.
         max_vel : float, optional, defaults to 6000
-            Maximum seismic velocity value for NMO correction. Measured in meters/seconds.
+            Maximum velocity value for LMO correction. Measured in meters/seconds.
         figsize : tuple with 2 elements, optional, defaults to (6, 4.5)
             Size of the created figure. Measured in inches.
         kwargs : misc, optional

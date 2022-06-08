@@ -7,7 +7,7 @@ from ..const import HDR_FIRST_BREAK
 
 
 class FirstBreaksOutliers(PipelineMetric):
-    """Calculates the first break outliers metric.
+    """Calculate the first break outliers metric.
 
     The outlier is considered to be the first break time that stands out from the expected arrival time
     (weathering velocity curve) for more than threshold.
