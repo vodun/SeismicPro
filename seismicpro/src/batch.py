@@ -137,7 +137,7 @@ class SeismicBatch(Batch):
         getattr(self, dst)[pos] = survey.load_gather(headers, **kwargs)
 
     @action
-    def update_velocity_cube(self, velocity_cube, src):
+    def update_field(self, field, src):
         """Update a velocity cube with stacking velocities from `src` component.
 
         Notes
@@ -163,7 +163,7 @@ class SeismicBatch(Batch):
         ValueError
             If any of the passed stacking velocities has `None` coordinates.
         """
-        velocity_cube.update(getattr(self, src))
+        field.update(getattr(self, src))
         return self
 
     @action

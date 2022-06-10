@@ -12,12 +12,12 @@ from . import assert_surveys_equal, assert_survey_processed_inplace
 
 def gen_random_traces(n_traces, n_samples):
     """Generate `n_traces` random traces."""
-    return np.random.normal(size=(n_traces, n_samples))
+    return np.random.normal(size=(n_traces, n_samples)).astype(np.float32)
 
 
 def gen_random_traces_some_dead(n_traces, n_samples):
     """Generate `n_traces` random traces with every third of them dead."""
-    traces = np.random.uniform(size=(n_traces, n_samples))
+    traces = np.random.uniform(size=(n_traces, n_samples)).astype(np.float32)
     traces[::3] = 0
     return traces
 
@@ -31,14 +31,14 @@ def stat_segy(tmp_path_factory, request):
     trace_data = trace_gen(n_traces, n_samples)
 
     def gen_trace(TRACE_SEQUENCE_FILE, **kwargs):  # pylint: disable=invalid-name
-        """Return a corresponding trace from a pregenerated data."""
+        """Return a corresponding trace from pregenerated data."""
         _ = kwargs
         return trace_data[TRACE_SEQUENCE_FILE - 1]
 
     path = tmp_path_factory.mktemp("stat") / "stat.sgy"
     make_prestack_segy(path, survey_size=(4, 4), origin=(0, 0), sources_step=(3, 3), receivers_step=(1, 1),
-                        bin_size=(1, 1), activation_dist=(1, 1), n_samples=n_samples, sample_rate=2000, delay=0,
-                        bar=False, trace_gen=gen_trace)
+                       bin_size=(1, 1), activation_dist=(1, 1), n_samples=n_samples, sample_rate=2000, delay=0,
+                       bar=False, trace_gen=gen_trace)
     return path, trace_data
 
 
@@ -53,15 +53,17 @@ class TestStats:
             survey.collect_stats()
 
     @pytest.mark.parametrize("remove_dead", [True, False])
-    @pytest.mark.parametrize("init_limits", [slice(8), slice(-4, None)])
+    @pytest.mark.parametrize("init_limits", [slice(None), slice(8), slice(-4, None)])
     @pytest.mark.parametrize("n_quantile_traces", [0, 10, 100])
     @pytest.mark.parametrize("quantile_precision", [1, 2])
     @pytest.mark.parametrize("stats_limits", [None, slice(5), slice(2, 8)])
+    @pytest.mark.parametrize("use_segyio_trace_loader", [True, False])
     def test_collect_stats(self, stat_segy, init_limits, remove_dead, n_quantile_traces, quantile_precision,
-                           stats_limits):
+                           stats_limits, use_segyio_trace_loader):
         """Compare stats obtained by running `collect_stats` with the actual ones."""
         path, trace_data = stat_segy
-        survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset", limits=init_limits)
+        survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset", limits=init_limits,
+                        use_segyio_trace_loader=use_segyio_trace_loader, bar=False)
         survey.mark_dead_traces(bar=False)
 
         if remove_dead:

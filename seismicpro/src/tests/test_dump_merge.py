@@ -13,14 +13,15 @@ from .test_gather import compare_gathers
 
 
 @pytest.mark.parametrize('name', ['some_name', None])
-@pytest.mark.parametrize('copy_header', [False, True])
+@pytest.mark.parametrize('retain_parent_segy_headers', [False, True])
 @pytest.mark.parametrize('header_index', ['FieldRecord', 'TRACE_SEQUENCE_FILE'])
 @pytest.mark.parametrize('header_cols', [None, 'TraceNumber', 'all'])
 @pytest.mark.parametrize('dump_index', [1, 3])
-def test_dump_single_gather(segy_path, tmp_path, name, copy_header, header_index, header_cols, dump_index):
+def test_dump_single_gather(segy_path, tmp_path, name, retain_parent_segy_headers, header_index, header_cols,
+                            dump_index):
     survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name)
     expected_gather = survey.get_gather(dump_index)
-    expected_gather.dump(path=tmp_path, name=name, copy_header=copy_header)
+    expected_gather.dump(path=tmp_path, name=name, retain_parent_segy_headers=retain_parent_segy_headers)
 
     files = glob.glob(os.path.join(tmp_path, '*'))
     assert len(files) == 1, "Dump creates more than one file"
@@ -33,7 +34,7 @@ def test_dump_single_gather(segy_path, tmp_path, name, copy_header, header_index
     compare_gathers(expected_gather, dumped_gather, drop_cols=drop_columns, check_types=True,
                     same_survey=False)
 
-    if copy_header:
+    if retain_parent_segy_headers:
         expected_survey = Survey(segy_path, header_index=header_index, header_cols='all')
         full_exp_headers = expected_survey.headers
         full_exp_headers = full_exp_headers.loc[dump_index:dump_index].reset_index()
@@ -44,7 +45,7 @@ def test_dump_single_gather(segy_path, tmp_path, name, copy_header, header_index
         assert np.allclose(sample_rates[0] / 1000, expected_survey.sample_rate)
         full_exp_headers.drop(columns=["TRACE_SEQUENCE_FILE", "TRACE_SAMPLE_INTERVAL"], inplace=True)
         full_dump_headers.drop(columns=["TRACE_SEQUENCE_FILE", "TRACE_SAMPLE_INTERVAL"], inplace=True)
-        assert full_exp_headers.equals(full_dump_headers), "Copy_header don't save all columns during the dump"
+        assert full_exp_headers.equals(full_dump_headers)
 
 
 @pytest.mark.parametrize('dump_kwargs,error',
@@ -69,7 +70,7 @@ def test_aggregate_segys(segy_path, tmp_path, mode, indices):
         paths = [''] * len(indices)
     for num, (ix, path) in enumerate(zip(indices, paths)):
         g = expected_survey.get_gather(ix)
-        g.dump(os.path.join(tmp_path, path), name=f'{num}_{ix}', copy_header=True)
+        g.dump(os.path.join(tmp_path, path), name=f'{num}_{ix}', retain_parent_segy_headers=True)
 
     aggregate_segys(os.path.join(tmp_path, './**/*.sgy'), os.path.join(tmp_path, 'aggr.sgy'), recursive=True)
 

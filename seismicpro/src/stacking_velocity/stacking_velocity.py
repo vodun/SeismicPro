@@ -3,7 +3,7 @@
 import numpy as np
 
 from ..utils.interpolation import interp1d
-from ..utils import read_single_vfunc, dump_vfunc, Coordinates
+from ..utils import to_list, read_single_vfunc, dump_vfunc, Coordinates
 
 
 class StackingVelocity:
@@ -61,11 +61,10 @@ class StackingVelocity:
         self.interpolator = lambda times: np.zeros_like(times, dtype=np.float32)
         self.times = None
         self.velocities = None
-        self.inline = None
-        self.crossline = None
+        self.coords = None
 
     @classmethod
-    def from_points(cls, times, velocities, inline=None, crossline=None):
+    def from_points(cls, times, velocities, coords=None):
         """Init stacking velocity from arrays of times and corresponding velocities.
 
         The resulting object performs linear velocity interpolation between points given. Linear extrapolation is
@@ -100,13 +99,27 @@ class StackingVelocity:
             raise ValueError("Inconsistent shapes of times and velocities")
         if (velocities < 0).any():
             raise ValueError("Velocity values must be positive")
-        self = cls.from_interpolator(interp1d(times, velocities), inline, crossline)
+
+        self = cls()
         self.times = times
         self.velocities = velocities
+        self.interpolator = interp1d(times, velocities)
+        self.coords = coords
         return self
 
     @classmethod
-    def from_file(cls, path):
+    def from_weighted_instances(cls, instances, weights=None, coords=None):
+        instances = to_list(instances)
+        if weights is None:
+            weights = np.ones_like(instances)
+            weights /= weights.sum()
+        weights = np.array(weights)
+        times = np.unique(np.concatenate([inst.times for inst in instances]))
+        velocities = np.stack([inst(times) for inst in instances])
+        return cls.from_points(times, (velocities * weights[:, None]).sum(axis=0), coords=coords)
+
+    @classmethod
+    def from_file(cls, path, coords_cols=("INLINE_3D", "CROSSLINE_3D")):
         """Init stacking velocity from a file with vertical functions in Paradigm Echos VFUNC format.
 
         The file must have exactly one record with the following structure:
@@ -126,37 +139,12 @@ class StackingVelocity:
         self : StackingVelocity
             Loaded stacking velocity instance.
         """
-        inline, crossline, times, velocities = read_single_vfunc(path)
-        return cls.from_points(times, velocities, inline, crossline)
+        coord_x, coord_y, times, velocities = read_single_vfunc(path)
+        coords = Coordinates(coord_x, coord_y, names=coords_cols)
+        return cls.from_points(times, velocities, coords=coords)
 
     @classmethod
-    def from_interpolator(cls, interpolator, inline=None, crossline=None):
-        """Init stacking velocity from velocity interpolator.
-
-        Parameters
-        ----------
-        interpolator : callable
-            An interpolator returning velocity value by given time.
-        inline : int, optional, defaults to None
-            An inline of the created stacking velocity. If `None`, the created instance won't be able to be added to a
-            `VelocityCube`.
-        crossline : int, optional, defaults to None
-            A crossline of the created stacking velocity. If `None`, the created instance won't be able to be added to
-            a `VelocityCube`.
-
-        Returns
-        -------
-        self : StackingVelocity
-            Created stacking velocity instance.
-        """
-        self = cls()
-        self.interpolator = interpolator
-        self.inline = inline
-        self.crossline = crossline
-        return self
-
-    @classmethod
-    def from_constant_velocity(cls, velocity, inline=None, crossline=None):
+    def from_constant_velocity(cls, velocity, coords=None):
         """Init stacking velocity from a single velocity returned for all times.
 
         Parameters
@@ -175,8 +163,7 @@ class StackingVelocity:
         self : StackingVelocity
             Created stacking velocity instance.
         """
-        interpolator = interp1d([0, 10000], [velocity, velocity])
-        return cls.from_interpolator(interpolator, inline=inline, crossline=crossline)
+        return cls.from_points([0, 10000], [velocity, velocity], coords=coords)
 
     def dump(self, path):
         """Dump stacking velocities to a file in VFUNC format.
@@ -190,20 +177,14 @@ class StackingVelocity:
         path : str
             A path to the created file.
         """
-        if not self.has_coords or not self.has_points:
-            raise ValueError("StackingVelocity instance can be dumped only if it was created from time and velocity "
-                             "pairs with not-None inline and crossline")
-        dump_vfunc(path, [(self.inline, self.crossline, self.times, self.velocities)])
-
-    @property
-    def has_points(self):
-        """bool: Whether the instance was created from time and velocity pairs."""
-        return (self.times is not None) and (self.velocities is not None)
+        if not self.has_coords:
+            raise ValueError("StackingVelocity instance can be dumped only if it has well-defined coordinates")
+        dump_vfunc(path, [(*self.coords, self.times, self.velocities)])
 
     @property
     def has_coords(self):
         """bool: Whether stacking velocity inline and crossline are not-None."""
-        return (self.inline is not None) and (self.crossline is not None)
+        return self.coords is not None
 
     def get_coords(self, *args, **kwargs):
         """Get spatial coordinates of the stacking velocity.
@@ -216,12 +197,7 @@ class StackingVelocity:
             Stacking velocity spatial coordinates.
         """
         _ = args, kwargs
-        return Coordinates(self.inline, self.crossline, names=["INLINE_3D", "CROSSLINE_3D"])
-
-    @property
-    def coords(self):
-        """Coordinates: Spatial coordinates of the stacking velocity."""
-        return self.get_coords()
+        return self.coords
 
     def __call__(self, times):
         """Return stacking velocities for given `times`.
