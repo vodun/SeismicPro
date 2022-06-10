@@ -20,7 +20,7 @@ USED_COLS = [*sum(DEFAULT_COLS.values(), []), "offset", "SourceDepth", "CDP_X", 
 
 
 class StaticCorrection:
-    def __init__(self, survey, first_breaks_col, interpolator):
+    def __init__(self, survey, first_breaks_col, interpolator, n_avg_coords=5):
         self.survey = survey.copy()
         self.first_breaks_col = first_breaks_col
         self.n_layers = None
@@ -39,6 +39,12 @@ class StaticCorrection:
 
         self._set_traces_layer(interpolator=interpolator)
 
+        xs = np.linspace(self.headers['SourceX'], self.headers['GroupX'], n_avg_coords, dtype=np.int32).T.reshape(-1)
+        ys = np.linspace(self.headers['SourceY'], self.headers['GroupY'], n_avg_coords, dtype=np.int32).T.reshape(-1)
+        # TODO: Add avg velocity for deeper layers
+        velocities = interpolator(np.stack((xs, ys)).T)[:, -1].reshape(-1, n_avg_coords)
+        self.headers['v2_avg'] = np.mean(velocities, axis=1)
+
     def _create_params_df(self, name):
         coord_names = self._get_cols(name)
         unique_coords = np.unique(self.headers[coord_names], axis=0).astype(np.int32)
@@ -55,9 +61,9 @@ class StaticCorrection:
     def _add_wv_to_params(self, name, interpolator):
         unique_coords = getattr(self, f"{name}_params").index.to_frame().values
         wv_params = interpolator(unique_coords)
-        self.n_layers = wv_params.shape[1] // 2 + 1
+        self.n_layers = wv_params.shape[1] // 2
 
-        names = [f"x{i+1}" for i in range(self.n_layers-1)] + [f"v{i+1}" for i in range(self.n_layers)]
+        names = ["x  0"] + sum([[f"x{i}", f"v{i}"] for i in range(1, self.n_layers+1)], [])
         self._update_params(name=name, coords=unique_coords, values=wv_params, columns=names)
 
     def _set_traces_layer(self, interpolator):
@@ -87,7 +93,7 @@ class StaticCorrection:
     def optimize(self, depth_tol=1e-7):
         """!!!"""
         self.update_depth(layer=1, tol=depth_tol)
-        self.update_depth(layer=2, tol=depth_tol)
+        # self.update_depth(layer=2, tol=depth_tol)
 
     def update_depth(self, layer, tol=1e-7):
         layer_headers = self._fill_layer_params(headers=self.headers, layer=layer)
@@ -106,11 +112,11 @@ class StaticCorrection:
         source_depths = coefs[:len(unique_sources)] + upholes
         rec_depths = coefs[len(unique_sources):]
 
-        # source_interp = RBFInterpolator(unique_sources, source_depths)
-        # rec_interp = RBFInterpolator(unique_recs, rec_depths)
+        source_interp = RBFInterpolator(unique_sources, source_depths)
+        rec_interp = RBFInterpolator(unique_recs, rec_depths)
 
-        # source_depths = (source_depths + rec_interp.interpolate(unique_sources)) / 2 - upholes
-        # rec_depths = (rec_depths + source_interp.interpolate(unique_recs)) / 2
+        source_depths = (source_depths + rec_interp.interpolate(unique_sources)) / 2 - upholes
+        rec_depths = (rec_depths + source_interp.interpolate(unique_recs)) / 2
 
         self._update_params("source", unique_sources, source_depths.reshape(-1, 1), f"depth_{layer}")
         self._update_params("rec", unique_recs, rec_depths.reshape(-1, 1), f"depth_{layer}")
@@ -121,7 +127,6 @@ class StaticCorrection:
         headers = headers.merge(self.rec_params, on=self._get_cols("rec") + self.rec_headers,
                                 suffixes=("_source", "_rec"))
 
-        headers[f'v{layer+1}_avg'] = (headers[f'v{layer+1}_source'] + headers[f'v{layer+1}_rec']) / 2
         offsets = headers["offset"]
         headers['y'] = headers[self.first_breaks_col] - offsets / headers[f'v{layer+1}_avg']
         # Drop traces with y < 0 since this cannot happend in real world
