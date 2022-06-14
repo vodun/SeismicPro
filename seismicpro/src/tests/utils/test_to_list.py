@@ -11,7 +11,7 @@ def func(*args):
     return
 
 
-lambda_func = lambda x: x
+lambda_func = lambda x: x  # pylint: disable=unnecessary-lambda-assignment
 
 
 @pytest.mark.parametrize("test_input, expected", [
