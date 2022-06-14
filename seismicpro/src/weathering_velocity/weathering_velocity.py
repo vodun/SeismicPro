@@ -519,7 +519,7 @@ class WeatheringVelocity:
 
     def _ms_to_kms(self, params, as_array=True):
         """Convert the velocity in the given valid dict of parameters from m/s to km/s."""
-        values = np.array(list(params.values()))
+        values = np.array(list(params.values()), dtype=float)
         values[self.n_layers:] = values[self.n_layers:] / 1000
         if as_array:
             return values

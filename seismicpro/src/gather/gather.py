@@ -689,7 +689,7 @@ class Gather(TraceContainer, SamplesContainer):
             Bounds for the weathering model parameters.
         n_layers : int or None, defaults to None
             Number of the weathering model layers.
-        ascending_velocity : bool, defaults to True
+        acsending_velocities : bool, defaults to True
             Keeps the ascend of the fitted velocities from i-th layer to i+1 layer.
         freeze_t0 : bool, defaults to False
             Avoid the fitting intercept time ('t0').
