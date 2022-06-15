@@ -2,12 +2,11 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy import sparse
-from tqdm.auto import tqdm
+from scipy.stats import hmean
 
 from .utils import calculate_depth_coefs, calculate_wv_by_v2, calculate_velocities
-from seismicpro.src.utils import to_list
+from seismicpro.src.utils import to_list, IDWInterpolator
 from seismicpro.src.metrics import MetricMap
-from seismicpro.src.interpolator import RBFInterpolator
 
 
 DEFAULT_COLS = {
@@ -39,11 +38,13 @@ class StaticCorrection:
 
         self._set_traces_layer(interpolator=interpolator)
 
+        self.interp_depths = [lambda x: np.inf for _ in range(self.n_layers)]
+
         xs = np.linspace(self.headers['SourceX'], self.headers['GroupX'], n_avg_coords, dtype=np.int32).T.reshape(-1)
         ys = np.linspace(self.headers['SourceY'], self.headers['GroupY'], n_avg_coords, dtype=np.int32).T.reshape(-1)
-        # TODO: Add avg velocity for deeper layers
-        velocities = interpolator(np.stack((xs, ys)).T)[:, -1].reshape(-1, n_avg_coords)
-        self.headers['v2_avg'] = np.mean(velocities, axis=1)
+        velocities = interpolator(np.stack((xs, ys)).T)[:, self.n_layers+2:]
+        for i in range(self.n_layers):
+            self.headers[f'v{i+2}_avg'] = hmean(velocities[:, i].reshape(-1, n_avg_coords), axis=1)
 
     def _create_params_df(self, name):
         coord_names = self._get_cols(name)
@@ -61,14 +62,14 @@ class StaticCorrection:
     def _add_wv_to_params(self, name, interpolator):
         unique_coords = getattr(self, f"{name}_params").index.to_frame().values
         wv_params = interpolator(unique_coords)
-        self.n_layers = wv_params.shape[1] // 2
+        self.n_layers = wv_params.shape[1] // 2 - 1
 
-        names = ["x  0"] + sum([[f"x{i}", f"v{i}"] for i in range(1, self.n_layers+1)], [])
-        self._update_params(name=name, coords=unique_coords, values=wv_params, columns=names)
+        names = [f"v{i}" for i in range(1, self.n_layers+2)]
+        self._update_params(name=name, coords=unique_coords, values=wv_params[:, self.n_layers+1:], columns=names)
 
     def _set_traces_layer(self, interpolator):
         coords = self.headers[["CDP_X", "CDP_Y"]].values
-        crossovers = interpolator(coords)[:, :self.n_layers-1]
+        crossovers = interpolator(coords)[:, :self.n_layers+1]
         offsets = self.headers['offset'].values
         layers = np.sum((crossovers - offsets.reshape(-1, 1)) < 0, axis=1)
         self.headers['layer'] = layers
@@ -90,12 +91,12 @@ class StaticCorrection:
         updated_params = updated_params.drop(columns=updated_params.filter(regex="_drop$").columns)
         setattr(self, f"{name}_params", updated_params)
 
-    def optimize(self, depth_tol=1e-7):
+    def optimize(self, depth_tol=1e-7, interp_kwargs=None):
         """!!!"""
-        self.update_depth(layer=1, tol=depth_tol)
+        self.update_depth(layer=1, tol=depth_tol, interp_kwargs=interp_kwargs)
         # self.update_depth(layer=2, tol=depth_tol)
 
-    def update_depth(self, layer, tol=1e-7):
+    def update_depth(self, layer, tol=1e-7, interp_kwargs=None):
         layer_headers = self._fill_layer_params(headers=self.headers, layer=layer)
         ohe_source, unique_sources, ix_sources = self._get_sparse_depths("source", layer_headers, layer)
         ohe_rec, unique_recs, ix_recs = self._get_sparse_depths("rec", layer_headers, layer)
@@ -112,13 +113,20 @@ class StaticCorrection:
         source_depths = coefs[:len(unique_sources)] + upholes
         rec_depths = coefs[len(unique_sources):]
 
-        source_interp = RBFInterpolator(unique_sources, source_depths)
-        rec_interp = RBFInterpolator(unique_recs, rec_depths)
+        source_interp = IDWInterpolator(unique_sources, source_depths)
+        rec_interp = IDWInterpolator(unique_recs, rec_depths)
 
-        source_depths = (source_depths + rec_interp.interpolate(unique_sources)) / 2 - upholes
-        rec_depths = (rec_depths + source_interp.interpolate(unique_recs)) / 2
+        source_depths = (source_depths + rec_interp(unique_sources)) / 2
+        rec_depths = (rec_depths + source_interp(unique_recs)) / 2
 
-        self._update_params("source", unique_sources, source_depths.reshape(-1, 1), f"depth_{layer}")
+        depths = np.concatenate((source_depths, rec_depths)).reshape(-1, 1)
+        coords = np.vstack((unique_sources, unique_recs))
+
+        df = pd.DataFrame(np.hstack((coords, depths)), columns=['x', 'y', 'val']).groupby(by=['x', 'y']).mean()
+        interp_kwargs = {} if interp_kwargs is None else interp_kwargs
+        self.interp_depths[layer-1] = IDWInterpolator(df.index.to_frame().values, df['val'].values, **interp_kwargs)
+
+        self._update_params("source", unique_sources, (source_depths - upholes).reshape(-1, 1), f"depth_{layer}")
         self._update_params("rec", unique_recs, rec_depths.reshape(-1, 1), f"depth_{layer}")
 
     def _fill_layer_params(self, headers, layer):
