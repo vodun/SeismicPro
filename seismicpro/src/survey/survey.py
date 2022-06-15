@@ -820,10 +820,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.headers = headers
         return self
 
-    def calculate_static_correction_params(self, first_breaks_col, wv_interp):
+    def calculate_static_correction_params(self, first_breaks_col, wv_interp, depth_tol=1e-7, interp_kwargs=None):
         """!!!"""
         static_corr = StaticCorrection(self, first_breaks_col, wv_interp)
-        static_corr.optimize()
+        static_corr.optimize(depth_tol=depth_tol, interp_kwargs=interp_kwargs)
         self.static_corr = static_corr
         return self
 

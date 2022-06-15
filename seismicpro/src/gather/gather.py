@@ -926,7 +926,6 @@ class Gather(TraceContainer, SamplesContainer):
     def apply_static_correciton(self, datum):
         """!!!"""
         # Do we need DelayRecordingTime?
-        self.validate(required_header_cols=["ReceiverGroupElevation", "SourceSurfaceElevation", "SourceUpholeTime"])
         if self.survey.static_corr is None:
             raise ValueError('!!')
 
@@ -957,6 +956,7 @@ class Gather(TraceContainer, SamplesContainer):
         cols = static_corr._get_cols(name)
         index = tuple(np.int32(header[cols]).reshape(-1))
         params = getattr(static_corr, f"{name}_params").loc[index]
+        depths = [static_corr.interp_depths[i](index) for i in range(static_corr.n_layers-1)]
         # Calculate distance from surface to datum
 
         dist_from_surface = header[elevation_header] - datum
@@ -965,7 +965,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         dt = 0
         for i in range(1, static_corr.n_layers):
-            layer_depth = min(dist_from_surface, params[f'depth_{i}'])
+            layer_depth = min(dist_from_surface, depths[i-1])
             dt += layer_depth / params[f'v{i}']
             dist_from_surface = dist_from_surface - layer_depth
         return dt
