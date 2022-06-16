@@ -125,7 +125,8 @@ class WeatheringVelocity:
     @classmethod
     def from_picking(cls, offsets, picking_times, init=None, bounds=None, n_layers=None, acsending_velocities=True,
                      freeze_t0=False, coords=None, **kwargs):
-        """Method fits the weathering model parameters from the offsets and the first break picking times.
+        """Create WeatheringVelocity instanse from the offsets and the first break picking times and fits
+        the weathering model parameters.
 
         Parameters
         ----------
