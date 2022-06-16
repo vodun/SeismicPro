@@ -11,6 +11,7 @@ from .index import SeismicIndex
 from .gather import Gather, CroppedGather
 from .gather.utils.crop_utils import make_origins
 from .semblance import Semblance, ResidualSemblance
+from .field import Field
 from .metrics import define_pipeline_metric, PartialMetric, MetricsAccumulator
 from .decorators import create_batch_methods, apply_to_each_component
 from .utils import to_list, as_dict, save_figure
@@ -138,31 +139,23 @@ class SeismicBatch(Batch):
 
     @action
     def update_field(self, field, src):
-        """Update a velocity cube with stacking velocities from `src` component.
-
-        Notes
-        -----
-        All passed `StackingVelocity` instances must have not-None coordinates.
+        """Update a field with objects from `src` component. Each of them must have well-defined coordinates and
+        not-None `is_geographic` flag.
 
         Parameters
         ----------
-        velocity_cube : VelocityCube
-            A cube to update.
+        field : Field
+            A field to update.
         src : str
-            A component with stacking velocities to update the cube with.
+            A component of instances to update the cube with.
 
         Returns
         -------
         self : SeismicBatch
             The batch unchanged.
-
-        Raises
-        ------
-        TypeError
-            If wrong type of stacking velocities was passed.
-        ValueError
-            If any of the passed stacking velocities has `None` coordinates.
         """
+        if not isinstance(field, Field):
+            raise ValueError("Only a Field instance can be updated")
         field.update(getattr(self, src))
         return self
 
@@ -170,7 +163,7 @@ class SeismicBatch(Batch):
     def make_model_inputs(self, src, dst, mode='c', axis=0, expand_dims_axis=None):
         """Transform data to be used for model training.
 
-        The method performes two-stage data processing:
+        The method performs two-stage data processing:
         1. Stacks or concatenates input data depending on `mode` parameter along the specified `axis`,
         2. Inserts new axes to the resulting array at positions specified by `expand_dims_axis`.
 
