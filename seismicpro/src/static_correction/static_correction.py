@@ -5,6 +5,7 @@ from scipy import sparse
 from scipy.stats import hmean
 
 from .utils import calculate_depth_coefs, calculate_wv_by_v2, calculate_velocities
+from .interactive_slice_plot import StaticsPlot
 from seismicpro.src.utils import to_list, IDWInterpolator
 from seismicpro.src.metrics import MetricMap
 
@@ -211,6 +212,28 @@ class StaticCorrection:
                 f.write(line)
 
     ### plotters ###
+    def _get_elevations_interpolatior(self):
+        headers = self.survey.headers.reset_index()
+        sources_el = headers[["SourceX", "SourceY", "SourceSurfaceElevation"]].drop_duplicates().set_index(["SourceX", "SourceY"])
+        sources_el = sources_el[~sources_el.index.duplicated(keep='first')]
+        rec_el = headers[["GroupX", "GroupY", "ReceiverGroupElevation"]].drop_duplicates().set_index(["GroupX", "GroupY"])
+
+        source_el_coords = np.array(sources_el.index.to_frame().values)
+        rec_el_coords = np.array(rec_el.index.to_frame().values)
+
+        coords = np.concatenate((source_el_coords, rec_el_coords))
+        elevations = np.concatenate((sources_el["SourceSurfaceElevation"].values, rec_el["ReceiverGroupElevation"].values))
+
+        _, unq_ixs = np.unique(coords, axis=0, return_index=True)
+        return IDWInterpolator(coords[unq_ixs], elevations[unq_ixs])
+
+    def plot_slice(self, layer, n_points=100):
+        interp_el = self._get_elevations_interpolatior()
+        sources = self.source_params.index.to_frame().values
+        recs = self.rec_params.index.to_frame().values
+        coords = np.unique(np.concatenate((sources, recs)), axis=0)
+        obj = MetricMap(coords, self.interp_depths[layer-1](coords))
+        StaticsPlot(obj, self.interp_depths[layer-1], interp_el, n_points=n_points).plot()
 
     def plot_depths(self, layer):
         _, ax = plt.subplots(1, 2, figsize=(12, 5), tight_layout=True)
