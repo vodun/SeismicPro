@@ -211,17 +211,21 @@ class Gather(TraceContainer, SamplesContainer):
         """Print gather metadata including information about its survey, headers and traces."""
         print(self)
 
-    def get_coords(self, coords_cols="auto"):
+    def get_coords(self, coords_cols="auto", is_geographic=None):
         """Get spatial coordinates of the gather.
 
         Parameters
         ----------
-        coords_cols : "auto" or 2 element array-like, defaults to "auto"
-            - If "auto", columns of headers index define headers columns to get coordinates from (e.g. 'FieldRecord' is
-              mapped to a ("SourceX", "SourceY") pair).
+        coords_cols : "auto" or 2 element array-like, optional, defaults to "auto"
+            - If "auto", headers columns to get coordinates from are defined by `self.indexed_by` (e.g. 'FieldRecord'
+              is mapped into a ("SourceX", "SourceY") pair).
             - If 2 element array-like, `coords_cols` directly define gather headers to get coordinates from.
-            Index or column values are supposed to be unique for all traces in the gather and the names of the returned
-            coordinates correspond to source headers columns.
+            Values of coordinates are supposed to be unique for all traces in the gather and their names correspond to
+            source headers columns.
+        is_geographic : bool or None, optional, defaults to None
+            Whether the extracted coordinates are recorded in some geographical coordinate system e.g. for a
+            ("CDP_X", "CDP_Y") pair of `coords_cols` or represent line numbers of a bin as for ("INLINE_3D",
+            "CROSSLINE_3D"). If `None`, tries inferring the flag automatically by the `coords_cols`.
 
         Returns
         -------
@@ -240,7 +244,7 @@ class Gather(TraceContainer, SamplesContainer):
             raise ValueError("Gather coordinates are non-unique")
         if coords.shape[1] != 2:
             raise ValueError(f"Gather position must be defined by exactly two coordinates, not {coords.shape[1]}")
-        return Coordinates(*coords[0], names=coords_cols)
+        return Coordinates(coords[0], names=coords_cols, is_geographic=is_geographic)
 
     @property
     def coords(self):
@@ -800,7 +804,7 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
-    def apply_nmo(self, stacking_velocity, coords_cols="auto"):
+    def apply_nmo(self, stacking_velocity, coords_cols="auto", is_geographic=None):
         """Perform gather normal moveout correction using given stacking velocity.
 
         Notes
@@ -809,13 +813,18 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        stacking_velocity : StackingVelocity or VelocityCube
+        stacking_velocity : StackingVelocity or StackingVelocityField
             Stacking velocities to perform NMO correction with. `StackingVelocity` instance is used directly. If
-            `VelocityCube` instance is passed, a `StackingVelocity` corresponding to gather coordinates is fetched
-            from it.
+            `StackingVelocityField` instance is passed, a `StackingVelocity` corresponding to gather coordinates is
+            fetched from it.
         coords_cols : "auto" or 2 element array-like, defaults to "auto"
             Header columns to get spatial coordinates of the gather from to fetch `StackingVelocity` from
-            `VelocityCube`. See :func:`~Gather.get_coords` for more details.
+            `StackingVelocityField`. See :func:`~Gather.get_coords` for more details.
+        is_geographic : bool or None, optional, defaults to None
+            Whether the extracted coordinates are recorded in some geographical coordinate system e.g. for a
+            ("CDP_X", "CDP_Y") pair of `coords_cols` or represent line numbers of a bin as for ("INLINE_3D",
+            "CROSSLINE_3D"). If `None`, tries inferring the flag automatically by the `coords_cols`. If fails, an error
+            is raised.
 
         Returns
         -------
@@ -828,9 +837,10 @@ class Gather(TraceContainer, SamplesContainer):
             If `stacking_velocity` is not a `StackingVelocity` or `VelocityCube` instance.
         """
         if isinstance(stacking_velocity, StackingVelocityField):
-            stacking_velocity = stacking_velocity(self.get_coords(coords_cols))
+            stacking_velocity = stacking_velocity(self.get_coords(coords_cols, is_geographic=is_geographic))
         if not isinstance(stacking_velocity, StackingVelocity):
-            raise ValueError("Only StackingVelocityField or StackingVelocity instances can be passed as a stacking_velocity")
+            raise ValueError("Only StackingVelocityField or StackingVelocity instances can be passed as a "
+                             "stacking_velocity")
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
         self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms, self.sample_rate)
         return self
