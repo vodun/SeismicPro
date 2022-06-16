@@ -43,9 +43,9 @@ class StaticCorrection:
 
         xs = np.linspace(self.headers['SourceX'], self.headers['GroupX'], n_avg_coords, dtype=np.int32).T.reshape(-1)
         ys = np.linspace(self.headers['SourceY'], self.headers['GroupY'], n_avg_coords, dtype=np.int32).T.reshape(-1)
-        velocities = interpolator(np.stack((xs, ys)).T)[:, self.n_layers+2:]
+        subw_velocities = interpolator(np.stack((xs, ys)).T)[:, self.n_layers+1:]
         for i in range(self.n_layers):
-            self.headers[f'v{i+2}_avg'] = hmean(velocities[:, i].reshape(-1, n_avg_coords), axis=1)
+            self.headers[f'v{i+2}_avg'] = hmean(subw_velocities[:, i].reshape(-1, n_avg_coords), axis=1)
 
     def _create_params_df(self, name):
         coord_names = self._get_cols(name)
@@ -63,14 +63,14 @@ class StaticCorrection:
     def _add_wv_to_params(self, name, interpolator):
         unique_coords = getattr(self, f"{name}_params").index.to_frame().values
         wv_params = interpolator(unique_coords)
-        self.n_layers = wv_params.shape[1] // 2 - 1
+        self.n_layers = wv_params.shape[1] // 2
 
         names = [f"v{i}" for i in range(1, self.n_layers+2)]
-        self._update_params(name=name, coords=unique_coords, values=wv_params[:, self.n_layers+1:], columns=names)
+        self._update_params(name=name, coords=unique_coords, values=wv_params[:, self.n_layers:], columns=names)
 
     def _set_traces_layer(self, interpolator):
         coords = self.headers[["CDP_X", "CDP_Y"]].values
-        crossovers = interpolator(coords)[:, :self.n_layers+1]
+        crossovers = interpolator(coords)[:, :self.n_layers]
         offsets = self.headers['offset'].values
         layers = np.sum((crossovers - offsets.reshape(-1, 1)) < 0, axis=1)
         self.headers['layer'] = layers
@@ -95,7 +95,6 @@ class StaticCorrection:
     def optimize(self, depth_tol=1e-7, interp_kwargs=None):
         """!!!"""
         self.update_depth(layer=1, tol=depth_tol, interp_kwargs=interp_kwargs)
-        # self.update_depth(layer=2, tol=depth_tol)
 
     def update_depth(self, layer, tol=1e-7, interp_kwargs=None):
         layer_headers = self._fill_layer_params(headers=self.headers, layer=layer)

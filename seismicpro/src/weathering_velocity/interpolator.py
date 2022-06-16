@@ -1,4 +1,5 @@
 """Weathering velocity interpolator."""
+
 import numpy as np
 from tqdm.auto import tqdm
 
@@ -21,10 +22,9 @@ class WeatheringVelocityInterpolator():
             wv = g.calculate_weathering_velocity(first_breaks_col=first_breaks_col, **wv_kwargs)
             first_crvr = [calculate_crossover(weathering_velocity, 0, wv.v1 / 1000, wv.t0)]
             # Convert velocity to m/ms
-            wv_params = np.array(sum([[wv[n_layer][1], wv[n_layer][2] / 1000] for n_layer in range(wv.n_layers)], []))
-            wv_params = (list(wv_params[range(0, len(wv_params), 2)]) + [weathering_velocity]
-                         + list(wv_params[range(1, len(wv_params), 2)]))
-            wv_params = first_crvr + wv_params
+            wv_params = list(wv.params.values())[1:]
+            velocities = [weathering_velocity] + list(np.array(wv_params[-wv.n_layers:]) / 1000)
+            wv_params = first_crvr + wv_params[:-wv.n_layers] + velocities
             coords = g.get_central_gather()[['CDP_X', 'CDP_Y']][0]
             coords_to_params.update({tuple(coords): wv_params})
 
