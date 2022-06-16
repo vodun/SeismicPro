@@ -48,38 +48,6 @@ def get_first_defined(*args):
     return next((arg for arg in args if arg is not None), None)
 
 
-INDEX_TO_COORDS = {
-    # Shot index
-    "FieldRecord": ("SourceX", "SourceY"),
-    ("SourceX", "SourceY"): ("SourceX", "SourceY"),
-
-    # Receiver index
-    ("GroupX", "GroupY"): ("GroupX", "GroupY"),
-
-    # Trace index
-    "TRACE_SEQUENCE_FILE": ("CDP_X", "CDP_Y"),
-    ("FieldRecord", "TraceNumber"): ("CDP_X", "CDP_Y"),
-    ("SourceX", "SourceY", "GroupX", "GroupY"): ("CDP_X", "CDP_Y"),
-
-    # Bin index
-    "CDP": ("CDP_X", "CDP_Y"),
-    ("CDP_X", "CDP_Y"): ("CDP_X", "CDP_Y"),
-    ("INLINE_3D", "CROSSLINE_3D"): ("INLINE_3D", "CROSSLINE_3D"),
-    ("SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"): ("SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"),
-}
-# Ignore order of elements in each key
-INDEX_TO_COORDS = {frozenset(to_list(key)): val for key, val in INDEX_TO_COORDS.items()}
-
-
-def get_coords_cols(index_cols):
-    """Return headers columns to get coordinates from depending on the type of headers index. See the mapping in
-    `INDEX_TO_COORDS`."""
-    coords_cols = INDEX_TO_COORDS.get(frozenset(to_list(index_cols)))
-    if coords_cols is None:
-        raise KeyError(f"Unknown coordinates columns for {index_cols} index")
-    return coords_cols
-
-
 def validate_cols_exist(df, cols):
     """Check if each column from `cols` is present either in the `df` DataFrame columns or index."""
     df_cols = set(df.columns) | set(df.index.names)
@@ -97,39 +65,6 @@ def get_cols(df, cols):
         col_values = df[col] if col in df.columns else df.index.get_level_values(col)
         res.append(col_values.values)
     return np.column_stack(res)
-
-
-class Coordinates:
-    """Define spatial coordinates of an object."""
-    def __init__(self, *args, names=None):
-        if len(args) != 2:
-            raise ValueError("Exactly two coordinates must be passed.")
-        self.coords = args
-
-        if names is None:
-            names = ("X", "Y")
-        names = tuple(to_list(names))
-        if len(names) != 2:
-            raise ValueError("Exactly two names must be passed.")
-        self.names = names
-
-    def __repr__(self):
-        return f"Coordinates({self.coords[0]}, {self.coords[1]}, names={self.names})"
-
-    def __str__(self):
-        return f"({self.names[0]}: {self.coords[0]}, {self.names[1]}: {self.coords[1]})"
-
-    def __iter__(self):
-        return iter(self.coords)
-
-    def __len__(self):
-        return len(self.coords)
-
-    def __getitem__(self, key):
-        return self.coords[key]
-
-    def __array__(self, dtype=None):
-        return np.array(self.coords, dtype=dtype)
 
 
 class MissingModule:
