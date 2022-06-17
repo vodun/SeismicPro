@@ -374,8 +374,7 @@ class SeismicBatch(Batch):
         return self
 
     @action(no_eval="save_to")
-    def calculate_metric(self, metric, *args, metric_name=None, coords_component=None, coords_cols="auto",
-                         save_to=None, **kwargs):
+    def calculate_metric(self, metric, *args, metric_name=None, coords_component=None, save_to=None, **kwargs):
         """Calculate a metric for each batch element and store the results into an accumulator.
 
         The passed metric must be either a subclass of `PipelineMetric` or a `callable`. In the latter case, a new
@@ -428,9 +427,6 @@ class SeismicBatch(Batch):
         coords_component : str, optional
             A component name to extract coordinates from. If not given, the first argument passed to the metric
             calculation function is used.
-        coords_cols : "auto" or 2 element array-like, optional, defaults to "auto"
-            Headers columns of `coords_component` objects to get coordinates from. If "auto", tries inferring them
-            automatically by the type of headers index.
         save_to : NamedExpression
             A named expression to save the constructed `MetricsAccumulator` instance to.
         args : misc, optional
@@ -449,14 +445,17 @@ class SeismicBatch(Batch):
             If wrong type of `metric` is passed.
             If `metric` is `lambda` and `metric_name` is not given.
             If `metric` is a subclass of `PipelineMetric` and `metric.name` is `None`.
+            If some batch item has `None` coordinates.
         """
         metric = define_pipeline_metric(metric, metric_name)
         unpacked_args, first_arg = metric.unpack_calc_args(self, *args, **kwargs)
 
         # Calculate metric values and their coordinates
-        coords_items = first_arg if coords_component is None else getattr(self, coords_component)
-        coords = [item.get_coords(coords_cols) for item in coords_items]
         values = [metric.calc(*args, **kwargs) for args, kwargs in unpacked_args]
+        coords_items = first_arg if coords_component is None else getattr(self, coords_component)
+        coords = [item.coords for item in coords_items]
+        if None in coords:
+            raise ValueError("All batch items must have well-defined coordinates")
 
         # Construct a mapping from coordinates to ordinal numbers of gathers in the dataset index.
         # Later used by PipelineMetric to generate a batch by coordinates of a click on an interactive metric map.

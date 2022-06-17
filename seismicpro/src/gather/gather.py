@@ -108,6 +108,20 @@ class Gather(TraceContainer, SamplesContainer):
         """tuple with 2 elements: The number of traces in the gather and trace length in samples."""
         return self.data.shape
 
+    @property
+    def coords(self):
+        """Coordinates or None: Spatial coordinates of the gather. Headers to extract coordinates from are determined
+        automatically by the `indexed_by` attribute of the gather. `None` if the gather is indexed by unsupported
+        headers or required coords headers were not loaded or coordinates are non-unique for traces of the gather."""
+        try:
+            coords_cols = get_coords_cols(self.indexed_by)  # Possibly unknown coordinates for indexed_by
+            coords = self[coords_cols]  # Required coords headers may not be loaded
+        except KeyError:
+            return None
+        if (coords != coords[0]).any():  # Non-unique coordinates
+            return None
+        return Coordinates(coords[0], names=coords_cols)
+
     def __getitem__(self, key):
         """Either select gather headers values by their names or create a new `Gather` with specified traces and
         samples depending on the key type.
@@ -178,19 +192,24 @@ class Gather(TraceContainer, SamplesContainer):
 
     def __str__(self):
         """Print gather metadata including information about its survey, headers and traces."""
-
         # Calculate offset range
         offsets = self.headers.get('offset')
         offset_range = f'[{np.min(offsets)} m, {np.max(offsets)} m]' if offsets is not None else None
 
+        # Format gather coordinates
+        coords = self.coords
+        coords_str = "unknown" if coords is None else str(coords)
+
         # Count the number of zero/constant traces
         n_dead_traces = np.isclose(np.max(self.data, axis=1), np.min(self.data, axis=1)).sum()
+
         msg = f"""
         Parent survey path:          {self.survey.path}
         Parent survey name:          {self.survey.name}
 
         Indexed by:                  {', '.join(to_list(self.indexed_by))}
         Index value:                 {'combined' if self.index is None else self.index}
+        Gather coordinates:          {coords_str}
         Gather sorting:              {self.sort_by}
 
         Number of traces:            {self.n_traces}
@@ -210,46 +229,6 @@ class Gather(TraceContainer, SamplesContainer):
     def info(self):
         """Print gather metadata including information about its survey, headers and traces."""
         print(self)
-
-    def get_coords(self, coords_cols="auto", is_geographic=None):
-        """Get spatial coordinates of the gather.
-
-        Parameters
-        ----------
-        coords_cols : "auto" or 2 element array-like, optional, defaults to "auto"
-            - If "auto", headers columns to get coordinates from are defined by `self.indexed_by` (e.g. 'FieldRecord'
-              is mapped into a ("SourceX", "SourceY") pair).
-            - If 2 element array-like, `coords_cols` directly define gather headers to get coordinates from.
-            Values of coordinates are supposed to be unique for all traces in the gather and their names correspond to
-            source headers columns.
-        is_geographic : bool or None, optional, defaults to None
-            Whether the extracted coordinates are recorded in some geographical coordinate system e.g. for a
-            ("CDP_X", "CDP_Y") pair of `coords_cols` or represent line numbers of a bin as for ("INLINE_3D",
-            "CROSSLINE_3D"). If `None`, tries inferring the flag automatically by the `coords_cols`.
-
-        Returns
-        -------
-        coords : Coordinates
-            Gather spatial coordinates.
-
-        Raises
-        ------
-        ValueError
-            If gather coordinates are non-unique or more than 2 columns were passed.
-        """
-        if coords_cols == "auto":
-            coords_cols = get_coords_cols(self.indexed_by)
-        coords = self[coords_cols]
-        if (coords != coords[0]).any():
-            raise ValueError("Gather coordinates are non-unique")
-        if coords.shape[1] != 2:
-            raise ValueError(f"Gather position must be defined by exactly two coordinates, not {coords.shape[1]}")
-        return Coordinates(coords[0], names=coords_cols, is_geographic=is_geographic)
-
-    @property
-    def coords(self):
-        """Coordinates: Spatial coordinates of the gather."""
-        return self.get_coords()
 
     @batch_method(target='threads', copy_src=False)
     def copy(self, ignore=None):
@@ -804,7 +783,7 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
-    def apply_nmo(self, stacking_velocity, coords_cols="auto", is_geographic=None):
+    def apply_nmo(self, stacking_velocity):
         """Perform gather normal moveout correction using given stacking velocity.
 
         Notes
@@ -817,14 +796,6 @@ class Gather(TraceContainer, SamplesContainer):
             Stacking velocities to perform NMO correction with. `StackingVelocity` instance is used directly. If
             `StackingVelocityField` instance is passed, a `StackingVelocity` corresponding to gather coordinates is
             fetched from it.
-        coords_cols : "auto" or 2 element array-like, defaults to "auto"
-            Header columns to get spatial coordinates of the gather from to fetch `StackingVelocity` from
-            `StackingVelocityField`. See :func:`~Gather.get_coords` for more details.
-        is_geographic : bool or None, optional, defaults to None
-            Whether the extracted coordinates are recorded in some geographical coordinate system e.g. for a
-            ("CDP_X", "CDP_Y") pair of `coords_cols` or represent line numbers of a bin as for ("INLINE_3D",
-            "CROSSLINE_3D"). If `None`, tries inferring the flag automatically by the `coords_cols`. If fails, an error
-            is raised.
 
         Returns
         -------
@@ -837,7 +808,7 @@ class Gather(TraceContainer, SamplesContainer):
             If `stacking_velocity` is not a `StackingVelocity` or `VelocityCube` instance.
         """
         if isinstance(stacking_velocity, StackingVelocityField):
-            stacking_velocity = stacking_velocity(self.get_coords(coords_cols, is_geographic=is_geographic))
+            stacking_velocity = stacking_velocity(self.coords)
         if not isinstance(stacking_velocity, StackingVelocity):
             raise ValueError("Only StackingVelocityField or StackingVelocity instances can be passed as a "
                              "stacking_velocity")

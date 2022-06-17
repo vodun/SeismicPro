@@ -53,7 +53,7 @@ def validate_cols_exist(df, cols):
     df_cols = set(df.columns) | set(df.index.names)
     missing_cols = set(to_list(cols)) - df_cols
     if missing_cols:
-        raise ValueError(f"The following headers must be preloaded: {', '.join(missing_cols)}")
+        raise KeyError(f"The following headers must be preloaded: {', '.join(missing_cols)}")
 
 
 def get_cols(df, cols):

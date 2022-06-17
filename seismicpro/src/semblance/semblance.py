@@ -55,38 +55,13 @@ class BaseSemblance:
         """np.ndarray of floats: The distance between source and receiver for each trace. Measured in meters."""
         return self.gather.offsets  # m
 
-    def get_coords(self, coords_cols="auto", is_geographic=None):
-        """Get spatial coordinates of the semblance.
-
-        The call is redirected to the underlying gather.
-
-        coords_cols : "auto" or 2 element array-like, optional, defaults to "auto"
-            - If "auto", `indexed_by` property of the underlying gather defines headers columns to get coordinates from
-              (e.g. 'FieldRecord' is mapped into a ("SourceX", "SourceY") pair).
-            - If 2 element array-like, `coords_cols` directly define underlying gather headers to get coordinates from.
-            Values of coordinates are supposed to be unique for all traces in the underlying gather and their names
-            correspond to source headers columns.
-        is_geographic : bool or None, optional, defaults to None
-            Whether the extracted coordinates are recorded in some geographical coordinate system e.g. for a
-            ("CDP_X", "CDP_Y") pair of `coords_cols` or represent line numbers of a bin as for ("INLINE_3D",
-            "CROSSLINE_3D"). If `None`, tries inferring the flag automatically by the `coords_cols`.
-
-        Returns
-        -------
-        coords : Coordinates
-            Semblance spatial coordinates.
-
-        Raises
-        ------
-        ValueError
-            If semblance coordinates are non-unique or more than 2 columns were passed.
-        """
-        return self.gather.get_coords(coords_cols, is_geographic=is_geographic)
-
     @property
     def coords(self):
         """Coordinates: Spatial coordinates of the semblance."""
-        return self.get_coords()
+        """Coordinates or None: Spatial coordinates of the semblance. Determined by the underlying gather. `None` if
+        the gather is indexed by unsupported headers or required coords headers were not loaded or coordinates are
+        non-unique for traces of the gather."""
+        return self.gather.coords
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
@@ -405,8 +380,7 @@ class Semblance(BaseSemblance):
 
     @batch_method(target="for", copy_src=False)
     def calculate_stacking_velocity(self, start_velocity_range=(1400, 1800), end_velocity_range=(2500, 5000),
-                                    max_acceleration=None, n_times=25, n_velocities=25, coords_cols="auto",
-                                    is_geographic=None):
+                                    max_acceleration=None, n_times=25, n_velocities=25):
         """Calculate stacking velocity by vertical velocity semblance.
 
         Notes
@@ -427,14 +401,6 @@ class Semblance(BaseSemblance):
             The number of evenly spaced points to split time range into to generate graph edges.
         n_velocities : int, defaults to 25
             The number of evenly spaced points to split velocity range into for each time to generate graph edges.
-        coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
-            Header columns of the underlying gather to get spatial coordinates of the semblance from. See
-            :func:`~Semblance.get_coords` for more details. If `None`, the resulting stacking velocity instance will
-            have undefined coordinates and won't be able to be added to a `StackingVelocityField`.
-        is_geographic : bool or None, optional, defaults to None
-            Whether the extracted coordinates are recorded in some geographical coordinate system e.g. for a
-            ("CDP_X", "CDP_Y") pair of `coords_cols` or represent line numbers of a bin as for ("INLINE_3D",
-            "CROSSLINE_3D"). If `None`, tries inferring the flag automatically by the `coords_cols`.
 
         Returns
         -------
@@ -446,11 +412,10 @@ class Semblance(BaseSemblance):
         ValueError
             If no stacking velocity was found for given parameters.
         """
-        coords = None if coords_cols is None else self.get_coords(coords_cols, is_geographic=is_geographic)
         times, velocities, _ = calculate_stacking_velocity(self.semblance, self.times, self.velocities,
                                                            start_velocity_range, end_velocity_range, max_acceleration,
                                                            n_times, n_velocities)
-        return StackingVelocity.from_points(times, velocities, coords=coords)
+        return StackingVelocity.from_points(times, velocities, coords=self.coords)
 
 
 class ResidualSemblance(BaseSemblance):
