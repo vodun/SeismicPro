@@ -12,7 +12,7 @@ class FirstBreaksOutliers(PipelineMetric):
     The outlier is considered to be the first break time that stands out from the expected arrival time
     (weathering velocity curve) for more than threshold.
     """
-    name = "weathering_metrics"
+    name = "first_breaks_outliers"
     vmin = 0
     vmax = 0.05
     is_lower_better = True

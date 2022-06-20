@@ -595,7 +595,6 @@ class Gather(TraceContainer, SamplesContainer):
         gather.data = mask
         return gather
 
-
     @batch_method(target='for', args_to_unpack='save_to')
     def mask_to_pick(self, threshold=0.5, first_breaks_col=HDR_FIRST_BREAK, save_to=None):
         """Convert a first break mask saved in `data` into times of first arrivals.
@@ -708,8 +707,6 @@ class Gather(TraceContainer, SamplesContainer):
         WeatheringVelocity
             Calculated WeatheringVelocity instance.
         """
-        if all((param is None for param in (init, bounds, n_layers))):
-            raise ValueError("One of `init`, `bounds` or `n_layers` should be defined.")
         coords = None if coords_cols is None else self.get_coords(coords_cols)
         return WeatheringVelocity.from_picking(offsets=self.offsets, picking_times=self[first_breaks_col].ravel(),
                                                init=init, bounds=bounds, n_layers=n_layers,
@@ -865,6 +862,8 @@ class Gather(TraceContainer, SamplesContainer):
             around delay instead of 0.
         fill_value : float, defaults to 0
             Value used to fill the amplitudes outside the gather bounds after moveout.
+        event_headers : str, list or None, defaults to None
+            Headers columns to adding LMO shift. LMO shift measured in milliseconds.
 
         Returns
         -------

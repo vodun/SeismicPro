@@ -120,7 +120,7 @@ class LMOCorrectionPlot(CorrectionPlot):
     @property
     def corrected_gather(self):
         """Gather: LMO corrected gather."""
-        wv = WeatheringVelocity.from_constant(self.plotter.slider.value)
+        wv = WeatheringVelocity.from_constant_velocity(self.plotter.slider.value)
         return self.gather.copy(ignore=["data", "samples"]).apply_lmo(wv, event_headers=self.event_headers)
 
     def plot_corrected_gather(self, ax, **kwargs):

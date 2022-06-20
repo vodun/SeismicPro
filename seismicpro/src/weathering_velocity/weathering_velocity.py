@@ -22,7 +22,7 @@ class WeatheringVelocity:
     Since the class uses the first break picking time to fit the detected velocities, any detected underlaying layers
     should have a higher velocity than any of the overlaying.
 
-    The class could be created from `from_picking`, `from_params`, and `from_constant` classmethods.
+    The class could be created from `from_picking`, `from_params`, and `from_constant_velocity` classmethods.
     `from_picking` - creates a WeatheringVelocity instance, fits the parameters of the weathering model by the offsets,
                      first break picking data, estimate parameters of the weathering model and stores the fitted
                      parameters.
@@ -43,7 +43,7 @@ class WeatheringVelocity:
             `velocity` : velocity of a single layer of weathering model.
 
     Valid keys notation.
-        `t0`: a intercept time of the first subweathering layer. Same as double wave travel time to the first
+        `t0`: a intercept time of the first subweathering layer. Same as two-way travel time to the first
               refractor. Measured in milliseconds.
         `x{i}`: cross offset. The offset where refracted wave from the i-th layer comes at the same time with
                 a refracted wave from the next underlaying layer. Measured in meters.
@@ -91,7 +91,7 @@ class WeatheringVelocity:
     max_offsets : float
         Maximum offset value.
     coords : Coordinates
-        Coordinates object.
+        Spatial coordinates at which refractor velocity is estimated.
     init : dict
         The inital values used to fit the parameters of the weathering model. Includes the calculated non-passed
         keys and values. Have the valid key notation.
@@ -150,6 +150,7 @@ class WeatheringVelocity:
         Raises
         ------
         ValueError
+            If all `init`, `bounds`, and `n_layers` are None.
             If any `init` values are negative.
             If any `bounds` values are negative.
             If left bound greater than right bound.
@@ -158,6 +159,8 @@ class WeatheringVelocity:
             If an union of `init` and `bounds` keys less than 2 or `n_layers` less than 1.
         """
         self = cls()
+        if all((param is None for param in (init, bounds, n_layers))):
+            raise ValueError("One of `init`, `bounds` or `n_layers` should be defined.")
         init = {} if init is None else init
         bounds = {} if bounds is None else bounds
         self._validate_values(init, bounds)
@@ -236,7 +239,7 @@ class WeatheringVelocity:
         return self
 
     @classmethod
-    def from_constant(cls, velocity, coords=None):
+    def from_constant_velocity(cls, velocity, coords=None):
         """Create WeatheringVelocity instanse with constant velocity and intercept time is 0.
 
         Parameters
@@ -279,7 +282,7 @@ class WeatheringVelocity:
         return self.coords is not None
 
     def get_coords(self, *args, **kwargs):
-        """Get spatial coordinates of the stacking velocity.
+        """Get spatial coordinates of the weathering velocity.
 
         Ignores all passed arguments but accept them to preserve general `get_coords` interface.
 
@@ -528,7 +531,7 @@ class WeatheringVelocity:
 
     @plotter(figsize=(10, 5))
     def plot(self, *, ax=None, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_times=None,
-            compared_params=None, txt_kwargs=None, **kwargs):
+            compared_params=None, text_kwargs=None, **kwargs):
         """Plot the WeatheringVelocity data, fitted curve, cross offsets, and additional information.
 
         Parameters
@@ -547,6 +550,9 @@ class WeatheringVelocity:
             Neighborhood margins of the fitted curve to fill in the area inside. If None the area don't show.
         compared_params : dict, optional, defaults to None
             Dict with the valid weathering velocity params. Used to plot an additional the weathering velocity curve.
+        text_kwargs : dict, optional
+            Additional arguments to the `matplotlib.pyplot.text` function. This function plot weathering model
+            parameters on the plot.
         kwargs : dict, optional
             Additional keyword arguments to the plotter.
 
@@ -556,7 +562,7 @@ class WeatheringVelocity:
             WeatheringVelocity without changes.
         """
 
-        (title, x_ticker, y_ticker, txt_kwargs), kwargs = set_text_formatting(title, x_ticker, y_ticker, txt_kwargs,
+        (title, x_ticker, y_ticker, text_kwargs), kwargs = set_text_formatting(title, x_ticker, y_ticker, text_kwargs,
                                                                               **kwargs)
         set_ticks(ax, "x", tick_labels=None, label="offset, m", **x_ticker)
         set_ticks(ax, "y", tick_labels=None, label="time, ms", **y_ticker)
@@ -571,13 +577,14 @@ class WeatheringVelocity:
                        label=crossoffset_label if self.n_layers <= 2 else crossoffset_label + 's' if i == 0 else None)
         if show_params:
             params = [self.params[key] for key in self._valid_keys]
-            txt_info = f"t0 : {params[0]:.2f} ms"
+            text_info = f"t0 : {params[0]:.2f} ms"
             if self.n_layers > 1:
-                txt_info += '\ncrossover offsets : ' + ', '.join(f"{round(x)}" for x in params[1:self.n_layers]) + ' m'
-            txt_info += '\nvelocities : ' + ', '.join(f"{v:.0f}" for v in params[self.n_layers:]) + ' m/s'
-            txt_kwargs = {'fontsize': 12, 'va': 'top', **txt_kwargs}
-            txt_ident = txt_kwargs.pop('ident', (.03, .94))
-            ax.text(*txt_ident, txt_info, transform=ax.transAxes, **txt_kwargs)
+                text_info += '\ncrossover offsets : ' + ', '.join(f"{round(x)}" for x in params[1:self.n_layers]) \
+                              + ' m'
+            text_info += '\nvelocities : ' + ', '.join(f"{v:.0f}" for v in params[self.n_layers:]) + ' m/s'
+            text_kwargs = {'fontsize': 12, 'va': 'top', **text_kwargs}
+            text_ident = text_kwargs.pop('x', .03), text_kwargs.pop('y', .94)
+            ax.text(*text_ident, text_info, transform=ax.transAxes, **text_kwargs)
 
         if threshold_times is not None:
             ax.fill_between(self._piecewise_offsets, self._piecewise_times - threshold_times,
