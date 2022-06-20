@@ -16,7 +16,8 @@ DEFAULT_COLS = {
 }
 
 
-USED_COLS = [*sum(DEFAULT_COLS.values(), []), "offset", "SourceDepth", "CDP_X", "CDP_Y"]
+USED_COLS = [*sum(DEFAULT_COLS.values(), []), "offset", "SourceDepth", "CDP_X", "CDP_Y", "SourceSurfaceElevation",
+             "ReceiverGroupElevation"]
 
 
 class StaticCorrection:
@@ -39,6 +40,7 @@ class StaticCorrection:
 
         self._set_traces_layer(interpolator=interpolator)
 
+        self.interp_elevations = self._construct_elevations_interpolatior()
         self.interp_depths = [lambda x: np.inf for _ in range(self.n_layers)]
 
         xs = np.linspace(self.headers['SourceX'], self.headers['GroupX'], n_avg_coords, dtype=np.int32).T.reshape(-1)
@@ -92,11 +94,28 @@ class StaticCorrection:
         updated_params = updated_params.drop(columns=updated_params.filter(regex="_drop$").columns)
         setattr(self, f"{name}_params", updated_params)
 
-    def optimize(self, depth_tol=1e-7, interp_kwargs=None):
-        """!!!"""
-        self.update_depth(layer=1, tol=depth_tol, interp_kwargs=interp_kwargs)
+    def _construct_elevations_interpolatior(self):
+        headers = self.survey.headers.reset_index()
+        sources_el = headers[["SourceX", "SourceY", "SourceSurfaceElevation"]].drop_duplicates()
+        sources_el = sources_el.set_index(["SourceX", "SourceY"])[~sources_el.index.duplicated(keep=False)]
+        rec_el = headers[["GroupX", "GroupY", "ReceiverGroupElevation"]].drop_duplicates()
+        rec_el = rec_el.set_index(["GroupX", "GroupY"])
 
-    def update_depth(self, layer, tol=1e-7, interp_kwargs=None):
+        source_el_coords = np.array(sources_el.index.to_frame().values)
+        rec_el_coords = np.array(rec_el.index.to_frame().values)
+
+        coords = np.concatenate((source_el_coords, rec_el_coords))
+        elevations = np.concatenate((sources_el["SourceSurfaceElevation"].values,
+                                     rec_el["ReceiverGroupElevation"].values))
+
+        return IDWInterpolator(coords, elevations)
+
+    def optimize(self, depth_tol=1e-7, smoothing_radius=None):
+        """!!!"""
+        self.update_depth(layer=1, tol=depth_tol, smoothing_radius=smoothing_radius)
+
+    def update_depth(self, layer, tol=1e-7, smoothing_radius=None):
+        interp_kwargs = {}
         layer_headers = self._fill_layer_params(headers=self.headers, layer=layer)
         ohe_source, unique_sources, ix_sources = self._get_sparse_depths("source", layer_headers, layer)
         ohe_rec, unique_recs, ix_recs = self._get_sparse_depths("rec", layer_headers, layer)
@@ -109,24 +128,34 @@ class StaticCorrection:
             coefs = np.zeros(matrix.shape[1])
         coefs = sparse.linalg.lsqr(matrix, layer_headers['y'], atol=tol, btol=tol, x0=coefs)[0]
 
+
         upholes = layer_headers.iloc[ix_sources]["SourceDepth"].values
-        source_depths = coefs[:len(unique_sources)] + upholes
-        rec_depths = coefs[len(unique_sources):]
+        source_els = self.interp_elevations(unique_sources)
+        rec_els = self.interp_elevations(unique_recs)
 
-        source_interp = IDWInterpolator(unique_sources, source_depths)
-        rec_interp = IDWInterpolator(unique_recs, rec_depths)
+        # Distance from 0 elevation to current sub layer.
+        source_elevations = source_els - coefs[:len(unique_sources)] + upholes
+        rec_elevations = rec_els - coefs[len(unique_sources):]
 
-        source_depths = (source_depths + rec_interp(unique_sources)) / 2
-        rec_depths = (rec_depths + source_interp(unique_recs)) / 2
+        source_interp = IDWInterpolator(unique_sources, source_elevations)
+        rec_interp = IDWInterpolator(unique_recs, rec_elevations)
 
-        depths = np.concatenate((source_depths, rec_depths)).reshape(-1, 1)
-        coords = np.vstack((unique_sources, unique_recs))
+        source_elevations = (source_elevations + rec_interp(unique_sources)) / 2
+        rec_elevations = (rec_elevations + source_interp(unique_recs)) / 2
 
-        df = pd.DataFrame(np.hstack((coords, depths)), columns=['x', 'y', 'val']).groupby(by=['x', 'y']).mean()
-        interp_kwargs = {} if interp_kwargs is None else interp_kwargs
-        self.interp_depths[layer-1] = IDWInterpolator(df.index.to_frame().values, df['val'].values, **interp_kwargs)
+        coords = np.concatenate([unique_sources, unique_recs])
+        elevations = np.concatenate([source_elevations, rec_elevations])
 
-        self._update_params("source", unique_sources, (source_depths - upholes).reshape(-1, 1), f"depth_{layer}")
+        if smoothing_radius is not None:
+            interp_kwargs.update({"radius": smoothing_radius, "dist_transform": 0})
+
+        joint_interp = IDWInterpolator(coords, elevations, **interp_kwargs)
+        self.interp_depths[layer-1] = IDWInterpolator(coords, joint_interp(coords))
+
+        source_depths = source_elevations - joint_interp(unique_sources) - upholes
+        rec_depths = rec_elevations - joint_interp(unique_recs)
+
+        self._update_params("source", unique_sources, source_depths.reshape(-1, 1), f"depth_{layer}")
         self._update_params("rec", unique_recs, rec_depths.reshape(-1, 1), f"depth_{layer}")
 
     def _fill_layer_params(self, headers, layer):
@@ -211,23 +240,9 @@ class StaticCorrection:
                 f.write(line)
 
     ### plotters ###
-    def _get_elevations_interpolatior(self):
-        headers = self.survey.headers.reset_index()
-        sources_el = headers[["SourceX", "SourceY", "SourceSurfaceElevation"]].drop_duplicates().set_index(["SourceX", "SourceY"])
-        sources_el = sources_el[~sources_el.index.duplicated(keep='first')]
-        rec_el = headers[["GroupX", "GroupY", "ReceiverGroupElevation"]].drop_duplicates().set_index(["GroupX", "GroupY"])
-
-        source_el_coords = np.array(sources_el.index.to_frame().values)
-        rec_el_coords = np.array(rec_el.index.to_frame().values)
-
-        coords = np.concatenate((source_el_coords, rec_el_coords))
-        elevations = np.concatenate((sources_el["SourceSurfaceElevation"].values, rec_el["ReceiverGroupElevation"].values))
-
-        _, unq_ixs = np.unique(coords, axis=0, return_index=True)
-        return IDWInterpolator(coords[unq_ixs], elevations[unq_ixs])
 
     def plot_slice(self, layer, n_points=100):
-        interp_el = self._get_elevations_interpolatior()
+        interp_el = self._construct_elevations_interpolatior()
         sources = self.source_params.index.to_frame().values
         recs = self.rec_params.index.to_frame().values
         coords = np.unique(np.concatenate((sources, recs)), axis=0)
