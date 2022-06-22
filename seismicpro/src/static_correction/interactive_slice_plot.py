@@ -1,6 +1,7 @@
 """Base class for interactive plotter of depths slices."""
 
 import numpy as np
+import matplotlib as mpl
 
 from seismicpro.src.utils.interactive_plot_utils import InteractivePlot, PairedPlot
 
@@ -66,11 +67,14 @@ class StaticsMapPlot(InteractivePlot):
 
 
 class StaticsPlot(PairedPlot):
-    def __init__(self, mmap, layer_elevations, elevations, n_points=1000):
+    def __init__(self, mmap, layer_elevations, elevations, velocities, n_points=100, vmin=None, vmax=None):
         self.mmap = mmap
         self.layer_elevations = layer_elevations
         self.elevations = elevations
+        self.velocities = velocities
         self.n_points = n_points
+        self.vmin = vmin
+        self.vmax = vmax
         super().__init__()
 
     def construct_main_plot(self):
@@ -91,8 +95,23 @@ class StaticsPlot(PairedPlot):
         coords = np.vstack((xs, ys)).T
         elevations = self.elevations(coords)
         depths = elevations - self.layer_elevations(coords)
+        velocities = self.velocities(coords)
+
+        x = np.arange(self.n_points)
+        vmin = self.vmin if self.vmin is not None else np.min(velocities)
+        vmax = self.vmax if self.vmax is not None else np.max(velocities)
+        color = (vels - vmin) / (vmax - vmin)
+
+        cmap = mpl.cm.get_cmap('jet')
+        norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
+
+        for i in range(self.n_points):
+            mask = np.zeros(self.n_points)
+            mask[[i, min(i+1, self.n_points-1)]] = 1
+            ax.fill_between(x, elevations, depths, where=mask, color=cmap(color[i]))
         ax = self.aux.ax
         ax.set_title(f"{start_coords}, {end_coords}")
         ax.plot(elevations, '.-')
-        ax.plot(elevations - depths, '.-')
+        ax.plot(depths, '.-')
         ax.grid()
+        self.aux.fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax, orientation='vertical')
