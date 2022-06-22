@@ -21,7 +21,7 @@ from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_ytickla
 from ..containers import TraceContainer, SamplesContainer
 from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, VelocityCube
-from ..weathering_velocity import WeatheringVelocity
+from ..refractor_velocity import RefractorVelocity
 from ..decorators import batch_method, plotter
 from ..const import HDR_FIRST_BREAK, DEFAULT_VELOCITY
 
@@ -582,7 +582,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        first_breaks_col : str, optional, defaults to HDR_FIRST_BREAK
+        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             A column of `self.headers` that contains first arrival times, measured in milliseconds.
 
         Returns
@@ -611,7 +611,7 @@ class Gather(TraceContainer, SamplesContainer):
         ----------
         threshold : float, optional, defaults to 0.5
             A threshold for trace mask value to refer its index to be either pre- or post-first break.
-        first_breaks_col : str, optional, defaults to HDR_FIRST_BREAK
+        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Headers column to save first break times to.
         save_to : Gather, optional, defaults to None
             An extra `Gather` to save first break times to. Generally used to conveniently pass first break times from
@@ -643,7 +643,7 @@ class Gather(TraceContainer, SamplesContainer):
             Path to the file.
         trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
             Columns names from `self.headers` that act as trace id. These would be present in the file.
-        first_breaks_col : str, defaults to HDR_FIRST_BREAK
+        first_breaks_col : str, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `self.headers` where first break times are stored.
         col_space : int, defaults to 8
             The minimum width of each column.
@@ -667,51 +667,46 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target='for')
-    def calculate_weathering_velocity(self, first_breaks_col=HDR_FIRST_BREAK, init=None, bounds=None, n_layers=None,
-                                      acsending_velocities=True, freeze_t0=False, coords_cols="auto", **kwargs):
-        """Calculate the WeatheringVelocity using the offsets and first break times.
+    def calculate_refractor_velocity(self, first_breaks_col=HDR_FIRST_BREAK, init=None, bounds=None, n_layers=None,
+                                     coords_cols="auto", **kwargs):
+        """Calculate the RefractorVelocity using the offsets and first breaks times.
 
-        Method creates a WeatheringVelocity instance, fits the parameters of weathering model (intercept time, cross
-        offsets and velocities) of first N subsurface layers and stores fitted parameters.
-        Read the WeatheringVelocity docs for a detail infomation.
+        Method creates a RefractorVelocity instance, fits the parameters (intercept time, cross offsets and velocities)
+        of velocity model upper part of the section and stores fitted parameters.
+        Read the :class:`~refractor_velocity.RefractorVelocity` docs for a detail infomation.
+
+        Notes: The offsets and first break times should be preloaded.
+               The headers corresponding to gather's coordinates should be preloaded or use `coords_cols=None`.
 
         Examples
         --------
-        >>> weathering_velocity = gather.calculate_weathering_velocity(n_layers=2)
-        Notes: The offsets and first break picking should be preloaded.
-               The headers corresponding to gather's coordinates should be preloaded or use `coords_cols=None`.
+        >>> refractor_velocity = gather.calculate_refractor_velocity(n_layers=2)
 
         Parameters
         ----------
-        first_breaks_col : str, defaults to HDR_FIRST_BREAK
+        first_breaks_col : str, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `self.headers` where first breaking times are stored.
         init : dict or None, defaults to None
-            Initial values for a weathering model.
+            Initial values for a velocity model.
         bounds : dict or None, defaults to None
-            Bounds for the weathering model parameters.
+            Bounds for the fitted velocity model parameters.
         n_layers : int or None, defaults to None
-            Number of the weathering model layers.
-        acsending_velocities : bool, defaults to True
-            Keeps the ascend of the fitted velocities from i-th layer to i+1 layer.
-        freeze_t0 : bool, defaults to False
-            Avoid the fitting intercept time ('t0').
+            Number of the velocity model layers.
         kwargs : dict, optional
             Additional keyword arguments.
         coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
-            Header columns to get spatial coordinates of the gather from to fetch `WeatheringVelocity` from
-            `WeatheringCube`. See :func:`~Gather.get_coords` for more details.
-            # TODO: update `WeatheringCube` naming
+            Header columns to get spatial coordinates of the gather to fetch `RefractorVelocity` from `RefractorCube`.
+            See :func:`~Gather.get_coords` for more details.
 
         Returns
         -------
-        WeatheringVelocity
-            Calculated WeatheringVelocity instance.
+        RefractorVelocity
+            Calculated RefractorVelocity instance.
         """
         coords = None if coords_cols is None else self.get_coords(coords_cols)
-        return WeatheringVelocity.from_picking(offsets=self.offsets, picking_times=self[first_breaks_col].ravel(),
-                                               init=init, bounds=bounds, n_layers=n_layers,
-                                               acsending_velocities=acsending_velocities, freeze_t0=freeze_t0,
-                                               coords=coords, **kwargs)
+        return RefractorVelocity.from_first_breaks(offsets=self.offsets, fb_times=self[first_breaks_col].ravel(),
+                                                   init=init, bounds=bounds, n_layers=n_layers, coords=coords,
+                                                   **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #
@@ -849,21 +844,21 @@ class Gather(TraceContainer, SamplesContainer):
     #                           Gather corrections                           #
     #------------------------------------------------------------------------#
 
-    @batch_method(target="threads", args_to_unpack="weathering_velocity") # benchmark it
-    def apply_lmo(self, weathering_velocity, delay=100, fill_value=0, event_headers=None):
-        """Perform a gather linear moveout correction using the given weathering velocity.
+    @batch_method(target="threads", args_to_unpack="refractor_velocity") # benchmark it
+    def apply_lmo(self, refractor_velocity, delay=100, fill_value=0, event_headers=None):
+        """Perform a gather linear moveout correction using the given RefractorVelocity.
 
         Parameters
         ----------
-        weathering_velocity : WeatheringVelocity
-            Weathering velocity object to perform LMO correction with.
+        refractor_velocity : RefractorVelocity
+            RefractorVelocity object to perform LMO correction with.
         delay : float, defaults to 100
             Milliseconds to substract from the result of moveout correction. Used to center the first breaks hodograph
             around delay instead of 0.
         fill_value : float, defaults to 0
             Value used to fill the amplitudes outside the gather bounds after moveout.
-        event_headers : str, list or None, defaults to None
-            Headers columns to adding LMO shift. LMO shift measured in milliseconds.
+        event_headers : str, list, or None, defaults to None
+            Headers columns to adding LMO correction values. LMO correction values measured in milliseconds.
 
         Returns
         -------
@@ -873,19 +868,19 @@ class Gather(TraceContainer, SamplesContainer):
         Raises
         ------
         ValueError
-            If `weathering_velocity` is not a `WeatheringVelocity` instance.
+            If `refractor_velocity` is not a `RefractorVelocity` instance.
         """
-        if not isinstance(weathering_velocity, WeatheringVelocity):
-            raise ValueError("Only WeatheringVelocity instances can be passed as a `weathering_velocity`")
+        if not isinstance(refractor_velocity, RefractorVelocity):
+            raise ValueError("Only RefractorVelocity instances can be passed as a `refractor_velocity`")
         event_headers = [] if event_headers is None else event_headers
         event_headers = (set(to_list(event_headers['headers'])) if isinstance(event_headers, dict)
                                                                 else set(to_list(event_headers)))
-        fb_estimate = times_to_indices(weathering_velocity(self.offsets), self.samples, round=True).astype(int)
-        delay_indicies = times_to_indices(np.full(self.shape[0], delay), self.samples, round=True).astype(int)
-        data = correction.apply_lmo(self.data, fb_estimate, delay_indicies, fill_value)
+        trace_delays = times_to_indices(refractor_velocity(self.offsets), self.samples, round=True).astype(int)
+        common_delay = times_to_indices(np.full(self.shape[0], delay), self.samples, round=True).astype(int)
+        data = correction.apply_lmo(self.data, trace_delays, common_delay, fill_value)
         self.data = data
         for header in event_headers:
-            self[header] -= (fb_estimate - delay_indicies).reshape(-1, 1) * self.sample_rate
+            self[header] -= (trace_delays - common_delay).reshape(-1, 1) * self.sample_rate
         return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
