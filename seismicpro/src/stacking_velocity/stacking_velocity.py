@@ -16,7 +16,7 @@ class StackingVelocity:
     It can be created from four different types of data by calling a corresponding `classmethod`:
     * `from_points` - from 1d arrays of times and velocities,
     * `from_file` - from a file in VFUNC format with time-velocity pairs,
-    * `from_weighted_instances` - from other stacking velocities with given weights,
+    * `from_stacking_velocities` - from other stacking velocities with given weights,
     * `from_constant_velocity` - from a single value which will be returned for all times.
 
     However, usually a stacking velocity instance is not created directly, but is obtained as a result of calling the
@@ -100,7 +100,7 @@ class StackingVelocity:
         return self
 
     @classmethod
-    def from_file(cls, path):
+    def from_file(cls, path, coords_cols=("INLINE_3D", "CROSSLINE_3D")):
         """Init stacking velocity from a file with vertical functions in Paradigm Echos VFUNC format.
 
         The file must have exactly one record with the following structure:
@@ -120,11 +120,11 @@ class StackingVelocity:
         self : StackingVelocity
             Loaded stacking velocity instance.
         """
-        *coords, times, velocities = read_single_vfunc(path)
-        return cls.from_points(times, velocities, coords=Coordinates(coords, names=("INLINE_3D", "CROSSLINE_3D")))
+        coords, times, velocities = read_single_vfunc(path, coords_cols=coords_cols)
+        return cls.from_points(times, velocities, coords=coords)
 
     @classmethod
-    def from_weighted_instances(cls, instances, weights=None, coords=None):
+    def from_stacking_velocities(cls, velocities, weights=None, coords=None):
         """Init stacking velocity from other stacking velocities with given weights.
 
         Parameters
@@ -142,12 +142,12 @@ class StackingVelocity:
         self : StackingVelocity
             Created stacking velocity instance.
         """
-        instances = to_list(instances)
+        velocities = to_list(velocities)
         if weights is None:
-            weights = np.ones_like(instances) / len(instances)
+            weights = np.ones_like(velocities) / len(velocities)
         weights = np.array(weights)
-        times = np.unique(np.concatenate([inst.times for inst in instances]))
-        velocities = (np.stack([inst(times) for inst in instances]) * weights[:, None]).sum(axis=0)
+        times = np.unique(np.concatenate([vel.times for vel in velocities]))
+        velocities = (np.stack([vel(times) for vel in velocities]) * weights[:, None]).sum(axis=0)
         return cls.from_points(times, velocities, coords=coords)
 
     @classmethod
@@ -174,6 +174,10 @@ class StackingVelocity:
         """bool: Whether stacking velocity coordinates are not-None."""
         return self.coords is not None
 
+    @property
+    def vfunc_data(self):
+        return self.times, self.velocities
+
     def dump(self, path):
         """Dump stacking velocity to a file in VFUNC format.
 
@@ -188,7 +192,7 @@ class StackingVelocity:
         """
         if not self.has_coords:
             raise ValueError("StackingVelocity instance can be dumped only if it has well-defined coordinates")
-        dump_vfunc(path, [(*self.coords, self.times, self.velocities)])
+        dump_vfunc(path, [(self.coords, *self.vfunc_data)])
 
     def __call__(self, times):
         """Return stacking velocities for given `times`.

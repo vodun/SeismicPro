@@ -9,6 +9,7 @@ import numpy as np
 from tqdm.auto import tqdm
 
 from .general_utils import to_list
+from .coordinates import Coordinates
 
 
 def aggregate_segys(in_paths, out_path, recursive=False, mmap=False, keep_exts=("sgy", "segy"), delete_in_files=False,
@@ -90,11 +91,11 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=False, keep_exts=(
             os.remove(path)
 
 
-def read_vfunc(path, encoding="UTF-8"):
+def read_vfunc(path, coords_cols=("INLINE_3D", "CROSSLINE_3D"), encoding="UTF-8"):
     """Read a file with vertical functions in Paradigm Echos VFUNC format.
 
     The file may have one or more records with the following structure:
-    VFUNC [inline] [crossline]
+    VFUNC [coord_x] [coord_y]
     [x1] [y1] [x2] [y2] ... [xn] [yn]
 
     Parameters
@@ -116,19 +117,19 @@ def read_vfunc(path, encoding="UTF-8"):
         If data length for any VFUNC record is odd.
     """
     vfunc_list = []
-    VFUNC = namedtuple("VFUNC", ["inline", "crossline", "x", "y"])
+    VFUNC = namedtuple("VFUNC", ["coords", "x", "y"])
     with open(path, encoding=encoding) as file:
         for data in file.read().split("VFUNC")[1:]:
             data = data.split()
-            inline, crossline = int(data[0]), int(data[1])
+            coords = Coordinates((int(data[0]), int(data[1])), names=coords_cols)
             data = np.array(data[2:], dtype=np.float64)
             if len(data) % 2 != 0:
                 raise ValueError("Data length for each VFUNC record must be even")
-            vfunc_list.append(VFUNC(inline, crossline, data[::2], data[1::2]))
+            vfunc_list.append(VFUNC(coords, data[::2], data[1::2]))
     return vfunc_list
 
 
-def read_single_vfunc(path):
+def read_single_vfunc(path, coords_cols=("INLINE_3D", "CROSSLINE_3D"), encoding="UTF-8"):
     """Read a single vertical function from a file in Paradigm Echos VFUNC format.
 
     The file must have exactly one record with the following structure:
@@ -152,7 +153,7 @@ def read_single_vfunc(path):
         If data length for any VFUNC record is odd.
         If the file does not contain a single vfunc.
     """
-    file_data = read_vfunc(path)
+    file_data = read_vfunc(path, coords_cols=coords_cols, encoding=encoding)
     if len(file_data) != 1:
         raise ValueError(f"Input file must contain a single vfunc, but {len(file_data)} were found in {path}")
     return file_data[0]
@@ -186,8 +187,8 @@ def dump_vfunc(path, vfunc_list, encoding="UTF-8"):
         File encoding.
     """
     with open(path, "w", encoding=encoding) as f:
-        for inline, crossline, x, y in vfunc_list:
-            f.write(f"{'VFUNC':8}{inline:<8}{crossline:<8}\n")
+        for coords, x, y in vfunc_list:
+            f.write(f"{'VFUNC':8}{coords[0]:<8}{coords[1]:<8}\n")
             data = np.column_stack([x, y]).ravel()
             rows = np.split(data, np.arange(8, len(data), 8))
             for row in rows:
