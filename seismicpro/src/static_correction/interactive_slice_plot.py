@@ -66,9 +66,9 @@ class StaticsMapPlot(InteractivePlot):
 
 
 class StaticsPlot(PairedPlot):
-    def __init__(self, mmap, depths, elevations, n_points=1000):
+    def __init__(self, mmap, layer_elevations, elevations, n_points=1000):
         self.mmap = mmap
-        self.depths = depths
+        self.layer_elevations = layer_elevations
         self.elevations = elevations
         self.n_points = n_points
         super().__init__()
@@ -89,8 +89,8 @@ class StaticsPlot(PairedPlot):
         ys = np.linspace(start_coords[1], end_coords[1], self.n_points)
 
         coords = np.vstack((xs, ys)).T
-        depths = self.depths(coords)
         elevations = self.elevations(coords)
+        depths = elevations - self.layer_elevations(coords)
         ax = self.aux.ax
         ax.set_title(f"{start_coords}, {end_coords}")
         ax.plot(elevations, '.-')

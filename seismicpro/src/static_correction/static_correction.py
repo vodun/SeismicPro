@@ -21,10 +21,11 @@ USED_COLS = [*sum(DEFAULT_COLS.values(), []), "offset", "SourceDepth", "CDP_X", 
 
 
 class StaticCorrection:
-    def __init__(self, survey, first_breaks_col, interpolator, n_avg_coords=5):
+    def __init__(self, survey, first_breaks_col, interpolator, n_avg_coords=5, interp_neighbors=100):
         self.survey = survey.copy()
         self.first_breaks_col = first_breaks_col
         self.n_layers = None
+        self.interp_neighbors = interp_neighbors
 
         headers_cols = USED_COLS + [first_breaks_col]
         self.headers = pd.DataFrame(self.survey[headers_cols], columns=headers_cols)
@@ -41,7 +42,7 @@ class StaticCorrection:
         self._set_traces_layer(interpolator=interpolator)
 
         self.interp_elevations = self._construct_elevations_interpolatior()
-        self.interp_depths = [lambda x: np.inf for _ in range(self.n_layers)]
+        self.interp_layers_els = [lambda x: np.inf for _ in range(self.n_layers)]
 
         xs = np.linspace(self.headers['SourceX'], self.headers['GroupX'], n_avg_coords, dtype=np.int32).T.reshape(-1)
         ys = np.linspace(self.headers['SourceY'], self.headers['GroupY'], n_avg_coords, dtype=np.int32).T.reshape(-1)
@@ -108,7 +109,7 @@ class StaticCorrection:
         elevations = np.concatenate((sources_el["SourceSurfaceElevation"].values,
                                      rec_el["ReceiverGroupElevation"].values))
 
-        return IDWInterpolator(coords, elevations)
+        return IDWInterpolator(coords, elevations, neighbors=self.interp_neighbors)
 
     def optimize(self, depth_tol=1e-7, smoothing_radius=None):
         """!!!"""
@@ -134,14 +135,14 @@ class StaticCorrection:
         rec_els = self.interp_elevations(unique_recs)
 
         # Distance from 0 elevation to current sub layer.
-        source_elevations = source_els - coefs[:len(unique_sources)] + upholes
+        source_elevations = source_els - (coefs[:len(unique_sources)] + upholes)
         rec_elevations = rec_els - coefs[len(unique_sources):]
 
-        source_interp = IDWInterpolator(unique_sources, source_elevations)
-        rec_interp = IDWInterpolator(unique_recs, rec_elevations)
+        interp_source = IDWInterpolator(unique_sources, source_elevations, neighbors=self.interp_neighbors)
+        interp_rec = IDWInterpolator(unique_recs, rec_elevations, neighbors=self.interp_neighbors)
 
-        source_elevations = (source_elevations + rec_interp(unique_sources)) / 2
-        rec_elevations = (rec_elevations + source_interp(unique_recs)) / 2
+        source_elevations = (source_elevations + interp_rec(unique_sources)) / 2
+        rec_elevations = (rec_elevations + interp_source(unique_recs)) / 2
 
         coords = np.concatenate([unique_sources, unique_recs])
         elevations = np.concatenate([source_elevations, rec_elevations])
@@ -150,10 +151,11 @@ class StaticCorrection:
             interp_kwargs.update({"radius": smoothing_radius, "dist_transform": 0})
 
         joint_interp = IDWInterpolator(coords, elevations, **interp_kwargs)
-        self.interp_depths[layer-1] = IDWInterpolator(coords, joint_interp(coords))
+        joint_interp = IDWInterpolator(coords, joint_interp(coords), neighbors=self.interp_neighbors)
+        self.interp_layers_els[layer-1] = joint_interp
 
-        source_depths = source_elevations - joint_interp(unique_sources) - upholes
-        rec_depths = rec_elevations - joint_interp(unique_recs)
+        source_depths = source_els - joint_interp(unique_sources) - upholes
+        rec_depths = rec_els - joint_interp(unique_recs)
 
         self._update_params("source", unique_sources, source_depths.reshape(-1, 1), f"depth_{layer}")
         self._update_params("rec", unique_recs, rec_depths.reshape(-1, 1), f"depth_{layer}")
@@ -179,7 +181,8 @@ class StaticCorrection:
         matrix = eye.multiply(coefs.reshape(-1, 1)).tocsc()
         return matrix, uniques, index
 
-    def update_velocity(self, max_wv=None, tol=1e-8, approach='rough'):
+    def update_velocity(self, max_wv=None, tol=1e-8, smoothing_radius=None):
+        interp_kwargs = {}
         layer_headers = self._fill_layer_params(headers=self.headers, layer=1)
         ohe_source, unique_sources, ix_sources = self._get_sparse_velocities("source", layer_headers, 1)
         ohe_rec, unique_recs, ix_recs = self._get_sparse_velocities("rec", layer_headers, 1)
@@ -188,10 +191,28 @@ class StaticCorrection:
         coefs = layer_headers.iloc[ix_sources]['v1_source'].tolist() + layer_headers.iloc[ix_recs]['v1_rec'].tolist()
         result = sparse.linalg.lsmr(matrix, layer_headers['y'], x0=np.array(coefs), atol=tol, btol=tol)[0]
 
-        velocities = self._calculate_velocities(result, layer_headers, ix_sources, ix_recs, max_wv, approach)
+        source_v1, rec_v1 = self._calculate_velocities(result, layer_headers, ix_sources, ix_recs, max_wv)
 
-        self._update_params("source", unique_sources, velocities[0], 'v1')
-        self._update_params("rec", unique_recs, velocities[1], 'v1')
+        interp_source_v1 = IDWInterpolator(unique_sources, source_v1, neighbors=self.interp_neighbors)
+        interp_rec_v1 = IDWInterpolator(unique_recs, rec_v1, neighbors=self.interp_neighbors)
+
+        mean_source_v1 = (source_v1 + interp_rec_v1(unique_sources)) / 2
+        mean_rec_v1 = (rec_v1 + interp_source_v1(unique_recs)) / 2
+
+        coords = np.concatenate([unique_sources, unique_recs])
+        v1 = np.concatenate([mean_source_v1, mean_rec_v1])
+
+        if smoothing_radius is not None:
+            interp_kwargs.update({"radius": smoothing_radius, "dist_transform": 0})
+
+        joint_interp = IDWInterpolator(coords, v1, **interp_kwargs)
+        joint_interp = IDWInterpolator(coords, joint_interp(coords), neighbors=self.interp_neighbors)
+
+        final_source_v1 = joint_interp(unique_sources)
+        final_rec_v1 = joint_interp(unique_recs)
+
+        self._update_params("source", unique_sources, final_source_v1, 'v1')
+        self._update_params("rec", unique_recs, final_rec_v1, 'v1')
 
     def _get_sparse_velocities(self, name, headers, layer):
         coord_names = self._get_cols(name)
@@ -201,17 +222,11 @@ class StaticCorrection:
         matrix = eye.multiply(coefs).tocsc()[inverse]
         return matrix, uniques, index
 
-    def _calculate_velocities(self, result, headers, ix_sources, ix_recs, max_wv, approach):
+    def _calculate_velocities(self, result, headers, ix_sources, ix_recs, max_wv):
         max_wv = np.min(headers[["v2_source", "v2_rec"]].min()) if max_wv is None else max_wv
         v2 = headers.iloc[ix_sources]["v2_source"].tolist() + headers.iloc[ix_recs]["v2_rec"].tolist()
         # What velocity to choose x1 or x2? min?
-        if approach == 'rough':
-            x1 = calculate_wv_by_v2(np.array(v2), result, max_wv)
-        elif approach == 'full':
-            avg_v2 = headers.iloc[ix_sources]["v2_avg"].tolist() + headers.iloc[ix_recs]["v2_avg"].tolist()
-            x1 = calculate_velocities(np.array(v2), np.array(avg_v2), result, max_wv)
-        else:
-            raise ValueError('!!!')
+        x1 = calculate_wv_by_v2(np.array(v2), result, max_wv)
         sources = x1[: len(ix_sources)].reshape(-1, 1)
         recs = x1[len(ix_sources): ].reshape(-1, 1)
         return sources, recs
@@ -246,8 +261,8 @@ class StaticCorrection:
         sources = self.source_params.index.to_frame().values
         recs = self.rec_params.index.to_frame().values
         coords = np.unique(np.concatenate((sources, recs)), axis=0)
-        obj = MetricMap(coords, self.interp_depths[layer-1](coords))
-        StaticsPlot(obj, self.interp_depths[layer-1], interp_el, n_points=n_points).plot()
+        obj = MetricMap(coords, self.interp_layers_els[layer-1](coords))
+        StaticsPlot(obj, self.interp_layers_els[layer-1], interp_el, n_points=n_points).plot()
 
     def plot_depths(self, layer):
         _, ax = plt.subplots(1, 2, figsize=(12, 5), tight_layout=True)
