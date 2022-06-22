@@ -43,6 +43,7 @@ class StaticCorrection:
 
         self.interp_elevations = self._construct_elevations_interpolatior()
         self.interp_layers_els = [lambda x: np.inf for _ in range(self.n_layers)]
+        self.interp_v1 = None
 
         xs = np.linspace(self.headers['SourceX'], self.headers['GroupX'], n_avg_coords, dtype=np.int32).T.reshape(-1)
         ys = np.linspace(self.headers['SourceY'], self.headers['GroupY'], n_avg_coords, dtype=np.int32).T.reshape(-1)
@@ -207,6 +208,7 @@ class StaticCorrection:
 
         joint_interp = IDWInterpolator(coords, v1, **interp_kwargs)
         joint_interp = IDWInterpolator(coords, joint_interp(coords), neighbors=self.interp_neighbors)
+        self.interp_v1 = joint_interp
 
         final_source_v1 = joint_interp(unique_sources)
         final_rec_v1 = joint_interp(unique_recs)

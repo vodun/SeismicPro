@@ -923,7 +923,7 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target="for")
-    def apply_static_correciton(self, datum):
+    def apply_static_correction(self, datum):
         """!!!"""
         # Do we need DelayRecordingTime?
         if self.survey.static_corr is None:
@@ -956,7 +956,7 @@ class Gather(TraceContainer, SamplesContainer):
         cols = static_corr._get_cols(name)
         index = tuple(np.int32(header[cols]).reshape(-1))
         params = getattr(static_corr, f"{name}_params").loc[index]
-        depths = [static_corr.interp_depths[i](index) for i in range(static_corr.n_layers-1)]
+        depths = [header[elevation_header] - static_corr.interp_layers_els[i](index) for i in range(static_corr.n_layers-1)]
         # Calculate distance from surface to datum
 
         dist_from_surface = header[elevation_header] - datum
