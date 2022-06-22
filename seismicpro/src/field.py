@@ -114,18 +114,18 @@ class Field:
         if self.is_dirty_interpolator:
             warnings.warn("The field was updated after its interpolator was created", RuntimeWarning)
 
-    def construct_items(self, field_coords, return_coords):
-        _ = field_coords, return_coords
+    def construct_items(self, field_coords, items_coords):
+        _ = field_coords, items_coords
         raise NotImplementedError
 
     def __call__(self, coords):
         self.validate_interpolator()
-        field_coords, return_coords, is_1d_coords = self.transform_coords(coords)
-        if self.coords_cols is None and not all(isinstance(coords, Coordinates) for coords in return_coords):
+        field_coords, items_coords, is_1d_coords = self.transform_coords(coords)
+        if self.coords_cols is None and not all(isinstance(coords, Coordinates) for coords in items_coords):
             raise ValueError("Names of field coordinates are undefined, so only Coordinates instances are allowed")
-        return_coords = [coords if isinstance(coords, Coordinates) else Coordinates(coords, names=self.coords_cols)
-                         for coords in return_coords]
-        items = self.construct_items(field_coords, return_coords)
+        items_coords = [coords if isinstance(coords, Coordinates) else Coordinates(coords, names=self.coords_cols)
+                        for coords in items_coords]
+        items = self.construct_items(field_coords, items_coords)
         if is_1d_coords:
             return items[0]
         return items
@@ -154,9 +154,9 @@ class SpatialField(Field):
         _ = values, coords
         raise NotImplementedError
 
-    def construct_items(self, field_coords, return_coords):
+    def construct_items(self, field_coords, items_coords):
         values = self.interpolator(field_coords)
-        return [self.construct_item(vals, coords) for vals, coords in zip(values, return_coords)]
+        return [self.construct_item(vals, coords) for vals, coords in zip(values, items_coords)]
 
 
 class ValuesAgnosticField(Field):
@@ -177,14 +177,17 @@ class ValuesAgnosticField(Field):
         _ = base_items, weights, coords
         raise NotImplementedError
 
-    def construct_items(self, field_coords, return_coords):
-        weighted_coords_list = self.interpolator.get_weighted_coords(field_coords)
+    def weighted_coords_to_items(self, weighted_coords, items_coords):
         items = []
-        for weighted_coords, coords in zip(weighted_coords_list, return_coords):
-            base_items = [self.item_container[coords] for coords in weighted_coords.keys()]
-            weights = list(weighted_coords.values())
-            items.append(self.construct_item(base_items, weights, coords))
+        for base_coords_weights, ret_coords in zip(weighted_coords, items_coords):
+            base_items = [self.item_container[coords] for coords in base_coords_weights.keys()]
+            weights = list(base_coords_weights.values())
+            items.append(self.construct_item(base_items, weights, ret_coords))
         return items
+
+    def construct_items(self, field_coords, items_coords):
+        weighted_coords = self.interpolator.get_weighted_coords(field_coords)
+        return self.weighted_coords_to_items(weighted_coords, items_coords)
 
 
 class VFUNCMixin:

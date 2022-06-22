@@ -2,7 +2,6 @@
 for spatial velocity interpolation"""
 
 import os
-from functools import reduce
 
 import numpy as np
 from tqdm.contrib.concurrent import thread_map
@@ -11,7 +10,7 @@ from sklearn.neighbors import NearestNeighbors
 from .stacking_velocity import StackingVelocity
 from .metrics import VELOCITY_QC_METRICS, StackingVelocityMetric
 from ..field import ValuesAgnosticField, VFUNCMixin
-from ..utils import to_list
+from ..utils import to_list, IDWInterpolator
 
 
 class StackingVelocityField(ValuesAgnosticField, VFUNCMixin):
@@ -79,6 +78,13 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCMixin):
 
     def get_mean_velocity(self):
         return self.item_class.from_stacking_velocities(list(self.item_container.values()))
+
+    def smooth(self, radius):
+        smoothing_interpolator = IDWInterpolator(self.coords, radius=radius, dist_transform=0)
+        weighted_coords = smoothing_interpolator.get_weighted_coords(self.coords)
+        items_coords = [item.coords for item in self.item_container.values()]
+        smoothed_items = self.weighted_coords_to_items(weighted_coords, items_coords)
+        return type(self)(survey=self.survey, is_geographic=self.is_geographic).update(smoothed_items)
 
     def interpolate(self, coords, times):
         self.validate_interpolator()
