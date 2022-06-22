@@ -81,14 +81,18 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCMixin):
         return self.item_class.from_stacking_velocities(list(self.item_container.values()))
 
     def interpolate(self, coords, times):
-        times = np.atleast_1d(times)
         self.validate_interpolator()
         field_coords, _, _ = self.transform_coords(coords)
+        times = np.atleast_1d(times)
         weighted_coords = self.interpolator.get_weighted_coords(field_coords)
         base_velocities_coords = set.union(*[set(coord_weights.keys()) for coord_weights in weighted_coords])
         base_velocities = {coords: self.item_container[coords](times) for coords in base_velocities_coords}
-        return np.array([reduce(lambda x, y: x + y, [base_velocities[coords] * weight for coords, weight in coord_weights.items()])
-                         for coord_weights in weighted_coords])
+
+        res = np.zeros((len(field_coords), len(times)))
+        for i, coord_weights in enumerate(weighted_coords):
+            for coord, weight in coord_weights.items():
+                res[i] += base_velocities[coord] * weight
+        return res
 
     def qc(self, radius, metrics=None, coords=None, times=None, n_workers=None, bar=True):
         """Perform quality control of the velocity field by calculating spatial-window-based metrics for its stacking

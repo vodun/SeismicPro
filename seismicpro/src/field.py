@@ -93,7 +93,7 @@ class Field:
         if self.is_geographic is None:
             is_geographic = items[0].coords.is_geographic
 
-        coords_cols_set = {item.coords.coords_cols for item in items}
+        coords_cols_set = {item.coords.names for item in items}
         coords_cols = coords_cols_set.pop() if len(coords_cols_set) == 1 else None
         if not self.is_empty and coords_cols != self.coords_cols:
             coords_cols = None

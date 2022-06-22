@@ -66,7 +66,8 @@ class ValuesAgnosticInterpolator(SpatialInterpolator):
 
 
 class IDWInterpolator(ValuesAgnosticInterpolator):
-    def __init__(self, coords, values=None, radius=None, neighbors=None, dist_transform=2, smoothing=0):
+    def __init__(self, coords, values=None, radius=None, neighbors=None, dist_transform=2, smoothing=0,
+                 min_weight=1e-4):
         super().__init__(coords, values)
         if neighbors is None:
             neighbors = len(self.coords)
@@ -75,6 +76,7 @@ class IDWInterpolator(ValuesAgnosticInterpolator):
         self.nearest_interpolator = NearestNeighbors(n_neighbors=neighbors, radius=radius).fit(self.coords)
         self.dist_transform = dist_transform
         self.smoothing = smoothing
+        self.min_weight = min_weight
 
     def _distances_to_weights(self, dist):
         is_1d_dist = (dist.ndim == 1)
@@ -93,6 +95,9 @@ class IDWInterpolator(ValuesAgnosticInterpolator):
         weights = 1 / dist
         weights[zero_mask.any(axis=1)] = 0
         weights[zero_mask] = 1
+
+        # Zero out weights less than a threshold and norm the result
+        weights[weights < weights.sum(axis=1, keepdims=True) * self.min_weight] = 0
         weights /= weights.sum(axis=1, keepdims=True)
 
         if is_1d_dist:
