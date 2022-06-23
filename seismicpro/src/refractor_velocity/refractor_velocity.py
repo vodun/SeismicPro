@@ -16,26 +16,14 @@ class RefractorVelocity:
     """The class stores and fits parameters of a velocity model of an upper part of the section.
 
     The class could be created from `from_first_breaks`, `from_params`, and `from_constant_velocity` classmethods.
-    `from_first_breaks` - creates a RefractorVelocity instance, fits the parameters of the velocity model by
-                          the offsets, first break times, estimate parameters of the velocity model and stores
-                          the fitted parameters.
-        Parameters : `offsets`, `fb_times`, `init`, `bounds` or/and `n_layers`
-            `offsets` : nd.array with 
-            `init` : dict with the estimate velocity model parameters. Keys have the valid notation.
-            `bounds` : dict with left and right bounds for each velocity model parameter. Keys have the valid
-                       notation.
-            `n_layers` : number of the velocity model layers.
+        * `from_first_breaks` - creates a RefractorVelocity instance, fits the parameters of the velocity model by
+                                the offsets, first break times, estimate parameters of the velocity model and stores
+                                the fitted parameters.
+        * `from_params` - creates a RefractorVelocity instance and stores the given parameters of the velocity model.
+        * `from_constant` - creates a RefractorVelocity instance based on the 1-layer velocity model with zero
+                            intercept time and given velocity. Stored parameters of the velocity model in `params`.
 
-    `from_params` - creates a RefractorVelocity instance and stores the given parameters of the velocity model.
-        Parameters : `params`
-            `params` : dict with the velocity model parameters. Keys have the valid notation.
-
-    `from_constant` - creates a RefractorVelocity instance based on the 1-layer velocity model with zero intercept
-                      time and given velocity. Stored parameters of the velocity model in `params`.
-        Parameters : `velocity`
-            `velocity` : velocity of a single layer of velocity model.
-
-    Valid keys notation.
+    Some of class attributes and classmethod's arguments have a valid key notation.
         `t0`: a intercept time of the first subweathering layer. Same as two-way travel time to the first
               refractor. Measured in milliseconds.
         `x{i}`: cross offset. The offset where refracted wave from the i-th layer comes at the same time with
@@ -130,9 +118,9 @@ class RefractorVelocity:
         fb_times : 1d ndarray
             First break times. Measured in milliseconds.
         init : dict, defaults to None
-            Initial parameters of a velocity model.
+            Initial parameters of a velocity model. Should have the valid key notation.
         bounds : dict, defaults to None
-            Lower and upper bounds of the velocity model parameters.
+            Lower and upper bounds of the velocity model parameters. Should have the valid key notation.
         n_layers : int, defaults to None
             Number of layers of a velocity model.
         kwargs : dict, optional
@@ -194,12 +182,10 @@ class RefractorVelocity:
     def from_params(cls, params, coords=None):
         """Create RefractorVelocity instanse from parameters.
 
-        Parameters should be dict with the valid key notation.
-
         Parameters
         ----------
         params : dict,
-            Parameters of the velocity model.
+            Parameters of the velocity model. Should have the valid key notation.
 
         Returns
         -------
