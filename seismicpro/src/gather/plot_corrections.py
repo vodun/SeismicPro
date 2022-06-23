@@ -5,7 +5,7 @@ from functools import partial
 from ..stacking_velocity import StackingVelocity
 from ..refractor_velocity import RefractorVelocity
 from ..utils.interactive_plot_utils import InteractivePlot
-from ..utils import MissingModule
+from ..utils import MissingModule, as_dict
 
 # Safe import of modules for interactive plotting
 try:
@@ -112,7 +112,7 @@ class LMOCorrectionPlot(CorrectionPlot):
     """Interactive LMO correction plot."""
     def __init__(self, gather, min_vel, max_vel, figsize, **kwargs):
         super().__init__(gather, min_vel, max_vel, figsize, **kwargs)
-        self.event_headers = kwargs.get('event_headers')
+        self.event_headers = as_dict(kwargs.get('event_headers'), "headers")["headers"]
 
     def get_title(self):
         """Get title of the LMO correction view."""

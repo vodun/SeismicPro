@@ -854,11 +854,11 @@ class Gather(TraceContainer, SamplesContainer):
             RefractorVelocity object to perform LMO correction with.
         delay : float, defaults to 100
             Milliseconds to substract from the result of moveout correction. Used to center the first breaks hodograph
-            around delay instead of 0.
+            around the delay value instead of 0.
         fill_value : float, defaults to 0
             Value used to fill the amplitudes outside the gather bounds after moveout.
         event_headers : str, list, or None, defaults to None
-            Headers columns to adding LMO correction values. LMO correction values measured in milliseconds.
+            Headers columns for which LMO correction is applying. The headers columns values will be overwritten.
 
         Returns
         -------
@@ -872,9 +872,8 @@ class Gather(TraceContainer, SamplesContainer):
         """
         if not isinstance(refractor_velocity, RefractorVelocity):
             raise ValueError("Only RefractorVelocity instances can be passed as a `refractor_velocity`")
-        event_headers = [] if event_headers is None else event_headers
-        event_headers = (set(to_list(event_headers['headers'])) if isinstance(event_headers, dict)
-                                                                else set(to_list(event_headers)))
+        event_headers = [] if event_headers is None else to_list(event_headers)
+
         trace_delays = times_to_indices(refractor_velocity(self.offsets), self.samples, round=True).astype(int)
         common_delay = times_to_indices(np.full(self.shape[0], delay), self.samples, round=True).astype(int)
         data = correction.apply_lmo(self.data, trace_delays, common_delay, fill_value)
@@ -1539,7 +1538,7 @@ class Gather(TraceContainer, SamplesContainer):
         """
         NMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, **kwargs).plot()
 
-    def plot_lmo_correction(self, min_vel=800, max_vel=6000, figsize=(6, 4.5), **kwargs):
+    def plot_lmo_correction(self, min_vel=500, max_vel=5000, figsize=(6, 4.5), **kwargs):
         """Perform interactive LMO correction of the gather with the selected velocity.
 
         The plot provides 2 views:
@@ -1552,9 +1551,9 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        min_vel : float, optional, defaults to 800
+        min_vel : float, optional, defaults to 500
             Minimum velocity value for LMO correction. Measured in meters/seconds.
-        max_vel : float, optional, defaults to 6000
+        max_vel : float, optional, defaults to 5000
             Maximum velocity value for LMO correction. Measured in meters/seconds.
         figsize : tuple with 2 elements, optional, defaults to (6, 4.5)
             Size of the created figure. Measured in inches.
