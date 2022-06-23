@@ -3,6 +3,7 @@
 import numpy as np
 import matplotlib as mpl
 
+from seismicpro.src.utils import to_list, add_colorbar
 from seismicpro.src.utils.interactive_plot_utils import InteractivePlot, PairedPlot
 
 class StaticsMapPlot(InteractivePlot):
@@ -67,9 +68,9 @@ class StaticsMapPlot(InteractivePlot):
 
 
 class StaticsPlot(PairedPlot):
-    def __init__(self, mmap, layer_elevations, elevations, velocities, n_points=100, vmin=None, vmax=None):
+    def __init__(self, mmap, layers_elevations, elevations, velocities, n_points=100, vmin=None, vmax=None):
         self.mmap = mmap
-        self.layer_elevations = layer_elevations
+        self.layers_elevations = to_list(layers_elevations)
         self.elevations = elevations
         self.velocities = velocities
         self.n_points = n_points
@@ -86,7 +87,7 @@ class StaticsPlot(PairedPlot):
         return InteractivePlot()
 
     def drag(self, start_coords, end_coords):
-        self.aux.redraw()
+        self.aux.clear()
         start_coords = np.array(list(start_coords)).astype(np.int32)
         end_coords = np.array(list(end_coords)).astype(np.int32)
         xs = np.linspace(start_coords[0], end_coords[0], self.n_points)
@@ -94,24 +95,16 @@ class StaticsPlot(PairedPlot):
 
         coords = np.vstack((xs, ys)).T
         elevations = self.elevations(coords)
-        depths = elevations - self.layer_elevations(coords)
-        velocities = self.velocities(coords)
-
-        x = np.arange(self.n_points)
-        vmin = self.vmin if self.vmin is not None else np.min(velocities)
-        vmax = self.vmax if self.vmax is not None else np.max(velocities)
-        color = (vels - vmin) / (vmax - vmin)
-
-        cmap = mpl.cm.get_cmap('jet')
-        norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
-
-        for i in range(self.n_points):
-            mask = np.zeros(self.n_points)
-            mask[[i, min(i+1, self.n_points-1)]] = 1
-            ax.fill_between(x, elevations, depths, where=mask, color=cmap(color[i]))
+        velocities = self.velocities(coords).T
+        depths = [layer(coords) for layer in self.layers_elevations]
         ax = self.aux.ax
-        ax.set_title(f"{start_coords}, {end_coords}")
-        ax.plot(elevations, '.-')
-        ax.plot(depths, '.-')
-        ax.grid()
-        self.aux.fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax, orientation='vertical')
+
+        slice_img = np.full((int(max(elevations))+10, self.n_points), fill_value=np.nan)
+        for vel, depth in zip(velocities, [elevations, *depths]):
+            ix_matrix = np.arange(slice_img.shape[0]).repeat(slice_img.shape[1]).reshape(slice_img.shape)
+            curr_mask = (ix_matrix - depth < 0) * vel
+            slice_img = np.where(curr_mask, curr_mask, slice_img)
+            ax.plot(depth, "-", c='k', linewidth=5)
+        ax.set_ylim(20, max(elevations)+10)
+        img = ax.imshow(slice_img, cmap='jet', aspect='auto', vmin=self.vmin, vmax=self.vmax)
+        add_colorbar(ax, img, True)

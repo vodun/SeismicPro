@@ -955,7 +955,6 @@ class Gather(TraceContainer, SamplesContainer):
         static_corr = self.survey.static_corr
         cols = static_corr._get_cols(name)
         index = tuple(np.int32(header[cols]).reshape(-1))
-        params = getattr(static_corr, f"{name}_params").loc[index]
         depths = [header[elevation_header] - static_corr.interp_layers_els[i](index) for i in range(static_corr.n_layers-1)]
         # Calculate distance from surface to datum
 
@@ -966,7 +965,7 @@ class Gather(TraceContainer, SamplesContainer):
         dt = 0
         for i in range(1, static_corr.n_layers):
             layer_depth = min(dist_from_surface, depths[i-1])
-            dt += layer_depth / params[f'v{i}']
+            dt += layer_depth / static_corr.interp_v1(index)[0]
             dist_from_surface = dist_from_surface - layer_depth
         return dt
 

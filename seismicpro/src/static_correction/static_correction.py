@@ -257,14 +257,29 @@ class StaticCorrection:
                 f.write(line)
 
     ### plotters ###
+    def construct_velicities_interpolatior(self, layer):
+        vel_names = [f"v{i}" for i in [layer, min(layer+1, self.n_layers+1)]]
+        sources = self.source_params.reset_index()[['SourceX', 'SourceY', *vel_names]].dropna().values
+        recs = self.rec_params.reset_index()[['GroupX', 'GroupY', *vel_names]].dropna().values
+
+        coords = np.concatenate((sources[:, :2], recs[:, :2])).astype(np.int32)
+        velocities = np.concatenate((sources[:, 2:], recs[:, 2:]))
+        vmin = np.min(velocities)
+        vmax = np.max(velocities)
+        interp_velocities = IDWInterpolator(coords, velocities)
+        return interp_velocities, vmin, vmax
+
 
     def plot_slice(self, layer, n_points=100):
         interp_el = self._construct_elevations_interpolatior()
+        interp_velocities, vmin, vmax = self.construct_velicities_interpolatior(layer=layer)
         sources = self.source_params.index.to_frame().values
         recs = self.rec_params.index.to_frame().values
         coords = np.unique(np.concatenate((sources, recs)), axis=0)
+
         obj = MetricMap(coords, self.interp_layers_els[layer-1](coords))
-        StaticsPlot(obj, self.interp_layers_els[layer-1], interp_el, n_points=n_points).plot()
+        StaticsPlot(obj, self.interp_layers_els[layer-1], interp_el, interp_velocities, n_points=n_points, vmin=vmin,
+                    vmax=vmax).plot()
 
     def plot_depths(self, layer):
         _, ax = plt.subplots(1, 2, figsize=(12, 5), tight_layout=True)
