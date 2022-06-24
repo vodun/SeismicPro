@@ -123,13 +123,11 @@ class StaticCorrection:
         ohe_rec, unique_recs, ix_recs = self._get_sparse_depths("rec", layer_headers, layer)
         matrix = sparse.hstack((ohe_source, ohe_rec))
 
-        if f'depth_{layer}' in self.source_params.columns:
-            coefs = (layer_headers.iloc[ix_sources][f'depth_{layer}_source'].tolist()
-                     + layer_headers.iloc[ix_recs][f'depth_{layer}_rec'].tolist())
-        else:
+        coords = np.concatenate([unique_sources, unique_recs])
+        coefs = self.interp_layers_els[layer-1](coords)
+        if isinstance(coefs, float) and np.isinf(coefs):
             coefs = np.zeros(matrix.shape[1])
         coefs = sparse.linalg.lsqr(matrix, layer_headers['y'], atol=tol, btol=tol, x0=coefs)[0]
-
 
         upholes = layer_headers.iloc[ix_sources]["SourceDepth"].values
         source_els = self.interp_elevations(unique_sources)
@@ -145,21 +143,13 @@ class StaticCorrection:
         source_elevations = (source_elevations + interp_rec(unique_sources)) / 2
         rec_elevations = (rec_elevations + interp_source(unique_recs)) / 2
 
-        coords = np.concatenate([unique_sources, unique_recs])
         elevations = np.concatenate([source_elevations, rec_elevations])
-
         if smoothing_radius is not None:
             interp_kwargs.update({"radius": smoothing_radius, "dist_transform": 0})
 
         joint_interp = IDWInterpolator(coords, elevations, **interp_kwargs)
         joint_interp = IDWInterpolator(coords, joint_interp(coords), neighbors=self.interp_neighbors)
         self.interp_layers_els[layer-1] = joint_interp
-
-        source_depths = source_els - joint_interp(unique_sources) - upholes
-        rec_depths = rec_els - joint_interp(unique_recs)
-
-        self._update_params("source", unique_sources, source_depths.reshape(-1, 1), f"depth_{layer}")
-        self._update_params("rec", unique_recs, rec_depths.reshape(-1, 1), f"depth_{layer}")
 
     def _fill_layer_params(self, headers, layer):
         headers = headers[headers["layer"] == layer]
@@ -219,7 +209,11 @@ class StaticCorrection:
     def _get_sparse_velocities(self, name, headers, layer):
         coord_names = self._get_cols(name)
         uniques, index, inverse = np.unique(headers[coord_names], axis=0, return_index=True, return_inverse=True)
-        coefs = headers.iloc[index][f'depth_{layer}_{name}'].values
+        elevations = self.interp_elevations(uniques)
+        layer_elevations = self.interp_layers_els[layer-1](uniques)
+        coefs = elevations - layer_elevations
+        if name == "source":
+            coefs -= headers.iloc[index]["SourceDepth"].values
         eye = sparse.eye((len(uniques)), format='csc')
         matrix = eye.multiply(coefs).tocsc()[inverse]
         return matrix, uniques, index
@@ -235,15 +229,22 @@ class StaticCorrection:
 
     ### dump ###
     # Raw dumps, just to be able to somehow save results
-    def dump(self, name, path, layer, fillna=0):
+    def dump(self, name, path, layer):
         columns = self._get_cols(name)
+        params = getattr(self, f"{name}_params")
+        coords = params.index.to_frame().values
+        depths = np.zeros(coords.shape[0])
         if name == 'source':
             columns = columns + ["EnergySourcePoint", "SourceWaterDepth", "GroupWaterDepth"]
+            depths = depths - params['SourceDepth'].values
         elif name == 'rec':
             columns = columns + ["ReceiverDatumElevation", "SourceDatumElevation", "ReceiverGroupElevation"]
         else:
             raise ValueError('!!!')
-        depths = getattr(self, f"{name}_params")[[f"depth_{layer}"]].fillna(fillna).round().astype(np.int32)
+        layer_elevations = self.interp_layers_els[layer-1](coords)
+        depths = self.interp_elevations(coords) - layer_elevations
+        depths = pd.DataFrame(depths.astype(np.int32), columns=[f"depth_{layer}"],
+                            index=params.index)
         sub_headers = self.survey.headers[columns].reset_index(drop=True)
         sub_headers = sub_headers.set_index(columns[:2]).drop_duplicates()
         dump_df = depths.join(sub_headers).sort_values(by=columns[2: 4])
@@ -269,7 +270,6 @@ class StaticCorrection:
         interp_velocities = IDWInterpolator(coords, velocities)
         return interp_velocities, vmin, vmax
 
-
     def plot_slice(self, layer, n_points=100):
         interp_el = self._construct_elevations_interpolatior()
         interp_velocities, vmin, vmax = self.construct_velicities_interpolatior(layer=layer)
@@ -281,16 +281,12 @@ class StaticCorrection:
         StaticsPlot(obj, self.interp_layers_els[layer-1], interp_el, interp_velocities, n_points=n_points, vmin=vmin,
                     vmax=vmax).plot()
 
-    def plot_depths(self, layer):
+    def plot_layer_elevations(self, layer):
         _, ax = plt.subplots(1, 2, figsize=(12, 5), tight_layout=True)
-        source_cols = self._get_cols("source")
-        source_depths = self.source_params[[f"depth_{layer}"]]
-        uphole = self.headers[source_cols + ["SourceDepth"]].drop_duplicates()
-        source_depths = source_depths.merge(uphole, on=source_cols)[[f"depth_{layer}", "SourceDepth"]].sum(axis=1)
-        mm_source = MetricMap(self.source_params.index, source_depths)
-        mm_source.plot(title="sources depth", ax=ax[0])
-        mm_rec = MetricMap(self.rec_params.index, self.rec_params[f"depth_{layer}"])
-        mm_rec.plot(title="receivers depth", ax=ax[1])
+        mm_source = MetricMap(self.source_params.index, self.interp_layers_els[layer-1](self.source_params.index))
+        mm_source.plot(title="Sources depth", ax=ax[0])
+        mm_rec = MetricMap(self.rec_params.index, self.interp_layers_els[layer-1](self.rec_params.index))
+        mm_rec.plot(title="Receivers depth", ax=ax[1])
 
     def plot_attrs(self, name):
         _, ax = plt.subplots(1, 2, figsize=(12, 5), tight_layout=True)
