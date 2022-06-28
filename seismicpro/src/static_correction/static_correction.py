@@ -25,11 +25,12 @@ USED_COLS = [*sum(DEFAULT_COLS.values(), []), "offset", "SourceDepth", "CDP_X", 
 
 
 class StaticCorrection:
-    def __init__(self, survey, first_breaks_col, interpolator, n_avg_coords=5, interp_neighbors=100):
+    def __init__(self, survey, first_breaks_col, interpolator, n_avg_coords=5, radius=500, n_neighbors=100):
         self.survey = survey.copy()
         self.first_breaks_col = first_breaks_col
         self.n_layers = None
-        self.interp_neighbors = interp_neighbors
+        self.radius = radius
+        self.n_neighbors = n_neighbors
 
         headers_cols = USED_COLS + [first_breaks_col]
         self.headers = pd.DataFrame(self.survey[headers_cols], columns=headers_cols)
@@ -120,7 +121,7 @@ class StaticCorrection:
         elevations = np.concatenate((sources_el["SourceSurfaceElevation"].values,
                                      rec_el["ReceiverGroupElevation"].values))
 
-        return IDWInterpolator(coords, elevations, neighbors=self.interp_neighbors)
+        return IDWInterpolator(coords, elevations, radius=self.radius, neighbors=self.n_neighbors)
 
     def optimize(self, depth_tol=1e-7, smoothing_radius=None):
         """!!!"""
@@ -176,19 +177,18 @@ class StaticCorrection:
         matrix = eye.multiply(coefs.reshape(-1, 1)).tocsc()
         return matrix, uniques, index
 
-    def _align_by_proximity(self, source_coords, source_values, rec_coords, rec_values, smoothing_radius=None):
-        interp_source = IDWInterpolator(source_coords, source_values, neighbors=self.interp_neighbors)
-        interp_rec = IDWInterpolator(rec_coords, rec_values, neighbors=self.interp_neighbors)
+    def _align_by_proximity(self, source_coords, source_values, rec_coords, rec_values, smoothing_radius=0):
+        interp_source = IDWInterpolator(source_coords, source_values, radius=self.radius, neighbors=self.n_neighbors)
+        interp_rec = IDWInterpolator(rec_coords, rec_values, radius=self.radius, neighbors=self.n_neighbors)
 
         source_values = (source_values + interp_rec(source_coords)) / 2
         rec_values = (rec_values + interp_source(rec_coords)) / 2
 
         values = np.concatenate([source_values, rec_values])
         coords = np.concatenate([source_coords, rec_coords])
-        interp_kwargs = {"radius": smoothing_radius, "dist_transform": 0} if smoothing_radius is not None else {}
 
-        joint_interp = IDWInterpolator(coords, values, **interp_kwargs)
-        joint_interp = IDWInterpolator(coords, joint_interp(coords), neighbors=self.interp_neighbors)
+        joint_interp = IDWInterpolator(coords, values, radius=smoothing_radius, dist_transform=0)
+        joint_interp = IDWInterpolator(coords, joint_interp(coords), radius=self.radius, neighbors=self.n_neighbors)
         return joint_interp
 
     def calculate_metric(self, metrics="mape"):
@@ -212,6 +212,7 @@ class StaticCorrection:
         source_v1, rec_v1 = self._calculate_velocities(result, layer_headers, ix_sources, ix_recs, max_wv)
 
         joint_interp = self._align_by_proximity(unique_sources, source_v1, unique_recs, rec_v1, smoothing_radius)
+        self.interp_v1 = joint_interp
 
         final_source_v1 = joint_interp(unique_sources)
         final_rec_v1 = joint_interp(unique_recs)
