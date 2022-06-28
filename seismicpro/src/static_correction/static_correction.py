@@ -15,6 +15,10 @@ DEFAULT_COLS = {
     "rec": ["GroupX", "GroupY"]
 }
 
+METRICS = {
+    "mape" : lambda headers: np.abs(headers['y'] - headers['pred']) / headers['FirstBreak']
+}
+
 
 USED_COLS = [*sum(DEFAULT_COLS.values(), []), "offset", "SourceDepth", "CDP_X", "CDP_Y", "SourceSurfaceElevation",
              "ReceiverGroupElevation"]
@@ -144,6 +148,16 @@ class StaticCorrection:
 
         joint_interp = self._align_by_proximity(unique_sources, source_elevations, unique_recs, rec_elevations,
                                                 smoothing_radius)
+
+        source_coefs = source_els - joint_interp(unique_sources) - upholes
+        rec_coefs = rec_els - joint_interp(unique_recs)
+
+        # Save reconstructed y after align sources and receivers elevations
+        mask = self.headers['layer'] == layer
+        pred = np.full(len(mask), np.nan)
+        pred[mask] = matrix.dot(np.concatenate([source_coefs, rec_coefs]))
+        self.headers['pred'] = pred
+
         self.interp_layers_els[layer-1] = joint_interp
 
     def _fill_layer_params(self, headers, layer):
@@ -176,6 +190,14 @@ class StaticCorrection:
         joint_interp = IDWInterpolator(coords, values, **interp_kwargs)
         joint_interp = IDWInterpolator(coords, joint_interp(coords), neighbors=self.interp_neighbors)
         return joint_interp
+
+    def calculate_metric(self, metrics="mape"):
+        metrics = to_list(metrics)
+        for metric in metrics:
+            metric_call = METRICS.get(metric, None)
+            if metric_call is None:
+                raise ValueError(f"metrics must be one of the .., not {metric}")
+        self.headers[metric] = metric_call(self.headers)
 
     def update_velocity(self, max_wv=None, tol=1e-8, smoothing_radius=None):
         interp_kwargs = {}
@@ -279,6 +301,29 @@ class StaticCorrection:
         rec_coords = self.rec_params.index.to_frame().values
         mm_rec = MetricMap(rec_coords, self.interp_layers_els[layer-1](rec_coords))
         mm_rec.plot(title="Receivers depth", ax=ax[1], **kwargs)
+
+    def plot_traveltime_metric(self, layer, by, metric="mape", **kwargs):
+        if isinstance(by, str):
+            by_to_coords_cols = {
+                "shot": ["SourceX", "SourceY"],
+                "receiver": ["GroupX", "GroupY"],
+                "midpoint": ["CDP_X", "CDP_Y"],
+                "bin": ["INLINE_3D", "CROSSLINE_3D"],
+            }
+            coords_cols = by_to_coords_cols.get(by)
+            if coords_cols is None:
+                raise ValueError(f"by must be one of {', '.join(by_to_coords_cols.keys())} but {by} given.")
+        else:
+            coords_cols = to_list(by)
+        if len(coords_cols) != 2:
+            raise ValueError("Exactly 2 coordinates headers must be passed")
+
+        if metric not in self.headers.columns:
+            self.calculate_metric(metric)
+        mean_metrics = self.headers.groupby(coords_cols)[metric].mean()
+
+        mm = MetricMap(mean_metrics.index.to_frame().values, mean_metrics.values)
+        mm.plot(title=f"Traveltime {metric}", **kwargs)
 
     def plot_attrs(self, name):
         _, ax = plt.subplots(1, 2, figsize=(12, 5), tight_layout=True)
