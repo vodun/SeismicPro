@@ -667,7 +667,7 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target='for')
-    def calculate_refractor_velocity(self, first_breaks_col=HDR_FIRST_BREAK, init=None, bounds=None, n_layers=None,
+    def calculate_refractor_velocity(self, first_breaks_col=HDR_FIRST_BREAK, init=None, bounds=None, n_refractors=None,
                                      coords_cols="auto", **kwargs):
         """Calculate the RefractorVelocity using the offsets and first breaks times.
 
@@ -676,24 +676,24 @@ class Gather(TraceContainer, SamplesContainer):
         Read the :class:`~refractor_velocity.RefractorVelocity` docs for a detail infomation.
 
         Notes: The offsets and first break times should be preloaded.
-               The headers corresponding to gather's coordinates should be preloaded or use `coords_cols=None`.
 
         Examples
         --------
-        >>> refractor_velocity = gather.calculate_refractor_velocity(n_layers=2)
+        >>> refractor_velocity = gather.calculate_refractor_velocity(n_refractors=2)
 
         Parameters
         ----------
         first_breaks_col : str, defaults to :const:`~const.HDR_FIRST_BREAK`
-            Column name from `self.headers` where first breaking times are stored.
+            Column name from `self.headers` where first break times are stored.
         init : dict or None, defaults to None
             Initial values for a velocity model.
         bounds : dict or None, defaults to None
             Bounds for the fitted velocity model parameters.
-        n_layers : int or None, defaults to None
+        n_refractors : int or None, defaults to None
             Number of the velocity model layers.
         kwargs : dict, optional
-            Additional keyword arguments.
+            Additional keyword arguments to be passed to
+            :func:`~refractor_velocity.RefractorVelocity.from_first_breaks`.
         coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
             Header columns to get spatial coordinates of the gather to fetch `RefractorVelocity` from `RefractorCube`.
             See :func:`~Gather.get_coords` for more details.
@@ -705,7 +705,7 @@ class Gather(TraceContainer, SamplesContainer):
         """
         coords = None if coords_cols is None else self.get_coords(coords_cols)
         return RefractorVelocity.from_first_breaks(offsets=self.offsets, fb_times=self[first_breaks_col].ravel(),
-                                                   init=init, bounds=bounds, n_layers=n_layers, coords=coords,
+                                                   init=init, bounds=bounds, n_refractors=n_refractors, coords=coords,
                                                    **kwargs)
 
     #------------------------------------------------------------------------#
@@ -844,8 +844,8 @@ class Gather(TraceContainer, SamplesContainer):
     #                           Gather corrections                           #
     #------------------------------------------------------------------------#
 
-    @batch_method(target="threads", args_to_unpack="refractor_velocity") # benchmark it
-    def apply_lmo(self, refractor_velocity, delay=100, fill_value=0, event_headers=None):
+    @batch_method(target="threads", args_to_unpack="refractor_velocity")
+    def apply_lmo(self, refractor_velocity, delay=100, fill_value=np.nan, event_headers=None):
         """Perform a gather linear moveout correction using the given RefractorVelocity.
 
         Parameters
@@ -858,7 +858,7 @@ class Gather(TraceContainer, SamplesContainer):
         fill_value : float, defaults to 0
             Value used to fill the amplitudes outside the gather bounds after moveout.
         event_headers : str, list, or None, defaults to None
-            Headers columns for which LMO correction is applying. The headers columns values will be overwritten.
+            Headers columns which will be LMO-corrected inplace.
 
         Returns
         -------
@@ -874,12 +874,13 @@ class Gather(TraceContainer, SamplesContainer):
             raise ValueError("Only RefractorVelocity instances can be passed as a `refractor_velocity`")
         event_headers = [] if event_headers is None else to_list(event_headers)
 
-        trace_delays = times_to_indices(refractor_velocity(self.offsets), self.samples, round=True).astype(int)
-        common_delay = times_to_indices(np.full(self.shape[0], delay), self.samples, round=True).astype(int)
-        data = correction.apply_lmo(self.data, trace_delays, common_delay, fill_value)
+        trace_delays = refractor_velocity(self.offsets) - delay
+        data = correction.apply_lmo(self.data, 
+                                    times_to_indices(trace_delays, self.samples, round=True).astype(int),
+                                    fill_value)
         self.data = data
         for header in event_headers:
-            self[header] -= (trace_delays - common_delay).reshape(-1, 1) * self.sample_rate
+            self[header] -= trace_delays.reshape(-1, 1)
         return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")

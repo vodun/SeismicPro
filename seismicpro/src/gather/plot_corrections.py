@@ -65,6 +65,7 @@ class CorrectionPlot:
     def __init__(self, gather, min_vel, max_vel, figsize, **kwargs):
         kwargs = {"fontsize": 8, **kwargs}
         self.gather = gather
+        # self.step_labels = kwargs.get()
         self.plotter = SlidingVelocityPlot(plot_fn=[partial(self.plot_corrected_gather, **kwargs),
                                                     partial(self.gather.plot, **kwargs)],
                                            slide_fn=self.on_velocity_change, slider_min=min_vel, slider_max=max_vel,

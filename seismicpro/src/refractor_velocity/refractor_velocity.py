@@ -15,29 +15,27 @@ from ..utils.interpolation import interp1d
 class RefractorVelocity:
     """The class stores and fits parameters of a velocity model of an upper part of the section.
 
-    The class could be created from `from_first_breaks`, `from_params`, and `from_constant_velocity` classmethods.
-        * `from_first_breaks` - creates a RefractorVelocity instance, fits the parameters of the velocity model by
-                                the offsets, first break times, estimate parameters of the velocity model and stores
-                                the fitted parameters.
-        * `from_params` - creates a RefractorVelocity instance and stores the given parameters of the velocity model.
-        * `from_constant` - creates a RefractorVelocity instance based on the 1-layer velocity model with zero
-                            intercept time and given velocity. Stored parameters of the velocity model in `params`.
+    An instance can be created using one of the following `classmethod`s:
+        * `from_first_breaks` - fits a near-surface velocity model by offsets and times of first breaks.
+        * `from_params` - creates a `RefractorVelocity` instance from given parameters without model fitting.
+        * `from_constant` - creates a single-layer `RefractorVelocity` with zero intercept time and given velocity of
+                            the refractor.
 
     Some of class attributes and classmethod's arguments have a valid key notation.
-        `t0`: a intercept time of the first subweathering layer. Same as two-way travel time to the first
+        `t0`: an intercept time of the first subweathering layer. Same as two-way travel time to the first
               refractor. Measured in milliseconds.
         `x{i}`: cross offset. The offset where refracted wave from the i-th layer comes at the same time with
                 a refracted wave from the next underlaying layer. Measured in meters.
         `v{i}`: velocity of the i-th layer. Measured in meters per seconds.
 
     The RefractorVelocity created with `from_first_breaks` classmethod calculates the missing parameters from passed
-    parameters. The passed `init`, `bounds` and `n_layers` parameters combine with the calculated parameters and stored
-    in class atributes with corresponding names. All passed parameters have a greater priority.
+    parameters. The passed `init`, `bounds` and `n_refractors` parameters combine with the calculated parameters and
+    stored in class atributes with corresponding names. All passed parameters have a greater priority.
 
     Examples
     --------
     Create the RefractorVelocity instance with `from_params` classmethod (avoid the fitting procedure):
-    >>> refractor_velocity = RefractorVelocity.from_params(params={'t0': 100, 'x1': 1500, 'v1': 2, 'v2': 3})
+    >>> refractor_velocity = RefractorVelocity.from_params(params={'t0': 100, 'x1': 1500, 'v1': 2000, 'v2': 3000})
 
     Create the RefractorVelocity instance with `from_first_breaks` classmethod :
     >>> survey = Survey(survey_path, header_index="FieldRecord", header_cols=["offset", "TraceNumber"])
@@ -47,24 +45,24 @@ class RefractorVelocity:
     >>> offsets = gahter.offsets
     >>> fb_times = gather['FirstBreak'].ravel()
 
-    Two layers refractor model by `n_layers`:
-    >>> refractor_velocity = RefractorVelocity.from_first_breaks(offsets, fb_times, n_layers=2)
+    Fit a two-layer refractor velocity model:
+    >>> refractor_velocity = RefractorVelocity.from_first_breaks(offsets, fb_times, n_refractors=2)
 
     The same can be done by calling the `calculate_refractor_velocity` method of the gather:
-    >>> refractor_velocity = gather.calculate_refractor_velocity(n_layers=2)
+    >>> refractor_velocity = gather.calculate_refractor_velocity(n_refractors=2)
 
-    Two layers refractor model by `init`:
-    >>> initial_params = {'t0': 100, 'x1': 1500, 'v1': 2, 'v2': 3}
+    Fit a two-layer refractor velocity model using initial values of its parameters:
+    >>> initial_params = {'t0': 100, 'x1': 1500, 'v1': 2000, 'v2': 3000}
     >>> refractor_velocity = RefractorVelocity.from_first_breaks(offsets, fb_times, init=initial_params)
 
-    One layers refractor model by `bounds`:
+    Fit a single-layer model with bounds constraints:
     >>> refractor_velocity = RefractorVelocity.from_first_breaks(offsets, fb_times,
-                                                                 bounds={'t0': [0, 200], 'v1': [1, 3]})
+                                                                 bounds={'t0': [0, 200], 'v1': [1000, 3000]})
 
     Three layers refractor model by mixing parameters:
-    >>> refractor_velocity = RefractorVelocity.from_first_breaks(offsets, fb_times, init={'x1': 200, 'v1': 1},
+    >>> refractor_velocity = RefractorVelocity.from_first_breaks(offsets, fb_times, init={'x1': 200, 'v1': 1000},
                                                                                     bounds={'t0': [0, 50]},
-                                                                                    n_layers=3)
+                                                                                    n_refractors=3)
 
     Attributes
     ----------
@@ -82,12 +80,12 @@ class RefractorVelocity:
     bounds : dict
         The left and right bounds used to fit the parameters of the velocity model. Includes the calculated
         non-passed keys and values. Have the valid key notation.
-    n_layers : int
+    n_refractors : int
         Number of the layers used to fit the parameters of the velocity model.
     params : dict
         The parameters of a velocity model. Have the valid key notation.
     interpolator : callable
-        An interpolator returning expected first breaking by given offset.
+        An interpolator returning expected arrival times by given offset.
     """
     def __init__(self):
         self.offsets = None
@@ -96,7 +94,7 @@ class RefractorVelocity:
         self.coords = None
         self.init = None
         self.bounds = None
-        self.n_layers = None
+        self.n_refractors = None
         self.params = None
         self.interpolator = None
 
@@ -107,7 +105,7 @@ class RefractorVelocity:
         self._model_params = None
 
     @classmethod
-    def from_first_breaks(cls, offsets, fb_times, init=None, bounds=None, n_layers=None, coords=None, **kwargs):
+    def from_first_breaks(cls, offsets, fb_times, init=None, bounds=None, n_refractors=None, coords=None, **kwargs):
         """Create RefractorVelocity instanse from the offsets and first breaks times and fits the velocity model
         parameters.
 
@@ -121,7 +119,7 @@ class RefractorVelocity:
             Initial parameters of a velocity model. Should have the valid key notation.
         bounds : dict, defaults to None
             Lower and upper bounds of the velocity model parameters. Should have the valid key notation.
-        n_layers : int, defaults to None
+        n_refractors : int, defaults to None
             Number of layers of a velocity model.
         kwargs : dict, optional
             Additional keyword arguments to `scipy.optimize.minimize`.
@@ -129,17 +127,17 @@ class RefractorVelocity:
         Raises
         ------
         ValueError
-            If all `init`, `bounds`, and `n_layers` are None.
+            If all `init`, `bounds`, and `n_refractors` are None.
             If any `init` values are negative.
             If any `bounds` values are negative.
             If left bound greater than right bound.
             If init value is out of the bound interval.
             If passed `init` and/or `bounds` keys are insufficient or excessive.
-            If an union of `init` and `bounds` keys less than 2 or `n_layers` less than 1.
+            If an union of `init` and `bounds` keys less than 2 or `n_refractors` less than 1.
         """
         self = cls()
-        if all((param is None for param in (init, bounds, n_layers))):
-            raise ValueError("One of `init`, `bounds` or `n_layers` should be defined.")
+        if all((param is None for param in (init, bounds, n_refractors))):
+            raise ValueError("One of `init`, `bounds` or `n_refractors` should be defined.")
         init = {} if init is None else init
         bounds = {} if bounds is None else bounds
         self._validate_values(init, bounds)
@@ -149,10 +147,10 @@ class RefractorVelocity:
         self.max_offset = offsets.max()
         self.coords = coords
 
-        self.init = {**self._calc_init_by_layers(n_layers), **self._calc_init_by_bounds(bounds), **init}
+        self.init = {**self._calc_init_by_layers(n_refractors), **self._calc_init_by_bounds(bounds), **init}
         self.bounds = {**self._calc_bounds_by_init(), **bounds}
         self._validate_keys(self.bounds)
-        self.n_layers = len(self.bounds) // 2
+        self.n_refractors = len(self.bounds) // 2
         self._valid_keys = self._get_valid_keys()
 
         # ordering `init` and `bounds` dicts to put all values in the required order.
@@ -160,10 +158,11 @@ class RefractorVelocity:
         self.bounds = {key: self.bounds[key] for key in self._valid_keys}
 
         # piecewise func parameters
-        self._piecewise_offsets, self._piecewise_times = self._create_piecewise_coords(self.n_layers, offsets.max())
+        self._piecewise_offsets, self._piecewise_times = \
+            self._create_piecewise_coords(self.n_refractors, self.max_offset)
         self._piecewise_offsets, self._piecewise_times = \
             self._update_piecewise_coords(self._piecewise_offsets, self._piecewise_times,
-                                          self._ms_to_kms(self.init), self.n_layers)
+                                          self._ms_to_kms(self.init), self.n_refractors)
         self._empty_layers = np.histogram(self.offsets, self._piecewise_offsets)[0] ==  0
 
         constraints_list = self._get_constraints()
@@ -200,16 +199,16 @@ class RefractorVelocity:
         self = cls()
 
         self._validate_keys(params)
-        self.n_layers = len(params) // 2
-        self._valid_keys = self._get_valid_keys(self.n_layers)
+        self.n_refractors = len(params) // 2
+        self._valid_keys = self._get_valid_keys(self.n_refractors)
         self.params = {key: params[key] for key in self._valid_keys}
         self.coords = coords
 
         self._piecewise_offsets, self._piecewise_times = \
-            self._create_piecewise_coords(self.n_layers, self.params.get(f'x{self.n_layers - 1}', 0) + 1000)
+            self._create_piecewise_coords(self.n_refractors, self.params.get(f'x{self.n_refractors - 1}', 0) + 1000)
         self._piecewise_offsets, self._piecewise_times = \
             self._update_piecewise_coords(self._piecewise_offsets, self._piecewise_times, self._ms_to_kms(self.params),
-                                          self.n_layers)
+                                          self.n_refractors)
         self.interpolator = interp1d(self._piecewise_offsets, self._piecewise_times)
         return self
 
@@ -247,7 +246,7 @@ class RefractorVelocity:
 
     def __getitem__(self, value):
         """Return ndarray with i-th refractor parameters (start offset, end offset, velocity). Starts from 0."""
-        if value >= self.n_layers:
+        if value >= self.n_refractors:
             raise IndexError(f"Index {value} is out of bounds.")
         velocity = self.params.get(f"v{value + 1}", None)
         return np.hstack([self._piecewise_offsets[value:value + 2], velocity])
@@ -269,19 +268,19 @@ class RefractorVelocity:
         _ = args, kwargs
         return self.coords
 
-    def _create_piecewise_coords(self, n_layers, max_offset=np.nan):
+    def _create_piecewise_coords(self, n_refractors, max_offset=np.nan):
         """Create two array corresponding to the piecewise linear function coords."""
-        piecewise_offsets = np.zeros(n_layers + 1)
-        piecewise_times = np.zeros(n_layers + 1)
+        piecewise_offsets = np.zeros(n_refractors + 1)
+        piecewise_times = np.zeros(n_refractors + 1)
         piecewise_offsets[-1] = max_offset
         return piecewise_offsets, piecewise_times
 
-    def _update_piecewise_coords(self, piecewise_offsets, piecewise_times, params, n_layers):
-        """Update the given `offsets` and `times` arrays based on the `params` and `n_layers`."""
+    def _update_piecewise_coords(self, piecewise_offsets, piecewise_times, params, n_refractors):
+        """Update the given `offsets` and `times` arrays based on the `params` and `n_refractors`."""
         piecewise_times[0] = params[0]
-        piecewise_offsets[1:n_layers] = params[1:n_layers]
-        for i in range(n_layers):
-            piecewise_times[i + 1] = ((piecewise_offsets[i + 1] - piecewise_offsets[i]) / params[n_layers + i]) + \
+        piecewise_offsets[1:n_refractors] = params[1:n_refractors]
+        for i in range(n_refractors):
+            piecewise_times[i + 1] = ((piecewise_offsets[i + 1] - piecewise_offsets[i]) / params[n_refractors + i]) + \
                                      piecewise_times[i]
         return piecewise_offsets, piecewise_times
 
@@ -295,9 +294,9 @@ class RefractorVelocity:
         Piecewise linear function is defined by the given `args`. `args` should be list-like and have the following
         structure:
             args[0] : intercept time in milliseconds.
-            args[1:n_layers] : cross offsets points in meters.
-            args[n_layers:] : velocities of each layer in kilometers/seconds.
-            Total lenght of args should be n_layers * 2.
+            args[1:n_refractors] : cross offsets points in meters.
+            args[n_refractors:] : velocities of each layer in kilometers/seconds.
+            Total lenght of args should be n_refractors * 2.
 
         Notes:
             * 'init', 'bounds' and 'params' store velocity in m/s unlike args for `loss_piecewise_linear`.
@@ -324,7 +323,7 @@ class RefractorVelocity:
             If given `loss` does not exist.
         """
         self._piecewise_offsets, self._piecewise_times = \
-            self._update_piecewise_coords(self._piecewise_offsets, self._piecewise_times, args, self.n_layers)
+            self._update_piecewise_coords(self._piecewise_offsets, self._piecewise_times, args, self.n_refractors)
         diff_abs = np.abs(np.interp(self.offsets, self._piecewise_offsets, self._piecewise_times) - self.fb_times)
         if loss == 'MSE':
             return (diff_abs ** 2).mean()
@@ -342,23 +341,23 @@ class RefractorVelocity:
             return np.log(diff_abs + 1).mean()
         raise ValueError('Unknown loss type for `loss_piecewise_linear`.')
 
-    def _get_valid_keys(self, n_layers=None):
-        """Returns a list with the valid keys based on `n_layers` or `self.n_layers`."""
-        n_layers = self.n_layers if n_layers is None else n_layers
-        return ['t0'] + [f'x{i + 1}' for i in range(n_layers - 1)] + [f'v{i + 1}' for i in range(n_layers)]
+    def _get_valid_keys(self, n_refractors=None):
+        """Returns a list with the valid keys based on `n_refractors` or `self.n_refractors`."""
+        n_refractors = self.n_refractors if n_refractors is None else n_refractors
+        return ['t0'] + [f'x{i + 1}' for i in range(n_refractors - 1)] + [f'v{i + 1}' for i in range(n_refractors)]
 
     def _get_constraints(self):
         """Define the constraints and return a list them."""
         constraint_offset = {  # cross offsets ascend.
             "type": "ineq",
-            "fun": lambda x: np.diff(np.concatenate((x[1:self.n_layers], [self.max_offset])))}
+            "fun": lambda x: np.diff(np.concatenate((x[1:self.n_refractors], [self.max_offset])))}
         constraint_velocity = {  # velocities ascend.
             "type": "ineq",
-            "fun": lambda x: np.diff(x[self.n_layers:])}
+            "fun": lambda x: np.diff(x[self.n_refractors:])}
         constraint_freeze_velocity = {  # freeze the velocity if no data for layer is found.
             "type": "eq",
-            "fun": lambda x: self._ms_to_kms(self.init)[self.n_layers:][self._empty_layers]
-                             - x[self.n_layers:][self._empty_layers]}
+            "fun": lambda x: self._ms_to_kms(self.init)[self.n_refractors:][self._empty_layers]
+                             - x[self.n_refractors:][self._empty_layers]}
         constraint_freeze_t0 = {  # freeze the intercept time if no data for layer is found.
             "type": "eq",
             "fun": lambda x: x[:1][self._empty_layers[:1]] - np.array([self.init['t0']])[self._empty_layers[:1]]}
@@ -383,21 +382,23 @@ class RefractorVelocity:
         params : tuple
             Linear regression `coef` and `intercept`.
         """
-        lin_reg = SGDRegressor(loss='huber', early_stopping=True, penalty=None, shuffle=True, epsilon=0.1, eta0=.1,
-                               alpha=0., tol=1e-6)
+        # print("x: ", x)
+        # print("y: ", y)
+        lin_reg = SGDRegressor(loss='huber', early_stopping=True, penalty=None, shuffle=True, epsilon=0.1, eta0=.03,
+                               alpha=0., tol=1e-6, max_iter=1000, validation_fraction=0.2)
         lin_reg.fit(x, y, coef_init=start_slope, intercept_init=start_time)
         return lin_reg.coef_[0], lin_reg.intercept_
 
-    def _calc_init_by_layers(self, n_layers):
+    def _calc_init_by_layers(self, n_refractors):
         """Calculates `init` dict by a given an estimated quantity of layers.
 
-        Method splits the first breaks times into `n_layers` equal part by cross offsets and fits a separate linear
+        Method splits the first breaks times into `n_refractors` equal part by cross offsets and fits a separate linear
         regression on each part. These linear functions are compiled together as a piecewise linear function.
         Parameters of piecewise function are calculated to the velocity model parameters and returned as `init` dict.
 
         Parameters
         ----------
-        n_layers : int
+        n_refractors : int
             Number of layers.
 
         Returns
@@ -405,7 +406,7 @@ class RefractorVelocity:
         init : dict
             Estimated initial to fit the piecewise linear function.
         """
-        if n_layers is None or n_layers < 1:
+        if n_refractors is None or n_refractors < 1:
             return {}
 
         max_fb_times = self.fb_times.max()  # times normalization parameter.
@@ -415,11 +416,11 @@ class RefractorVelocity:
         normalized_offsets = self.offsets / self.max_offset
         normalized_times = self.fb_times / max_fb_times
 
-        cross_offsets = np.linspace(0, 1, num=n_layers+1)  # split cross offsets on an equal intervals
-        current_slope = np.empty(n_layers)
-        current_time = np.empty(n_layers)
+        cross_offsets = np.linspace(0, 1, num=n_refractors + 1)  # split cross offsets on an equal intervals
+        current_slope = np.empty(n_refractors)
+        current_time = np.empty(n_refractors)
 
-        for i in range(n_layers):  # inside the loop work with normalized data only
+        for i in range(n_refractors):  # inside the loop work with normalized data only
             mask = (normalized_offsets > cross_offsets[i]) & (normalized_offsets <= cross_offsets[i + 1])
             if mask.sum() > 1:  # at least two point to fit
                 current_slope[i], current_time[i] = \
@@ -432,11 +433,11 @@ class RefractorVelocity:
             current_slope[i] = max(.167 * self.max_offset / max_fb_times, current_slope[i])
             current_time[i] =  max(0, current_time[i])
             # raise base velocity for the next layer (v = 1 / slope)
-            initial_slope = current_slope[i] * (n_layers / (n_layers + 1))
+            initial_slope = current_slope[i] * (n_refractors / (n_refractors + 1))
             initial_time = current_time[i] + (current_slope[i] - initial_slope) * cross_offsets[i + 1]
         velocities = 1 / (current_slope * max_fb_times / self.max_offset)
         init = [current_time[0] * max_fb_times, *cross_offsets[1:-1] * self.max_offset, *(velocities * 1000)]
-        init = dict(zip(self._get_valid_keys(n_layers), init))
+        init = dict(zip(self._get_valid_keys(n_refractors), init))
         return init
 
     def _calc_init_by_bounds(self, bounds):
@@ -474,19 +475,19 @@ class RefractorVelocity:
         missing_keys = set(self._get_valid_keys(expected_layers)) - set(checked_dict.keys())
         if missing_keys:
             raise ValueError("Insufficient parameters to fit a velocity model. ",
-                            f"Check {missing_keys} key(s) or define `n_layers`")
+                            f"Check {missing_keys} key(s) or define `n_refractors`")
         excessive_keys = set(checked_dict.keys()) - set(self._get_valid_keys(expected_layers))
         if excessive_keys:
             raise ValueError(f"Excessive parameters to fit a velocity model. Remove {excessive_keys}.")
 
     def _params_postprocceissing(self, params):
         """Fix parameters if constraints are not respected due to `scipy` breadth calculation."""
-        params[self.n_layers:] *= 1000
+        params[self.n_refractors:] *= 1000
         # `self._piecewise_offsets` have the same offset values as params but also have the zero and max_offset
-        for i in range(1, self.n_layers):
+        for i in range(1, self.n_refractors):
             if self._piecewise_offsets[i + 1] < params[i]:
                 params[i] = self._piecewise_offsets[i + 1]
-        for i in range(self.n_layers, self.n_layers - 1):
+        for i in range(self.n_refractors, self.n_refractors - 1):
             if params[i + 1] < params[i]:
                 params[i + 1] = params[i]
         return params
@@ -494,14 +495,14 @@ class RefractorVelocity:
     def _ms_to_kms(self, params, as_array=True):
         """Convert the velocity in the given valid dict of parameters from m/s to km/s."""
         values = np.array(list(params.values()), dtype=float)
-        values[self.n_layers:] = values[self.n_layers:] / 1000
+        values[self.n_refractors:] = values[self.n_refractors:] / 1000
         if as_array:
             return values
         return dict(zip(self._valid_keys, values))
 
     @plotter(figsize=(10, 5))
     def plot(self, *, ax=None, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_times=None,
-            compare_to=None, text_kwargs=None, **kwargs):
+             compare_to=None, text_kwargs=None, **kwargs):
         """Plot the RefractorVelocity data, fitted curve, cross offsets, and additional information.
 
         Parameters
@@ -517,7 +518,7 @@ class RefractorVelocity:
             Parameters for ticks and ticklabels formatting for the y-axis; see :func:`~utils.set_ticks`
             for more details.
         show_params : bool, optional, defaults to True
-            Shows the velocity model parameters on a plot.
+            Shows the velocity model parameters on the plot.
         threshold_times : float or None, optional. Defaults to None
             Neighborhood margins of the fitted curve to fill in the area inside. If None the area don't show.
         compare_to : RefractorVelocity or None, optional, defaults to None
@@ -543,16 +544,17 @@ class RefractorVelocity:
             ax.scatter(self.offsets, self.fb_times, s=1, color='black', label='first breaks')
         ax.plot(self._piecewise_offsets, self._piecewise_times, '-', color=kwargs.get('curve_color', 'red'),
                 label=kwargs.get('curve_label', 'offset-traveltime curve'))
-        for i in range(self.n_layers - 1):
+        for i in range(self.n_refractors - 1):
             ax.axvline(self._piecewise_offsets[i+1], 0, ls='--', color=kwargs.get('crossover_color', 'blue'),
-                       label=crossoffset_label if self.n_layers <= 2 else crossoffset_label + 's' if i == 0 else None)
+                       label=crossoffset_label if self.n_refractors <= 2 else crossoffset_label + 's'
+                                                                              if i == 0 else None)
         if show_params:
             params = [self.params[key] for key in self._valid_keys]
             text_info = f"t0 : {params[0]:.2f} ms"
-            if self.n_layers > 1:
-                text_info += '\ncrossover offsets : ' + ', '.join(f"{round(x)}" for x in params[1:self.n_layers]) \
+            if self.n_refractors > 1:
+                text_info += '\ncrossover offsets : ' + ', '.join(f"{round(x)}" for x in params[1:self.n_refractors]) \
                               + ' m'
-            text_info += '\nvelocities : ' + ', '.join(f"{v:.0f}" for v in params[self.n_layers:]) + ' m/s'
+            text_info += '\nvelocities : ' + ', '.join(f"{v:.0f}" for v in params[self.n_refractors:]) + ' m/s'
             text_kwargs = {'fontsize': 12, 'va': 'top', **text_kwargs}
             text_ident = text_kwargs.pop('x', .03), text_kwargs.pop('y', .94)
             ax.text(*text_ident, text_info, transform=ax.transAxes, **text_kwargs)

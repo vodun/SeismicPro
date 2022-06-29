@@ -9,8 +9,8 @@ from ..const import HDR_FIRST_BREAK
 class FirstBreaksOutliers(PipelineMetric):
     """Calculate the first break outliers metric.
 
-    The outlier is considered to be the first break time that stands out from the expected arrival time
-    (offset-traveltimes curve) for more than threshold.
+    A first break time is considered to be an outlier if it that differs from the expected arrival time
+    defined by an offset-traveltimes curve by more than a given threshold.
     """
     name = "first_breaks_outliers"
     vmin = 0
@@ -23,17 +23,17 @@ class FirstBreaksOutliers(PipelineMetric):
     def calc(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50, **kwargs):
         """Calculates the first break outliers metric value.
 
-        First breaks outliers metric calculated as a fraction of traces in the gather whose first break times differ
-        from estimated by velocity model for more than `threshold_times`.
+        Returns the fraction of traces in the gather whose first break times differ from those estimated by a
+        near-surface velocity model by more than `threshold_times`.
 
         Parameters
         ----------
         refractor_velocity : RefractorVelocity
             RefractorVelocity used to estimate the expected first break times.
         first_breaks_col : str, defaults to :const:`~const.HDR_FIRST_BREAK`
-            Column name  from `gather.headers` where first breaking times are stored.
+            Column name  from `gather.headers` where first break times are stored.
         threshold_times: float, defaults to 50
-            Threshold for the first breaks outliers metric calculation.
+            Threshold for the first breaks outliers metric calculation. Measured in milliseconds.
 
         Returns
         -------

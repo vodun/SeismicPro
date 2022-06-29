@@ -43,7 +43,6 @@ def get_hodograph(gather_data, time, offsets, velocity, sample_rate, fill_value=
             hodograph[i] = gather_data[hodograph_time, i]
     return hodograph
 
-
 @njit(nogil=True)
 def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate):
     r"""Perform gather normal moveout correction with given stacking velocities for each timestamp.
@@ -86,7 +85,7 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate):
     return np.ascontiguousarray(corrected_gather_data.T)
 
 @njit(nogil=True)
-def apply_lmo(gather_data, trace_delays, common_delay, fill_value):
+def apply_lmo(gather_data, trace_delays, fill_value):
     """Perform gather linear moveout correction with given delay for each trace.
 
     Parameters
@@ -94,7 +93,7 @@ def apply_lmo(gather_data, trace_delays, common_delay, fill_value):
     gather_data : 2d np.ndarray
         Gather data to apply LMO correction to with an ordinary shape of (num_traces, trace_length).
     trace_delays : 1d np.ndarray
-        Estimate samples of first break picking for each traces with shape (num_traces,).
+        Number of samples to move the trace for each traces with shape (num_traces,).
     common_delay : int
         Number of samples to substract from the result of linear moveout correction.
     fill_value: float
@@ -107,8 +106,8 @@ def apply_lmo(gather_data, trace_delays, common_delay, fill_value):
     """
     corrected_gather = np.full_like(gather_data, fill_value)
     n_traces, trace_length = gather_data.shape
-    trace_start_raw = np.maximum(trace_delays - common_delay, 0)  # index from which the trace begins before moving
-    trace_start_lmo = np.maximum(common_delay - trace_delays, 0)  # index from which the trace will begin after moving
+    trace_start_raw = np.maximum(trace_delays, 0)  # index from which the trace begins before moving
+    trace_start_lmo = np.maximum(-trace_delays, 0)  # index from which the trace will begin after moving
     traces_length_lmo = np.maximum(trace_length - trace_start_lmo - trace_start_raw, 0)
     for i in range(n_traces):
         corrected_gather[i, trace_start_lmo[i]:traces_length_lmo[i] + trace_start_lmo[i]] = \
