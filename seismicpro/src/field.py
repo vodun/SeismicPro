@@ -9,13 +9,20 @@ from .utils.interpolation import IDWInterpolator, DelaunayInterpolator, CloughTo
 class Field:
     item_class = None
 
-    def __init__(self, survey=None, is_geographic=None):
+    def __init__(self, items=None, survey=None, is_geographic=None):
         self.survey = survey
         self.item_container = {}
         self.is_geographic = is_geographic
         self.coords_cols = None
         self.interpolator = None
         self.is_dirty_interpolator = True
+        if items is not None:
+            self.update(items)
+
+    @property
+    def is_empty(self):
+        """bool: Whether the field is empty."""
+        return len(self.item_container) == 0
 
     @property
     def has_survey(self):
@@ -26,11 +33,6 @@ class Field:
     def has_interpolator(self):
         """bool: Whether the field interpolator was created."""
         return self.interpolator is not None
-
-    @property
-    def is_empty(self):
-        """bool: Whether the field is empty."""
-        return len(self.item_container) == 0
 
     @property
     def available_interpolators(self):
@@ -190,12 +192,13 @@ class ValuesAgnosticField(Field):
         return self.weighted_coords_to_items(weighted_coords, items_coords)
 
 
-class VFUNCMixin:
+class VFUNCField(ValuesAgnosticField):
     @classmethod
-    def from_file(cls, path, coords_cols=("INLINE_3D", "CROSSLINE_3D"), survey=None):
-        items = [cls.item_class.from_points(data_x, data_y, coords=coords)
-                 for coords, data_x, data_y in read_vfunc(path, coords_cols=coords_cols)]
-        return cls(survey=survey).update(items)
+    def from_file(cls, path, coords_cols=("INLINE_3D", "CROSSLINE_3D"), encoding="UTF-8", survey=None):
+        vfunc_data = read_vfunc(path, coords_cols=coords_cols, encoding=encoding)
+        items = [cls.item_class(data_x, data_y, coords=coords) for coords, data_x, data_y in vfunc_data]
+        return cls(items, survey=survey)
 
-    def dump(self, path):
-        dump_vfunc(path, [(coords, *item.vfunc_data) for coords, item in self.item_container.items()])
+    def dump(self, path, encoding="UTF-8"):
+        vfunc_data = [(coords, item.data_x, item.data_y) for coords, item in self.item_container.items()]
+        dump_vfunc(path, vfunc_data, encoding=encoding)

@@ -9,11 +9,11 @@ from sklearn.neighbors import NearestNeighbors
 
 from .stacking_velocity import StackingVelocity
 from .metrics import VELOCITY_QC_METRICS, StackingVelocityMetric
-from ..field import ValuesAgnosticField, VFUNCMixin
+from ..field import VFUNCField
 from ..utils import to_list, IDWInterpolator
 
 
-class StackingVelocityField(ValuesAgnosticField, VFUNCMixin):
+class StackingVelocityField(VFUNCField):
     """A class for storing and interpolating stacking velocity data over a field.
 
     Velocities used for seismic cube stacking are usually picked on a sparse grid of inlines and crosslines and then

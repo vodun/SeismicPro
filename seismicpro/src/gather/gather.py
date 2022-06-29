@@ -22,7 +22,7 @@ from ..containers import TraceContainer, SamplesContainer
 from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, StackingVelocityField
 from ..decorators import batch_method, plotter
-from ..const import HDR_FIRST_BREAK, DEFAULT_VELOCITY
+from ..const import HDR_FIRST_BREAK, DEFAULT_SDC_VELOCITY
 
 
 class Gather(TraceContainer, SamplesContainer):
@@ -1079,7 +1079,7 @@ class Gather(TraceContainer, SamplesContainer):
             Gather with applied SDC.
         """
         if velocity is None:
-            velocity = DEFAULT_VELOCITY
+            velocity = DEFAULT_SDC_VELOCITY
         if not isinstance(velocity, StackingVelocity):
             raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
         self.data = gain.apply_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
@@ -1105,7 +1105,7 @@ class Gather(TraceContainer, SamplesContainer):
             Gather without SDC.
         """
         if velocity is None:
-            velocity = DEFAULT_VELOCITY
+            velocity = DEFAULT_SDC_VELOCITY
         if not isinstance(velocity, StackingVelocity):
             raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
         self.data = gain.undo_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
