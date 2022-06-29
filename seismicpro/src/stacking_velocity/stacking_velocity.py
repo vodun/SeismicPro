@@ -55,7 +55,7 @@ class StackingVelocity(VFUNC):
     data_x : 1d np.ndarray
         An array with time values for which stacking velocity was picked. Measured in milliseconds.
     data_y : 1d np.ndarray
-        An array with stacking velocity values, matching the length of `times`. Measured in meters/seconds.
+        An array with stacking velocity values, matching the length of `data_x`. Measured in meters/seconds.
     interpolator : callable
         An interpolator returning velocity value by given time.
     coords : Coordinates or None

@@ -126,6 +126,8 @@ class VFUNC:
         self.data_y = np.array(data_y)
         self.validate_data()
         self.interpolator = interp1d(self.data_x, self.data_y)
+        if coords is not None and not isinstance(coords, Coordinates):
+            raise ValueError("coords must be either None or an instance of Coordinates")
         self.coords = coords
 
     def validate_data(self):

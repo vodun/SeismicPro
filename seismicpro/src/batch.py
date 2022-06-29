@@ -139,15 +139,14 @@ class SeismicBatch(Batch):
 
     @action
     def update_field(self, field, src):
-        """Update a field with objects from `src` component. Each of them must have well-defined coordinates and
-        not-None `is_geographic` flag.
+        """Update a field with objects from `src` component.
 
         Parameters
         ----------
         field : Field
             A field to update.
         src : str
-            A component of instances to update the cube with.
+            A component of instances to update the cube with. Each of them must have well-defined coordinates.
 
         Returns
         -------
