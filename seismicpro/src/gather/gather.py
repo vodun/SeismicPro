@@ -9,6 +9,8 @@ import scipy
 import segyio
 import numpy as np
 from scipy.signal import firwin
+from matplotlib.path import Path
+from matplotlib.patches import PathPatch
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .muting import Muter
@@ -1155,7 +1157,7 @@ class Gather(TraceContainer, SamplesContainer):
               and standard deviation (defaults to `True`),
             * `std`: amplitude scaling factor. Higher values result in higher plot oscillations (defaults to 0.5),
             * `lw` and `alpha`: width of the lines and transparency of polygons, by default estimated
-              based on the number of traces in the gather and figure size. 
+              based on the number of traces in the gather and figure size.
             * `color`: defines a color for traces,
             * Any additional arguments for `matplotlib.pyplot.plot`.
         - `hist`: a histogram of the trace data amplitudes or header values. This mode supports the following `kwargs`:
@@ -1296,8 +1298,9 @@ class Gather(TraceContainer, SamplesContainer):
         add_colorbar(ax, img, colorbar, divider, y_ticker)
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
+    #pylint: disable=invalid-name
     def _plot_wiggle(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src="time", norm_tracewise=True,
-                     std=0.5, event_headers=None, top_header=None, lw=None, alpha=None, color='k', **kwargs):
+                     std=0.5, event_headers=None, top_header=None, lw=None, alpha=None, color='k', **kwargs): 
         """Plot the gather as an amplitude vs time plot for each trace."""
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
@@ -1309,27 +1312,27 @@ class Gather(TraceContainer, SamplesContainer):
                             (np.nanstd(self.data, axis=std_axis, keepdims=True) + 1e-10))
 
         xy = np.argwhere(traces > 0)
-        # shift trace amplitudes according to the trace index in the gather 
-        amps = traces + np.arange(traces.shape[0]).reshape(-1, 1) 
+        # shift trace amplitudes according to the trace index in the gather
+        amps = traces + np.arange(traces.shape[0]).reshape(-1, 1)
         positive_amps = amps[tuple(xy.T)]
 
         # Estimate values for Polygons transperency and Lines width
         axes_width_inches = ax.get_window_extent().transformed(ax.figure.dpi_scale_trans.inverted()).width
-        
-        FINE_RATIO = 150 / 7.75 # N_TRACES / N_INCHES
+
+        FINE_RATIO = 150 / 7.75 # N_TRACES / N_INCHES 
         FINE_ALPHA_MIN = 0.25 # value from [0, 1]
 
         alpha, lw = [FINE_RATIO * (axes_width_inches / len(traces)) if val is None else val for val in [alpha, lw]]
         alpha, lw = np.clip([alpha, lw], [FINE_ALPHA_MIN, 0], [1, 1])
-        
+
         # plot all the traces once, then hide transitions between adjacanet traces
         amps[:, -1] = np.nan
         ax.plot(amps.ravel(), np.tile(range(amps.shape[1]), amps.shape[0]), color=color, lw=lw, **kwargs)
 
         # find indices of Polygons boarders
         boarders = np.argwhere(np.diff(xy[:, 1]) != 1).flatten()
-    
-        # for each polygon we need to: 
+
+        # for each polygon we need to:
         # 1. insert 0 amplitude at the start.
         # 2. append 0 amplitude to the end.
         # 3. append the start point to the end to close polygon.
@@ -1352,7 +1355,7 @@ class Gather(TraceContainer, SamplesContainer):
         codes = np.full(len(verts), Path.LINETO)
         codes[ix_start] = Path.MOVETO
         codes[ix_close] = Path.CLOSEPOLY
-    
+
         patch = PathPatch(Path(verts, codes), color=color, alpha=alpha)
         ax.add_patch(patch)
         ax.invert_yaxis()
