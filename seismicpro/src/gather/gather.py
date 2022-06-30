@@ -1154,8 +1154,9 @@ class Gather(TraceContainer, SamplesContainer):
             * `norm_tracewise`: specifies whether to standardize each trace independently or use gather mean amplitude
               and standard deviation (defaults to `True`),
             * `std`: amplitude scaling factor. Higher values result in higher plot oscillations (defaults to 0.5),
-            * `color`: defines a color for each trace. If a single color is given, it is applied to all the traces
-              (defaults to black),
+            * `lw` and `alpha`: width of the lines and transparency of polygons, by default estimated
+              based on the number of traces in the gather and figure size. 
+            * `color`: defines a color for traces,
             * Any additional arguments for `matplotlib.pyplot.plot`.
         - `hist`: a histogram of the trace data amplitudes or header values. This mode supports the following `kwargs`:
             * `bins`: if `int`, the number of equal-width bins; if sequence, bin edges that include the left edge of
@@ -1296,26 +1297,64 @@ class Gather(TraceContainer, SamplesContainer):
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
     def _plot_wiggle(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src="time", norm_tracewise=True,
-                     std=0.5, color="black", event_headers=None, top_header=None, **kwargs):
+                     std=0.5, event_headers=None, top_header=None, lw=None, alpha=None, color='k', **kwargs):
         """Plot the gather as an amplitude vs time plot for each trace."""
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
 
-        color = to_list(color)
-        if len(color) == 1:
-            color = color * self.n_traces
-        elif len(color) != self.n_traces:
-            raise ValueError('The number of items in `color` must match the number of plotted traces')
-
-        y_coords = np.arange(self.n_samples)
         std_axis = 1 if norm_tracewise else None
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
             traces = std * ((self.data - np.nanmean(self.data, axis=1, keepdims=True)) /
                             (np.nanstd(self.data, axis=std_axis, keepdims=True) + 1e-10))
-        for i, (trace, col) in enumerate(zip(traces, color)):
-            ax.plot(i + trace, y_coords, color=col, **kwargs)
-            ax.fill_betweenx(y_coords, i, i + trace, where=(trace > 0), color=col)
+
+        xy = np.argwhere(traces > 0)
+        # shift trace amplitudes according to the trace index in the gather 
+        amps = traces + np.arange(traces.shape[0]).reshape(-1, 1) 
+        positive_amps = amps[tuple(xy.T)]
+
+        # Estimate values for Polygons transperency and Lines width
+        axes_width_inches = ax.get_window_extent().transformed(ax.figure.dpi_scale_trans.inverted()).width
+        
+        FINE_RATIO = 150 / 7.75 # N_TRACES / N_INCHES
+        FINE_ALPHA_MIN = 0.25 # value from [0, 1]
+
+        alpha, lw = [FINE_RATIO * (axes_width_inches / len(traces)) if val is None else val for val in [alpha, lw]]
+        alpha, lw = np.clip([alpha, lw], [FINE_ALPHA_MIN, 0], [1, 1])
+        
+        # plot all the traces once, then hide transitions between adjacanet traces
+        amps[:, -1] = np.nan
+        ax.plot(amps.ravel(), np.tile(range(amps.shape[1]), amps.shape[0]), color=color, lw=lw, **kwargs)
+
+        # find indices of Polygons boarders
+        boarders = np.argwhere(np.diff(xy[:, 1]) != 1).flatten()
+    
+        # for each polygon we need to: 
+        # 1. insert 0 amplitude at the start.
+        # 2. append 0 amplitude to the end.
+        # 3. append the start point to the end to close polygon.
+        # find indices of these points
+        shifted_boarders = boarders + np.arange(1, len(boarders) * 3 + 1, 3)
+        ix_start = [0, *shifted_boarders + 3] 
+        ix_end = [*shifted_boarders + 1, -2]
+        ix_close = [*shifted_boarders + 2, -1]
+
+        # fill the array representing the Polygons nodes - (x , y) coords
+        verts = np.empty((len(xy) + 3 * len(boarders) + 3, 2))
+        verts[ix_start] = xy[[0, *boarders + 1]]
+        verts[ix_end] = xy[[*boarders, -1]]
+        verts[ix_close] = verts[ix_start]
+
+        ix_amps = set(range(len(verts))) - set(ix_start) - set(ix_end) - set(ix_close)
+        verts[list(ix_amps)] = np.column_stack([positive_amps, xy[:, 1]])
+
+        # fill the array representing the nodes codes: either start, intermediate or end code.
+        codes = np.full(len(verts), Path.LINETO)
+        codes[ix_start] = Path.MOVETO
+        codes[ix_close] = Path.CLOSEPOLY
+    
+        patch = PathPatch(Path(verts, codes), color=color, alpha=alpha)
+        ax.add_patch(patch)
         ax.invert_yaxis()
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
