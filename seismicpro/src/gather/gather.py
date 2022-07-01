@@ -926,15 +926,22 @@ class Gather(TraceContainer, SamplesContainer):
     def apply_static_correction(self, datum):
         """!!!"""
         # Do we need DelayRecordingTime?
-        if self.survey.static_corr is None:
+        sc = self.survey.static_corr
+        if sc is None:
             raise ValueError('!!')
+
+        if "dt" not in sc.source_params.columns:
+            sc.calculate_dt(datum=datum)
 
         new_data = np.zeros(self.shape)
         headers = self.headers.reset_index()
+        headers = (headers.merge(sc.source_params[["dt"]], on=sc._get_cols("source"))
+                          .merge(sc.rec_params[['dt']], on=sc._get_cols("rec"), suffixes=("_source", "_rec")))
         for i, trace in enumerate(self.data):
-            header = headers.iloc[i]
-            dt = (self._calculate_dt(name='source', header=header, datum=datum)
-                  + self._calculate_dt(name='rec', header=header, datum=datum) - header["SourceUpholeTime"])
+            # Do we need to subtract SourceUpholeTime?
+            # dt = headers.iloc[i][["dt_source", "dt_rec"]].sum()
+            dt_source, dt_rec, sut = headers.iloc[i][["dt_source", "dt_rec", "SourceUpholeTime"]].values
+            dt = dt_source + dt_rec
             shift = np.int32(dt // self.sample_rate)
             if shift > 0:
                 new_data[i][: -shift] = trace[shift:]
@@ -944,32 +951,6 @@ class Gather(TraceContainer, SamplesContainer):
                 new_data[i] = trace
         self.data = new_data
         return self
-
-    def _calculate_dt(self, name, header, datum):
-        if name == "source":
-            elevation_header = "SourceSurfaceElevation"
-        elif name == "rec":
-            elevation_header = "ReceiverGroupElevation"
-        else:
-            raise ValueError("some")
-        static_corr = self.survey.static_corr
-        cols = static_corr._get_cols(name)
-        index = tuple(np.int32(header[cols]).reshape(-1))
-        depths = [header[elevation_header] - static_corr.interp_layers_els[i](index) for i in range(static_corr.n_layers-1)]
-        # Calculate distance from surface to datum
-        params = getattr(static_corr, f"{name}_params")
-        velocities = [static_corr.interp_v1(index)[0]] if static_corr.interp_v1 is not None else []
-        velocities += params.loc[index][[f'v{i}' for i in range(len(velocities)+1, static_corr.n_layers+2)]].to_list()
-        dist_from_surface = header[elevation_header] - datum
-        if dist_from_surface < 0:
-            raise ValueError('some')
-
-        dt = 0
-        for depth, velocity in zip(depths, velocities):
-            layer_depth = min(dist_from_surface, depth)
-            dt += layer_depth / velocity
-            dist_from_surface = dist_from_surface - layer_depth
-        return dt
 
     #------------------------------------------------------------------------#
     #                       General processing methods                       #
