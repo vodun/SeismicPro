@@ -47,7 +47,7 @@ class StaticCorrection:
         self._set_traces_layer(interpolator=interpolator)
 
         self.interp_elevations = self._construct_elevations_interpolatior()
-        self.interp_layers_els = [lambda x: np.inf for _ in range(self.n_layers)]
+        self.interp_layers_els = [None] * self.n_layers
         self.interp_v1 = None
 
         xs = np.linspace(self.headers['SourceX'], self.headers['GroupX'], n_avg_coords, dtype=np.int32).T.reshape(-1)
@@ -134,8 +134,8 @@ class StaticCorrection:
         matrix = sparse.hstack((ohe_source, ohe_rec))
 
         coords = np.concatenate([unique_sources, unique_recs])
-        coefs = self.interp_layers_els[layer-1](coords)
-        if isinstance(coefs, float) and np.isinf(coefs):
+        coefs = self.interp_layers_els[layer-1](coords) if self.interp_layers_els[layer-1] is not None else None
+        if coefs is None:
             coefs = np.zeros(matrix.shape[1])
         coefs = sparse.linalg.lsqr(matrix, layer_headers['y'], atol=tol, btol=tol, x0=coefs)[0]
 
@@ -187,17 +187,9 @@ class StaticCorrection:
         values = np.concatenate([source_values, rec_values])
         coords = np.concatenate([source_coords, rec_coords])
 
-        joint_interp = IDWInterpolator(coords, values, radius=smoothing_radius, dist_transform=0)
+        joint_interp = IDWInterpolator(coords, values.reshape(-1), radius=smoothing_radius, dist_transform=0)
         joint_interp = IDWInterpolator(coords, joint_interp(coords), radius=self.radius, neighbors=self.n_neighbors)
         return joint_interp
-
-    def calculate_metric(self, metrics="mape"):
-        metrics = to_list(metrics)
-        for metric in metrics:
-            metric_call = METRICS.get(metric, None)
-            if metric_call is None:
-                raise ValueError(f"metrics must be one of the .., not {metric}")
-        self.headers[metric] = metric_call(self.headers)
 
     def update_velocity(self, max_wv=None, tol=1e-8, smoothing_radius=None):
         interp_kwargs = {}
@@ -217,8 +209,8 @@ class StaticCorrection:
         final_source_v1 = joint_interp(unique_sources)
         final_rec_v1 = joint_interp(unique_recs)
 
-        self._update_params("source", unique_sources, final_source_v1, 'v1')
-        self._update_params("rec", unique_recs, final_rec_v1, 'v1')
+        self._update_params("source", unique_sources, final_source_v1.reshape(-1, 1), 'v1')
+        self._update_params("rec", unique_recs, final_rec_v1.reshape(-1, 1), 'v1')
 
     def _get_sparse_velocities(self, name, headers, layer):
         coord_names = self._get_cols(name)
@@ -240,6 +232,40 @@ class StaticCorrection:
         sources = x1[: len(ix_sources)].reshape(-1, 1)
         recs = x1[len(ix_sources): ].reshape(-1, 1)
         return sources, recs
+
+    def calculate_dt(self, datum):
+        self._calculate_dt("source", datum)
+        self._calculate_dt("rec", datum)
+
+    def _calculate_dt(self, name, datum):
+        params = getattr(self, f"{name}_params")
+        coords = params.index.to_frame().values
+        layers = np.array([self.interp_elevations(coords),
+                           *[layer(coords) for layer in self.interp_layers_els if layer is not None],
+                           datum])
+
+        layers_width = layers[:-1] - layers[1:]
+        if name == "source":
+            layers_width[0] -= params["SourceDepth"].values
+
+        v1 = self.interp_v1(coords).reshape(-1, 1) if self.interp_v1 is not None else None
+        velocities = params[[f'v{i}' for i in range(1 + (v1 is not None), self.n_layers+2)]].values
+        if v1 is not None:
+            velocities = np.concatenate((v1, velocities), axis=1)
+
+        dt = np.zeros(len(coords))
+        for layer_widths, vels in zip(layers_width, velocities.T):
+            dt += layer_widths / vels
+
+        self._update_params(name, coords, dt.reshape(-1, 1), "dt")
+
+    def calculate_metric(self, metrics="mape"):
+        metrics = to_list(metrics)
+        for metric in metrics:
+            metric_call = METRICS.get(metric, None) if not callable(metirc) else metric
+            if metric_call is None:
+                raise ValueError(f"metrics must be one of the .., not {metric}")
+            self.headers[metric] = metric_call(self.headers)
 
     ### dump ###
     # Raw dumps, just to be able to somehow save results
