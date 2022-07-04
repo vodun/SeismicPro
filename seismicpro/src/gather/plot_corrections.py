@@ -65,7 +65,6 @@ class CorrectionPlot:
     def __init__(self, gather, min_vel, max_vel, figsize, **kwargs):
         kwargs = {"fontsize": 8, **kwargs}
         self.gather = gather
-        # self.step_labels = kwargs.get()
         self.plotter = SlidingVelocityPlot(plot_fn=[partial(self.plot_corrected_gather, **kwargs),
                                                     partial(self.gather.plot, **kwargs)],
                                            slide_fn=self.on_velocity_change, slider_min=min_vel, slider_max=max_vel,
@@ -80,10 +79,20 @@ class CorrectionPlot:
         """Gather: corrected gather."""
         raise NotImplementedError
 
-    def plot_corrected_gather(self, ax, **kwargs):
-        """Plot the corrected gather."""
-        self.corrected_gather.plot(ax=ax, y_ticker={"step_labels": 100}, **kwargs)
-        ax.grid(which='major', axis='y', color='k', linestyle='--')
+    def plot_corrected_gather(self, ax, show_grid=100, **kwargs):
+        """Plot the corrected gather.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes, optional, defaults to None
+            An axis of the figure to plot on. If not given, it will be created automatically.
+        show_grid : int, defaults to 100
+            Show horizontal grid with given step, messured in millisecond. Set to None to avoid displaying the grid.
+        """
+        y_ticker = {**{"step_labels": show_grid}, **kwargs.pop("y_ticker", {})}
+        self.corrected_gather.plot(ax=ax, y_ticker=y_ticker, **kwargs)
+        if show_grid is not None:
+            ax.grid(which='major', axis='y', color='k', linestyle='--')
 
     def on_velocity_change(self, change):
         """Redraw the plot on velocity change."""

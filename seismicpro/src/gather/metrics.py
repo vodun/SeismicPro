@@ -9,8 +9,8 @@ from ..const import HDR_FIRST_BREAK
 class FirstBreaksOutliers(PipelineMetric):
     """Calculate the first break outliers metric.
 
-    A first break time is considered to be an outlier if it that differs from the expected arrival time
-    defined by an offset-traveltimes curve by more than a given threshold.
+    A first break time is considered to be an outlier if that that differs from the expected arrival time defined by
+    an offset-traveltime curve by more than a given threshold.
     """
     name = "first_breaks_outliers"
     vmin = 0
@@ -23,8 +23,8 @@ class FirstBreaksOutliers(PipelineMetric):
     def calc(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50, **kwargs):
         """Calculates the first break outliers metric value.
 
-        Returns the fraction of traces in the gather whose first break times differ from those estimated by a
-        near-surface velocity model by more than `threshold_times`.
+        Returns the fraction of traces in the gather whose first break times differ from those estimated by
+        a near-surface velocity model by more than `threshold_times`.
 
         Parameters
         ----------

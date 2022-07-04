@@ -671,11 +671,8 @@ class Gather(TraceContainer, SamplesContainer):
                                      coords_cols="auto", **kwargs):
         """Calculate the RefractorVelocity using the offsets and first breaks times.
 
-        Method creates a RefractorVelocity instance, fits the parameters (intercept time, cross offsets and velocities)
-        of velocity model upper part of the section and stores fitted parameters.
-        Read the :class:`~refractor_velocity.RefractorVelocity` docs for a detail infomation.
-
-        Notes: The offsets and first break times should be preloaded.
+        The method fits a velocity model of the upper part of the section, read the
+        :class:`~refractor_velocity.RefractorVelocity` docs for more details about the algorithm and its parameters.
 
         Examples
         --------
@@ -853,8 +850,8 @@ class Gather(TraceContainer, SamplesContainer):
         refractor_velocity : RefractorVelocity
             RefractorVelocity object to perform LMO correction with.
         delay : float, defaults to 100
-            Milliseconds to substract from the result of moveout correction. Used to center the first breaks hodograph
-            around the delay value instead of 0.
+            An extra delay in milliseconds introduced in each trace, positive values result in shifting gather traces
+            down. Used to center the first breaks hodograph around the delay value instead of 0.
         fill_value : float, defaults to 0
             Value used to fill the amplitudes outside the gather bounds after moveout.
         event_headers : str, list, or None, defaults to None
@@ -874,13 +871,13 @@ class Gather(TraceContainer, SamplesContainer):
             raise ValueError("Only RefractorVelocity instances can be passed as a `refractor_velocity`")
         event_headers = [] if event_headers is None else to_list(event_headers)
 
-        trace_delays = refractor_velocity(self.offsets) - delay
-        data = correction.apply_lmo(self.data, 
+        trace_delays = delay - refractor_velocity(self.offsets)
+        data = correction.apply_lmo(self.data,
                                     times_to_indices(trace_delays, self.samples, round=True).astype(int),
                                     fill_value)
         self.data = data
         for header in event_headers:
-            self[header] -= trace_delays.reshape(-1, 1)
+            self[header] += trace_delays.reshape(-1, 1)
         return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
@@ -1539,7 +1536,7 @@ class Gather(TraceContainer, SamplesContainer):
         """
         NMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, **kwargs).plot()
 
-    def plot_lmo_correction(self, min_vel=500, max_vel=5000, figsize=(6, 4.5), **kwargs):
+    def plot_lmo_correction(self, min_vel=500, max_vel=3000, figsize=(6, 4.5), **kwargs):
         """Perform interactive LMO correction of the gather with the selected velocity.
 
         The plot provides 2 views:
@@ -1554,7 +1551,7 @@ class Gather(TraceContainer, SamplesContainer):
         ----------
         min_vel : float, optional, defaults to 500
             Minimum velocity value for LMO correction. Measured in meters/seconds.
-        max_vel : float, optional, defaults to 5000
+        max_vel : float, optional, defaults to 3000
             Maximum velocity value for LMO correction. Measured in meters/seconds.
         figsize : tuple with 2 elements, optional, defaults to (6, 4.5)
             Size of the created figure. Measured in inches.

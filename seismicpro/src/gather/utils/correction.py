@@ -1,7 +1,7 @@
 """Implements functions for various gather corrections"""
 
 import numpy as np
-from numba import njit
+from numba import njit, prange
 
 
 @njit(nogil=True, fastmath=True)
@@ -84,32 +84,36 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate):
                                                  fill_value=np.nan)
     return np.ascontiguousarray(corrected_gather_data.T)
 
-@njit(nogil=True)
+@njit(nogil=True, parallel=True)
 def apply_lmo(gather_data, trace_delays, fill_value):
     """Perform gather linear moveout correction with given delay for each trace.
 
     Parameters
     ----------
     gather_data : 2d np.ndarray
-        Gather data to apply LMO correction to with an ordinary shape of (num_traces, trace_length).
+        Gather data to apply LMO correction to with shape (num_traces, trace_length).
     trace_delays : 1d np.ndarray
-        Number of samples to move the trace for each traces with shape (num_traces,).
-    common_delay : int
-        Number of samples to substract from the result of linear moveout correction.
+        Delay in samples introduced in each trace, positive values result in shifting gather traces down.
     fill_value: float
         Value used to fill the amplitudes outside the gather bounds after moveout.
 
     Returns
     -------
     corrected_gather : 2d array
-        LMO corrected gather with an ordinary shape of (num_traces, trace_length).
+        LMO corrected gather with shape (num_traces, trace_length).
     """
     corrected_gather = np.full_like(gather_data, fill_value)
     n_traces, trace_length = gather_data.shape
-    trace_start_raw = np.maximum(trace_delays, 0)  # index from which the trace begins before moving
-    trace_start_lmo = np.maximum(-trace_delays, 0)  # index from which the trace will begin after moving
-    traces_length_lmo = np.maximum(trace_length - trace_start_lmo - trace_start_raw, 0)
-    for i in range(n_traces):
-        corrected_gather[i, trace_start_lmo[i]:traces_length_lmo[i] + trace_start_lmo[i]] = \
-            gather_data[i, trace_start_raw[i]:traces_length_lmo[i] + trace_start_raw[i]]
+    for i in prange(n_traces):
+        if trace_delays[i] < 0:
+            corrected_gather[i, :trace_delays[i]] = gather_data[i, -trace_delays[i]:]
+        else:
+            corrected_gather[i, trace_delays[i]:] = gather_data[i, :trace_length - trace_delays[i]]
     return corrected_gather
+    # trace_start_raw = np.maximum(-trace_delays, 0)  # index from which the trace begins before moving
+    # trace_start_lmo = np.maximum(trace_delays, 0)  # index from which the trace will begin after moving
+    # traces_length_lmo = np.maximum(trace_length - trace_start_lmo - trace_start_raw, 0)
+    # for i in range(n_traces):
+    #     corrected_gather[i, trace_start_lmo[i]:traces_length_lmo[i] + trace_start_lmo[i]] = \
+    #         gather_data[i, trace_start_raw[i]:traces_length_lmo[i] + trace_start_raw[i]]
+
