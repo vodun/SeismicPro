@@ -9,6 +9,8 @@ import scipy
 import segyio
 import numpy as np
 from scipy.signal import firwin
+from matplotlib.path import Path
+from matplotlib.patches import PathPatch
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .muting import Muter
@@ -1154,8 +1156,9 @@ class Gather(TraceContainer, SamplesContainer):
             * `norm_tracewise`: specifies whether to standardize each trace independently or use gather mean amplitude
               and standard deviation (defaults to `True`),
             * `std`: amplitude scaling factor. Higher values result in higher plot oscillations (defaults to 0.5),
-            * `color`: defines a color for each trace. If a single color is given, it is applied to all the traces
-              (defaults to black),
+            * `lw` and `alpha`: width of the lines and transparency of polygons, by default estimated
+              based on the number of traces in the gather and figure size.
+            * `color`: defines a color for traces,
             * Any additional arguments for `matplotlib.pyplot.plot`.
         - `hist`: a histogram of the trace data amplitudes or header values. This mode supports the following `kwargs`:
             * `bins`: if `int`, the number of equal-width bins; if sequence, bin edges that include the left edge of
@@ -1295,27 +1298,65 @@ class Gather(TraceContainer, SamplesContainer):
         add_colorbar(ax, img, colorbar, divider, y_ticker)
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
+    #pylint: disable=invalid-name
     def _plot_wiggle(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src="time", norm_tracewise=True,
-                     std=0.5, color="black", event_headers=None, top_header=None, **kwargs):
+                     std=0.5, event_headers=None, top_header=None, lw=None, alpha=None, color="black", **kwargs):
         """Plot the gather as an amplitude vs time plot for each trace."""
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
 
-        color = to_list(color)
-        if len(color) == 1:
-            color = color * self.n_traces
-        elif len(color) != self.n_traces:
-            raise ValueError('The number of items in `color` must match the number of plotted traces')
+        # The default parameters lw = 1 and alpha = 1 are fine for 150 traces gather being plotted on 7.75 inches width
+        # axes(by default created by gather.plot()). Scale this parameters linearly for bigger gathers or smaller axes.
+        axes_width = ax.get_window_extent().transformed(ax.figure.dpi_scale_trans.inverted()).width
 
-        y_coords = np.arange(self.n_samples)
+        MAX_TRACE_DENSITY = 150 / 7.75
+        BOUNDS = [[0.25, 1], [0, 1.5]] # The clip limits for parameters after linear scale.
+
+        alpha, lw = [np.clip(MAX_TRACE_DENSITY * (axes_width / self.n_traces), *val_bounds) if val is None else val
+                     for val, val_bounds in zip([alpha, lw], BOUNDS)]
+
         std_axis = 1 if norm_tracewise else None
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
             traces = std * ((self.data - np.nanmean(self.data, axis=1, keepdims=True)) /
                             (np.nanstd(self.data, axis=std_axis, keepdims=True) + 1e-10))
-        for i, (trace, col) in enumerate(zip(traces, color)):
-            ax.plot(i + trace, y_coords, color=col, **kwargs)
-            ax.fill_betweenx(y_coords, i, i + trace, where=(trace > 0), color=col)
+
+        # Shift trace amplitudes according to the trace index in the gather
+        amps = traces + np.arange(traces.shape[0]).reshape(-1, 1)
+        # Plot all the traces as one Line, then hide transitions between adjacanet traces
+        amps = np.concatenate([amps, np.full((len(amps), 1), np.nan)], axis=1)
+        ax.plot(amps.ravel(), np.broadcast_to(np.arange(amps.shape[1]), amps.shape).ravel(),
+                color=color, lw=lw, **kwargs)
+
+        # Find polygons bodies:  indices of target amplitudes, start and end
+        poly_amp_ix = np.argwhere(traces > 0)
+        start_ix = np.argwhere((np.diff(poly_amp_ix[:, 0], prepend=poly_amp_ix[0, 0]) != 0) |
+                               (np.diff(poly_amp_ix[:, 1], prepend=poly_amp_ix[0, 1]) != 1)).ravel()
+        end_ix = start_ix + np.diff(start_ix, append=len(poly_amp_ix)) - 1
+
+        shift = np.arange(len(start_ix)) * 3
+        # For each polygon we need to:
+        # 1. insert 0 amplitude at the start.
+        # 2. append 0 amplitude to the end.
+        # 3. append the start point to the end to close polygon.
+        # Fill the array storing resulted polygons
+        verts = np.empty((len(poly_amp_ix) + 3 * len(start_ix), 2))
+        verts[start_ix + shift] = poly_amp_ix[start_ix]
+        verts[end_ix + shift + 2] = poly_amp_ix[end_ix]
+        verts[end_ix + shift + 3] = poly_amp_ix[start_ix]
+
+        body_ix = np.setdiff1d(np.arange(len(verts)),
+                               np.concatenate([start_ix + shift, end_ix + shift + 2, end_ix + shift + 3]),
+                               assume_unique=True)
+        verts[body_ix] = np.column_stack([amps[tuple(poly_amp_ix.T)], poly_amp_ix[:, 1]])
+
+        # Fill the array representing the nodes codes: either start, intermediate or end code.
+        codes = np.full(len(verts), Path.LINETO)
+        codes[start_ix + shift] = Path.MOVETO
+        codes[end_ix + shift + 3] = Path.CLOSEPOLY
+
+        patch = PathPatch(Path(verts, codes), color=color, alpha=alpha)
+        ax.add_patch(patch)
         ax.invert_yaxis()
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
