@@ -1340,7 +1340,7 @@ class Gather(TraceContainer, SamplesContainer):
         # 2. append 0 amplitude to the end.
         # 3. append the start point to the end to close polygon.
         # Fill the array storing resulted polygons
-        verts = np.empty((len(poly_amp_ix) + 3 * len(start_ix) , 2))
+        verts = np.empty((len(poly_amp_ix) + 3 * len(start_ix), 2))
         verts[start_ix + shift] = poly_amp_ix[start_ix]
         verts[end_ix + shift + 2] = poly_amp_ix[end_ix]
         verts[end_ix + shift + 3] = poly_amp_ix[start_ix]
