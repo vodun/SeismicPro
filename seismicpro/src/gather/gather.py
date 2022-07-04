@@ -1305,55 +1305,47 @@ class Gather(TraceContainer, SamplesContainer):
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
 
+        # Estimate values for Polygons transperency and Lines width
+        axes_width_inches = ax.get_window_extent().transformed(ax.figure.dpi_scale_trans.inverted()).width
+
+        MAX_TRACE_DENSITY = 150 / 7.75 # N_TRACES / N_INCHES
+        MIN_ALPHA = 0.25 # value from [0, 1]
+
+        alpha, lw = [MAX_TRACE_DENSITY * (axes_width_inches / self.shape[0]) if val is None else val for val in [alpha, lw]]
+        alpha, lw = np.clip([alpha, lw], [MIN_ALPHA, 0], [1, 1])
+
         std_axis = 1 if norm_tracewise else None
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
             traces = std * ((self.data - np.nanmean(self.data, axis=1, keepdims=True)) /
                             (np.nanstd(self.data, axis=std_axis, keepdims=True) + 1e-10))
 
-        xy = np.argwhere(traces > 0)
         # shift trace amplitudes according to the trace index in the gather
         amps = traces + np.arange(traces.shape[0]).reshape(-1, 1)
-        positive_amps = amps[tuple(xy.T)]
+        amps = np.concatenate([amps, np.full((len(amps), 1), np.nan)], axis=1)
+        ax.plot(amps.ravel(), np.broadcast_to(np.arange(amps.shape[1]), amps.shape).ravel(), color=color, lw=lw, **kwargs)
 
-        # Estimate values for Polygons transperency and Lines width
-        axes_width_inches = ax.get_window_extent().transformed(ax.figure.dpi_scale_trans.inverted()).width
+        poly_amp_ix = np.argwhere(traces > 0)
+        ix_start = np.argwhere(np.diff(poly_amp_ix[:, 1], prepend=poly_amp_ix[0, 1]) != 1).ravel()
+        poly_lens = np.diff(ix_start, append=len(poly_amp_ix))
+        ix_end = ix_start + poly_lens
+        
+        verts = np.empty((len(poly_amp_ix) + 3 * len(poly_lens) , 2))
+    
+        shift = np.arange(len(poly_lens)) * 3
+        verts[ix_start + shift] = poly_amp_ix[ix_start]
+        verts[ix_end + shift + 1] = poly_amp_ix[ix_end - 1]
+        verts[ix_end + shift + 2] = poly_amp_ix[ix_start]
 
-        FINE_RATIO = 150 / 7.75 # N_TRACES / N_INCHES
-        FINE_ALPHA_MIN = 0.25 # value from [0, 1]
+        ix_amps = np.setdiff1d(np.arange(len(verts)), 
+                               np.concatenate([ix_start + shift, ix_end + shift + 1, ix_end + shift + 2]), 
+                               assume_unique=True)
+        
+        verts[ix_amps] = np.column_stack([amps[tuple(poly_amp_ix.T)], poly_amp_ix[:, 1]])
 
-        alpha, lw = [FINE_RATIO * (axes_width_inches / len(traces)) if val is None else val for val in [alpha, lw]]
-        alpha, lw = np.clip([alpha, lw], [FINE_ALPHA_MIN, 0], [1, 1])
-
-        # plot all the traces once, then hide transitions between adjacanet traces
-        amps[:, -1] = np.nan
-        ax.plot(amps.ravel(), np.tile(range(amps.shape[1]), amps.shape[0]), color=color, lw=lw, **kwargs)
-
-        # find indices of Polygons boarders
-        boarders = np.argwhere(np.diff(xy[:, 1]) != 1).flatten()
-
-        verts = np.empty((len(xy) + 3 * len(boarders) + 3, 2))
-        # for each polygon we need to:
-        # 1. insert 0 amplitude at the start.
-        # 2. append 0 amplitude to the end.
-        # 3. append the start point to the end to close polygon.
-        # find indices of these points
-        shifted_boarders = boarders + np.arange(1, len(boarders) * 3 + 1, 3)
-        ix_start = [0, *shifted_boarders + 3]
-        ix_end = [*shifted_boarders + 1, len(verts) - 3]
-        ix_close = [*shifted_boarders + 2, len(verts) - 2]
-        ix_amps = list(set(range(len(verts))) - set(ix_start) - set(ix_end) - set(ix_close))
-
-        # fill the array representing the Polygons nodes - (x,y) coords
-        verts[ix_start] = xy[[0, *boarders + 1]]
-        verts[ix_end] = xy[[*boarders, -1]]
-        verts[ix_close] = verts[ix_start]
-        verts[ix_amps] = np.column_stack([positive_amps, xy[:, 1]])
-
-        # fill the array representing the nodes codes: either start, intermediate or end code.
         codes = np.full(len(verts), Path.LINETO)
-        codes[ix_start] = Path.MOVETO
-        codes[ix_close] = Path.CLOSEPOLY
+        codes[ix_start + shift] = Path.MOVETO
+        codes[ix_end + shift + 2] = Path.CLOSEPOLY
 
         patch = PathPatch(Path(verts, codes), color=color, alpha=alpha)
         ax.add_patch(patch)
