@@ -1309,12 +1309,12 @@ class Gather(TraceContainer, SamplesContainer):
         # axes(by default created by gather.plot()). Scale this parameters linearly for bigger gathers or smaller axes.
         axes_width = ax.get_window_extent().transformed(ax.figure.dpi_scale_trans.inverted()).width
 
-        MAX_TRACE_DENSITY = 150 / 7.75 # N_TRACES / N_INCHES
-        BOUNDS = [[0.25, 1], [0, 1]]
+        MAX_TRACE_DENSITY = 150 / 7.75
+        BOUNDS = [[0.25, 1], [0, 1.5]] # The clip limits for parameters after linear scale.
 
-        alpha, lw = [np.clip(MAX_TRACE_DENSITY * (axes_width / self.n_traces), *val_bounds) if val is None else val 
+        alpha, lw = [np.clip(MAX_TRACE_DENSITY * (axes_width / self.n_traces), *val_bounds) if val is None else val
                      for val, val_bounds in zip([alpha, lw], BOUNDS)]
-        
+
         std_axis = 1 if norm_tracewise else None
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
@@ -1325,13 +1325,15 @@ class Gather(TraceContainer, SamplesContainer):
         amps = traces + np.arange(traces.shape[0]).reshape(-1, 1)
         # Plot all the traces as one Line, then hide transitions between adjacanet traces
         amps = np.concatenate([amps, np.full((len(amps), 1), np.nan)], axis=1)
-        ax.plot(amps.ravel(), np.broadcast_to(np.arange(amps.shape[1]), amps.shape).ravel(), color=color, lw=lw, **kwargs)
+        ax.plot(amps.ravel(), np.broadcast_to(np.arange(amps.shape[1]), amps.shape).ravel(),
+                color=color, lw=lw, **kwargs)
 
         # Find polygons bodies:  indices of target amplitudes, start and end
         poly_amp_ix = np.argwhere(traces > 0)
-        start_ix = np.argwhere(np.diff(poly_amp_ix[:, 1], prepend=poly_amp_ix[0, 1]) != 1).ravel()
-        end_ix = start_ix + np.diff(start_ix, append=len(poly_amp_ix))
-        
+        start_ix = np.argwhere(np.diff(poly_amp_ix[:, 0], prepend=poly_amp_ix[0, 0]) == 0 &
+                               np.diff(poly_amp_ix[:, 1], prepend=poly_amp_ix[0, 1]) != 1).ravel()
+        end_ix = start_ix + np.diff(start_ix, append=len(poly_amp_ix)) - 1
+
         shift = np.arange(len(start_ix)) * 3
         # For each polygon we need to:
         # 1. insert 0 amplitude at the start.
@@ -1340,18 +1342,18 @@ class Gather(TraceContainer, SamplesContainer):
         # Fill the array storing resulted polygons
         verts = np.empty((len(poly_amp_ix) + 3 * len(start_ix) , 2))
         verts[start_ix + shift] = poly_amp_ix[start_ix]
-        verts[end_ix + shift + 1] = poly_amp_ix[end_ix - 1]
-        verts[end_ix + shift + 2] = poly_amp_ix[start_ix]
+        verts[end_ix + shift + 2] = poly_amp_ix[end_ix ]
+        verts[end_ix + shift + 3] = poly_amp_ix[start_ix]
 
-        ix_amps = np.setdiff1d(np.arange(len(verts)), 
-                               np.concatenate([start_ix + shift, end_ix + shift + 1, end_ix + shift + 2]), 
+        ix_amps = np.setdiff1d(np.arange(len(verts)),
+                               np.concatenate([start_ix + shift, end_ix + shift + 2, end_ix + shift + 3]),
                                assume_unique=True)
         verts[ix_amps] = np.column_stack([amps[tuple(poly_amp_ix.T)], poly_amp_ix[:, 1]])
 
         # Fill the array representing the nodes codes: either start, intermediate or end code.
         codes = np.full(len(verts), Path.LINETO)
         codes[start_ix + shift] = Path.MOVETO
-        codes[end_ix + shift + 2] = Path.CLOSEPOLY
+        codes[end_ix + shift + 3] = Path.CLOSEPOLY
 
         patch = PathPatch(Path(verts, codes), color=color, alpha=alpha)
         ax.add_patch(patch)
