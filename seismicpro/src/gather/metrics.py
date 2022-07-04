@@ -31,7 +31,7 @@ class FirstBreaksOutliers(PipelineMetric):
         refractor_velocity : RefractorVelocity
             RefractorVelocity used to estimate the expected first break times.
         first_breaks_col : str, defaults to :const:`~const.HDR_FIRST_BREAK`
-            Column name  from `gather.headers` where first break times are stored.
+            Column name from `gather.headers` where first break times are stored.
         threshold_times: float, defaults to 50
             Threshold for the first breaks outliers metric calculation. Measured in milliseconds.
 

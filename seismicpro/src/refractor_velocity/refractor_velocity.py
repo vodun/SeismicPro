@@ -159,13 +159,16 @@ class RefractorVelocity:
         self.bounds = {key: self.bounds[key] for key in self._valid_keys}
 
         # piecewise func parameters
+        # move max_offset to right bound
+        self.max_offset = max(self.bounds[f'x{self.n_refractors - 1}'][1], self.max_offset) if self.n_refractors > 1 \
+                                                                                            else self.max_offset
         self._piecewise_offsets, self._piecewise_times = \
             self._create_piecewise_coords(self.n_refractors, self.max_offset)
         self._piecewise_offsets, self._piecewise_times = \
             self._update_piecewise_coords(self._piecewise_offsets, self._piecewise_times,
                                           self._ms_to_kms(self.init), self.n_refractors)
-        self._empty_layers = np.histogram(self.offsets, self._piecewise_offsets)[0] ==  0
 
+        self._empty_layers = np.histogram(self.offsets, self._piecewise_offsets)[0] ==  0
         constraints_list = self._get_constraints()
 
         # fitting piecewise linear regression

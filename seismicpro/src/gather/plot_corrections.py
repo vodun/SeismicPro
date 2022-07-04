@@ -62,10 +62,19 @@ class CorrectionPlot:
     * `get_title` - the title of the corrected view,
     * `corrected_gather` - a property returning a corrected gather.
     """
-    def __init__(self, gather, min_vel, max_vel, figsize, **kwargs):
+    def __init__(self, gather, min_vel, max_vel, figsize, show_grid=True, **kwargs):
         kwargs = {"fontsize": 8, **kwargs}
+        event_headers = kwargs.pop('event_headers', {})
+        if event_headers:
+            event_headers = as_dict(event_headers, "headers")
+            event_headers = {"process_outliers": "discard", **event_headers}
+            self.event_headers = event_headers["headers"]
+        else:
+            event_headers = None
+            self.event_headers = None
         self.gather = gather
-        self.plotter = SlidingVelocityPlot(plot_fn=[partial(self.plot_corrected_gather, **kwargs),
+        self.plotter = SlidingVelocityPlot(plot_fn=[partial(self.plot_corrected_gather, show_grid=show_grid,
+                                                            event_headers=event_headers, **kwargs),
                                                     partial(self.gather.plot, **kwargs)],
                                            slide_fn=self.on_velocity_change, slider_min=min_vel, slider_max=max_vel,
                                            title=[self.get_title, "Source gather"], figsize=figsize)
@@ -79,19 +88,10 @@ class CorrectionPlot:
         """Gather: corrected gather."""
         raise NotImplementedError
 
-    def plot_corrected_gather(self, ax, show_grid=100, **kwargs):
-        """Plot the corrected gather.
-
-        Parameters
-        ----------
-        ax : matplotlib.axes.Axes, optional, defaults to None
-            An axis of the figure to plot on. If not given, it will be created automatically.
-        show_grid : int, defaults to 100
-            Show horizontal grid with given step, messured in millisecond. Set to None to avoid displaying the grid.
-        """
-        y_ticker = {**{"step_labels": show_grid}, **kwargs.pop("y_ticker", {})}
-        self.corrected_gather.plot(ax=ax, y_ticker=y_ticker, **kwargs)
-        if show_grid is not None:
+    def plot_corrected_gather(self, ax, show_grid=True, **kwargs):
+        """Plot the corrected gather."""
+        self.corrected_gather.plot(ax=ax, **kwargs)
+        if show_grid:
             ax.grid(which='major', axis='y', color='k', linestyle='--')
 
     def on_velocity_change(self, change):
@@ -122,7 +122,7 @@ class LMOCorrectionPlot(CorrectionPlot):
     """Interactive LMO correction plot."""
     def __init__(self, gather, min_vel, max_vel, figsize, **kwargs):
         super().__init__(gather, min_vel, max_vel, figsize, **kwargs)
-        self.event_headers = as_dict(kwargs.get('event_headers'), "headers")["headers"]
+        # self.event_headers = as_dict(kwargs.get('event_headers'), "headers")["headers"]
 
     def get_title(self):
         """Get title of the LMO correction view."""
