@@ -386,8 +386,8 @@ class RefractorVelocity:
         params : tuple
             Linear regression `coef` and `intercept`.
         """
-        lin_reg = SGDRegressor(loss='huber', early_stopping=True, penalty=None, shuffle=True, epsilon=0.05, eta0=0.1,
-                               alpha=0.01, tol=1e-6, max_iter=1000, learning_rate='optimal')
+        lin_reg = SGDRegressor(loss='huber', penalty=None, shuffle=True, epsilon=0.05, eta0=0.1, alpha=0.01, tol=1e-6,
+                               learning_rate='optimal')
         lin_reg.fit(x, y, coef_init=start_slope, intercept_init=start_time)
         return lin_reg.coef_[0], lin_reg.intercept_
 
