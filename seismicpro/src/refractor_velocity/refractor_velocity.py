@@ -159,8 +159,8 @@ class RefractorVelocity:
         self.bounds = {key: self.bounds[key] for key in self._valid_keys}
 
         # piecewise func parameters
-        # move max_offset to right bound
-        self.max_offset = max(self.bounds[f'x{self.n_refractors - 1}'][1], self.max_offset) if self.n_refractors > 1 \
+        # move max_offset to right if init crossoffset out of the data
+        self.max_offset = max(self.init[f'x{self.n_refractors - 1}'], self.max_offset) if self.n_refractors > 1 \
                                                                                             else self.max_offset
         self._piecewise_offsets, self._piecewise_times = \
             self._create_piecewise_coords(self.n_refractors, self.max_offset)
@@ -386,8 +386,8 @@ class RefractorVelocity:
         params : tuple
             Linear regression `coef` and `intercept`.
         """
-        lin_reg = SGDRegressor(loss='huber', early_stopping=True, penalty=None, shuffle=True, epsilon=0.1, eta0=.03,
-                               alpha=0., tol=1e-6, max_iter=1000, validation_fraction=0.2)
+        lin_reg = SGDRegressor(loss='huber', early_stopping=True, penalty=None, shuffle=True, epsilon=0.05, eta0=0.1,
+                               alpha=0.01, tol=1e-6, max_iter=1000, learning_rate='optimal')
         lin_reg.fit(x, y, coef_init=start_slope, intercept_init=start_time)
         return lin_reg.coef_[0], lin_reg.intercept_
 
@@ -412,7 +412,7 @@ class RefractorVelocity:
             return {}
 
         max_fb_times = self.fb_times.max()  # times normalization parameter.
-        initial_slope = 1  # base slope corresponding velocity is 1 km/s (v = 1 / slope)
+        initial_slope = 4 / 5  # base slope corresponding velocity is 1.25 km/s (v = 1 / slope)
         initial_slope = initial_slope * self.max_offset / max_fb_times  # add normalization
         initial_time = 0
         normalized_offsets = self.offsets / self.max_offset
