@@ -288,7 +288,7 @@ class RefractorVelocity:
                                      piecewise_times[i]
         return piecewise_offsets, piecewise_times
 
-    def loss_piecewise_linear(self, args, loss='L1', huber_coef=.1):
+    def loss_piecewise_linear(self, args, loss='L1', huber_coef=10):
         """Update the piecewise linear attributes and returns the loss function result.
 
         Method calls `_update_piecewise_coords` to update piecewise linear attributes of a RefractorVelocity instance.
@@ -313,7 +313,7 @@ class RefractorVelocity:
         loss : str, optional, defaults to "L1".
             The loss function type. Should be one of "MSE", "L1", "huber", "soft_L1", or "cauchy".
             All implemented loss functions have a mean reduction.
-        huber_coef : float, default to 0.1
+        huber_coef : float, default to 10
             Coefficient for Huber loss.
 
         Returns
@@ -336,8 +336,8 @@ class RefractorVelocity:
         if loss == 'huber':
             loss = np.empty_like(diff_abs)
             mask = diff_abs <= huber_coef
-            loss[mask] = .5 * (diff_abs[mask] ** 2)
-            loss[~mask] = huber_coef * diff_abs[~mask] - .5 * (huber_coef ** 2)
+            loss[mask] = (diff_abs[mask] ** 2)
+            loss[~mask] = diff_abs[~mask] + huber_coef ** 2 - huber_coef
             return loss.mean()
         if loss == 'soft_L1':
             return 2 * ((1 + diff_abs) ** .5 - 1).mean()
@@ -387,7 +387,7 @@ class RefractorVelocity:
             Linear regression `coef` and `intercept`.
         """
         lin_reg = SGDRegressor(loss='huber', penalty=None, shuffle=True, epsilon=0.05, eta0=0.1, alpha=0.01, tol=1e-6,
-                               learning_rate='optimal')
+                               max_iter=1000, learning_rate='optimal')
         lin_reg.fit(x, y, coef_init=start_slope, intercept_init=start_time)
         return lin_reg.coef_[0], lin_reg.intercept_
 
