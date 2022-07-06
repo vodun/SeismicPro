@@ -508,9 +508,9 @@ class RefractorVelocity:
 
     @plotter(figsize=(10, 5))
     def plot(self, *, ax=None, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_times=None,
-             compare_to=None, text_kwargs=None, curve_label='offset-traveltime curve', curve_color='red',
+             compare_to=None,  curve_label='offset-traveltime curve', curve_color='red',
              crossoffset_label='crossover point', crossover_color='blue', fb_label='first breaks', fb_color='black',
-             fb_size=1, **kwargs):
+             fb_size=1, text_kwargs=None, **kwargs):
         """Plot the RefractorVelocity data, fitted curve, cross offsets, and additional information.
 
         Parameters
@@ -531,12 +531,27 @@ class RefractorVelocity:
             Neighborhood margins of the fitted curve to fill in the area inside. If None the area don't show.
         compare_to : RefractorVelocity or None, optional, defaults to None
             RefractorVelocity instance. Used to plot an additional RefractorVelocity on the same axis.
+        curve_label : str, defaults to 'offset-traveltime curve'
+            Label of the offset-traveltime curve.
+        curve_color : str, defaults to 'red'
+            Color of the offset-traveltime curve. If `threshold_times` is passed neighborhood area will be the same
+            color.
+        crossoffset_label : str, defaults to crossover point
+            Label of the cross offsets lines.
+        crossover_color : str, defaults to 'blue'
+            Color of the cross offsets lines.
+        fb_label : str, defaults to 'first breaks'
+            Label of the first break points.
+        fb_color : str, defaults to 'black'
+            Color of the first break points.
+        fb_size : int, defaults to 1
+            Size of the first break points.
         text_kwargs : dict, optional
-            Additional arguments to the `matplotlib.pyplot.text` function. This function plot velocity model parameters
+            Additional arguments to the :func:`~matplotlib.pyplot.text`. This function plot velocity model parameters
             on the plot.
         kwargs : dict, optional
-            Additional keyword arguments to :func:`~utils.set_text_formatting`. Used to the modification the text,
-            titles, `x_ticker` and `y_ticker` formatting.
+            Additional keyword arguments to :func:`~utils.set_text_formatting`. Used to the modify the text, titles
+            formatting.
 
         Returns
         -------
@@ -568,7 +583,7 @@ class RefractorVelocity:
 
         if threshold_times is not None:
             ax.fill_between(self.piecewise_offsets, self.piecewise_times - threshold_times,
-                            self.piecewise_times + threshold_times, color='red',
+                            self.piecewise_times + threshold_times, color=curve_color,
                             label=f'+/- {threshold_times}ms threshold area', alpha=.2)
         if compare_to is not None:
             compare_to.plot(ax=ax, show_params=False, curve_color='#ff7900', crossover_color='green',
