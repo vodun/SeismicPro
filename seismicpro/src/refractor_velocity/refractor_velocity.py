@@ -29,9 +29,9 @@ class RefractorVelocity:
         `v{i}`: velocity of the i-th layer. Measured in meters per seconds.
 
     The same names are used as keys in `init` and `bounds` dicts passed to `RefractorVelocity.from_first_breaks`
-    constructor. Some keys may be omitted in one dict if it's passed in another, e.g. one can pass only bounds for `v1`
-    without an initial value, which will be inferred automatically. Both `init` and `bounds` dicts may not be passed
-    at all if `n_refractors` is given.
+    constructor. Some keys may be omitted in one dict if they are passed in another, e.g. one can pass only bounds for
+    `v1` without an initial value, which will be inferred automatically. Both `init` and `bounds` dicts may not be
+    passed at all if `n_refractors` is given.
 
     Examples
     --------
@@ -521,7 +521,7 @@ class RefractorVelocity:
             Parameters for ticks and ticklabels formatting for the y-axis; see :func:`~utils.set_ticks`
             for more details.
         show_params : bool, optional, defaults to True
-            Shows the velocity model parameters on the plot.
+            If `True` shows the velocity model parameters on the plot.
         threshold_times : float or None, optional. Defaults to None
             Neighborhood margins of the fitted curve to fill in the area inside. If None the area don't show.
         compare_to : RefractorVelocity or None, optional, defaults to None
@@ -530,7 +530,8 @@ class RefractorVelocity:
             Additional arguments to the `matplotlib.pyplot.text` function. This function plot velocity model parameters
             on the plot.
         kwargs : dict, optional
-            Additional keyword arguments.
+            Additional keyword arguments to :func:`~utils.set_text_formatting`. Used to the modification the text,
+            titles, `x_ticker` or/and `y_ticker` formatting.
 
         Returns
         -------

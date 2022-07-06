@@ -9,7 +9,7 @@ from ..const import HDR_FIRST_BREAK
 class FirstBreaksOutliers(PipelineMetric):
     """Calculate the first break outliers metric.
 
-    A first break time is considered to be an outlier if that that differs from the expected arrival time defined by
+    A first break time is considered to be an outlier if it differs from the expected arrival time defined by
     an offset-traveltime curve by more than a given threshold.
     """
     name = "first_breaks_outliers"
