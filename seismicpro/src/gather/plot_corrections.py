@@ -63,8 +63,7 @@ class CorrectionPlot:
     * `corrected_gather` - a property returning a corrected gather.
     """
     def __init__(self, gather, min_vel, max_vel, figsize, show_grid=True, **kwargs):
-        event_headers = kwargs.pop("event_headers", {})
-        event_headers = event_headers if event_headers else None
+        event_headers = kwargs.pop("event_headers", None)
         self.event_headers = None
         if event_headers is not None:
             event_headers = {"process_outliers": "discard", **as_dict(event_headers, "headers")}
@@ -117,8 +116,6 @@ class NMOCorrectionPlot(CorrectionPlot):
 
 class LMOCorrectionPlot(CorrectionPlot):
     """Interactive LMO correction plot."""
-    def __init__(self, gather, min_vel, max_vel, figsize, **kwargs):
-        super().__init__(gather, min_vel, max_vel, figsize, **kwargs)
 
     def get_title(self):
         """Get title of the LMO correction view."""
