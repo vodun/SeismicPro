@@ -288,7 +288,7 @@ class RefractorVelocity:
                                      piecewise_times[i]
         return piecewise_offsets, piecewise_times
 
-    def loss_piecewise_linear(self, args, loss='L1', huber_coef=10):
+    def loss_piecewise_linear(self, args, loss='L1', huber_coef=20):
         """Update the piecewise linear attributes and returns the loss function result.
 
         Method calls `_update_piecewise_coords` to update piecewise linear attributes of a RefractorVelocity instance.
@@ -313,7 +313,7 @@ class RefractorVelocity:
         loss : str, optional, defaults to "L1".
             The loss function type. Should be one of "MSE", "L1", "huber", "soft_L1", or "cauchy".
             All implemented loss functions have a mean reduction.
-        huber_coef : float, default to 10
+        huber_coef : float, default to 20
             Coefficient for Huber loss.
 
         Returns
@@ -336,8 +336,8 @@ class RefractorVelocity:
         if loss == 'huber':
             loss = np.empty_like(diff_abs)
             mask = diff_abs <= huber_coef
-            loss[mask] = (diff_abs[mask] ** 2)
-            loss[~mask] = diff_abs[~mask] + huber_coef ** 2 - huber_coef
+            loss[mask] = .5 * (diff_abs[mask] ** 2)
+            loss[~mask] = huber_coef * diff_abs[~mask] - .5 * (huber_coef ** 2)
             return loss.mean()
         if loss == 'soft_L1':
             return 2 * ((1 + diff_abs) ** .5 - 1).mean()
@@ -505,7 +505,8 @@ class RefractorVelocity:
     @plotter(figsize=(10, 5))
     def plot(self, *, ax=None, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_times=None,
              compare_to=None, text_kwargs=None, curve_label='offset-traveltime curve', curve_color='red',
-             crossoffset_label='crossover point', crossover_color='blue', **kwargs):
+             crossoffset_label='crossover point', crossover_color='blue', fb_label='first breaks', fb_color='black',
+             fb_size=1, **kwargs):
         """Plot the RefractorVelocity data, fitted curve, cross offsets, and additional information.
 
         Parameters
@@ -531,7 +532,7 @@ class RefractorVelocity:
             on the plot.
         kwargs : dict, optional
             Additional keyword arguments to :func:`~utils.set_text_formatting`. Used to the modification the text,
-            titles, `x_ticker` or/and `y_ticker` formatting.
+            titles, `x_ticker` and `y_ticker` formatting.
 
         Returns
         -------
@@ -543,8 +544,8 @@ class RefractorVelocity:
         set_ticks(ax, "x", tick_labels=None, label="offset, m", **x_ticker)
         set_ticks(ax, "y", tick_labels=None, label="time, ms", **y_ticker)
 
-        if 'compared' not in crossoffset_label:
-            ax.scatter(self.offsets, self.fb_times, s=1, color='black', label='first breaks')
+        if not ax.collections:  # check if axis haven't scatters
+            ax.scatter(self.offsets, self.fb_times, s=fb_size, color=fb_color, label=fb_label)
         ax.plot(self._piecewise_offsets, self._piecewise_times, '-', color=curve_color, label=curve_label)
         for i in range(self.n_refractors - 1):
             ax.axvline(self._piecewise_offsets[i+1], 0, ls='--', color=crossover_color,
