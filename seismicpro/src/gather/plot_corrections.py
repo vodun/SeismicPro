@@ -63,15 +63,12 @@ class CorrectionPlot:
     * `corrected_gather` - a property returning a corrected gather.
     """
     def __init__(self, gather, min_vel, max_vel, figsize, show_grid=True, **kwargs):
-        kwargs = {"fontsize": 8, **kwargs}
-        event_headers = kwargs.pop('event_headers', {})
-        if event_headers:
-            event_headers = as_dict(event_headers, "headers")
-            event_headers = {"process_outliers": "discard", **event_headers}
+        event_headers = kwargs.pop("event_headers", {})
+        event_headers = event_headers if event_headers else None
+        self.event_headers = None
+        if event_headers is not None:
+            event_headers = {"process_outliers": "discard", **as_dict(event_headers, "headers")}
             self.event_headers = event_headers["headers"]
-        else:
-            event_headers = None
-            self.event_headers = None
         self.gather = gather
         self.plotter = SlidingVelocityPlot(plot_fn=[partial(self.plot_corrected_gather, show_grid=show_grid,
                                                             event_headers=event_headers, **kwargs),
@@ -122,7 +119,6 @@ class LMOCorrectionPlot(CorrectionPlot):
     """Interactive LMO correction plot."""
     def __init__(self, gather, min_vel, max_vel, figsize, **kwargs):
         super().__init__(gather, min_vel, max_vel, figsize, **kwargs)
-        # self.event_headers = as_dict(kwargs.get('event_headers'), "headers")["headers"]
 
     def get_title(self):
         """Get title of the LMO correction view."""
