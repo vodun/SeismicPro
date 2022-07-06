@@ -11,7 +11,7 @@ from ..utils import set_ticks, set_text_formatting
 from ..utils.interpolation import interp1d
 
 
-# pylint: disable=too-many-instance-attributes, protected-access
+# pylint: disable=too-many-instance-attributes
 class RefractorVelocity:
     """The class stores and fits parameters of a velocity model of an upper part of the section.
 
@@ -83,6 +83,10 @@ class RefractorVelocity:
         non-passed keys and values.
     n_refractors : int
         Number of the layers used to fit the parameters of the velocity model.
+    piecewise_offsets : 1d ndarray
+        Offset coordinates of the offset-traveltime curve points. Measured in meters.
+    piecewise_times : 1d ndarray
+        Time coordinates of the offset-traveltime curve points. Measured in milliseconds.
     params : dict
         The parameters of a velocity model.
     interpolator : callable
@@ -96,13 +100,13 @@ class RefractorVelocity:
         self.init = None
         self.bounds = None
         self.n_refractors = None
+        self.piecewise_offsets = None
+        self.piecewise_times = None
         self.params = None
         self.interpolator = None
 
         self._valid_keys = None
         self._empty_layers = None
-        self._piecewise_offsets = None
-        self._piecewise_times = None
         self._model_params = None
 
     @classmethod
@@ -162,13 +166,13 @@ class RefractorVelocity:
         # move max_offset to right if init crossoffset out of the data
         self.max_offset = max(self.init[f'x{self.n_refractors - 1}'], self.max_offset) if self.n_refractors > 1 \
                                                                                             else self.max_offset
-        self._piecewise_offsets, self._piecewise_times = \
+        self.piecewise_offsets, self.piecewise_times = \
             self._create_piecewise_coords(self.n_refractors, self.max_offset)
-        self._piecewise_offsets, self._piecewise_times = \
-            self._update_piecewise_coords(self._piecewise_offsets, self._piecewise_times,
+        self.piecewise_offsets, self.piecewise_times = \
+            self._update_piecewise_coords(self.piecewise_offsets, self.piecewise_times,
                                           self._ms_to_kms(self.init), self.n_refractors)
 
-        self._empty_layers = np.histogram(self.offsets, self._piecewise_offsets)[0] ==  0
+        self._empty_layers = np.histogram(self.offsets, self.piecewise_offsets)[0] ==  0
         constraints_list = self._get_constraints()
 
         # fitting piecewise linear regression
@@ -178,7 +182,7 @@ class RefractorVelocity:
         self._model_params = optimize.minimize(partial_loss_func, x0=self._ms_to_kms(self.init),
                                                bounds=self._ms_to_kms(self.bounds), **minimizer_kwargs)
         self.params = dict(zip(self._valid_keys, self._params_postprocceissing(self._model_params.x)))
-        self.interpolator = interp1d(self._piecewise_offsets, self._piecewise_times)
+        self.interpolator = interp1d(self.piecewise_offsets, self.piecewise_times)
         return self
 
     @classmethod
@@ -208,12 +212,12 @@ class RefractorVelocity:
         self.params = {key: params[key] for key in self._valid_keys}
         self.coords = coords
 
-        self._piecewise_offsets, self._piecewise_times = \
+        self.piecewise_offsets, self.piecewise_times = \
             self._create_piecewise_coords(self.n_refractors, self.params.get(f'x{self.n_refractors - 1}', 0) + 1000)
-        self._piecewise_offsets, self._piecewise_times = \
-            self._update_piecewise_coords(self._piecewise_offsets, self._piecewise_times, self._ms_to_kms(self.params),
+        self.piecewise_offsets, self.piecewise_times = \
+            self._update_piecewise_coords(self.piecewise_offsets, self.piecewise_times, self._ms_to_kms(self.params),
                                           self.n_refractors)
-        self.interpolator = interp1d(self._piecewise_offsets, self._piecewise_times)
+        self.interpolator = interp1d(self.piecewise_offsets, self.piecewise_times)
         return self
 
     @classmethod
@@ -253,7 +257,7 @@ class RefractorVelocity:
         if value >= self.n_refractors:
             raise IndexError(f"Index {value} is out of bounds.")
         velocity = self.params.get(f"v{value + 1}", None)
-        return np.hstack([self._piecewise_offsets[value:value + 2], velocity])
+        return np.hstack([self.piecewise_offsets[value:value + 2], velocity])
 
     def has_coords(self):
         """bool: Whether RefractorVelocity coords are not None."""
@@ -326,9 +330,9 @@ class RefractorVelocity:
         ValueError
             If given `loss` does not exist.
         """
-        self._piecewise_offsets, self._piecewise_times = \
-            self._update_piecewise_coords(self._piecewise_offsets, self._piecewise_times, args, self.n_refractors)
-        diff_abs = np.abs(np.interp(self.offsets, self._piecewise_offsets, self._piecewise_times) - self.fb_times)
+        self.piecewise_offsets, self.piecewise_times = \
+            self._update_piecewise_coords(self.piecewise_offsets, self.piecewise_times, args, self.n_refractors)
+        diff_abs = np.abs(np.interp(self.offsets, self.piecewise_offsets, self.piecewise_times) - self.fb_times)
         if loss == 'MSE':
             return (diff_abs ** 2).mean()
         if loss == 'L1':
@@ -485,10 +489,10 @@ class RefractorVelocity:
     def _params_postprocceissing(self, params):
         """Fix parameters if constraints are not respected due to `scipy` breadth calculation."""
         params[self.n_refractors:] *= 1000
-        # `self._piecewise_offsets` have the same offset values as params but also have the zero and max_offset
+        # `self.piecewise_offsets` have the same offset values as params but also have the zero and max_offset
         for i in range(1, self.n_refractors):
-            if self._piecewise_offsets[i + 1] < params[i]:
-                params[i] = self._piecewise_offsets[i + 1]
+            if self.piecewise_offsets[i + 1] < params[i]:
+                params[i] = self.piecewise_offsets[i + 1]
         for i in range(self.n_refractors, self.n_refractors - 1):
             if params[i + 1] < params[i]:
                 params[i + 1] = params[i]
@@ -546,9 +550,9 @@ class RefractorVelocity:
 
         if not ax.collections:  # check if axis haven't scatters
             ax.scatter(self.offsets, self.fb_times, s=fb_size, color=fb_color, label=fb_label)
-        ax.plot(self._piecewise_offsets, self._piecewise_times, '-', color=curve_color, label=curve_label)
+        ax.plot(self.piecewise_offsets, self.piecewise_times, '-', color=curve_color, label=curve_label)
         for i in range(self.n_refractors - 1):
-            ax.axvline(self._piecewise_offsets[i+1], 0, ls='--', color=crossover_color,
+            ax.axvline(self.piecewise_offsets[i+1], 0, ls='--', color=crossover_color,
                        label=crossoffset_label if self.n_refractors <= 2 else crossoffset_label + 's'
                                                                               if i == 0 else None)
         if show_params:
@@ -563,8 +567,8 @@ class RefractorVelocity:
             ax.text(*text_ident, text_info, transform=ax.transAxes, **text_kwargs)
 
         if threshold_times is not None:
-            ax.fill_between(self._piecewise_offsets, self._piecewise_times - threshold_times,
-                            self._piecewise_times + threshold_times, color='red',
+            ax.fill_between(self.piecewise_offsets, self.piecewise_times - threshold_times,
+                            self.piecewise_times + threshold_times, color='red',
                             label=f'+/- {threshold_times}ms threshold area', alpha=.2)
         if compare_to is not None:
             compare_to.plot(ax=ax, show_params=False, curve_color='#ff7900', crossover_color='green',
