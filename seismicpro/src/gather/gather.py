@@ -1553,7 +1553,7 @@ class Gather(TraceContainer, SamplesContainer):
             raise ValueError(f"Unknown axis {axis}")
         set_ticks(ax, axis, tick_labels=tick_labels, **{"label": tick_src, **ticker})
 
-    def plot_nmo_correction(self, min_vel=1500, max_vel=6000, figsize=(6, 4.5), **kwargs):
+    def plot_nmo_correction(self, min_vel=1500, max_vel=6000, figsize=(6, 4.5), show_grid=True, **kwargs):
         """Perform interactive NMO correction of the gather with selected constant velocity.
 
         The plot provides 2 views:
@@ -1572,12 +1572,15 @@ class Gather(TraceContainer, SamplesContainer):
             Maximum seismic velocity value for NMO correction. Measured in meters/seconds.
         figsize : tuple with 2 elements, optional, defaults to (6, 4.5)
             Size of the created figure. Measured in inches.
+        show_grid : bool, defaults to True
+            If `True` shows the horizontal grid with a step based on `y_ticker`.
         kwargs : misc, optional
             Additional keyword arguments to `Gather.plot`.
         """
-        NMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, **kwargs).plot()
+        NMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, show_grid=show_grid,
+                          **kwargs).plot()
 
-    def plot_lmo_correction(self, min_vel=500, max_vel=3000, figsize=(6, 4.5), **kwargs):
+    def plot_lmo_correction(self, min_vel=500, max_vel=3000, figsize=(6, 4.5), show_grid=True, **kwargs):
         """Perform interactive LMO correction of the gather with the selected velocity.
 
         The plot provides 2 views:
@@ -1596,7 +1599,10 @@ class Gather(TraceContainer, SamplesContainer):
             Maximum velocity value for LMO correction. Measured in meters/seconds.
         figsize : tuple with 2 elements, optional, defaults to (6, 4.5)
             Size of the created figure. Measured in inches.
+        show_grid : bool, defaults to True
+            If `True` shows the horizontal grid with a step based on `y_ticker`.
         kwargs : misc, optional
             Additional keyword arguments to `Gather.plot`.
         """
-        LMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, **kwargs).plot()
+        LMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, show_grid=show_grid,
+                          **kwargs).plot()
