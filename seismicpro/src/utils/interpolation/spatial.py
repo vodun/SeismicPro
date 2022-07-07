@@ -69,7 +69,7 @@ class SpatialInterpolator:
 
         Parameters
         ----------
-        coords : array-like with 2 elements or np.ndarray with shape (n_coords, 2)
+        coords : np.ndarray with shape (2,) or (n_coords, 2)
             Coordinates to evaluate the interpolant at.
 
         Returns
@@ -109,7 +109,7 @@ class ValuesAgnosticInterpolator(SpatialInterpolator):
 
         Parameters
         ----------
-        coords : array-like with 2 elements or np.ndarray with shape (n_coords, 2)
+        coords : np.ndarray with shape (2,) or (n_coords, 2)
             Coordinates to determine reference objects for.
 
         Returns
@@ -129,7 +129,7 @@ class ValuesAgnosticInterpolator(SpatialInterpolator):
 
         Parameters
         ----------
-        coords : array-like with 2 elements or np.ndarray with shape (n_coords, 2)
+        coords : np.ndarray with shape (2,) or (n_coords, 2)
             Coordinates to evaluate the interpolant at.
 
         Returns
@@ -149,7 +149,9 @@ class IDWInterpolator(ValuesAgnosticInterpolator):
     IDW assumes that function value being interpolated at some coordinates is closer to values at known points nearby
     compared to those located further away. Interpolation is performed by averaging known function values in a
     neighborhood of the requested coordinates with weights proportional to inverse distances to the corresponding
-    points. The detailed algorithm looks as follows:
+    points.
+
+    The detailed algorithm looks as follows:
     1. Select known points in the neighborhood of the requested coordinates defined either by `radius` or `neighbors`.
        If none of them is given all data points are selected.
     2. Calculate euclidean distance from coordinates to each selected point.
@@ -268,8 +270,8 @@ class IDWInterpolator(ValuesAgnosticInterpolator):
         return np.array(weighted_coords, dtype=object)
 
     def _get_reference_indices_radius(self, coords):
-        """Get indices of reference data points and their weights for each item in `coords` if the neighborhood is
-        defined by `radius` and is not empty. Also returns a mask of items in `coords` with empty neighborhood."""
+        """Get indices of reference data points and their weights for each item in `coords` with non-empty neighborhood
+        defined by `radius`. Also returns a mask of items in `coords` with empty neighborhood."""
         dist, indices = self.nearest_neighbors.radius_neighbors(coords, return_distance=True)
         empty_radius_mask = np.array([len(ix) == 0 for ix in indices])
         indices = indices[~empty_radius_mask]
@@ -433,8 +435,8 @@ class DelaunayInterpolator(BaseDelaunayInterpolator, ValuesAgnosticInterpolator)
 
     def _get_weights(self, coords):
         """Get coordinates of reference objects and their weights for each of the passed `coords`. Weights are defined
-        by barycentric coordinates inside a corresponding simplex for coordinates inside the convex hull of data
-        points. Falls back to `self.idw_interpolator.get_weights` for coordinates outside the convex hull."""
+        by barycentric coordinates in the corresponding simplex for coordinates inside the convex hull of data points.
+        Falls back to `self.idw_interpolator.get_weights` for coordinates outside the convex hull."""
         inside_hull_mask = self._is_in_hull(coords)
         weights = np.empty(len(coords), dtype=object)
         # pylint: disable-next=protected-access
@@ -454,7 +456,7 @@ class CloughTocherInterpolator(BaseDelaunayInterpolator):
     The interpolant is a piecewise cubic Bezier polynomial on each simplex of triangulation of data points. This class
     is a thin wrapper around `scipy.interpolate.CloughTocher2DInterpolator` and accepts the same arguments during
     instantiation. The only difference is that it falls back to IDW interpolator for coordinates lying outside the
-    convex hull of data points.
+    convex hull of data points to allow for extrapolation.
 
     Parameters
     ----------
