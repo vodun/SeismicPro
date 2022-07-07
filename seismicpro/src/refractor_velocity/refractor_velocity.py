@@ -543,11 +543,14 @@ class RefractorVelocity:
         """
         (title, x_ticker, y_ticker, text_kwargs), kwargs = set_text_formatting(title, x_ticker, y_ticker, text_kwargs,
                                                                               **kwargs)
+        if kwargs:
+            raise ValueError(f'kwargs contains unknown keys {kwargs.keys()}')
         set_ticks(ax, "x", tick_labels=None, label="offset, m", **x_ticker)
         set_ticks(ax, "y", tick_labels=None, label="time, ms", **y_ticker)
 
         ax.scatter(self.offsets, self.fb_times, s=1, color='black', label='first breaks')
-        self._plot_lines(ax, 'offset-traveltime curve', 'red', 'crossover point', 'blue')
+        self._plot_lines(ax, curve_label='offset-traveltime curve', curve_color='red',
+                         crossoffset_label='crossover point', crossover_color='blue')
 
         if show_params:
             params = [self.params[key] for key in self._valid_keys]
@@ -567,8 +570,8 @@ class RefractorVelocity:
 
         if compare_to is not None:
             # pylint: disable=protected-access
-            compare_to._plot_lines(ax, 'compared offset-traveltime curve', '#ff7900', 'compared crossover point',
-                                   'green')
+            compare_to._plot_lines(ax, curve_label='compared offset-traveltime curve', curve_color='#ff7900',
+                                   crossoffset_label='compared crossover point', crossover_color='green')
 
         ax.set_xlim(0)
         ax.set_ylim(0)

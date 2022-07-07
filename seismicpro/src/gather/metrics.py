@@ -20,7 +20,7 @@ class FirstBreaksOutliers(PipelineMetric):
     args_to_unpack = ("gather", "refractor_velocity")
 
     @staticmethod
-    def calc(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50, **kwargs):
+    def calc(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50):
         """Calculates the first break outliers metric value.
 
         Returns the fraction of traces in the gather whose first break times differ from those estimated by
@@ -41,7 +41,6 @@ class FirstBreaksOutliers(PipelineMetric):
             Fraction of traces in the gather whose first break times differ from estimated by velocity model for more
             than `threshold_times`.
         """
-        _ = kwargs
         metric = np.abs(refractor_velocity(gather.offsets) - gather[first_breaks_col].ravel()) > threshold_times
         return np.mean(metric)
 
