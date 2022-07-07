@@ -15,7 +15,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .muting import Muter
 from .cropped_gather import CroppedGather
-from .plot_corrections import NMOCorrectionPlot
+from .plot_corrections import NMOCorrectionPlot, LMOCorrectionPlot
 from .utils import correction, normalization, gain
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
 from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_yticklabels, set_text_formatting,
@@ -23,6 +23,7 @@ from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_ytickla
 from ..containers import TraceContainer, SamplesContainer
 from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, VelocityCube
+from ..refractor_velocity import RefractorVelocity
 from ..decorators import batch_method, plotter
 from ..const import HDR_FIRST_BREAK, DEFAULT_VELOCITY
 
@@ -583,7 +584,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        first_breaks_col : str, optional, defaults to 'FirstBreak'
+        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             A column of `self.headers` that contains first arrival times, measured in milliseconds.
 
         Returns
@@ -595,7 +596,6 @@ class Gather(TraceContainer, SamplesContainer):
         gather = self.copy(ignore='data')
         gather.data = mask
         return gather
-
 
     @batch_method(target='for', args_to_unpack='save_to')
     def mask_to_pick(self, threshold=0.5, first_breaks_col=HDR_FIRST_BREAK, save_to=None):
@@ -613,7 +613,7 @@ class Gather(TraceContainer, SamplesContainer):
         ----------
         threshold : float, optional, defaults to 0.5
             A threshold for trace mask value to refer its index to be either pre- or post-first break.
-        first_breaks_col : str, optional, defaults to 'FirstBreak'
+        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Headers column to save first break times to.
         save_to : Gather, optional, defaults to None
             An extra `Gather` to save first break times to. Generally used to conveniently pass first break times from
@@ -645,7 +645,7 @@ class Gather(TraceContainer, SamplesContainer):
             Path to the file.
         trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
             Columns names from `self.headers` that act as trace id. These would be present in the file.
-        first_breaks_col : str, defaults to 'FirstBreak'
+        first_breaks_col : str, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `self.headers` where first break times are stored.
         col_space : int, defaults to 8
             The minimum width of each column.
@@ -667,6 +667,45 @@ class Gather(TraceContainer, SamplesContainer):
         with open(path, 'a', encoding=encoding) as f:
             f.write(rows_as_str)
         return self
+
+    @batch_method(target='for')
+    def calculate_refractor_velocity(self, first_breaks_col=HDR_FIRST_BREAK, init=None, bounds=None, n_refractors=None,
+                                     coords_cols="auto", **kwargs):
+        """Calculate the RefractorVelocity using the offsets and first breaks times.
+
+        The method fits a velocity model of the upper part of the section, read the
+        :class:`~refractor_velocity.RefractorVelocity` docs for more details about the algorithm and its parameters.
+
+        Examples
+        --------
+        >>> refractor_velocity = gather.calculate_refractor_velocity(n_refractors=2)
+
+        Parameters
+        ----------
+        first_breaks_col : str, defaults to :const:`~const.HDR_FIRST_BREAK`
+            Column name from `self.headers` where first break times are stored.
+        init : dict or None, defaults to None
+            Initial values for a velocity model.
+        bounds : dict or None, defaults to None
+            Bounds for the fitted velocity model parameters.
+        n_refractors : int or None, defaults to None
+            Number of the velocity model layers.
+        kwargs : dict, optional
+            Additional keyword arguments to be passed to
+            :func:`~refractor_velocity.RefractorVelocity.from_first_breaks`.
+        coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
+            Header columns to get spatial coordinates of the gather to fetch `RefractorVelocity` from `RefractorCube`.
+            See :func:`~Gather.get_coords` for more details.
+
+        Returns
+        -------
+        RefractorVelocity
+            Calculated RefractorVelocity instance.
+        """
+        coords = None if coords_cols is None else self.get_coords(coords_cols)
+        return RefractorVelocity.from_first_breaks(offsets=self.offsets, fb_times=self[first_breaks_col].ravel(),
+                                                   init=init, bounds=bounds, n_refractors=n_refractors, coords=coords,
+                                                   **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #
@@ -803,6 +842,45 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
     #                           Gather corrections                           #
     #------------------------------------------------------------------------#
+
+    @batch_method(target="threads", args_to_unpack="refractor_velocity")
+    def apply_lmo(self, refractor_velocity, delay=100, fill_value=np.nan, event_headers=None):
+        """Perform a gather linear moveout correction using the given RefractorVelocity.
+
+        Parameters
+        ----------
+        refractor_velocity : RefractorVelocity
+            RefractorVelocity object to perform LMO correction with.
+        delay : float, defaults to 100
+            An extra delay in milliseconds introduced in each trace, positive values result in shifting gather traces
+            down. Used to center the first breaks hodograph around the delay value instead of 0.
+        fill_value : float, defaults to 0
+            Value used to fill the amplitudes outside the gather bounds after moveout.
+        event_headers : str, list, or None, defaults to None
+            Headers columns which will be LMO-corrected inplace.
+
+        Returns
+        -------
+        self : Gather
+            LMO corrected gather.
+
+        Raises
+        ------
+        ValueError
+            If `refractor_velocity` is not a `RefractorVelocity` instance.
+        """
+        if not isinstance(refractor_velocity, RefractorVelocity):
+            raise ValueError("Only RefractorVelocity instances can be passed as a `refractor_velocity`")
+        event_headers = [] if event_headers is None else to_list(event_headers)
+
+        trace_delays = delay - refractor_velocity(self.offsets)
+        data = correction.apply_lmo(self.data,
+                                    times_to_indices(trace_delays, self.samples, round=True).astype(int),
+                                    fill_value)
+        self.data = data
+        for header in event_headers:
+            self[header] += trace_delays.reshape(-1, 1)
+        return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
     def apply_nmo(self, stacking_velocity, coords_cols="auto"):
@@ -1475,7 +1553,7 @@ class Gather(TraceContainer, SamplesContainer):
             raise ValueError(f"Unknown axis {axis}")
         set_ticks(ax, axis, tick_labels=tick_labels, **{"label": tick_src, **ticker})
 
-    def plot_nmo_correction(self, min_vel=1500, max_vel=6000, figsize=(6, 4.5), **kwargs):
+    def plot_nmo_correction(self, min_vel=1500, max_vel=6000, figsize=(6, 4.5), show_grid=True, **kwargs):
         """Perform interactive NMO correction of the gather with selected constant velocity.
 
         The plot provides 2 views:
@@ -1494,7 +1572,37 @@ class Gather(TraceContainer, SamplesContainer):
             Maximum seismic velocity value for NMO correction. Measured in meters/seconds.
         figsize : tuple with 2 elements, optional, defaults to (6, 4.5)
             Size of the created figure. Measured in inches.
+        show_grid : bool, defaults to True
+            If `True` shows the horizontal grid with a step based on `y_ticker`.
         kwargs : misc, optional
             Additional keyword arguments to `Gather.plot`.
         """
-        NMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, **kwargs).plot()
+        NMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, show_grid=show_grid,
+                          **kwargs).plot()
+
+    def plot_lmo_correction(self, min_vel=500, max_vel=3000, figsize=(6, 4.5), show_grid=True, **kwargs):
+        """Perform interactive LMO correction of the gather with the selected velocity.
+
+        The plot provides 2 views:
+        * Corrected gather (default). LMO correction is performed on the fly with the velocity controlled by a slider
+        on top of the plot.
+        * Source gather. This view disables the velocity slider.
+
+        Plotting must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and
+        `ipympl` and `ipywidgets` libraries installed.
+
+        Parameters
+        ----------
+        min_vel : float, optional, defaults to 500
+            Minimum velocity value for LMO correction. Measured in meters/seconds.
+        max_vel : float, optional, defaults to 3000
+            Maximum velocity value for LMO correction. Measured in meters/seconds.
+        figsize : tuple with 2 elements, optional, defaults to (6, 4.5)
+            Size of the created figure. Measured in inches.
+        show_grid : bool, defaults to True
+            If `True` shows the horizontal grid with a step based on `y_ticker`.
+        kwargs : misc, optional
+            Additional keyword arguments to `Gather.plot`.
+        """
+        LMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, show_grid=show_grid,
+                          **kwargs).plot()
