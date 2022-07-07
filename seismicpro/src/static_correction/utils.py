@@ -4,7 +4,7 @@ import numpy as np
 
 
 def calculate_depth_coefs(v_curr, v_next):
-    if np.any(v_curr - v_next <= 0):
+    if np.any(v_next - v_curr <= 0):
         raise ValueError("v_curr > v_next")
     return ((v_next**2 - v_curr**2)**.5) / (v_curr*v_next)
 

@@ -24,6 +24,14 @@ USED_COLS = [*sum(DEFAULT_COLS.values(), []), "offset", "SourceDepth", "CDP_X", 
              "ReceiverGroupElevation"]
 
 
+class UniqueCoords:
+    def __init__(self, coords):
+        uniques, indices, inverse = np.unique(coords, axis=0, return_index=True, return_inverse=True)
+        self.uniques = uniques
+        self.indices = indices
+        self.inverse = inverse
+
+
 class StaticCorrection:
     def __init__(self, survey, first_breaks_col, interpolator, n_avg_coords=5, radius=500, n_neighbors=100):
         self.survey = survey.copy()
@@ -117,11 +125,11 @@ class StaticCorrection:
         """!!!"""
         self.update_depth(layer=1, tol=depth_tol, smoothing_radius=smoothing_radius)
 
-    def _calculate_corr_coefs(self, name, layer_headers, coords, inverse_ixs, layer, upholes=None):
-        corrs = np.zeros(len(coords))
-        elevations = self.interp_elevations(coords)[inverse_ixs]
+    def _calculate_corr_coefs(self, name, layer_headers, ucoords, layer, upholes=None):
+        corrs = np.zeros(len(layer_headers))
+        elevations = self.interp_elevations(ucoords.uniques)[ucoords.inverse]
         for i in range(1, layer):
-            depths = elevations - self.interp_layers_els[i-1](coords)[inverse_ixs]
+            depths = elevations - self.interp_layers_els[i-1](ucoords.uniques)[ucoords.inverse]
             if name == "source" and i==1:
                 depths = depths - upholes
             # layer+1 is not a typo
@@ -131,61 +139,67 @@ class StaticCorrection:
 
     def update_depth(self, layer, tol=1e-7, smoothing_radius=None):
         layer_headers = self._fill_layer_params(headers=self.headers, layer=layer)
-        ohe_source, unique_sources, ix_sources, inv_source = self._get_sparse_depths("source", layer_headers, layer)
-        ohe_rec, unique_recs, ix_recs, inv_rec = self._get_sparse_depths("rec", layer_headers, layer)
-        matrix = sparse.hstack((ohe_source, ohe_rec))
+        source_ucoords = UniqueCoords(layer_headers[self._get_cols("source")])
+        rec_ucoords = UniqueCoords(layer_headers[self._get_cols("rec")])
 
-        upholes = layer_headers.iloc[ix_sources]["SourceDepth"].values if layer == 1 else 0
+        upholes = layer_headers.iloc[source_ucoords.indices]["SourceDepth"].values if layer == 1 else 0
         y = (layer_headers[self.first_breaks_col] - layer_headers['offset'] / layer_headers[f'v{layer+1}_avg']).values
         if layer > 1:
-            source_corr = self._calculate_corr_coefs("source", layer_headers, unique_sources, inv_source, layer,
-                                                     upholes)
-            rec_corr = self._calculate_corr_coefs("rec", layer_headers, unique_recs, inv_rec, layer)
+            source_corr = self._calculate_corr_coefs("source", layer_headers, source_ucoords, layer, upholes)
+            rec_corr = self._calculate_corr_coefs("rec", layer_headers, rec_ucoords, layer)
             y = y - source_corr - rec_corr
         layer_headers['y'] = y
         layer_headers = layer_headers[layer_headers['y'] > 0]
 
-        coords = np.concatenate([unique_sources, unique_recs])
+        # ucoords might change to we need to recalculate them
+        source_ucoords = UniqueCoords(layer_headers[self._get_cols("source")])
+        rec_ucoords = UniqueCoords(layer_headers[self._get_cols("rec")])
+        upholes = layer_headers.iloc[source_ucoords.indices]["SourceDepth"].values if layer == 1 else 0
+
+        ohe_source = self._get_sparse_depths("source", layer_headers, source_ucoords, layer)
+        ohe_rec = self._get_sparse_depths("rec", layer_headers, rec_ucoords, layer)
+        matrix = sparse.hstack((ohe_source, ohe_rec))
+
+        coords = np.concatenate([source_ucoords.uniques, rec_ucoords.uniques])
         coefs = self.interp_layers_els[layer-1](coords) if self.interp_layers_els[layer-1] is not None else None
         if coefs is None:
             coefs = np.zeros(matrix.shape[1])
         coefs = sparse.linalg.lsqr(matrix, layer_headers['y'], atol=tol, btol=tol, x0=coefs)[0]
-        source_els = self.interp_elevations(unique_sources)
-        rec_els = self.interp_elevations(unique_recs)
+        source_els = self.interp_elevations(source_ucoords.uniques)
+        rec_els = self.interp_elevations(rec_ucoords.uniques)
 
         # Distance from 0 elevation to current sub layer.
-        source_elevations = source_els - (coefs[:len(unique_sources)] + upholes)
-        rec_elevations = rec_els - coefs[len(unique_sources):]
-        joint_interp = self._align_by_proximity(unique_sources, source_elevations, unique_recs, rec_elevations,
-                                                smoothing_radius)
+        source_elevations = source_els - (coefs[:len(source_ucoords.uniques)] + upholes)
+        rec_elevations = rec_els - coefs[len(source_ucoords.uniques):]
+        joint_interp = self._align_by_proximity(source_ucoords.uniques, source_elevations, rec_ucoords.uniques,
+                                                rec_elevations, smoothing_radius)
         self.interp_layers_els[layer-1] = joint_interp
 
-        source_coefs = source_els - joint_interp(unique_sources) - upholes
-        rec_coefs = rec_els - joint_interp(unique_recs)
+        source_coefs = source_els - joint_interp(source_ucoords.uniques) - upholes
+        rec_coefs = rec_els - joint_interp(rec_ucoords.uniques)
 
         # Save reconstructed 'y' after align sources and receivers elevations and update 'y' in self.headers
-        mask = self.headers['layer'] == layer
-        if 'pred' not in self.headers.columns:
-            self.headers['pred'] = None
-        self.headers.loc[mask]['pred'] = matrix.dot(np.concatenate([source_coefs, rec_coefs]))
-        self.headers.loc[mask]['y'] = y
+        # TODO: create mask with traces that used in current computations. (some traces from current layers
+        # was dropped if y for them < 0)
+        # mask = self.headers['layer'] == layer
+        # if 'pred' not in self.headers.columns:
+        #     self.headers['pred'] = None
+        # self.headers.loc[mask]['pred'] = matrix.dot(np.concatenate([source_coefs, rec_coefs]))
+        # self.headers.loc[mask]['y'] = y
 
     def _fill_layer_params(self, headers, layer):
-        # for now, working only for depth
         headers = headers[headers["layer"] == layer]
         headers = headers.merge(self.source_params, on=self._get_cols("source") + self.source_headers)
         headers = headers.merge(self.rec_params, on=self._get_cols("rec") + self.rec_headers,
                                 suffixes=("_source", "_rec"))
         return headers
 
-    def _get_sparse_depths(self, name, headers, layer):
-        coord_names = self._get_cols(name)
-        uniques, index, inverse = np.unique(headers[coord_names], axis=0, return_index=True, return_inverse=True)
+    def _get_sparse_depths(self, name, headers, ucoords, layer):
         wv_params = headers[[f'v{layer}_{name}', f'v{layer+1}_{name}']].values.T
         coefs = calculate_depth_coefs(*wv_params)
-        eye = sparse.eye((len(uniques)), format='csc')[inverse]
+        eye = sparse.eye((len(ucoords.uniques)), format='csc')[ucoords.inverse]
         matrix = eye.multiply(coefs.reshape(-1, 1)).tocsc()
-        return matrix, uniques, index, inverse
+        return matrix
 
     def _align_by_proximity(self, source_coords, source_values, rec_coords, rec_values, smoothing_radius=0):
         interp_source = IDWInterpolator(source_coords, source_values, radius=self.radius, neighbors=self.n_neighbors)
@@ -227,7 +241,7 @@ class StaticCorrection:
         layer_elevations = self.interp_layers_els[layer-1](uniques)
         coefs = elevations - layer_elevations
         if name == "source":
-            coefs -= headers.iloc[index]["SourceDepth"].values   м
+            coefs -= headers.iloc[index]["SourceDepth"].values
 
         eye = sparse.eye((len(uniques)), format='csc')
         matrix = eye.multiply(coefs).tocsc()[inverse]
