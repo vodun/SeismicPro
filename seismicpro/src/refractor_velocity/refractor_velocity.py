@@ -562,10 +562,11 @@ class RefractorVelocity:
 
         if threshold_times is not None:
             ax.fill_between(self.piecewise_offsets, self.piecewise_times - threshold_times,
-                            self.piecewise_times + threshold_times, color=curve_color,
+                            self.piecewise_times + threshold_times, color='red',
                             label=f'+/- {threshold_times}ms threshold area', alpha=.2)
 
         if compare_to is not None:
+            # pylint: disable=protected-access
             compare_to._plot_lines(ax, 'compared offset-traveltime curve', '#ff7900', 'compared crossover point',
                                    'green')
 
