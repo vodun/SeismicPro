@@ -12,8 +12,8 @@ class StackingVelocity(VFUNC):
     hyperbola for each timestamp. It is used to correct the arrival times of reflection events in the traces for their
     varying offsets prior to stacking.
 
-    It can be instantiated directly by passing arrays of times and velocities or created from other types of data by
-    calling a corresponding `classmethod`:
+    It can be instantiated directly by passing arrays of times and velocities defining knots of a piecewise linear
+    velocity function or created from other types of data by calling a corresponding `classmethod`:
     * `from_file` - from a file in VFUNC format with time-velocity pairs,
     * `from_constant_velocity` - from a single velocity returned for all times,
     * `from_stacking_velocities` - from other stacking velocities with given weights.
@@ -36,7 +36,7 @@ class StackingVelocity(VFUNC):
     >>> velocity = semblance.calculate_stacking_velocity()
 
     Or it can be interpolated from a velocity field (loaded from a file in this case):
-    >>> field = StackingVelocityField.from_file(path=cube_path).create_interpolator("idw")
+    >>> field = StackingVelocityField.from_file(field_path).create_interpolator("idw")
     >>> coords = (inline, crossline)
     >>> velocity = field(coords)
 
@@ -92,7 +92,8 @@ class StackingVelocity(VFUNC):
         velocities : StackingVelocity or list of StackingVelocity
             Stacking velocities to be aggregated.
         weights : float or list of floats or None, optional, defaults to None
-            Weight of each item in `velocities`. If not given, mean stacking velocity is calculated.
+            Weight of each item in `velocities`. If not given, equal weights are assigned to all items and thus mean
+            stacking velocity is calculated.
         coords : Coordinates or None, optional, defaults to None
             Spatial coordinates of the created stacking velocity. If not given, the created instance won't be able to
             be added to a `StackingVelocityField`.
