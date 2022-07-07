@@ -47,6 +47,7 @@ class BaseCoherency:
             "NS": self.normalized_stacked_amplitude,
             "semblance": self.semblance,
             "NE": self.semblance,
+            'CC': self.crosscorrelation
         }
         self.coherency_func = coherency_dict.get(mode)
         if self.coherency_func is None:
@@ -133,6 +134,18 @@ class BaseCoherency:
         for i in prange(corrected_gather.shape[0]):
             numerator[i] = (np.nansum(corrected_gather[i, :]) ** 2) 
             denominator[i] = np.nansum(corrected_gather[i, :] ** 2) * sum(~np.isnan(corrected_gather[i, :]))
+        return numerator, denominator
+
+    @staticmethod
+    @njit(nogil=True, fastmath={'ninf'}, parallel=True)
+    def crosscorrelation(corrected_gather):
+        numerator = np.zeros(corrected_gather.shape[0])
+        denominator = np.ones(corrected_gather.shape[0])
+        for i in prange(corrected_gather.shape[0]):
+            s = 0
+            for lag in range(1, corrected_gather.shape[1]):
+                s += np.sum(corrected_gather[i, :-lag] * corrected_gather[i, lag:])
+            numerator[i] = s 
         return numerator, denominator
 
     @staticmethod
