@@ -63,6 +63,7 @@ class CorrectionPlot:
     * `corrected_gather` - a property returning a corrected gather.
     """
     def __init__(self, gather, min_vel, max_vel, figsize, show_grid=True, **kwargs):
+        kwargs = {"fontsize": 8, **kwargs}
         event_headers = kwargs.pop("event_headers", None)
         self.event_headers = None
         if event_headers is not None:
