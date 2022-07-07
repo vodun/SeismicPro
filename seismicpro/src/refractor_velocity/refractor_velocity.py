@@ -84,9 +84,9 @@ class RefractorVelocity:
     n_refractors : int
         Number of the layers used to fit the parameters of the velocity model.
     piecewise_offsets : 1d ndarray
-        Offset coordinates of the offset-traveltime curve points. Measured in meters.
+        Offsets of knots of the offset-traveltime curve. Measured in meters.
     piecewise_times : 1d ndarray
-        Time coordinates of the offset-traveltime curve points. Measured in milliseconds.
+        Times of knots of the offset-traveltime curve. Measured in milliseconds.
     params : dict
         The parameters of a velocity model.
     interpolator : callable
@@ -508,9 +508,7 @@ class RefractorVelocity:
 
     @plotter(figsize=(10, 5))
     def plot(self, *, ax=None, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_times=None,
-             compare_to=None,  curve_label='offset-traveltime curve', curve_color='red',
-             crossoffset_label='crossover point', crossover_color='blue', fb_label='first breaks', fb_color='black',
-             fb_size=1, text_kwargs=None, **kwargs):
+             compare_to=None, text_kwargs=None, **kwargs):
         """Plot the RefractorVelocity data, fitted curve, cross offsets, and additional information.
 
         Parameters
@@ -531,26 +529,11 @@ class RefractorVelocity:
             Neighborhood margins of the fitted curve to fill in the area inside. If None the area don't show.
         compare_to : RefractorVelocity or None, optional, defaults to None
             RefractorVelocity instance. Used to plot an additional RefractorVelocity on the same axis.
-        curve_label : str, defaults to 'offset-traveltime curve'
-            Label of the offset-traveltime curve.
-        curve_color : str, defaults to 'red'
-            Color of the offset-traveltime curve. If `threshold_times` is passed neighborhood area will be the same
-            color.
-        crossoffset_label : str, defaults to crossover point
-            Label of the cross offsets lines.
-        crossover_color : str, defaults to 'blue'
-            Color of the cross offsets lines.
-        fb_label : str, defaults to 'first breaks'
-            Label of the first break points.
-        fb_color : str, defaults to 'black'
-            Color of the first break points.
-        fb_size : int, defaults to 1
-            Size of the first break points.
         text_kwargs : dict, optional
             Additional arguments to the :func:`~matplotlib.pyplot.text`. This function plot velocity model parameters
             on the plot.
         kwargs : dict, optional
-            Additional keyword arguments to :func:`~utils.set_text_formatting`. Used to the modify the text, titles
+            Additional keyword arguments to :func:`~utils.set_text_formatting`. Used to the modify the text and titles
             formatting.
 
         Returns
@@ -563,13 +546,9 @@ class RefractorVelocity:
         set_ticks(ax, "x", tick_labels=None, label="offset, m", **x_ticker)
         set_ticks(ax, "y", tick_labels=None, label="time, ms", **y_ticker)
 
-        if not ax.collections:  # check if axis haven't scatters
-            ax.scatter(self.offsets, self.fb_times, s=fb_size, color=fb_color, label=fb_label)
-        ax.plot(self.piecewise_offsets, self.piecewise_times, '-', color=curve_color, label=curve_label)
-        for i in range(self.n_refractors - 1):
-            ax.axvline(self.piecewise_offsets[i+1], 0, ls='--', color=crossover_color,
-                       label=crossoffset_label if self.n_refractors <= 2 else crossoffset_label + 's'
-                                                                              if i == 0 else None)
+        ax.scatter(self.offsets, self.fb_times, s=1, color='black', label='first breaks')
+        self._plot_lines(ax, 'offset-traveltime curve', 'red', 'crossover point', 'blue')
+
         if show_params:
             params = [self.params[key] for key in self._valid_keys]
             text_info = f"t0 : {params[0]:.2f} ms"
@@ -585,12 +564,21 @@ class RefractorVelocity:
             ax.fill_between(self.piecewise_offsets, self.piecewise_times - threshold_times,
                             self.piecewise_times + threshold_times, color=curve_color,
                             label=f'+/- {threshold_times}ms threshold area', alpha=.2)
+
         if compare_to is not None:
-            compare_to.plot(ax=ax, show_params=False, curve_color='#ff7900', crossover_color='green',
-                            curve_label='compared offset-traveltime curve',
-                            crossoffset_label='compared crossover point')
+            compare_to._plot_lines(ax, 'compared offset-traveltime curve', '#ff7900', 'compared crossover point',
+                                   'green')
+
         ax.set_xlim(0)
         ax.set_ylim(0)
         ax.legend(loc='lower right')
         ax.set_title(**{"label": None, **title})
         return self
+
+    def _plot_lines(self, ax, curve_label, curve_color, crossoffset_label, crossover_color):
+        """Plot offset-traveltime curve and cross offset lines."""
+        ax.plot(self.piecewise_offsets, self.piecewise_times, '-', color=curve_color, label=curve_label)
+        for i in range(self.n_refractors - 1):
+            ax.axvline(self.piecewise_offsets[i + 1], 0, ls='--', color=crossover_color,
+                    label=crossoffset_label if self.n_refractors <= 2 else crossoffset_label + 's'
+                                                                            if i == 0 else None)
