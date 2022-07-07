@@ -52,8 +52,8 @@ class FirstBreaksOutliers(PipelineMetric):
         gather.plot(event_headers=event_headers, **kwargs)
 
     @pass_calc_args
-    def plot_refractor_velocity(cls, gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK,
-                                 threshold_times=50, **kwargs):
+    def plot_refractor_velocity(cls, gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50,
+                                **kwargs):
         """Plot the refractor velocity curve and show the threshold area used for metric calculation."""
         _ = gather, first_breaks_col
         refractor_velocity.plot(threshold_times=threshold_times, **kwargs)
