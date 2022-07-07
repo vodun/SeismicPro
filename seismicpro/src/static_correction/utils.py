@@ -3,11 +3,13 @@
 import numpy as np
 
 
-def calculate_depth_coefs(v1, v2, avg_v2):
-    if np.any(v2 - v1 <= 0):
-        raise ValueError("v1 > v2")
-    return (avg_v2 * v2 - v1**2) / (v1*avg_v2*(v2**2 - v1**2)**.5)
+def calculate_depth_coefs(v_curr, v_next):
+    if np.any(v_curr - v_next <= 0):
+        raise ValueError("v_curr > v_next")
+    return ((v_next**2 - v_curr**2)**.5) / (v_curr*v_next)
 
+def calculate_prev_layer_coefs(v_prev, v_curr, v_next):
+    return (v_curr * v_next - v_prev**2) / (v_prev*v_next*(v_curr**2 - v_prev**2)**.5)
 
 def calculate_velocities(v2, avg_v2, coefs, max_wv):
     sq_v2 = v2**2
