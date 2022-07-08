@@ -1,4 +1,4 @@
-"""SeismiPro is a library for seismic data processing."""
+"""SeismicPro is a library for seismic data processing."""
 
 import re
 from setuptools import setup, find_packages
@@ -24,10 +24,10 @@ setup(
     platforms='any',
     include_package_data=True,
     install_requires=[
-        'numpy>=1.19.5',
-        'scipy>=1.5.2',
-        'numba>=0.53.1',
-        'pandas>=1.1.5',
+        'numpy>=1.20',
+        'scipy>=1.7',
+        'numba>=0.54',
+        'pandas>=1.3',
         'scikit-learn>=0.23.2',
         'opencv_python>=4.5.1',
         'networkx>=2.5',
@@ -35,7 +35,7 @@ setup(
         'tqdm>=4.56.0',
         'pytest>=6.0.1',
         'torch>=1.8',
-        'matplotlib>=3.3.1',
+        'matplotlib>=3.5.1',
         'seaborn>=0.11.1',
         'dill>=0.3.3',
         'multiprocess>=0.70.11',
