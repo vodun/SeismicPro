@@ -83,14 +83,6 @@ class TestInterpolate:
         interpolator = interpolator_class(coords, values)
         assert_arrays_equal(interpolator(coords[0]), values[0])
 
-    def test_coords_in_subspace(self, interpolator_class, values_dtype):
-        """Test the case when `coords` lie within a 1d subspace of a 2d space. May affect all Delaunay-based
-        interpolators."""
-        coords = np.column_stack([np.arange(10), np.arange(10)])
-        values = np.random.normal(scale=25, size=(len(coords), 5)).astype(values_dtype)
-        interpolator = interpolator_class(coords, values)
-        assert_arrays_equal(interpolator(coords), values)
-
     def test_extrapolation(self, interpolator_class, values_dtype):
         """Test that all interpolators allow for extrapolation and return not-nan results."""
         coords = [[0, 0], [1, 0], [0, 1], [1, 1]]
@@ -99,6 +91,17 @@ class TestInterpolate:
         interpolator = interpolator_class(coords, values)
         extrapolated_values = interpolator(query)
         assert np.isfinite(extrapolated_values).all()
+
+
+@pytest.mark.parametrize("interpolator_class", [IDWInterpolator, DelaunayInterpolator, CloughTocherInterpolator])
+def test_coords_in_subspace(interpolator_class):
+    """Test the case when `coords` lie within a 1d subspace of a 2d space. May affect all Delaunay-based
+    interpolators. `RBFInterpolator` fails this test with default parameters, appropriate `kernel` and `degree` must
+    be chosen manually, see `scipy` docs for more details."""
+    coords = np.column_stack([np.arange(10), np.arange(10)])
+    values = np.random.normal(scale=25, size=(len(coords), 5))
+    interpolator = interpolator_class(coords, values)
+    assert_arrays_equal(interpolator(coords), values)
 
 
 @pytest.mark.parametrize("interpolator_class", VALUES_AGNOSTIC_INTERPOLATORS)
