@@ -119,8 +119,8 @@ class LMOCorrectionPlot(CorrectionPlot):
     """Interactive LMO correction plot."""
 
     def get_title(self):
-        """Get title of the LMO correction view."""
-        return f"Linear moveout correction with {(self.plotter.slider.value):.0f} m/s"
+        """Get title of the LMO corrected view."""
+        return f"Linear moveout correction with {(self.plotter.slider.value):.0f} m/s velocity"
 
     @property
     def corrected_gather(self):

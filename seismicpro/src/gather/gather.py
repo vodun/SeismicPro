@@ -655,6 +655,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         The method fits a velocity model of the upper part of the section, read the
         :class:`~refractor_velocity.RefractorVelocity` docs for more details about the algorithm and its parameters.
+        At least one of `init`, `bounds` or `n_refractors` should be passed.
 
         Examples
         --------
@@ -850,10 +851,8 @@ class Gather(TraceContainer, SamplesContainer):
         event_headers = [] if event_headers is None else to_list(event_headers)
 
         trace_delays = delay - refractor_velocity(self.offsets)
-        data = correction.apply_lmo(self.data,
-                                    times_to_indices(trace_delays, self.samples, round=True).astype(int),
-                                    fill_value)
-        self.data = data
+        trace_delays_samples = times_to_indices(trace_delays, self.samples, round=True).astype(int)
+        self.data = correction.apply_lmo(self.data, trace_delays_samples, fill_value)
         for header in event_headers:
             self[header] += trace_delays.reshape(-1, 1)
         return self
