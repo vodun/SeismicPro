@@ -650,8 +650,8 @@ class Gather(TraceContainer, SamplesContainer):
 
     @batch_method(target='for')
     def calculate_refractor_velocity(self, first_breaks_col=HDR_FIRST_BREAK, init=None, bounds=None, n_refractors=None,
-                                     coords_cols="auto", **kwargs):
-        """Calculate the RefractorVelocity using the offsets and first breaks times.
+                                     **kwargs):
+        """Estimate velocities of first refractors by offsets and times of first breaks.
 
         The method fits a velocity model of the upper part of the section, read the
         :class:`~refractor_velocity.RefractorVelocity` docs for more details about the algorithm and its parameters.
@@ -662,30 +662,26 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        first_breaks_col : str, defaults to :const:`~const.HDR_FIRST_BREAK`
-            Column name from `self.headers` where first break times are stored.
-        init : dict or None, defaults to None
+        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+            Column name from `self.headers` where times of first break are stored.
+        init : dict or None, optional, defaults to None
             Initial values for a velocity model.
-        bounds : dict or None, defaults to None
+        bounds : dict or None, optional, defaults to None
             Bounds for the fitted velocity model parameters.
-        n_refractors : int or None, defaults to None
+        n_refractors : int or None, optional, defaults to None
             Number of the velocity model layers.
-        kwargs : dict, optional
+        kwargs : misc, optional
             Additional keyword arguments to be passed to
             :func:`~refractor_velocity.RefractorVelocity.from_first_breaks`.
-        coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
-            Header columns to get spatial coordinates of the gather to fetch `RefractorVelocity` from `RefractorCube`.
-            See :func:`~Gather.get_coords` for more details.
 
         Returns
         -------
         RefractorVelocity
             Calculated RefractorVelocity instance.
         """
-        coords = None if coords_cols is None else self.get_coords(coords_cols)
         return RefractorVelocity.from_first_breaks(offsets=self.offsets, fb_times=self[first_breaks_col].ravel(),
-                                                   init=init, bounds=bounds, n_refractors=n_refractors, coords=coords,
-                                                   **kwargs)
+                                                   init=init, bounds=bounds, n_refractors=n_refractors,
+                                                   coords=self.coords, **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #
@@ -1012,9 +1008,9 @@ class Gather(TraceContainer, SamplesContainer):
         origins = make_origins(origins, self.shape, crop_shape, n_crops, stride)
         return CroppedGather(self, origins, crop_shape, pad_mode, **kwargs)
 
-    @batch_method(target="t")
+    @batch_method(target="threads")
     def bandpass_filter(self, low=None, high=None, filter_size=81, **kwargs):
-        """ Filter frequency spectrum of the gather.
+        """Filter frequency spectrum of the gather.
 
         Can act as a lowpass, bandpass or highpass filter. `low` and `high` serve as the range for the remaining
         frequencies and can be passed either solely or together.
@@ -1060,12 +1056,12 @@ class Gather(TraceContainer, SamplesContainer):
         cv2.filter2D(self.data, dst=self.data, ddepth=-1, kernel=kernel.reshape(1, -1))
         return self
 
-    @batch_method(target="f")
+    @batch_method(target="for")
     def resample(self, new_sample_rate, kind=3, anti_aliasing=True):
-        """ Changes the sample rate of the traces in the gather.
-        This implies increasing or decreasing the number of samples in the trace.
-        In case new sample rate is greater than the current one, the anti aliasing filter is used
-        to avoid frequency aliasing.
+        """Change sample rate of traces in the gather.
+
+        This implies increasing or decreasing the number of samples in each trace. In case new sample rate is greater
+        than the current one, anti-aliasing filter is optionally applied to avoid frequency aliasing.
 
         Parameters
         ----------
@@ -1073,8 +1069,8 @@ class Gather(TraceContainer, SamplesContainer):
             New sample rate
         kind : int or str, defaults to 3
             The interpolation method to use.
-            If int, use piecewise polynomial interpolation with degree `kind`;
-            if str, delegate interpolation to scipy.interp1d with mode `kind`.
+            If `int`, use piecewise polynomial interpolation with degree `kind`;
+            if `str`, delegate interpolation to scipy.interp1d with mode `kind`.
         anti_aliasing : bool, defaults to True
             Whether to apply anti-aliasing filter or not. Ignored in case of upsampling.
 
@@ -1379,12 +1375,12 @@ class Gather(TraceContainer, SamplesContainer):
 
         # Shift trace amplitudes according to the trace index in the gather
         amps = traces + np.arange(traces.shape[0]).reshape(-1, 1)
-        # Plot all the traces as one Line, then hide transitions between adjacanet traces
+        # Plot all the traces as one Line, then hide transitions between adjacent traces
         amps = np.concatenate([amps, np.full((len(amps), 1), np.nan)], axis=1)
         ax.plot(amps.ravel(), np.broadcast_to(np.arange(amps.shape[1]), amps.shape).ravel(),
                 color=color, lw=lw, **kwargs)
 
-        # Find polygons bodies:  indices of target amplitudes, start and end
+        # Find polygons bodies: indices of target amplitudes, start and end
         poly_amp_ix = np.argwhere(traces > 0)
         start_ix = np.argwhere((np.diff(poly_amp_ix[:, 0], prepend=poly_amp_ix[0, 0]) != 0) |
                                (np.diff(poly_amp_ix[:, 1], prepend=poly_amp_ix[0, 1]) != 1)).ravel()
