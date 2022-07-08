@@ -130,15 +130,14 @@ class StaticCorrection:
         elevations = self.interp_elevations(ucoords.uniques)[ucoords.inverse]
         for i in range(1, layer):
             depths = elevations - self.interp_layers_els[i-1](ucoords.uniques)[ucoords.inverse]
-            if name == "source" and i==1:
+            if name == "source" and i == 1:
                 depths = depths - upholes
-            # layer+1 is not a typo
             params = layer_headers[[f'v{i}_{name}', f'v{i+1}_{name}', f'v{layer+1}_{name}']].values.T
             corrs += depths * calculate_prev_layer_coefs(*params)
         return corrs
 
     def update_depth(self, layer, tol=1e-7, smoothing_radius=None):
-        layer_headers = self._fill_layer_params(headers=self.headers, layer=layer)
+        layer_headers, layer_mask = self._fill_layer_params(layer=layer)
         source_ucoords = UniqueCoords(layer_headers[self._get_cols("source")])
         rec_ucoords = UniqueCoords(layer_headers[self._get_cols("rec")])
 
@@ -149,7 +148,8 @@ class StaticCorrection:
             rec_corr = self._calculate_corr_coefs("rec", layer_headers, rec_ucoords, layer)
             y = y - source_corr - rec_corr
         layer_headers['y'] = y
-        layer_headers = layer_headers[layer_headers['y'] > 0]
+        sutable_mask = layer_headers['y'] > 0
+        layer_headers = layer_headers[sutable_mask]
 
         # ucoords might change to we need to recalculate them
         source_ucoords = UniqueCoords(layer_headers[self._get_cols("source")])
@@ -178,21 +178,19 @@ class StaticCorrection:
         source_coefs = source_els - joint_interp(source_ucoords.uniques) - upholes
         rec_coefs = rec_els - joint_interp(rec_ucoords.uniques)
 
-        # Save reconstructed 'y' after align sources and receivers elevations and update 'y' in self.headers
-        # TODO: create mask with traces that used in current computations. (some traces from current layers
-        # was dropped if y for them < 0)
-        # mask = self.headers['layer'] == layer
-        # if 'pred' not in self.headers.columns:
-        #     self.headers['pred'] = None
-        # self.headers.loc[mask]['pred'] = matrix.dot(np.concatenate([source_coefs, rec_coefs]))
-        # self.headers.loc[mask]['y'] = y
+        layer_mask = np.where(layer_mask)[0][sutable_mask]
+        if 'pred' not in self.headers.columns:
+            self.headers['pred'] = np.nan
+        self.headers['pred'][layer_mask] = matrix.dot(np.concatenate([source_coefs, rec_coefs]))
+        self.headers['y'][layer_mask] = y[sutable_mask]
 
-    def _fill_layer_params(self, headers, layer):
-        headers = headers[headers["layer"] == layer]
+    def _fill_layer_params(self, layer):
+        mask = self.headers["layer"] == layer
+        headers = self.headers[mask]
         headers = headers.merge(self.source_params, on=self._get_cols("source") + self.source_headers)
         headers = headers.merge(self.rec_params, on=self._get_cols("rec") + self.rec_headers,
                                 suffixes=("_source", "_rec"))
-        return headers
+        return headers, mask
 
     def _get_sparse_depths(self, name, headers, ucoords, layer):
         wv_params = headers[[f'v{layer}_{name}', f'v{layer+1}_{name}']].values.T
@@ -284,7 +282,7 @@ class StaticCorrection:
     def calculate_metric(self, metrics="mape"):
         metrics = to_list(metrics)
         for metric in metrics:
-            metric_call = METRICS.get(metric, None) if not callable(metirc) else metric
+            metric_call = METRICS.get(metric, None) if not callable(metric) else metric
             if metric_call is None:
                 raise ValueError(f"metrics must be one of the .., not {metric}")
             self.headers[metric] = metric_call(self.headers)
@@ -351,7 +349,7 @@ class StaticCorrection:
         mm_rec = MetricMap(rec_coords, self.interp_layers_els[layer-1](rec_coords))
         mm_rec.plot(title="Receivers depth", ax=ax[1], **kwargs)
 
-    def plot_traveltime_metric(self, layer, by, metric="mape", **kwargs):
+    def plot_traveltime_metric(self, layer=None, by='receiver', metric="mape", **kwargs):
         if isinstance(by, str):
             by_to_coords_cols = {
                 "shot": ["SourceX", "SourceY"],
@@ -369,7 +367,8 @@ class StaticCorrection:
 
         if metric not in self.headers.columns:
             self.calculate_metric(metric)
-        mean_metrics = self.headers.groupby(coords_cols)[metric].mean()
+        headers = self.headers[self.headers['layer'] == layer] if layer is not None else self.headers
+        mean_metrics = headers.groupby(coords_cols)[metric].mean()
 
         mm = MetricMap(mean_metrics.index.to_frame().values, mean_metrics.values)
         mm.plot(title=f"Traveltime {metric}", **kwargs)
