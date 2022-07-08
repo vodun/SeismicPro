@@ -595,9 +595,11 @@ class Gather(TraceContainer, SamplesContainer):
             A threshold for trace mask value to refer its index to be either pre- or post-first break.
         first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Headers column to save first break times to.
-        save_to : Gather, optional, defaults to None
+        save_to : Gather or str, optional
             An extra `Gather` to save first break times to. Generally used to conveniently pass first break times from
             a `Gather` instance with a first break mask to an original `Gather`.
+            May be `str` if called in a pipeline: in this case it defines a component with gathers to save first break
+            times to.
 
         Returns
         -------
@@ -648,8 +650,8 @@ class Gather(TraceContainer, SamplesContainer):
             f.write(rows_as_str)
         return self
 
-    @batch_method(target='for')
-    def calculate_refractor_velocity(self, first_breaks_col=HDR_FIRST_BREAK, init=None, bounds=None, n_refractors=None,
+    @batch_method(target="for", copy_src=False)
+    def calculate_refractor_velocity(self, init=None, bounds=None, n_refractors=None, first_breaks_col=HDR_FIRST_BREAK,
                                      **kwargs):
         """Estimate velocities of first refractors by offsets and times of first breaks.
 
@@ -663,14 +665,14 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
-            Column name from `self.headers` where times of first break are stored.
         init : dict or None, optional, defaults to None
             Initial values for a velocity model.
         bounds : dict or None, optional, defaults to None
             Bounds for the fitted velocity model parameters.
         n_refractors : int or None, optional, defaults to None
             Number of the velocity model layers.
+        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+            Column name from `self.headers` where times of first break are stored.
         kwargs : misc, optional
             Additional keyword arguments to be passed to
             :func:`~refractor_velocity.RefractorVelocity.from_first_breaks`.
@@ -731,9 +733,10 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        muter : Muter
+        muter : Muter or str
             An object that defines muting times by gather offsets.
-        fill_value : float, defaults to 0
+            May be `str` if called in a pipeline: in this case it defines a component with muters to apply.
+        fill_value : float, optional, defaults to 0
             A value to fill the muted part of the gather with.
 
         Returns
@@ -796,8 +799,9 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        stacking_velocity : StackingVelocity
+        stacking_velocity : StackingVelocity or str
             Stacking velocity around which residual semblance is calculated.
+            May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
         n_velocities : int, optional, defaults to 140
             The number of velocities to compute residual semblance for.
         win_size : int, optional, defaults to 25
@@ -826,9 +830,10 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        refractor_velocity : int, float or RefractorVelocity
+        refractor_velocity : int, float, RefractorVelocity or str
             `RefractorVelocity` object to perform LMO correction with. If `int` or `float` then constant-velocity
             correction is performed.
+            May be `str` if called in a pipeline: in this case it defines a component with refractor velocities to use.
         delay : float, optional, defaults to 100
             An extra delay in milliseconds introduced in each trace, positive values result in shifting gather traces
             down. Used to center the first breaks hodograph around the delay value instead of 0.
@@ -870,10 +875,11 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        stacking_velocity : int, float, StackingVelocity or StackingVelocityField
+        stacking_velocity : int, float, StackingVelocity, StackingVelocityField or str
             Stacking velocities to perform NMO correction with. `StackingVelocity` instance is used directly. If
             `StackingVelocityField` instance is passed, a `StackingVelocity` corresponding to gather coordinates is
             fetched from it. If `int` or `float` then constant-velocity correction is performed.
+            May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
 
         Returns
         -------

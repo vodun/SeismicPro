@@ -513,8 +513,10 @@ class RefractorVelocity:
             If `True` shows the velocity model parameters on the plot.
         threshold_times : float or None, optional. Defaults to None
             Neighborhood margins of the fitted curve to fill in the area inside. If None the area don't show.
-        compare_to : RefractorVelocity or None, optional, defaults to None
+        compare_to : RefractorVelocity, str or None, optional
             RefractorVelocity instance. Used to plot an additional RefractorVelocity on the same axis.
+            May be `str` if plotted in a pipeline: in this case it defines a component with refractor velocities to
+            compare to.
         text_kwargs : dict, optional
             Additional arguments to the :func:`~matplotlib.pyplot.text`. This function plot velocity model parameters
             on the plot.
