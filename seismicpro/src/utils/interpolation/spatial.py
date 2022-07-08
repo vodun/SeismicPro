@@ -25,7 +25,7 @@ time-consuming, especially in case of high-dimensional values.
 import cv2
 import numpy as np
 from scipy import interpolate
-from scipy.spatial.qhull import Delaunay, QhullError
+from scipy.spatial.qhull import Delaunay, QhullError  #pylint: disable=no-name-in-module
 from sklearn.neighbors import NearestNeighbors
 
 

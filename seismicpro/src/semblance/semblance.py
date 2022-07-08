@@ -57,7 +57,6 @@ class BaseSemblance:
 
     @property
     def coords(self):
-        """Coordinates: Spatial coordinates of the semblance."""
         """Coordinates or None: Spatial coordinates of the semblance. Determined by the underlying gather. `None` if
         the gather is indexed by unsupported headers or required coords headers were not loaded or coordinates are
         non-unique for traces of the gather."""
