@@ -822,44 +822,47 @@ class Gather(TraceContainer, SamplesContainer):
 
     @batch_method(target="threads", args_to_unpack="refractor_velocity")
     def apply_lmo(self, refractor_velocity, delay=100, fill_value=np.nan, event_headers=None):
-        """Perform a gather linear moveout correction using the given RefractorVelocity.
+        """Perform gather linear moveout correction using the given near-surface velocity model.
 
         Parameters
         ----------
-        refractor_velocity : RefractorVelocity
-            RefractorVelocity object to perform LMO correction with.
-        delay : float, defaults to 100
+        refractor_velocity : int, float or RefractorVelocity
+            `RefractorVelocity` object to perform LMO correction with. If `int` or `float` then constant-velocity
+            correction is performed.
+        delay : float, optional, defaults to 100
             An extra delay in milliseconds introduced in each trace, positive values result in shifting gather traces
             down. Used to center the first breaks hodograph around the delay value instead of 0.
-        fill_value : float, defaults to 0
+        fill_value : float, optional, defaults to 0
             Value used to fill the amplitudes outside the gather bounds after moveout.
-        event_headers : str, list, or None, defaults to None
+        event_headers : str, list, or None, optional, defaults to None
             Headers columns which will be LMO-corrected inplace.
 
         Returns
         -------
         self : Gather
-            LMO corrected gather.
+            LMO-corrected gather.
 
         Raises
         ------
         ValueError
-            If `refractor_velocity` is not a `RefractorVelocity` instance.
+            If wrong type of `refractor_velocity` is passed.
         """
+        if isinstance(refractor_velocity, (int, float)):
+            refractor_velocity = RefractorVelocity.from_constant_velocity(refractor_velocity)
         if not isinstance(refractor_velocity, RefractorVelocity):
-            raise ValueError("Only RefractorVelocity instances can be passed as a `refractor_velocity`")
-        event_headers = [] if event_headers is None else to_list(event_headers)
+            raise ValueError("refractor_velocity must be of int, float or RefractorVelocity type")
 
         trace_delays = delay - refractor_velocity(self.offsets)
         trace_delays_samples = times_to_indices(trace_delays, self.samples, round=True).astype(int)
         self.data = correction.apply_lmo(self.data, trace_delays_samples, fill_value)
+        event_headers = [] if event_headers is None else to_list(event_headers)
         for header in event_headers:
             self[header] += trace_delays.reshape(-1, 1)
         return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
     def apply_nmo(self, stacking_velocity):
-        """Perform gather normal moveout correction using given stacking velocity.
+        """Perform gather normal moveout correction using the given stacking velocity.
 
         Notes
         -----
@@ -867,26 +870,28 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        stacking_velocity : StackingVelocity or StackingVelocityField
+        stacking_velocity : int, float, StackingVelocity or StackingVelocityField
             Stacking velocities to perform NMO correction with. `StackingVelocity` instance is used directly. If
             `StackingVelocityField` instance is passed, a `StackingVelocity` corresponding to gather coordinates is
-            fetched from it.
+            fetched from it. If `int` or `float` then constant-velocity correction is performed.
 
         Returns
         -------
         self : Gather
-            NMO corrected gather.
+            NMO-corrected gather.
 
         Raises
         ------
         ValueError
-            If `stacking_velocity` is not a `StackingVelocity` or `VelocityCube` instance.
+            If wrong type of `stacking_velocity` is passed.
         """
+        if isinstance(stacking_velocity, (int, float)):
+            stacking_velocity = StackingVelocity.from_constant_velocity(stacking_velocity)
         if isinstance(stacking_velocity, StackingVelocityField):
             stacking_velocity = stacking_velocity(self.coords)
         if not isinstance(stacking_velocity, StackingVelocity):
-            raise ValueError("Only StackingVelocityField or StackingVelocity instances can be passed as a "
-                             "stacking_velocity")
+            raise ValueError("stacking_velocity must be of int, float, StackingVelocity or StackingVelocityField type")
+
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
         self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms, self.sample_rate)
         return self

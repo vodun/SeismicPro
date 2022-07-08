@@ -2,8 +2,6 @@
 
 from functools import partial
 
-from ..stacking_velocity import StackingVelocity
-from ..refractor_velocity import RefractorVelocity
 from ..utils.interactive_plot_utils import InteractivePlot
 from ..utils import MissingModule, as_dict
 
@@ -105,25 +103,24 @@ class NMOCorrectionPlot(CorrectionPlot):
     """Interactive NMO correction plot."""
 
     def get_title(self):
-        """Get title of the NMO corrected view."""
+        """Get title of the NMO-corrected view."""
         return f"Normal moveout correction with {self.plotter.slider.value:.0f} m/s velocity"
 
     @property
     def corrected_gather(self):
-        """Gather: NMO corrected gather."""
-        new_vel = StackingVelocity.from_constant_velocity(self.plotter.slider.value)
-        return self.gather.copy(ignore=["headers", "data", "samples"]).apply_nmo(new_vel)
+        """Gather: NMO-corrected gather."""
+        return self.gather.copy(ignore=["headers", "data", "samples"]).apply_nmo(self.plotter.slider.value)
 
 
 class LMOCorrectionPlot(CorrectionPlot):
     """Interactive LMO correction plot."""
 
     def get_title(self):
-        """Get title of the LMO corrected view."""
+        """Get title of the LMO-corrected view."""
         return f"Linear moveout correction with {(self.plotter.slider.value):.0f} m/s velocity"
 
     @property
     def corrected_gather(self):
-        """Gather: LMO corrected gather."""
-        rv = RefractorVelocity.from_constant_velocity(self.plotter.slider.value)
-        return self.gather.copy(ignore=["data", "samples"]).apply_lmo(rv, event_headers=self.event_headers)
+        """Gather: LMO-corrected gather."""
+        gather_copy = self.gather.copy(ignore=["data", "samples"])
+        return gather_copy.apply_lmo(self.plotter.slider.value, event_headers=self.event_headers)
