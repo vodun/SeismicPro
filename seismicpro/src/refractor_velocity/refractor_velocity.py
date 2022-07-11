@@ -177,7 +177,7 @@ class RefractorVelocity:
 
         # fitting piecewise linear regression
         partial_loss_func = partial(self.loss_piecewise_linear, loss=kwargs.pop('loss', 'L1'),
-                                    huber_coef=kwargs.pop('huber_coef', .1))
+                                    huber_coef=kwargs.pop('huber_coef', 20))
         minimizer_kwargs = {'method': 'SLSQP', 'constraints': constraints_list, **kwargs}
         self._model_params = optimize.minimize(partial_loss_func, x0=self._ms_to_kms(self.init),
                                                bounds=self._ms_to_kms(self.bounds), **minimizer_kwargs)
@@ -390,10 +390,16 @@ class RefractorVelocity:
         params : tuple
             Linear regression `coef` and `intercept`.
         """
-        lin_reg = SGDRegressor(loss='huber', penalty=None, shuffle=True, epsilon=0.05, eta0=0.1, alpha=0.01, tol=1e-6,
+        lin_reg = SGDRegressor(loss='huber', penalty=None, shuffle=True, epsilon=.1, eta0=0.1, alpha=0.01, tol=1e-6,
                                max_iter=1000, learning_rate='optimal')
         lin_reg.fit(x, y, coef_init=start_slope, intercept_init=start_time)
-        return lin_reg.coef_[0], lin_reg.intercept_
+        return lin_reg.coef_[0], lin_reg.intercept_, lin_reg.n_iter_
+
+    def _standart_scaler(self, data):
+        """1d minmax scaller to [left, right] interval."""
+        cur_mean, cur_std = data.mean(), data.std()
+        data_scaled = (data - cur_mean) / cur_std
+        return data_scaled, cur_mean, cur_std
 
     def _calc_init_by_layers(self, n_refractors):
         """Calculates `init` dict by a given an estimated quantity of layers.
@@ -415,34 +421,34 @@ class RefractorVelocity:
         if n_refractors is None or n_refractors < 1:
             return {}
 
-        max_fb_times = self.fb_times.max()  # times normalization parameter.
         initial_slope = 4 / 5  # base slope corresponding velocity is 1.25 km/s (v = 1 / slope)
-        initial_slope = initial_slope * self.max_offset / max_fb_times  # add normalization
         initial_time = 0
-        normalized_offsets = self.offsets / self.max_offset
-        normalized_times = self.fb_times / max_fb_times
 
-        cross_offsets = np.linspace(0, 1, num=n_refractors + 1)  # split cross offsets on an equal intervals
+        cross_offsets = np.linspace(0, self.max_offset, num=n_refractors + 1)
         current_slope = np.empty(n_refractors)
         current_time = np.empty(n_refractors)
 
-        for i in range(n_refractors):  # inside the loop work with normalized data only
-            mask = (normalized_offsets > cross_offsets[i]) & (normalized_offsets <= cross_offsets[i + 1])
+        for i in range(n_refractors):
+            mask = (self.offsets > cross_offsets[i]) & (self.offsets <= cross_offsets[i + 1])
             if mask.sum() > 1:  # at least two point to fit
-                current_slope[i], current_time[i] = \
-                    self._fit_regressor(normalized_offsets[mask].reshape(-1, 1), normalized_times[mask],
-                                        initial_slope, initial_time)
+                # data normalization occurs independently for each layer
+                scaled_offsets, mean_offset, std_offset = self._standart_scaler(self.offsets[mask])
+                scaled_times, mean_time, std_time = self._standart_scaler(self.fb_times[mask])
+                fitted_slope, fitted_time = self._fit_regressor(scaled_offsets.reshape(-1, 1), scaled_times,
+                                                                initial_slope * std_offset / std_time, 0)
+                current_slope[i] = fitted_slope * std_time / std_offset
+                current_time[i] = mean_time + fitted_time * std_time - current_slope[i] * mean_offset
             else:
                 current_slope[i] = initial_slope
                 current_time[i] = initial_time
             # move maximal velocity to 6 km/s
-            current_slope[i] = max(.167 * self.max_offset / max_fb_times, current_slope[i])
+            current_slope[i] = max(.167, current_slope[i])
             current_time[i] =  max(0, current_time[i])
             # raise base velocity for the next layer (v = 1 / slope)
             initial_slope = current_slope[i] * (n_refractors / (n_refractors + 1))
             initial_time = current_time[i] + (current_slope[i] - initial_slope) * cross_offsets[i + 1]
-        velocities = 1 / (current_slope * max_fb_times / self.max_offset)
-        init = [current_time[0] * max_fb_times, *cross_offsets[1:-1] * self.max_offset, *(velocities * 1000)]
+        velocities = 1 / (current_slope)
+        init = [current_time[0], *cross_offsets[1:-1], *(velocities * 1000)]
         init = dict(zip(self._get_valid_keys(n_refractors), init))
         return init
 
