@@ -49,14 +49,10 @@ class BaseCoherency:
             "NE": self.semblance,
             'CC': self.crosscorrelation
         }
+
         self.coherency_func = coherency_dict.get(mode)
         if self.coherency_func is None:
             raise ValueError(f"Unknown mode {mode}")
-
-        # ix = list(self.gather.headers.reset_index().groupby(['INLINE_3D', 'CROSSLINE_3D']).groups.values())
-        # self.ix = [i.values for i in ix]
-        # self.ix = List(self.ix)
-        self.ix = None
 
     @property
     def times(self):
@@ -136,22 +132,36 @@ class BaseCoherency:
             denominator[i] = np.nansum(corrected_gather[i, :] ** 2) * sum(~np.isnan(corrected_gather[i, :]))
         return numerator, denominator
 
+
     @staticmethod
-    @njit(nogil=True, fastmath={'ninf'}, parallel=True)
-    def crosscorrelation(corrected_gather):
-        numerator = np.zeros(corrected_gather.shape[0])
-        denominator = np.ones(corrected_gather.shape[0])
-        for i in prange(corrected_gather.shape[0]):
-            s = 0
-            for lag in range(1, corrected_gather.shape[1]):
-                s += np.sum(corrected_gather[i, :-lag] * corrected_gather[i, lag:])
-            numerator[i] = s 
+    @njit(nogil=True, parallel=True, fastmath=True)
+    def crosscorrelation(arr):
+        ix = np.concatenate((np.array([0]), np.cumsum(np.arange(arr.shape[0] - 1, 0, -1))))
+        res = np.zeros((1 + arr.shape[0] * (arr.shape[0] - 1) // 2, arr.shape[1]))
+        for i in prange(arr.shape[0]):
+            for j in prange(i + 1, arr.shape[0]):
+                res[ix[i] + arr.shape[0] - j] = arr[i] * arr[j]
+        numerator = np.ones(arr.shape[0])
+        denominator = np.ones(arr.shape[0])
         return numerator, denominator
+
+
+    # @staticmethod
+    # @njit(nogil=True, fastmath={'ninf'}, parallel=True)
+    # def crosscorrelation(corrected_gather):
+    #     numerator = np.zeros(corrected_gather.shape[0])
+    #     denominator = np.ones(corrected_gather.shape[0])
+    #     for i in prange(corrected_gather.shape[0]):
+    #         s = 0
+    #         for lag in range(1, corrected_gather.shape[1]):
+    #             s += np.sum(corrected_gather[i, :-lag] * corrected_gather[i, lag:])
+    #         numerator[i] = s 
+    #     return numerator, denominator
 
     @staticmethod
     @njit(nogil=True, fastmath={'ninf'}, parallel=True)
     def calc_single_velocity_semblance(nmo_func, coherency_func, gather_data, times, offsets, velocity, sample_rate, win_size,
-                                       t_min_ix, t_max_ix, ix, split):  # pylint: disable=too-many-arguments
+                                       t_min_ix, t_max_ix):  # pylint: disable=too-many-arguments
         """Calculate semblance for given velocity and time range.
         Parameters
         ----------
@@ -188,32 +198,6 @@ class BaseCoherency:
             nmo_func(gather_data, times[i], offsets, velocity, sample_rate,
                      out=corrected_gather[i - t_win_size_min_ix], fill_value=np.nan)
 
-        # if split:
-        #     normalize_mute=True
-        #     gathers = [corrected_gather.T[i] for i in ix]
-        #     stacks = np.empty( (corrected_gather.shape[0], len(ix)), dtype=np.float32 )
-        #     for i in prange(len(gathers)):
-        #         gather = gathers[i]
-        #         for j in range(corrected_gather.shape[0]):
-        #             stacks[j, i] = np.sum(gather[:, j]) / max(np.count_nonzero(gather[:, j]), 1)
-
-        #     corrected_gather = stacks
-        #     normalize_mute = False
-
-        # if split:
-        #     gathers = [corrected_gather.T[i] for i in ix]
-        #     stacks = np.empty( (corrected_gather.shape[0], len(ix)), dtype=np.float32 )
-        #     for i in prange(len(gathers)):
-        #         gather = gathers[i]
-        #         for j in range(corrected_gather.shape[0]):
-        #             stacks[j, i] = np.sum(gather[:, j]) / max(np.count_nonzero(gather[:, j]), 1)
-
-        #     T = 16
-        #     numerator = np.array([np.nanmean(np.corrcoef(stacks[max(i-T, 0):i+T], rowvar=False)) for i in range(len(stacks))])
-        #     #numerator[np.isnan(numerator)] = 0
-        #     denominator = np.ones_like(numerator)
-        # else:
-        #     numerator, denominator = coherency_func(corrected_gather, True)
 
         numerator, denominator = coherency_func(corrected_gather)
         numerator[np.isnan(numerator)] = 0
@@ -360,15 +344,14 @@ class Coherency(BaseCoherency):
     semblance : 2d np.ndarray
         Array with calculated vertical velocity semblance values.
     """
-    def __init__(self, gather, velocities, win_size=25, mode='semblance', split=False):
+    def __init__(self, gather, velocities, win_size=25, mode='semblance'):
         super().__init__(gather, win_size=win_size, mode=mode)
         self.velocities = velocities  # m/s
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
         self.semblance = self._calc_semblance_numba(semblance_func=self.calc_single_velocity_semblance, coherency_func=self.coherency_func,
                                                     nmo_func=get_hodograph, gather_data=self.gather_data,
                                                     times=self.times, offsets=self.offsets, velocities=velocities_ms,
-                                                    sample_rate=self.sample_rate, win_size=self.win_size,
-                                                    ix=self.ix, split=split)
+                                                    sample_rate=self.sample_rate, win_size=self.win_size)
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
@@ -388,8 +371,8 @@ class Coherency(BaseCoherency):
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def _calc_semblance_numba(semblance_func, nmo_func, coherency_func, gather_data, times, offsets, velocities, sample_rate,
-                              win_size, ix, split):
+    def _calc_semblance_numba(semblance_func, nmo_func, coherency_func, gather_data, times, offsets, velocities, 
+                              sample_rate, win_size):
         """Parallelized and njitted method for vertical velocity semblance calculation.
         Parameters
         ----------
@@ -406,10 +389,10 @@ class Coherency(BaseCoherency):
         """
         semblance = np.empty((len(gather_data), len(velocities)), dtype=np.float32)
         # TODO: use prange when fixed in numba
-        for j in range(len(velocities)):  # pylint: disable=consider-using-enumerate
+        for j in prange(len(velocities)):  # pylint: disable=consider-using-enumerate
             semblance[:, j] = semblance_func(nmo_func=nmo_func, coherency_func=coherency_func, gather_data=gather_data, times=times, offsets=offsets,
                                              velocity=velocities[j], sample_rate=sample_rate, win_size=win_size,
-                                             t_min_ix=0, t_max_ix=len(gather_data), ix=ix, split=split)
+                                             t_min_ix=0, t_max_ix=len(gather_data))
         return semblance
 
     def _plot(self, stacking_velocity=None, *, title="Semblance", x_ticker=None, y_ticker=None, grid=False,
@@ -570,7 +553,7 @@ class ResidualCoherency(BaseCoherency):
     residual_semblance : 2d np.ndarray
          Array with calculated residual vertical velocity semblance values.
     """
-    def __init__(self, gather, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2, mode='semblance', split=False):
+    def __init__(self, gather, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2, mode='semblance'):
         super().__init__(gather, win_size, mode)
         self.stacking_velocity = stacking_velocity
         self.relative_margin = relative_margin
@@ -588,7 +571,7 @@ class ResidualCoherency(BaseCoherency):
                                                                  velocities=velocities_ms,
                                                                  left_bound_ix=left_bound_ix,
                                                                  right_bound_ix=right_bound_ix,
-                                                                 sample_rate=self.sample_rate, win_size=self.win_size, ix=self.ix, split=split)
+                                                                 sample_rate=self.sample_rate, win_size=self.win_size)
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
@@ -622,7 +605,7 @@ class ResidualCoherency(BaseCoherency):
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_res_semblance_numba(semblance_func, nmo_func, coherency_func, gather_data, times, offsets, velocities, left_bound_ix,
-                                  right_bound_ix, sample_rate, win_size, ix, split):
+                                  right_bound_ix, sample_rate, win_size):
         """Parallelized and njitted method for residual vertical velocity semblance calculation.
         Parameters
         ----------
@@ -653,7 +636,7 @@ class ResidualCoherency(BaseCoherency):
                                                                     times=times, offsets=offsets,
                                                                     velocity=velocities[i], sample_rate=sample_rate,
                                                                     win_size=win_size, t_min_ix=t_min_ix,
-                                                                    t_max_ix=t_max_ix+1, ix=ix, split=split)
+                                                                    t_max_ix=t_max_ix+1)
 
         # Interpolate semblance to get a rectangular image
         semblance_len = (right_bound_ix - left_bound_ix).max()

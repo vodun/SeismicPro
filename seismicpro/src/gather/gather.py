@@ -760,7 +760,7 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", copy_src=False)
-    def calculate_coherency(self, velocities, win_size=25, mode="semblance", split=False):
+    def calculate_coherency(self, velocities, win_size=25, mode="semblance"):
         """Calculate vertical velocity semblance for the gather.
 
         Notes
@@ -787,7 +787,7 @@ class Gather(TraceContainer, SamplesContainer):
             Calculated vertical velocity semblance.
         """
         gather = self.copy().sort(by="offset")
-        return Coherency(gather=gather, velocities=velocities, win_size=win_size, mode=mode, split=split)
+        return Coherency(gather=gather, velocities=velocities, win_size=win_size, mode=mode)
         
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
