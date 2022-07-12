@@ -252,13 +252,6 @@ class RefractorVelocity:
     def __getattr__(self, key):
         return self.params[key]
 
-    def __getitem__(self, value):
-        """Return ndarray with i-th refractor parameters (start offset, end offset, velocity). Starts from 0."""
-        if value >= self.n_refractors:
-            raise IndexError(f"Index {value} is out of bounds.")
-        velocity = self.params.get(f"v{value + 1}", None)
-        return np.hstack([self.piecewise_offsets[value:value + 2], velocity])
-
     def has_coords(self):
         """bool: Whether RefractorVelocity coords are not None."""
         return self.coords is not None
@@ -393,10 +386,10 @@ class RefractorVelocity:
         lin_reg = SGDRegressor(loss='huber', penalty=None, shuffle=True, epsilon=.1, eta0=0.1, alpha=0.01, tol=1e-6,
                                max_iter=1000, learning_rate='optimal')
         lin_reg.fit(x, y, coef_init=start_slope, intercept_init=start_time)
-        return lin_reg.coef_[0], lin_reg.intercept_, lin_reg.n_iter_
+        return lin_reg.coef_[0], lin_reg.intercept_
 
     def _standart_scaler(self, data):
-        """1d minmax scaller to [left, right] interval."""
+        """Standart scaler to zero mean."""
         cur_mean, cur_std = data.mean(), data.std()
         data_scaled = (data - cur_mean) / cur_std
         return data_scaled, cur_mean, cur_std
