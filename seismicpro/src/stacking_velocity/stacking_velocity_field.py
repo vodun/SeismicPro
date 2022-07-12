@@ -1,5 +1,5 @@
-"""Implements a VelocityCube class which stores stacking velocities calculated at different field locations and allows
-for spatial velocity interpolation"""
+"""Implements a StackingVelocityField class which stores stacking velocities calculated at different field locations
+and allows for spatial velocity interpolation"""
 
 import os
 
@@ -9,67 +9,50 @@ from sklearn.neighbors import NearestNeighbors
 
 from .stacking_velocity import StackingVelocity
 from .metrics import VELOCITY_QC_METRICS, StackingVelocityMetric
-from ..field import VFUNCField
+from ..field import ValuesAgnosticField, VFUNCFieldMixin
 from ..utils import to_list, IDWInterpolator
 
 
-class StackingVelocityField(VFUNCField):
+class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
     """A class for storing and interpolating stacking velocity data over a field.
 
     Velocities used for seismic cube stacking are usually picked on a sparse grid of inlines and crosslines and then
     interpolated over the whole field in order to reduce computational costs. Such interpolation can be performed by
-    `VelocityCube` class which provides an interface to obtain a stacking velocity at given spatial coordinates via its
-    `__call__` method. The cube can either be loaded from a file of vertical functions or created empty and iteratively
-    updated with calculated stacking velocities.
+    `StackingVelocityField` class which provides an interface to obtain a stacking velocity at given spatial
+    coordinates via its `__call__` method.
 
-    After all velocities are added, velocity interpolator should be created. It can be done either manually by
-    calling :func:`~VelocityCube.create_interpolator` method or automatically during the first call to the cube. Manual
-    interpolator creation is useful when the cube should be passed to different processes (e.g. in a pipeline with
-    prefetch with `mpc` target) since otherwise the interpolator will be independently created in all the processes.
+    The field can either be loaded from a file of vertical functions or created empty and iteratively updated with
+    calculated stacking velocities. After all velocities are added, velocity interpolator should be created by calling
+    :func:`~StackingVelocityField.create_interpolator` method.
 
-    The cube provides an interface to quality control via its `qc` method, which calculates maps for several
+    The field provides an interface to its quality control via `qc` method, which calculates maps for several
     spatial-window-based metrics calculated for its stacking velocities evaluated at passed times. These maps may be
-    interactively visualized to evaluate the cube quality in detail.
+    interactively visualized to assess the field quality in detail.
 
     Examples
     --------
-    The cube can either be loaded from a file:
-    >>> cube = VelocityCube(path=cube_path)
+    A field can be created empty and updated with instances of `StackingVelocity` class:
+    >>> field = StackingVelocityField()
+    >>> velocity = StackingVelocity(times=[0, 1000, 2000, 3000], velocities=[1500, 2000, 2800, 3400],
+    ...                             coords=Coordinates((20, 40), names=("INLINE_3D", "CROSSLINE_3D")))
+    >>> field.update(velocity)
 
-    Or created empty and updated with instances of `StackingVelocity` class:
-    >>> cube = VelocityCube()
-    >>> velocity = StackingVelocity.from_points(times=[0, 1000, 2000, 3000], velocities=[1500, 2000, 2800, 3400],
-    ...                                         inline=20, crossline=40)
-    >>> cube.update(velocity)
+    Or created from precalculated instances:
+    >>> field = StackingVelocityField(list_of_stacking_velocities)
 
-    Cube creation must be finalized with `create_interpolator` method call:
-    >>> cube.create_interpolator("idw")
+    Or simply loaded from a file of vertical functions:
+    >>> field = StackingVelocityField.from_file(path)
+
+    Field construction must be finalized with `create_interpolator` method call:
+    >>> field.create_interpolator("idw")
 
     Now the field allows for velocity interpolation at given coordinates:
-    >>> ...
+    >>> velocity = field((10, 10))
 
     Quality control can be performed by calling `qc` method and visualizing the resulting maps:
-    >>> metrics_maps = cube.qc(win_radius=40, times=np.arange(0, 3000, 2))
+    >>> metrics_maps = cube.qc(radius=40, times=np.arange(0, 3000, 2))
     >>> for metric_map in metrics_maps:
     >>>     metric_map.plot(interactive=True)
-
-    Parameters
-    ----------
-    path : str, optional
-        A path to the source file with vertical functions to load the cube from. If not given, an empty cube is
-        created.
-    create_interpolator : bool, optional, defaults to True
-        Whether to create an interpolator immediately if the cube is loaded from a file.
-
-    Attributes
-    ----------
-    stacking_velocities_dict : dict
-        A dict of stacking velocities in the cube whose keys are tuples with their spatial coordinates and values are
-        the instances themselves.
-    interpolator : VelocityInterpolator
-        Velocity interpolator over the field.
-    is_dirty_interpolator : bool
-        Whether the cube was updated after the interpolator was created.
     """
     item_class = StackingVelocity
 
@@ -81,22 +64,22 @@ class StackingVelocityField(VFUNCField):
 
     def smooth(self, radius):
         smoothing_interpolator = IDWInterpolator(self.coords, radius=radius, dist_transform=0)
-        weighted_coords = smoothing_interpolator.get_weighted_coords(self.coords)
+        weights = smoothing_interpolator.get_weights(self.coords)
         items_coords = [item.coords for item in self.item_container.values()]
-        smoothed_items = self.weighted_coords_to_items(weighted_coords, items_coords)
+        smoothed_items = self.weights_to_items(weights, items_coords)
         return type(self)(survey=self.survey, is_geographic=self.is_geographic).update(smoothed_items)
 
     def interpolate(self, coords, times):
         self.validate_interpolator()
         field_coords, _, _ = self.transform_coords(coords)
         times = np.atleast_1d(times)
-        weighted_coords = self.interpolator.get_weighted_coords(field_coords)
-        base_velocities_coords = set.union(*[set(coord_weights.keys()) for coord_weights in weighted_coords])
+        weights = self.interpolator.get_weights(field_coords)
+        base_velocities_coords = set.union(*[set(weights_dict.keys()) for weights_dict in weights])
         base_velocities = {coords: self.item_container[coords](times) for coords in base_velocities_coords}
 
         res = np.zeros((len(field_coords), len(times)))
-        for i, coord_weights in enumerate(weighted_coords):
-            for coord, weight in coord_weights.items():
+        for i, weights_dict in enumerate(weights):
+            for coord, weight in weights_dict.items():
                 res[i] += base_velocities[coord] * weight
         return res
 

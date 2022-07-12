@@ -1,3 +1,35 @@
+"""Implements Field class - a container of objects of a particular type at different field locations which allows for
+their spatial interpolation at given coordinates.
+
+Usually a field is created empty and then iteratively populated with items by calling its `update` method. Each item
+being added must have type, defined in the `item_class` attribute of the field class. The only requirement for the
+`item_class` is that its instances must have `coords` attribute, containing their spatial coordinates as `Coordinates`
+objects. After all items are added, field construction must be finalized by calling `create_interpolator` method which
+makes the field callable: now it's able to perform interpolation of items at unknown locations.
+
+The following child classes of `Field` are implemented to cover main types of interpolators being used:
+- `SpatialField` - constructs `SpatialInterpolator` and thus requires each item to be convertible to a numeric vector,
+- `ValuesAgnosticField` - constructs `ValuesAgnosticInterpolator` which utilizes only information about coordinates. In
+  this case the field should be provided with a way to create an instance of `item_class` by averaging other instances
+  with given weights.
+You can read more about these types of interpolators and cases when one of them is preferable in
+:mod:`~utils.interpolation.spatial` docs.
+
+In order to implement a new field one needs to select the appropriate field type, inherit a new class from it and
+redefine the following attributes and methods:
+- If the base class is `SpatialField`:
+    - Set a type of field items to the `item_class` attribute of the field class,
+    - Define `values` property which returns a 2d `np.ndarray` with shape (n_items, n_values) with values being
+      interpolated for each item in the order they appear in `item_container.values()`,
+    - Optionally redefine `_interpolate` method if some post-processing of interpolated values is required, by default
+      it simply evaluates the field interpolator at the requested coordinates,
+    - Define `construct_item` method which creates a new instance of `item_class` from its values.
+- If the base class is `ValuesAgnosticField`:
+    - Set a type of field items to the `item_class` attribute of the field class,
+    - Define `construct_item` method which creates a new instance of `item_class` by averaging a list of objects of the
+      same type with given weights.
+"""
+
 import warnings
 
 import numpy as np
@@ -84,11 +116,37 @@ class Field:
         return coords_arr, coords, is_1d_coords
 
     def update(self, items):
+        """Add given items to the field.
+
+        Notes
+        -----
+        All passed items must have not-None coordinates.
+
+        Parameters
+        ----------
+        items : self.item_class or list of self.item_class
+            Items to update the cube with.
+
+        Returns
+        -------
+        self : Field
+            `self` with added items. Changes `item_container` inplace and sets the `is_dirty_interpolator` flag to
+            `True` if passed `items` list is not empty.
+
+        Raises
+        ------
+        TypeError
+            If wrong type of items were found.
+        ValueError
+            If any of the passed items has `None` coordinates.
+        """
         items = to_list(items)
         if not items:
             return self
         if not all(isinstance(item, self.item_class) for item in items):
             raise TypeError(f"The field can be updated only with instances of {self.item_class} class")
+        if any(item.coords is None for item in items):
+            raise ValueError("The field can be updated only with instances with well-defined coordinates")
 
         # Infer is_geographic and coords_cols during the first update
         is_geographic = self.is_geographic
@@ -144,10 +202,13 @@ class SpatialField(Field):
         }
         return interpolators
 
+    def _interpolate(self, coords):
+        return self.interpolator(coords)
+
     def interpolate(self, coords):
         self.validate_interpolator()
         field_coords, _, is_1d_coords = self.transform_coords(coords)
-        values = self.interpolator(field_coords)
+        values = self._interpolate(field_coords)
         if is_1d_coords:
             return values[0]
         return values
@@ -157,7 +218,7 @@ class SpatialField(Field):
         raise NotImplementedError
 
     def construct_items(self, field_coords, items_coords):
-        values = self.interpolator(field_coords)
+        values = self._interpolate(field_coords)
         return [self.construct_item(vals, coords) for vals, coords in zip(values, items_coords)]
 
 
@@ -175,30 +236,68 @@ class ValuesAgnosticField(Field):
         """None: ValuesAgnosticField does not require values to be passed to the interpolator class."""
         return None
 
-    def construct_item(self, base_items, weights, coords):
-        _ = base_items, weights, coords
+    def construct_item(self, items, weights, coords):
+        _ = items, weights, coords
         raise NotImplementedError
 
-    def weighted_coords_to_items(self, weighted_coords, items_coords):
-        items = []
-        for base_coords_weights, ret_coords in zip(weighted_coords, items_coords):
-            base_items = [self.item_container[coords] for coords in base_coords_weights.keys()]
-            weights = list(base_coords_weights.values())
-            items.append(self.construct_item(base_items, weights, ret_coords))
-        return items
+    def weights_to_items(self, coords_weights, items_coords):
+        res_items = []
+        for weights_dict, ret_coords in zip(coords_weights, items_coords):
+            items = [self.item_container[coords] for coords in weights_dict.keys()]
+            weights = list(weights_dict.values())
+            res_items.append(self.construct_item(items, weights, ret_coords))
+        return res_items
 
     def construct_items(self, field_coords, items_coords):
-        weighted_coords = self.interpolator.get_weighted_coords(field_coords)
-        return self.weighted_coords_to_items(weighted_coords, items_coords)
+        coords_weights = self.interpolator.get_weights(field_coords)
+        return self.weights_to_items(coords_weights, items_coords)
 
 
-class VFUNCField(ValuesAgnosticField):
+class VFUNCFieldMixin:
+    """A mixing that defines methods to load and dump a field to a Paradigm Echos VFUNC format. Requires `items_class`
+    to be a subclass of `VFUNC`."""
+
     @classmethod
     def from_file(cls, path, coords_cols=("INLINE_3D", "CROSSLINE_3D"), encoding="UTF-8", survey=None):
+        """Init a field from a file with vertical functions in Paradigm Echos VFUNC format.
+
+        The file may have one or more records with the following structure:
+        VFUNC [coord_x] [coord_y]
+        [x1] [y1] [x2] [y2] ... [xn] [yn]
+
+        Parameters
+        ----------
+        path : str
+            A path to the file.
+        coords_cols : tuple with 2 elements, optional, defaults to ("INLINE_3D", "CROSSLINE_3D")
+            Names of SEG-Y trace headers representing coordinates of the VFUNCs.
+        encoding : str, optional, defaults to "UTF-8"
+            File encoding.
+        survey : Survey, optional
+            Survey whose items are stored in the field.
+
+        Returns
+        -------
+        field : Field
+            Constructed field.
+        """
         vfunc_data = read_vfunc(path, coords_cols=coords_cols, encoding=encoding)
         items = [cls.item_class(data_x, data_y, coords=coords) for coords, data_x, data_y in vfunc_data]
         return cls(items, survey=survey)
 
     def dump(self, path, encoding="UTF-8"):
+        """Dump all items of the field to a file in Paradigm Echos VFUNC format.
+
+        Notes
+        -----
+        See more about the format in :func:`~utils.file_utils.dump_vfunc`.
+
+        Parameters
+        ----------
+        path : str
+            A path to the created file.
+        encoding : str, optional, defaults to "UTF-8"
+            File encoding.
+        """
         vfunc_data = [(coords, item.data_x, item.data_y) for coords, item in self.item_container.items()]
         dump_vfunc(path, vfunc_data, encoding=encoding)
