@@ -2,29 +2,28 @@
 
 import numpy as np
 
-from ..utils.interpolation import interp1d
-from ..utils import read_single_vfunc, dump_vfunc, Coordinates
+from ..utils import to_list, VFUNC
 
 
-class StackingVelocity:
+class StackingVelocity(VFUNC):
     """A class representing stacking velocity at a certain point of a field.
 
     Stacking velocity is the value of the seismic velocity obtained from the best fit of the traveltime curve by a
     hyperbola for each timestamp. It is used to correct the arrival times of reflection events in the traces for their
     varying offsets prior to stacking.
 
-    It can be created from four different types of data by calling a corresponding `classmethod`:
-    * `from_points` - create a stacking velocity from 1d arrays of times and velocities,
-    * `from_file` - create a stacking velocity from a file in VFUNC format with time-velocity pairs,
-    * `from_interpolator` - create a stacking velocity from a callable that returns velocity value by given time,
-    * `from_constant_velocity` - create a stacking velocity which returns a single value for all times.
+    It can be instantiated directly by passing arrays of times and velocities defining knots of a piecewise linear
+    velocity function or created from other types of data by calling a corresponding `classmethod`:
+    * `from_file` - from a file in VFUNC format with time-velocity pairs,
+    * `from_constant_velocity` - from a single velocity returned for all times,
+    * `from_stacking_velocities` - from other stacking velocities with given weights.
 
     However, usually a stacking velocity instance is not created directly, but is obtained as a result of calling the
     following methods:
     * :func:`~semblance.Semblance.calculate_stacking_velocity` - to run an automatic algorithm for stacking velocity
-      computation,
-    * :func:`VelocityCube.__call__` - to interpolate a stacking velocity at passed field coordinates given a created or
-      loaded velocity cube.
+      computation by vertical velocity semblance,
+    * :func:`StackingVelocityField.__call__` - to interpolate a stacking velocity at passed field coordinates given a
+      created or loaded velocity field.
 
     The resulting object is callable and returns stacking velocities for given times.
 
@@ -36,192 +35,100 @@ class StackingVelocity:
     >>> semblance = gather.calculate_semblance(velocities=np.linspace(1400, 5000, 200), win_size=8)
     >>> velocity = semblance.calculate_stacking_velocity()
 
-    Or it can be interpolated from a velocity cube (loaded from a file in this case):
-    >>> cube = VelocityCube(path=cube_path).create_interpolator()
-    >>> velocity = cube(inline, crossline)
+    Or it can be interpolated from a velocity field (loaded from a file in this case):
+    >>> field = StackingVelocityField.from_file(field_path).create_interpolator("idw")
+    >>> coords = (inline, crossline)
+    >>> velocity = field(coords)
+
+    Parameters
+    ----------
+    times : 1d array-like
+        An array with time values for which stacking velocity was picked. Measured in milliseconds.
+    velocities : 1d array-like
+        An array with stacking velocity values, matching the length of `times`. Measured in meters/seconds.
+    coords : Coordinates or None, optional, defaults to None
+        Spatial coordinates of the stacking velocity. If not given, the created instance won't be able to be added to a
+        `StackingVelocityField`.
 
     Attributes
     ----------
+    data_x : 1d np.ndarray
+        An array with time values for which stacking velocity was picked. Measured in milliseconds.
+    data_y : 1d np.ndarray
+        An array with stacking velocity values, matching the length of `data_x`. Measured in meters/seconds.
     interpolator : callable
         An interpolator returning velocity value by given time.
-    times : 1d array-like
-        An array with time values for which stacking velocity was picked. Measured in milliseconds. Can be `None` if
-        the instance was created from interpolator.
-    velocities : 1d array-like
-        An array with stacking velocity values, matching the length of `times`. Measured in meters/seconds. Can be
-        `None` if the instance was created from interpolator.
-    inline : int
-        An inline of the stacking velocity. If `None`, the created instance won't be able to be added to a
-        `VelocityCube`.
-    crossline : int
-        A crossline of the stacking velocity. If `None`, the created instance won't be able to be added to a
-        `VelocityCube`.
+    coords : Coordinates or None
+        Spatial coordinates of the stacking velocity.
     """
-    def __init__(self):
-        self.interpolator = lambda times: np.zeros_like(times, dtype=np.float32)
-        self.times = None
-        self.velocities = None
-        self.inline = None
-        self.crossline = None
+    def __init__(self, times, velocities, coords=None):
+        super().__init__(times, velocities, coords=coords)
 
-    @classmethod
-    def from_points(cls, times, velocities, inline=None, crossline=None):
-        """Init stacking velocity from arrays of times and corresponding velocities.
+    @property
+    def times(self):
+        """1d np.ndarray: An array with time values for which stacking velocity was picked. Measured in
+        milliseconds."""
+        return self.data_x
 
-        The resulting object performs linear velocity interpolation between points given. Linear extrapolation is
-        performed outside of the defined times range.
+    @property
+    def velocities(self):
+        """1d np.ndarray: An array with stacking velocity values, matching the length of `times`. Measured in
+        meters/seconds."""
+        return self.data_y
 
-        Parameters
-        ----------
-        times : 1d array-like
-            An array with time values for which stacking velocity was picked. Measured in milliseconds.
-        velocities : 1d array-like
-            An array with stacking velocity values, matching the length of `times`. Measured in meters/seconds.
-        inline : int, optional, defaults to None
-            An inline of the created stacking velocity. If `None`, the created instance won't be able to be added to a
-            `VelocityCube`.
-        crossline : int, optional, defaults to None
-            A crossline of the created stacking velocity. If `None`, the created instance won't be able to be added to
-            a `VelocityCube`.
-
-        Returns
-        -------
-        self : StackingVelocity
-            Created stacking velocity instance.
-
-        Raises
-        ------
-        ValueError
-            If shapes of `times` and `velocities` are inconsistent or some velocity values are negative.
-        """
-        times = np.array(times, dtype=np.float32)
-        velocities = np.array(velocities, dtype=np.float32)
-        if times.ndim != 1 or times.shape != velocities.shape:
-            raise ValueError("Inconsistent shapes of times and velocities")
-        if (velocities < 0).any():
+    def validate_data(self):
+        """Validate whether `times` and `velocities` are 1d arrays of the same shape and all stacking velocities are
+        positive."""
+        super().validate_data()
+        if (self.velocities < 0).any():
             raise ValueError("Velocity values must be positive")
-        self = cls.from_interpolator(interp1d(times, velocities), inline, crossline)
-        self.times = times
-        self.velocities = velocities
-        return self
 
     @classmethod
-    def from_file(cls, path):
-        """Init stacking velocity from a file with vertical functions in Paradigm Echos VFUNC format.
-
-        The file must have exactly one record with the following structure:
-        VFUNC [inline] [crossline]
-        [time_1] [velocity_1] [time_2] [velocity_2] ... [time_n] [velocity_n]
-
-        The resulting object performs linear velocity interpolation between points given. Linear extrapolation is
-        performed outside of the defined times range.
+    def from_stacking_velocities(cls, velocities, weights=None, coords=None):
+        """Init stacking velocity by averaging other stacking velocities with given weights.
 
         Parameters
         ----------
-        path : str
-            A path to the source file.
-
-        Returns
-        -------
-        self : StackingVelocity
-            Loaded stacking velocity instance.
-        """
-        inline, crossline, times, velocities = read_single_vfunc(path)
-        return cls.from_points(times, velocities, inline, crossline)
-
-    @classmethod
-    def from_interpolator(cls, interpolator, inline=None, crossline=None):
-        """Init stacking velocity from velocity interpolator.
-
-        Parameters
-        ----------
-        interpolator : callable
-            An interpolator returning velocity value by given time.
-        inline : int, optional, defaults to None
-            An inline of the created stacking velocity. If `None`, the created instance won't be able to be added to a
-            `VelocityCube`.
-        crossline : int, optional, defaults to None
-            A crossline of the created stacking velocity. If `None`, the created instance won't be able to be added to
-            a `VelocityCube`.
+        velocities : StackingVelocity or list of StackingVelocity
+            Stacking velocities to be aggregated.
+        weights : float or list of floats or None, optional, defaults to None
+            Weight of each item in `velocities`. If not given, equal weights are assigned to all items and thus mean
+            stacking velocity is calculated.
+        coords : Coordinates or None, optional, defaults to None
+            Spatial coordinates of the created stacking velocity. If not given, the created instance won't be able to
+            be added to a `StackingVelocityField`.
 
         Returns
         -------
         self : StackingVelocity
             Created stacking velocity instance.
         """
-        self = cls()
-        self.interpolator = interpolator
-        self.inline = inline
-        self.crossline = crossline
-        return self
+        velocities = to_list(velocities)
+        if weights is None:
+            weights = np.ones_like(velocities) / len(velocities)
+        weights = np.array(weights)
+        times = np.unique(np.concatenate([vel.times for vel in velocities]))
+        velocities = (np.stack([vel(times) for vel in velocities]) * weights[:, None]).sum(axis=0)
+        return cls(times, velocities, coords=coords)
 
     @classmethod
-    def from_constant_velocity(cls, velocity, inline=None, crossline=None):
+    def from_constant_velocity(cls, velocity, coords=None):
         """Init stacking velocity from a single velocity returned for all times.
 
         Parameters
         ----------
         velocity : float
-            A single velocity returned for all times.
-        inline : int, optional, defaults to None
-            An inline of the created stacking velocity. If `None`, the created instance won't be able to be added to a
-            `VelocityCube`.
-        crossline : int, optional, defaults to None
-            A crossline of the created stacking velocity. If `None`, the created instance won't be able to be added to
-            a `VelocityCube`.
+            Stacking velocity returned for all times.
+        coords : Coordinates or None, optional, defaults to None
+            Spatial coordinates of the created stacking velocity. If not given, the created instance won't be able to
+            be added to a `StackingVelocityField`.
 
         Returns
         -------
         self : StackingVelocity
             Created stacking velocity instance.
         """
-        interpolator = interp1d([0, 10000], [velocity, velocity])
-        return cls.from_interpolator(interpolator, inline=inline, crossline=crossline)
-
-    def dump(self, path):
-        """Dump stacking velocities to a file in VFUNC format.
-
-        Notes
-        -----
-        See more about the format in :func:`~utils.file_utils.dump_vfunc`.
-
-        Parameters
-        ----------
-        path : str
-            A path to the created file.
-        """
-        if not self.has_coords or not self.has_points:
-            raise ValueError("StackingVelocity instance can be dumped only if it was created from time and velocity "
-                             "pairs with not-None inline and crossline")
-        dump_vfunc(path, [(self.inline, self.crossline, self.times, self.velocities)])
-
-    @property
-    def has_points(self):
-        """bool: Whether the instance was created from time and velocity pairs."""
-        return (self.times is not None) and (self.velocities is not None)
-
-    @property
-    def has_coords(self):
-        """bool: Whether stacking velocity inline and crossline are not-None."""
-        return (self.inline is not None) and (self.crossline is not None)
-
-    def get_coords(self, *args, **kwargs):
-        """Get spatial coordinates of the stacking velocity.
-
-        Ignores all passed arguments but accept them to preserve general `get_coords` interface.
-
-        Returns
-        -------
-        coords : Coordinates
-            Stacking velocity spatial coordinates.
-        """
-        _ = args, kwargs
-        return Coordinates(self.inline, self.crossline, names=["INLINE_3D", "CROSSLINE_3D"])
-
-    @property
-    def coords(self):
-        """Coordinates: Spatial coordinates of the stacking velocity."""
-        return self.get_coords()
+        return cls([0, 10000], [velocity, velocity], coords=coords)
 
     def __call__(self, times):
         """Return stacking velocities for given `times`.
@@ -233,7 +140,7 @@ class StackingVelocity:
 
         Returns
         -------
-        velocities : 1d array-like
+        velocities : 1d np.ndarray
             An array with stacking velocity values, matching the length of `times`. Measured in meters/seconds.
         """
-        return np.maximum(self.interpolator(times), 0)
+        return np.maximum(super().__call__(times), 0)
