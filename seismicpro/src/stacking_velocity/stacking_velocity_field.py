@@ -18,16 +18,19 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
 
     Velocities used for seismic cube stacking are usually picked on a sparse grid of inlines and crosslines and then
     interpolated over the whole field in order to reduce computational costs. Such interpolation can be performed by
-    `StackingVelocityField` class which provides an interface to obtain a stacking velocity at given spatial
-    coordinates via its `__call__` method.
+    `StackingVelocityField` class which provides an interface to obtain stacking velocity at given spatial coordinates
+    via its `__call__` method.
 
-    The field can either be loaded from a file of vertical functions or created empty and iteratively updated with
-    calculated stacking velocities. After all velocities are added, velocity interpolator should be created by calling
-    :func:`~StackingVelocityField.create_interpolator` method.
+    A field can be populated with stacking velocities in 3 main ways:
+    - by passing precalculated velocities in the `__init__`,
+    - by creating an empty field and then iteratively updating it with calculated stacking velocities using `update`,
+    - by loading a field from a file of vertical functions via its `from_file` `classmethod`.
+    After all velocities are added, an interpolator must be created by running `create_interpolator` method to make the
+    field callable.
 
-    The field provides an interface to its quality control via `qc` method, which calculates maps for several
-    spatial-window-based metrics calculated for its stacking velocities evaluated at passed times. These maps may be
-    interactively visualized to assess the field quality in detail.
+    The field provides an interface to its quality control via `qc` method, which returns maps for several
+    spatial-window-based metrics calculated for its stacking velocities. These maps may be interactively visualized to
+    assess field quality in detail.
 
     Examples
     --------
@@ -53,16 +56,73 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
     >>> metrics_maps = cube.qc(radius=40, times=np.arange(0, 3000, 2))
     >>> for metric_map in metrics_maps:
     >>>     metric_map.plot(interactive=True)
+
+    Parameters
+    ----------
+    items : StackingVelocity or list of StackingVelocity, optional
+        Stacking velocities to be added to the field on instantiation. If not given, an empty field is created.
+    survey : Survey, optional
+        A survey the field is describing.
+    is_geographic : bool, optional
+        Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
+        CROSSLINE_3D)). Inferred automatically on the first update if not given.
+
+    Attributes
+    ----------
+    survey : Survey or None
+        A survey the field is describing. `None` if not specified during instantiation.
+    item_container : dict
+        A mapping from coordinates of field items as 2-element tuples to the items themselves.
+    is_geographic : bool
+        Whether coordinate system of the field is geographic. `None` for an empty field if was not specified during
+        instantiation.
+    coords_cols : tuple with 2 elements or None
+        Names of SEG-Y trace headers representing coordinates of items in the field. `None` if names of coordinates are
+        mixed or the field is empty.
+    interpolator : SpatialInterpolator or None
+        Field data interpolator.
+    is_dirty_interpolator : bool
+        Whether the field was updated after the interpolator was created.
     """
     item_class = StackingVelocity
 
-    def construct_item(self, base_items, weights, coords):
-        return self.item_class.from_stacking_velocities(base_items, weights, coords=coords)
+    def construct_item(self, items, weights, coords):
+        """Construct a new stacking velocity by averaging other stacking velocities with corresponding weights.
 
-    def get_mean_velocity(self):
+        Parameters
+        ----------
+        items : list of StackingVelocity
+            Stacking velocities to be aggregated.
+        weights : list of float
+            Weight of each item in `items`.
+        coords : Coordinates
+            Spatial coordinates of a stacking velocity being constructed.
+
+        Returns
+        -------
+        item : StackingVelocity
+            Constructed stacking velocity instance.
+        """
+        return self.item_class.from_stacking_velocities(items, weights, coords=coords)
+
+    @property
+    def mean_velocity(self):
+        """StackingVelocity: Mean stacking velocity over the field."""
         return self.item_class.from_stacking_velocities(list(self.item_container.values()))
 
     def smooth(self, radius):
+        """Smooth the field by averaging its stacking velocities within given radius.
+
+        Parameters
+        ----------
+        radius : positive float
+            Spatial window radius (Euclidean distance).
+
+        Returns
+        -------
+        field : StackingVelocityField
+            Smoothed field.
+        """
         smoothing_interpolator = IDWInterpolator(self.coords, radius=radius, dist_transform=0)
         weights = smoothing_interpolator.get_weights(self.coords)
         items_coords = [item.coords for item in self.item_container.values()]
@@ -70,6 +130,24 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
         return type(self)(survey=self.survey, is_geographic=self.is_geographic).update(smoothed_items)
 
     def interpolate(self, coords, times):
+        """Interpolate stacking velocities at given `coords` and `times`.
+
+        Interpolation over a regular grid of times allows implementing a much more efficient computation strategy than
+        simply iteratively calling the interpolator for each of `coords` and than evaluating the obtained stacking
+        velocities at `times`.
+
+        Parameters
+        ----------
+        coords : 2d np.array or list of Coordinates
+            Coordinates to interpolate stacking velocities at.
+        times : 1d array-like
+            Times to interpolate stacking velocities at.
+
+        Returns
+        -------
+        velocities : 2d np.ndarray
+            Interpolated stacking velocities at given `coords` and `times`. Has shape (n_coords, n_times).
+        """
         self.validate_interpolator()
         field_coords, _, _ = self.transform_coords(coords)
         times = np.atleast_1d(times)
@@ -83,12 +161,13 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
                 res[i] += base_velocities[coord] * weight
         return res
 
+    #pylint: disable-next=invalid-name
     def qc(self, radius, metrics=None, coords=None, times=None, n_workers=None, bar=True):
         """Perform quality control of the velocity field by calculating spatial-window-based metrics for its stacking
         velocities evaluated at given `coords` and `times`.
 
-        If `coords` are not given, coordinates of items in the field are used. If `times` are not given, samples of the
-        underlying `Survey` are used if it is defined.
+        If `coords` are not given, coordinates of items in the field are used, but interpolation is performed as well.
+        If `times` are not given, samples of the underlying `Survey` are used if it is defined.
 
         By default, the following metrics are calculated:
         * Presence of segments with velocity decrease in time,
