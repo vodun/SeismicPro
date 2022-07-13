@@ -17,7 +17,7 @@ def read_vfunc(path, coords_cols=("INLINE_3D", "CROSSLINE_3D"), encoding="UTF-8"
     ----------
     path : str
         A path to the file.
-    coords_cols : tuple with 2 elements, defaults to ("INLINE_3D", "CROSSLINE_3D")
+    coords_cols : tuple with 2 elements, optional, defaults to ("INLINE_3D", "CROSSLINE_3D")
         Names of SEG-Y trace headers representing coordinates of the VFUNC.
     encoding : str, optional, defaults to "UTF-8"
         File encoding.
@@ -56,7 +56,7 @@ def read_single_vfunc(path, coords_cols=("INLINE_3D", "CROSSLINE_3D"), encoding=
     ----------
     path : str
         A path to the file.
-    coords_cols : tuple with 2 elements, defaults to ("INLINE_3D", "CROSSLINE_3D")
+    coords_cols : tuple with 2 elements, optional, defaults to ("INLINE_3D", "CROSSLINE_3D")
         Names of SEG-Y trace headers representing coordinates of the VFUNC.
     encoding : str, optional, defaults to "UTF-8"
         File encoding.
@@ -152,7 +152,7 @@ class VFUNC:
         ----------
         path : str
             A path to the file.
-        coords_cols : tuple with 2 elements, defaults to ("INLINE_3D", "CROSSLINE_3D")
+        coords_cols : tuple with 2 elements, optional, defaults to ("INLINE_3D", "CROSSLINE_3D")
             Names of SEG-Y trace headers representing coordinates of the VFUNC.
         encoding : str, optional, defaults to "UTF-8"
             File encoding.
