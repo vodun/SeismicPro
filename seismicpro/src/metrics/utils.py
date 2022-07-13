@@ -1,10 +1,15 @@
 """Utility functions for coordinates and metric values processing"""
 
+import warnings
+
 import numpy as np
 import scipy as sp
 import pandas as pd
 
 from numba import njit
+
+from matplotlib import pyplot as plt
+from matplotlib import colors, cm
 
 from ..utils import to_list, get_first_defined, Coordinates
 
@@ -74,6 +79,15 @@ def calc_spikes(arr):
     """Calculate spikes indicator."""
     with sp.fft.set_workers(25):
         running_mean = sp.signal.fftconvolve(arr, [[1,1,1]], mode='valid', axes=1)/3
+
+    running_mean = arr.copy()
+    running_mean[:, :-1] += arr[:, 1:]
+    running_mean[:, 1:] += arr[:, :-1]
+    running_mean /= 3
+
+
+    ### check strided.get_window 
+
     return np.abs(arr[...,1:-1] - running_mean)
 
 @njit
@@ -137,3 +151,74 @@ def get_const_subseq(traces):
             indicators[t, -counter - 1:] = counter + 1
 
     return indicators.reshape(*old_shape)
+
+
+def deb_wiggle_plot(sur, ax, arr, labels, norm_tracewize, std=0.1, **kwargs):
+
+    n_traces, n_samples = arr.shape
+
+    y_coords = np.arange(n_samples)
+
+
+    norm = colors.LogNorm(vmin=min(arr.std(axis=1))/sur.std, vmax=max(arr.std(axis=1))/sur.std)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        axis = 1 if norm_tracewize else None
+        traces = std * ((arr - np.nanmean(arr, axis=axis, keepdims=True)) /
+                        (np.nanstd(arr, axis=axis, keepdims=True) + 1e-10))
+
+    for i, (trace, label) in enumerate(zip(traces, labels)):
+        ax.plot(i + trace, y_coords, 'k', alpha=0.1, **kwargs)
+
+        rgba_color, alpha = (cm.viridis(norm(arr[i].std()/sur.std)), 0.5)
+        cbar = ax.fill_betweenx(y_coords, i, i + trace, where=(trace > 0), color=rgba_color, alpha=alpha, **kwargs)
+        ax.text(i, 0, label, size='x-small')
+        # ax.text(i, y_coords[-1]+10, f"", size='x-small')
+
+    ax.invert_yaxis()
+    ax.set_title('Trace-wise norm' if norm_tracewize else 'Batch-wise norm')
+    plt.colorbar(cm.ScalarMappable(norm=norm, cmap='viridis'), ax=ax)
+
+
+def deb_indices(sur, indices, size, mode='wiggle', select_mode='sample', title=None, figsize=(15, 7), std=0.1):
+
+    if len(indices) == 0:
+        warnings.warn('empty subset!')
+        return
+
+    size = min(size, len(indices))
+
+    if size == len(indices):
+        ind = indices
+    elif select_mode == 'sample':
+        ind = sorted(np.random.choice(indices, size=size, replace=False))
+    elif select_mode == 'subseq':
+        start_ind = np.random.choice(len(indices) - size + 1)
+        ind = indices[start_ind: start_ind + size]
+    else:
+        raise ValueError(f"mode can be only `sample` or `subset`, but {mode} recieved")
+
+    gathers = [sur.get_gather(i) for i in ind]
+    traces = np.concatenate([g.data for g in gathers], axis=0)
+
+    if mode == 'wiggle':
+        labels = ['\n'.join([str(i),
+                             str(g.headers.FieldRecord.values[-1]),
+                             str(g.headers.TraceNumber.values[-1])])
+                  for g, i in zip(gathers, ind)]
+
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
+        deb_wiggle_plot(sur, ax1, traces, labels, norm_tracewize=False, std=std)
+        deb_wiggle_plot(sur, ax2, traces, labels, norm_tracewize=True, std=std)
+    elif mode == 'imshow':
+        fig, ax = plt.subplots(figsize=figsize)
+        cv = max(np.abs(np.quantile(traces, (0.1, 0.9))))
+        ax.imshow(traces.T, vmin=-cv, vmax=cv, cmap='gray')
+
+    if title:
+        title += '\n'
+    else:
+        title = ''
+
+    fig.suptitle(title + f"{size} of {len(indices)}")
