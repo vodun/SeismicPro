@@ -43,7 +43,6 @@ def get_hodograph(gather_data, time, offsets, velocity, sample_rate, fill_value=
             hodograph[i] = gather_data[hodograph_time, i]
     return hodograph
 
-
 @njit(nogil=True)
 def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate):
     r"""Perform gather normal moveout correction with given stacking velocities for each timestamp.
@@ -86,31 +85,28 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate):
     return np.ascontiguousarray(corrected_gather_data.T)
 
 @njit(nogil=True)
-def apply_lmo(gather_data, picking_estimate, delay, fill_value):
-    """Perform gather linear moveout correction with given estimate picking for each trace.
+def apply_lmo(gather_data, trace_delays, fill_value):
+    """Perform gather linear moveout correction with given delay for each trace.
 
     Parameters
     ----------
     gather_data : 2d np.ndarray
-        Gather data to apply LMO correction to with an ordinary shape of (num_traces, trace_length).
-    picking_estimate : 1d np.ndarray
-        Estimate samples of first break picking for each traces with shape (num_traces,).
-    delay : int
-        Number of samples to substract from the result of linear moveout correction.
+        Gather data to apply LMO correction to with shape (num_traces, trace_length).
+    trace_delays : 1d np.ndarray
+        Delay in samples introduced in each trace, positive values result in shifting gather traces down.
     fill_value: float
         Value used to fill the amplitudes outside the gather bounds after moveout.
 
     Returns
     -------
     corrected_gather : 2d array
-        LMO corrected gather with an ordinary shape of (num_traces, trace_length).
+        LMO corrected gather with shape (num_traces, trace_length).
     """
     corrected_gather = np.full_like(gather_data, fill_value)
     n_traces, trace_length = gather_data.shape
-    start_lmo = np.maximum(delay - picking_estimate, 0)
-    start_raw = np.maximum(picking_estimate - delay, 0)
-    traces_length_lmo = np.maximum(trace_length - start_lmo - start_raw, 0)
     for i in range(n_traces):
-        corrected_gather[i, start_lmo[i]:start_lmo[i] + traces_length_lmo[i]] = \
-            gather_data[i, start_raw[i]:start_raw[i] + traces_length_lmo[i]]
+        if trace_delays[i] < 0:
+            corrected_gather[i, :trace_delays[i]] = gather_data[i, -trace_delays[i]:]
+        else:
+            corrected_gather[i, trace_delays[i]:] = gather_data[i, :trace_length - trace_delays[i]]
     return corrected_gather

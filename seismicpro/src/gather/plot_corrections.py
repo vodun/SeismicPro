@@ -3,9 +3,9 @@
 from functools import partial
 
 from ..stacking_velocity import StackingVelocity
-from ..weathering_velocity import WeatheringVelocity
+from ..refractor_velocity import RefractorVelocity
 from ..utils.interactive_plot_utils import InteractivePlot
-from ..utils import MissingModule
+from ..utils import MissingModule, as_dict
 
 # Safe import of modules for interactive plotting
 try:
@@ -62,10 +62,16 @@ class CorrectionPlot:
     * `get_title` - the title of the corrected view,
     * `corrected_gather` - a property returning a corrected gather.
     """
-    def __init__(self, gather, min_vel, max_vel, figsize, **kwargs):
+    def __init__(self, gather, min_vel, max_vel, figsize, show_grid=True, **kwargs):
         kwargs = {"fontsize": 8, **kwargs}
+        event_headers = kwargs.pop("event_headers", None)
+        self.event_headers = None
+        if event_headers is not None:
+            event_headers = {"process_outliers": "discard", **as_dict(event_headers, "headers")}
+            self.event_headers = event_headers["headers"]
         self.gather = gather
-        self.plotter = SlidingVelocityPlot(plot_fn=[partial(self.plot_corrected_gather, **kwargs),
+        self.plotter = SlidingVelocityPlot(plot_fn=[partial(self.plot_corrected_gather, show_grid=show_grid,
+                                                            event_headers=event_headers, **kwargs),
                                                     partial(self.gather.plot, **kwargs)],
                                            slide_fn=self.on_velocity_change, slider_min=min_vel, slider_max=max_vel,
                                            title=[self.get_title, "Source gather"], figsize=figsize)
@@ -79,9 +85,11 @@ class CorrectionPlot:
         """Gather: corrected gather."""
         raise NotImplementedError
 
-    def plot_corrected_gather(self, ax, **kwargs):
+    def plot_corrected_gather(self, ax, show_grid=True, **kwargs):
         """Plot the corrected gather."""
         self.corrected_gather.plot(ax=ax, **kwargs)
+        if show_grid:
+            ax.grid(which='major', axis='y', color='k', linestyle='--')
 
     def on_velocity_change(self, change):
         """Redraw the plot on velocity change."""
@@ -109,9 +117,6 @@ class NMOCorrectionPlot(CorrectionPlot):
 
 class LMOCorrectionPlot(CorrectionPlot):
     """Interactive LMO correction plot."""
-    def __init__(self, gather, min_vel, max_vel, figsize, **kwargs):
-        super().__init__(gather, min_vel, max_vel, figsize, **kwargs)
-        self.event_headers = None
 
     def get_title(self):
         """Get title of the LMO correction view."""
@@ -120,11 +125,5 @@ class LMOCorrectionPlot(CorrectionPlot):
     @property
     def corrected_gather(self):
         """Gather: LMO corrected gather."""
-        wv = WeatheringVelocity.from_constant(self.plotter.slider.value)
-        return self.gather.copy(ignore=["data", "samples"]).apply_lmo(wv, event_headers=self.event_headers)
-
-    def plot_corrected_gather(self, ax, **kwargs):
-        """Plot the corrected gather."""
-        self.event_headers = kwargs.get('event_headers')
-        self.corrected_gather.plot(ax=ax, y_ticker={"step_labels": 100}, **kwargs)
-        ax.grid(which='major', axis='y', color='k', linestyle='--')
+        rv = RefractorVelocity.from_constant_velocity(self.plotter.slider.value)
+        return self.gather.copy(ignore=["data", "samples"]).apply_lmo(rv, event_headers=self.event_headers)

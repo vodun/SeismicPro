@@ -9,55 +9,54 @@ from ..const import HDR_FIRST_BREAK
 class FirstBreaksOutliers(PipelineMetric):
     """Calculate the first break outliers metric.
 
-    The outlier is considered to be the first break time that stands out from the expected arrival time
-    (weathering velocity curve) for more than threshold.
+    A first break time is considered to be an outlier if it differs from the expected arrival time defined by
+    an offset-traveltime curve by more than a given threshold.
     """
-    name = "weathering_metrics"
+    name = "first_breaks_outliers"
     vmin = 0
     vmax = 0.05
     is_lower_better = True
-    views = ("plot_gather", "plot_weathering_velocity")
-    args_to_unpack = ("gather", "weathering_velocity")
+    views = ("plot_gather", "plot_refractor_velocity")
+    args_to_unpack = ("gather", "refractor_velocity")
 
     @staticmethod
-    def calc(gather, weathering_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50, **kwargs):
+    def calc(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50):
         """Calculates the first break outliers metric value.
 
-        Weathering metric calculated as a fraction of traces in the gather whose first break times differ
-        from estimated by weathering velocity model for more than `threshold_times`.
+        Returns the fraction of traces in the gather whose first break times differ from those estimated by
+        a near-surface velocity model by more than `threshold_times`.
 
         Parameters
         ----------
-        weathering_velocity : WeatheringVelocity
-            Weathering velocity used to estimate expected first break times.
-        first_breaks_col : str, defaults to HDR_FIRST_BREAK
-            Column name  from `gather.headers` where first breaking times are stored.
+        refractor_velocity : RefractorVelocity
+            RefractorVelocity used to estimate the expected first break times.
+        first_breaks_col : str, defaults to :const:`~const.HDR_FIRST_BREAK`
+            Column name from `gather.headers` where first break times are stored.
         threshold_times: float, defaults to 50
-            Threshold for the weathering metric calculation.
+            Threshold for the first breaks outliers metric calculation. Measured in milliseconds.
 
         Returns
         -------
         metric : float
-            Fraction of traces in the gather whose first break times differ from estimated by weathering velocity model
-            for more than threshold_times.
+            Fraction of traces in the gather whose first break times differ from estimated by velocity model for more
+            than `threshold_times`.
         """
-        _ = kwargs
-        metric = np.abs(weathering_velocity(gather.offsets) - gather[first_breaks_col].ravel()) > threshold_times
+        metric = np.abs(refractor_velocity(gather.offsets) - gather[first_breaks_col].ravel()) > threshold_times
         return np.mean(metric)
 
     @pass_calc_args
-    def plot_gather(cls, gather, weathering_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50, **kwargs):
+    def plot_gather(cls, gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50, **kwargs):
         """Plot the gather and the first break points."""
-        _ = weathering_velocity, threshold_times
+        _ = refractor_velocity, threshold_times
         event_headers = kwargs.pop('event_headers', {'headers': first_breaks_col})
         gather.plot(event_headers=event_headers, **kwargs)
 
     @pass_calc_args
-    def plot_weathering_velocity(cls, gather, weathering_velocity, first_breaks_col=HDR_FIRST_BREAK,
-                                 threshold_times=50, **kwargs):
-        """Plot the weathering velocity curve and show the threshold area used for metric calculation."""
+    def plot_refractor_velocity(cls, gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50,
+                                **kwargs):
+        """Plot the refractor velocity curve and show the threshold area used for metric calculation."""
         _ = gather, first_breaks_col
-        weathering_velocity.plot(threshold_times=threshold_times, **kwargs)
+        refractor_velocity.plot(threshold_times=threshold_times, **kwargs)
 
 
 class SignalLeakage(PipelineMetric):

@@ -9,6 +9,8 @@ import scipy
 import segyio
 import numpy as np
 from scipy.signal import firwin
+from matplotlib.path import Path
+from matplotlib.patches import PathPatch
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .muting import Muter
@@ -20,8 +22,8 @@ from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_ytickla
                      add_colorbar, piecewise_polynomial, Coordinates)
 from ..containers import TraceContainer, SamplesContainer
 from ..semblance import Semblance, ResidualSemblance
-from ..stacking_velocity import StackingVelocity, StackingVelocityField
-from ..weathering_velocity import WeatheringVelocity
+from ..stacking_velocity import StackingVelocity, VelocityCube
+from ..refractor_velocity import RefractorVelocity
 from ..decorators import batch_method, plotter
 from ..const import HDR_FIRST_BREAK, DEFAULT_VELOCITY
 
@@ -579,7 +581,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        first_breaks_col : str, optional, defaults to HDR_FIRST_BREAK
+        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             A column of `self.headers` that contains first arrival times, measured in milliseconds.
 
         Returns
@@ -591,7 +593,6 @@ class Gather(TraceContainer, SamplesContainer):
         gather = self.copy(ignore='data')
         gather.data = mask
         return gather
-
 
     @batch_method(target='for', args_to_unpack='save_to')
     def mask_to_pick(self, threshold=0.5, first_breaks_col=HDR_FIRST_BREAK, save_to=None):
@@ -609,7 +610,7 @@ class Gather(TraceContainer, SamplesContainer):
         ----------
         threshold : float, optional, defaults to 0.5
             A threshold for trace mask value to refer its index to be either pre- or post-first break.
-        first_breaks_col : str, optional, defaults to HDR_FIRST_BREAK
+        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Headers column to save first break times to.
         save_to : Gather, optional, defaults to None
             An extra `Gather` to save first break times to. Generally used to conveniently pass first break times from
@@ -641,7 +642,7 @@ class Gather(TraceContainer, SamplesContainer):
             Path to the file.
         trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
             Columns names from `self.headers` that act as trace id. These would be present in the file.
-        first_breaks_col : str, defaults to HDR_FIRST_BREAK
+        first_breaks_col : str, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `self.headers` where first break times are stored.
         col_space : int, defaults to 8
             The minimum width of each column.
@@ -665,53 +666,43 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target='for')
-    def calculate_weathering_velocity(self, first_breaks_col=HDR_FIRST_BREAK, init=None, bounds=None, n_layers=None,
-                                      acsending_velocities=True, freeze_t0=False, coords_cols="auto", **kwargs):
-        """Calculate the WeatheringVelocity using the offsets and first break times.
+    def calculate_refractor_velocity(self, first_breaks_col=HDR_FIRST_BREAK, init=None, bounds=None, n_refractors=None,
+                                     coords_cols="auto", **kwargs):
+        """Calculate the RefractorVelocity using the offsets and first breaks times.
 
-        Method creates a WeatheringVelocity instance, fits the parameters of weathering model (intercept time, cross
-        offsets and velocities) of first N subsurface layers and stores fitted parameters.
-        Read the WeatheringVelocity docs for a detail infomation.
+        The method fits a velocity model of the upper part of the section, read the
+        :class:`~refractor_velocity.RefractorVelocity` docs for more details about the algorithm and its parameters.
 
         Examples
         --------
-        >>> weathering_velocity = gather.calculate_weathering_velocity(n_layers=2)
-        Notes: The offsets and first break picking should be preloaded.
-               The headers corresponding to gather's coordinates should be preloaded or use `coords_cols=None`.
+        >>> refractor_velocity = gather.calculate_refractor_velocity(n_refractors=2)
 
         Parameters
         ----------
-        first_breaks_col : str, defaults to HDR_FIRST_BREAK
-            Column name from `self.headers` where first breaking times are stored.
+        first_breaks_col : str, defaults to :const:`~const.HDR_FIRST_BREAK`
+            Column name from `self.headers` where first break times are stored.
         init : dict or None, defaults to None
-            Initial values for a weathering model.
+            Initial values for a velocity model.
         bounds : dict or None, defaults to None
-            Bounds for the weathering model parameters.
-        n_layers : int or None, defaults to None
-            Number of the weathering model layers.
-        acsending_velocities : bool, defaults to True
-            Keeps the ascend of the fitted velocities from i-th layer to i+1 layer.
-        freeze_t0 : bool, defaults to False
-            Avoid the fitting intercept time ('t0').
+            Bounds for the fitted velocity model parameters.
+        n_refractors : int or None, defaults to None
+            Number of the velocity model layers.
         kwargs : dict, optional
-            Additional keyword arguments.
+            Additional keyword arguments to be passed to
+            :func:`~refractor_velocity.RefractorVelocity.from_first_breaks`.
         coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
-            Header columns to get spatial coordinates of the gather from to fetch `WeatheringVelocity` from
-            `WeatheringCube`. See :func:`~Gather.get_coords` for more details.
-            # TODO: update `WeatheringCube` naming
+            Header columns to get spatial coordinates of the gather to fetch `RefractorVelocity` from `RefractorCube`.
+            See :func:`~Gather.get_coords` for more details.
 
         Returns
         -------
-        WeatheringVelocity
-            Calculated WeatheringVelocity instance.
+        RefractorVelocity
+            Calculated RefractorVelocity instance.
         """
-        if all((param is None for param in (init, bounds, n_layers))):
-            raise ValueError("One of `init`, `bounds` or `n_layers` should be defined.")
         coords = None if coords_cols is None else self.get_coords(coords_cols)
-        return WeatheringVelocity.from_picking(offsets=self.offsets, picking_times=self[first_breaks_col].ravel(),
-                                               init=init, bounds=bounds, n_layers=n_layers,
-                                               acsending_velocities=acsending_velocities, freeze_t0=freeze_t0,
-                                               coords=coords, **kwargs)
+        return RefractorVelocity.from_first_breaks(offsets=self.offsets, fb_times=self[first_breaks_col].ravel(),
+                                                   init=init, bounds=bounds, n_refractors=n_refractors, coords=coords,
+                                                   **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #
@@ -849,19 +840,21 @@ class Gather(TraceContainer, SamplesContainer):
     #                           Gather corrections                           #
     #------------------------------------------------------------------------#
 
-    @batch_method(target="threads", args_to_unpack="weathering_velocity") # benchmark it
-    def apply_lmo(self, weathering_velocity, delay=100, fill_value=0, event_headers=None):
-        """Perform a gather linear moveout correction using the given weathering velocity.
+    @batch_method(target="threads", args_to_unpack="refractor_velocity")
+    def apply_lmo(self, refractor_velocity, delay=100, fill_value=np.nan, event_headers=None):
+        """Perform a gather linear moveout correction using the given RefractorVelocity.
 
         Parameters
         ----------
-        weathering_velocity : WeatheringVelocity
-            Weathering velocity object to perform LMO correction with.
+        refractor_velocity : RefractorVelocity
+            RefractorVelocity object to perform LMO correction with.
         delay : float, defaults to 100
-            Milliseconds to substract from the result of moveout correction. Used to center the first breaks hodograph
-            around delay instead of 0.
+            An extra delay in milliseconds introduced in each trace, positive values result in shifting gather traces
+            down. Used to center the first breaks hodograph around the delay value instead of 0.
         fill_value : float, defaults to 0
             Value used to fill the amplitudes outside the gather bounds after moveout.
+        event_headers : str, list, or None, defaults to None
+            Headers columns which will be LMO-corrected inplace.
 
         Returns
         -------
@@ -871,19 +864,19 @@ class Gather(TraceContainer, SamplesContainer):
         Raises
         ------
         ValueError
-            If `weathering_velocity` is not a `WeatheringVelocity` instance.
+            If `refractor_velocity` is not a `RefractorVelocity` instance.
         """
-        if not isinstance(weathering_velocity, WeatheringVelocity):
-            raise ValueError("Only WeatheringVelocity instances can be passed as a `weathering_velocity`")
-        event_headers = [] if event_headers is None else event_headers
-        event_headers = (set(to_list(event_headers['headers'])) if isinstance(event_headers, dict)
-                                                                else set(to_list(event_headers)))
-        fb_estimate = times_to_indices(weathering_velocity(self.offsets), self.samples, round=True).astype(int)
-        delay_indicies = times_to_indices(np.full(self.shape[0], delay), self.samples, round=True).astype(int)
-        data = correction.apply_lmo(self.data, fb_estimate, delay_indicies, fill_value)
+        if not isinstance(refractor_velocity, RefractorVelocity):
+            raise ValueError("Only RefractorVelocity instances can be passed as a `refractor_velocity`")
+        event_headers = [] if event_headers is None else to_list(event_headers)
+
+        trace_delays = delay - refractor_velocity(self.offsets)
+        data = correction.apply_lmo(self.data,
+                                    times_to_indices(trace_delays, self.samples, round=True).astype(int),
+                                    fill_value)
         self.data = data
         for header in event_headers:
-            self[header] -= (fb_estimate - delay_indicies).reshape(-1, 1) * self.sample_rate
+            self[header] += trace_delays.reshape(-1, 1)
         return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
@@ -1268,8 +1261,9 @@ class Gather(TraceContainer, SamplesContainer):
             * `norm_tracewise`: specifies whether to standardize each trace independently or use gather mean amplitude
               and standard deviation (defaults to `True`),
             * `std`: amplitude scaling factor. Higher values result in higher plot oscillations (defaults to 0.5),
-            * `color`: defines a color for each trace. If a single color is given, it is applied to all the traces
-              (defaults to black),
+            * `lw` and `alpha`: width of the lines and transparency of polygons, by default estimated
+              based on the number of traces in the gather and figure size.
+            * `color`: defines a color for traces,
             * Any additional arguments for `matplotlib.pyplot.plot`.
         - `hist`: a histogram of the trace data amplitudes or header values. This mode supports the following `kwargs`:
             * `bins`: if `int`, the number of equal-width bins; if sequence, bin edges that include the left edge of
@@ -1409,27 +1403,65 @@ class Gather(TraceContainer, SamplesContainer):
         add_colorbar(ax, img, colorbar, divider, y_ticker)
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
+    #pylint: disable=invalid-name
     def _plot_wiggle(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src="time", norm_tracewise=True,
-                     std=0.5, color="black", event_headers=None, top_header=None, **kwargs):
+                     std=0.5, event_headers=None, top_header=None, lw=None, alpha=None, color="black", **kwargs):
         """Plot the gather as an amplitude vs time plot for each trace."""
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
 
-        color = to_list(color)
-        if len(color) == 1:
-            color = color * self.n_traces
-        elif len(color) != self.n_traces:
-            raise ValueError('The number of items in `color` must match the number of plotted traces')
+        # The default parameters lw = 1 and alpha = 1 are fine for 150 traces gather being plotted on 7.75 inches width
+        # axes(by default created by gather.plot()). Scale this parameters linearly for bigger gathers or smaller axes.
+        axes_width = ax.get_window_extent().transformed(ax.figure.dpi_scale_trans.inverted()).width
 
-        y_coords = np.arange(self.n_samples)
+        MAX_TRACE_DENSITY = 150 / 7.75
+        BOUNDS = [[0.25, 1], [0, 1.5]] # The clip limits for parameters after linear scale.
+
+        alpha, lw = [np.clip(MAX_TRACE_DENSITY * (axes_width / self.n_traces), *val_bounds) if val is None else val
+                     for val, val_bounds in zip([alpha, lw], BOUNDS)]
+
         std_axis = 1 if norm_tracewise else None
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
             traces = std * ((self.data - np.nanmean(self.data, axis=1, keepdims=True)) /
                             (np.nanstd(self.data, axis=std_axis, keepdims=True) + 1e-10))
-        for i, (trace, col) in enumerate(zip(traces, color)):
-            ax.plot(i + trace, y_coords, color=col, **kwargs)
-            ax.fill_betweenx(y_coords, i, i + trace, where=(trace > 0), color=col)
+
+        # Shift trace amplitudes according to the trace index in the gather
+        amps = traces + np.arange(traces.shape[0]).reshape(-1, 1)
+        # Plot all the traces as one Line, then hide transitions between adjacanet traces
+        amps = np.concatenate([amps, np.full((len(amps), 1), np.nan)], axis=1)
+        ax.plot(amps.ravel(), np.broadcast_to(np.arange(amps.shape[1]), amps.shape).ravel(),
+                color=color, lw=lw, **kwargs)
+
+        # Find polygons bodies:  indices of target amplitudes, start and end
+        poly_amp_ix = np.argwhere(traces > 0)
+        start_ix = np.argwhere((np.diff(poly_amp_ix[:, 0], prepend=poly_amp_ix[0, 0]) != 0) |
+                               (np.diff(poly_amp_ix[:, 1], prepend=poly_amp_ix[0, 1]) != 1)).ravel()
+        end_ix = start_ix + np.diff(start_ix, append=len(poly_amp_ix)) - 1
+
+        shift = np.arange(len(start_ix)) * 3
+        # For each polygon we need to:
+        # 1. insert 0 amplitude at the start.
+        # 2. append 0 amplitude to the end.
+        # 3. append the start point to the end to close polygon.
+        # Fill the array storing resulted polygons
+        verts = np.empty((len(poly_amp_ix) + 3 * len(start_ix), 2))
+        verts[start_ix + shift] = poly_amp_ix[start_ix]
+        verts[end_ix + shift + 2] = poly_amp_ix[end_ix]
+        verts[end_ix + shift + 3] = poly_amp_ix[start_ix]
+
+        body_ix = np.setdiff1d(np.arange(len(verts)),
+                               np.concatenate([start_ix + shift, end_ix + shift + 2, end_ix + shift + 3]),
+                               assume_unique=True)
+        verts[body_ix] = np.column_stack([amps[tuple(poly_amp_ix.T)], poly_amp_ix[:, 1]])
+
+        # Fill the array representing the nodes codes: either start, intermediate or end code.
+        codes = np.full(len(verts), Path.LINETO)
+        codes[start_ix + shift] = Path.MOVETO
+        codes[end_ix + shift + 3] = Path.CLOSEPOLY
+
+        patch = PathPatch(Path(verts, codes), color=color, alpha=alpha)
+        ax.add_patch(patch)
         ax.invert_yaxis()
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
@@ -1548,7 +1580,7 @@ class Gather(TraceContainer, SamplesContainer):
             raise ValueError(f"Unknown axis {axis}")
         set_ticks(ax, axis, tick_labels=tick_labels, **{"label": tick_src, **ticker})
 
-    def plot_nmo_correction(self, min_vel=1500, max_vel=6000, figsize=(6, 4.5), **kwargs):
+    def plot_nmo_correction(self, min_vel=1500, max_vel=6000, figsize=(6, 4.5), show_grid=True, **kwargs):
         """Perform interactive NMO correction of the gather with selected constant velocity.
 
         The plot provides 2 views:
@@ -1567,12 +1599,15 @@ class Gather(TraceContainer, SamplesContainer):
             Maximum seismic velocity value for NMO correction. Measured in meters/seconds.
         figsize : tuple with 2 elements, optional, defaults to (6, 4.5)
             Size of the created figure. Measured in inches.
+        show_grid : bool, defaults to True
+            If `True` shows the horizontal grid with a step based on `y_ticker`.
         kwargs : misc, optional
             Additional keyword arguments to `Gather.plot`.
         """
-        NMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, **kwargs).plot()
+        NMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, show_grid=show_grid,
+                          **kwargs).plot()
 
-    def plot_lmo_correction(self, min_vel=800, max_vel=6000, figsize=(6, 4.5), **kwargs):
+    def plot_lmo_correction(self, min_vel=500, max_vel=3000, figsize=(6, 4.5), show_grid=True, **kwargs):
         """Perform interactive LMO correction of the gather with the selected velocity.
 
         The plot provides 2 views:
@@ -1585,13 +1620,16 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        min_vel : float, optional, defaults to 800
+        min_vel : float, optional, defaults to 500
             Minimum velocity value for LMO correction. Measured in meters/seconds.
-        max_vel : float, optional, defaults to 6000
+        max_vel : float, optional, defaults to 3000
             Maximum velocity value for LMO correction. Measured in meters/seconds.
         figsize : tuple with 2 elements, optional, defaults to (6, 4.5)
             Size of the created figure. Measured in inches.
+        show_grid : bool, defaults to True
+            If `True` shows the horizontal grid with a step based on `y_ticker`.
         kwargs : misc, optional
             Additional keyword arguments to `Gather.plot`.
         """
-        LMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, **kwargs).plot()
+        LMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, show_grid=show_grid,
+                          **kwargs).plot()
