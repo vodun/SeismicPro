@@ -1,8 +1,7 @@
-"""Implements a VelocityCube class which stores stacking velocities calculated at different field locations and allows
-for spatial velocity interpolation"""
+"""Implements a StackingVelocityField class which stores stacking velocities calculated at different field locations
+and allows for spatial velocity interpolation"""
 
 import os
-from functools import reduce
 
 import numpy as np
 from tqdm.contrib.concurrent import thread_map
@@ -10,85 +9,165 @@ from sklearn.neighbors import NearestNeighbors
 
 from .stacking_velocity import StackingVelocity
 from .metrics import VELOCITY_QC_METRICS, StackingVelocityMetric
-from ..field import VFUNCField
-from ..utils import to_list
+from ..field import ValuesAgnosticField, VFUNCFieldMixin
+from ..utils import to_list, IDWInterpolator
 
 
-class StackingVelocityField(VFUNCField):
+class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
     """A class for storing and interpolating stacking velocity data over a field.
 
     Velocities used for seismic cube stacking are usually picked on a sparse grid of inlines and crosslines and then
     interpolated over the whole field in order to reduce computational costs. Such interpolation can be performed by
-    `VelocityCube` class which provides an interface to obtain a stacking velocity at given spatial coordinates via its
-    `__call__` method. The cube can either be loaded from a file of vertical functions or created empty and iteratively
-    updated with calculated stacking velocities.
+    `StackingVelocityField` class which provides an interface to obtain stacking velocity at given spatial coordinates
+    via its `__call__` method.
 
-    After all velocities are added, velocity interpolator should be created. It can be done either manually by
-    calling :func:`~VelocityCube.create_interpolator` method or automatically during the first call to the cube. Manual
-    interpolator creation is useful when the cube should be passed to different proccesses (e.g. in a pipeline with
-    prefetch with `mpc` target) since otherwise the interpolator will be independently created in all the processes.
+    A field can be populated with stacking velocities in 3 main ways:
+    - by passing precalculated velocities in the `__init__`,
+    - by creating an empty field and then iteratively updating it with calculated stacking velocities using `update`,
+    - by loading a field from a file of vertical functions via its `from_file` `classmethod`.
+    After all velocities are added, an interpolator must be created by running `create_interpolator` method to make the
+    field callable.
 
-    The cube provides an interface to quality control via its `qc` method, which calculates maps for several
-    spatial-window-based metrics calculated for its stacking velocities evaluated at passed times. These maps may be
-    interactively visualized to evaluate the cube quality in detail.
+    The field provides an interface to its quality control via `qc` method, which returns maps for several
+    spatial-window-based metrics calculated for its stacking velocities. These maps may be interactively visualized to
+    assess field quality in detail.
 
     Examples
     --------
-    The cube can either be loaded from a file:
-    >>> cube = VelocityCube(path=cube_path)
+    A field can be created empty and updated with instances of `StackingVelocity` class:
+    >>> field = StackingVelocityField()
+    >>> velocity = StackingVelocity(times=[0, 1000, 2000, 3000], velocities=[1500, 2000, 2800, 3400],
+    ...                             coords=Coordinates((20, 40), names=("INLINE_3D", "CROSSLINE_3D")))
+    >>> field.update(velocity)
 
-    Or created empty and updated with instances of `StackingVelocity` class:
-    >>> cube = VelocityCube()
-    >>> velocity = StackingVelocity.from_points(times=[0, 1000, 2000, 3000], velocities=[1500, 2000, 2800, 3400],
-    ...                                         inline=20, crossline=40)
-    >>> cube.update(velocity)
+    Or created from precalculated instances:
+    >>> field = StackingVelocityField(list_of_stacking_velocities)
 
-    Cube creation should be finalized with `create_interpolator` method call:
-    >>> cube.create_interpolator()
+    Or simply loaded from a file of vertical functions:
+    >>> field = StackingVelocityField.from_file(path)
+
+    Field construction must be finalized with `create_interpolator` method call:
+    >>> field.create_interpolator("idw")
+
+    Now the field allows for velocity interpolation at given coordinates:
+    >>> velocity = field((10, 10))
 
     Quality control can be performed by calling `qc` method and visualizing the resulting maps:
-    >>> metrics_maps = cube.qc(win_radius=40, times=np.arange(0, 3000, 2))
+    >>> metrics_maps = cube.qc(radius=40, times=np.arange(0, 3000, 2))
     >>> for metric_map in metrics_maps:
     >>>     metric_map.plot(interactive=True)
 
     Parameters
     ----------
-    path : str, optional
-        A path to the source file with vertical functions to load the cube from. If not given, an empty cube is
-        created.
-    create_interpolator : bool, optional, defaults to True
-        Whether to create an interpolator immediately if the cube is loaded from a file.
+    items : StackingVelocity or list of StackingVelocity, optional
+        Stacking velocities to be added to the field on instantiation. If not given, an empty field is created.
+    survey : Survey, optional
+        A survey the field is describing.
+    is_geographic : bool, optional
+        Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
+        CROSSLINE_3D)). Inferred automatically on the first update if not given.
 
     Attributes
     ----------
-    stacking_velocities_dict : dict
-        A dict of stacking velocities in the cube whose keys are tuples with their spatial coordinates and values are
-        the instances themselves.
-    interpolator : VelocityInterpolator
-        Velocity interpolator over the field.
+    survey : Survey or None
+        A survey the field is describing. `None` if not specified during instantiation.
+    item_container : dict
+        A mapping from coordinates of field items as 2-element tuples to the items themselves.
+    is_geographic : bool
+        Whether coordinate system of the field is geographic. `None` for an empty field if was not specified during
+        instantiation.
+    coords_cols : tuple with 2 elements or None
+        Names of SEG-Y trace headers representing coordinates of items in the field. `None` if names of coordinates are
+        mixed or the field is empty.
+    interpolator : SpatialInterpolator or None
+        Field data interpolator.
     is_dirty_interpolator : bool
-        Whether the cube was updated after the interpolator was created.
+        Whether the field was updated after the interpolator was created.
     """
-    field_object_class = StackingVelocity
+    item_class = StackingVelocity
 
-    def get_mean_velocity(self):
-        return self.field_object_class.from_weighted_instances(list(self.object_container.values()))
+    def construct_item(self, items, weights, coords):
+        """Construct a new stacking velocity by averaging other stacking velocities with corresponding weights.
+
+        Parameters
+        ----------
+        items : list of StackingVelocity
+            Stacking velocities to be aggregated.
+        weights : list of float
+            Weight of each item in `items`.
+        coords : Coordinates
+            Spatial coordinates of a stacking velocity being constructed.
+
+        Returns
+        -------
+        item : StackingVelocity
+            Constructed stacking velocity instance.
+        """
+        return self.item_class.from_stacking_velocities(items, weights, coords=coords)
+
+    @property
+    def mean_velocity(self):
+        """StackingVelocity: Mean stacking velocity over the field."""
+        return self.item_class.from_stacking_velocities(list(self.item_container.values()))
+
+    def smooth(self, radius):
+        """Smooth the field by averaging its stacking velocities within given radius.
+
+        Parameters
+        ----------
+        radius : positive float
+            Spatial window radius (Euclidean distance).
+
+        Returns
+        -------
+        field : StackingVelocityField
+            Smoothed field.
+        """
+        smoothing_interpolator = IDWInterpolator(self.coords, radius=radius, dist_transform=0)
+        weights = smoothing_interpolator.get_weights(self.coords)
+        items_coords = [item.coords for item in self.item_container.values()]
+        smoothed_items = self.weights_to_items(weights, items_coords)
+        return type(self)(survey=self.survey, is_geographic=self.is_geographic).update(smoothed_items)
 
     def interpolate(self, coords, times):
-        if not self.has_interpolator:
-            raise ValueError("Field interpolator was not created, call create_interpolator method first")
-        weighted_coords = self.interpolator.get_weighted_coords(coords)
-        base_velocities_coords = set.union(*[set(coord_weights.keys()) for coord_weights in weighted_coords])
-        base_velocities = {coords: self.object_container[coords](times) for coords in base_velocities_coords}
-        return np.array([reduce(lambda x, y: x + y, [base_velocities[coords] * weight for coords, weight in coord_weights.items()])
-                         for coord_weights in weighted_coords])
+        """Interpolate stacking velocities at given `coords` and `times`.
 
-    def qc(self, win_radius, metrics=None, coords=None, times=None, n_workers=None, bar=True):
-        """Perform quality control of the velocity cube by calculating spatial-window-based metrics for its stacking
-        velocities evaluated at given `times`.
+        Interpolation over a regular grid of times allows implementing a much more efficient computation strategy than
+        simply iteratively calling the interpolator for each of `coords` and than evaluating the obtained stacking
+        velocities at `times`.
 
-        If `coords` are specified, QC will be performed for stacking velocities, interpolated for each of them.
-        Otherwise, stacking velocities stored in the cube are used directly.
+        Parameters
+        ----------
+        coords : 2d np.array or list of Coordinates
+            Coordinates to interpolate stacking velocities at.
+        times : 1d array-like
+            Times to interpolate stacking velocities at.
+
+        Returns
+        -------
+        velocities : 2d np.ndarray
+            Interpolated stacking velocities at given `coords` and `times`. Has shape (n_coords, n_times).
+        """
+        self.validate_interpolator()
+        field_coords, _, _ = self.transform_coords(coords)
+        times = np.atleast_1d(times)
+        weights = self.interpolator.get_weights(field_coords)
+        base_velocities_coords = set.union(*[set(weights_dict.keys()) for weights_dict in weights])
+        base_velocities = {coords: self.item_container[coords](times) for coords in base_velocities_coords}
+
+        res = np.zeros((len(field_coords), len(times)))
+        for i, weights_dict in enumerate(weights):
+            for coord, weight in weights_dict.items():
+                res[i] += base_velocities[coord] * weight
+        return res
+
+    #pylint: disable-next=invalid-name
+    def qc(self, radius, metrics=None, coords=None, times=None, n_workers=None, bar=True):
+        """Perform quality control of the velocity field by calculating spatial-window-based metrics for its stacking
+        velocities evaluated at given `coords` and `times`.
+
+        If `coords` are not given, coordinates of items in the field are used, but interpolation is performed as well.
+        If `times` are not given, samples of the underlying `Survey` are used if it is defined.
 
         By default, the following metrics are calculated:
         * Presence of segments with velocity decrease in time,
@@ -99,15 +178,15 @@ class StackingVelocityField(VFUNCField):
 
         Parameters
         ----------
-        win_radius : positive float
+        radius : positive float
             Spatial window radius (Euclidean distance).
-        times : 1d array-like
-            Times to calculate metrics for. Measured in milliseconds.
-        coords : 2d np.array or None, optional
-            Spatial coordinates of stacking velocities to calculate metrics for. If not given, stacking velocities
-            stored in the cube are used without extra interpolation step.
         metrics : StackingVelocityMetric or list of StackingVelocityMetric, optional
             Metrics to calculate. Defaults to those defined in `~metrics.VELOCITY_QC_METRICS`.
+        coords : 2d np.array or list of Coordinates or None, optional
+            Spatial coordinates of stacking velocities to calculate metrics for. If not given, coordinates of items in
+            the field are used.
+        times : 1d array-like
+            Times to calculate metrics for. Measured in milliseconds.
         n_workers : int, optional
             The number of threads to be spawned to calculate metrics. Defaults to the number of cpu cores.
         bar : bool, optional, defaults to True
@@ -127,15 +206,13 @@ class StackingVelocityField(VFUNCField):
         if not all(isinstance(metric, type) and issubclass(metric, StackingVelocityMetric) for metric in metrics):
             raise ValueError("All passed metrics must be subclasses of StackingVelocityMetric")
 
+        # Set default coords and times
         if coords is None:
             coords = self.coords
-        coords = np.array(coords)
-
         if times is None:
             if not self.has_survey:
-                raise ValueError("times must be passed if the field ...")
+                raise ValueError("times must be passed if the field is not linked with a survey")
             times = self.survey.times
-        times = np.array(times)
 
         # Calculate stacking velocities at given times for each of coords
         velocities = self.interpolate(coords, times)
@@ -143,7 +220,7 @@ class StackingVelocityField(VFUNCField):
         # Select all neighboring stacking velocities for each of coords
         if n_workers is None:
             n_workers = os.cpu_count()
-        coords_neighbors = NearestNeighbors(radius=win_radius, n_jobs=n_workers).fit(coords)
+        coords_neighbors = NearestNeighbors(radius=radius, n_jobs=n_workers).fit(coords)
         # Sort results to guarantee that central stacking velocity of each window will have index 0
         _, windows_indices = coords_neighbors.radius_neighbors(coords, return_distance=True, sort_results=True)
 
@@ -155,8 +232,7 @@ class StackingVelocityField(VFUNCField):
         metrics = [metric(times, velocities, coords_neighbors) for metric in metrics]
         results = thread_map(calc_metrics, windows_indices, max_workers=n_workers,
                              desc="Coordinates processed", disable=not bar)
-        coords_cols = ["INLINE_3D", "CROSSLINE_3D"]
-        metrics_maps = [metric.map_class(coords, metric_values, coords_cols=coords_cols, metric=metric)
+        metrics_maps = [metric.map_class(coords, metric_values, coords_cols=self.coords_cols, metric=metric)
                         for metric, metric_values in zip(metrics, zip(*results))]
         if is_single_metric:
             return metrics_maps[0]

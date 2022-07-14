@@ -22,7 +22,7 @@ HDR_FIRST_BREAK = 'FirstBreak'
 
 
 # Default velocity for spherical divergence correction as provided in Paradigm.
-# times are measured in milliseconds, velocities in meters / second.
-DEFAULT_VELOCITY = StackingVelocity.from_points(
-                                times=[0.0, 100.0, 700.0, 1000.0, 1400.0, 1800.0, 1950.0, 4200.0, 7000.0],
-                                velocities=[1524.0, 1524.0, 1924.5, 2184.0, 2339.6, 2676.0, 2889.5, 3566.0, 4785.3])
+DEFAULT_SDC_VELOCITY = StackingVelocity(
+    times=[0.0, 100.0, 700.0, 1000.0, 1400.0, 1800.0, 1950.0, 4200.0, 7000.0],  # milliseconds
+    velocities=[1524.0, 1524.0, 1924.5, 2184.0, 2339.6, 2676.0, 2889.5, 3566.0, 4785.3]  # meters/second
+)

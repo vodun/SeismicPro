@@ -11,6 +11,7 @@ from .index import SeismicIndex
 from .gather import Gather, CroppedGather
 from .gather.utils.crop_utils import make_origins
 from .semblance import Semblance, ResidualSemblance
+from .field import Field
 from .metrics import define_pipeline_metric, PartialMetric, MetricsAccumulator
 from .decorators import create_batch_methods, apply_to_each_component
 from .utils import to_list, as_dict, save_figure
@@ -138,31 +139,22 @@ class SeismicBatch(Batch):
 
     @action
     def update_field(self, field, src):
-        """Update a velocity cube with stacking velocities from `src` component.
-
-        Notes
-        -----
-        All passed `StackingVelocity` instances must have not-None coordinates.
+        """Update a field with objects from `src` component.
 
         Parameters
         ----------
-        velocity_cube : VelocityCube
-            A cube to update.
+        field : Field
+            A field to update.
         src : str
-            A component with stacking velocities to update the cube with.
+            A component of instances to update the cube with. Each of them must have well-defined coordinates.
 
         Returns
         -------
         self : SeismicBatch
             The batch unchanged.
-
-        Raises
-        ------
-        TypeError
-            If wrong type of stacking velocities was passed.
-        ValueError
-            If any of the passed stacking velocities has `None` coordinates.
         """
+        if not isinstance(field, Field):
+            raise ValueError("Only a Field instance can be updated")
         field.update(getattr(self, src))
         return self
 
@@ -170,7 +162,7 @@ class SeismicBatch(Batch):
     def make_model_inputs(self, src, dst, mode='c', axis=0, expand_dims_axis=None):
         """Transform data to be used for model training.
 
-        The method performes two-stage data processing:
+        The method performs two-stage data processing:
         1. Stacks or concatenates input data depending on `mode` parameter along the specified `axis`,
         2. Inserts new axes to the resulting array at positions specified by `expand_dims_axis`.
 
@@ -381,8 +373,7 @@ class SeismicBatch(Batch):
         return self
 
     @action(no_eval="save_to")
-    def calculate_metric(self, metric, *args, metric_name=None, coords_component=None, coords_cols="auto",
-                         save_to=None, **kwargs):
+    def calculate_metric(self, metric, *args, metric_name=None, coords_component=None, save_to=None, **kwargs):
         """Calculate a metric for each batch element and store the results into an accumulator.
 
         The passed metric must be either a subclass of `PipelineMetric` or a `callable`. In the latter case, a new
@@ -435,9 +426,6 @@ class SeismicBatch(Batch):
         coords_component : str, optional
             A component name to extract coordinates from. If not given, the first argument passed to the metric
             calculation function is used.
-        coords_cols : "auto" or 2 element array-like, optional, defaults to "auto"
-            Headers columns of `coords_component` objects to get coordinates from. If "auto", tries inferring them
-            automatically by the type of headers index.
         save_to : NamedExpression
             A named expression to save the constructed `MetricsAccumulator` instance to.
         args : misc, optional
@@ -456,14 +444,17 @@ class SeismicBatch(Batch):
             If wrong type of `metric` is passed.
             If `metric` is `lambda` and `metric_name` is not given.
             If `metric` is a subclass of `PipelineMetric` and `metric.name` is `None`.
+            If some batch item has `None` coordinates.
         """
         metric = define_pipeline_metric(metric, metric_name)
         unpacked_args, first_arg = metric.unpack_calc_args(self, *args, **kwargs)
 
         # Calculate metric values and their coordinates
-        coords_items = first_arg if coords_component is None else getattr(self, coords_component)
-        coords = [item.get_coords(coords_cols) for item in coords_items]
         values = [metric.calc(*args, **kwargs) for args, kwargs in unpacked_args]
+        coords_items = first_arg if coords_component is None else getattr(self, coords_component)
+        coords = [item.coords for item in coords_items]
+        if None in coords:
+            raise ValueError("All batch items must have well-defined coordinates")
 
         # Construct a mapping from coordinates to ordinal numbers of gathers in the dataset index.
         # Later used by PipelineMetric to generate a batch by coordinates of a click on an interactive metric map.
