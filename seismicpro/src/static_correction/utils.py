@@ -8,8 +8,8 @@ def calculate_depth_coefs(v_curr, v_next):
         raise ValueError("v_curr > v_next")
     return ((v_next**2 - v_curr**2)**.5) / (v_curr*v_next)
 
-def calculate_prev_layer_coefs(v_prev, v_curr, v_next):
-    return (v_curr * v_next - v_prev**2) / (v_prev*v_next*(v_curr**2 - v_prev**2)**.5)
+def calculate_layer_coefs(v_curr, v_next, v_last):
+    return (v_next * v_last - v_curr**2) / (v_curr*v_last*(v_next**2 - v_curr**2)**.5)
 
 def calculate_velocities(v2, avg_v2, coefs, max_wv):
     sq_v2 = v2**2
