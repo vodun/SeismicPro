@@ -3,7 +3,6 @@
 import warnings
 
 import numpy as np
-import scipy as sp
 import pandas as pd
 
 from numba import njit
@@ -77,18 +76,9 @@ def parse_metric_values(metric_values, metric_name=None, metric_type=None):
 
 def calc_spikes(arr):
     """Calculate spikes indicator."""
-    with sp.fft.set_workers(25):
-        running_mean = sp.signal.fftconvolve(arr, [[1,1,1]], mode='valid', axes=1)/3
+    running_mean = (arr[:, 1:-1] + arr[:, 2:] + arr[:, :-2])/3
+    return np.abs(arr[..., 1:-1] - running_mean)
 
-    running_mean = arr.copy()
-    running_mean[:, :-1] += arr[:, 1:]
-    running_mean[:, 1:] += arr[:, :-1]
-    running_mean /= 3
-
-
-    ### check strided.get_window 
-
-    return np.abs(arr[...,1:-1] - running_mean)
 
 @njit
 def fill_nulls(arr):
