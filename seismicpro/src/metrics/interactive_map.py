@@ -127,6 +127,41 @@ class MapBinPlot(MapCoordsPlot):
         self.update_state(self.drop.index)
 
 
+class SliderPlot(InteractivePlot):
+    """Define an interactive plot with a range slider on top of the canvas.
+
+    Parameters
+    ----------
+    slider_min : float
+        Minimum slider value.
+    slider_max : float
+        Maximum slider value.
+    slide_fn : callable
+        A function called on slider move.
+    kwargs : misc, optional
+        Additional keyword arguments to `InteractivePlot.__init__`.
+    """
+    def __init__(self, *, slider_min, slider_max, slide_fn=None, **kwargs):
+        self.slider = widgets.FloatRangeSlider(value=[slider_min, slider_max],
+                                               min=slider_min, max=slider_max, step=(slider_max-slider_min)/100,
+                                               continuous_update=False, description='',
+                                               readout=True, readout_format='.4f',
+                                               layout=widgets.Layout(width="80%")
+                                              )
+        self.slider.observe(handler=slide_fn, names="value")
+        self.slider_box = widgets.HBox([self.slider], layout=widgets.Layout(justify_content='flex-end'))
+        super().__init__(**kwargs)
+
+    def construct_header(self):
+        """Append the slider below the plot header."""
+        header = super().construct_header()
+        return widgets.VBox([header, self.slider_box])
+
+    @property
+    def plot_fn(self):
+        """callable: plotter of the current view with the last click coordinates passed."""
+        return partial(super().plot_fn, thresholds=self.slider.value)
+
 class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method
     """Base class for interactive metric map visualization.
 
@@ -153,10 +188,17 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method
         self.init_click_coords = metric_map.get_worst_coords(is_lower_better)
         super().__init__(orientation=orientation)
 
+    def on_slider_change(self, change):
+        _ = change
+        self.main.redraw()
+
     def construct_main_plot(self):
         """Construct the metric map plot."""
-        return InteractivePlot(plot_fn=self.plot_map, click_fn=self.click, init_click_coords=self.init_click_coords,
-                               title=self.title, figsize=self.figsize)
+        return SliderPlot(plot_fn=self.plot_map, click_fn=self.click, init_click_coords=self.init_click_coords,
+                          title=self.title, figsize=self.figsize,
+                          slider_min = self.metric_map.map_data.min(), slider_max=self.metric_map.map_data.max(),
+                          slide_fn=self.on_slider_change
+                         )
 
     def click(self, coords):
         """Handle a click on the map plot."""
