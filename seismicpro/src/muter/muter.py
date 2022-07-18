@@ -67,9 +67,11 @@ class Muter(VFUNC):
         """
         times, offsets = refractor_velocity.piecewise_times, refractor_velocity.piecewise_offsets
         offsets_diff = np.diff(offsets)
-        velocities = offsets_diff / np.diff(times) - velocity_reduction / 1000  # m/ms
-        times = offsets_diff / velocities + delay
-        return cls(offsets, times, coords=refractor_velocity.coords)
+        muting_velocities = offsets_diff / np.diff(times) - velocity_reduction / 1000  # m/ms
+        time_deltas = np.empty_like(times)
+        time_deltas[0] = times[0] + delay
+        time_deltas[1:] = offsets_diff / muting_velocities
+        return cls(offsets, np.cumsum(time_deltas), coords=refractor_velocity.coords)
 
     @classmethod
     def from_muters(cls, muters, weights=None, coords=None):
