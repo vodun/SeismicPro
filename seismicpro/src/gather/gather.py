@@ -13,7 +13,6 @@ from matplotlib.path import Path
 from matplotlib.patches import PathPatch
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-from .muting import Muter
 from .cropped_gather import CroppedGather
 from .plot_corrections import NMOCorrectionPlot, LMOCorrectionPlot
 from .utils import correction, normalization, gain
@@ -21,6 +20,7 @@ from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices
 from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_yticklabels, set_text_formatting,
                      add_colorbar, piecewise_polynomial, Coordinates)
 from ..containers import TraceContainer, SamplesContainer
+from ..muter import Muter, MuterField
 from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, StackingVelocityField
 from ..refractor_velocity import RefractorVelocity
@@ -690,40 +690,6 @@ class Gather(TraceContainer, SamplesContainer):
     #                         Gather muting methods                          #
     #------------------------------------------------------------------------#
 
-    @batch_method(target="for", copy_src=False)
-    def create_muter(self, mode="first_breaks", **kwargs):
-        """Create an instance of :class:`~.Muter` class.
-
-        This method redirects the call into a corresponding `Muter.from_{mode}` classmethod. The created object is
-        callable and returns times up to which muting should be performed for given offsets. A detailed description of
-        `Muter` instance can be found in :class:`~muting.Muter` docs.
-
-        Parameters
-        ----------
-        mode : {"points", "file", "first_breaks"}, optional, defaults to "first_breaks"
-            Type of `Muter` to create.
-        kwargs : misc, optional
-            Additional keyword arguments to `Muter.from_{mode}`.
-
-        Returns
-        -------
-        muter : Muter
-            Created muter.
-
-        Raises
-        ------
-        ValueError
-            If given `mode` does not exist.
-        """
-        builder = getattr(Muter, f"from_{mode}", None)
-        if builder is None:
-            raise ValueError(f"Unknown mode {mode}")
-
-        if mode == "first_breaks":
-            first_breaks_col = kwargs.pop("first_breaks_col", HDR_FIRST_BREAK)
-            return builder(offsets=self.offsets, times=self[first_breaks_col], **kwargs)
-        return builder(**kwargs)
-
     @batch_method(target="threads", args_to_unpack="muter")
     def mute(self, muter, fill_value=0):
         """Mute the gather using given `muter`.
@@ -744,6 +710,10 @@ class Gather(TraceContainer, SamplesContainer):
         self : Gather
             Muted gather.
         """
+        if isinstance(muter, MuterField):
+            muter = MuterField(self.coords)
+        if not isinstance(muter, Muter):
+            raise ValueError("muter must be of Muter or MuterField type")
         self.data = mute_gather(gather_data=self.data, muting_times=muter(self.offsets), samples=self.samples,
                                 fill_value=fill_value)
         return self

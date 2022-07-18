@@ -6,7 +6,8 @@ import numpy as np
 from sklearn.linear_model import SGDRegressor
 from scipy import optimize
 
-from ..decorators import plotter
+from ..muter import Muter
+from ..decorators import batch_method, plotter
 from ..utils import set_ticks, set_text_formatting
 from ..utils.interpolation import interp1d
 
@@ -491,6 +492,10 @@ class RefractorVelocity:
         if as_array:
             return values
         return dict(zip(self._valid_keys, values))
+
+    @batch_method(target="for", copy_src=False)
+    def create_muter(self, delay=0, velocity_reduction=0):
+        return Muter.from_refractor_velocity(self, delay=delay, velocity_reduction=velocity_reduction)
 
     @plotter(figsize=(10, 5), args_to_unpack="compare_to")
     def plot(self, *, ax=None, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_times=None,
