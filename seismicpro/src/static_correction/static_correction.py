@@ -344,12 +344,12 @@ class StaticCorrection:
         self._calculate_dt("rec", datum)
 
     def _calculate_dt(self, name, datum):
+        coords = getattr(self, f"{name}_uniques")
         params = getattr(self, f"{name}_params")
-        coords = params.index.to_frame().values
         # TODO: change datum position in `layers`. It not always will be the last.
-        layers = np.array([self.interp_elevations(coords),
-                           *[layer(coords) for layer in self.interp_layers_els if layer is not None],
-                           datum])
+        elevations = self.interp_elevations(coords)
+        layers = np.array([elevations,
+                           *[layer(coords) for layer in self.interp_layers_els if layer is not None]])
 
         layers_width = layers[:-1] - layers[1:]
         if name == "source":
@@ -361,8 +361,11 @@ class StaticCorrection:
             velocities = np.concatenate((v1, velocities), axis=1)
 
         dt = np.zeros(len(coords))
+        dist_to_datum = elevations - datum
         for layer_widths, vels in zip(layers_width, velocities.T):
-            dt += layer_widths / vels
+            layer = np.clip(np.minimum(dist_to_datum, layer_widths), 0, None)
+            dt += layer / vels
+            dist_to_datum -= layer
 
         self._update_params(name, coords, dt.reshape(-1, 1), "dt")
 
