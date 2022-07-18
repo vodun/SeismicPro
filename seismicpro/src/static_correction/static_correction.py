@@ -154,13 +154,18 @@ class StaticCorrection:
             layer_matrixes.append(sparse.hstack((source_matrix, rec_matrix)))
             ys.extend(layer_headers['y'].values)
         matrix = sparse.vstack(layer_matrixes)
-        # return matrix, ys
-        coefs = sparse.linalg.lsqr(matrix, ys, atol=tol, btol=tol)[0]
 
+        coefs = np.zeros(matrix.shape[1])
+        if self.interp_layers_els[0] is not None:
+            source_coefs = np.concatenate([self.interp_layers_els[i](self.source_uniques) for i in range(self.n_layers)])
+            rec_coefs = np.concatenate([self.interp_layers_els[i](self.rec_uniques) for i in range(self.n_layers)])
+            coefs = np.concatenate((source_coefs, rec_coefs))
+
+        coefs = sparse.linalg.lsqr(matrix, ys, atol=tol, btol=tol, x0=coefs)[0]
         sources = coefs[:self.n_sources * self.n_layers].reshape(self.n_layers, self.n_sources)
         recs = coefs[self.n_sources * self.n_layers:].reshape(self.n_layers, self.n_recs)
 
-        upholes = self.source_params['SourceDepth'].values # Order of upholes is  is the same as the order of sources
+        upholes = self.source_params['SourceDepth'].values # Order of upholes has the same order as sources
         sources[0] += upholes ## Where to add upholes??
 
         self.interp_layers_els = self._mulitlayer_align_by_proximity(sources, recs, smoothing_radius=smoothing_radius)
@@ -399,8 +404,8 @@ class StaticCorrection:
                 f.write(line)
 
     ### plotters ###
-    def construct_velicities_interpolatior(self, layer):
-        vel_names = [f"v{i}" for i in [layer, min(layer+1, self.n_layers+1)]]
+    def _construct_velicities_interpolatior(self):
+        vel_names = [f"v{i}" for i in range(1, self.n_layers+2)]
         sources = self.source_params.reset_index()[['SourceX', 'SourceY', *vel_names]].dropna().values
         recs = self.rec_params.reset_index()[['GroupX', 'GroupY', *vel_names]].dropna().values
 
@@ -411,16 +416,15 @@ class StaticCorrection:
         interp_velocities = IDWInterpolator(coords, velocities)
         return interp_velocities, vmin, vmax
 
-    def plot_slice(self, layer, n_points=100):
-        interp_el = self._construct_elevations_interpolatior()
-        interp_velocities, vmin, vmax = self.construct_velicities_interpolatior(layer=layer)
+    def plot_slice(self, n_points=100):
+        interp_velocities, vmin, vmax = self._construct_velicities_interpolatior()
         sources = self.source_params.index.to_frame().values
         recs = self.rec_params.index.to_frame().values
         coords = np.unique(np.concatenate((sources, recs)), axis=0)
 
-        obj = MetricMap(coords, self.interp_layers_els[layer-1](coords))
-        StaticsPlot(obj, self.interp_layers_els[layer-1], interp_el, interp_velocities, n_points=n_points, vmin=vmin,
-                    vmax=vmax).plot()
+        obj = MetricMap(coords, self.interp_layers_els[0](coords))
+        StaticsPlot(obj, self.interp_layers_els, self.interp_elevations, interp_velocities, n_points=n_points,
+                    vmin=vmin, vmax=vmax).plot()
 
     def plot_layer_elevations(self, layer, **kwargs):
         _, ax = plt.subplots(1, 2, figsize=(12, 5), tight_layout=True)

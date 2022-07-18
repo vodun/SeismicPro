@@ -22,7 +22,7 @@ from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_ytickla
                      add_colorbar, piecewise_polynomial, Coordinates)
 from ..containers import TraceContainer, SamplesContainer
 from ..semblance import Semblance, ResidualSemblance
-from ..stacking_velocity import StackingVelocity, VelocityCube
+from ..stacking_velocity import StackingVelocity, StackingVelocityField
 from ..refractor_velocity import RefractorVelocity
 from ..decorators import batch_method, plotter
 from ..const import HDR_FIRST_BREAK, DEFAULT_SDC_VELOCITY

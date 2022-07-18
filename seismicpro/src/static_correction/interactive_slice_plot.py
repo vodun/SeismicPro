@@ -96,15 +96,19 @@ class StaticsPlot(PairedPlot):
         coords = np.vstack((xs, ys)).T
         elevations = self.elevations(coords)
         velocities = self.velocities(coords).T
-        depths = [layer(coords) for layer in self.layers_elevations]
-        ax = self.aux.ax
+        layers_elevation = [layer(coords) for layer in self.layers_elevations]
+        min_layer_el = np.min(layers_elevation)
+        max_elevation = max(elevations)
 
-        slice_img = np.full((int(max(elevations))+10, self.n_points), fill_value=np.nan)
-        for vel, depth in zip(velocities, [elevations, *depths]):
+        ax = self.aux.ax
+        slice_img = np.full((int(max_elevation - min_layer_el)+10, self.n_points), fill_value=np.nan)
+        for vel, layer in zip(velocities, [elevations, *layers_elevation]):
             ix_matrix = np.arange(slice_img.shape[0]).repeat(slice_img.shape[1]).reshape(slice_img.shape)
-            curr_mask = (ix_matrix - depth < 0) * vel
+            curr_mask = (ix_matrix - layer + min_layer_el - 5 < 0) * vel
             slice_img = np.where(curr_mask, curr_mask, slice_img)
-            ax.plot(depth, "-", c='k', linewidth=5)
-        ax.set_ylim(20, max(elevations)+10)
+            ax.plot(layer - min_layer_el + 5, "-", c='k', linewidth=5)
+        ax.set_ylim(0, slice_img.shape[0])
+        n_ticks = len(ax.yaxis.get_ticklabels()) - 1
+        ax.set_yticklabels(np.linspace(min_layer_el-5, max_elevation+5, n_ticks, dtype=np.int32))
         img = ax.imshow(slice_img, cmap='jet', aspect='auto', vmin=self.vmin, vmax=self.vmax)
         add_colorbar(ax, img, True)
