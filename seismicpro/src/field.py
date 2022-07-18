@@ -156,6 +156,15 @@ class Field:
 
         return coords_arr, coords, is_1d_coords
 
+    def validate_items(self, items):
+        #pylint: disable-next=isinstance-second-argument-not-valid-type
+        if not all(isinstance(item, self.item_class) for item in items):
+            raise TypeError(f"The field can be updated only with instances of {self.item_class} class")
+        if not all(hasattr(item, "coords") for item in items):
+            raise ValueError("Each item must have coords attribute")
+        if not all(isinstance(item.coords, Coordinates) for item in items):
+            raise ValueError("The field can be updated only with instances with well-defined coordinates")
+
     def update(self, items):
         """Add new items to the field. All passed `items` must have not-None coordinates.
 
@@ -182,13 +191,7 @@ class Field:
         items = to_list(items)
         if not items:
             return self
-        #pylint: disable-next=isinstance-second-argument-not-valid-type
-        if not all(isinstance(item, self.item_class) for item in items):
-            raise TypeError(f"The field can be updated only with instances of {self.item_class} class")
-        if not all(hasattr(item, "coords") for item in items):
-            raise ValueError("Each item must have coords attribute")
-        if not all(isinstance(item.coords, Coordinates) for item in items):
-            raise ValueError("The field can be updated only with instances with well-defined coordinates")
+        self.validate_items(items)
 
         # Infer is_geographic and coords_cols during the first update
         is_geographic = self.is_geographic
