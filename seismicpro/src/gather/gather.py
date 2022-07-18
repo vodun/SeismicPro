@@ -711,7 +711,7 @@ class Gather(TraceContainer, SamplesContainer):
             Muted gather.
         """
         if isinstance(muter, MuterField):
-            muter = MuterField(self.coords)
+            muter = muter(self.coords)
         if not isinstance(muter, Muter):
             raise ValueError("muter must be of Muter or MuterField type")
         self.data = mute_gather(gather_data=self.data, muting_times=muter(self.offsets), samples=self.samples,
