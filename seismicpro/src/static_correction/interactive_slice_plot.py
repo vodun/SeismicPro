@@ -68,12 +68,13 @@ class StaticsMapPlot(InteractivePlot):
 
 
 class StaticsPlot(PairedPlot):
-    def __init__(self, mmap, layers_elevations, elevations, velocities, n_points=100, vmin=None, vmax=None):
+    def __init__(self, mmap, layers_elevations, elevations, velocities, n_points=100, indent=10, vmin=None, vmax=None):
         self.mmap = mmap
         self.layers_elevations = to_list(layers_elevations)
         self.elevations = elevations
         self.velocities = velocities
         self.n_points = n_points
+        self.indent = indent
         self.vmin = vmin
         self.vmax = vmax
         super().__init__()
@@ -94,21 +95,22 @@ class StaticsPlot(PairedPlot):
         ys = np.linspace(start_coords[1], end_coords[1], self.n_points)
 
         coords = np.vstack((xs, ys)).T
-        elevations = self.elevations(coords)
         velocities = self.velocities(coords).T
-        layers_elevation = [layer(coords) for layer in self.layers_elevations]
-        min_layer_el = np.min(layers_elevation)
-        max_elevation = max(elevations)
+        elevations = self.elevations(coords)
+        layers_elevations = [layer(coords) for layer in self.layers_elevations]
+        min_layer_el = np.min(layers_elevations)
+        all_layers = np.array([elevations, *layers_elevations]) + np.abs(min_layer_el)
 
         ax = self.aux.ax
-        slice_img = np.full((int(max_elevation - min_layer_el)+10, self.n_points), fill_value=np.nan)
-        for vel, layer in zip(velocities, [elevations, *layers_elevation]):
+
+        slice_img = np.full((int(np.max(all_layers)+self.indent*2), self.n_points), fill_value=np.nan)
+        for vel, layer in zip(velocities, all_layers):
             ix_matrix = np.arange(slice_img.shape[0]).repeat(slice_img.shape[1]).reshape(slice_img.shape)
-            curr_mask = (ix_matrix - layer + min_layer_el - 5 < 0) * vel
+            curr_mask = (ix_matrix - layer - self.indent < 0) * vel
             slice_img = np.where(curr_mask, curr_mask, slice_img)
-            ax.plot(layer - min_layer_el + 5, "-", c='k', linewidth=5)
+            ax.plot(layer + self.indent, "-", c='k', linewidth=5)
         ax.set_ylim(0, slice_img.shape[0])
         n_ticks = len(ax.yaxis.get_ticklabels()) - 1
-        ax.set_yticklabels(np.linspace(min_layer_el-5, max_elevation+5, n_ticks, dtype=np.int32))
+        ax.set_yticklabels(np.linspace(min_layer_el-self.indent, max(elevations)+self.indent, n_ticks, dtype=np.int32))
         img = ax.imshow(slice_img, cmap='jet', aspect='auto', vmin=self.vmin, vmax=self.vmax)
         add_colorbar(ax, img, True)
