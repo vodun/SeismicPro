@@ -221,6 +221,17 @@ class BaseMetricMap:
         return self.map_class(self.metric_data[self.coords_cols], self.metric_data[self.metric_name],
                               metric=self.metric, agg=agg, bin_size=bin_size)
 
+    def select_by_thresholds(self, lower_thr=None, upper_thr=None):
+        metric_data = self.metric_data
+        if lower_thr:
+            metric_data = metric_data[metric_data[self.metric_name] >= lower_thr]
+        if upper_thr:
+            metric_data = metric_data[metric_data[self.metric_name] <= upper_thr]
+
+        bin_size = getattr(self, "bin_size", None)
+        return self.map_class(metric_data[self.coords_cols], metric_data[self.metric_name],
+                              metric=self.metric, agg=self.agg, bin_size=bin_size)
+
 
 class ScatterMap(BaseMetricMap):
     """Construct a map by aggregating metric values defined for the same coordinates using `agg`. NaN values are
@@ -232,7 +243,7 @@ class ScatterMap(BaseMetricMap):
         exploded = self.metric_data.explode(self.metric_name)
         self.map_data = exploded.groupby(self.coords_cols).agg(self.agg)[self.metric_name]
 
-    def _plot_map(self, ax, is_lower_better, thresholds=None, **kwargs):
+    def _plot_map(self, ax, is_lower_better, **kwargs):
         """Display map data as a scatter plot."""
         sort_key = None
         if is_lower_better is None:
@@ -240,10 +251,7 @@ class ScatterMap(BaseMetricMap):
             global_mean = self.map_data.mean()
             sort_key = lambda col: (col - global_mean).abs()  # pylint: disable=unnecessary-lambda-assignment
         # Guarantee that extreme values are always displayed on top of the others
-        map_data = self.map_data
-        if thresholds:
-            map_data = map_data[(map_data >= thresholds[0]) & (map_data <= thresholds[1])]
-        map_data = map_data.sort_values(ascending=is_lower_better, key=sort_key)
+        map_data = self.map_data.sort_values(ascending=is_lower_better, key=sort_key)
         coords_x, coords_y = map_data.index.to_frame().values.T
         ax.set_xlim(*calculate_axis_limits(coords_x))
         ax.set_ylim(*calculate_axis_limits(coords_y))

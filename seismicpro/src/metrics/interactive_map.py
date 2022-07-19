@@ -157,10 +157,6 @@ class SliderPlot(InteractivePlot):
         header = super().construct_header()
         return widgets.VBox([header, self.slider_box])
 
-    @property
-    def plot_fn(self):
-        """callable: plotter of the current view with the last click coordinates passed."""
-        return partial(super().plot_fn, thresholds=self.slider.value)
 
 class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method
     """Base class for interactive metric map visualization.
@@ -180,23 +176,44 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method
         self.figsize = figsize
         self.orientation = orientation
 
+        self.is_lower_better = is_lower_better
+        self.plot_map_kwargs = kwargs
+
+        self.original_metric_map = metric_map
         self.metric_map = metric_map
+
         self.title = metric_map.plot_title if title is None else title
-        self.plot_map = partial(metric_map.plot, title="", is_lower_better=is_lower_better, **kwargs)
         self.plot_on_click = [partial(plot_fn, **plot_kwargs)
                               for plot_fn, plot_kwargs in zip(plot_on_click, plot_on_click_kwargs)]
         self.init_click_coords = metric_map.get_worst_coords(is_lower_better)
         super().__init__(orientation=orientation)
 
+    @property
+    def metric_map(self):
+        return self._metric_map
+
+    @metric_map.setter
+    def metric_map(self, value):
+        self._metric_map = value
+
+    @property
+    def plot_map(self):
+        def wrapper(*args, **kwargs):
+            kwargs = {**kwargs, 'title':"", 'is_lower_better': self.is_lower_better, **self.plot_map_kwargs}
+            self.metric_map.plot(*args, **kwargs)
+        return wrapper #partial(self.metric_map.plot, title="", is_lower_better=self.is_lower_better, **self.plot_map_kwargs)
+
     def on_slider_change(self, change):
         _ = change
+        self.metric_map = self.original_metric_map.select_by_thresholds(*self.main.slider.value)
         self.main.redraw()
 
     def construct_main_plot(self):
         """Construct the metric map plot."""
         return SliderPlot(plot_fn=self.plot_map, click_fn=self.click, init_click_coords=self.init_click_coords,
                           title=self.title, figsize=self.figsize,
-                          slider_min = self.metric_map.map_data.min(), slider_max=self.metric_map.map_data.max(),
+                          slider_min = self.original_metric_map.map_data.min(),
+                          slider_max=self.original_metric_map.map_data.max(),
                           slide_fn=self.on_slider_change
                          )
 
@@ -209,10 +226,11 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method
 class ScatterMapPlot(MetricMapPlot):
     """Construct an interactive plot of a non-aggregated metric map."""
 
-    def __init__(self, metric_map, plot_on_click, **kwargs):
-        self.coords = metric_map.map_data.index.to_frame().values
+    @MetricMapPlot.metric_map.setter
+    def metric_map(self, value):
+        MetricMapPlot.metric_map.__set__(self, value)
+        self.coords = self.metric_map.map_data.index.to_frame().values
         self.coords_neighbors = NearestNeighbors(n_neighbors=1).fit(self.coords)
-        super().__init__(metric_map, plot_on_click, **kwargs)
 
     def aux_title(self):
         """Return the title of the map data plot."""
