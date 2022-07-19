@@ -8,9 +8,11 @@ import math
 
 import segyio
 import numpy as np
+import scipy as sp
 import pandas as pd
 from tqdm.auto import tqdm
 from scipy.interpolate import interp1d
+from sklearn.linear_model import LinearRegression
 
 from .headers import load_headers
 from .metrics import SurveyAttribute
@@ -223,6 +225,20 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.quantile_interpolator = None
         self.n_dead_traces = None
 
+        # Define all geometry-related attributes and automatically infer field geometry if required headers are loaded
+        self.has_inferred_geometry = False
+        self._bins_to_coords_reg = None
+        self._coords_to_bins_reg = None
+        self.n_bins = None
+        self.is_stacked = None
+        self.bin_size = None  # m
+        self.inline_length = None  # m
+        self.crossline_length = None  # m
+        self.area = None  # m^2
+        self.is_2d = None
+        if {"INLINE_3D", "CROSSLINE_3D", "CDP_X", "CDP_Y"} <= headers_to_load:
+            self.infer_geometry()
+
     def _infer_sample_rate(self):
         """Get sample rate from file headers."""
         bin_sample_rate = self.segy_handler.bin[segyio.BinField.Interval]
@@ -293,6 +309,18 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Offsets range:             {offset_range}
         """
 
+        if self.has_inferred_geometry:
+            msg += f"""
+        Survey dimensionality:     {"2D" if self.is_2d else "3D"}
+        Is stacked:                {self.is_stacked}
+        Number of bins:            {self.n_bins}
+        Survey area:               {self.area / 1000**2} km^2
+        Bin size along inline:     {self.bin_size[0]} m
+        Length along inline:       {self.inline_length} m
+        Bin size along crossline:  {self.bin_size[1]} m
+        Length along crossline:    {self.crossline_length} m
+        """
+
         if self.has_stats:
             msg += f"""
         Survey statistics:
@@ -315,6 +343,52 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     #------------------------------------------------------------------------#
     #                     Statistics computation methods                     #
     #------------------------------------------------------------------------#
+
+    def infer_geometry(self):
+        coords_cols = ["CDP_X", "CDP_Y"]
+        bins_cols = ["INLINE_3D", "CROSSLINE_3D"]
+        cols = coords_cols + bins_cols
+
+        # Construct a mapping from bins to their coordinates and back
+        bins_to_coords = pd.DataFrame(self[cols], columns=cols)
+        bins_to_coords = bins_to_coords.groupby(bins_cols, sort=False, as_index=False).agg("mean")
+        bins_to_coords_reg = LinearRegression(copy_X=False, n_jobs=-1)
+        bins_to_coords_reg.fit(bins_to_coords[bins_cols], bins_to_coords[coords_cols])
+        coords_to_bins_reg = LinearRegression(copy_X=False, n_jobs=-1)
+        coords_to_bins_reg.fit(bins_to_coords[coords_cols], bins_to_coords[bins_cols])
+
+        # Set all geometry-related attributes
+        self.has_inferred_geometry = True
+        self._bins_to_coords_reg = bins_to_coords_reg
+        self._coords_to_bins_reg = coords_to_bins_reg
+        self.n_bins = len(bins_to_coords)
+        self.is_stacked = (self.n_traces == self.n_bins)
+        self.bin_size = np.diag(sp.linalg.polar(bins_to_coords_reg.coef_)[1])
+        self.inline_length = (np.ptp(bins_to_coords["INLINE_3D"]) + 1) * self.bin_size[0]
+        self.crossline_length = (np.ptp(bins_to_coords["CROSSLINE_3D"]) + 1) * self.bin_size[1]
+        self.area = self.n_bins * np.prod(self.bin_size)
+        self.is_2d = np.isclose(self.area, 0)
+        return self
+
+    @staticmethod
+    def _cast_coords(coords, transformer):
+        coords = np.array(coords)
+        is_coords_1d = (coords.ndim == 1)
+        coords = np.atleast_2d(coords)
+        transformed_coords = transformer.predict(coords)
+        if is_coords_1d:
+            return transformed_coords[0]
+        return transformed_coords
+
+    def coords_to_bins(self, coords):
+        if not self.has_inferred_geometry:
+            raise ValueError("Survey geometry was not inferred, call `infer_geometry` method first.")
+        return self._cast_coords(coords, self._coords_to_bins_reg)
+
+    def bins_to_coords(self, bins):
+        if not self.has_inferred_geometry:
+            raise ValueError("Survey geometry was not inferred, call `infer_geometry` method first.")
+        return self._cast_coords(bins, self._bins_to_coords_reg)
 
     # pylint: disable-next=too-many-statements
     def collect_stats(self, indices=None, n_quantile_traces=100000, quantile_precision=2, limits=None,
