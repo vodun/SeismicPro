@@ -903,33 +903,22 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target="for")
-    def apply_static_correction(self, datum):
+    def apply_static_correction(self, datum, fill_value=np.nan):
         """!!!"""
         # Do we need DelayRecordingTime?
         sc = self.survey.static_corr
         if sc is None:
             raise ValueError('!!')
 
-        if "dt" not in sc.source_params.columns:
+        if f"dt_{datum}" not in sc.source_params.columns:
             sc.calculate_dt(datum=datum)
 
-        new_data = np.zeros(self.shape)
         headers = self.headers.reset_index()
-        headers = (headers.merge(sc.source_params[["dt"]], on=sc._get_cols("source"))
-                          .merge(sc.rec_params[['dt']], on=sc._get_cols("rec"), suffixes=("_source", "_rec")))
-        for i, trace in enumerate(self.data):
-            # Do we need to subtract SourceUpholeTime?
-            # dt = headers.iloc[i][["dt_source", "dt_rec"]].sum()
-            dt_source, dt_rec, sut = headers.iloc[i][["dt_source", "dt_rec", "SourceUpholeTime"]].values
-            dt = dt_source + dt_rec
-            shift = np.int32(dt // self.sample_rate)
-            if shift > 0:
-                new_data[i][: -shift] = trace[shift:]
-            elif shift < 0:
-                new_data[i][-shift:] = trace[:shift]
-            else:
-                new_data[i] = trace
-        self.data = new_data
+        headers = (headers.merge(sc.source_params[[f"dt_{datum}"]], on=sc._get_cols("source"))
+                          .merge(sc.rec_params[[f"dt_{datum}"]], on=sc._get_cols("rec"), suffixes=("_source", "_rec")))
+        dt = headers[[f"dt_{datum}_source", f"dt_{datum}_rec"]].sum(axis=1).values // self.sample_rate
+
+        self.data = correction.apply_lmo(self.data, dt, fill_value)
         return self
 
     #------------------------------------------------------------------------#
