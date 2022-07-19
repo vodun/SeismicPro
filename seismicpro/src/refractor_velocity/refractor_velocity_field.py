@@ -41,13 +41,13 @@ class RefractorVelocityField(SpatialField):
         np.clip(values[:, 0], 0, None, out=values[:, 0])
 
         # Ensure that velocities of refractors are non-negative and increasing
-        velocities = values[:, self.n_layers:]
+        velocities = values[:, self.n_refractors:]
         np.clip(velocities[:, 0], 0, None, out=velocities[:, 0])
         np.maximum.accumulate(velocities, axis=1, out=velocities)
 
         # Ensure that crossover offsets are non-negative and increasing
-        if self.n_layers > 1:
-            cross_offsets = values[:, 1:self.n_layers]
+        if self.n_refractors > 1:
+            cross_offsets = values[:, 1:self.n_refractors]
             np.clip(cross_offsets[:, 0], 0, None, out=cross_offsets[:, 0])
             np.maximum.accumulate(cross_offsets, axis=1, out=cross_offsets)
 
