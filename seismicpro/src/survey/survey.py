@@ -311,14 +311,15 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         if self.has_inferred_geometry:
             msg += f"""
-        Survey dimensionality:     {"2D" if self.is_2d else "3D"}
+        Field geometry:
+        Dimensionality:            {"2D" if self.is_2d else "3D"}
         Is stacked:                {self.is_stacked}
         Number of bins:            {self.n_bins}
-        Survey area:               {self.area / 1000**2} km^2
-        Bin size along inline:     {self.bin_size[0]} m
-        Length along inline:       {self.inline_length} m
-        Bin size along crossline:  {self.bin_size[1]} m
-        Length along crossline:    {self.crossline_length} m
+        Area:                      {(self.area / 1000**2):.2f} km^2
+        Bin size along inline:     {self.bin_size[0]:.1f} m
+        Length along inline:       {(self.inline_length / 1000):.2f} km
+        Bin size along crossline:  {self.bin_size[1]:.1f} m
+        Length along crossline:    {(self.crossline_length / 1000):.2f} km
         """
 
         if self.has_stats:
