@@ -131,11 +131,13 @@ class Field:
         self.is_dirty_interpolator = False
         return self
 
-    def transform_coords(self, coords, to_geographic=None):
+    def transform_coords(self, coords, to_geographic=None, is_geographic=None):
         """Cast input `coords` either to geographic or line coordinates depending on the `to_geographic` flag. If the
         flag is not given, `coords` are transformed to coordinate system of the field."""
         if to_geographic is None:
             to_geographic = self.is_geographic
+        if is_geographic is None:
+            is_geographic = self.is_geographic
 
         coords_arr = np.array(coords)
         is_1d_coords = coords_arr.ndim == 1
@@ -145,14 +147,17 @@ class Field:
         if coords_arr.ndim != 2 or coords_arr.shape[1] != 2:
             raise ValueError("Wrong shape of passed coordinates")
 
-        need_cast_mask = np.zeros(len(coords), dtype=bool)
+        need_cast_mask = np.full(len(coords), fill_value=(is_geographic is not to_geographic), dtype=bool)
         for i, coord in enumerate(coords):
             if isinstance(coord, Coordinates):
                 need_cast_mask[i] = coord.is_geographic is not to_geographic
 
         if need_cast_mask.any():
-            # TODO: cast coords to field coords using survey transforms
-            raise ValueError("Both coords and field must represent either geographic or line coordinates")
+            if not self.has_survey or not self.survey.has_inferred_geometry:
+                raise ValueError("A survey with inferred geometry must be defined for a field if coords and field "
+                                 "are defined in different coordinate systems")
+            transformer = self.survey.coords_to_bins if is_geographic else self.survey.bins_to_coords
+            coords_arr[need_cast_mask] = transformer(coords_arr[need_cast_mask])
 
         return coords_arr, coords, is_1d_coords
 
@@ -227,7 +232,7 @@ class Field:
         _ = field_coords, items_coords
         raise NotImplementedError
 
-    def __call__(self, coords):
+    def __call__(self, coords, is_geographic=None):
         """Interpolate field items at given locations.
 
         Parameters
@@ -241,7 +246,7 @@ class Field:
             Interpolated items.
         """
         self.validate_interpolator()
-        field_coords, items_coords, is_1d_coords = self.transform_coords(coords)
+        field_coords, items_coords, is_1d_coords = self.transform_coords(coords, is_geographic=is_geographic)
         if self.coords_cols is None and not all(isinstance(coords, Coordinates) for coords in items_coords):
             raise ValueError("Names of field coordinates are undefined, so only Coordinates instances are allowed")
         items_coords = [coords if isinstance(coords, Coordinates) else Coordinates(coords, names=self.coords_cols)
@@ -316,7 +321,7 @@ class SpatialField(Field):
         of interpolated values is required."""
         return self.interpolator(coords)
 
-    def interpolate(self, coords):
+    def interpolate(self, coords, is_geographic=None):
         """Interpolate values of field items at given locations.
 
         Parameters
@@ -330,7 +335,7 @@ class SpatialField(Field):
             Interpolated values.
         """
         self.validate_interpolator()
-        field_coords, _, is_1d_coords = self.transform_coords(coords)
+        field_coords, _, is_1d_coords = self.transform_coords(coords, is_geographic=is_geographic)
         values = self._interpolate(field_coords)
         if is_1d_coords:
             return values[0]
