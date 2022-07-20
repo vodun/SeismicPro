@@ -182,7 +182,7 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
 
         self._metric_map = None
         self.original_metric_map = metric_map
-        self.metric_map = metric_map
+        self.current_metric_map = metric_map
 
         self.plot_on_click = [partial(plot_fn, **plot_kwargs)
                               for plot_fn, plot_kwargs in zip(plot_on_click, plot_on_click_kwargs)]
@@ -190,25 +190,25 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
         super().__init__(orientation=orientation)
 
     @property
-    def metric_map(self):
+    def current_metric_map(self):
         """Current metric map to plot"""
         return self._metric_map
 
-    @metric_map.setter
-    def metric_map(self, value):
+    @current_metric_map.setter
+    def current_metric_map(self, value):
         self._metric_map = value
 
     def on_slider_change(self, change):
         """ When slider changes create new metric map based on new slider values and redraw the main plot """
         _ = change
-        self.metric_map = self.original_metric_map.select_by_thresholds(*self.main.slider.value)
+        self.current_metric_map = self.original_metric_map.select_by_thresholds(*self.main.slider.value)
         self.main.redraw()
 
     def construct_main_plot(self):
         """Construct the metric map plot."""
         def plot_map(*args, **kwargs):
             kwargs = {'title':'', 'is_lower_better': self.is_lower_better, **self.plot_map_kwargs, **kwargs}
-            self.metric_map.plot(*args, **kwargs)
+            self.current_metric_map.plot(*args, **kwargs)
 
         init_click_coords = self.original_metric_map.get_worst_coords(self.is_lower_better)
 
@@ -228,10 +228,10 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
 class ScatterMapPlot(MetricMapPlot):
     """Construct an interactive plot of a non-aggregated metric map."""
 
-    @MetricMapPlot.metric_map.setter
-    def metric_map(self, value):
-        MetricMapPlot.metric_map.__set__(self, value)
-        self.coords = self.metric_map.map_data.index.to_frame().values
+    @MetricMapPlot.current_metric_map.setter
+    def current_metric_map(self, value):
+        MetricMapPlot.current_metric_map.__set__(self, value)
+        self.coords = self.current_metric_map.map_data.index.to_frame().values
         self.coords_neighbors = NearestNeighbors(n_neighbors=1).fit(self.coords)
 
     def aux_title(self):
@@ -239,7 +239,7 @@ class ScatterMapPlot(MetricMapPlot):
         coords = self.aux.current_coords
         if coords is None:
             return ""
-        return f"{self.metric_map.map_data[coords]:.05f} metric at {coords}"
+        return f"{self.current_metric_map.map_data[coords]:.05f} metric at {coords}"
 
     def construct_aux_plot(self):
         """Construct an interactive plot with data representation at click location."""
@@ -266,7 +266,7 @@ class BinarizedMapPlot(MetricMapPlot):
     def click(self, coords):
         """Get contents of a map bin by its `coords` and set them as options of the bin contents plot."""
         bin_coords = (int(coords[0] + 0.5), int(coords[1] + 0.5))
-        contents = self.metric_map.get_bin_contents(bin_coords)
+        contents = self.current_metric_map.get_bin_contents(bin_coords)
         if contents is None:  # Handle clicks outside bins
             return None
         self.aux.update_state(0, contents)
