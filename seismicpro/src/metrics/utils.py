@@ -143,14 +143,12 @@ def get_const_subseq(traces):
     return indicators.reshape(*old_shape)
 
 
-def deb_wiggle_plot(sur, ax, arr, labels, norm_tracewize, std=0.1, **kwargs):
+def deb_wiggle_plot(sur_std, ax, arr, labels, norm_tracewize, std=0.1, **kwargs):
+    """ Wiggle plot with labels for each trace. The color of each trace corresponds to its std. Used for debugging. """
 
-    n_traces, n_samples = arr.shape
+    y_coords = np.arange(arr.shape[1])
 
-    y_coords = np.arange(n_samples)
-
-
-    norm = colors.LogNorm(vmin=min(arr.std(axis=1))/sur.std, vmax=max(arr.std(axis=1))/sur.std)
+    norm = colors.LogNorm(vmin=min(arr.std(axis=1)/sur_std), vmax=max(arr.std(axis=1)/sur_std))
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning)
@@ -161,10 +159,9 @@ def deb_wiggle_plot(sur, ax, arr, labels, norm_tracewize, std=0.1, **kwargs):
     for i, (trace, label) in enumerate(zip(traces, labels)):
         ax.plot(i + trace, y_coords, 'k', alpha=0.1, **kwargs)
 
-        rgba_color, alpha = (cm.viridis(norm(arr[i].std()/sur.std)), 0.5)
-        cbar = ax.fill_betweenx(y_coords, i, i + trace, where=(trace > 0), color=rgba_color, alpha=alpha, **kwargs)
+        rgba_color = cm.viridis(norm(arr[i].std()/sur_std))
+        ax.fill_betweenx(y_coords, i, i + trace, where=(trace > 0), color=rgba_color, alpha=0.5, **kwargs)
         ax.text(i, 0, label, size='x-small')
-        # ax.text(i, y_coords[-1]+10, f"", size='x-small')
 
     ax.invert_yaxis()
     ax.set_title('Trace-wise norm' if norm_tracewize else 'Batch-wise norm')
@@ -172,6 +169,7 @@ def deb_wiggle_plot(sur, ax, arr, labels, norm_tracewize, std=0.1, **kwargs):
 
 
 def deb_indices(sur, indices, size, mode='wiggle', select_mode='sample', title=None, figsize=(15, 7), std=0.1):
+    """" Plot `size` traces from `sur` with given `indices`. Used for debuging.  """
 
     if len(indices) == 0:
         warnings.warn('empty subset!')
@@ -199,8 +197,8 @@ def deb_indices(sur, indices, size, mode='wiggle', select_mode='sample', title=N
                   for g, i in zip(gathers, ind)]
 
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
-        deb_wiggle_plot(sur, ax1, traces, labels, norm_tracewize=False, std=std)
-        deb_wiggle_plot(sur, ax2, traces, labels, norm_tracewize=True, std=std)
+        deb_wiggle_plot(sur.std, ax1, traces, labels, norm_tracewize=False, std=std)
+        deb_wiggle_plot(sur.std, ax2, traces, labels, norm_tracewize=True, std=std)
     elif mode == 'imshow':
         fig, ax = plt.subplots(figsize=figsize)
         cv = max(np.abs(np.quantile(traces, (0.1, 0.9))))
