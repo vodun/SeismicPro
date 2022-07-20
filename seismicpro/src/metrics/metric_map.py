@@ -222,6 +222,20 @@ class BaseMetricMap:
                               metric=self.metric, agg=agg, bin_size=bin_size)
 
     def select_by_thresholds(self, lower_thr=None, upper_thr=None):
+        """Create a new metric map with `map_data` that contains
+        only the points with metric value within provided thesholds.
+
+        Parameters
+        ----------
+        lower_thr, upper_thr : float, optional
+            Lower and upper thresholds for mwtric values.
+            If None, corresponding threshold is not active, by default None.
+
+        Returns
+        -------
+        BaseMetricMap
+            New metric map instance.
+        """
         metric_data = self.metric_data
         if lower_thr:
             metric_data = metric_data[metric_data[self.metric_name] >= lower_thr]

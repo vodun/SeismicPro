@@ -128,7 +128,7 @@ class MapBinPlot(MapCoordsPlot):
 
 
 class SliderPlot(InteractivePlot):
-    """Define an interactive plot with a range slider on top of the canvas.
+    """Define an interactive plot with a float range slider on top of the canvas.
 
     Parameters
     ----------
@@ -158,7 +158,7 @@ class SliderPlot(InteractivePlot):
         return widgets.VBox([header, self.slider_box])
 
 
-class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method
+class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-instance-attributes
     """Base class for interactive metric map visualization.
 
     Two methods should be redefined in a concrete plotter child class:
@@ -180,6 +180,7 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method
         self.plot_map_kwargs = kwargs
         self.title = metric_map.plot_title if title is None else title
 
+        self._metric_map = None
         self.original_metric_map = metric_map
         self.metric_map = metric_map
 
@@ -190,6 +191,7 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method
 
     @property
     def metric_map(self):
+        """Current metric map to plot"""
         return self._metric_map
 
     @metric_map.setter
@@ -197,6 +199,7 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method
         self._metric_map = value
 
     def on_slider_change(self, change):
+        """ When slider changes create new metric map based on new slider values and redraw the main plot """
         _ = change
         self.metric_map = self.original_metric_map.select_by_thresholds(*self.main.slider.value)
         self.main.redraw()
