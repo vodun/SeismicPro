@@ -15,7 +15,8 @@ class BaseMetricMap:
 
     Should not be instantiated directly, use `MetricMap` or its subclasses instead.
     """
-    def __init__(self, coords, metric_values, *, coords_cols=None, metric=None, metric_name=None, agg=None):
+    def __init__(self, coords, metric_values, *, coords_cols=None, metric=None, metric_name=None, agg=None,
+                 vmin=None, vmax=None):
         from .metrics import Metric, PartialMetric  # pylint: disable=import-outside-toplevel
         if metric is None:
             metric = Metric
@@ -43,6 +44,11 @@ class BaseMetricMap:
             default_agg = {True: "max", False: "min", None: "mean"}
             agg = default_agg[self.metric.is_lower_better]
         self.agg = agg
+
+        if vmin is not None:
+            self.vmin = vmin
+        if vmax is not None:
+            self.vmax = vmax
 
     def __getattr__(self, name):
         """Redirect attribute search into metric class or instance."""
@@ -236,16 +242,19 @@ class BaseMetricMap:
         BaseMetricMap
             New metric map instance.
         """
-        metric_data = self.metric_data
+        new_metric_data = self.metric_data
         if lower_thr:
-            metric_data = metric_data[metric_data[self.metric_name] >= lower_thr]
+            new_metric_data = new_metric_data[new_metric_data[self.metric_name] >= lower_thr]
         if upper_thr:
-            metric_data = metric_data[metric_data[self.metric_name] <= upper_thr]
+            new_metric_data = new_metric_data[new_metric_data[self.metric_name] <= upper_thr]
 
         bin_size = getattr(self, "bin_size", None)
-        return self.map_class(metric_data[self.coords_cols], metric_data[self.metric_name],
-                              metric=self.metric, agg=self.agg, bin_size=bin_size)
+        new_metric_map = self.map_class(new_metric_data[self.coords_cols], new_metric_data[self.metric_name],
+                                        metric=self.metric, agg=self.agg, bin_size=bin_size,
+                                        vmin=self.metric_data[self.metric_name].min(),
+                                        vmax=self.metric_data[self.metric_name].max())
 
+        return new_metric_map
 
 class ScatterMap(BaseMetricMap):
     """Construct a map by aggregating metric values defined for the same coordinates using `agg`. NaN values are
@@ -422,6 +431,9 @@ class MetricMap(metaclass=MetricMapMeta):
         `pandas.core.groupby.DataFrameGroupBy.agg`.
     bin_size : int, float or array-like with length 2, optional
         Bin size for X and Y axes. If single `int` or `float`, the same bin size will be used for both axes.
+    vmin, vmax : float or None
+        Minimum & nmaximum colorbar value. Define colorbar limits to compare several maps or highlight outliers.
+        If not provided, values from underlying metric are used.
 
     Attributes
     ----------
