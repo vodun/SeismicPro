@@ -322,7 +322,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         if name is None:
             # Use the first value of gather index to handle combined case
-            name = "_".join(map(str, [self.survey.name] + to_list(self.index)))
+            name = "_".join(map(str, [self.survey.name] + to_list(self.headers.index.values[0])))
         if name == "":
             raise ValueError("Argument `name` can not be empty.")
         if not os.path.splitext(name)[1]:
