@@ -207,16 +207,22 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
 
     def construct_main_plot(self):
         """Construct the metric map plot."""
+
+        original_min=self.original_metric_map.map_data.min()
+        original_max=self.original_metric_map.map_data.max()
+
         def plot_map(*args, **kwargs):
-            kwargs = {'title':'', 'is_lower_better': self.is_lower_better, **self.plot_map_kwargs, **kwargs}
+            kwargs = {'title':'', 'is_lower_better': self.is_lower_better,
+                      'vmin': original_min, 'vmax': original_max,
+                      **self.plot_map_kwargs,
+                      **kwargs}
             self.current_metric_map.plot(*args, **kwargs)
 
         init_click_coords = self.original_metric_map.get_worst_coords(self.is_lower_better)
 
         return SliderPlot(plot_fn=plot_map, click_fn=self.click, init_click_coords=init_click_coords,
                           title=self.title, figsize=self.figsize,
-                          slider_min = self.original_metric_map.map_data.min(),
-                          slider_max=self.original_metric_map.map_data.max(),
+                          slider_min=original_min, slider_max=original_max,
                           slide_fn=self.on_slider_change
                          )
 
