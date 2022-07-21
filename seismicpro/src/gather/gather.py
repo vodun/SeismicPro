@@ -337,12 +337,11 @@ class Gather(TraceContainer, SamplesContainer):
         spec.format = parent_handler.format
         spec.tracecount = self.n_traces
 
-    
         sample_rate = np.int32(self.sample_rate * 1000) # Convert to microseconds
         # Remember ordinal numbers of traces in the parent SEG-Y file to further copy their headers
         # and reset them to start from 1 in the resulting file to match SEG-Y standard.
         trace_ids = self["TRACE_SEQUENCE_FILE"].ravel() - 1
-        
+
         # Keep only headers, defined by SEG-Y standard.
         used_header_names = (set(to_list(self.indexed_by)) | set(self.headers.columns)) & set(segyio.tracefield.keys)
         used_header_names = to_list(used_header_names)
@@ -367,7 +366,7 @@ class Gather(TraceContainer, SamplesContainer):
             for i, trace_headers in enumerate(self[used_header_names]):
                 if retain_parent_segy_headers:
                     dump_handler.header[i] = parent_handler.header[trace_ids[i]]
-                dump_handler.header[i].update({**dict(zip(used_header_bytes, trace_headers)), 
+                dump_handler.header[i].update({**dict(zip(used_header_bytes, trace_headers)),
                                                segyio.TraceField.TRACE_SAMPLE_INTERVAL: sample_rate,
                                                segyio.TraceField.TRACE_SEQUENCE_FILE: i})
         return self
@@ -1436,7 +1435,8 @@ class Gather(TraceContainer, SamplesContainer):
         patch = PathPatch(Path(verts, codes), color=color, alpha=alpha)
         ax.add_patch(patch)
         ax.update_datalim([(0, 0), (0, traces.shape[1])])
-        if not ax.yaxis_inverted(): ax.invert_yaxis()
+        if not ax.yaxis_inverted():
+            ax.invert_yaxis()
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
     def _finalize_plot(self, ax, title, divider, event_headers, top_header,
