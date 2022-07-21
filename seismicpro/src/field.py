@@ -156,7 +156,7 @@ class Field:
             if not self.has_survey or not self.survey.has_inferred_geometry:
                 raise ValueError("A survey with inferred geometry must be defined for a field if coords and field "
                                  "are defined in different coordinate systems")
-            transformer = self.survey.coords_to_bins if is_geographic else self.survey.bins_to_coords
+            transformer = self.survey.bins_to_coords if to_geographic else self.survey.coords_to_bins
             coords_arr[need_cast_mask] = transformer(coords_arr[need_cast_mask])
 
         return coords_arr, coords, is_1d_coords
