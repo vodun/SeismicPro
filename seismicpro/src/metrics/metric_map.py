@@ -258,7 +258,7 @@ class ScatterMap(BaseMetricMap):
         exploded = self.metric_data.explode(self.metric_name)
         self.map_data = exploded.groupby(self.coords_cols).agg(self.agg)[self.metric_name]
 
-    def _plot_map(self, ax, is_lower_better, **kwargs):
+    def _plot_map(self, ax, is_lower_better, xlim=None, ylim=None, **kwargs):
         """Display map data as a scatter plot."""
         sort_key = None
         if is_lower_better is None:
@@ -268,8 +268,8 @@ class ScatterMap(BaseMetricMap):
         # Guarantee that extreme values are always displayed on top of the others
         map_data = self.map_data.sort_values(ascending=is_lower_better, key=sort_key)
         coords_x, coords_y = map_data.index.to_frame().values.T
-        ax.set_xlim(*calculate_axis_limits(coords_x))
-        ax.set_ylim(*calculate_axis_limits(coords_y))
+        ax.set_xlim(*get_first_defined(xlim, calculate_axis_limits(coords_x)))
+        ax.set_ylim(*get_first_defined(ylim, calculate_axis_limits(coords_y)))
         return ax.scatter(coords_x, coords_y, c=map_data, **kwargs)
 
 
@@ -325,7 +325,7 @@ class BinarizedMap(BaseMetricMap):
         """array-like: labels of y axis ticks."""
         return self.y_bin_coords
 
-    def _plot_map(self, ax, is_lower_better, **kwargs):
+    def _plot_map(self, ax, is_lower_better, xlim=None, ylim=None, **kwargs):
         """Display map data as an image."""
         _ = is_lower_better
 
@@ -334,6 +334,8 @@ class BinarizedMap(BaseMetricMap):
         y = self.map_data.index.get_level_values(1)
         map_image = np.full((len(self.x_bin_coords), len(self.y_bin_coords)), fill_value=np.nan)
         map_image[x, y] = self.map_data
+
+        _ = xlim, ylim
 
         kwargs = {"interpolation": "none", "origin": "lower", "aspect": "auto", **kwargs}
         return ax.imshow(map_image.T, **kwargs)

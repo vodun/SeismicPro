@@ -4,7 +4,7 @@ from functools import partial
 
 from sklearn.neighbors import NearestNeighbors
 
-from ..utils import get_text_formatting_kwargs, align_args, MissingModule
+from ..utils import get_text_formatting_kwargs, align_args, MissingModule, calculate_axis_limits
 from ..utils.interactive_plot_utils import InteractivePlot, PairedPlot, TEXT_LAYOUT, BUTTON_LAYOUT
 
 # Safe import of modules for interactive plotting
@@ -208,12 +208,16 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
     def construct_main_plot(self):
         """Construct the metric map plot."""
 
-        original_min=self.original_metric_map.map_data.min()
-        original_max=self.original_metric_map.map_data.max()
+        original_map_data = self.original_metric_map.map_data
+        original_min = original_map_data.min()
+        original_max = original_map_data.max()
+
+        coords_x, coords_y = original_map_data.index.to_frame().values.T
 
         def plot_map(*args, **kwargs):
             kwargs = {'title':'', 'is_lower_better': self.is_lower_better,
                       'vmin': original_min, 'vmax': original_max,
+                      'xlim': calculate_axis_limits(coords_x), 'ylim': calculate_axis_limits(coords_y),
                       **self.plot_map_kwargs,
                       **kwargs}
             self.current_metric_map.plot(*args, **kwargs)
