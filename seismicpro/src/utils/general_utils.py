@@ -19,6 +19,18 @@ def maybe_copy(obj, inplace=False, **kwargs):
     return obj if inplace else obj.copy(**kwargs)
 
 
+def int_linspace(start, stop, num):
+    if (num < 1) or (num > stop - start + 1):
+        raise ValueError("num must be between 1 and stop - start + 1")
+    if num == 1:
+        return np.array([start], dtype=np.int32)
+    div, mod = divmod(stop - start, num - 1)
+    steps = np.zeros(num, dtype=np.int32)
+    steps[1 : mod + 1] = div + 1
+    steps[mod + 1 :] = div
+    return start + np.cumsum(steps)
+
+
 def unique_indices_sorted(arr):
     """Return indices of the first occurrences of the unique values in a sorted array."""
     mask = np.empty(len(arr), dtype=np.bool_)
