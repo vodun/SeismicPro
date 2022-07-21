@@ -139,7 +139,7 @@ class Field:
         if is_geographic is None:
             is_geographic = self.is_geographic
 
-        coords_arr = np.array(coords)
+        coords_arr = np.array(coords, dtype=np.float32)  # Use float32 since coords won't remain integer after cast
         is_1d_coords = coords_arr.ndim == 1
         if is_1d_coords:
             coords = [coords]
