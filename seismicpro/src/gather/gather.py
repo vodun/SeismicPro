@@ -338,9 +338,9 @@ class Gather(TraceContainer, SamplesContainer):
         spec.tracecount = self.n_traces
 
         sample_rate = np.int32(self.sample_rate * 1000) # Convert to microseconds
-        # Remember ordinal numbers of traces in the parent SEG-Y file to further copy their headers
-        # and reset them to start from 1 in the resulting file to match SEG-Y standard.
-        trace_ids = self["TRACE_SEQUENCE_FILE"].ravel() - 1
+        if retain_parent_segy_headers:
+            # Remember ordinal numbers of traces in the parent SEG-Y file to further copy their headers
+            trace_ids = self["TRACE_SEQUENCE_FILE"].ravel() - 1
 
         # Keep only headers, defined by SEG-Y standard.
         used_header_names = (set(to_list(self.indexed_by)) | set(self.headers.columns)) & set(segyio.tracefield.keys)
