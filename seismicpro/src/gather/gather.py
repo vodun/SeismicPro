@@ -918,7 +918,7 @@ class Gather(TraceContainer, SamplesContainer):
                           .merge(sc.rec_params[[f"dt_{datum}"]], on=sc._get_cols("rec"), suffixes=("_source", "_rec")))
         dt = headers[[f"dt_{datum}_source", f"dt_{datum}_rec"]].sum(axis=1).values // self.sample_rate
 
-        self.data = correction.apply_lmo(self.data, dt, fill_value)
+        self.data = correction.apply_lmo(self.data, -dt, fill_value)
         return self
 
     #------------------------------------------------------------------------#
