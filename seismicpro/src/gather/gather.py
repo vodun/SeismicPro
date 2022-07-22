@@ -368,7 +368,7 @@ class Gather(TraceContainer, SamplesContainer):
                     dump_handler.header[i] = parent_handler.header[trace_ids[i]]
                 dump_handler.header[i].update({**dict(zip(used_header_bytes, trace_headers)),
                                                segyio.TraceField.TRACE_SAMPLE_INTERVAL: sample_rate,
-                                               segyio.TraceField.TRACE_SEQUENCE_FILE: i})
+                                               segyio.TraceField.TRACE_SEQUENCE_FILE: i+1})
         return self
 
     #------------------------------------------------------------------------#
@@ -1434,7 +1434,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         patch = PathPatch(Path(verts, codes), color=color, alpha=alpha)
         ax.add_patch(patch)
-        ax.update_datalim([(0, 0), (0, traces.shape[1])])
+        ax.update_datalim([(0, 0), traces.shape)])
         if not ax.yaxis_inverted():
             ax.invert_yaxis()
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
