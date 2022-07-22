@@ -346,6 +346,18 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     #                     Statistics computation methods                     #
     #------------------------------------------------------------------------#
 
+    def _get_field_mask(self):
+        # Find unique pairs of inlines and crosslines, drop_duplicates is way faster than np.unique
+        lines = pd.DataFrame(self[["INLINE_3D", "CROSSLINE_3D"]]).drop_duplicates().values
+
+        # Construct a binary mask of a field where True value is set for bins containing at least one trace
+        # and False otherwise
+        origin = lines.min(axis=0)
+        normed_lines = lines - origin
+        field_mask = np.zeros(normed_lines.max(axis=0) + 1, dtype=np.uint8)
+        field_mask[normed_lines[:, 0], normed_lines[:, 1]] = 1
+        return field_mask, origin
+
     def infer_geometry(self):
         coords_cols = ["CDP_X", "CDP_Y"]
         bins_cols = ["INLINE_3D", "CROSSLINE_3D"]
@@ -839,8 +851,17 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     #                         Task specific methods                          #
     #------------------------------------------------------------------------#
 
+    @staticmethod
+    def _get_optimal_origin(arr, step):
+        mod = len(arr) % step
+        if mod:
+            arr = np.pad(arr, (0, step - mod))
+        step_sums = arr.reshape(-1, step).sum(axis=0)
+        max_indices = np.nonzero(step_sums == step_sums.max())[0]
+        return max_indices[np.abs(max_indices - step // 2).argmin()]
+
     def generate_supergathers(self, centers=None, origin=None, size=3, step=20, border_indent=0, strict=True,
-                              max_trials=10000, reindex=True, inplace=False):
+                              reindex=True, inplace=False):
         """Combine several adjacent CDP gathers into ensembles called supergathers.
 
         Supergather generation is usually performed as a first step of velocity analysis. A substantially larger number
@@ -886,73 +907,28 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         index_cols = super_line_cols if reindex else self.indexed_by
 
         if centers is None:
-            # Find unique pairs of inlines and crosslines, drop_duplicates is way faster than np.unique
-            lines = pd.DataFrame(self[["INLINE_3D", "CROSSLINE_3D"]]).drop_duplicates().values
-
-            # Construct a binary mask of a field where True value is set for bins containing at least one trace
-            # and False otherwise
-            lines_min = lines.min(axis=0)
-            lines_normed = lines - lines_min
-            contour_img = np.zeros(lines_normed.max(axis=0) + 1, dtype=np.uint8)
-            contour_img[lines_normed[:, 0], lines_normed[:, 1]] = 1
-
-            # Erode field mask according to border_indent and strict flag
+            # Construct a field mask and erode it according to border_indent and strict flag
+            field_mask, field_mask_origin = self._get_field_mask()
             kernel = cv2.getStructuringElement(cv2.MORPH_RECT, np.broadcast_to(border_indent, 2) * 2 + 1)
-            contour_img = cv2.erode(contour_img, kernel, borderType=cv2.BORDER_CONSTANT, borderValue=0)
+            field_mask = cv2.erode(field_mask, kernel, borderType=cv2.BORDER_CONSTANT, borderValue=0)
             if strict:
                 kernel = cv2.getStructuringElement(cv2.MORPH_RECT, size)
-                contour_img = cv2.erode(contour_img, kernel, borderType=cv2.BORDER_CONSTANT, borderValue=0)
-            step = np.minimum(step, contour_img.shape)
+                field_mask = cv2.erode(field_mask, kernel, borderType=cv2.BORDER_CONSTANT, borderValue=0)
+            step = np.minimum(step, field_mask.shape)
 
-            # Construct a regular grid of supergathers covering the field with a margin of step
-            supergather_mask = np.zeros(contour_img.shape + step - 1, dtype=np.uint8)
-            i, x = np.meshgrid(np.arange(0, supergather_mask.shape[0], step[0]),
-                               np.arange(0, supergather_mask.shape[1], step[1]))
-            supergather_mask[i, x] = 1
-
+            # Calculate origins of the supergather grid along inline and crossline directions
             if origin is not None:
-                origin = np.broadcast_to(origin, 2)
-                best_shift = (lines_min - origin) % step
+                origin_i, origin_x = (field_mask_origin - np.broadcast_to(origin, 2)) % step
             else:
-                # Calculate the number of shifts along inline and crossline axes
-                n_i_shifts = np.clip(int(np.sqrt(max_trials * step[0] / step[1])), 1, min(step[0], max_trials))
-                n_x_shifts = max_trials // n_i_shifts
-                if n_x_shifts > step[1]:
-                    n_x_shifts = step[1]
-                    n_i_shifts = min(max_trials // n_x_shifts, step[0])
+                origin_i = self._get_optimal_origin(field_mask.sum(axis=0), step[0])
+                origin_x = self._get_optimal_origin(field_mask.sum(axis=1), step[1])
 
-                # Calculate the number of supergathers for each shift
-                n_supergathers = {}
-                for i_shift in int_linspace(0, step[0] - 1, n_i_shifts):
-                    for x_shift in int_linspace(0, step[1] - 1, n_x_shifts):
-                        shifted_mask = supergather_mask[i_shift : i_shift + contour_img.shape[0],
-                                                        x_shift : x_shift + contour_img.shape[1]]
-                        n_supergathers[(i_shift, x_shift)] = (contour_img & shifted_mask).sum()
-
-                # Select all shifts producing maximum number of supergathers
-                max_supergathers = max(n_supergathers.values())
-                optimal_shifts = np.stack([shift for shift, n in n_supergathers.items() if n == max_supergathers])
-                optimal_masks = np.stack([supergather_mask[i_shift : i_shift + contour_img.shape[0],
-                                                        x_shift : x_shift + contour_img.shape[1]]
-                                        for i_shift, x_shift in optimal_shifts])
-
-                # Select a shift whose supergathers are further away from field borders
-                eroded_img = contour_img
-                kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-                for _ in range(size.max()):
-                    eroded_img = cv2.erode(eroded_img, kernel, borderType=cv2.BORDER_CONSTANT, borderValue=0)
-                    drop_mask = (~eroded_img & optimal_masks).any(axis=(1, 2))
-                    if (len(drop_mask) == 1) or drop_mask.all():
-                        break
-                    optimal_shifts = optimal_shifts[~drop_mask]
-                    optimal_masks = optimal_masks[~drop_mask]
-                best_shift = optimal_shifts[0]
-
-            # Generate supergather centers
-            best_mask = supergather_mask[best_shift[0] : best_shift[0] + contour_img.shape[0],
-                                         best_shift[1] : best_shift[1] + contour_img.shape[1]]
-            centers = np.nonzero(contour_img & best_mask)
-            centers = np.stack(centers).T + lines_min
+            # Calculate supergather centers by their grid
+            grid_i = np.arange(origin_i, field_mask.shape[0], step[0])
+            grid_x = np.arange(origin_x, field_mask.shape[1], step[1])
+            centers = np.stack(np.meshgrid(grid_i, grid_x), -1).reshape(-1, 2)
+            is_valid = field_mask[centers[:, 0], centers[:, 1]].astype(np.bool)
+            centers = centers[is_valid] + field_mask_origin
 
         centers = np.array(centers)
         if centers.ndim != 2 or centers.shape[1] != 2:
@@ -960,7 +936,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         # Construct a bridge table with mapping from supergather centers to their bins
         shifts_grid = np.meshgrid(np.arange(size[0]) - size[0] // 2, np.arange(size[1]) - size[1] // 2)
-        shifts = np.stack(shifts_grid).reshape(2, -1).T
+        shifts = np.stack(shifts_grid, axis=-1).reshape(-1, 2)
         bridge = np.column_stack([centers.repeat(size.prod(), axis=0), (centers[:, None] + shifts).reshape(-1, 2)])
         bridge = pd.DataFrame(bridge, columns=super_line_cols+line_cols)
 
