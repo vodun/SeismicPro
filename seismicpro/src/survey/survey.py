@@ -909,10 +909,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if centers is None:
             # Construct a field mask and erode it according to border_indent and strict flag
             field_mask, field_mask_origin = self._get_field_mask()
-            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, np.broadcast_to(border_indent, 2) * 2 + 1)
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, np.broadcast_to(border_indent, 2) * 2 + 1).T
             field_mask = cv2.erode(field_mask, kernel, borderType=cv2.BORDER_CONSTANT, borderValue=0)
             if strict:
-                kernel = cv2.getStructuringElement(cv2.MORPH_RECT, size)
+                kernel = cv2.getStructuringElement(cv2.MORPH_RECT, size).T
                 field_mask = cv2.erode(field_mask, kernel, borderType=cv2.BORDER_CONSTANT, borderValue=0)
             step = np.minimum(step, field_mask.shape)
 
@@ -920,8 +920,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             if origin is not None:
                 origin_i, origin_x = (np.broadcast_to(origin, 2) - field_mask_origin) % step
             else:
-                origin_i = self._get_optimal_origin(field_mask.sum(axis=0), step[0])
-                origin_x = self._get_optimal_origin(field_mask.sum(axis=1), step[1])
+                origin_i = self._get_optimal_origin(field_mask.sum(axis=1), step[0])
+                origin_x = self._get_optimal_origin(field_mask.sum(axis=0), step[1])
 
             # Calculate supergather centers by their grid
             grid_i = np.arange(origin_i, field_mask.shape[0], step[0])
