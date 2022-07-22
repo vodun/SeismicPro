@@ -337,20 +337,16 @@ class Gather(TraceContainer, SamplesContainer):
         spec.format = parent_handler.format
         spec.tracecount = self.n_traces
 
-        trace_headers = self.headers.reset_index()
         sample_rate = np.int32(self.sample_rate * 1000) # Convert to microseconds
         # Remember ordinal numbers of traces in the parent SEG-Y file to further copy their headers
-        # and reset them to start from 1 in the resulting file to match SEG-Y standard.
-        trace_ids = trace_headers["TRACE_SEQUENCE_FILE"].values - 1
-        trace_headers["TRACE_SEQUENCE_FILE"] = np.arange(len(trace_headers)) + 1
+        trace_ids = self["TRACE_SEQUENCE_FILE"].ravel() - 1
 
         # Keep only headers, defined by SEG-Y standard.
-        used_header_names = list(set(trace_headers.columns) & set(segyio.tracefield.keys.keys()))
-        trace_headers = trace_headers[used_header_names]
+        used_header_names = (set(to_list(self.indexed_by)) | set(self.headers.columns)) & set(segyio.tracefield.keys)
+        used_header_names = to_list(used_header_names)
 
-        # Now we change column name's into byte number based on the SEG-Y standard.
-        trace_headers.rename(columns=lambda col_name: segyio.tracefield.keys[col_name], inplace=True)
-        trace_headers_dict = trace_headers.to_dict("index")
+        # Transform header's names into byte number based on the SEG-Y standard.
+        used_header_bytes = [segyio.tracefield.keys[header_name] for header_name in used_header_names]
 
         with segyio.create(full_path, spec) as dump_handler:
             # Copy the binary header from the parent SEG-Y file and update it with samples data of the gather.
@@ -366,10 +362,12 @@ class Gather(TraceContainer, SamplesContainer):
 
             # Dump traces and their headers. Optionally copy headers from the parent SEG-Y file.
             dump_handler.trace = self.data
-            for i, dump_h in trace_headers_dict.items():
+            for i, trace_headers in enumerate(self[used_header_names]):
                 if retain_parent_segy_headers:
-                    dump_handler.header[i].update(parent_handler.header[trace_ids[i]])
-                dump_handler.header[i].update({**dump_h, segyio.TraceField.TRACE_SAMPLE_INTERVAL: sample_rate})
+                    dump_handler.header[i] = parent_handler.header[trace_ids[i]]
+                dump_handler.header[i].update({**dict(zip(used_header_bytes, trace_headers)),
+                                               segyio.TraceField.TRACE_SAMPLE_INTERVAL: sample_rate,
+                                               segyio.TraceField.TRACE_SEQUENCE_FILE: i + 1})
         return self
 
     #------------------------------------------------------------------------#
@@ -1435,7 +1433,9 @@ class Gather(TraceContainer, SamplesContainer):
 
         patch = PathPatch(Path(verts, codes), color=color, alpha=alpha)
         ax.add_patch(patch)
-        ax.invert_yaxis()
+        ax.update_datalim([(0, 0), traces.shape])
+        if not ax.yaxis_inverted():
+            ax.invert_yaxis()
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
     def _finalize_plot(self, ax, title, divider, event_headers, top_header,
