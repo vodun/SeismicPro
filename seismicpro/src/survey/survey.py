@@ -918,7 +918,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
             # Calculate origins of the supergather grid along inline and crossline directions
             if origin is not None:
-                origin_i, origin_x = (field_mask_origin - np.broadcast_to(origin, 2)) % step
+                origin_i, origin_x = (np.broadcast_to(origin, 2) - field_mask_origin) % step
             else:
                 origin_i = self._get_optimal_origin(field_mask.sum(axis=0), step[0])
                 origin_x = self._get_optimal_origin(field_mask.sum(axis=1), step[1])
