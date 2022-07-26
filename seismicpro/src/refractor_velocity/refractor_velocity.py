@@ -440,14 +440,12 @@ class RefractorVelocity:
                 current_slope[i] = fitted_slope * std_time / std_offset
                 current_time[i] = mean_time + fitted_time * std_time - current_slope[i] * mean_offset
             else:
-                current_slope[i] = initial_slope
-                current_time[i] = initial_time
+                # raise base velocity for the next layer (v = 1 / slope)
+                current_slope[i] = current_slope[i] * (n_refractors / (n_refractors + 1)) if i else 4 / 5
+                current_time[i] = 0  # used for first layer only (`t0`)
             # move maximal velocity to 6 km/s
             current_slope[i] = max(.167, current_slope[i])
             current_time[i] =  max(0, current_time[i])
-            # raise base velocity for the next layer (v = 1 / slope). will be used if no data found for next layer
-            initial_slope = current_slope[i] * (n_refractors / (n_refractors + 1))
-            initial_time = current_time[i] + (current_slope[i] - initial_slope) * cross_offsets[i + 1]
         velocities = 1 / current_slope
         init = [current_time[0], *cross_offsets[1:-1], *(velocities * 1000)]
         init = dict(zip(self._get_valid_keys(n_refractors), init))
