@@ -531,6 +531,11 @@ class RefractorVelocity:
         -------
         self : RefractorVelocity
             RefractorVelocity without changes.
+
+        Raises
+        ------
+        ValueError
+            If coords attributes is None.
         """
         if self.coords is None:
             raise ValueError("`coords` attribute should be defined.")
