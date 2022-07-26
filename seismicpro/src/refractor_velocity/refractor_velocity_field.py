@@ -73,12 +73,12 @@ class RefractorVelocityField(SpatialField):
         encoding : str, optional, defaults to "UTF-8"
             File encoding.
         col_size : int, defaults to 10
-            Size of each columns in file. Parameters will be increased to the coords names size.
+            Size of each columns in file. col_size will be increased to the coords names size.
 
         Returns
         -------
-        self : RefractorVelocity
-            RefractorVelocity without changes.
+        self : RefractorVelocityField
+            RefractorVelocityField without changes.
 
         Raises
         ------
@@ -119,8 +119,8 @@ class RefractorVelocityField(SpatialField):
 
         Returns
         -------
-        self : RefractorVelocity
-            RefractorVelocity instance created from the loaded parameters.
+        self : RefractorVelocityField
+            RefractorVelocityField instance created from the loaded parameters.
         """
         self = cls()
         df = pd.read_csv(path, sep=r'\s+', encoding=encoding)
