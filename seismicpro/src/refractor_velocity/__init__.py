@@ -2,3 +2,4 @@
 
 from .refractor_velocity import RefractorVelocity
 from .interpolator import RefractorVelocityInterpolator
+from .refractor_velocity_field import RefractorVelocityField

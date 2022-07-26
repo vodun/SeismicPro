@@ -6,16 +6,19 @@ from copy import copy
 from textwrap import dedent
 import math
 
+import cv2
 import segyio
 import numpy as np
+import scipy as sp
 import pandas as pd
 from tqdm.auto import tqdm
 from scipy.interpolate import interp1d
+from sklearn.linear_model import LinearRegression
 
 from .headers import load_headers
 from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
-from .utils import ibm_to_ieee, calculate_trace_stats, create_supergather_index
+from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
 from ..metrics import PartialMetric
 from ..static_correction import StaticCorrection
@@ -225,6 +228,20 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.n_dead_traces = None
         self.static_corr = None
 
+        # Define all geometry-related attributes and automatically infer field geometry if required headers are loaded
+        self.has_inferred_geometry = False
+        self._bins_to_coords_reg = None
+        self._coords_to_bins_reg = None
+        self.n_bins = None
+        self.is_stacked = None
+        self.bin_size = None  # m
+        self.inline_length = None  # m
+        self.crossline_length = None  # m
+        self.area = None  # m^2
+        self.is_2d = None
+        if {"INLINE_3D", "CROSSLINE_3D", "CDP_X", "CDP_Y"} <= headers_to_load:
+            self.infer_geometry()
+
     def _infer_sample_rate(self):
         """Get sample rate from file headers."""
         bin_sample_rate = self.segy_handler.bin[segyio.BinField.Interval]
@@ -295,6 +312,19 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Offsets range:             {offset_range}
         """
 
+        if self.has_inferred_geometry:
+            msg += f"""
+        Field geometry:
+        Dimensionality:            {"2D" if self.is_2d else "3D"}
+        Is stacked:                {self.is_stacked}
+        Number of bins:            {self.n_bins}
+        Area:                      {(self.area / 1000**2):.2f} km^2
+        Bin size along inline:     {self.bin_size[0]:.1f} m
+        Length along inline:       {(self.inline_length / 1000):.2f} km
+        Bin size along crossline:  {self.bin_size[1]:.1f} m
+        Length along crossline:    {(self.crossline_length / 1000):.2f} km
+        """
+
         if self.has_stats:
             msg += f"""
         Survey statistics:
@@ -317,6 +347,64 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     #------------------------------------------------------------------------#
     #                     Statistics computation methods                     #
     #------------------------------------------------------------------------#
+
+    def _get_field_mask(self):
+        # Find unique pairs of inlines and crosslines, drop_duplicates is way faster than np.unique
+        lines = pd.DataFrame(self[["INLINE_3D", "CROSSLINE_3D"]]).drop_duplicates().values
+
+        # Construct a binary mask of a field where True value is set for bins containing at least one trace
+        # and False otherwise
+        origin = lines.min(axis=0)
+        normed_lines = lines - origin
+        field_mask = np.zeros(normed_lines.max(axis=0) + 1, dtype=np.uint8)
+        field_mask[normed_lines[:, 0], normed_lines[:, 1]] = 1
+        return field_mask, origin
+
+    def infer_geometry(self):
+        coords_cols = ["CDP_X", "CDP_Y"]
+        bins_cols = ["INLINE_3D", "CROSSLINE_3D"]
+        cols = coords_cols + bins_cols
+
+        # Construct a mapping from bins to their coordinates and back
+        bins_to_coords = pd.DataFrame(self[cols], columns=cols)
+        bins_to_coords = bins_to_coords.groupby(bins_cols, sort=False, as_index=False).agg("mean")
+        bins_to_coords_reg = LinearRegression(copy_X=False, n_jobs=-1)
+        bins_to_coords_reg.fit(bins_to_coords[bins_cols], bins_to_coords[coords_cols])
+        coords_to_bins_reg = LinearRegression(copy_X=False, n_jobs=-1)
+        coords_to_bins_reg.fit(bins_to_coords[coords_cols], bins_to_coords[bins_cols])
+
+        # Set all geometry-related attributes
+        self.has_inferred_geometry = True
+        self._bins_to_coords_reg = bins_to_coords_reg
+        self._coords_to_bins_reg = coords_to_bins_reg
+        self.n_bins = len(bins_to_coords)
+        self.is_stacked = (self.n_traces == self.n_bins)
+        self.bin_size = np.diag(sp.linalg.polar(bins_to_coords_reg.coef_)[1])
+        self.inline_length = (np.ptp(bins_to_coords["INLINE_3D"]) + 1) * self.bin_size[0]
+        self.crossline_length = (np.ptp(bins_to_coords["CROSSLINE_3D"]) + 1) * self.bin_size[1]
+        self.area = self.n_bins * np.prod(self.bin_size)
+        self.is_2d = np.isclose(self.area, 0)
+        return self
+
+    @staticmethod
+    def _cast_coords(coords, transformer):
+        coords = np.array(coords)
+        is_coords_1d = (coords.ndim == 1)
+        coords = np.atleast_2d(coords)
+        transformed_coords = transformer.predict(coords)
+        if is_coords_1d:
+            return transformed_coords[0]
+        return transformed_coords
+
+    def coords_to_bins(self, coords):
+        if not self.has_inferred_geometry:
+            raise ValueError("Survey geometry was not inferred, call `infer_geometry` method first.")
+        return self._cast_coords(coords, self._coords_to_bins_reg)
+
+    def bins_to_coords(self, bins):
+        if not self.has_inferred_geometry:
+            raise ValueError("Survey geometry was not inferred, call `infer_geometry` method first.")
+        return self._cast_coords(bins, self._bins_to_coords_reg)
 
     # pylint: disable-next=too-many-statements
     def collect_stats(self, indices=None, n_quantile_traces=100000, quantile_precision=2, limits=None,
@@ -765,7 +853,17 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     #                         Task specific methods                          #
     #------------------------------------------------------------------------#
 
-    def generate_supergathers(self, size=(3, 3), step=(20, 20), modulo=(0, 0), reindex=True, inplace=False):
+    @staticmethod
+    def _get_optimal_origin(arr, step):
+        mod = len(arr) % step
+        if mod:
+            arr = np.pad(arr, (0, step - mod))
+        step_sums = arr.reshape(-1, step).sum(axis=0)
+        max_indices = np.nonzero(step_sums == step_sums.max())[0]
+        return max_indices[np.abs(max_indices - step // 2).argmin()]
+
+    def generate_supergathers(self, centers=None, origin=None, size=3, step=20, border_indent=0, strict=True,
+                              reindex=True, inplace=False):
         """Combine several adjacent CDP gathers into ensembles called supergathers.
 
         Supergather generation is usually performed as a first step of velocity analysis. A substantially larger number
@@ -802,19 +900,51 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         KeyError
             If `INLINE_3D` and `CROSSLINE_3D` headers were not loaded.
         """
+        size = np.broadcast_to(size, 2)
+        step = np.broadcast_to(step, 2)
+
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]
         super_line_cols = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
         index_cols = super_line_cols if reindex else self.indexed_by
 
-        line_coords = pd.DataFrame(self[line_cols], columns=line_cols).drop_duplicates().sort_values(by=line_cols)
-        supergather_centers = line_coords[(line_coords.mod(step) == modulo).all(axis=1)].values
-        supergather_lines = pd.DataFrame(create_supergather_index(supergather_centers, size),
-                                         columns=super_line_cols+line_cols)
+        if centers is None:
+            # Construct a field mask and erode it according to border_indent and strict flag
+            field_mask, field_mask_origin = self._get_field_mask()
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, np.broadcast_to(border_indent, 2) * 2 + 1).T
+            field_mask = cv2.erode(field_mask, kernel, borderType=cv2.BORDER_CONSTANT, borderValue=0)
+            if strict:
+                kernel = cv2.getStructuringElement(cv2.MORPH_RECT, size).T
+                field_mask = cv2.erode(field_mask, kernel, borderType=cv2.BORDER_CONSTANT, borderValue=0)
+            step = np.minimum(step, field_mask.shape)
+
+            # Calculate origins of the supergather grid along inline and crossline directions
+            if origin is not None:
+                origin_i, origin_x = (np.broadcast_to(origin, 2) - field_mask_origin) % step
+            else:
+                origin_i = self._get_optimal_origin(field_mask.sum(axis=1), step[0])
+                origin_x = self._get_optimal_origin(field_mask.sum(axis=0), step[1])
+
+            # Calculate supergather centers by their grid
+            grid_i = np.arange(origin_i, field_mask.shape[0], step[0])
+            grid_x = np.arange(origin_x, field_mask.shape[1], step[1])
+            centers = np.stack(np.meshgrid(grid_i, grid_x), -1).reshape(-1, 2)
+            is_valid = field_mask[centers[:, 0], centers[:, 1]].astype(np.bool)
+            centers = centers[is_valid] + field_mask_origin
+
+        centers = np.array(centers)
+        if centers.ndim != 2 or centers.shape[1] != 2:
+            raise ValueError("Passed centers must have shape (n_supergathers, 2)")
+
+        # Construct a bridge table with mapping from supergather centers to their bins
+        shifts_grid = np.meshgrid(np.arange(size[0]) - size[0] // 2, np.arange(size[1]) - size[1] // 2)
+        shifts = np.stack(shifts_grid, axis=-1).reshape(-1, 2)
+        bridge = np.column_stack([centers.repeat(size.prod(), axis=0), (centers[:, None] + shifts).reshape(-1, 2)])
+        bridge = pd.DataFrame(bridge, columns=super_line_cols+line_cols)
 
         headers = self.headers
         headers.reset_index(inplace=True)
-        headers = pd.merge(supergather_lines, headers, on=line_cols)
+        headers = pd.merge(bridge, headers, on=line_cols)
         headers.set_index(index_cols, inplace=True)
         headers.sort_index(kind="stable", inplace=True)
         self.headers = headers

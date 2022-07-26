@@ -129,7 +129,7 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
         smoothed_items = self.weights_to_items(weights, items_coords)
         return type(self)(survey=self.survey, is_geographic=self.is_geographic).update(smoothed_items)
 
-    def interpolate(self, coords, times):
+    def interpolate(self, coords, times, is_geographic=None):
         """Interpolate stacking velocities at given `coords` and `times`.
 
         Interpolation over a regular grid of times allows implementing a much more efficient computation strategy than
@@ -149,7 +149,7 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
             Interpolated stacking velocities at given `coords` and `times`. Has shape (n_coords, n_times).
         """
         self.validate_interpolator()
-        field_coords, _, _ = self.transform_coords(coords)
+        field_coords, _, _ = self.transform_coords(coords, is_geographic=is_geographic)
         times = np.atleast_1d(times)
         weights = self.interpolator.get_weights(field_coords)
         base_velocities_coords = set.union(*[set(weights_dict.keys()) for weights_dict in weights])
