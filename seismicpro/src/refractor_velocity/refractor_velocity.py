@@ -3,11 +3,13 @@
 from functools import partial
 
 import numpy as np
+import pandas as pd
 from sklearn.linear_model import SGDRegressor
 from scipy import optimize
+# from utils.coordinates import Coordinates
 
 from ..decorators import plotter
-from ..utils import set_ticks, set_text_formatting
+from ..utils import set_ticks, set_text_formatting, Coordinates
 from ..utils.interpolation import interp1d
 
 
@@ -109,8 +111,7 @@ class RefractorVelocity:
         self._model_params = None
 
     @classmethod
-    def from_first_breaks(cls, offsets, fb_times, init=None, bounds=None, n_refractors=None, coords=None, mode="normal",
-                          **kwargs):
+    def from_first_breaks(cls, offsets, fb_times, init=None, bounds=None, n_refractors=None, coords=None, **kwargs):
         """Create a `RefractorVelocity` instance from offsets and times of first breaks. At least one of `init`,
         `bounds` or `n_refractors` must be passed.
 
@@ -154,15 +155,7 @@ class RefractorVelocity:
         self.max_offset = offsets.max()
         self.coords = coords
 
-        if mode == "normal":
-            self.init = {**self._calc_init_by_layers(n_refractors), **self._calc_init_by_bounds(bounds), **init}
-        elif mode == "init_one":
-            self.init = {**self._calc_init_by_layers_init_one(n_refractors), **self._calc_init_by_bounds(bounds), **init}
-        elif mode == "no_sgd":
-            self.init = {**self._calc_init_by_layers_no_sgd(n_refractors), **self._calc_init_by_bounds(bounds), **init}
-        elif mode == "var":
-            self.init = {**self._calc_init_by_layers_no_sgd_var(n_refractors), **self._calc_init_by_bounds(bounds), **init}
-            
+        self.init = {**self._calc_init_by_layers(n_refractors), **self._calc_init_by_bounds(bounds), **init}            
         self.bounds = {**self._calc_bounds_by_init(), **bounds}
         self._validate_keys(self.bounds)
         self.n_refractors = len(self.bounds) // 2
@@ -258,6 +251,23 @@ class RefractorVelocity:
         if velocity < 0:
             raise ValueError("Velocity should not be negative.")
         return self.from_params({"t0": 0, "v1": velocity}, coords=coords)
+
+    @classmethod
+    def from_file(cls, path):
+        """Create a `RefractorVelocity` instance from file.
+
+        Parameters
+        ----------
+        path : str
+            Path to the file with a velocity model parameters.
+
+        Returns
+        -------
+        RefractorVelocity
+            RefractorVelocity instance based on parameters.
+        """
+        self = cls()
+        return self.load(path)
 
     def __call__(self, offsets):
         """Return the expected times of first breaks for the given offsets."""
@@ -416,9 +426,6 @@ class RefractorVelocity:
         if n_refractors is None or n_refractors < 1:
             return {}
 
-        initial_slope = 4 / 5  # base slope corresponding velocity is 1.25 km/s (v = 1 / slope)
-        initial_time = 0
-
         cross_offsets = np.linspace(0, self.max_offset, num=n_refractors + 1)
         current_slope = np.empty(n_refractors)
         current_time = np.empty(n_refractors)
@@ -429,8 +436,7 @@ class RefractorVelocity:
                 # data normalization occurs independently for each layer
                 scaled_offsets, mean_offset, std_offset = self._standart_scaler(self.offsets[mask])
                 scaled_times, mean_time, std_time = self._standart_scaler(self.fb_times[mask])
-                fitted_slope, fitted_time = self._fit_regressor(scaled_offsets.reshape(-1, 1), scaled_times,
-                                                                initial_slope * std_offset / std_time, 0)
+                fitted_slope, fitted_time = self._fit_regressor(scaled_offsets.reshape(-1, 1), scaled_times, 1, 0)
                 current_slope[i] = fitted_slope * std_time / std_offset
                 current_time[i] = mean_time + fitted_time * std_time - current_slope[i] * mean_offset
             else:
@@ -439,108 +445,7 @@ class RefractorVelocity:
             # move maximal velocity to 6 km/s
             current_slope[i] = max(.167, current_slope[i])
             current_time[i] =  max(0, current_time[i])
-            # raise base velocity for the next layer (v = 1 / slope)
-            initial_slope = current_slope[i] * (n_refractors / (n_refractors + 1))
-            initial_time = current_time[i] + (current_slope[i] - initial_slope) * cross_offsets[i + 1]
-        velocities = 1 / (current_slope)
-        init = [current_time[0], *cross_offsets[1:-1], *(velocities * 1000)]
-        init = dict(zip(self._get_valid_keys(n_refractors), init))
-        return init
-
-    def _calc_init_by_layers_init_one(self, n_refractors):
-        """Calculates `init` dict by a given an estimated quantity of layers.
-
-        Method splits the first breaks times into `n_refractors` equal part by cross offsets and fits a separate linear
-        regression on each part. These linear functions are compiled together as a piecewise linear function.
-        Parameters of piecewise function are calculated to the velocity model parameters and returned as `init` dict.
-
-        Parameters
-        ----------
-        n_refractors : int
-            Number of layers.
-
-        Returns
-        -------
-        init : dict
-            Estimated initial to fit the piecewise linear function.
-        """
-        if n_refractors is None or n_refractors < 1:
-            return {}
-
-        initial_slope = 4 / 5  # base slope corresponding velocity is 1.25 km/s (v = 1 / slope)
-        initial_time = 0
-
-        cross_offsets = np.linspace(0, self.max_offset, num=n_refractors + 1)
-        current_slope = np.empty(n_refractors)
-        current_time = np.empty(n_refractors)
-
-        for i in range(n_refractors):
-            mask = (self.offsets > cross_offsets[i]) & (self.offsets <= cross_offsets[i + 1])
-            if mask.sum() > 1:  # at least two point to fit
-                # data normalization occurs independently for each layer
-                scaled_offsets, mean_offset, std_offset = self._standart_scaler(self.offsets[mask])
-                scaled_times, mean_time, std_time = self._standart_scaler(self.fb_times[mask])
-                fitted_slope, fitted_time = self._fit_regressor(scaled_offsets.reshape(-1, 1), scaled_times,
-                                                                1, 0)
-                current_slope[i] = fitted_slope * std_time / std_offset
-                current_time[i] = mean_time + fitted_time * std_time - current_slope[i] * mean_offset
-            else:
-                current_slope[i] = initial_slope
-                current_time[i] = initial_time
-            # move maximal velocity to 6 km/s
-            current_slope[i] = max(.167, current_slope[i])
-            current_time[i] =  max(0, current_time[i])
-            # raise base velocity for the next layer (v = 1 / slope)
-            initial_slope = current_slope[i] * (n_refractors / (n_refractors + 1))
-            initial_time = current_time[i] + (current_slope[i] - initial_slope) * cross_offsets[i + 1]
-        velocities = 1 / (current_slope)
-        init = [current_time[0], *cross_offsets[1:-1], *(velocities * 1000)]
-        init = dict(zip(self._get_valid_keys(n_refractors), init))
-        return init
-
-    def _calc_init_by_layers_no_sgd(self, n_refractors):
-        """Calculates `init` dict by a given an estimated quantity of layers.
-
-        Method splits the first breaks times into `n_refractors` equal part by cross offsets and fits a separate linear
-        regression on each part. These linear functions are compiled together as a piecewise linear function.
-        Parameters of piecewise function are calculated to the velocity model parameters and returned as `init` dict.
-
-        Parameters
-        ----------
-        n_refractors : int
-            Number of layers.
-
-        Returns
-        -------
-        init : dict
-            Estimated initial to fit the piecewise linear function.
-        """
-        if n_refractors is None or n_refractors < 1:
-            return {}
-
-        initial_slope = 4 / 5  # base slope corresponding velocity is 1.25 km/s (v = 1 / slope)
-        initial_time = 0
-
-        cross_offsets = np.linspace(0, self.max_offset, num=n_refractors + 1)
-        current_slope = np.empty(n_refractors)
-        current_time = np.empty(n_refractors)
-
-        for i in range(n_refractors):
-            mask = (self.offsets > cross_offsets[i]) & (self.offsets <= cross_offsets[i + 1])
-            if mask.sum() > 1:  # at least two point to fit
-                # data normalization occurs independently for each layer
-                scaled_offsets, mean_offset, std_offset = self._standart_scaler(self.offsets[mask])
-                scaled_times, mean_time, std_time = self._standart_scaler(self.fb_times[mask])
-                fitted_slope, fitted_time = 1, 0
-                current_slope[i] = fitted_slope * std_time / std_offset
-                current_time[i] = mean_time + fitted_time * std_time - current_slope[i] * mean_offset
-            else:
-                current_slope[i] = initial_slope
-                current_time[i] = initial_time
-            # move maximal velocity to 6 km/s
-            current_slope[i] = max(.167, current_slope[i])
-            current_time[i] =  max(0, current_time[i])
-            # raise base velocity for the next layer (v = 1 / slope)
+            # raise base velocity for the next layer (v = 1 / slope). will be used if no data found for next layer
             initial_slope = current_slope[i] * (n_refractors / (n_refractors + 1))
             initial_time = current_time[i] + (current_slope[i] - initial_slope) * cross_offsets[i + 1]
         velocities = 1 / (current_slope)
@@ -607,6 +512,62 @@ class RefractorVelocity:
         if as_array:
             return values
         return dict(zip(self._valid_keys, values))
+
+    def dump(self, path, col_size=10, encoding="UTF-8"):
+        """Dump RefractorVelocity instance to disk.
+
+        File contains coords and params attributes with follow structure:
+        [coords.names] [params.keys]
+        [coords.coords] [params.values]
+
+        Parameters
+        ----------
+        path : str,
+            path to the file with parameters.
+        col_size : int, defaults to 10
+            size of each columns in file. Parameters will be increased to the coords names size.
+        encoding : str, optional, defaults to "UTF-8"
+            File encoding.
+
+        Returns
+        -------
+        self : RefractorVelocity
+            RefractorVelocity without changes.
+        """
+        if self.coords is None:
+            raise ValueError("`coords` attribute should be defined.")
+        col_size = max(col_size, max(len(name) for name in self.coords.names) + 1)
+        values = list(self.coords.coords) + list(self.params.values())
+        values_format = '\n' + '{:>{col_size}}' * len(self.coords) + '{:>{col_size}.2f}' * len(self.params)
+
+        columns = list(self.coords.names) + list(self.params.keys())
+        cols_format = '{:>{col_size}}' * (len(columns))
+        with open(path, 'w', encoding=encoding) as f:
+            f.write(cols_format.format(*columns, col_size=col_size))
+            f.write(values_format.format(*values, col_size=col_size))
+        return self
+
+    def load(self, path, encoding="UTF-8"):
+        """Load parameters from a file and create a RefractorVelocity instance from the loaded parameters.
+
+        File example:
+        SourceX   SourceY        t0        x1        v1        v2
+        1111100   2222220     50.00   1000.00   1500.00   2000.00
+
+        Parameters
+        ----------
+        path : str,
+            path to the file with parameters.
+
+        Returns
+        -------
+        self : RefractorVelocity
+            RefractorVelocity instance created from the loaded parameters.
+        """
+        df = pd.read_csv(path, sep=r'\s+', encoding=encoding)
+        coords_data = df.iloc[0][:2]
+        coords = Coordinates(names=tuple(coords_data.index), coords=tuple(coords_data.values))
+        return self.from_params(params=df.iloc[0][2:], coords=coords)
 
     @plotter(figsize=(10, 5), args_to_unpack="compare_to")
     def plot(self, *, ax=None, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_times=None,
