@@ -357,7 +357,7 @@ class RefractorVelocity:
     def _get_valid_keys(self, n_refractors=None):
         """Returns a list with the valid keys based on `n_refractors` or `self.n_refractors`."""
         n_refractors = self.n_refractors if n_refractors is None else n_refractors
-        return ['t0'] + [f'x{i + 1}' for i in range(n_refractors - 1)] + [f'v{i + 1}' for i in range(n_refractors)]
+        return ['t0'] + [f'x{i}' for i in range(1, n_refractors)] + [f'v{i + 1}' for i in range(n_refractors)]
 
     def _get_constraints(self):
         """Define the constraints and return a list them."""
@@ -448,7 +448,7 @@ class RefractorVelocity:
             # raise base velocity for the next layer (v = 1 / slope). will be used if no data found for next layer
             initial_slope = current_slope[i] * (n_refractors / (n_refractors + 1))
             initial_time = current_time[i] + (current_slope[i] - initial_slope) * cross_offsets[i + 1]
-        velocities = 1 / (current_slope)
+        velocities = 1 / current_slope
         init = [current_time[0], *cross_offsets[1:-1], *(velocities * 1000)]
         init = dict(zip(self._get_valid_keys(n_refractors), init))
         return init
