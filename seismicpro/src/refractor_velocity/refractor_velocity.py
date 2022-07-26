@@ -155,7 +155,7 @@ class RefractorVelocity:
         self.max_offset = offsets.max()
         self.coords = coords
 
-        self.init = {**self._calc_init_by_layers(n_refractors), **self._calc_init_by_bounds(bounds), **init}            
+        self.init = {**self._calc_init_by_layers(n_refractors), **self._calc_init_by_bounds(bounds), **init}
         self.bounds = {**self._calc_bounds_by_init(), **bounds}
         self._validate_keys(self.bounds)
         self.n_refractors = len(self.bounds) // 2
