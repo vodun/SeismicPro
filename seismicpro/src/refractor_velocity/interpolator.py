@@ -3,7 +3,7 @@
 import numpy as np
 from tqdm.auto import tqdm
 
-from ..utils import CloughTocherInterpolator
+from ..utils import CloughTocherInterpolator, Coordinates
 from .refractor_velocity_field import RefractorVelocityField
 
 
@@ -20,19 +20,25 @@ class RefractorVelocityInterpolator():
         for ix in tqdm(supergather_survey.headers.index.unique()):
             g = supergather_survey.get_gather(ix)
             rv = g.calculate_refractor_velocity(first_breaks_col=first_breaks_col, **wv_kwargs)
-            # TODO: using CDP_X CDP_Y not crossline inline
+            rv.coords = Coordinates(coords=g.get_central_gather()[["CDP_X", "CDP_Y"]][0], names=["CDP_X", "CDP_Y"])
             self.field.update(rv)
         self.field.create_interpolator('ct')
         return self
 
     def __call__(self, coords):
-        values = np.atleast_2d(self.field.interpolate(coords))
+        coords = np.array(coords, dtype=np.float32)
+        is_1d_coords = coords.ndim == 1
+        coords = np.atleast_2d(coords)
+        values = self.field.interpolate(coords)
         n_refractors = self.field.n_refractors
         t0 = values[:, 0]
         v1 = values[:, -n_refractors] / 1000
         first_crvrs = np.array([calculate_crossovers(self.refractor_velocity, 0, v1, t0)]).reshape(-1, 1)
         refractor_velocity = np.zeros((len(coords), 1)) + self.refractor_velocity
-        return np.hstack((first_crvrs, values[:, 1: -n_refractors], refractor_velocity, values[:, -n_refractors:]))
+        res = np.hstack((first_crvrs, values[:, 1: -n_refractors], refractor_velocity, values[:, -n_refractors:]))
+        if is_1d_coords:
+            return res[0]
+        return res
 
 def calculate_crossovers(v1, t1, v2, t2):
     return ((t2 - t1)*v1*v2) / (v2 - v1)
