@@ -511,67 +511,6 @@ class RefractorVelocity:
             return values
         return dict(zip(self._valid_keys, values))
 
-    def dump(self, path, col_size=10, encoding="UTF-8"):
-        """Dump RefractorVelocity instance to disk.
-
-        File contains coords and params attributes with follow structure:
-        [coords.names] [params.keys]
-        [coords.coords] [params.values]
-
-        Parameters
-        ----------
-        path : str,
-            path to the file with parameters.
-        col_size : int, defaults to 10
-            size of each columns in file. Parameters will be increased to the coords names size.
-        encoding : str, optional, defaults to "UTF-8"
-            File encoding.
-
-        Returns
-        -------
-        self : RefractorVelocity
-            RefractorVelocity without changes.
-
-        Raises
-        ------
-        ValueError
-            If coords attributes is None.
-        """
-        if self.coords is None:
-            raise ValueError("`coords` attribute should be defined.")
-        col_size = max(col_size, max(len(name) for name in self.coords.names) + 1)
-        values = list(self.coords.coords) + list(self.params.values())
-        values_format = '\n' + '{:>{col_size}}' * len(self.coords) + '{:>{col_size}.2f}' * len(self.params)
-
-        columns = list(self.coords.names) + list(self.params.keys())
-        cols_format = '{:>{col_size}}' * (len(columns))
-        with open(path, 'w', encoding=encoding) as f:
-            f.write(cols_format.format(*columns, col_size=col_size))
-            f.write(values_format.format(*values, col_size=col_size))
-        return self
-
-    def load(self, path, encoding="UTF-8"):
-        """Load parameters from a file and create a RefractorVelocity instance from the loaded parameters.
-
-        File example:
-        SourceX   SourceY        t0        x1        v1        v2
-        1111100   2222220     50.00   1000.00   1500.00   2000.00
-
-        Parameters
-        ----------
-        path : str,
-            path to the file with parameters.
-
-        Returns
-        -------
-        self : RefractorVelocity
-            RefractorVelocity instance created from the loaded parameters.
-        """
-        df = pd.read_csv(path, sep=r'\s+', encoding=encoding)
-        coords_data = df.iloc[0][:2]
-        coords = Coordinates(names=tuple(coords_data.index), coords=tuple(coords_data.values))
-        return self.from_params(params=df.iloc[0][2:], coords=coords)
-
     @plotter(figsize=(10, 5), args_to_unpack="compare_to")
     def plot(self, *, ax=None, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_times=None,
              compare_to=None, text_kwargs=None, **kwargs):
