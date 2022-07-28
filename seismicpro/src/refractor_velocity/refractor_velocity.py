@@ -3,13 +3,12 @@
 from functools import partial
 
 import numpy as np
-import pandas as pd
 from sklearn.linear_model import SGDRegressor
 from scipy import optimize
 # from utils.coordinates import Coordinates
 
 from ..decorators import plotter
-from ..utils import set_ticks, set_text_formatting, Coordinates
+from ..utils import set_ticks, set_text_formatting
 from ..utils.interpolation import interp1d
 
 
