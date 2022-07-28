@@ -57,28 +57,29 @@ class RefractorVelocityField(SpatialField):
     def construct_item(self, values, coords):
         return self.item_class.from_params(dict(zip(self.param_names, values)), coords=coords)
 
-    def dump(self, path, encoding="UTF-8", col_size=10):
-        """Dump RefractorVelocityField instance to a file.
+    def dump(self, path, encoding="UTF-8", col_size=11):
+        """Save the RefractorVelocityField instance to a file.
 
-        File contains coords and params attributes with follow structure:
-        [coords.names] [params.keys]
-        [item_0.coords.coords] [item_0.params.values]
+        File example:
+        SourceX   SourceY        t0        x1        v1        v2
+        1111100   2222220     50.00   1000.00   1500.00   2000.00
         ...
-        [item_n.coords.coords] [item_n.params.values]
+        1111200   2222240     60.00   1050.00   1550.00   1950.00
 
         Parameters
         ----------
-        path : str,
-            Path to the file with parameters.
+        path : str
+            Path to the file.
         encoding : str, optional, defaults to "UTF-8"
             File encoding.
         col_size : int, defaults to 10
-            Size of each columns in file. col_size will be increased to the coords names size.
+            Size of each columns in file. `col_size` will be increased for coordinate columns if coordinate names
+            are longer.
 
         Returns
         -------
         self : RefractorVelocityField
-            RefractorVelocityField without changes.
+            RefractorVelocityField unchanged.
 
         Raises
         ------
@@ -87,17 +88,19 @@ class RefractorVelocityField(SpatialField):
         """
         if self.is_empty:
             raise ValueError("Field is empty. Could not dump empty field.")
-        col_size = max(col_size, max(len(name) for name in self.coords_cols) + 1)
+        new_col_size = max(col_size, max(len(name) for name in self.coords_cols) + 1)
         values = np.array([list(item.params.values()) for coords, item in self.item_container.items()])
 
-        data = np.hstack((self.coords, values))
-        data_format = ('\n' + '{:>{col_size}.0f}' * 2 + '{:>{col_size}.2f}' * 2 * self.n_refractors) * data.shape[0]
-
         columns = list(self.coords_cols) + list(self.param_names)
-        cols_format = '{:>{col_size}}' * len(columns)
+        cols_format = '{:>{new_col_size}}' * 2 + '{:>{col_size}}' * (len(columns) - 2)
+        cols_str = cols_format.format(*columns, new_col_size=new_col_size, col_size=col_size)
+
+        data = np.hstack((self.coords, values))
+        data_format = ('\n' + "{:>{new_col_size}.0f}" * 2 + '{:>{col_size}.2f}' * 2 * self.n_refractors) * data.shape[0]
+        data_str = data_format.format(*data.ravel(), new_col_size=new_col_size, col_size=col_size)
+
         with open(path, 'w', encoding=encoding) as f:
-            f.write(cols_format.format(*columns, col_size=col_size))
-            f.write(data_format.format(*data.ravel(), col_size=col_size))
+            f.write(cols_str + data_str)
         return self
 
     @classmethod
@@ -113,14 +116,14 @@ class RefractorVelocityField(SpatialField):
         Parameters
         ----------
         path : str,
-            path to the file with parameters.
+            path to the file.
         encoding : str, defaults to "UTF-8"
             File encoding.
 
         Returns
         -------
         self : RefractorVelocityField
-            RefractorVelocityField instance created from the loaded parameters.
+            RefractorVelocityField instance created from a file.
         """
         self = cls()
         df = pd.read_csv(path, sep=r'\s+', encoding=encoding)
