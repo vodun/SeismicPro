@@ -3,12 +3,13 @@
 from functools import partial
 
 import numpy as np
+import pandas as pd
 from sklearn.linear_model import SGDRegressor
 from scipy import optimize
 
 from ..muter import Muter
 from ..decorators import batch_method, plotter
-from ..utils import set_ticks, set_text_formatting
+from ..utils import set_ticks, set_text_formatting, Coordinates
 from ..utils.interpolation import interp1d
 
 
@@ -250,6 +251,21 @@ class RefractorVelocity:
         if velocity < 0:
             raise ValueError("Velocity should not be negative.")
         return self.from_params({"t0": 0, "v1": velocity}, coords=coords)
+
+    @classmethod
+    def from_file(cls, path):
+        """Create a `RefractorVelocity` instance from file.
+        Parameters
+        ----------
+        path : str
+            Path to the file with a velocity model parameters.
+        Returns
+        -------
+        RefractorVelocity
+            RefractorVelocity instance based on parameters.
+        """
+        self = cls()
+        return self.load(path)
 
     def __call__(self, offsets):
         """Return the expected times of first breaks for the given offsets."""
@@ -496,6 +512,69 @@ class RefractorVelocity:
     @batch_method(target="for", copy_src=False)
     def create_muter(self, delay=0, velocity_reduction=0):
         return Muter.from_refractor_velocity(self, delay=delay, velocity_reduction=velocity_reduction)
+
+    def dump(self, path, encoding="UTF-8", col_size=11):
+        """Save the RefractorVelocity instance to a file. Coords should be preloaded.
+
+        File example:
+        SourceX   SourceY        t0        x1        v1        v2
+        1111100   2222220     50.00   1000.00   1500.00   2000.00
+
+        Parameters
+        ----------
+        path : str
+            Path to a file.
+        encoding : str, optional, defaults to "UTF-8"
+            File encoding.
+        col_size : int, defaults to 10
+            Size of each columns in file. `col_size` will be increased for coordinate columns if coordinate names
+            are longer.
+
+        Returns
+        -------
+        self : RefractorVelocity
+            RefractorVelocity unchanged.
+
+        Raises
+        ------
+        ValueError
+            If coords attributes is None.
+        """
+        if self.coords is None:
+            raise ValueError("`coords` attribute should be defined.")
+        coords_size = max(col_size, max(len(name) for name in self.coords.names) + 1)
+        values = list(self.coords.coords) + list(self.params.values())
+        values_format = '\n' + '{:>{coords_size}}' * len(self.coords) + '{:>{col_size}.2f}' * len(self.params)
+        values_str = values_format.format(*values, coords_size=coords_size, col_size=col_size)
+
+        columns = list(self.coords.names) + list(self.params.keys())
+        cols_format = ('{:>{coords_size}}' * len(self.coords) + '{:>{col_size}}' * len(self.params))
+        cols_str = cols_format.format(*columns, coords_size=coords_size, col_size=col_size)
+        with open(path, 'w', encoding=encoding) as f:
+            f.write(cols_str + values_str)
+        return self
+
+    def load(self, path, encoding="UTF-8"):
+        """Load parameters from a file and create a RefractorVelocity instance from the loaded parameters.
+
+        File example:
+        SourceX   SourceY        t0        x1        v1        v2
+        1111100   2222220     50.00   1000.00   1500.00   2000.00
+
+        Parameters
+        ----------
+        path : str,
+            path to the file with parameters.
+
+        Returns
+        -------
+        self : RefractorVelocity
+            RefractorVelocity instance created from the loaded file.
+        """
+        df = pd.read_csv(path, sep=r'\s+', encoding=encoding)
+        coords_data = df.iloc[0][:2]
+        coords = Coordinates(names=tuple(coords_data.index), coords=tuple(coords_data.values))
+        return self.from_params(params=df.iloc[0][2:], coords=coords)
 
     @plotter(figsize=(10, 5), args_to_unpack="compare_to")
     def plot(self, *, ax=None, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_times=None,
