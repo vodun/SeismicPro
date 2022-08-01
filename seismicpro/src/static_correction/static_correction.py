@@ -334,6 +334,16 @@ class StaticCorrection:
                 line = (nums + "\n").format(*row[columns].values)
                 f.write(line)
 
+    def load(self, name, path, datum, columns):
+        # default for source ["SourceWaterDepth", "GroupWaterDepth"]
+        # default for rec ["ReceiverDatumElevation", "SourceDatumElevation"]
+        columns = to_list(columns)
+        coord_names = self._get_cols(name)
+        headers = pd.DataFrame(self.survey[coord_names + columns], columns=coord_names + columns).drop_duplicates()
+        dt = pd.read_csv(path, header=None, names=columns + [f"dt_{datum}"], delim_whitespace=True)
+        merged = headers.merge(dt, on=columns)
+        self._update_params(name, merged[coord_names].values, merged[f"dt_{datum}"].values, f"dt_{datum}")
+
     ### plotters ###
     def _construct_velicities_interpolatior(self):
         vel_names = [f"v{i}" for i in range(1, self.n_layers+2)]
