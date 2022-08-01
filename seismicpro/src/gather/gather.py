@@ -22,10 +22,10 @@ from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_ytickla
                      add_colorbar, piecewise_polynomial, Coordinates)
 from ..containers import TraceContainer, SamplesContainer
 from ..semblance import Semblance, ResidualSemblance
-from ..stacking_velocity import StackingVelocity, VelocityCube
+from ..stacking_velocity import StackingVelocity, StackingVelocityField
 from ..refractor_velocity import RefractorVelocity
 from ..decorators import batch_method, plotter
-from ..const import HDR_FIRST_BREAK, DEFAULT_VELOCITY
+from ..const import HDR_FIRST_BREAK, DEFAULT_SDC_VELOCITY
 
 
 class Gather(TraceContainer, SamplesContainer):
@@ -111,6 +111,20 @@ class Gather(TraceContainer, SamplesContainer):
         """tuple with 2 elements: The number of traces in the gather and trace length in samples."""
         return self.data.shape
 
+    @property
+    def coords(self):
+        """Coordinates or None: Spatial coordinates of the gather. Headers to extract coordinates from are determined
+        automatically by the `indexed_by` attribute of the gather. `None` if the gather is indexed by unsupported
+        headers or required coords headers were not loaded or coordinates are non-unique for traces of the gather."""
+        try:
+            coords_cols = get_coords_cols(self.indexed_by)  # Possibly unknown coordinates for indexed_by
+            coords = self[coords_cols]  # Required coords headers may not be loaded
+        except KeyError:
+            return None
+        if (coords != coords[0]).any():  # Non-unique coordinates
+            return None
+        return Coordinates(coords[0], names=coords_cols)
+
     def __getitem__(self, key):
         """Either select gather headers values by their names or create a new `Gather` with specified traces and
         samples depending on the key type.
@@ -181,19 +195,24 @@ class Gather(TraceContainer, SamplesContainer):
 
     def __str__(self):
         """Print gather metadata including information about its survey, headers and traces."""
-
         # Calculate offset range
         offsets = self.headers.get('offset')
         offset_range = f'[{np.min(offsets)} m, {np.max(offsets)} m]' if offsets is not None else None
 
+        # Format gather coordinates
+        coords = self.coords
+        coords_str = "unknown" if coords is None else str(coords)
+
         # Count the number of zero/constant traces
         n_dead_traces = np.isclose(np.max(self.data, axis=1), np.min(self.data, axis=1)).sum()
+
         msg = f"""
         Parent survey path:          {self.survey.path}
         Parent survey name:          {self.survey.name}
 
         Indexed by:                  {', '.join(to_list(self.indexed_by))}
         Index value:                 {'combined' if self.index is None else self.index}
+        Gather coordinates:          {coords_str}
         Gather sorting:              {self.sort_by}
 
         Number of traces:            {self.n_traces}
@@ -213,45 +232,6 @@ class Gather(TraceContainer, SamplesContainer):
     def info(self):
         """Print gather metadata including information about its survey, headers and traces."""
         print(self)
-
-    def get_coords(self, coords_cols="auto"):
-        """Get spatial coordinates of the gather.
-
-        Parameters
-        ----------
-        coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
-            - If `None`, `Coordinates` with two `None` elements is returned. Their names are "X" and "Y" respectively.
-            - If "auto", columns of headers index define headers columns to get coordinates from (e.g. 'FieldRecord' is
-              mapped to a ("SourceX", "SourceY") pair).
-            - If 2 element array-like, `coords_cols` directly define gather headers to get coordinates from.
-            In the last two cases index or column values are supposed to be unique for all traces in the gather and the
-            names of the returned coordinates correspond to source headers columns.
-
-        Returns
-        -------
-        coords : Coordinates
-            Gather spatial coordinates.
-
-        Raises
-        ------
-        ValueError
-            If gather coordinates are non-unique or more than 2 columns were passed.
-        """
-        if coords_cols is None:
-            return Coordinates()
-        if coords_cols == "auto":
-            coords_cols = get_coords_cols(self.indexed_by)
-        coords = np.unique(self[coords_cols], axis=0)
-        if coords.shape[0] != 1:
-            raise ValueError("Gather coordinates are non-unique")
-        if coords.shape[1] != 2:
-            raise ValueError(f"Gather position must be defined by exactly two coordinates, not {coords.shape[1]}")
-        return Coordinates(*coords[0], names=coords_cols)
-
-    @property
-    def coords(self):
-        """Coordinates: Spatial coordinates of the gather."""
-        return self.get_coords()
 
     @batch_method(target='threads', copy_src=False)
     def copy(self, ignore=None):
@@ -613,9 +593,11 @@ class Gather(TraceContainer, SamplesContainer):
             A threshold for trace mask value to refer its index to be either pre- or post-first break.
         first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Headers column to save first break times to.
-        save_to : Gather, optional, defaults to None
+        save_to : Gather or str, optional
             An extra `Gather` to save first break times to. Generally used to conveniently pass first break times from
             a `Gather` instance with a first break mask to an original `Gather`.
+            May be `str` if called in a pipeline: in this case it defines a component with gathers to save first break
+            times to.
 
         Returns
         -------
@@ -666,13 +648,14 @@ class Gather(TraceContainer, SamplesContainer):
             f.write(rows_as_str)
         return self
 
-    @batch_method(target='for')
-    def calculate_refractor_velocity(self, first_breaks_col=HDR_FIRST_BREAK, init=None, bounds=None, n_refractors=None,
-                                     coords_cols="auto", **kwargs):
-        """Calculate the RefractorVelocity using the offsets and first breaks times.
+    @batch_method(target="for", copy_src=False)
+    def calculate_refractor_velocity(self, init=None, bounds=None, n_refractors=None, first_breaks_col=HDR_FIRST_BREAK,
+                                     **kwargs):
+        """Estimate velocities of first refractors by offsets and times of first breaks.
 
         The method fits a velocity model of the upper part of the section, read the
         :class:`~refractor_velocity.RefractorVelocity` docs for more details about the algorithm and its parameters.
+        At least one of `init`, `bounds` or `n_refractors` should be passed.
 
         Examples
         --------
@@ -680,30 +663,26 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        first_breaks_col : str, defaults to :const:`~const.HDR_FIRST_BREAK`
-            Column name from `self.headers` where first break times are stored.
-        init : dict or None, defaults to None
+        init : dict or None, optional, defaults to None
             Initial values for a velocity model.
-        bounds : dict or None, defaults to None
+        bounds : dict or None, optional, defaults to None
             Bounds for the fitted velocity model parameters.
-        n_refractors : int or None, defaults to None
+        n_refractors : int or None, optional, defaults to None
             Number of the velocity model layers.
-        kwargs : dict, optional
+        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+            Column name from `self.headers` where times of first break are stored.
+        kwargs : misc, optional
             Additional keyword arguments to be passed to
             :func:`~refractor_velocity.RefractorVelocity.from_first_breaks`.
-        coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
-            Header columns to get spatial coordinates of the gather to fetch `RefractorVelocity` from `RefractorCube`.
-            See :func:`~Gather.get_coords` for more details.
 
         Returns
         -------
         RefractorVelocity
             Calculated RefractorVelocity instance.
         """
-        coords = None if coords_cols is None else self.get_coords(coords_cols)
         return RefractorVelocity.from_first_breaks(offsets=self.offsets, fb_times=self[first_breaks_col].ravel(),
-                                                   init=init, bounds=bounds, n_refractors=n_refractors, coords=coords,
-                                                   **kwargs)
+                                                   init=init, bounds=bounds, n_refractors=n_refractors,
+                                                   coords=self.coords, **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #
@@ -752,9 +731,10 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        muter : Muter
+        muter : Muter or str
             An object that defines muting times by gather offsets.
-        fill_value : float, defaults to 0
+            May be `str` if called in a pipeline: in this case it defines a component with muters to apply.
+        fill_value : float, optional, defaults to 0
             A value to fill the muted part of the gather with.
 
         Returns
@@ -817,8 +797,9 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        stacking_velocity : StackingVelocity
+        stacking_velocity : StackingVelocity or str
             Stacking velocity around which residual semblance is calculated.
+            May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
         n_velocities : int, optional, defaults to 140
             The number of velocities to compute residual semblance for.
         win_size : int, optional, defaults to 25
@@ -843,46 +824,48 @@ class Gather(TraceContainer, SamplesContainer):
 
     @batch_method(target="threads", args_to_unpack="refractor_velocity")
     def apply_lmo(self, refractor_velocity, delay=100, fill_value=np.nan, event_headers=None):
-        """Perform a gather linear moveout correction using the given RefractorVelocity.
+        """Perform gather linear moveout correction using the given near-surface velocity model.
 
         Parameters
         ----------
-        refractor_velocity : RefractorVelocity
-            RefractorVelocity object to perform LMO correction with.
-        delay : float, defaults to 100
+        refractor_velocity : int, float, RefractorVelocity or str
+            `RefractorVelocity` object to perform LMO correction with. If `int` or `float` then constant-velocity
+            correction is performed.
+            May be `str` if called in a pipeline: in this case it defines a component with refractor velocities to use.
+        delay : float, optional, defaults to 100
             An extra delay in milliseconds introduced in each trace, positive values result in shifting gather traces
             down. Used to center the first breaks hodograph around the delay value instead of 0.
-        fill_value : float, defaults to 0
+        fill_value : float, optional, defaults to 0
             Value used to fill the amplitudes outside the gather bounds after moveout.
-        event_headers : str, list, or None, defaults to None
+        event_headers : str, list, or None, optional, defaults to None
             Headers columns which will be LMO-corrected inplace.
 
         Returns
         -------
         self : Gather
-            LMO corrected gather.
+            LMO-corrected gather.
 
         Raises
         ------
         ValueError
-            If `refractor_velocity` is not a `RefractorVelocity` instance.
+            If wrong type of `refractor_velocity` is passed.
         """
+        if isinstance(refractor_velocity, (int, float)):
+            refractor_velocity = RefractorVelocity.from_constant_velocity(refractor_velocity)
         if not isinstance(refractor_velocity, RefractorVelocity):
-            raise ValueError("Only RefractorVelocity instances can be passed as a `refractor_velocity`")
-        event_headers = [] if event_headers is None else to_list(event_headers)
+            raise ValueError("refractor_velocity must be of int, float or RefractorVelocity type")
 
         trace_delays = delay - refractor_velocity(self.offsets)
-        data = correction.apply_lmo(self.data,
-                                    times_to_indices(trace_delays, self.samples, round=True).astype(int),
-                                    fill_value)
-        self.data = data
+        trace_delays_samples = times_to_indices(trace_delays, self.samples, round=True).astype(int)
+        self.data = correction.apply_lmo(self.data, trace_delays_samples, fill_value)
+        event_headers = [] if event_headers is None else to_list(event_headers)
         for header in event_headers:
             self[header] += trace_delays.reshape(-1, 1)
         return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
-    def apply_nmo(self, stacking_velocity, coords_cols="auto"):
-        """Perform gather normal moveout correction using given stacking velocity.
+    def apply_nmo(self, stacking_velocity):
+        """Perform gather normal moveout correction using the given stacking velocity.
 
         Notes
         -----
@@ -890,28 +873,29 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        stacking_velocity : StackingVelocity or VelocityCube
+        stacking_velocity : int, float, StackingVelocity, StackingVelocityField or str
             Stacking velocities to perform NMO correction with. `StackingVelocity` instance is used directly. If
-            `VelocityCube` instance is passed, a `StackingVelocity` corresponding to gather coordinates is fetched
-            from it.
-        coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
-            Header columns to get spatial coordinates of the gather from to fetch `StackingVelocity` from
-            `VelocityCube`. See :func:`~Gather.get_coords` for more details.
+            `StackingVelocityField` instance is passed, a `StackingVelocity` corresponding to gather coordinates is
+            fetched from it. If `int` or `float` then constant-velocity correction is performed.
+            May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
 
         Returns
         -------
         self : Gather
-            NMO corrected gather.
+            NMO-corrected gather.
 
         Raises
         ------
         ValueError
-            If `stacking_velocity` is not a `StackingVelocity` or `VelocityCube` instance.
+            If wrong type of `stacking_velocity` is passed.
         """
-        if isinstance(stacking_velocity, VelocityCube):
-            stacking_velocity = stacking_velocity(*self.get_coords(coords_cols), create_interpolator=False)
+        if isinstance(stacking_velocity, (int, float)):
+            stacking_velocity = StackingVelocity.from_constant_velocity(stacking_velocity)
+        if isinstance(stacking_velocity, StackingVelocityField):
+            stacking_velocity = stacking_velocity(self.coords)
         if not isinstance(stacking_velocity, StackingVelocity):
-            raise ValueError("Only VelocityCube or StackingVelocity instances can be passed as a stacking_velocity")
+            raise ValueError("stacking_velocity must be of int, float, StackingVelocity or StackingVelocityField type")
+
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
         self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms, self.sample_rate)
         return self
@@ -1032,9 +1016,9 @@ class Gather(TraceContainer, SamplesContainer):
         origins = make_origins(origins, self.shape, crop_shape, n_crops, stride)
         return CroppedGather(self, origins, crop_shape, pad_mode, **kwargs)
 
-    @batch_method(target="t")
+    @batch_method(target="threads")
     def bandpass_filter(self, low=None, high=None, filter_size=81, **kwargs):
-        """ Filter frequency spectrum of the gather.
+        """Filter frequency spectrum of the gather.
 
         Can act as a lowpass, bandpass or highpass filter. `low` and `high` serve as the range for the remaining
         frequencies and can be passed either solely or together.
@@ -1080,12 +1064,12 @@ class Gather(TraceContainer, SamplesContainer):
         cv2.filter2D(self.data, dst=self.data, ddepth=-1, kernel=kernel.reshape(1, -1))
         return self
 
-    @batch_method(target="f")
+    @batch_method(target="for")
     def resample(self, new_sample_rate, kind=3, anti_aliasing=True):
-        """ Changes the sample rate of the traces in the gather.
-        This implies increasing or decreasing the number of samples in the trace.
-        In case new sample rate is greater than the current one, the anti aliasing filter is used
-        to avoid frequency aliasing.
+        """Change sample rate of traces in the gather.
+
+        This implies increasing or decreasing the number of samples in each trace. In case new sample rate is greater
+        than the current one, anti-aliasing filter is optionally applied to avoid frequency aliasing.
 
         Parameters
         ----------
@@ -1093,8 +1077,8 @@ class Gather(TraceContainer, SamplesContainer):
             New sample rate
         kind : int or str, defaults to 3
             The interpolation method to use.
-            If int, use piecewise polynomial interpolation with degree `kind`;
-            if str, delegate interpolation to scipy.interp1d with mode `kind`.
+            If `int`, use piecewise polynomial interpolation with degree `kind`;
+            if `str`, delegate interpolation to scipy.interp1d with mode `kind`.
         anti_aliasing : bool, defaults to True
             Whether to apply anti-aliasing filter or not. Ignored in case of upsampling.
 
@@ -1179,7 +1163,7 @@ class Gather(TraceContainer, SamplesContainer):
             Gather with applied SDC.
         """
         if velocity is None:
-            velocity = DEFAULT_VELOCITY
+            velocity = DEFAULT_SDC_VELOCITY
         if not isinstance(velocity, StackingVelocity):
             raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
         self.data = gain.apply_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
@@ -1205,7 +1189,7 @@ class Gather(TraceContainer, SamplesContainer):
             Gather without SDC.
         """
         if velocity is None:
-            velocity = DEFAULT_VELOCITY
+            velocity = DEFAULT_SDC_VELOCITY
         if not isinstance(velocity, StackingVelocity):
             raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
         self.data = gain.undo_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
@@ -1399,12 +1383,12 @@ class Gather(TraceContainer, SamplesContainer):
 
         # Shift trace amplitudes according to the trace index in the gather
         amps = traces + np.arange(traces.shape[0]).reshape(-1, 1)
-        # Plot all the traces as one Line, then hide transitions between adjacanet traces
+        # Plot all the traces as one Line, then hide transitions between adjacent traces
         amps = np.concatenate([amps, np.full((len(amps), 1), np.nan)], axis=1)
         ax.plot(amps.ravel(), np.broadcast_to(np.arange(amps.shape[1]), amps.shape).ravel(),
                 color=color, lw=lw, **kwargs)
 
-        # Find polygons bodies:  indices of target amplitudes, start and end
+        # Find polygons bodies: indices of target amplitudes, start and end
         poly_amp_ix = np.argwhere(traces > 0)
         start_ix = np.argwhere((np.diff(poly_amp_ix[:, 0], prepend=poly_amp_ix[0, 0]) != 0) |
                                (np.diff(poly_amp_ix[:, 1], prepend=poly_amp_ix[0, 1]) != 1)).ravel()
