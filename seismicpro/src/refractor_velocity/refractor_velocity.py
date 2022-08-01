@@ -431,10 +431,10 @@ class RefractorVelocity:
 
         for i in range(n_refractors):
             mask = (self.offsets > cross_offsets[i]) & (self.offsets <= cross_offsets[i + 1])
-            if mask.sum() > 1:  # at least two point to fit
-                # data normalization occurs independently for each layer
-                scaled_offsets, mean_offset, std_offset = self._standart_scaler(self.offsets[mask])
-                scaled_times, mean_time, std_time = self._standart_scaler(self.fb_times[mask])
+            # data normalization occurs independently for each layer
+            scaled_offsets, mean_offset, std_offset = self._standart_scaler(self.offsets[mask])
+            scaled_times, mean_time, std_time = self._standart_scaler(self.fb_times[mask])
+            if mask.sum() > 1 and std_offset != 0 and std_time != 0:
                 fitted_slope, fitted_time = self._fit_regressor(scaled_offsets.reshape(-1, 1), scaled_times, 1, 0)
                 current_slope[i] = fitted_slope * std_time / std_offset
                 current_time[i] = mean_time + fitted_time * std_time - current_slope[i] * mean_offset
