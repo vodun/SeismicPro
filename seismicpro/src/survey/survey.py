@@ -317,10 +317,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Is stacked:                {self.is_stacked}
         Number of bins:            {self.n_bins}
         Area:                      {(self.area / 1000**2):.2f} km^2
-        Bin size along inline:     {self.bin_size[0]:.1f} m
-        Length along inline:       {(self.inline_length / 1000):.2f} km
-        Bin size along crossline:  {self.bin_size[1]:.1f} m
-        Length along crossline:    {(self.crossline_length / 1000):.2f} km
+        Inline bin size:           {self.bin_size[0]:.1f} m
+        Crossline bin size:        {self.bin_size[1]:.1f} m
+        Inline length:             {(self.inline_length / 1000):.2f} km
+        Crossline length:          {(self.crossline_length / 1000):.2f} km
         """
 
         if self.has_stats:
@@ -386,6 +386,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     @staticmethod
     def _cast_coords(coords, transformer):
+        if transformer is None:
+            raise ValueError("Survey geometry was not inferred, call `infer_geometry` method first.")
         coords = np.array(coords)
         is_coords_1d = (coords.ndim == 1)
         coords = np.atleast_2d(coords)
@@ -395,13 +397,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return transformed_coords
 
     def coords_to_bins(self, coords):
-        if not self.has_inferred_geometry:
-            raise ValueError("Survey geometry was not inferred, call `infer_geometry` method first.")
         return self._cast_coords(coords, self._coords_to_bins_reg)
 
     def bins_to_coords(self, bins):
-        if not self.has_inferred_geometry:
-            raise ValueError("Survey geometry was not inferred, call `infer_geometry` method first.")
         return self._cast_coords(bins, self._bins_to_coords_reg)
 
     # pylint: disable-next=too-many-statements
