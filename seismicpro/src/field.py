@@ -45,7 +45,7 @@ class Field:
     - `item_class` class attribute containing the type of items in the field,
     - `available_interpolators` with a mapping from names of available interpolators to the corresponding classes,
     - `values` property returning values to be passed to field interpolator,
-    - `construct_items` method that constructs a new item at given field coordinates.
+    - `construct_items` method that constructs new items at given field coordinates.
 
     Parameters
     ----------
