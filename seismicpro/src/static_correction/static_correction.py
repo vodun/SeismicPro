@@ -3,6 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy import sparse
 from scipy.stats import hmean
+from tqdm.auto import tqdm
 
 from .utils import calculate_layer_coefs, calculate_wv_by_v2
 from .interactive_slice_plot import StaticsPlot
@@ -65,6 +66,7 @@ class StaticCorrection:
             layer_headers = self.headers[mask]
             y[mask] = (layer_headers[self.first_breaks_col] - layer_headers['offset'] / layer_headers[f'v{i+2}_avg']).values
         self.headers['y'] = y
+        self.headers["pred"] = np.nan
         self.headers = self.headers[self.headers['y'] > 0]
 
     @property
@@ -110,6 +112,9 @@ class StaticCorrection:
 
     def _update_params(self, name, coords, values, columns):
         coord_names = self._get_cols(name)
+        values = np.array(values)
+        if values.ndim == 1:
+            values = values.reshape(-1, 1)
         data = np.hstack((coords, values))
         df = pd.DataFrame(data, columns=[*coord_names, *to_list(columns)]).set_index(coord_names)
 
@@ -135,38 +140,38 @@ class StaticCorrection:
         depths_kwargs = depths_kwargs if depths_kwargs is not None else {}
         vel_kwargs = vel_kwargs if vel_kwargs is not None else {}
 
-        self.update_depths(**depths_kwargs)
-        for i in range(n_iters):
+        for i in tqdm(range(n_iters)):
+            if i == 0:
+                self.update_depths(**depths_kwargs)
             self.update_velocity(**vel_kwargs)
             self.update_depths(**depths_kwargs)
 
     def update_depths(self, tol=1e-7, smoothing_radius=0):
         headers = self._add_params_to_headers(headers=self.headers)
         layer_matrixes = []
-        ys = []
+        ixs = []
         for layer in range(1, self.n_layers+1):
             layer_headers = headers[headers["layer"] == layer]
+            ixs.extend(layer_headers.index.to_list())
             source_matrix = self._get_sparse_layer_depths("source", layer_headers, layer)
             rec_matrix = self._get_sparse_layer_depths("rec", layer_headers, layer)
             layer_matrixes.append(sparse.hstack((source_matrix, rec_matrix)))
-            ys.extend(layer_headers['y'].values)
         matrix = sparse.vstack(layer_matrixes)
 
         coefs = np.zeros(matrix.shape[1])
         if self.interp_layers_els[0] is not None:
             coefs = np.concatenate((self._get_coefs("source"), self._get_coefs("rec")))
 
-        result = sparse.linalg.lsqr(matrix, ys, atol=tol, btol=tol, x0=coefs)[0]
+        result = sparse.linalg.lsqr(matrix, headers['y'].iloc[ixs], atol=tol, btol=tol, x0=coefs)[0]
         sources = result[:self.n_sources * self.n_layers].reshape(self.n_layers, self.n_sources)
         recs = result[self.n_sources * self.n_layers:].reshape(self.n_layers, self.n_recs)
 
-        upholes = self.source_params["SourceDepth"].values # upholes have the same order as sources
+        upholes = self.source_params["SourceDepth"].values # Upholes have the same order as sources
         sources[0] += upholes # Do we always add upholes to the first layer
 
         self.interp_layers_els = self._mulitlayer_align_by_proximity(sources, recs, smoothing_radius=smoothing_radius)
 
-        align_depths = np.concatenate((self._get_coefs("source"), self._get_coefs("rec")))
-        self.headers["pred"] = matrix.dot(result)
+        self.headers["pred"].iloc[ixs] = matrix.dot(result)
         self.matrix = matrix
 
     def _add_params_to_headers(self, headers):
@@ -234,8 +239,8 @@ class StaticCorrection:
         final_source_v1 = self.interp_v1(self.source_uniques)
         final_rec_v1 = self.interp_v1(self.rec_uniques)
 
-        self._update_params("source", self.source_uniques, final_source_v1.reshape(-1, 1), 'v1')
-        self._update_params("rec", self.rec_uniques, final_rec_v1.reshape(-1, 1), 'v1')
+        self._update_params("source", self.source_uniques, final_source_v1, 'v1')
+        self._update_params("rec", self.rec_uniques, final_rec_v1, 'v1')
 
     def _get_sparse_velocities(self, name, headers, layer):
         coord_names = self._get_cols(name)
@@ -299,7 +304,7 @@ class StaticCorrection:
             dt += layer / vels
             dist_to_datum -= layer
 
-        self._update_params(name, coords, dt.reshape(-1, 1), f"dt_{datum}")
+        self._update_params(name, coords, dt, f"dt_{datum}")
 
     def calculate_metric(self, metrics="mape"):
         metrics = to_list(metrics)
@@ -316,7 +321,8 @@ class StaticCorrection:
         columns = to_list(columns)
         coord_names = self._get_cols(name)
         params = getattr(self, f"{name}_params")
-        headers = self.survey.headers[coord_names + columns].reset_index(drop=True).drop_duplicates()
+        headers = pd.DataFrame(self.survey[coord_names + columns], columns=coord_names + columns).drop_duplicates()
+
         headers_dt = headers.merge(params[[f"dt_{datum}"]].round(), on=coord_names).sort_values(by=columns)
         dump_columns = [*columns, f"dt_{datum}"]
         self._dump(path, headers_dt[dump_columns], dump_columns)
@@ -373,13 +379,14 @@ class StaticCorrection:
             raise ValueError("Exactly 2 coordinates headers must be passed")
         return coords_cols
 
-    def plot_layer_elevations(self, **kwargs):
-        _, ax = plt.subplots(self.n_layers, 2, figsize=(12*self.n_layers, 5), tight_layout=True)
+    def plot_layers_elevations(self, **kwargs):
+        _, ax = plt.subplots(self.n_layers, 2, figsize=(12*self.n_layers, 7*self.n_layers), tight_layout=True)
+        ax = ax.ravel()
         for layer in range(self.n_layers):
             mm_source = MetricMap(self.source_uniques, self.interp_layers_els[layer](self.source_uniques))
-            mm_source.plot(title=f"Source elevations of layer {layer+1}", ax=ax[0], **kwargs)
+            mm_source.plot(title=f"Source elevations of layer {layer+1}", ax=ax[2*layer], **kwargs)
             mm_rec = MetricMap(self.rec_uniques, self.interp_layers_els[layer](self.rec_uniques))
-            mm_rec.plot(title=f"Receiver elevations of layer {layer+1}", ax=ax[1], **kwargs)
+            mm_rec.plot(title=f"Receiver elevations of layer {layer+1}", ax=ax[2*layer+1], **kwargs)
 
     def plot_attrs(self, name):
         _, ax = plt.subplots(1, 2, figsize=(12, 5), tight_layout=True)
