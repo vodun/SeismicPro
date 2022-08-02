@@ -1,9 +1,10 @@
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 from .refractor_velocity import RefractorVelocity
 from ..field import SpatialField
-from ..utils import to_list, Coordinates
+from ..utils import to_list, Coordinates, IDWInterpolator
 
 
 class RefractorVelocityField(SpatialField):
@@ -56,6 +57,14 @@ class RefractorVelocityField(SpatialField):
 
     def construct_item(self, values, coords):
         return self.item_class.from_params(dict(zip(self.param_names, values)), coords=coords)
+
+    def smooth(self, radius):
+        """Testing realization of a smoothing the field params."""
+        smoothing_interpolator = IDWInterpolator(self.coords, self.values, radius=radius, dist_transform=0)
+        smoothed_values = smoothing_interpolator(self.coords)
+        items_coords = [item.coords for item in self.item_container.values()]
+        smoothed_items = [self.construct_item(v, c) for v, c in zip(smoothed_values, items_coords)]
+        return type(self)(survey=self.survey, is_geographic=self.is_geographic).update(smoothed_items)
 
     def dump(self, path, encoding="UTF-8", col_size=11):
         """Save the RefractorVelocityField instance to a file.
@@ -135,4 +144,25 @@ class RefractorVelocityField(SpatialField):
             rv = RefractorVelocity.from_params(params=params, coords=coords)
             rv_list.append(rv)
         self.update(rv_list)
+        return self
+
+    def plot(self, grid_size=100):
+        n_items = len(self.param_names)
+        min_x, min_y = np.min(self.coords, axis=0)
+        max_x, max_y = np.max(self.coords, axis=0)
+        grid_x = np.linspace(min_x, max_x, int((max_x - min_x) // grid_size) + 1)
+        grid_y = np.linspace(min_y, max_y, int((max_y - min_y) // grid_size) + 1)
+
+        data_params = np.empty(shape=(grid_x.shape[0] * grid_y.shape[0], n_items))
+        data_coords = np.empty(shape=(grid_x.shape[0] * grid_y.shape[0], 2))
+        xx, yy = np.meshgrid(grid_x, grid_y)
+
+        for i, (x, y) in enumerate(zip(xx.ravel(), yy.ravel())):
+            coords = Coordinates(coords=(x, y), names=self.coords_cols)
+            data_coords[i] = np.array([x, y])
+            data_params[i] = list(self(coords).params.values())
+        fig, ax = plt.subplots(nrows=1, ncols=n_items, figsize=(n_items * 8, 7))
+        for i in range(n_items):
+            img = ax[i].scatter(data_coords[:, 0], data_coords[:, 1], c=data_params[:, i])
+            fig.colorbar(img, ax=ax[i])
         return self
