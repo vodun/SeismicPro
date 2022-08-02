@@ -383,8 +383,10 @@ class RefractorVelocity:
 
     def _standart_scaler(self, data):
         """Standart scaler to zero mean."""
-        cur_mean, cur_std = data.mean(), data.std()
-        data_scaled = (data - cur_mean) / cur_std
+        if len(data) == 0:
+            return data, np.nan, np.nan
+        cur_mean, cur_std = np.nanmean(data), np.nanstd(data)
+        data_scaled = (data - cur_mean) / (cur_std + 1e-10)
         return data_scaled, cur_mean, cur_std
 
     def _calc_init_by_layers(self, n_refractors):
@@ -416,14 +418,14 @@ class RefractorVelocity:
             # data normalization occurs independently for each layer
             scaled_offsets, mean_offset, std_offset = self._standart_scaler(self.offsets[mask])
             scaled_times, mean_time, std_time = self._standart_scaler(self.fb_times[mask])
-            if mask.sum() > 1 and std_offset != 0 and std_time != 0:
+            if std_offset not in [0, np.nan] and std_time not in [0, np.nan]:
                 fitted_slope, fitted_time = self._fit_regressor(scaled_offsets.reshape(-1, 1), scaled_times, 1, 0)
                 current_slope[i] = fitted_slope * std_time / std_offset
                 current_time[i] = mean_time + fitted_time * std_time - current_slope[i] * mean_offset
             else:
                 # raise base velocity for the next layer (v = 1 / slope)
                 current_slope[i] = current_slope[i] * (n_refractors / (n_refractors + 1)) if i else 4 / 5
-                current_time[i] = 0  # used for first layer only (`t0`)
+                current_time[i] = 0  # used for the first layer only (`t0`)
             # move maximal velocity to 6 km/s
             current_slope[i] = max(.167, current_slope[i])
             current_time[i] =  max(0, current_time[i])
