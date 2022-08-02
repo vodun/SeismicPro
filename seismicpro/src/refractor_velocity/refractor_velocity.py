@@ -5,7 +5,6 @@ from functools import partial
 import numpy as np
 from sklearn.linear_model import SGDRegressor
 from scipy import optimize
-# from utils.coordinates import Coordinates
 
 from ..decorators import plotter
 from ..utils import set_ticks, set_text_formatting
@@ -250,23 +249,6 @@ class RefractorVelocity:
         if velocity < 0:
             raise ValueError("Velocity should not be negative.")
         return self.from_params({"t0": 0, "v1": velocity}, coords=coords)
-
-    @classmethod
-    def from_file(cls, path):
-        """Create a `RefractorVelocity` instance from file.
-
-        Parameters
-        ----------
-        path : str
-            Path to the file with a velocity model parameters.
-
-        Returns
-        -------
-        RefractorVelocity
-            RefractorVelocity instance based on parameters.
-        """
-        self = cls()
-        return self.load(path)
 
     def __call__(self, offsets):
         """Return the expected times of first breaks for the given offsets."""
