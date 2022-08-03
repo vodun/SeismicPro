@@ -146,7 +146,46 @@ class RefractorVelocityField(SpatialField):
         self.update(rv_list)
         return self
 
-    def plot(self, grid_size=100):
+    def plot(self, mode="grid", grid_size=200, show_reference_points=False):
+        """Plot field parameteres on the grid.
+
+        Plot each parameters on a separate axis with expected values. Expected values calculate by the grid.
+
+        Parameters
+        ----------
+        mode : str, optional defualts to "grid". Should be one of "grid" or "items:
+            "grid" mode use interpolator to calc expected values and show it
+            "items" mode shows values stored in items_container.
+        grid_size: int, defaults to 200
+            Grid size for calc values
+
+        """
+        n_items = len(self.param_names)
+        if mode == "grid":
+            if self.is_dirty_interpolator:
+                raise ValueError("Update or create interpolator first")
+            data_coords, data_params = self._calc_plot_data_by_grid(grid_size=grid_size)
+        elif mode == "items":
+            data_coords, data_params = self._calc_plot_data_by_items()
+        fig, ax = plt.subplots(nrows=1, ncols=n_items, figsize=(n_items * 8, 7))
+        for i in range(n_items):
+            img = ax[i].tripcolor(data_coords[:, 0], data_coords[:, 1], data_params[:, i], shading="gouraud")
+            if show_reference_points:
+                img = ax[i].scatter(data_coords[:, 0], data_coords[:, 1], c="black", s=1, label="reference points")
+            ax[i].set_title(self.param_names[i])
+            fig.colorbar(img, ax=ax[i])
+        return self
+
+    def _calc_plot_data_by_items(self):
+        n_items = len(self.param_names)
+        data_params = np.empty(shape=(len(self.item_container), n_items))
+        data_coords = np.empty(shape=(len(self.item_container), 2))
+        for i, (coords, rv) in enumerate(self.item_container.items()):
+            data_coords[i] = np.array(coords)
+            data_params[i] = list(rv.params.values())
+        return data_coords, data_params
+
+    def _calc_plot_data_by_grid(self, grid_size):
         n_items = len(self.param_names)
         min_x, min_y = np.min(self.coords, axis=0)
         max_x, max_y = np.max(self.coords, axis=0)
@@ -155,14 +194,10 @@ class RefractorVelocityField(SpatialField):
 
         data_params = np.empty(shape=(grid_x.shape[0] * grid_y.shape[0], n_items))
         data_coords = np.empty(shape=(grid_x.shape[0] * grid_y.shape[0], 2))
-        xx, yy = np.meshgrid(grid_x, grid_y)
+        x, y = np.meshgrid(grid_x, grid_y)
 
-        for i, (x, y) in enumerate(zip(xx.ravel(), yy.ravel())):
+        for i, (x, y) in enumerate(zip(x.ravel(), y.ravel())):
             coords = Coordinates(coords=(x, y), names=self.coords_cols)
             data_coords[i] = np.array([x, y])
             data_params[i] = list(self(coords).params.values())
-        fig, ax = plt.subplots(nrows=1, ncols=n_items, figsize=(n_items * 8, 7))
-        for i in range(n_items):
-            img = ax[i].scatter(data_coords[:, 0], data_coords[:, 1], c=data_params[:, i])
-            fig.colorbar(img, ax=ax[i])
-        return self
+        return data_coords, data_params
