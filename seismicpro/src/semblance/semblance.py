@@ -344,7 +344,7 @@ class Semblance(BaseSemblance):
         stacking_velocity : StackingVelocity or str, optional
             Stacking velocity to plot if given. If its sample rate is more than 50 ms, every point will be highlighted
             with a circle.
-            May be `str` if plotted in a pipeline: in this case it defines a component with stacking velocities use.
+            May be `str` if plotted in a pipeline: in this case it defines a component with stacking velocities to use.
         title : str, optional, defaults to "Semblance"
             Plot title.
         x_ticker : dict, optional, defaults to None

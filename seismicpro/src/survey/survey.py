@@ -236,6 +236,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.inline_length = None  # m
         self.crossline_length = None  # m
         self.area = None  # m^2
+        self.perimeter = None  # m
+        self.bin_contours = None
+        self.geographic_contours = None
         self.is_2d = None
         if {"INLINE_3D", "CROSSLINE_3D", "CDP_X", "CDP_Y"} <= headers_to_load:
             self.infer_geometry()
@@ -317,10 +320,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Is stacked:                {self.is_stacked}
         Number of bins:            {self.n_bins}
         Area:                      {(self.area / 1000**2):.2f} km^2
-        Bin size along inline:     {self.bin_size[0]:.1f} m
-        Length along inline:       {(self.inline_length / 1000):.2f} km
-        Bin size along crossline:  {self.bin_size[1]:.1f} m
-        Length along crossline:    {(self.crossline_length / 1000):.2f} km
+        Perimeter:                 {(self.perimeter / 1000):.2f} km
+        Inline bin size:           {self.bin_size[0]:.1f} m
+        Crossline bin size:        {self.bin_size[1]:.1f} m
+        Inline length:             {(self.inline_length / 1000):.2f} km
+        Crossline length:          {(self.crossline_length / 1000):.2f} km
         """
 
         if self.has_stats:
@@ -371,6 +375,12 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         coords_to_bins_reg = LinearRegression(copy_X=False, n_jobs=-1)
         coords_to_bins_reg.fit(bins_to_coords[coords_cols], bins_to_coords[bins_cols])
 
+        # Compute field contour
+        field_mask, origin = self._get_field_mask()
+        bin_contours = cv2.findContours(field_mask.T, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE, offset=origin)[0]
+        geographic_contours = tuple(bins_to_coords_reg.predict(contour[:, 0])[:, None] for contour in bin_contours)
+        perimeter = sum(cv2.arcLength(contour, closed=True) for contour in geographic_contours)
+
         # Set all geometry-related attributes
         self.has_inferred_geometry = True
         self._bins_to_coords_reg = bins_to_coords_reg
@@ -381,11 +391,16 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.inline_length = (np.ptp(bins_to_coords["INLINE_3D"]) + 1) * self.bin_size[0]
         self.crossline_length = (np.ptp(bins_to_coords["CROSSLINE_3D"]) + 1) * self.bin_size[1]
         self.area = self.n_bins * np.prod(self.bin_size)
+        self.perimeter = perimeter
+        self.bin_contours = bin_contours
+        self.geographic_contours = geographic_contours
         self.is_2d = np.isclose(self.area, 0)
         return self
 
     @staticmethod
     def _cast_coords(coords, transformer):
+        if transformer is None:
+            raise ValueError("Survey geometry was not inferred, call `infer_geometry` method first.")
         coords = np.array(coords)
         is_coords_1d = (coords.ndim == 1)
         coords = np.atleast_2d(coords)
@@ -395,13 +410,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return transformed_coords
 
     def coords_to_bins(self, coords):
-        if not self.has_inferred_geometry:
-            raise ValueError("Survey geometry was not inferred, call `infer_geometry` method first.")
         return self._cast_coords(coords, self._coords_to_bins_reg)
 
     def bins_to_coords(self, bins):
-        if not self.has_inferred_geometry:
-            raise ValueError("Survey geometry was not inferred, call `infer_geometry` method first.")
         return self._cast_coords(bins, self._bins_to_coords_reg)
 
     # pylint: disable-next=too-many-statements
