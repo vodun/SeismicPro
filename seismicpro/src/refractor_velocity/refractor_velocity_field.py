@@ -138,7 +138,7 @@ class RefractorVelocityField(SpatialField):
         self.update(rv_list)
         return self
 
-    def plot(self, mode="grid", grid_size=200, show_reference_points=False):
+    def plot(self, mode="grid", grid_size=200):
         """Plot field parameteres on the grid.
 
         Plot each parameters on a separate axis with expected values. Expected values calculate by the grid.
@@ -161,9 +161,7 @@ class RefractorVelocityField(SpatialField):
             data_coords, data_params = self._calc_plot_data_by_items()
         fig, ax = plt.subplots(nrows=1, ncols=n_items, figsize=(n_items * 8, 7))
         for i in range(n_items):
-            img = ax[i].tripcolor(data_coords[:, 0], data_coords[:, 1], data_params[:, i], shading="gouraud")
-            if show_reference_points:
-                img = ax[i].scatter(data_coords[:, 0], data_coords[:, 1], c="black", s=1, label="reference points")
+            img = ax[i].scatter(data_coords[:, 0], data_coords[:, 1], c=data_params[:, i], s=10)
             ax[i].set_title(self.param_names[i])
             fig.colorbar(img, ax=ax[i])
         return self
