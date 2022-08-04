@@ -140,7 +140,7 @@ class SurveyGeometryPlot(PairedPlot):  # pylint: disable=too-many-instance-attri
         ax.scatter(self.coord_x, self.coord_y, color=self.main_color, marker=self.main_marker, **kwargs)
         if contours is not None:
             for contour in contours:
-                ax.fill(contour[:, 0, 0], contour[:, 0, 1], color="gray", alpha=0.2)
+                ax.fill(contour[:, 0, 0], contour[:, 0, 1], facecolor="gray", edgecolor="black", alpha=0.5)
         ax.set_xlim(*x_lim)
         ax.set_ylim(*y_lim)
         ax.ticklabel_format(style="plain", useOffset=False)

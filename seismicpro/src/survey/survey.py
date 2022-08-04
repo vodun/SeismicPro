@@ -20,7 +20,6 @@ from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
 from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
-from ..refractor_velocity import RefractorVelocityField
 from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
 from ..utils import to_list, maybe_copy, get_cols
@@ -379,7 +378,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         # Compute field contour
         field_mask, origin = self._get_field_mask()
         bin_contours = cv2.findContours(field_mask.T, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE, offset=origin)[0]
-        geographic_contours = tuple(bins_to_coords_reg.predict(contour[:, 0])[:, None] for contour in bin_contours)
+        geographic_contours = tuple(bins_to_coords_reg.predict(contour[:, 0])[:, None].astype(np.float32)
+                                    for contour in bin_contours)
         perimeter = sum(cv2.arcLength(contour, closed=True) for contour in geographic_contours)
 
         # Set all geometry-related attributes
