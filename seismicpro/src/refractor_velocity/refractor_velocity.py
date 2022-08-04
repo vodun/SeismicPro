@@ -1,6 +1,7 @@
 """Implements RefractorVelocity class for estimating the velocity model of an upper part of the section."""
 
 from functools import partial
+from gc import callbacks
 
 import numpy as np
 from sklearn.linear_model import SGDRegressor
@@ -127,6 +128,10 @@ class RefractorVelocity:
             Number of layers of the velocity model.
         coords : Coordinates or None, optional
             Spatial coordinates of the created refractor velocity.
+        loss : str, defaults to "L1"
+            Loss function for `scipy.optimize.minimize`. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
+        huber_coef : float, default to 20
+            Coefficient for Huber loss function.
         kwargs : misc, optional
             Additional keyword arguments to `scipy.optimize.minimize`.
 
@@ -182,6 +187,9 @@ class RefractorVelocity:
         minimizer_kwargs = {'method': 'SLSQP', 'constraints': constraints_list, **kwargs}
         self._model_params = optimize.minimize(partial_loss_func, x0=self._ms_to_kms(self.init),
                                                bounds=self._ms_to_kms(self.bounds), **minimizer_kwargs)
+        self.piecewise_offsets, self.piecewise_times = \
+            self._update_piecewise_coords(self.piecewise_offsets, self.piecewise_times, self._model_params.x,
+                                          self.n_refractors)
         self.params = dict(zip(self._valid_keys, self._postprocess_params(self._model_params.x)))
         self.interpolator = interp1d(self.piecewise_offsets, self.piecewise_times)
         return self
@@ -301,7 +309,7 @@ class RefractorVelocity:
         args : tuple, list, or 1d ndarray
             Parameters of the piecewise linear function.
         loss : str, optional, defaults to "L1".
-            The loss function type. Should be one of "MSE", "L1", "huber", "soft_L1", or "cauchy".
+            The loss function type. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
             All implemented loss functions have a mean reduction.
         huber_coef : float, default to 20
             Coefficient for Huber loss.
@@ -321,14 +329,14 @@ class RefractorVelocity:
         diff_abs = np.abs(np.interp(self.offsets, self.piecewise_offsets, self.piecewise_times) - self.fb_times)
         if loss == 'MSE':
             return (diff_abs ** 2).mean()
-        if loss == 'L1':
-            return diff_abs.mean()
         if loss == 'huber':
             loss = np.empty_like(diff_abs)
             mask = diff_abs <= huber_coef
             loss[mask] = .5 * (diff_abs[mask] ** 2)
             loss[~mask] = huber_coef * diff_abs[~mask] - .5 * (huber_coef ** 2)
             return loss.mean()
+        if loss == 'L1':
+            return diff_abs.mean()
         if loss == 'soft_L1':
             return 2 * ((1 + diff_abs) ** .5 - 1).mean()
         if loss == 'cauchy':
@@ -357,37 +365,14 @@ class RefractorVelocity:
             "fun": lambda x: x[:1][self._empty_layers[:1]] - np.array([self.init['t0']])[self._empty_layers[:1]]}
         return [constraint_offset, constraint_velocity, constraint_freeze_velocity, constraint_freeze_t0]
 
-    def _fit_regressor(self, x, y, start_slope, start_time):
-        """Method fits the linear regression by given data and initial values.
-
-        Parameters
-        ----------
-        x : 1d ndarray of shape (n_samples, 1)
-            Training data.
-        y : 1d ndarray of shape (n_samples,)
-            Target values.
-        start_slope : float
-            Starting coefficient to fit a linear regression.
-        start_time : float
-            Starting intercept to fit a linear regression.
-
-        Returns
-        -------
-        params : tuple
-            Linear regression `coef` and `intercept`.
-        """
-        lin_reg = SGDRegressor(loss='huber', penalty=None, shuffle=True, epsilon=.1, eta0=0.1, alpha=0.01, tol=1e-6,
-                               max_iter=1000, learning_rate='optimal')
-        lin_reg.fit(x, y, coef_init=start_slope, intercept_init=start_time)
-        return lin_reg.coef_[0], lin_reg.intercept_
-
-    def _standart_scaler(self, data):
-        """Standart scaler to zero mean."""
+    @staticmethod
+    def _scale_standart(data):
+        """Scale data to zero mean and unit variance."""
         if len(data) == 0:
             return data, np.nan, np.nan
-        cur_mean, cur_std = np.nanmean(data), np.nanstd(data)
-        data_scaled = (data - cur_mean) / (cur_std + 1e-10)
-        return data_scaled, cur_mean, cur_std
+        mean, std = np.mean(data), np.std(data)
+        data_scaled = (data - mean) / (std + 1e-10)
+        return data_scaled, mean, std
 
     def _calc_init_by_layers(self, n_refractors):
         """Calculates `init` dict by a given an estimated quantity of layers.
@@ -416,20 +401,22 @@ class RefractorVelocity:
         for i in range(n_refractors):
             mask = (self.offsets > cross_offsets[i]) & (self.offsets <= cross_offsets[i + 1])
             # data normalization occurs independently for each layer
-            scaled_offsets, mean_offset, std_offset = self._standart_scaler(self.offsets[mask])
-            scaled_times, mean_time, std_time = self._standart_scaler(self.fb_times[mask])
+            scaled_offsets, mean_offset, std_offset = self._scale_standart(self.offsets[mask])
+            scaled_times, mean_time, std_time = self._scale_standart(self.fb_times[mask])
             if std_offset not in [0, np.nan] and std_time not in [0, np.nan]:
-                fitted_slope, fitted_time = self._fit_regressor(scaled_offsets.reshape(-1, 1), scaled_times, 1, 0)
-                current_slope[i] = fitted_slope * std_time / std_offset
-                current_time[i] = mean_time + fitted_time * std_time - current_slope[i] * mean_offset
+                lin_reg = SGDRegressor(loss='huber', penalty=None, shuffle=True, epsilon=.1, eta0=0.1, alpha=0.01,
+                                       tol=1e-6, max_iter=1000, learning_rate='optimal')
+                lin_reg.fit(scaled_offsets.reshape(-1, 1), scaled_times, coef_init=1, intercept_init=0)
+                current_slope[i] = lin_reg.coef_[0] * std_time / std_offset
+                current_time[i] = mean_time + lin_reg.intercept_ * std_time - current_slope[i] * mean_offset
             else:
                 # raise base velocity for the next layer (v = 1 / slope)
-                current_slope[i] = current_slope[i] * (n_refractors / (n_refractors + 1)) if i else 4 / 5
+                current_slope[i] = current_slope[i - 1] * (n_refractors / (n_refractors + 1)) if i else 4 / 5
                 current_time[i] = 0  # used for the first layer only (`t0`)
             # move maximal velocity to 6 km/s
             current_slope[i] = max(.167, current_slope[i])
             current_time[i] =  max(0, current_time[i])
-        velocities = 1 / current_slope
+        velocities = 1 / np.minimum.accumulate(current_slope)
         init = [current_time[0], *cross_offsets[1:-1], *(velocities * 1000)]
         init = dict(zip(self._get_valid_keys(n_refractors), init))
         return init
