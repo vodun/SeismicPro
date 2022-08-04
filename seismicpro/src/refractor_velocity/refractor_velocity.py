@@ -1,7 +1,6 @@
 """Implements RefractorVelocity class for estimating the velocity model of an upper part of the section."""
 
 from functools import partial
-from gc import callbacks
 
 import numpy as np
 from sklearn.linear_model import SGDRegressor
