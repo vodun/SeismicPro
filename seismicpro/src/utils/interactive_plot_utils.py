@@ -383,21 +383,59 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
         ----------
         display_box : bool, optional, defaults to True
             Whether to display the plot in a JupyterLab frontend. Generally should be set to `False` if a parent object
-            creates several `InteractivePlot` instances and controlls their plotting.
+            creates several `InteractivePlot` instances and controls their plotting.
         """
         self.redraw(clear=False)
-        if self.is_clickable and self.init_click_coords is not None:
-            self._click(self.init_click_coords)
         # Init the width of the box
-        self._resize(self.fig.get_figwidth() * self.fig.dpi / self.fig.canvas.device_pixel_ratio)
+        self.resize(self.fig.get_figwidth() * self.fig.dpi / self.fig.canvas.device_pixel_ratio)
         if display_box:
             display(self.box)
+
+
+class DropdownViewPlot(InteractivePlot):
+    def __init__(self, **kwargs):
+        self.prev = widgets.Button(icon="angle-left", disabled=True, layout=widgets.Layout(**BUTTON_LAYOUT))
+        self.drop = widgets.Dropdown(layout=widgets.Layout(**TEXT_LAYOUT))
+        self.next = widgets.Button(icon="angle-right", disabled=True, layout=widgets.Layout(**BUTTON_LAYOUT))
+
+        # Handler definition
+        self.prev.on_click(self.prev_view)
+        self.drop.observe(self.select_view, names="value")
+        self.next.on_click(self.next_view)
+
+        super().__init__(**kwargs)
+        self.drop.options = self.title_list
+
+    def construct_buttons(self):
+        return []
+
+    def construct_header(self):
+        return widgets.HBox([self.prev, self.drop, self.next])
+
+    def set_view(self, view):
+        """Set the current view of the plot to the given `view`."""
+        super().set_view(view)
+        self.drop.index = view
+        self.prev.disabled = (view == 0)
+        self.next.disabled = (view == (self.n_views - 1))
+
+    def next_view(self, event):
+        _ = event
+        self.set_view(min(self.current_view + 1, self.n_views - 1))
+
+    def prev_view(self, event):
+        _ = event
+        self.set_view(max(self.current_view - 1, 0))
+
+    def select_view(self, change):
+        _ = change
+        self.set_view(self.drop.index)
 
 
 class PairedPlot:
     """Construct a plot that contains two interactive plots stacked together.
 
-    Ususally one wants to display a clickable plot (`main`) which updates an auxiliary plot (`aux`) on each click. In
+    Usually one wants to display a clickable plot (`main`) which updates an auxiliary plot (`aux`) on each click. In
     this case both plots may need to have access to the current state of each other. `PairedPlot` can be treated as
     such a state container: if its bound method is used as a `plot_fn`/`click_fn`/`unclick_fn` of `main` or `aux` plots
     it gets access to both `InteractivePlot`s and all the attributes created in `PairedPlot.__init__`.
