@@ -398,13 +398,13 @@ class DropdownViewPlot(InteractivePlot):
         self.drop = widgets.Dropdown(layout=widgets.Layout(**TEXT_LAYOUT))
         self.next = widgets.Button(icon="angle-right", disabled=True, layout=widgets.Layout(**BUTTON_LAYOUT))
 
-        # Handler definition
+        super().__init__(**kwargs)
+        self.drop.options = self.title_list
+
+        # Define handlers after options are set, otherwise plotting will be triggered
         self.prev.on_click(self.prev_view)
         self.drop.observe(self.select_view, names="value")
         self.next.on_click(self.next_view)
-
-        super().__init__(**kwargs)
-        self.drop.options = self.title_list
 
     def construct_buttons(self):
         return []
