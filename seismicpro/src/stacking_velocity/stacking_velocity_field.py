@@ -127,7 +127,7 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
         weights = smoothing_interpolator.get_weights(self.coords)
         items_coords = [item.coords for item in self.item_container.values()]
         smoothed_items = self.weights_to_items(weights, items_coords)
-        return type(self)(survey=self.survey, is_geographic=self.is_geographic).update(smoothed_items)
+        return type(self)(smoothed_items, survey=self.survey, is_geographic=self.is_geographic)
 
     def interpolate(self, coords, times, is_geographic=None):
         """Interpolate stacking velocities at given `coords` and `times`.

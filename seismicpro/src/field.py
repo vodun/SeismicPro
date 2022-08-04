@@ -87,9 +87,13 @@ class Field:
             self.update(items)
 
     @property
+    def n_items(self):
+        return len(self.item_container)
+
+    @property
     def is_empty(self):
         """bool: Whether the field is empty."""
-        return len(self.item_container) == 0
+        return self.n_items == 0
 
     @property
     def has_survey(self):
