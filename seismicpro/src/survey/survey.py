@@ -20,6 +20,7 @@ from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
 from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
+from ..refractor_velocity import RefractorVelocityField
 from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
 from ..utils import to_list, maybe_copy, get_cols
@@ -958,6 +959,33 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         headers.sort_index(kind="stable", inplace=True)
         self.headers = headers
         return self
+
+    def calculate_refractor_velocity_field(self, rv_kwargs=None, sg_kwargs=None, precalc_init=False):
+        if rv_kwargs is None and not precalc_init:
+            raise ValueError("`rv_kwargs` should be passed or use `precalc_init`")
+        if precalc_init:
+            # not sure that sg generation is good
+            size = min(len(self.headers["INLINE_3D"].unique() // 2), len(self.headers["CROSSLINE_3D"].unique() // 2))
+            precalc_sg_kwargs = {"step": size - 5, "size": size // 2, "origin": 5, "strict": False}
+            sg_survey = self.generate_supergathers(**precalc_sg_kwargs)
+            rv = sg_survey.sample_gather().calculate_refractor_velocity(**rv_kwargs)
+            init = rv.params
+
+        if sg_kwargs is not None:
+            survey = self.generate_supergathers(**sg_kwargs)
+
+        rv_field = RefractorVelocityField()
+        rv_list = []
+        for idx in tqdm(survey.headers.index.unique()):
+            g = survey.get_gather(idx)
+            if precalc_init:
+                rv = g.calculate_refractor_velocity(init=init)
+            else:
+                rv = g.calculate_refractor_velocity(**rv_kwargs)
+            rv_list.append(rv)
+        rv_field.update(rv_list)
+
+        return rv_field
 
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #

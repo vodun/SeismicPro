@@ -58,14 +58,6 @@ class RefractorVelocityField(SpatialField):
     def construct_item(self, values, coords):
         return self.item_class.from_params(dict(zip(self.param_names, values)), coords=coords)
 
-    def smooth(self, radius):
-        """Testing realization of a smoothing the field params."""
-        smoothing_interpolator = IDWInterpolator(self.coords, self.values, radius=radius, dist_transform=0)
-        smoothed_values = smoothing_interpolator(self.coords)
-        items_coords = [item.coords for item in self.item_container.values()]
-        smoothed_items = [self.construct_item(v, c) for v, c in zip(smoothed_values, items_coords)]
-        return type(self)(survey=self.survey, is_geographic=self.is_geographic).update(smoothed_items)
-
     def dump(self, path, encoding="UTF-8", col_size=11):
         """Save the RefractorVelocityField instance to a file.
 
@@ -186,6 +178,7 @@ class RefractorVelocityField(SpatialField):
         return data_coords, data_params
 
     def _calc_plot_data_by_grid(self, grid_size):
+        # TODO: test with field constructed with supergather
         n_items = len(self.param_names)
         min_x, min_y = np.min(self.coords, axis=0)
         max_x, max_y = np.max(self.coords, axis=0)
