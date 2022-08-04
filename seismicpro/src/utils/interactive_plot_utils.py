@@ -69,8 +69,6 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
     title : str or callable or list of str or callable, optional
         Plot titles for views defined by `plot_fn`. If `callable`, it is called each time the title is being set (e.g.
         on `redraw`) allowing for dynamic title generation. If not given, an empty title is created.
-    init_click_coords : tuple with 2 elements, optional
-        Initial coordinates of a click on the first view. If not given, the initial click is not performed.
     toolbar_position : {"top", "bottom", "left", "right"}, optional, defaults to "left"
         Matplotlib toolbar position relative to the main axes.
     figsize : tuple with 2 elements, optional, defaults to (4.5, 4.5)
@@ -90,8 +88,7 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
         An index of the current plot view.
     """
     def __init__(self, *, plot_fn=None, click_fn=None, slice_fn=None, unclick_fn=None, marker_params=None, title="",
-                 preserve_clicks_on_view_change=False, init_click_coords=None, toolbar_position="left",
-                 figsize=(4.5, 4.5)):
+                 preserve_clicks_on_view_change=False, toolbar_position="left", figsize=(4.5, 4.5)):
         list_args = align_args(plot_fn, click_fn, slice_fn, unclick_fn, marker_params, title)
         self.plot_fn_list, self.click_fn_list, self.slice_fn_list = list_args[:3]
         self.unclick_fn_list, marker_params_list, self.title_list = list_args[3:]
@@ -102,13 +99,15 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
             params = {"marker": "+", "color": "black", **params}
             self.marker_params_list.append(params)
 
+        # View-related attributes
         self.n_views = len(self.plot_fn_list)
         self.current_view = 0
         self.preserve_clicks_on_view_change = preserve_clicks_on_view_change
 
+        # Click-related attributes
         self.start_click_time = None
         self.start_click_coords = None
-        self.click_coords = init_click_coords
+        self.click_coords = None
         self.slice_coords = None
         self.click_marker = None
         self.slice_marker = None
@@ -374,10 +373,7 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
             self.slice(*self.slice_coords)
 
     def plot(self, display_box=True):
-        """Display the interactive plot.
-
-        When called, the first view is displayed and initial clicking is performed if `init_click_coords` were
-        specified during class instantiation.
+        """Display the interactive plot with the first view selected.
 
         Parameters
         ----------
@@ -476,6 +472,6 @@ class PairedPlot:
 
     def plot(self):
         """Display the paired plot."""
-        self.aux.plot(display_box=False)
         self.main.plot(display_box=False)
+        self.aux.plot(display_box=False)
         display(self.box)
