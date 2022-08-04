@@ -106,7 +106,7 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
         self.current_view = 0
         self.preserve_clicks_on_view_change = preserve_clicks_on_view_change
 
-        self.click_time = None
+        self.start_click_time = None
         self.start_click_coords = None
         self.click_coords = init_click_coords
         self.slice_coords = None

@@ -3,6 +3,7 @@ from functools import partial
 import numpy as np
 
 from .refractor_velocity import RefractorVelocity
+from .interactive_plot import FitPlot
 from ..field import SpatialField
 from ..utils import to_list, IDWInterpolator
 
@@ -37,18 +38,20 @@ class RefractorVelocityField(SpatialField):
         return np.array(list(item.params.values()))
 
     @staticmethod
-    def _postprocess_values(self, values):
+    def _postprocess_values(values):
+        n_refractors = values.shape[1] // 2
+
         # Ensure that t0 is non-negative
         np.clip(values[:, 0], 0, None, out=values[:, 0])
 
         # Ensure that velocities of refractors are non-negative and increasing
-        velocities = values[:, self.n_refractors:]
+        velocities = values[:, n_refractors:]
         np.clip(velocities[:, 0], 0, None, out=velocities[:, 0])
         np.maximum.accumulate(velocities, axis=1, out=velocities)
 
         # Ensure that crossover offsets are non-negative and increasing
-        if self.n_refractors > 1:
-            cross_offsets = values[:, 1:self.n_refractors]
+        if n_refractors > 1:
+            cross_offsets = values[:, 1:n_refractors]
             np.clip(cross_offsets[:, 0], 0, None, out=cross_offsets[:, 0])
             np.maximum.accumulate(cross_offsets, axis=1, out=cross_offsets)
 
@@ -92,11 +95,14 @@ class RefractorVelocityField(SpatialField):
         self._postprocess_values(smoothed_values)
 
         smoothed_items = []
-        for rv, val in zip(field.item_container.values(), smoothed_values):
+        for rv, val in zip(self.item_container.values(), smoothed_values):
             item = self.construct_item(val, rv.coords)
             item.offsets = rv.offsets
             item.fb_times = rv.fb_times
             smoothed_items.append(item)
-        
+
         return type(self)(smoothed_items, n_refractors=self.n_refractors, survey=self.survey,
                           is_geographic=self.is_geographic)
+
+    def plot_fit(self, **kwargs):
+        FitPlot(self, **kwargs).plot()
