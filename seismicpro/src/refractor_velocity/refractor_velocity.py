@@ -189,7 +189,7 @@ class RefractorVelocity:
         return self
 
     @classmethod
-    def from_params(cls, params, coords=None):
+    def from_params(cls, params, coords=None, max_offset=None):
         """Create a `RefractorVelocity` instance from its parameters without model fitting.
 
         Parameters
@@ -216,9 +216,10 @@ class RefractorVelocity:
         self._valid_keys = self._get_valid_keys(self.n_refractors)
         self.params = {key: params[key] for key in self._valid_keys}
         self.coords = coords
-
+        self.max_offset = self.params.get(f'x{self.n_refractors - 1}', 0) + 1000 if max_offset is None \
+                                          else max(max_offset, self.params.get(f'x{self.n_refractors - 1}', 0))
         self.piecewise_offsets, self.piecewise_times = \
-            self._create_piecewise_coords(self.n_refractors, self.params.get(f'x{self.n_refractors - 1}', 0) + 1000)
+            self._create_piecewise_coords(self.n_refractors, self.max_offset)
         self.piecewise_offsets, self.piecewise_times = \
             self._update_piecewise_coords(self.piecewise_offsets, self.piecewise_times, self._ms_to_kms(self.params),
                                           self.n_refractors)
@@ -226,7 +227,7 @@ class RefractorVelocity:
         return self
 
     @classmethod
-    def from_constant_velocity(cls, velocity, coords=None):
+    def from_constant_velocity(cls, velocity, coords=None, max_offset=None):
         """Define a 1-layer near-surface velocity model with given velocity of the first layer and zero intercept time.
 
         Parameters
@@ -250,7 +251,7 @@ class RefractorVelocity:
 
         if velocity < 0:
             raise ValueError("Velocity should not be negative.")
-        return self.from_params({"t0": 0, "v1": velocity}, coords=coords)
+        return self.from_params({"t0": 0, "v1": velocity}, coords=coords, max_offset=max_offset)
 
     @classmethod
     def from_file(cls, path):
@@ -517,8 +518,8 @@ class RefractorVelocity:
         """Save the RefractorVelocity instance to a file. Coords should be preloaded.
 
         File example:
-        SourceX   SourceY        t0        x1        v1        v2
-        1111100   2222220     50.00   1000.00   1500.00   2000.00
+        SourceX   SourceY        t0        x1        v1        v2 max_offset
+        1111100   2222220     50.00   1000.00   1500.00   2000.00    2000.00
 
         Parameters
         ----------
@@ -543,12 +544,12 @@ class RefractorVelocity:
         if self.coords is None:
             raise ValueError("`coords` attribute should be defined.")
         coords_size = max(col_size, max(len(name) for name in self.coords.names) + 1)
-        values = list(self.coords.coords) + list(self.params.values())
-        values_format = '\n' + '{:>{coords_size}}' * len(self.coords) + '{:>{col_size}.2f}' * len(self.params)
+        values = list(self.coords.coords) + list(self.params.values()) + [self.max_offset]
+        values_format = '\n' + '{:>{coords_size}}' * len(self.coords) + '{:>{col_size}.2f}' * (len(self.params) + 1)
         values_str = values_format.format(*values, coords_size=coords_size, col_size=col_size)
 
-        columns = list(self.coords.names) + list(self.params.keys())
-        cols_format = ('{:>{coords_size}}' * len(self.coords) + '{:>{col_size}}' * len(self.params))
+        columns = list(self.coords.names) + list(self.params.keys()) + ["max_offset"]
+        cols_format = ('{:>{coords_size}}' * len(self.coords) + '{:>{col_size}}' * (len(self.params) + 1))
         cols_str = cols_format.format(*columns, coords_size=coords_size, col_size=col_size)
         with open(path, 'w', encoding=encoding) as f:
             f.write(cols_str + values_str)
@@ -558,8 +559,8 @@ class RefractorVelocity:
         """Load parameters from a file and create a RefractorVelocity instance from the loaded parameters.
 
         File example:
-        SourceX   SourceY        t0        x1        v1        v2
-        1111100   2222220     50.00   1000.00   1500.00   2000.00
+        SourceX   SourceY        t0        x1        v1        v2 max_offset
+        1111100   2222220     50.00   1000.00   1500.00   2000.00    2000.00
 
         Parameters
         ----------
@@ -574,7 +575,7 @@ class RefractorVelocity:
         df = pd.read_csv(path, sep=r'\s+', encoding=encoding)
         coords_data = df.iloc[0][:2]
         coords = Coordinates(names=tuple(coords_data.index), coords=tuple(coords_data.values))
-        return self.from_params(params=df.iloc[0][2:], coords=coords)
+        return self.from_params(params=df.iloc[0][2:-1], coords=coords, max_offset=df.iloc[0][-1])
 
     @plotter(figsize=(10, 5), args_to_unpack="compare_to")
     def plot(self, *, ax=None, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_times=None,
