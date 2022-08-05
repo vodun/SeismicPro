@@ -22,6 +22,10 @@ class RefractorVelocityField(SpatialField):
             raise ValueError("The number of refractors is undefined")
         return ["t0"] + [f"x{i}" for i in range(1, self.n_refractors)] + [f"v{i+1}" for i in range(self.n_refractors)]
 
+    @property
+    def max_offset(self):
+        return np.max([item.max_offset for coords, item in self.item_container.items()])
+
     def validate_items(self, items):
         super().validate_items(items)
         if len({item.n_refractors for item in items}) != 1:
@@ -109,10 +113,10 @@ class RefractorVelocityField(SpatialField):
         """Save the RefractorVelocityField instance to a file.
 
         File example:
-        SourceX   SourceY        t0        x1        v1        v2
-        1111100   2222220     50.00   1000.00   1500.00   2000.00
+        SourceX   SourceY        t0        x1        v1        v2 max_offset
+        1111100   2222220     50.00   1000.00   1500.00   2000.00    2000.00
         ...
-        1111200   2222240     60.00   1050.00   1550.00   1950.00
+        1111200   2222240     60.00   1050.00   1550.00   1950.00    2050.00
 
         Parameters
         ----------
@@ -137,14 +141,17 @@ class RefractorVelocityField(SpatialField):
         if self.is_empty:
             raise ValueError("Field is empty. Could not dump empty field.")
         new_col_size = max(col_size, max(len(name) for name in self.coords_cols) + 1)
-        values = np.array([list(item.params.values()) for coords, item in self.item_container.items()])
 
-        columns = list(self.coords_cols) + list(self.param_names)
+        columns = list(self.coords_cols) + list(self.param_names) + ["max_offset"]
         cols_format = '{:>{new_col_size}}' * 2 + '{:>{col_size}}' * (len(columns) - 2)
         cols_str = cols_format.format(*columns, new_col_size=new_col_size, col_size=col_size)
 
-        data = np.hstack((self.coords, values))
-        data_format = ('\n' + "{:>{new_col_size}.0f}" * 2 + '{:>{col_size}.2f}' * 2 * self.n_refractors) * data.shape[0]
+        values = np.array([list(item.params.values()) for coords, item in self.item_container.items()])
+        # print(np.vstack([item.max_offset for coords, item in self.item_container.items()]))
+        max_offsets = np.vstack([item.max_offset for coords, item in self.item_container.items()])
+        data = np.hstack((self.coords, values, max_offsets))
+        print(data[0])
+        data_format = ('\n' + "{:>{new_col_size}.0f}" * 2 + '{:>{col_size}.2f}' * (len(columns) - 2)) * data.shape[0]
         data_str = data_format.format(*data.ravel(), new_col_size=new_col_size, col_size=col_size)
 
         with open(path, 'w', encoding=encoding) as f:
@@ -156,10 +163,10 @@ class RefractorVelocityField(SpatialField):
         """Load RefractorVelocityField from a file.
 
         File example:
-        SourceX   SourceY        t0        x1        v1        v2
-        1111100   2222220     50.00   1000.00   1500.00   2000.00
+        SourceX   SourceY        t0        x1        v1        v2 max_offset
+        1111100   2222220     50.00   1000.00   1500.00   2000.00    2000.00
         ...
-        1111200   2222240     60.00   1050.00   1550.00   1950.00
+        1111200   2222240     60.00   1050.00   1550.00   1950.00    2050.00
 
         Parameters
         ----------
@@ -178,9 +185,10 @@ class RefractorVelocityField(SpatialField):
         self.n_refractors = (len(df.columns) - 2) // 2
         rv_list = []
         for row in df.to_numpy():
-            params = dict(zip(self.param_names, row[2:]))
             coords = Coordinates(names=tuple(df.columns[:2]), coords=tuple(row[:2]))
-            rv = RefractorVelocity.from_params(params=params, coords=coords)
+            params = dict(zip(self.param_names, row[2:-1]))
+            max_offset = row[-1]
+            rv = RefractorVelocity.from_params(params=params, coords=coords, max_offset=max_offset)
             rv_list.append(rv)
         self.update(rv_list)
         return self
