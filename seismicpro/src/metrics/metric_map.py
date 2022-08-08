@@ -221,26 +221,22 @@ class BaseMetricMap:
         return self.map_class(self.metric_data[self.coords_cols], self.metric_data[self.metric_name],
                               metric=self.metric, agg=agg, bin_size=bin_size)
 
-    def select_by_thresholds(self, lower_thr=None, upper_thr=None):
+    def select_by_thresholds(self, lower_thr, upper_thr):
         """Create a new metric map with `map_data` that contains
         only the points with metric value within provided thesholds.
 
         Parameters
         ----------
-        lower_thr, upper_thr : float, optional
-            Lower and upper thresholds for mwtric values.
-            If None, corresponding threshold is not active, by default None.
+        lower_thr, upper_thr : float
+            Lower and upper thresholds for metric values.
 
         Returns
         -------
         BaseMetricMap
             New metric map instance.
         """
-        new_metric_data = self.metric_data
-        if lower_thr:
-            new_metric_data = new_metric_data[new_metric_data[self.metric_name] >= lower_thr]
-        if upper_thr:
-            new_metric_data = new_metric_data[new_metric_data[self.metric_name] <= upper_thr]
+        metric_values = self.metric_data[self.metric_name]
+        new_metric_data = self.metric_data[(metric_values >= lower_thr) & (metric_values <= upper_thr)]
 
         bin_size = getattr(self, "bin_size", None)
         new_metric_map = self.map_class(new_metric_data[self.coords_cols], new_metric_data[self.metric_name],

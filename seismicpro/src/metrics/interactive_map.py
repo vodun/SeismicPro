@@ -203,6 +203,7 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
         _ = change
         self.current_metric_map = self.original_metric_map.select_by_thresholds(*self.main.slider.value)
         self.main.redraw()
+        # pylint: disable=protected-access
         self.main._click(self.current_metric_map.get_worst_coords(self.is_lower_better))
 
     def construct_main_plot(self):
