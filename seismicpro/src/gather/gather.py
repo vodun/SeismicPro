@@ -16,10 +16,10 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from .muting import Muter
 from .cropped_gather import CroppedGather
 from .plot_corrections import NMOCorrectionPlot, LMOCorrectionPlot
-from .utils import correction, gain
+from .utils import correction, gain, normalization
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
 from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_yticklabels, set_text_formatting,
-                     add_colorbar, piecewise_polynomial, normalization, Coordinates)
+                     add_colorbar, piecewise_polynomial, Coordinates)
 from ..containers import TraceContainer, SamplesContainer
 from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, StackingVelocityField

@@ -7,7 +7,7 @@ from sklearn.linear_model import SGDRegressor
 from scipy import optimize
 
 from ..decorators import plotter
-from ..utils import set_ticks, set_text_formatting, normalization
+from ..utils import set_ticks, set_text_formatting
 from ..utils.interpolation import interp1d
 
 
@@ -178,7 +178,7 @@ class RefractorVelocity:
         self._model_params = optimize.minimize(partial_loss_func, x0=self._ms_to_kms(self.init),
                                                bounds=self._ms_to_kms(self.bounds), **minimizer_kwargs)
         self.piecewise_offsets, self.piecewise_times = \
-            self.calc_knots_by_params(self._model_params.x, self.n_refractors, max_offset=self.max_offset)
+            self.calc_knots_by_params(self._model_params.x, max_offset=self.max_offset)
         self.params = dict(zip(self._valid_keys, self._postprocess_params(self._model_params.x)))
         self.interpolator = interp1d(self.piecewise_offsets, self.piecewise_times)
         return self
@@ -213,7 +213,7 @@ class RefractorVelocity:
         self.coords = coords
 
         self.piecewise_offsets, self.piecewise_times = \
-            self.calc_knots_by_params(self._ms_to_kms(self.params), self.n_refractors,
+            self.calc_knots_by_params(self._ms_to_kms(self.params),
                                       max_offset=self.params.get(f'x{self.n_refractors - 1}', 0) + 1000)
         self.interpolator = interp1d(self.piecewise_offsets, self.piecewise_times)
         return self
@@ -257,8 +257,10 @@ class RefractorVelocity:
         """bool: Whether refractor velocity coordinates are not-None."""
         return self.coords is not None
 
-    def calc_knots_by_params(self, params, n_refractors, max_offset):
+    @staticmethod
+    def calc_knots_by_params(params, max_offset):
         """Update the given `offsets` and `times` arrays based on the `params` and `n_refractors`."""
+        n_refractors = len(params) // 2
         piecewise_offsets = np.zeros(n_refractors + 1)
         piecewise_times = np.zeros(n_refractors + 1)
         piecewise_offsets[-1] = max_offset
@@ -307,9 +309,8 @@ class RefractorVelocity:
         ValueError
             If given `loss` does not exist.
         """
-        self.piecewise_offsets, self.piecewise_times = \
-            self.calc_knots_by_params(args, self.n_refractors, max_offset=self.max_offset)
-        diff_abs = np.abs(np.interp(self.offsets, self.piecewise_offsets, self.piecewise_times) - self.fb_times)
+        piecewise_offsets, piecewise_times = self.calc_knots_by_params(args, self.max_offset)
+        diff_abs = np.abs(np.interp(self.offsets, piecewise_offsets, piecewise_times) - self.fb_times)
         if loss == 'MSE':
             return (diff_abs ** 2).mean()
         if loss == 'huber':
@@ -347,7 +348,7 @@ class RefractorVelocity:
         if len(data) == 0:
             return data, np.nan, np.nan
         mean, std = np.mean(data), np.std(data)
-        data_scaled = normalization.scale_standard(data, mean, std, 1e-10)
+        data_scaled = (data - mean) / (std + 1e-10)
         return data_scaled, mean, std
 
     def _calc_init_by_layers(self, n_refractors):
@@ -372,7 +373,7 @@ class RefractorVelocity:
 
         cross_offsets = np.linspace(0, self.max_offset, num=n_refractors + 1)
         current_slope = np.empty(n_refractors)
-        current_time = np.zeros(n_refractors)
+        current_time = 0
 
         for i in range(n_refractors):
             mask = (self.offsets > cross_offsets[i]) & (self.offsets <= cross_offsets[i + 1])
@@ -384,15 +385,16 @@ class RefractorVelocity:
                                        tol=1e-6, max_iter=1000, learning_rate='optimal')
                 lin_reg.fit(scaled_offsets.reshape(-1, 1), scaled_times, coef_init=1, intercept_init=0)
                 current_slope[i] = lin_reg.coef_[0] * std_time / std_offset
-                current_time[i] = mean_time + lin_reg.intercept_ * std_time - current_slope[i] * mean_offset
+                if not i:
+                    current_time = mean_time + lin_reg.intercept_ * std_time - current_slope[i] * mean_offset
             else:
-                # raise base velocity for the next layer (v = 1 / slope) and use default times (defaults to 0)
+                # raise base velocity for the next layer (v = 1 / slope)
                 current_slope[i] = current_slope[i - 1] * (n_refractors / (n_refractors + 1)) if i else 4 / 5
             current_slope[i] = max(.167, current_slope[i])  # move maximal velocity to 6 km/s
-            current_time[i] =  max(0, current_time[i])
 
+        current_time =  max(0, current_time)
         velocities = 1 / np.minimum.accumulate(current_slope)
-        init = [current_time[0], *cross_offsets[1:-1], *(velocities * 1000)]
+        init = [current_time, *cross_offsets[1:-1], *(velocities * 1000)]
         init = dict(zip(self._get_valid_keys(n_refractors), init))
         return init
 
