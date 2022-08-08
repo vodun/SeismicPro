@@ -18,8 +18,8 @@ class SurveyGeometryPlot(PairedPlot):  # pylint: disable=too-many-instance-attri
     * Receiver view: displays receiver locations. Highlights all shots that activated the receiver on click and
       displays the corresponding common receiver gather.
     """
-    def __init__(self, survey, keep_aspect=False, sort_by=None, gather_plot_kwargs=None, x_ticker=None, y_ticker=None,
-                 figsize=(4.5, 4.5), fontsize=8, orientation="horizontal", **kwargs):
+    def __init__(self, survey, show_contour=True, keep_aspect=False, sort_by=None, gather_plot_kwargs=None,
+                 x_ticker=None, y_ticker=None, figsize=(4.5, 4.5), fontsize=8, orientation="horizontal", **kwargs):
         kwargs = {"fontsize": fontsize, **kwargs}
         (x_ticker, y_ticker), self.scatter_kwargs = set_text_formatting(x_ticker, y_ticker, **kwargs)
         text_kwargs = get_text_formatting_kwargs(**kwargs)
@@ -41,8 +41,9 @@ class SurveyGeometryPlot(PairedPlot):  # pylint: disable=too-many-instance-attri
         # Calculate axes limits to fix them to avoid map plot shifting on view toggle
         x_lim = calculate_axis_limits(np.concatenate([self.source_x, self.group_x]))
         y_lim = calculate_axis_limits(np.concatenate([self.source_y, self.group_y]))
-        self.plot_map = partial(self._plot_map, keep_aspect=keep_aspect, x_lim=x_lim, y_lim=y_lim, x_ticker=x_ticker,
-                                y_ticker=y_ticker, **self.scatter_kwargs)
+        contours = survey.geographic_contours if show_contour else None
+        self.plot_map = partial(self._plot_map, contours=contours, keep_aspect=keep_aspect, x_lim=x_lim, y_lim=y_lim,
+                                x_ticker=x_ticker, y_ticker=y_ticker, **self.scatter_kwargs)
         self.affected_scatter = None
 
         super().__init__(orientation=orientation)
@@ -131,12 +132,15 @@ class SurveyGeometryPlot(PairedPlot):  # pylint: disable=too-many-instance-attri
         """str: map plot title, depends on the current view."""
         return "Common shot gather at " if self.is_shot_view else "Common receiver gather at "
 
-    def _plot_map(self, ax, keep_aspect, x_lim, y_lim, x_ticker, y_ticker, **kwargs):
+    def _plot_map(self, ax, contours, keep_aspect, x_lim, y_lim, x_ticker, y_ticker, **kwargs):
         """Plot shot or receiver locations depending on the current view."""
         self.aux.clear()
         self.aux.box.layout.visibility = "hidden"
 
         ax.scatter(self.coord_x, self.coord_y, color=self.main_color, marker=self.main_marker, **kwargs)
+        if contours is not None:
+            for contour in contours:
+                ax.fill(contour[:, 0, 0], contour[:, 0, 1], facecolor="gray", edgecolor="black", alpha=0.5)
         ax.set_xlim(*x_lim)
         ax.set_ylim(*y_lim)
         ax.ticklabel_format(style="plain", useOffset=False)
