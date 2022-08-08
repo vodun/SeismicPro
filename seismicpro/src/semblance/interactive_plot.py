@@ -4,7 +4,6 @@ from functools import partial
 
 import numpy as np
 
-from ..stacking_velocity import StackingVelocity
 from ..utils import get_text_formatting_kwargs, times_to_indices
 from ..utils.interactive_plot_utils import InteractivePlot, PairedPlot
 
@@ -62,8 +61,7 @@ class SemblancePlot(PairedPlot):  # pylint: disable=too-many-instance-attributes
         """Get an optionally corrected gather."""
         if not corrected:
             return self.gather
-        velocity = StackingVelocity.from_constant_velocity(self.click_vel * 1000)
-        return self.gather.copy(ignore=["headers", "data", "samples"]).apply_nmo(velocity)
+        return self.gather.copy(ignore=["headers", "data", "samples"]).apply_nmo(self.click_vel * 1000)
 
     def get_hodograph(self, corrected):
         """Get hodograph times if click has been performed."""

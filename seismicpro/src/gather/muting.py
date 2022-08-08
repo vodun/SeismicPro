@@ -65,7 +65,7 @@ class Muter:
         return self
 
     @classmethod
-    def from_file(cls, path, **kwargs):
+    def from_file(cls, path, coords_cols=("INLINE_3D", "CROSSLINE_3D"), **kwargs):
         """Create a muter from a file with vertical functions in Paradigm Echos VFUNC format.
 
         The file must have exactly one record with the following structure:
@@ -88,7 +88,7 @@ class Muter:
         self : Muter
             Created muter.
         """
-        _, _, offsets, times = read_single_vfunc(path)
+        _, offsets, times = read_single_vfunc(path, coords_cols=coords_cols)
         return cls.from_points(offsets, times, **kwargs)
 
     @classmethod
