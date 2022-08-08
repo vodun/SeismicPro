@@ -1,4 +1,4 @@
-"""Implements optimized functions for various data normalizations"""
+"""Implements optimized functions for various gather normalizations"""
 
 import numpy as np
 from numba import njit

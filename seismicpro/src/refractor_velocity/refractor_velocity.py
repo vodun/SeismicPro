@@ -105,7 +105,6 @@ class RefractorVelocity:
         self.interpolator = None
 
         self._valid_keys = None
-        self._empty_layers = None
         self._model_params = None
 
     @classmethod
@@ -388,7 +387,7 @@ class RefractorVelocity:
                 if not i:
                     current_time = mean_time + lin_reg.intercept_ * std_time - current_slope[i] * mean_offset
             else:
-                # raise base velocity for the next layer (v = 1 / slope)
+                # raise base velocity for the next layer (v = 1 / slope) and leave `current_time` unchanged
                 current_slope[i] = current_slope[i - 1] * (n_refractors / (n_refractors + 1)) if i else 4 / 5
             current_slope[i] = max(.167, current_slope[i])  # move maximal velocity to 6 km/s
 
