@@ -166,7 +166,7 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
     * `click` - handle a click on the map plot.
     """
     def __init__(self, metric_map, plot_on_click=None, plot_on_click_kwargs=None, title=None, is_lower_better=None,
-                 figsize=(4.5, 4.5), fontsize=8, orientation="horizontal", **kwargs):
+                 figsize=(4.5, 4.5), fontsize=8, orientation="horizontal", show_slider=True, **kwargs):
         kwargs = {"fontsize": fontsize, **kwargs}
         text_kwargs = get_text_formatting_kwargs(**kwargs)
         plot_on_click, plot_on_click_kwargs = align_args(plot_on_click, plot_on_click_kwargs)
@@ -175,6 +175,7 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
 
         self.figsize = figsize
         self.orientation = orientation
+        self.show_slider = show_slider
 
         self.is_lower_better = is_lower_better
         self.plot_map_kwargs = kwargs
@@ -224,10 +225,13 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
 
         init_click_coords = self.original_metric_map.get_worst_coords(self.is_lower_better)
 
-        original_metric = self.original_metric_map.metric_data[self.original_metric_map.metric_name]
+        interactive_plot_kwargs = dict(plot_fn=plot_map, click_fn=self.click, init_click_coords=init_click_coords,
+                                       title=self.title, figsize=self.figsize)
+        if not self.show_slider:
+            return InteractivePlot(**interactive_plot_kwargs)
 
-        return SliderPlot(plot_fn=plot_map, click_fn=self.click, init_click_coords=init_click_coords,
-                          title=self.title, figsize=self.figsize,
+        original_metric = self.original_metric_map.metric_data[self.original_metric_map.metric_name]
+        return SliderPlot(**interactive_plot_kwargs,
                           slider_min=original_metric.min(), slider_max=original_metric.max(),
                           slide_fn=self.on_slider_change
                          )
