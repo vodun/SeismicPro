@@ -372,7 +372,7 @@ class RefractorVelocity:
 
         cross_offsets = np.linspace(0, self.max_offset, num=n_refractors + 1)
         current_slope = np.empty(n_refractors)
-        current_time = 0
+        init_t0 = 0
 
         for i in range(n_refractors):
             mask = (self.offsets > cross_offsets[i]) & (self.offsets <= cross_offsets[i + 1])
@@ -385,15 +385,15 @@ class RefractorVelocity:
                 lin_reg.fit(scaled_offsets.reshape(-1, 1), scaled_times, coef_init=1, intercept_init=0)
                 current_slope[i] = lin_reg.coef_[0] * std_time / std_offset
                 if not i:
-                    current_time = mean_time + lin_reg.intercept_ * std_time - current_slope[i] * mean_offset
+                    init_t0 = mean_time + lin_reg.intercept_ * std_time - current_slope[i] * mean_offset
+                    init_t0 =  max(0, init_t0)
             else:
-                # raise base velocity for the next layer (v = 1 / slope) and leave `current_time` unchanged
+                # raise base velocity for the next layer (v = 1 / slope) and leave `init_t0` unchanged
                 current_slope[i] = current_slope[i - 1] * (n_refractors / (n_refractors + 1)) if i else 4 / 5
             current_slope[i] = max(.167, current_slope[i])  # move maximal velocity to 6 km/s
 
-        current_time =  max(0, current_time)
         velocities = 1 / np.minimum.accumulate(current_slope)
-        init = [current_time, *cross_offsets[1:-1], *(velocities * 1000)]
+        init = [init_t0, *cross_offsets[1:-1], *(velocities * 1000)]
         init = dict(zip(self._get_valid_keys(n_refractors), init))
         return init
 
