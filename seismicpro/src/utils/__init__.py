@@ -8,3 +8,4 @@ from .indexer import create_indexer
 from .coordinates import *
 from .vfunc import *
 from .interpolation import *
+from .normalization import *
