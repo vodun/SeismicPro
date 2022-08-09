@@ -45,7 +45,7 @@ class Field:
     - `item_class` class attribute containing the type of items in the field,
     - `available_interpolators` with a mapping from names of available interpolators to the corresponding classes,
     - `values` property returning values to be passed to field interpolator,
-    - `construct_items` method that constructs a new item at given field coordinates.
+    - `construct_items` method that constructs new items at given field coordinates.
 
     Parameters
     ----------
@@ -94,7 +94,7 @@ class Field:
     @property
     def has_survey(self):
         """bool: Whether a survey is defined for the filed."""
-        return self.interpolator is not None
+        return self.survey is not None
 
     @property
     def has_interpolator(self):
@@ -210,7 +210,7 @@ class Field:
         return self
 
     def validate_interpolator(self):
-        """Validate that field interpolator is created and warn if it's dirty."""
+        """Verify that field interpolator is created and warn if it's dirty."""
         if not self.has_interpolator:
             raise ValueError("Field interpolator was not created, call create_interpolator method first")
         if self.is_dirty_interpolator:
