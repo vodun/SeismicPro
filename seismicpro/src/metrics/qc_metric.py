@@ -43,13 +43,6 @@ class TracewiseMetric(PipelineMetric):
         """
         raise NotImplementedError
 
-    @staticmethod
-    def norm_data(gather):
-        """"Gather data normalization"""
-        traces = gather.data
-        return (traces - np.nanmean(traces, axis=1, keepdims=True))/(np.nanstd(traces, axis=1, keepdims=True) + EPS)
-
-
     @classmethod
     def filter_res(cls, gather):
         """Return QC indicator with zero traces masked with `np.nan`
