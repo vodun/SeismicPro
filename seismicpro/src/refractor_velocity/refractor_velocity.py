@@ -258,7 +258,8 @@ class RefractorVelocity:
 
     @staticmethod
     def calc_knots_by_params(params, max_offset):
-        """Update the given `offsets` and `times` arrays based on the `params` and `n_refractors`."""
+        """Calculate the coordinates of the knots of a piecewise linear function based on the given `params` and
+        `max_offset`."""
         n_refractors = len(params) // 2
         piecewise_offsets = np.zeros(n_refractors + 1)
         piecewise_times = np.zeros(n_refractors + 1)
@@ -271,7 +272,7 @@ class RefractorVelocity:
         return piecewise_offsets, piecewise_times
 
     def loss_piecewise_linear(self, args, loss='L1', huber_coef=20):
-        """Update the piecewise linear attributes and returns the loss function result.
+        """Calculate the result of the loss function based on the passed args.
 
         Method calls `calc_knots_by_params` to calculate piecewise linear attributes of a RefractorVelocity instance.
         After that, the method calculates the loss function between the true first breaks times stored in the
@@ -333,19 +334,19 @@ class RefractorVelocity:
 
     def _get_constraints(self):
         """Define the constraints and return a list them."""
-        constraint_offset = {  # cross offsets ascend.
+        contraint_crossoffsets_ascend = {
             "type": "ineq",
-            "fun": lambda x: np.diff(np.concatenate((x[1:self.n_refractors], [self.max_offset])))}
-        constraint_velocity = {  # velocities ascend.
+            "fun": lambda x: np.diff(x[1:self.n_refractors], append=self.max_offset)}
+        constraint_velocity_ascend = {
             "type": "ineq",
             "fun": lambda x: np.diff(x[self.n_refractors:])}
-        return [constraint_offset, constraint_velocity]
+        return [contraint_crossoffsets_ascend, constraint_velocity_ascend]
 
     @staticmethod
     def _scale_standard(data):
         """Scale data to zero mean and unit variance."""
         if len(data) == 0:
-            return data, np.nan, np.nan
+            return data, 0, 0
         mean, std = np.mean(data), np.std(data)
         data_scaled = (data - mean) / (std + 1e-10)
         return data_scaled, mean, std
@@ -371,7 +372,7 @@ class RefractorVelocity:
             return {}
 
         cross_offsets = np.linspace(0, self.max_offset, num=n_refractors + 1)
-        current_slope = np.empty(n_refractors)
+        slopes = 4 / 5 * (n_refractors / (n_refractors + 1)) ** np.arange(n_refractors)
         init_t0 = 0
 
         for i in range(n_refractors):
@@ -379,20 +380,17 @@ class RefractorVelocity:
             # data normalization occurs independently for each layer
             scaled_offsets, mean_offset, std_offset = self._scale_standard(self.offsets[mask])
             scaled_times, mean_time, std_time = self._scale_standard(self.fb_times[mask])
-            if std_offset not in [0, np.nan] and std_time not in [0, np.nan]:
+            if std_offset and std_time:
                 lin_reg = SGDRegressor(loss='huber', penalty=None, shuffle=True, epsilon=.1, eta0=0.1, alpha=0.01,
                                        tol=1e-6, max_iter=1000, learning_rate='optimal')
                 lin_reg.fit(scaled_offsets.reshape(-1, 1), scaled_times, coef_init=1, intercept_init=0)
-                current_slope[i] = lin_reg.coef_[0] * std_time / std_offset
+                slopes[i] = lin_reg.coef_[0] * std_time / std_offset
                 if not i:
-                    init_t0 = mean_time + lin_reg.intercept_ * std_time - current_slope[i] * mean_offset
+                    init_t0 = mean_time + lin_reg.intercept_ * std_time - slopes[i] * mean_offset
                     init_t0 =  max(0, init_t0)
-            else:
-                # raise base velocity for the next layer (v = 1 / slope) and leave `init_t0` unchanged
-                current_slope[i] = current_slope[i - 1] * (n_refractors / (n_refractors + 1)) if i else 4 / 5
-            current_slope[i] = max(.167, current_slope[i])  # move maximal velocity to 6 km/s
+            slopes[i] = max(.167, slopes[i])  # move maximal velocity to 6 km/s
 
-        velocities = 1 / np.minimum.accumulate(current_slope)
+        velocities = 1 / np.minimum.accumulate(slopes)
         init = [init_t0, *cross_offsets[1:-1], *(velocities * 1000)]
         init = dict(zip(self._get_valid_keys(n_refractors), init))
         return init
