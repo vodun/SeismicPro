@@ -2,6 +2,7 @@
 
 import numpy as np
 
+from .utils import compute_crossovers_times
 from ..utils import to_list, VFUNC
 
 
@@ -82,3 +83,17 @@ class Muter(VFUNC):
         offsets = np.unique(np.concatenate([mut.offsets for mut in muters]))
         times = (np.stack([mut(offsets) for mut in muters]) * weights[:, None]).sum(axis=0)
         return cls(offsets, times, coords=coords)
+
+    @classmethod
+    def strecth_muter(cls, stacking_velocity, max_stretch_factor=0.65):
+        """ docs """
+        velocities = stacking_velocity.velocities
+        stretch_offsets = stacking_velocity.velocities * stacking_velocity.times * np.sqrt((1 + max_stretch_factor)**2 - 1)
+        return cls.from_points(stretch_offsets, stacking_velocity.times)
+
+
+    @classmethod
+    def crossover_muter(cls, stacking_velocity, gather):
+        """ docs """
+        crossover_times = compute_crossovers_times(stacking_velocity.times, stacking_velocity.velocities, gather.offsets)
+        return cls.from_points(gather.offsets, crossover_times)
