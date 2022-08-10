@@ -24,8 +24,11 @@ class RefractorVelocityField(SpatialField):
 
     def validate_items(self, items):
         super().validate_items(items)
-        if len({item.n_refractors for item in items}) != 1:
-            raise ValueError("Each RefractorVelocity instance must describe the same number of refractors")
+        n_refractors_set = {item.n_refractors for item in items}
+        if self.n_refractors is not None:
+            n_refractors_set.add(self.n_refractors)
+        if len(n_refractors_set) != 1:
+            raise ValueError("Each RefractorVelocity must describe the same number of refractors as the field")
 
     def update(self, items):
         items = to_list(items)
@@ -43,7 +46,7 @@ class RefractorVelocityField(SpatialField):
         return postprocess_params(values)
 
     def construct_item(self, values, coords):
-        return self.item_class.from_params(dict(zip(self.param_names, values)), coords=coords)
+        return self.item_class(**dict(zip(self.param_names, values)), coords=coords)
 
     def smooth(self, radius, min_refractor_points=10):
         coords = self.coords
@@ -53,7 +56,7 @@ class RefractorVelocityField(SpatialField):
 
         ignore_mask = np.zeros((self.n_items, self.n_refractors), dtype=bool)
         for i, rv in enumerate(self.item_container.values()):
-            if rv.offsets is not None:
+            if rv.is_fit:
                 n_refractor_points = np.histogram(rv.offsets, rv.piecewise_offsets, density=False)[0]
                 ignore_mask[i] = n_refractor_points < min_refractor_points
 
@@ -74,13 +77,20 @@ class RefractorVelocityField(SpatialField):
             proper_items_mask = ~ignore_mask[:, i - self.n_refractors]
             smoothed_values[:, i] = smoother(coords[proper_items_mask], values[proper_items_mask, i])(coords)
 
+        # Postprocess smoothed params and construct a new field
         smoothed_values = postprocess_params(smoothed_values)
-
         smoothed_items = []
         for rv, val in zip(self.item_container.values(), smoothed_values):
             item = self.construct_item(val, rv.coords)
+
+            # Copy all fit-related items from the parent field
+            item.is_fit = rv.is_fit
+            item.fit_result = rv.fit_result
+            item.init = rv.init
+            item.bounds = rv.bounds
             item.offsets = rv.offsets
             item.fb_times = rv.fb_times
+
             smoothed_items.append(item)
 
         return type(self)(smoothed_items, n_refractors=self.n_refractors, survey=self.survey,
