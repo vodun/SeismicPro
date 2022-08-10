@@ -2,7 +2,6 @@
 
 import os
 import glob
-from collections import namedtuple
 
 import segyio
 import numpy as np
@@ -22,7 +21,7 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=False, keep_exts=(
     out_path : str
         A path to the resulting merged file.
     recursive : bool, optional, defaults to False
-        Whether to treat '**' pattern in `in_paths` as zero or more directories to perfrom a recursive file search.
+        Whether to treat '**' pattern in `in_paths` as zero or more directories to perform a recursive file search.
     mmap : bool, optional, defaults to False
         Whether to perform memory mapping of input files. Setting this flag to `True` may result in faster reads.
     keep_exts : None, array-like, optional, defaults to ("sgy", "segy")
@@ -30,7 +29,7 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=False, keep_exts=(
     delete_in_files : bool, optional, defaults to False
         Whether to delete source files, defined by `in_paths`.
     bar : bool, optional, defaults to True
-        Whether to show the progres bar.
+        Whether to show the progress bar.
 
     Raises
     ------
@@ -90,114 +89,10 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=False, keep_exts=(
             os.remove(path)
 
 
-def read_vfunc(path, encoding="UTF-8"):
-    """Read a file with vertical functions in Paradigm Echos VFUNC format.
-
-    The file may have one or more records with the following structure:
-    VFUNC [inline] [crossline]
-    [x1] [y1] [x2] [y2] ... [xn] [yn]
-
-    Parameters
-    ----------
-    path : str
-        A path to the file.
-    encoding : str, optional, defaults to "UTF-8"
-        File encoding.
-
-    Returns
-    -------
-    vfunc_list : list of namedtuples
-        List of loaded vertical functions. Each vfunc is a `namedtuple` with the following fields: `inline`,
-        `crossline`, `x` and `y`, where `x` and `y` are 1d `np.ndarray`s with the same length.
-
-    Raises
-    ------
-    ValueError
-        If data length for any VFUNC record is odd.
-    """
-    vfunc_list = []
-    VFUNC = namedtuple("VFUNC", ["inline", "crossline", "x", "y"])
-    with open(path, encoding=encoding) as file:
-        for data in file.read().split("VFUNC")[1:]:
-            data = data.split()
-            inline, crossline = int(data[0]), int(data[1])
-            data = np.array(data[2:], dtype=np.float64)
-            if len(data) % 2 != 0:
-                raise ValueError("Data length for each VFUNC record must be even")
-            vfunc_list.append(VFUNC(inline, crossline, data[::2], data[1::2]))
-    return vfunc_list
-
-
-def read_single_vfunc(path):
-    """Read a single vertical function from a file in Paradigm Echos VFUNC format.
-
-    The file must have exactly one record with the following structure:
-    VFUNC [inline] [crossline]
-    [x1] [y1] [x2] [y2] ... [xn] [yn]
-
-    Parameters
-    ----------
-    path : str
-        A path to the file.
-
-    Returns
-    -------
-    vfunc : namedtuple
-        Vertical function with the following fields: `inline`, `crossline`, `x` and `y`, where `x` and `y` are 1d
-        `np.ndarray`s with the same length.
-
-    Raises
-    ------
-    ValueError
-        If data length for any VFUNC record is odd.
-        If the file does not contain a single vfunc.
-    """
-    file_data = read_vfunc(path)
-    if len(file_data) != 1:
-        raise ValueError(f"Input file must contain a single vfunc, but {len(file_data)} were found in {path}")
-    return file_data[0]
-
-
-def dump_vfunc(path, vfunc_list, encoding="UTF-8"):
-    """Dump vertical functions in Paradigm Echos VFUNC format to a file.
-
-    Each passed VFUNC is a tuple with 4 elements: `inline`, `crossline`, `x` and `y`, where `x` and `y` are 1d
-    `np.ndarray`s with the same length. For each VFUNC a block with the following structure is created in the resulting
-    file:
-    - The first row contains 3 values: VFUNC [inline] [crossline],
-    - All other rows represent pairs of `x` and corresponding `y` values: [x1] [y1] [x2] [y2] ...
-      Each row contains 4 pairs, except for the last one, which may contain less. Each value is left aligned with the
-      field width of 8.
-
-    Block example:
-    VFUNC   22      33
-    17      1546    150     1530    294     1672    536     1812
-    760     1933    960     2000    1202    2148    1374    2251
-    1574    2409    1732    2517    1942    2675
-
-    Parameters
-    ----------
-    path : str
-        A path to the created file.
-    vfunc_list : iterable of tuples with 4 elements
-        Each tuple corresponds to a vertical function and consists of the following values: `inline`, `crossline`,
-        `x` and `y`, where `x` and `y` are 1d `np.ndarray`s with the same length.
-    encoding : str, optional, defaults to "UTF-8"
-        File encoding.
-    """
-    with open(path, "w", encoding=encoding) as f:
-        for inline, crossline, x, y in vfunc_list:
-            f.write(f"{'VFUNC':8}{inline:<8}{crossline:<8}\n")
-            data = np.column_stack([x, y]).ravel()
-            rows = np.split(data, np.arange(8, len(data), 8))
-            for row in rows:
-                f.write("".join(f"{i:<8.0f}" for i in row) + "\n")
-
-
 # pylint: disable=too-many-arguments, invalid-name
-def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_step=(50, 300), receivers_step=(100, 25),
-                       bin_size=(50, 50), activation_dist=(500, 500), n_samples=1500, sample_rate=2000, delay=0,
-                       bar=True, trace_gen=None, **kwargs):
+def make_prestack_segy(path, fmt=5, survey_size=(1000, 1000), origin=(0, 0), sources_step=(50, 300),
+                       receivers_step=(100, 25), bin_size=(50, 50), activation_dist=(500, 500), n_samples=1500,
+                       sample_rate=2000, delay=0, bar=True, trace_gen=None, **kwargs):
     """Make a prestack SEG-Y file with rectangular geometry. Its headers are filled with values inferred from survey
     geometry parameters, traces are filled with data generated by `trace_gen`.
 
@@ -207,6 +102,9 @@ def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_st
     ----------
     path : str
         Path to store the generated SEG-Y file.
+    fmt : 1 or 5, optional, defaults to 5
+        Data type used to store trace amplitudes. 1 stands for IBM 4-byte float, 5 - for IEEE float32. Saved in bytes
+        3225–3226 of the binary header.
     survey_size : tuple of ints, defaults to (1000, 1000)
         Survey dimensions measured in meters.
     origin : tuple of ints, defaults to (0, 0)
@@ -221,7 +119,7 @@ def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_st
     bin_size : tuple of ints, defaults to (50, 50)
         Size of a CDP bin in meters.
     activation_dist : tuple of ints, defaults to (500, 500)
-        Maximum distance from source to active receiver along each axis. Each source activates a rectanglar field of
+        Maximum distance from source to active receiver along each axis. Each source activates a rectangular field of
         receivers with source at its center and shape (2 * activation_dist[0], 2 * activation_dist[1])
     n_samples : int, defaults to 1500
         Number of samples in traces.
@@ -257,7 +155,7 @@ def make_prestack_segy(path, survey_size=(1000, 1000), origin=(0, 0), sources_st
 
     # Create and fill up a SEG-Y spec
     spec = segyio.spec()
-    spec.format = 5 # 5 stands for IEEE-floating point, which is the standard -
+    spec.format = fmt
     spec.samples = np.arange(n_samples) * sample_rate / 1000
 
     # Calculate matrix of active receivers for each source and get overall number of traces

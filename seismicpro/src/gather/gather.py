@@ -9,20 +9,23 @@ import scipy
 import segyio
 import numpy as np
 from scipy.signal import firwin
+from matplotlib.path import Path
+from matplotlib.patches import PathPatch
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-from .muting import Muter
 from .cropped_gather import CroppedGather
-from .plot_corrections import NMOCorrectionPlot
+from .plot_corrections import NMOCorrectionPlot, LMOCorrectionPlot
 from .utils import correction, normalization, gain
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
-from ..utils import (to_list, validate_cols_exist, get_coords_cols, set_ticks, format_subplot_yticklabels,
-                     set_text_formatting, add_colorbar, piecewise_polynomial, Coordinates)
+from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_yticklabels, set_text_formatting,
+                     add_colorbar, piecewise_polynomial, Coordinates)
 from ..containers import TraceContainer, SamplesContainer
+from ..muter import Muter, MuterField
 from ..coherency import Coherency, ResidualCoherency
-from ..stacking_velocity import StackingVelocity, VelocityCube
+from ..stacking_velocity import StackingVelocity, StackingVelocityField
+from ..refractor_velocity import RefractorVelocity
 from ..decorators import batch_method, plotter
-from ..const import HDR_FIRST_BREAK, DEFAULT_VELOCITY
+from ..const import HDR_FIRST_BREAK, DEFAULT_SDC_VELOCITY
 
 
 class Gather(TraceContainer, SamplesContainer):
@@ -32,10 +35,10 @@ class Gather(TraceContainer, SamplesContainer):
     generating survey header in our case). Unlike `Survey`, `Gather` instance stores loaded seismic traces along with
     a corresponding subset of its parent survey header.
 
-    `Gather` instance can be created in three main ways:
-    1. Either by calling `Survey.sample_gather` to get a randomly selected gather,
-    2. Or by calling `Survey.get_gather` to get a particular gather by its index value,
-    3. Or by calling `Index.get_gather` to get a particular gather by its index value from a specified survey.
+    `Gather` instance is generally created by calling one of the following methods of a `Survey`, `SeismicIndex` or
+    `SeismicDataset`:
+    1. `sample_gather` - to get a randomly selected gather,
+    2. `get_gather` - to get a particular gather by its index value.
 
     Most of the methods change gather data inplace, thus `Gather.copy` may come in handy to keep the original gather
     available.
@@ -108,6 +111,20 @@ class Gather(TraceContainer, SamplesContainer):
         """tuple with 2 elements: The number of traces in the gather and trace length in samples."""
         return self.data.shape
 
+    @property
+    def coords(self):
+        """Coordinates or None: Spatial coordinates of the gather. Headers to extract coordinates from are determined
+        automatically by the `indexed_by` attribute of the gather. `None` if the gather is indexed by unsupported
+        headers or required coords headers were not loaded or coordinates are non-unique for traces of the gather."""
+        try:
+            coords_cols = get_coords_cols(self.indexed_by)  # Possibly unknown coordinates for indexed_by
+            coords = self[coords_cols]  # Required coords headers may not be loaded
+        except KeyError:
+            return None
+        if (coords != coords[0]).any():  # Non-unique coordinates
+            return None
+        return Coordinates(coords[0], names=coords_cols)
+
     def __getitem__(self, key):
         """Either select gather headers values by their names or create a new `Gather` with specified traces and
         samples depending on the key type.
@@ -178,19 +195,24 @@ class Gather(TraceContainer, SamplesContainer):
 
     def __str__(self):
         """Print gather metadata including information about its survey, headers and traces."""
-
         # Calculate offset range
         offsets = self.headers.get('offset')
         offset_range = f'[{np.min(offsets)} m, {np.max(offsets)} m]' if offsets is not None else None
 
+        # Format gather coordinates
+        coords = self.coords
+        coords_str = "unknown" if coords is None else str(coords)
+
         # Count the number of zero/constant traces
         n_dead_traces = np.isclose(np.max(self.data, axis=1), np.min(self.data, axis=1)).sum()
+
         msg = f"""
         Parent survey path:          {self.survey.path}
         Parent survey name:          {self.survey.name}
 
         Indexed by:                  {', '.join(to_list(self.indexed_by))}
         Index value:                 {'combined' if self.index is None else self.index}
+        Gather coordinates:          {coords_str}
         Gather sorting:              {self.sort_by}
 
         Number of traces:            {self.n_traces}
@@ -210,45 +232,6 @@ class Gather(TraceContainer, SamplesContainer):
     def info(self):
         """Print gather metadata including information about its survey, headers and traces."""
         print(self)
-
-    def get_coords(self, coords_cols="auto"):
-        """Get spatial coordinates of the gather.
-
-        Parameters
-        ----------
-        coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
-            - If `None`, `Coordinates` with two `None` elements is returned. Their names are "X" and "Y" respectively.
-            - If "auto", columns of headers index define headers columns to get coordinates from (e.g. 'FieldRecord' is
-              mapped to a ("SourceX", "SourceY") pair).
-            - If 2 element array-like, `coords_cols` directly define gather headers to get coordinates from.
-            In the last two cases index or column values are supposed to be unique for all traces in the gather and the
-            names of the returned coordinates correspond to source headers columns.
-
-        Returns
-        -------
-        coords : Coordinates
-            Gather spatial coordinates.
-
-        Raises
-        ------
-        ValueError
-            If gather coordinates are non-unique or more than 2 columns were passed.
-        """
-        if coords_cols is None:
-            return Coordinates()
-        if coords_cols == "auto":
-            coords_cols = get_coords_cols(self.indexed_by)
-        coords = np.unique(self[coords_cols], axis=0)
-        if coords.shape[0] != 1:
-            raise ValueError("Gather coordinates are non-unique")
-        if coords.shape[1] != 2:
-            raise ValueError(f"Gather position must be defined by exactly two coordinates, not {coords.shape[1]}")
-        return Coordinates(*coords[0], names=coords_cols)
-
-    @property
-    def coords(self):
-        """Coordinates: Spatial coordinates of the gather."""
-        return self.get_coords()
 
     @batch_method(target='threads', copy_src=False)
     def copy(self, ignore=None):
@@ -273,34 +256,6 @@ class Gather(TraceContainer, SamplesContainer):
         """An interface for `self.__getitem__` method."""
         return self[args if len(args) > 1 else args[0]]
 
-    def validate(self, required_header_cols=None, required_sorting=None):
-        """Perform the following checks for a gather:
-            1. Its headers contain all columns from `required_header_cols`,
-            2. It is sorted by `required_sorting` header.
-
-        Parameters
-        ----------
-        required_header_cols : None or str or array-like of str, defaults to None
-            Required gather headers columns. If `None`, no check is performed.
-        required_sorting : None or str, defaults to None
-            Required gather sorting. If `None`, no check is performed.
-
-        Returns
-        -------
-        self : Gather
-            Self unchanged.
-
-        Raises
-        ------
-        ValueError
-            If any of checks above failed.
-        """
-        if required_header_cols is not None:
-            validate_cols_exist(self.headers, required_header_cols)
-        if (required_sorting is not None) and (self.sort_by != required_sorting):
-            raise ValueError(f"Gather should be sorted by {required_sorting} not {self.sort_by}")
-        return self
-
     def _post_filter(self, mask):
         """Remove traces from gather data that correspond to filtered headers after `Gather.filter`."""
         self.data = self.data[mask]
@@ -309,8 +264,8 @@ class Gather(TraceContainer, SamplesContainer):
     #                              Dump methods                              #
     #------------------------------------------------------------------------#
 
-    @batch_method(target='for', force=True, copy_src=False)
-    def dump(self, path, name=None, copy_header=False):
+    @batch_method(target='for', force=True)
+    def dump(self, path, name=None, retain_parent_segy_headers=True):
         """Save the gather to a `.sgy` file.
 
         Notes
@@ -330,8 +285,8 @@ class Gather(TraceContainer, SamplesContainer):
         name : str, optional, defaults to None
             The name of the file. If `None`, the concatenation of the survey name and the value of gather index will
             be used.
-        copy_header : bool, optional, defaults to False
-            Whether to copy the headers that weren't loaded during Survey creation from the parent SEG-Y file.
+        retain_parent_segy_headers : bool, optional, defaults to True
+            Whether to copy the headers that weren't loaded during `Survey` creation from the parent SEG-Y file.
 
         Returns
         -------
@@ -362,20 +317,16 @@ class Gather(TraceContainer, SamplesContainer):
         spec.format = parent_handler.format
         spec.tracecount = self.n_traces
 
-        trace_headers = self.headers.reset_index()
         sample_rate = np.int32(self.sample_rate * 1000) # Convert to microseconds
         # Remember ordinal numbers of traces in the parent SEG-Y file to further copy their headers
-        # and reset them to start from 1 in the resulting file to match SEG-Y standard.
-        trace_ids = trace_headers["TRACE_SEQUENCE_FILE"].values - 1
-        trace_headers["TRACE_SEQUENCE_FILE"] = np.arange(len(trace_headers)) + 1
+        trace_ids = self["TRACE_SEQUENCE_FILE"].ravel() - 1
 
         # Keep only headers, defined by SEG-Y standard.
-        used_header_names = list(set(trace_headers.columns) & set(segyio.tracefield.keys.keys()))
-        trace_headers = trace_headers[used_header_names]
+        used_header_names = (set(to_list(self.indexed_by)) | set(self.headers.columns)) & set(segyio.tracefield.keys)
+        used_header_names = to_list(used_header_names)
 
-        # Now we change column name's into byte number based on the SEG-Y standard.
-        trace_headers.rename(columns=lambda col_name: segyio.tracefield.keys[col_name], inplace=True)
-        trace_headers_dict = trace_headers.to_dict("index")
+        # Transform header's names into byte number based on the SEG-Y standard.
+        used_header_bytes = [segyio.tracefield.keys[header_name] for header_name in used_header_names]
 
         with segyio.create(full_path, spec) as dump_handler:
             # Copy the binary header from the parent SEG-Y file and update it with samples data of the gather.
@@ -391,10 +342,12 @@ class Gather(TraceContainer, SamplesContainer):
 
             # Dump traces and their headers. Optionally copy headers from the parent SEG-Y file.
             dump_handler.trace = self.data
-            for i, dump_h in trace_headers_dict.items():
-                if copy_header:
-                    dump_handler.header[i].update(parent_handler.header[trace_ids[i]])
-                dump_handler.header[i].update({**dump_h, segyio.TraceField.TRACE_SAMPLE_INTERVAL: sample_rate})
+            for i, trace_headers in enumerate(self[used_header_names]):
+                if retain_parent_segy_headers:
+                    dump_handler.header[i] = parent_handler.header[trace_ids[i]]
+                dump_handler.header[i].update({**dict(zip(used_header_bytes, trace_headers)),
+                                               segyio.TraceField.TRACE_SAMPLE_INTERVAL: sample_rate,
+                                               segyio.TraceField.TRACE_SEQUENCE_FILE: i + 1})
         return self
 
     #------------------------------------------------------------------------#
@@ -609,7 +562,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        first_breaks_col : str, optional, defaults to 'FirstBreak'
+        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             A column of `self.headers` that contains first arrival times, measured in milliseconds.
 
         Returns
@@ -621,7 +574,6 @@ class Gather(TraceContainer, SamplesContainer):
         gather = self.copy(ignore='data')
         gather.data = mask
         return gather
-
 
     @batch_method(target='for', args_to_unpack='save_to')
     def mask_to_pick(self, threshold=0.5, first_breaks_col=HDR_FIRST_BREAK, save_to=None):
@@ -639,11 +591,13 @@ class Gather(TraceContainer, SamplesContainer):
         ----------
         threshold : float, optional, defaults to 0.5
             A threshold for trace mask value to refer its index to be either pre- or post-first break.
-        first_breaks_col : str, optional, defaults to 'FirstBreak'
+        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Headers column to save first break times to.
-        save_to : Gather, optional, defaults to None
+        save_to : Gather or str, optional
             An extra `Gather` to save first break times to. Generally used to conveniently pass first break times from
             a `Gather` instance with a first break mask to an original `Gather`.
+            May be `str` if called in a pipeline: in this case it defines a component with gathers to save first break
+            times to.
 
         Returns
         -------
@@ -671,7 +625,7 @@ class Gather(TraceContainer, SamplesContainer):
             Path to the file.
         trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
             Columns names from `self.headers` that act as trace id. These would be present in the file.
-        first_breaks_col : str, defaults to 'FirstBreak'
+        first_breaks_col : str, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `self.headers` where first break times are stored.
         col_space : int, defaults to 8
             The minimum width of each column.
@@ -694,43 +648,45 @@ class Gather(TraceContainer, SamplesContainer):
             f.write(rows_as_str)
         return self
 
-    #------------------------------------------------------------------------#
-    #                         Gather muting methods                          #
-    #------------------------------------------------------------------------#
-
     @batch_method(target="for", copy_src=False)
-    def create_muter(self, mode="first_breaks", **kwargs):
-        """Create an instance of :class:`~.Muter` class.
+    def calculate_refractor_velocity(self, init=None, bounds=None, n_refractors=None, first_breaks_col=HDR_FIRST_BREAK,
+                                     **kwargs):
+        """Estimate velocities of first refractors by offsets and times of first breaks.
 
-        This method redirects the call into a corresponding `Muter.from_{mode}` classmethod. The created object is
-        callable and returns times up to which muting should be performed for given offsets. A detailed description of
-        `Muter` instance can be found in :class:`~muting.Muter` docs.
+        The method fits a velocity model of the upper part of the section, read the
+        :class:`~refractor_velocity.RefractorVelocity` docs for more details about the algorithm and its parameters.
+        At least one of `init`, `bounds` or `n_refractors` should be passed.
+
+        Examples
+        --------
+        >>> refractor_velocity = gather.calculate_refractor_velocity(n_refractors=2)
 
         Parameters
         ----------
-        mode : {"points", "file", "first_breaks"}, optional, defaults to "first_breaks"
-            Type of `Muter` to create.
+        init : dict or None, optional, defaults to None
+            Initial values for a velocity model.
+        bounds : dict or None, optional, defaults to None
+            Bounds for the fitted velocity model parameters.
+        n_refractors : int or None, optional, defaults to None
+            Number of the velocity model layers.
+        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+            Column name from `self.headers` where times of first break are stored.
         kwargs : misc, optional
-            Additional keyword arguments to `Muter.from_{mode}`.
+            Additional keyword arguments to be passed to
+            :func:`~refractor_velocity.RefractorVelocity.from_first_breaks`.
 
         Returns
         -------
-        muter : Muter
-            Created muter.
-
-        Raises
-        ------
-        ValueError
-            If given `mode` does not exist.
+        RefractorVelocity
+            Calculated RefractorVelocity instance.
         """
-        builder = getattr(Muter, f"from_{mode}", None)
-        if builder is None:
-            raise ValueError(f"Unknown mode {mode}")
+        return RefractorVelocity.from_first_breaks(offsets=self.offsets, fb_times=self[first_breaks_col].ravel(),
+                                                   init=init, bounds=bounds, n_refractors=n_refractors,
+                                                   coords=self.coords, **kwargs)
 
-        if mode == "first_breaks":
-            first_breaks_col = kwargs.pop("first_breaks_col", HDR_FIRST_BREAK)
-            return builder(offsets=self.offsets, times=self[first_breaks_col], **kwargs)
-        return builder(**kwargs)
+    #------------------------------------------------------------------------#
+    #                         Gather muting methods                          #
+    #------------------------------------------------------------------------#
 
     @batch_method(target="threads", args_to_unpack="muter")
     def mute(self, muter, fill_value=0):
@@ -741,9 +697,10 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        muter : Muter
+        muter : Muter or str
             An object that defines muting times by gather offsets.
-        fill_value : float, defaults to 0
+            May be `str` if called in a pipeline: in this case it defines a component with muters to apply.
+        fill_value : float, optional, defaults to 0
             A value to fill the muted part of the gather with.
 
         Returns
@@ -751,6 +708,10 @@ class Gather(TraceContainer, SamplesContainer):
         self : Gather
             Muted gather.
         """
+        if isinstance(muter, MuterField):
+            muter = muter(self.coords)
+        if not isinstance(muter, Muter):
+            raise ValueError("muter must be of Muter or MuterField type")
         self.data = mute_gather(gather_data=self.data, muting_times=muter(self.offsets), samples=self.samples,
                                 fill_value=fill_value)
         return self
@@ -808,8 +769,9 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        stacking_velocity : StackingVelocity
+        stacking_velocity : StackingVelocity or str
             Stacking velocity around which residual semblance is calculated.
+            May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
         n_velocities : int, optional, defaults to 140
             The number of velocities to compute residual semblance for.
         win_size : int, optional, defaults to 25
@@ -833,9 +795,50 @@ class Gather(TraceContainer, SamplesContainer):
     #                           Gather corrections                           #
     #------------------------------------------------------------------------#
 
+    @batch_method(target="threads", args_to_unpack="refractor_velocity")
+    def apply_lmo(self, refractor_velocity, delay=100, fill_value=np.nan, event_headers=None):
+        """Perform gather linear moveout correction using the given near-surface velocity model.
+
+        Parameters
+        ----------
+        refractor_velocity : int, float, RefractorVelocity or str
+            `RefractorVelocity` object to perform LMO correction with. If `int` or `float` then constant-velocity
+            correction is performed.
+            May be `str` if called in a pipeline: in this case it defines a component with refractor velocities to use.
+        delay : float, optional, defaults to 100
+            An extra delay in milliseconds introduced in each trace, positive values result in shifting gather traces
+            down. Used to center the first breaks hodograph around the delay value instead of 0.
+        fill_value : float, optional, defaults to 0
+            Value used to fill the amplitudes outside the gather bounds after moveout.
+        event_headers : str, list, or None, optional, defaults to None
+            Headers columns which will be LMO-corrected inplace.
+
+        Returns
+        -------
+        self : Gather
+            LMO-corrected gather.
+
+        Raises
+        ------
+        ValueError
+            If wrong type of `refractor_velocity` is passed.
+        """
+        if isinstance(refractor_velocity, (int, float)):
+            refractor_velocity = RefractorVelocity.from_constant_velocity(refractor_velocity)
+        if not isinstance(refractor_velocity, RefractorVelocity):
+            raise ValueError("refractor_velocity must be of int, float or RefractorVelocity type")
+
+        trace_delays = delay - refractor_velocity(self.offsets)
+        trace_delays_samples = times_to_indices(trace_delays, self.samples, round=True).astype(int)
+        self.data = correction.apply_lmo(self.data, trace_delays_samples, fill_value)
+        event_headers = [] if event_headers is None else to_list(event_headers)
+        for header in event_headers:
+            self[header] += trace_delays.reshape(-1, 1)
+        return self
+
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
-    def apply_nmo(self, stacking_velocity, coords_cols="auto"):
-        """Perform gather normal moveout correction using given stacking velocity.
+    def apply_nmo(self, stacking_velocity):
+        """Perform gather normal moveout correction using the given stacking velocity.
 
         Notes
         -----
@@ -843,28 +846,29 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        stacking_velocity : StackingVelocity or VelocityCube
+        stacking_velocity : int, float, StackingVelocity, StackingVelocityField or str
             Stacking velocities to perform NMO correction with. `StackingVelocity` instance is used directly. If
-            `VelocityCube` instance is passed, a `StackingVelocity` corresponding to gather coordinates is fetched
-            from it.
-        coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
-            Header columns to get spatial coordinates of the gather from to fetch `StackingVelocity` from
-            `VelocityCube`. See :func:`~Gather.get_coords` for more details.
+            `StackingVelocityField` instance is passed, a `StackingVelocity` corresponding to gather coordinates is
+            fetched from it. If `int` or `float` then constant-velocity correction is performed.
+            May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
 
         Returns
         -------
         self : Gather
-            NMO corrected gather.
+            NMO-corrected gather.
 
         Raises
         ------
         ValueError
-            If `stacking_velocity` is not a `StackingVelocity` or `VelocityCube` instance.
+            If wrong type of `stacking_velocity` is passed.
         """
-        if isinstance(stacking_velocity, VelocityCube):
-            stacking_velocity = stacking_velocity(*self.get_coords(coords_cols), create_interpolator=False)
+        if isinstance(stacking_velocity, (int, float)):
+            stacking_velocity = StackingVelocity.from_constant_velocity(stacking_velocity)
+        if isinstance(stacking_velocity, StackingVelocityField):
+            stacking_velocity = stacking_velocity(self.coords)
         if not isinstance(stacking_velocity, StackingVelocity):
-            raise ValueError("Only VelocityCube or StackingVelocity instances can be passed as a stacking_velocity")
+            raise ValueError("stacking_velocity must be of int, float, StackingVelocity or StackingVelocityField type")
+
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
         self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms, self.sample_rate)
         return self
@@ -905,29 +909,20 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target="for")
-    def get_central_cdp(self):
+    def get_central_gather(self):
         """Get a central CDP gather from a supergather.
 
-        A supergather has `SUPERGATHER_INLINE_3D` and `SUPERGATHER_CROSSLINE_3D` headers columns, whose values are
-        equal to values in `INLINE_3D` and `CROSSLINE_3D` only for traces from the central CDP gather. Read more about
+        A supergather has `SUPERGATHER_INLINE_3D` and `SUPERGATHER_CROSSLINE_3D` headers columns, whose values equal to
+        values of `INLINE_3D` and `CROSSLINE_3D` only for traces from the central CDP gather. Read more about
         supergather generation in :func:`~Survey.generate_supergathers` docs.
 
         Returns
         -------
         self : Gather
             `self` with only traces from the central CDP gather kept. Updates `self.headers` and `self.data` inplace.
-
-        Raises
-        ------
-        ValueError
-            If any of the `INLINE_3D`, `CROSSLINE_3D`, `SUPERGATHER_INLINE_3D` or `SUPERGATHER_CROSSLINE_3D` columns
-            are not in `headers`.
         """
-        self.validate(required_header_cols=["INLINE_3D", "SUPERGATHER_INLINE_3D",
-                                            "CROSSLINE_3D", "SUPERGATHER_CROSSLINE_3D"])
-        headers = self.headers.reset_index()
-        mask = ((headers["SUPERGATHER_INLINE_3D"] == headers["INLINE_3D"]) &
-                (headers["SUPERGATHER_CROSSLINE_3D"] == headers["CROSSLINE_3D"])).values
+        mask = np.all(self["INLINE_3D", "CROSSLINE_3D"] == self["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"],
+                      axis=1)
         self.headers = self.headers.loc[mask]
         self.data = self.data[mask]
         return self
@@ -936,26 +931,20 @@ class Gather(TraceContainer, SamplesContainer):
     def stack(self):
         """Stack a gather by calculating mean value of all non-nan amplitudes for each time over the offset axis.
 
-        The gather after stacking contains only one trace. Its `headers` is indexed by `INLINE_3D` and `CROSSLINE_3D`
-        and has a single `TRACE_SEQUENCE_FILE` header with a value of 1.
+        The gather being stacked must contain traces from a single bin. The resulting gather will contain a single
+        trace with `headers` matching those of the first input trace.
 
-        Notes
-        -----
-        Only a CDP gather indexed by `INLINE_3D` and `CROSSLINE_3D` can be stacked.
-
-        Raises
-        ------
-        ValueError
-            If the gather is not indexed by `INLINE_3D` and `CROSSLINE_3D` or traces from multiple CDP gathers are
-            being stacked
+        Returns
+        -------
+        gather : Gather
+            Stacked gather.
         """
-        line_cols = ["INLINE_3D", "CROSSLINE_3D"]
-        self.validate(required_header_cols=line_cols)
-        headers = self.headers.reset_index()[line_cols].drop_duplicates()
-        if len(headers) != 1:
+        lines = self[["INLINE_3D", "CROSSLINE_3D"]]
+        if (lines != lines[0]).any():
             raise ValueError("Only a single CDP gather can be stacked")
-        self.headers = headers.set_index(line_cols)
-        self.headers["TRACE_SEQUENCE_FILE"] = 1
+
+        # Preserve headers of the first trace of the gather being stacked
+        self.headers = self.headers.iloc[[0]]
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
@@ -1000,9 +989,9 @@ class Gather(TraceContainer, SamplesContainer):
         origins = make_origins(origins, self.shape, crop_shape, n_crops, stride)
         return CroppedGather(self, origins, crop_shape, pad_mode, **kwargs)
 
-    @batch_method(target="t")
+    @batch_method(target="threads")
     def bandpass_filter(self, low=None, high=None, filter_size=81, **kwargs):
-        """ Filter frequency spectrum of the gather.
+        """Filter frequency spectrum of the gather.
 
         Can act as a lowpass, bandpass or highpass filter. `low` and `high` serve as the range for the remaining
         frequencies and can be passed either solely or together.
@@ -1048,12 +1037,12 @@ class Gather(TraceContainer, SamplesContainer):
         cv2.filter2D(self.data, dst=self.data, ddepth=-1, kernel=kernel.reshape(1, -1))
         return self
 
-    @batch_method(target="f")
+    @batch_method(target="for")
     def resample(self, new_sample_rate, kind=3, anti_aliasing=True):
-        """ Changes the sample rate of the traces in the gather.
-        This implies increasing or decreasing the number of samples in the trace.
-        In case new sample rate is greater than the current one, the anti aliasing filter is used
-        to avoid frequency aliasing.
+        """Change sample rate of traces in the gather.
+
+        This implies increasing or decreasing the number of samples in each trace. In case new sample rate is greater
+        than the current one, anti-aliasing filter is optionally applied to avoid frequency aliasing.
 
         Parameters
         ----------
@@ -1061,8 +1050,8 @@ class Gather(TraceContainer, SamplesContainer):
             New sample rate
         kind : int or str, defaults to 3
             The interpolation method to use.
-            If int, use piecewise polynomial interpolation with degree `kind`;
-            if str, deligate interpolation to scipy.interp1d with mode `kind`.
+            If `int`, use piecewise polynomial interpolation with degree `kind`;
+            if `str`, delegate interpolation to scipy.interp1d with mode `kind`.
         anti_aliasing : bool, defaults to True
             Whether to apply anti-aliasing filter or not. Ignored in case of upsampling.
 
@@ -1147,7 +1136,7 @@ class Gather(TraceContainer, SamplesContainer):
             Gather with applied SDC.
         """
         if velocity is None:
-            velocity = DEFAULT_VELOCITY
+            velocity = DEFAULT_SDC_VELOCITY
         if not isinstance(velocity, StackingVelocity):
             raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
         self.data = gain.apply_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
@@ -1173,12 +1162,11 @@ class Gather(TraceContainer, SamplesContainer):
             Gather without SDC.
         """
         if velocity is None:
-            velocity = DEFAULT_VELOCITY
+            velocity = DEFAULT_SDC_VELOCITY
         if not isinstance(velocity, StackingVelocity):
             raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
         self.data = gain.undo_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
         return self
-
 
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #
@@ -1201,8 +1189,9 @@ class Gather(TraceContainer, SamplesContainer):
             * `norm_tracewise`: specifies whether to standardize each trace independently or use gather mean amplitude
               and standard deviation (defaults to `True`),
             * `std`: amplitude scaling factor. Higher values result in higher plot oscillations (defaults to 0.5),
-            * `color`: defines a color for each trace. If a single color is given, it is applied to all the traces
-              (defaults to black),
+            * `lw` and `alpha`: width of the lines and transparency of polygons, by default estimated
+              based on the number of traces in the gather and figure size.
+            * `color`: defines a color for traces,
             * Any additional arguments for `matplotlib.pyplot.plot`.
         - `hist`: a histogram of the trace data amplitudes or header values. This mode supports the following `kwargs`:
             * `bins`: if `int`, the number of equal-width bins; if sequence, bin edges that include the left edge of
@@ -1342,28 +1331,68 @@ class Gather(TraceContainer, SamplesContainer):
         add_colorbar(ax, img, colorbar, divider, y_ticker)
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
+    #pylint: disable=invalid-name
     def _plot_wiggle(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src="time", norm_tracewise=True,
-                     std=0.5, color="black", event_headers=None, top_header=None, **kwargs):
+                     std=0.5, event_headers=None, top_header=None, lw=None, alpha=None, color="black", **kwargs):
         """Plot the gather as an amplitude vs time plot for each trace."""
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
 
-        color = to_list(color)
-        if len(color) == 1:
-            color = color * self.n_traces
-        elif len(color) != self.n_traces:
-            raise ValueError('The number of items in `color` must match the number of plotted traces')
+        # The default parameters lw = 1 and alpha = 1 are fine for 150 traces gather being plotted on 7.75 inches width
+        # axes(by default created by gather.plot()). Scale this parameters linearly for bigger gathers or smaller axes.
+        axes_width = ax.get_window_extent().transformed(ax.figure.dpi_scale_trans.inverted()).width
 
-        y_coords = np.arange(self.n_samples)
+        MAX_TRACE_DENSITY = 150 / 7.75
+        BOUNDS = [[0.25, 1], [0, 1.5]] # The clip limits for parameters after linear scale.
+
+        alpha, lw = [np.clip(MAX_TRACE_DENSITY * (axes_width / self.n_traces), *val_bounds) if val is None else val
+                     for val, val_bounds in zip([alpha, lw], BOUNDS)]
+
         std_axis = 1 if norm_tracewise else None
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
             traces = std * ((self.data - np.nanmean(self.data, axis=1, keepdims=True)) /
                             (np.nanstd(self.data, axis=std_axis, keepdims=True) + 1e-10))
-        for i, (trace, col) in enumerate(zip(traces, color)):
-            ax.plot(i + trace, y_coords, color=col, **kwargs)
-            ax.fill_betweenx(y_coords, i, i + trace, where=(trace > 0), color=col)
-        ax.invert_yaxis()
+
+        # Shift trace amplitudes according to the trace index in the gather
+        amps = traces + np.arange(traces.shape[0]).reshape(-1, 1)
+        # Plot all the traces as one Line, then hide transitions between adjacent traces
+        amps = np.concatenate([amps, np.full((len(amps), 1), np.nan)], axis=1)
+        ax.plot(amps.ravel(), np.broadcast_to(np.arange(amps.shape[1]), amps.shape).ravel(),
+                color=color, lw=lw, **kwargs)
+
+        # Find polygons bodies: indices of target amplitudes, start and end
+        poly_amp_ix = np.argwhere(traces > 0)
+        start_ix = np.argwhere((np.diff(poly_amp_ix[:, 0], prepend=poly_amp_ix[0, 0]) != 0) |
+                               (np.diff(poly_amp_ix[:, 1], prepend=poly_amp_ix[0, 1]) != 1)).ravel()
+        end_ix = start_ix + np.diff(start_ix, append=len(poly_amp_ix)) - 1
+
+        shift = np.arange(len(start_ix)) * 3
+        # For each polygon we need to:
+        # 1. insert 0 amplitude at the start.
+        # 2. append 0 amplitude to the end.
+        # 3. append the start point to the end to close polygon.
+        # Fill the array storing resulted polygons
+        verts = np.empty((len(poly_amp_ix) + 3 * len(start_ix), 2))
+        verts[start_ix + shift] = poly_amp_ix[start_ix]
+        verts[end_ix + shift + 2] = poly_amp_ix[end_ix]
+        verts[end_ix + shift + 3] = poly_amp_ix[start_ix]
+
+        body_ix = np.setdiff1d(np.arange(len(verts)),
+                               np.concatenate([start_ix + shift, end_ix + shift + 2, end_ix + shift + 3]),
+                               assume_unique=True)
+        verts[body_ix] = np.column_stack([amps[tuple(poly_amp_ix.T)], poly_amp_ix[:, 1]])
+
+        # Fill the array representing the nodes codes: either start, intermediate or end code.
+        codes = np.full(len(verts), Path.LINETO)
+        codes[start_ix + shift] = Path.MOVETO
+        codes[end_ix + shift + 3] = Path.CLOSEPOLY
+
+        patch = PathPatch(Path(verts, codes), color=color, alpha=alpha)
+        ax.add_patch(patch)
+        ax.update_datalim([(0, 0), traces.shape])
+        if not ax.yaxis_inverted():
+            ax.invert_yaxis()
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
     def _finalize_plot(self, ax, title, divider, event_headers, top_header,
@@ -1481,7 +1510,7 @@ class Gather(TraceContainer, SamplesContainer):
             raise ValueError(f"Unknown axis {axis}")
         set_ticks(ax, axis, tick_labels=tick_labels, **{"label": tick_src, **ticker})
 
-    def plot_nmo_correction(self, min_vel=1500, max_vel=6000, figsize=(6, 4.5), **kwargs):
+    def plot_nmo_correction(self, min_vel=1500, max_vel=6000, figsize=(6, 4.5), show_grid=True, **kwargs):
         """Perform interactive NMO correction of the gather with selected constant velocity.
 
         The plot provides 2 views:
@@ -1500,7 +1529,37 @@ class Gather(TraceContainer, SamplesContainer):
             Maximum seismic velocity value for NMO correction. Measured in meters/seconds.
         figsize : tuple with 2 elements, optional, defaults to (6, 4.5)
             Size of the created figure. Measured in inches.
+        show_grid : bool, defaults to True
+            If `True` shows the horizontal grid with a step based on `y_ticker`.
         kwargs : misc, optional
             Additional keyword arguments to `Gather.plot`.
         """
-        NMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, **kwargs).plot()
+        NMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, show_grid=show_grid,
+                          **kwargs).plot()
+
+    def plot_lmo_correction(self, min_vel=500, max_vel=3000, figsize=(6, 4.5), show_grid=True, **kwargs):
+        """Perform interactive LMO correction of the gather with the selected velocity.
+
+        The plot provides 2 views:
+        * Corrected gather (default). LMO correction is performed on the fly with the velocity controlled by a slider
+        on top of the plot.
+        * Source gather. This view disables the velocity slider.
+
+        Plotting must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and
+        `ipympl` and `ipywidgets` libraries installed.
+
+        Parameters
+        ----------
+        min_vel : float, optional, defaults to 500
+            Minimum velocity value for LMO correction. Measured in meters/seconds.
+        max_vel : float, optional, defaults to 3000
+            Maximum velocity value for LMO correction. Measured in meters/seconds.
+        figsize : tuple with 2 elements, optional, defaults to (6, 4.5)
+            Size of the created figure. Measured in inches.
+        show_grid : bool, defaults to True
+            If `True` shows the horizontal grid with a step based on `y_ticker`.
+        kwargs : misc, optional
+            Additional keyword arguments to `Gather.plot`.
+        """
+        LMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, show_grid=show_grid,
+                          **kwargs).plot()

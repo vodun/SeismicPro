@@ -13,8 +13,8 @@ In order to define your own metric you need to inherit a new class from `Stackin
   interactive mode. By default it plots all stacking velocities used by `calc` during metric calculation. Note, that
   `plot` always accepts a 2d array of velocities as its first argument regardless of the `is_window_metric` value.
 
-If you want the created metric to be calculated by :func:`~velocity_cube.VelocityCube.qc` method by default, it should
-also be appended to a `VELOCITY_QC_METRICS` list.
+If you want the created metric to be calculated by :func:`~stacking_velocity_field.StackingVelocityField.qc` method by
+default, it should also be appended to a `VELOCITY_QC_METRICS` list.
 """
 
 import numpy as np

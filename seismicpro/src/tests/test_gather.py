@@ -1,4 +1,4 @@
-"""Implementation of tests for survey"""
+"""Implementation of tests for Gather"""
 
 # pylint: disable=redefined-outer-name
 from itertools import product, combinations
@@ -44,11 +44,8 @@ def compare_gathers(first, second, drop_cols=None, check_types=False, same_surve
     first_headers = first.headers.reset_index()
     second_headers = second.headers.reset_index()
     if drop_cols:
-        first.validate(required_header_cols=drop_cols)
-        second.validate(required_header_cols=drop_cols)
-
-        first_headers.drop(columns=drop_cols, inplace=True)
-        second_headers.drop(columns=drop_cols, inplace=True)
+        first_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
+        second_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
 
     assert len(first_headers) == len(second_headers)
     if len(first_headers) > 0:
@@ -204,7 +201,7 @@ def test_gather_copy(gather, ignore):
 @pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
 @pytest.mark.parametrize('q', [0.1, [0.1, 0.2], (0.1, 0.2), np.array([0.1, 0.2])])
 def test_gather_get_quantile(gather, tracewise, use_global, q):
-    """Test gahter's methods"""
+    """Test gather's methods"""
     # # check that quantile has the same type as q
     gather.get_quantile(q=q, tracewise=tracewise, use_global=use_global)
 
@@ -228,19 +225,9 @@ def test_gather_mask_to_pick_and_pick_to_mask(gather):
     mask = gather.pick_to_mask(first_breaks_col=HDR_FIRST_BREAK)
     mask.mask_to_pick(first_breaks_col=HDR_FIRST_BREAK, save_to=gather)
 
-def test_gather_get_coords(gather):
-    """test_gather_get_coords"""
-    gather.get_coords()
-
-
 def test_gather_sort(gather):
     """test_gather_sort"""
     gather.sort(by='offset')
-
-def test_gather_validate(gather):
-    """test_gather_validate"""
-    gather.sort(by='offset')
-    gather.validate(required_header_cols=['offset', 'FieldRecord'], required_sorting='offset')
 
 def test_gather_muting(gather):
     """test_gather_muting"""
@@ -258,21 +245,21 @@ def test_gather_semblance(gather):
 def test_gather_res_semblance(gather):
     """test_gather_res_semblance"""
     gather.sort(by='offset')
-    stacking_velocity = StackingVelocity.from_points(times=[0, 3000], velocities=[1600, 3500])
+    stacking_velocity = StackingVelocity(times=[0, 3000], velocities=[1600, 3500])
     gather.calculate_residual_semblance(stacking_velocity=stacking_velocity)
 
 def test_gather_stacking_velocity(gather):
     """test_gather_stacking_velocity"""
     gather.sort(by='offset')
-    stacking_velocity = StackingVelocity.from_points(times=[0, 3000], velocities=[1600, 3500])
+    stacking_velocity = StackingVelocity(times=[0, 3000], velocities=[1600, 3500])
     gather.apply_nmo(stacking_velocity=stacking_velocity)
 
-def test_gather_get_central_cdp(segy_path):
-    """test_gather_get_central_cdp"""
+def test_gather_get_central_gather(segy_path):
+    """test_gather_get_central_gather"""
     survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'], header_cols=['offset', 'FieldRecord'])
     survey = survey.generate_supergathers()
     gather = survey.get_gather((0, 0))
-    gather.get_central_cdp()
+    gather.get_central_gather()
 
 def test_gather_stack(gather):
     """test_gather_stack"""

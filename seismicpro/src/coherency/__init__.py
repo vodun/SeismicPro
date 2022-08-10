@@ -2,4 +2,3 @@
 attenuation"""
 
 from .coherency import Coherency, ResidualCoherency
-from .metrics import SignalLeakage

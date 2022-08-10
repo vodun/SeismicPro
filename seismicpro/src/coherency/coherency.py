@@ -69,6 +69,7 @@ class BaseCoherency:
         """np.ndarray of floats: The distance between source and receiver for each trace. Measured in meters."""
         return self.gather.offsets  # m
 
+<<<<<<< HEAD:seismicpro/src/coherency/coherency.py
     def get_coords(self, coords_cols="auto"):
         """Get spatial coordinates of the semblance.
         The call is redirected to the underlying gather.
@@ -92,10 +93,14 @@ class BaseCoherency:
         """
         return self.gather.get_coords(coords_cols)
 
+=======
+>>>>>>> more_fields:seismicpro/src/semblance/semblance.py
     @property
     def coords(self):
-        """Coordinates: Spatial coordinates of the semblance."""
-        return self.get_coords()
+        """Coordinates or None: Spatial coordinates of the semblance. Determined by the underlying gather. `None` if
+        the gather is indexed by unsupported headers or required coords headers were not loaded or coordinates are
+        non-unique for traces of the gather."""
+        return self.gather.coords
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
@@ -418,9 +423,10 @@ class Coherency(BaseCoherency):
         """Plot vertical velocity semblance.
         Parameters
         ----------
-        stacking_velocity : StackingVelocity, optional
+        stacking_velocity : StackingVelocity or str, optional
             Stacking velocity to plot if given. If its sample rate is more than 50 ms, every point will be highlighted
             with a circle.
+            May be `str` if plotted in a pipeline: in this case it defines a component with stacking velocities to use.
         title : str, optional, defaults to "Semblance"
             Plot title.
         x_ticker : dict, optional, defaults to None
@@ -455,7 +461,7 @@ class Coherency(BaseCoherency):
 
     @batch_method(target="for", copy_src=False)
     def calculate_stacking_velocity(self, start_velocity_range=(1400, 1800), end_velocity_range=(2500, 5000),
-                                    max_acceleration=None, n_times=25, n_velocities=25, coords_cols="auto"):
+                                    max_acceleration=None, n_times=25, n_velocities=25):
         """Calculate stacking velocity by vertical velocity semblance.
         Notes
         -----
@@ -474,9 +480,13 @@ class Coherency(BaseCoherency):
             The number of evenly spaced points to split time range into to generate graph edges.
         n_velocities : int, defaults to 25
             The number of evenly spaced points to split velocity range into for each time to generate graph edges.
+<<<<<<< HEAD:seismicpro/src/coherency/coherency.py
         coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
             Header columns of the underlying gather to get spatial coordinates of the semblance from. See
             :func:`~Semblance.get_coords` for more details.
+=======
+
+>>>>>>> more_fields:seismicpro/src/semblance/semblance.py
         Returns
         -------
         stacking_velocity : StackingVelocity
@@ -486,11 +496,10 @@ class Coherency(BaseCoherency):
         ValueError
             If no stacking velocity was found for given parameters.
         """
-        inline, crossline = self.get_coords(coords_cols)
         times, velocities, _ = calculate_stacking_velocity(self.semblance, self.times, self.velocities,
                                                            start_velocity_range, end_velocity_range, max_acceleration,
                                                            n_times, n_velocities)
-        return StackingVelocity.from_points(times, velocities, inline, crossline)
+        return StackingVelocity(times, velocities, coords=self.coords)
 
 
 class ResidualCoherency(BaseCoherency):
