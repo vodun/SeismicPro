@@ -4,6 +4,7 @@ import numpy as np
 
 from .refractor_velocity import RefractorVelocity
 from .interactive_plot import FitPlot
+from .utils import get_param_names, postprocess_params
 from ..field import SpatialField
 from ..utils import to_list, IDWInterpolator
 
@@ -19,7 +20,7 @@ class RefractorVelocityField(SpatialField):
     def param_names(self):
         if self.n_refractors is None:
             raise ValueError("The number of refractors is undefined")
-        return ["t0"] + [f"x{i}" for i in range(1, self.n_refractors)] + [f"v{i+1}" for i in range(self.n_refractors)]
+        return get_param_names(self.n_refractors)
 
     def validate_items(self, items):
         super().validate_items(items)
@@ -37,28 +38,9 @@ class RefractorVelocityField(SpatialField):
     def item_to_values(item):
         return np.array(list(item.params.values()))
 
-    @staticmethod
-    def _postprocess_values(values):
-        n_refractors = values.shape[1] // 2
-
-        # Ensure that t0 is non-negative
-        np.clip(values[:, 0], 0, None, out=values[:, 0])
-
-        # Ensure that velocities of refractors are non-negative and increasing
-        velocities = values[:, n_refractors:]
-        np.clip(velocities[:, 0], 0, None, out=velocities[:, 0])
-        np.maximum.accumulate(velocities, axis=1, out=velocities)
-
-        # Ensure that crossover offsets are non-negative and increasing
-        if n_refractors > 1:
-            cross_offsets = values[:, 1:n_refractors]
-            np.clip(cross_offsets[:, 0], 0, None, out=cross_offsets[:, 0])
-            np.maximum.accumulate(cross_offsets, axis=1, out=cross_offsets)
-
     def _interpolate(self, coords):
         values = self.interpolator(coords)
-        self._postprocess_values(values)
-        return values
+        return postprocess_params(values)
 
     def construct_item(self, values, coords):
         return self.item_class.from_params(dict(zip(self.param_names, values)), coords=coords)
@@ -92,7 +74,7 @@ class RefractorVelocityField(SpatialField):
             proper_items_mask = ~ignore_mask[:, i - self.n_refractors]
             smoothed_values[:, i] = smoother(coords[proper_items_mask], values[proper_items_mask, i])(coords)
 
-        self._postprocess_values(smoothed_values)
+        smoothed_values = postprocess_params(smoothed_values)
 
         smoothed_items = []
         for rv, val in zip(self.item_container.values(), smoothed_values):
