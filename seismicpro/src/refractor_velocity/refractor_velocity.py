@@ -94,7 +94,7 @@ class RefractorVelocity:
         An interpolator returning expected arrival times for given offsets.
     """
     def __init__(self, max_offset=None, coords=None, **params):
-        self._validate_keys(params)  # TODO: validate values
+        # self._validate_keys(params)  # TODO: validate values
 
         self.n_refractors = len(params) // 2
         self.params = params
@@ -165,8 +165,8 @@ class RefractorVelocity:
         bounds = {**cls._calc_bounds_by_init(init), **bounds}
 
         # Validate integrity of init and bounds dicts
-        cls._validate_keys(bounds)
-        cls._validate_values(init, bounds)
+        # cls._validate_keys(bounds)
+        # cls._validate_values(init, bounds)
 
         # Obtain the number of refractors and get names of model parameters in a canonical order
         n_refractors = len(init) // 2
@@ -179,7 +179,7 @@ class RefractorVelocity:
         # Define model constraints
         crossover_offsets_ascend = {
             "type": "ineq",
-            "fun": lambda x: np.diff(x[1:n_refractors], append=max_offset)
+            "fun": lambda x: np.diff(x[1:n_refractors])
         }
         velocities_ascend = {
             "type": "ineq",
@@ -362,7 +362,7 @@ class RefractorVelocity:
                 lin_reg.fit(scaled_offsets.reshape(-1, 1), scaled_times, coef_init=1, intercept_init=0)
                 slopes[i] = lin_reg.coef_[0] * std_time / std_offset
                 if i == 0:
-                    init_t0 = mean_time + lin_reg.intercept_ * std_time - slopes[i] * mean_offset
+                    init_t0 = mean_time + lin_reg.intercept_[0] * std_time - slopes[i] * mean_offset
                     init_t0 = max(0, init_t0)
             slopes[i] = max(1/6, slopes[i])  # clip maximum velocity by 6 km/s
 
