@@ -141,7 +141,7 @@ class Muter:
         muter = cls.from_points(stretch_offsets, times)
         
         if crossover_mute:
-            crossover_times = compute_crossovers_times(times, offsets, velocity)
+            crossover_times = compute_crossovers_times(times, velocity, offsets)
             muter = cls.from_points(offsets, np.maximum(crossover_times, muter(offsets)))
         
         return muter 
