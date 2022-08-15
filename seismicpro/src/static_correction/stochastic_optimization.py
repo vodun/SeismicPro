@@ -30,7 +30,7 @@ class SparseDataset(Dataset):
 
 
 def optimize(matrix, target, weights, batch_size, n_epochs, device='cuda:0', dtype=torch.float32, plot_loss=False,
-             optimizer_kwargs=None, sch_kwargs=None):
+             optimizer_kwargs=None, sch_kwargs=None, name=None):
     optimizer_kwargs = {} if optimizer_kwargs is None else optimizer_kwargs
     sch_kwargs = {} if sch_kwargs is None else sch_kwargs
 
@@ -63,4 +63,5 @@ def optimize(matrix, target, weights, batch_size, n_epochs, device='cuda:0', dty
             plt.plot(loss_list)
             plt.show()
         scheduler.step()
+    np.savez(f'loss_{name}.npz')
     return weights.ravel().detach().cpu().numpy()

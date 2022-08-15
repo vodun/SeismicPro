@@ -3,6 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy import sparse
 from scipy.stats import hmean
+from sklearn.preprocessing import normalize
 from tqdm.auto import tqdm
 
 from .utils import calculate_layer_coefs, calculate_wv_by_v2
@@ -170,11 +171,11 @@ class StaticCorrection:
 
         for i in tqdm(range(n_iters)):
             if i == 0:
-                self.update_depths(**depths_kwargs)
-            self.update_velocity(**vel_kwargs)
-            self.update_depths(**depths_kwargs)
+                self.update_depths(name=f'first_depths_opt', **depths_kwargs)
+            self.update_velocity(name=f'{i}_velocity', **vel_kwargs)
+            self.update_depths(name=f'{i}_depth', **depths_kwargs)
 
-    def update_depths(self, method='lsqr', smoothing_radius=0, **kwrags):
+    def update_depths(self, method='lsqr', smoothing_radius=0, **kwargs):
         headers = self._add_params_to_headers(headers=self.headers)
         layer_matrixes = []
         ixs = []
@@ -191,11 +192,14 @@ class StaticCorrection:
             coefs = np.concatenate((self._get_coefs("source"), self._get_coefs("rec")))
 
         if method == 'lsqr':
-            result = sparse.linalg.lsqr(matrix, headers['y'].iloc[ixs], x0=coefs, **kwrags)[0]
+            result = sparse.linalg.lsqr(matrix, headers['y'].iloc[ixs], x0=coefs, **kwargs)[0]
         elif method == 'nn':
             matrix = matrix.tocsr()
+            matrix, norms = normalize(matrix, 'max', axis=0, return_norm=True)
             target = headers['y'].iloc[ixs].values
-            result = optimize(matrix=matrix, target=target, init=coefs, **kwrags)
+            coefs = np.random.randint(1, 50, size=(matrix.shape[1], 1)) if np.sum(coefs) == 0 else coefs
+            result = optimize(matrix=matrix, target=target, weights=coefs.reshape(-1, 1), **kwargs)
+            result = result / norms
         sources = result[:self.n_sources * self.n_layers].reshape(self.n_layers, self.n_sources)
         recs = result[self.n_sources * self.n_layers:].reshape(self.n_layers, self.n_recs)
 
@@ -256,14 +260,20 @@ class StaticCorrection:
             interps.append(IDWInterpolator(self.coords, joint_interp(self.coords), radius=self.radius, neighbors=self.n_neighbors))
         return interps
 
-    def update_velocity(self, max_wv=None, tol=1e-8, smoothing_radius=0):
+    def update_velocity(self, method='lsmr', max_wv=None, smoothing_radius=0, **kwargs):
         layer_headers = self._add_params_to_headers(headers=self.headers[self.headers['layer']==1])
         ohe_source, unique_sources, ix_sources = self._get_sparse_velocities("source", layer_headers, 1)
         ohe_rec, unique_recs, ix_recs = self._get_sparse_velocities("rec", layer_headers, 1)
         matrix = sparse.hstack((ohe_source, ohe_rec))
 
         coefs = layer_headers.iloc[ix_sources]['v1_source'].tolist() + layer_headers.iloc[ix_recs]['v1_rec'].tolist()
-        result = sparse.linalg.lsmr(matrix, layer_headers['y'], x0=np.array(coefs), atol=tol, btol=tol)[0]
+        if method == 'lsmr':
+            result = sparse.linalg.lsmr(matrix, layer_headers['y'], x0=np.array(coefs), **kwargs)[0]
+        elif method == 'nn':
+            matrix = matrix.tocsr()
+            matrix, norms = normalize(matrix, 'max', axis=0, return_norm=True)
+            result = optimize(matrix=matrix, target=layer_headers['y'].values, weights=coefs, **kwargs)
+            result = result / norms
 
         source_v1, rec_v1 = self._calculate_velocities(result, layer_headers, ix_sources, ix_recs, max_wv)
 
