@@ -150,7 +150,9 @@ class RefractorVelocityField(SpatialField):
         # print(np.vstack([item.max_offset for coords, item in self.item_container.items()]))
         max_offsets = np.vstack([item.max_offset for coords, item in self.item_container.items()])
         data = np.hstack((self.coords, values, max_offsets))
-        print(data[0])
+        # print(data[0])
+        # column stack
+        # 
         data_format = ('\n' + "{:>{new_col_size}.0f}" * 2 + '{:>{col_size}.2f}' * (len(columns) - 2)) * data.shape[0]
         data_str = data_format.format(*data.ravel(), new_col_size=new_col_size, col_size=col_size)
 

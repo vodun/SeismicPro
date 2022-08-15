@@ -256,6 +256,7 @@ class RefractorVelocity:
     @classmethod
     def from_file(cls, path):
         """Create a `RefractorVelocity` instance from file.
+
         Parameters
         ----------
         path : str
@@ -373,7 +374,7 @@ class RefractorVelocity:
         constraint_freeze_t0 = {  # freeze the intercept time if no data for layer is found.
             "type": "eq",
             "fun": lambda x: x[:1][self._empty_layers[:1]] - np.array([self.init['t0']])[self._empty_layers[:1]]}
-        return [constraint_offset, constraint_velocity, constraint_freeze_velocity, constraint_freeze_t0]
+        return [constraint_offset, constraint_velocity]
 
     def _fit_regressor(self, x, y, start_slope, start_time):
         """Method fits the linear regression by given data and initial values.
@@ -514,7 +515,7 @@ class RefractorVelocity:
     def create_muter(self, delay=0, velocity_reduction=0):
         return Muter.from_refractor_velocity(self, delay=delay, velocity_reduction=velocity_reduction)
 
-    def dump(self, path, encoding="UTF-8", col_size=11):
+    def dump(self, path, encoding="UTF-8", col_space=11):
         """Save the RefractorVelocity instance to a file. Coords should be preloaded.
 
         File example:
@@ -543,16 +544,14 @@ class RefractorVelocity:
         """
         if self.coords is None:
             raise ValueError("`coords` attribute should be defined.")
-        coords_size = max(col_size, max(len(name) for name in self.coords.names) + 1)
-        values = list(self.coords.coords) + list(self.params.values()) + [self.max_offset]
-        values_format = '\n' + '{:>{coords_size}}' * len(self.coords) + '{:>{col_size}.2f}' * (len(self.params) + 1)
-        values_str = values_format.format(*values, coords_size=coords_size, col_size=col_size)
 
-        columns = list(self.coords.names) + list(self.params.keys()) + ["max_offset"]
-        cols_format = ('{:>{coords_size}}' * len(self.coords) + '{:>{col_size}}' * (len(self.params) + 1))
-        cols_str = cols_format.format(*columns, coords_size=coords_size, col_size=col_size)
+        data = [*self.coords.coords] + list(self.params.values())
+        columns = [*self.coords.names] + list(self.params.keys())
+
+        df = pd.DataFrame.from_dict({col: [data] for col, data in zip(columns, data)})
+
         with open(path, 'w', encoding=encoding) as f:
-            f.write(cols_str + values_str)
+            df.to_string(buf=f, col_space=col_space, float_format="%.2f", index=False)
         return self
 
     def load(self, path, encoding="UTF-8"):
