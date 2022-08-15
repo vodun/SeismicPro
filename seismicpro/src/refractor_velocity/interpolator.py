@@ -20,8 +20,8 @@ class RefractorVelocityInterpolator():
         rv_kwargs = {"n_refractors": 2, "init": {"t0": 0}, **rv_kwargs}
         grouped_headers = supergather_survey.headers.groupby(["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"])
         for _, sub_headers in tqdm(grouped_headers):
-            rv = RefractorVelocity().from_first_breaks(offsets=sub_headers["offset"].values,
-                                                      fb_times=sub_headers[first_breaks_col].values, **rv_kwargs)
+            rv = RefractorVelocity.from_first_breaks(offsets=sub_headers["offset"].values,
+                                                     fb_times=sub_headers[first_breaks_col].values, **rv_kwargs)
             sp_coords = get_cols(sub_headers, ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"])
             mask = np.all(sub_headers[["INLINE_3D", "CROSSLINE_3D"]].values == sp_coords, axis=1)
             rv.coords = Coordinates(coords=sub_headers[mask][["CDP_X", "CDP_Y"]].values[0], names=["CDP_X", "CDP_Y"])

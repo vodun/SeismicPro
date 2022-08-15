@@ -7,6 +7,7 @@ from tqdm.auto import tqdm
 
 from .utils import calculate_layer_coefs, calculate_wv_by_v2
 from .interactive_slice_plot import StaticsPlot
+from .stochastic_optimization import optimize
 from seismicpro.src.utils import to_list, IDWInterpolator
 from seismicpro.src.metrics import MetricMap
 
@@ -25,8 +26,8 @@ USED_COLS = [*sum(DEFAULT_COLS.values(), []), "offset", "SourceDepth", "CDP_X", 
 
 
 class StaticCorrection:
-    def __init__(self, survey, first_breaks_col, interpolator, n_avg_coords=5, radius=500, n_neighbors=100):
-        self.survey = survey.copy()
+    def __init__(self, survey, first_breaks_col, interpolator, n_avg_coords=5, radius=500, n_neighbors=100, strict=True):
+        self.survey = survey
         self.first_breaks_col = first_breaks_col
         self.n_layers = None
         self.radius = radius
@@ -45,29 +46,15 @@ class StaticCorrection:
 
         self.coords = np.concatenate((self.source_uniques, self.rec_uniques))
 
-        self._add_cols_to_params("source", columns="SourceDepth")
+        self._add_cols_to_params("source", columns="SourceDepth", strict=strict)
         self._add_wv_to_params("source", interpolator=interpolator)
         self._add_wv_to_params("rec", interpolator=interpolator)
 
         self._set_traces_layer(interpolator=interpolator)
-
+        self._calculate_traces_params_fast()#n_avg_coords, interpolator=interpolator)
         self.interp_elevations = self._construct_elevations_interpolatior()
         self.interp_layers_els = [None] * self.n_layers
         self.interp_v1 = None
-
-        xs = np.linspace(self.headers['SourceX'], self.headers['GroupX'], n_avg_coords, dtype=np.int32).T.reshape(-1)
-        ys = np.linspace(self.headers['SourceY'], self.headers['GroupY'], n_avg_coords, dtype=np.int32).T.reshape(-1)
-        subw_velocities = interpolator(np.stack((xs, ys)).T)[:, self.n_layers+1:]
-        y = np.zeros(len(self.headers))
-        for i in range(self.n_layers):
-            v_avg = hmean(subw_velocities[:, i].reshape(-1, n_avg_coords), axis=1)
-            self.headers[f'v{i+2}_avg'] = v_avg
-            mask = self.headers['layer'] == i+1
-            layer_headers = self.headers[mask]
-            y[mask] = (layer_headers[self.first_breaks_col] - layer_headers['offset'] / layer_headers[f'v{i+2}_avg']).values
-        self.headers['y'] = y
-        self.headers["pred"] = np.nan
-        self.headers = self.headers[self.headers['y'] > 0]
 
     @property
     def n_sources(self):
@@ -77,61 +64,102 @@ class StaticCorrection:
     def n_recs(self):
         return self.rec_params.shape[0]
 
-    def _create_params_df(self, name):
-        coord_names = self._get_cols(name)
-        unique_coords = np.unique(self.headers[coord_names], axis=0).astype(np.int32)
-        return pd.DataFrame(unique_coords, columns=coord_names).reset_index().set_index(coord_names)
-
-    def _add_cols_to_params(self, name, columns):
-        coord_names = self._get_cols(name)
-        data = self.headers[coord_names + to_list(columns)].drop_duplicates().values
-        if data.shape[0] != getattr(self, f"{name}_params").shape[0]:
-            raise ValueError("Value in column(s) to add must be unique for each source/rec.")
-        getattr(self, f"{name}_headers").extend(to_list(columns))
-        self._update_params(name=name, coords=data[:, :2], values=data[:, 2:], columns=columns)
-
-    def _add_wv_to_params(self, name, interpolator):
-        unique_coords = getattr(self, f"{name}_params").index.to_frame().values
-        wv_params = interpolator(unique_coords)
-        self.n_layers = wv_params.shape[1] // 2
-        names = [f"v{i}" for i in range(1, self.n_layers+2)]
-        self._update_params(name=name, coords=unique_coords, values=wv_params[:, self.n_layers:], columns=names)
-
-    def _set_traces_layer(self, interpolator):
-        coords = self.headers[["CDP_X", "CDP_Y"]].values
-        crossovers = interpolator(coords)[:, :self.n_layers]
-        offsets = self.headers['offset'].values
-        layers = np.sum((crossovers - offsets.reshape(-1, 1)) < 0, axis=1)
-        self.headers['layer'] = layers
-
     def _get_cols(self, name):
         cols = DEFAULT_COLS.get(name)
         if cols is None:
             raise ValueError(f"Given unknown 'name' {name}")
         return cols
 
+    def _create_params_df(self, name):
+        coords_names = self._get_cols(name)
+        coords_df = self.headers[coords_names].drop_duplicates().astype(np.int32) # do we need sort values?
+        coords_df['index'] = np.arange(0, len(coords_df))
+        return coords_df.set_index(coords_names)
+
+    def _add_cols_to_params(self, name, columns, strict):
+        coords_names = self._get_cols(name)
+        columns = to_list(columns)
+        params = getattr(self, f"{name}_params")
+        data = self.headers[coords_names + columns].drop_duplicates()
+        if data.shape[0] != params.shape[0]:
+            if strict:
+                raise ValueError("Value in column(s) to add must be unique for each source/rec.")
+            data = data.set_index(coords_names)[~data.index.duplicated(keep=False)]
+            coords = data.index.to_frame().values
+            interp = IDWInterpolator(coords, data[columns].values, radius=self.radius, neighbors=self.n_neighbors)
+            full_coords = getattr(self, f"{name}_uniques")
+            data = pd.DataFrame(np.hstack((full_coords, interp(full_coords).reshape(-1, len(columns)))))
+        getattr(self, f"{name}_headers").extend(to_list(columns))
+        data = data.values
+        self._update_params(name=name, coords=data[:, :2], values=data[:, 2:], columns=columns)
+
+    def _add_wv_to_params(self, name, interpolator):
+        unique_coords = getattr(self, f"{name}_uniques")
+        wv_params = interpolator(unique_coords)
+        self.n_layers = wv_params.shape[1] // 2
+        names = [f"v{i}" for i in range(1, self.n_layers+2)]
+        self._update_params(name=name, coords=unique_coords, values=wv_params[:, self.n_layers:], columns=names)
+
     def _update_params(self, name, coords, values, columns):
-        coord_names = self._get_cols(name)
+        coords_names = self._get_cols(name)
         values = np.array(values)
         if values.ndim == 1:
             values = values.reshape(-1, 1)
         data = np.hstack((coords, values))
-        df = pd.DataFrame(data, columns=[*coord_names, *to_list(columns)]).set_index(coord_names)
+        df = pd.DataFrame(data, columns=[*coords_names, *to_list(columns)]).set_index(coords_names)
 
         # If column from `columns` already exists in df params, it will be overwritten
-        updated_params = getattr(self, f"{name}_params").merge(df, how='outer', on=coord_names, suffixes=("_drop", ""))
+        updated_params = getattr(self, f"{name}_params").merge(df, how="outer", on=coords_names, suffixes=("_drop", ""))
         updated_params = updated_params.drop(columns=updated_params.filter(regex="_drop$").columns)
         setattr(self, f"{name}_params", updated_params)
 
-    def _construct_elevations_interpolatior(self):
-        headers = self.survey.headers.reset_index()
-        sources_el = headers[["SourceX", "SourceY", "SourceSurfaceElevation"]].drop_duplicates()
-        sources_el = sources_el.set_index(["SourceX", "SourceY"])[~sources_el.index.duplicated(keep=False)]
-        rec_el = headers[["GroupX", "GroupY", "ReceiverGroupElevation"]].drop_duplicates()
-        rec_el = rec_el.set_index(["GroupX", "GroupY"])[~rec_el.index.duplicated(keep=False)]
+    def _set_traces_layer(self, interpolator):
+        coords_unique, coords_inv = np.unique(self.headers[["CDP_X", "CDP_Y"]], axis=0, return_inverse=True)
+        crossovers = interpolator(coords_unique)[:, :self.n_layers]
+        offsets = self.headers["offset"].values
+        self.headers["layer"] = np.sum((crossovers[coords_inv] - offsets.reshape(-1, 1)) < 0, axis=1)
 
-        coords = np.concatenate((sources_el.index.to_frame().values, rec_el.index.to_frame().values))
-        elevations = np.concatenate((sources_el.values.ravel(), rec_el.values.ravel()))
+    def _calculate_traces_params(self, n_avg_coords, interpolator):
+        xs = np.linspace(self.headers["SourceX"], self.headers["GroupX"], n_avg_coords, dtype=np.int32).T.reshape(-1)
+        ys = np.linspace(self.headers["SourceY"], self.headers["GroupY"], n_avg_coords, dtype=np.int32).T.reshape(-1)
+        subw_velocities = interpolator(np.stack((xs, ys)).T)[:, self.n_layers+1:]
+        y = np.zeros(len(self.headers))
+        for layer_ix in range(self.n_layers):
+            v_name = f'v{layer_ix+2}_avg'
+            self.headers[v_name] = hmean(subw_velocities[:, layer_ix].reshape(-1, n_avg_coords), axis=1)
+            mask = self.headers['layer'] == layer_ix + 1
+            layer_headers = self.headers[mask]
+            y[mask] = (layer_headers[self.first_breaks_col] - layer_headers['offset'] / layer_headers[v_name]).values
+        self.headers['y'] = y
+        self.headers["pred"] = np.nan
+        self.headers = self.headers[self.headers['y'] > 0]
+
+    def _calculate_traces_params_fast(self):
+        self.headers['pos'] = np.arange(0, len(self.headers))
+        headers = self._add_params_to_headers(headers=self.headers)
+        ixs = headers['pos'].values
+
+        y = np.zeros(len(self.headers))
+        for layer in range(1, self.n_layers+1):
+            v_name = f'v{layer+1}_avg'
+            self.headers[v_name] = None
+            self.headers[v_name].iloc[ixs] = hmean(headers[[f"v{layer+1}_source", f"v{layer+1}_rec"]], axis=1)
+            mask = self.headers['layer'] == layer
+            layer_headers = self.headers[mask]
+            y[mask] = (layer_headers[self.first_breaks_col] - layer_headers['offset'] / layer_headers[v_name]).values
+        self.headers['y'] = y
+        self.headers["pred"] = np.nan
+        self.headers = self.headers[self.headers['y'] > 0]
+        self.headers.drop(columns='pos', inplace=True)
+
+    def _construct_elevations_interpolatior(self):
+        sources_els = pd.DataFrame(self.survey[["SourceX", "SourceY", "SourceSurfaceElevation"]]).drop_duplicates()
+        sources_els = sources_els.set_index([0, 1])[~sources_els.index.duplicated(keep=False)]
+        rec_els = pd.DataFrame(self.survey[["GroupX", "GroupY", "ReceiverGroupElevation"]]).drop_duplicates()
+        rec_els = rec_els.set_index([0, 1])[~rec_els.index.duplicated(keep=False)]
+
+        coords = np.concatenate((sources_els.index.to_frame().values, rec_els.index.to_frame().values))
+        elevations = np.concatenate((sources_els.values.ravel(), rec_els.values.ravel()))
 
         return IDWInterpolator(coords, elevations, radius=self.radius, neighbors=self.n_neighbors)
 
@@ -146,7 +174,7 @@ class StaticCorrection:
             self.update_velocity(**vel_kwargs)
             self.update_depths(**depths_kwargs)
 
-    def update_depths(self, tol=1e-7, smoothing_radius=0):
+    def update_depths(self, method='lsqr', smoothing_radius=0, **kwrags):
         headers = self._add_params_to_headers(headers=self.headers)
         layer_matrixes = []
         ixs = []
@@ -162,12 +190,17 @@ class StaticCorrection:
         if self.interp_layers_els[0] is not None:
             coefs = np.concatenate((self._get_coefs("source"), self._get_coefs("rec")))
 
-        result = sparse.linalg.lsqr(matrix, headers['y'].iloc[ixs], atol=tol, btol=tol, x0=coefs)[0]
+        if method == 'lsqr':
+            result = sparse.linalg.lsqr(matrix, headers['y'].iloc[ixs], x0=coefs, **kwrags)[0]
+        elif method == 'nn':
+            matrix = matrix.tocsr()
+            target = headers['y'].iloc[ixs].values
+            result = optimize(matrix=matrix, target=target, init=coefs, **kwrags)
         sources = result[:self.n_sources * self.n_layers].reshape(self.n_layers, self.n_sources)
         recs = result[self.n_sources * self.n_layers:].reshape(self.n_layers, self.n_recs)
 
         upholes = self.source_params["SourceDepth"].values # Upholes have the same order as sources
-        sources[0] += upholes # Do we always add upholes to the first layer
+        sources[0] += upholes # Do we always add upholes to the first layer?
 
         self.interp_layers_els = self._mulitlayer_align_by_proximity(sources, recs, smoothing_radius=smoothing_radius)
 
@@ -243,8 +276,8 @@ class StaticCorrection:
         self._update_params("rec", self.rec_uniques, final_rec_v1, 'v1')
 
     def _get_sparse_velocities(self, name, headers, layer):
-        coord_names = self._get_cols(name)
-        uniques, index, inverse = np.unique(headers[coord_names], axis=0, return_index=True, return_inverse=True)
+        coords_names = self._get_cols(name)
+        uniques, index, inverse = np.unique(headers[coords_names], axis=0, return_index=True, return_inverse=True)
         elevations = self.interp_elevations(uniques)
         layer_elevations = self.interp_layers_els[layer-1](uniques)
         coefs = elevations - layer_elevations
@@ -319,11 +352,11 @@ class StaticCorrection:
         # default for source ["SourceWaterDepth", "GroupWaterDepth"]
         # default for rec ["ReceiverDatumElevation", "SourceDatumElevation"]
         columns = to_list(columns)
-        coord_names = self._get_cols(name)
+        coords_names = self._get_cols(name)
         params = getattr(self, f"{name}_params")
-        headers = pd.DataFrame(self.survey[coord_names + columns], columns=coord_names + columns).drop_duplicates()
+        headers = pd.DataFrame(self.survey[coords_names + columns], columns=coords_names + columns).drop_duplicates()
 
-        headers_dt = headers.merge(params[[f"dt_{datum}"]].round(), on=coord_names).sort_values(by=columns)
+        headers_dt = headers.merge(params[[f"dt_{datum}"]].round(), on=coords_names).sort_values(by=columns)
         dump_columns = [*columns, f"dt_{datum}"]
         self._dump(path, headers_dt[dump_columns], dump_columns)
 
@@ -338,11 +371,11 @@ class StaticCorrection:
         # default for source ["SourceWaterDepth", "GroupWaterDepth"]
         # default for rec ["ReceiverDatumElevation", "SourceDatumElevation"]
         columns = to_list(columns)
-        coord_names = self._get_cols(name)
-        headers = pd.DataFrame(self.survey[coord_names + columns], columns=coord_names + columns).drop_duplicates()
+        coords_names = self._get_cols(name)
+        headers = pd.DataFrame(self.survey[coords_names + columns], columns=coords_names + columns).drop_duplicates()
         dt = pd.read_csv(path, header=None, names=columns + [f"dt_{datum}"], delim_whitespace=True)
         merged = headers.merge(dt, on=columns)
-        self._update_params(name, merged[coord_names].values, merged[f"dt_{datum}"].values, f"dt_{datum}")
+        self._update_params(name, merged[coords_names].values, merged[f"dt_{datum}"].values, f"dt_{datum}")
 
     ### plotters ###
     def _construct_velicities_interpolatior(self):
@@ -390,7 +423,7 @@ class StaticCorrection:
         return coords_cols
 
     def plot_layers_elevations(self, **kwargs):
-        _, ax = plt.subplots(self.n_layers, 2, figsize=(12*self.n_layers, 7*self.n_layers), tight_layout=True)
+        _, ax = plt.subplots(self.n_layers, 2, figsize=(7*self.n_layers, 5*self.n_layers), tight_layout=True)
         ax = ax.ravel()
         for layer in range(self.n_layers):
             mm_source = MetricMap(self.source_uniques, self.interp_layers_els[layer](self.source_uniques))
