@@ -94,15 +94,15 @@ class RefractorVelocity:
         An interpolator returning expected arrival times for given offsets.
     """
     def __init__(self, max_offset=None, coords=None, **params):
-        # self._validate_keys(params)  # TODO: validate values
+        self._validate_params(params)
 
         self.n_refractors = len(params) // 2
-        self.params = params
-        self.coords = coords
-        params_values = np.array([params[name] for name in self.param_names])
-        self.piecewise_offsets, self.piecewise_times = self.calc_knots_by_params(params_values, max_offset=max_offset)
+        self.params = {name: params[name] for name in self.param_names}  # Store params in order defined by param_names
+        params_values = np.array(list(self.params.values()))
+        self.piecewise_offsets, self.piecewise_times = self._calc_knots_by_params(params_values, max_offset=max_offset)
         self.max_offset = max_offset if self.piecewise_offsets[-1] == max_offset else None
         self.interpolator = interp1d(self.piecewise_offsets, self.piecewise_times)
+        self.coords = coords
 
         # Fit-related attributes
         self.is_fit = False
@@ -163,14 +163,15 @@ class RefractorVelocity:
         init = {**cls._calc_init_by_layers(offsets, fb_times, n_refractors),
                 **cls._calc_init_by_bounds(bounds), **init}
         bounds = {**cls._calc_bounds_by_init(init), **bounds}
-
-        # Validate integrity of init and bounds dicts
-        # cls._validate_keys(bounds)
-        # cls._validate_values(init, bounds)
+        cls._validate_params(init, bounds)
 
         # Obtain the number of refractors and get names of model parameters in a canonical order
         n_refractors = len(init) // 2
         param_names = get_param_names(n_refractors)
+
+        # Store init and bounds in order defined by param_names
+        init = {name: init[name] for name in param_names}
+        bounds = {name: bounds[name] for name in param_names}
 
         # Calculate arrays of initial params and their bounds to be passed to minimize
         init_array = np.array([init[name] for name in param_names])
@@ -247,75 +248,56 @@ class RefractorVelocity:
         """Return the expected times of first breaks for the given offsets."""
         return self.interpolator(offsets)
 
+    # Validation of model parameters correctness
+
     @staticmethod
-    def calc_knots_by_params(params, max_offset=None):
-        """Calculate the coordinates of the knots of a piecewise linear function based on the given `params` and
-        `max_offset`."""
+    def _validate_params_names(params):
+        """Check the keys of given dict for a minimum quantity, an excessive, and an insufficient."""
         n_refractors = len(params) // 2
-        params_max_offset = params[n_refractors - 1] if n_refractors > 1 else 0
-        if max_offset is None or max_offset < params_max_offset:
-            max_offset = params_max_offset + 1000  # Artificial setting of max offset to properly define interpolator
-        velocities_kms = params[n_refractors:] / 1000  # m/s to km/s
-        piecewise_offsets = np.concatenate([[0], params[1:n_refractors], [max_offset]])
-        piecewise_time_deltas = np.concatenate([[params[0]], np.diff(piecewise_offsets) / velocities_kms])
-        return piecewise_offsets, np.cumsum(piecewise_time_deltas)
+        if n_refractors < 1:
+            raise ValueError("At least t0 and v1 parameters must be specified.")
+        wrong_keys = set(get_param_names(n_refractors)) ^ params.keys()
+        if wrong_keys:
+            raise ValueError("The model is underdetermined. The following parameters should be passed: "
+                             "t0, v1, ..., v{n}, x1, ..., x{n-1}")
 
     @classmethod
-    def calculate_loss(cls, params, offsets, fb_times, loss='L1', huber_coef=20):
-        """Calculate the result of the loss function based on the passed args.
+    def _validate_params(cls, params, bounds=None):
+        """Check the values of an `init` and `bounds` dicts."""
+        cls._validate_params_names(params)
+        n_refractors = len(params) // 2
+        param_names = get_param_names(n_refractors)
+        param_values = np.array([params[name] for name in param_names])
 
-        Method calls `calc_knots_by_params` to calculate piecewise linear attributes of a RefractorVelocity instance.
-        After that, the method calculates the loss function between the true first breaks times stored in the
-        `self.fb_times` and predicted piecewise linear function. The loss function is calculated at the offsets points.
+        negative_param = {key: val for key, val in params.items() if val < 0}
+        if negative_param:
+            raise ValueError(f"The following parameters contain negative values: {negative_param}")
 
-        Piecewise linear function is defined by the given `args`. `args` should be list-like and have the following
-        structure:
-            args[0] : intercept time in milliseconds.
-            args[1:n_refractors] : cross offsets points in meters.
-            args[n_refractors:] : velocities of each layer in kilometers/seconds.
-            Total length of args should be n_refractors * 2.
+        if (np.diff(param_values[1:n_refractors]) < 0).any():
+            raise ValueError("Crossover offsets must ascend")
 
-        Notes:
-            * 'init', 'bounds' and 'params' store velocity in m/s unlike args for `loss_piecewise_linear`.
-            * The list-like `args` is due to the `scipy.optimize.minimize`.
+        if (np.diff(param_values[n_refractors:]) < 0).any():
+            raise ValueError("Refractor velocities must ascend")
 
-        Parameters
-        ----------
-        args : tuple, list, or 1d ndarray
-            Parameters of the piecewise linear function.
-        loss : str, optional, defaults to "L1".
-            The loss function type. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
-            All implemented loss functions have a mean reduction.
-        huber_coef : float, default to 20
-            Coefficient for Huber loss.
+        if bounds is not None:
+            cls._validate_params_names(bounds)
+            if len(params) != len(bounds):
+                raise ValueError("params and bounds must contain the same keys")
 
-        Returns
-        -------
-        loss : float
-            Loss function result between true first breaks times and a predicted piecewise linear function.
+            negative_bounds = {key: val for key, val in bounds.items() if min(val) < 0}
+            if negative_bounds:
+                raise ValueError(f"The following parameters contain negative bounds: {negative_bounds}")
 
-        Raises
-        ------
-        ValueError
-            If given `loss` does not exist.
-        """
-        piecewise_offsets, piecewise_times = cls.calc_knots_by_params(params, offsets.max())
-        abs_diff = np.abs(np.interp(offsets, piecewise_offsets, piecewise_times) - fb_times)
-        if loss == 'MSE':
-            return (abs_diff ** 2).mean()
-        if loss == 'huber':
-            loss = np.empty_like(abs_diff)
-            mask = abs_diff <= huber_coef
-            loss[mask] = .5 * (abs_diff[mask] ** 2)
-            loss[~mask] = huber_coef * abs_diff[~mask] - .5 * (huber_coef ** 2)
-            return loss.mean()
-        if loss == 'L1':
-            return abs_diff.mean()
-        if loss == 'soft_L1':
-            return 2 * ((1 + abs_diff) ** .5 - 1).mean()
-        if loss == 'cauchy':
-            return np.log(abs_diff + 1).mean()
-        raise ValueError("Unknown loss function")
+            reversed_bounds = {key: [left, right] for key, [left, right] in bounds.items() if left > right}
+            if reversed_bounds:
+                raise ValueError(f"The following parameters contain reversed bounds: {reversed_bounds}")
+
+            out_of_bounds = {name for name in param_names
+                                  if params[name] < bounds[name][0] or params[name] > bounds[name][1]}
+            if out_of_bounds:
+                raise ValueError(f"Values of the following parameters are out of their bounds: {out_of_bounds}")
+
+    # Methods for init and bounds calculation
 
     @staticmethod
     def _scale_standard(data):
@@ -383,35 +365,83 @@ class RefractorVelocity:
             bounds['t0'] = [min(0, bounds['t0'][0]), max(200, bounds['t0'][1])]
         return bounds
 
-    @staticmethod
-    def _validate_values(init, bounds):
-        """Check the values of an `init` and `bounds` dicts."""
-        negative_init = {key: val for key, val in init.items() if val < 0}
-        if negative_init:
-            raise ValueError(f"Init parameters contain negative values {negative_init}.")
-        negative_bounds = {key: val for key, val in bounds.items() if min(val) < 0}
-        if negative_bounds:
-            raise ValueError(f"Bounds parameters contain negative values {negative_bounds}.")
-        reversed_bounds = {key: [left, right] for key, [left, right] in bounds.items() if left > right}
-        if reversed_bounds:
-            raise ValueError(f"Left bound is greater than right bound for {reversed_bounds}.")
-        both_keys = {*init.keys()} & {*bounds.keys()}
-        outbounds_keys = {key for key in both_keys if init[key] < bounds[key][0] or init[key] > bounds[key][1]}
-        if outbounds_keys:
-            raise ValueError(f"Init parameters are out of the bounds for {outbounds_keys} key(s).")
+    # Loss definition
 
-    def _validate_keys(self, checked_dict):
-        """Check the keys of given dict for a minimum quantity, an excessive, and an insufficient."""
-        expected_layers = len(checked_dict) // 2
-        if expected_layers < 1:
-            raise ValueError("Insufficient parameters to fit a velocity model.")
-        missing_keys = set(self._get_valid_keys(expected_layers)) - set(checked_dict.keys())
-        if missing_keys:
-            raise ValueError("Insufficient parameters to fit a velocity model. ",
-                            f"Check {missing_keys} key(s) or define `n_refractors`")
-        excessive_keys = set(checked_dict.keys()) - set(self._get_valid_keys(expected_layers))
-        if excessive_keys:
-            raise ValueError(f"Excessive parameters to fit a velocity model. Remove {excessive_keys}.")
+    @staticmethod
+    def _calc_knots_by_params(params, max_offset=None):
+        """Calculate the coordinates of the knots of a piecewise linear function based on the given `params` and
+        `max_offset`."""
+        n_refractors = len(params) // 2
+        params_max_offset = params[n_refractors - 1] if n_refractors > 1 else 0
+        if max_offset is None or max_offset < params_max_offset:
+            max_offset = params_max_offset + 1000  # Artificial setting of max offset to properly define interpolator
+
+        piecewise_offsets = np.concatenate([[0], params[1:n_refractors], [max_offset]])
+        piecewise_times = np.empty(n_refractors + 1)
+        piecewise_times[0] = params[0]
+        params_zip = zip(piecewise_offsets[1:], piecewise_offsets[:-1], params[n_refractors:])
+        for i, (cross, prev_cross, vel) in enumerate(params_zip):
+            piecewise_times[i + 1] = piecewise_times[i] + 1000 * (cross - prev_cross) / vel  # m/s to km/s
+        return piecewise_offsets, piecewise_times
+
+    @classmethod
+    def calculate_loss(cls, params, offsets, fb_times, loss='L1', huber_coef=20):
+        """Calculate the result of the loss function based on the passed args.
+
+        Method calls `calc_knots_by_params` to calculate piecewise linear attributes of a RefractorVelocity instance.
+        After that, the method calculates the loss function between the true first breaks times stored in the
+        `self.fb_times` and predicted piecewise linear function. The loss function is calculated at the offsets points.
+
+        Piecewise linear function is defined by the given `args`. `args` should be list-like and have the following
+        structure:
+            args[0] : intercept time in milliseconds.
+            args[1:n_refractors] : cross offsets points in meters.
+            args[n_refractors:] : velocities of each layer in kilometers/seconds.
+            Total length of args should be n_refractors * 2.
+
+        Notes:
+            * 'init', 'bounds' and 'params' store velocity in m/s unlike args for `loss_piecewise_linear`.
+            * The list-like `args` is due to the `scipy.optimize.minimize`.
+
+        Parameters
+        ----------
+        args : tuple, list, or 1d ndarray
+            Parameters of the piecewise linear function.
+        loss : str, optional, defaults to "L1".
+            The loss function type. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
+            All implemented loss functions have a mean reduction.
+        huber_coef : float, default to 20
+            Coefficient for Huber loss.
+
+        Returns
+        -------
+        loss : float
+            Loss function result between true first breaks times and a predicted piecewise linear function.
+
+        Raises
+        ------
+        ValueError
+            If given `loss` does not exist.
+        """
+        piecewise_offsets, piecewise_times = cls._calc_knots_by_params(params, offsets.max())
+        abs_diff = np.abs(np.interp(offsets, piecewise_offsets, piecewise_times) - fb_times)
+        if loss == 'MSE':
+            return (abs_diff ** 2).mean()
+        if loss == 'huber':
+            loss = np.empty_like(abs_diff)
+            mask = abs_diff <= huber_coef
+            loss[mask] = .5 * (abs_diff[mask] ** 2)
+            loss[~mask] = huber_coef * abs_diff[~mask] - .5 * (huber_coef ** 2)
+            return loss.mean()
+        if loss == 'L1':
+            return abs_diff.mean()
+        if loss == 'soft_L1':
+            return 2 * ((1 + abs_diff) ** .5 - 1).mean()
+        if loss == 'cauchy':
+            return np.log(abs_diff + 1).mean()
+        raise ValueError("Unknown loss function")
+
+    # General processing methods
 
     @batch_method(target="for", copy_src=False)
     def create_muter(self, delay=0, velocity_reduction=0):
