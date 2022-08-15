@@ -63,5 +63,5 @@ def optimize(matrix, target, weights, batch_size, n_epochs, device='cuda:0', dty
             plt.plot(loss_list)
             plt.show()
         scheduler.step()
-    np.savez(f'loss_{name}.npz')
+    np.savez(f'loss_{name}.npz', loss_list)
     return weights.ravel().detach().cpu().numpy()
