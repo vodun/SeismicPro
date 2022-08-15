@@ -87,13 +87,12 @@ class Muter(VFUNC):
     @classmethod
     def strecth_muter(cls, stacking_velocity, max_stretch_factor=0.65):
         """ docs """
-        velocities = stacking_velocity.velocities
         stretch_offsets = stacking_velocity.velocities * stacking_velocity.times * np.sqrt((1 + max_stretch_factor)**2 - 1)
-        return cls.from_points(stretch_offsets, stacking_velocity.times)
+        return cls(stretch_offsets / 1000, stacking_velocity.times)
 
 
     @classmethod
     def crossover_muter(cls, stacking_velocity, gather):
         """ docs """
-        crossover_times = compute_crossovers_times(stacking_velocity.times, stacking_velocity.velocities, gather.offsets)
-        return cls.from_points(gather.offsets, crossover_times)
+        crossover_times = compute_crossovers_times(stacking_velocity.times, stacking_velocity.velocities / 1000, gather.offsets)
+        return cls(gather.offsets, crossover_times)

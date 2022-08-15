@@ -69,32 +69,6 @@ class BaseCoherency:
         """np.ndarray of floats: The distance between source and receiver for each trace. Measured in meters."""
         return self.gather.offsets  # m
 
-<<<<<<< HEAD:seismicpro/src/coherency/coherency.py
-    def get_coords(self, coords_cols="auto"):
-        """Get spatial coordinates of the semblance.
-        The call is redirected to the underlying gather.
-        Parameters
-        ----------
-        coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
-            - If `None`, `Coordinates` with two `None` elements is returned. Their names are "X" and "Y" respectively.
-            - If "auto", columns of headers index of the underlying gather define headers columns to get coordinates
-              from (e.g. 'FieldRecord' is mapped to a ("SourceX", "SourceY") pair).
-            - If 2 element array-like, `coords_cols` directly define underlying gather headers to get coordinates from.
-            In the last two cases index or column values are supposed to be unique for all traces in the underlying
-            gather and the names of the returned coordinates correspond to source headers columns.
-        Returns
-        -------
-        coords : Coordinates
-            Semblance spatial coordinates.
-        Raises
-        ------
-        ValueError
-            If semblance coordinates are non-unique or more than 2 columns were passed.
-        """
-        return self.gather.get_coords(coords_cols)
-
-=======
->>>>>>> more_fields:seismicpro/src/semblance/semblance.py
     @property
     def coords(self):
         """Coordinates or None: Spatial coordinates of the semblance. Determined by the underlying gather. `None` if
@@ -480,13 +454,6 @@ class Coherency(BaseCoherency):
             The number of evenly spaced points to split time range into to generate graph edges.
         n_velocities : int, defaults to 25
             The number of evenly spaced points to split velocity range into for each time to generate graph edges.
-<<<<<<< HEAD:seismicpro/src/coherency/coherency.py
-        coords_cols : None, "auto" or 2 element array-like, defaults to "auto"
-            Header columns of the underlying gather to get spatial coordinates of the semblance from. See
-            :func:`~Semblance.get_coords` for more details.
-=======
-
->>>>>>> more_fields:seismicpro/src/semblance/semblance.py
         Returns
         -------
         stacking_velocity : StackingVelocity
