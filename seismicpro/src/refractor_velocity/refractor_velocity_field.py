@@ -5,6 +5,7 @@ import pandas as pd
 
 from .refractor_velocity import RefractorVelocity
 from .interactive_plot import FitPlot
+from .utils import get_param_names, postprocess_params, calc_df_to_dump, read_rv, dump_rv
 from ..field import SpatialField
 from ..utils import to_list, Coordinates, IDWInterpolator
 
@@ -20,7 +21,7 @@ class RefractorVelocityField(SpatialField):
     def param_names(self):
         if self.n_refractors is None:
             raise ValueError("The number of refractors is undefined")
-        return ["t0"] + [f"x{i}" for i in range(1, self.n_refractors)] + [f"v{i+1}" for i in range(self.n_refractors)]
+        return get_param_names(self.n_refractors)
 
     @property
     def max_offset(self):
@@ -28,8 +29,42 @@ class RefractorVelocityField(SpatialField):
 
     def validate_items(self, items):
         super().validate_items(items)
-        if len({item.n_refractors for item in items}) != 1:
-            raise ValueError("Each RefractorVelocity instance must describe the same number of refractors")
+        n_refractors_set = {item.n_refractors for item in items}
+        if self.n_refractors is not None:
+            n_refractors_set.add(self.n_refractors)
+        if len(n_refractors_set) != 1:
+            raise ValueError("Each RefractorVelocity must describe the same number of refractors as the field")
+
+    @classmethod
+    def from_file(cls, path, encoding="UTF-8"):
+        """Load RefractorVelocityField from a file.
+
+        File example:
+        SourceX   SourceY        t0        x1        v1        v2 max_offset
+        1111100   2222220     50.00   1000.00   1500.00   2000.00    2000.00
+        ...
+        1111200   2222240     60.00   1050.00   1550.00   1950.00    2050.00
+
+        Parameters
+        ----------
+        path : str,
+            path to the file.
+        encoding : str, defaults to "UTF-8"
+            File encoding.
+
+        Returns
+        -------
+        self : RefractorVelocityField
+            RefractorVelocityField instance created from a file.
+        """
+        # self = cls()
+        coords_list, params_list = read_rv(path, encoding)
+        rv_list = []
+        for coords, params in zip(coords_list, params_list):
+            # max_offset = row[-1]
+            rv = RefractorVelocity(params=params, coords=coords) #, max_offset=max_offset)
+            rv_list.append(rv)
+        return cls(rv_list)
 
     def update(self, items):
         items = to_list(items)
@@ -42,31 +77,12 @@ class RefractorVelocityField(SpatialField):
     def item_to_values(item):
         return np.array(list(item.params.values()))
 
-    @staticmethod
-    def _postprocess_values(values):
-        n_refractors = values.shape[1] // 2
-
-        # Ensure that t0 is non-negative
-        np.clip(values[:, 0], 0, None, out=values[:, 0])
-
-        # Ensure that velocities of refractors are non-negative and increasing
-        velocities = values[:, n_refractors:]
-        np.clip(velocities[:, 0], 0, None, out=velocities[:, 0])
-        np.maximum.accumulate(velocities, axis=1, out=velocities)
-
-        # Ensure that crossover offsets are non-negative and increasing
-        if n_refractors > 1:
-            cross_offsets = values[:, 1:n_refractors]
-            np.clip(cross_offsets[:, 0], 0, None, out=cross_offsets[:, 0])
-            np.maximum.accumulate(cross_offsets, axis=1, out=cross_offsets)
-
     def _interpolate(self, coords):
         values = self.interpolator(coords)
-        self._postprocess_values(values)
-        return values
+        return postprocess_params(values)
 
     def construct_item(self, values, coords):
-        return self.item_class.from_params(dict(zip(self.param_names, values)), coords=coords)
+        return self.item_class(**dict(zip(self.param_names, values)), coords=coords)
 
     def smooth(self, radius, min_refractor_points=10):
         coords = self.coords
@@ -76,7 +92,7 @@ class RefractorVelocityField(SpatialField):
 
         ignore_mask = np.zeros((self.n_items, self.n_refractors), dtype=bool)
         for i, rv in enumerate(self.item_container.values()):
-            if rv.offsets is not None:
+            if rv.is_fit:
                 n_refractor_points = np.histogram(rv.offsets, rv.piecewise_offsets, density=False)[0]
                 ignore_mask[i] = n_refractor_points < min_refractor_points
 
@@ -97,19 +113,26 @@ class RefractorVelocityField(SpatialField):
             proper_items_mask = ~ignore_mask[:, i - self.n_refractors]
             smoothed_values[:, i] = smoother(coords[proper_items_mask], values[proper_items_mask, i])(coords)
 
-        self._postprocess_values(smoothed_values)
-
+        # Postprocess smoothed params and construct a new field
+        smoothed_values = postprocess_params(smoothed_values)
         smoothed_items = []
         for rv, val in zip(self.item_container.values(), smoothed_values):
             item = self.construct_item(val, rv.coords)
+
+            # Copy all fit-related items from the parent field
+            item.is_fit = rv.is_fit
+            item.fit_result = rv.fit_result
+            item.init = rv.init
+            item.bounds = rv.bounds
             item.offsets = rv.offsets
             item.fb_times = rv.fb_times
+
             smoothed_items.append(item)
 
         return type(self)(smoothed_items, n_refractors=self.n_refractors, survey=self.survey,
                           is_geographic=self.is_geographic)
 
-    def dump(self, path, encoding="UTF-8", col_size=11):
+    def dump(self, path, encoding="UTF-8", col_space=11):
         """Save the RefractorVelocityField instance to a file.
 
         File example:
@@ -140,56 +163,8 @@ class RefractorVelocityField(SpatialField):
         """
         if self.is_empty:
             raise ValueError("Field is empty. Could not dump empty field.")
-        new_col_size = max(col_size, max(len(name) for name in self.coords_cols) + 1)
-
-        columns = list(self.coords_cols) + list(self.param_names) + ["max_offset"]
-        cols_format = '{:>{new_col_size}}' * 2 + '{:>{col_size}}' * (len(columns) - 2)
-        cols_str = cols_format.format(*columns, new_col_size=new_col_size, col_size=col_size)
-
-        values = np.array([list(item.params.values()) for coords, item in self.item_container.items()])
-        max_offsets = np.vstack([item.max_offset for coords, item in self.item_container.items()])
-        data = np.hstack((self.coords, values, max_offsets))
-
-        data_format = ('\n' + "{:>{new_col_size}.0f}" * 2 + '{:>{col_size}.2f}' * (len(columns) - 2)) * data.shape[0]
-        data_str = data_format.format(*data.ravel(), new_col_size=new_col_size, col_size=col_size)
-
-        with open(path, 'w', encoding=encoding) as f:
-            f.write(cols_str + data_str)
-        return self
-
-    @classmethod
-    def load(cls, path, encoding="UTF-8"):
-        """Load RefractorVelocityField from a file.
-
-        File example:
-        SourceX   SourceY        t0        x1        v1        v2 max_offset
-        1111100   2222220     50.00   1000.00   1500.00   2000.00    2000.00
-        ...
-        1111200   2222240     60.00   1050.00   1550.00   1950.00    2050.00
-
-        Parameters
-        ----------
-        path : str,
-            path to the file.
-        encoding : str, defaults to "UTF-8"
-            File encoding.
-
-        Returns
-        -------
-        self : RefractorVelocityField
-            RefractorVelocityField instance created from a file.
-        """
-        self = cls()
-        df = pd.read_csv(path, sep=r'\s+', encoding=encoding)
-        self.n_refractors = (len(df.columns) - 2) // 2
-        rv_list = []
-        for row in df.to_numpy():
-            coords = Coordinates(names=tuple(df.columns[:2]), coords=tuple(row[:2]))
-            params = dict(zip(self.param_names, row[2:-1]))
-            max_offset = row[-1]
-            rv = RefractorVelocity.from_params(params=params, coords=coords, max_offset=max_offset)
-            rv_list.append(rv)
-        self.update(rv_list)
+        df_list = [calc_df_to_dump(rv) for rv in self.item_container.values()]
+        dump_rv(df_list, path=path, encoding=encoding, col_space=col_space)
         return self
 
     def plot_fit(self, **kwargs):
