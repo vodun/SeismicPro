@@ -57,12 +57,12 @@ class RefractorVelocityField(SpatialField):
         self : RefractorVelocityField
             RefractorVelocityField instance created from a file.
         """
-        # self = cls()
+
         coords_list, params_list = read_rv(path, encoding)
         rv_list = []
         for coords, params in zip(coords_list, params_list):
             # max_offset = row[-1]
-            rv = RefractorVelocity(params=params, coords=coords) #, max_offset=max_offset)
+            rv = RefractorVelocity(max_offset=None, coords=coords, **params) #, max_offset=max_offset)
             rv_list.append(rv)
         return cls(rv_list)
 

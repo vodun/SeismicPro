@@ -94,7 +94,6 @@ class RefractorVelocity:
         An interpolator returning expected arrival times for given offsets.
     """
     def __init__(self, max_offset=None, coords=None, **params):
-        params = params["params"]  # TODO: remove when dict support will be added
         self._validate_params(params)
 
         self.n_refractors = len(params) // 2
@@ -228,7 +227,7 @@ class RefractorVelocity:
             RefractorVelocity instance created from a file.
         """
         coords_list, params_list = read_rv(path, encoding)
-        return cls(params=params_list[0], coords=coords_list[0])
+        return cls(max_offset=None, coords=coords_list[0], **params_list[0])
 
     @classmethod
     def from_constant_velocity(cls, velocity, max_offset=None, coords=None):
