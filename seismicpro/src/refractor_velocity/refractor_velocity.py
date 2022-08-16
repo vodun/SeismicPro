@@ -114,7 +114,7 @@ class RefractorVelocity:
 
     @classmethod
     def from_first_breaks(cls, offsets, fb_times, init=None, bounds=None, n_refractors=None, loss="L1", huber_coef=20,
-                          coords=None, **kwargs):
+                          tol=1e-5, coords=None, **kwargs):
         """Create a `RefractorVelocity` instance from offsets and times of first breaks. At least one of `init`,
         `bounds` or `n_refractors` must be passed.
 
@@ -174,8 +174,8 @@ class RefractorVelocity:
         bounds = {name: bounds[name] for name in param_names}
 
         # Calculate arrays of initial params and their bounds to be passed to minimize
-        init_array = np.array([init[name] for name in param_names])
-        bounds_array = np.array([bounds[name] for name in param_names])
+        init_array = cls._scale_params(np.array([init[name] for name in param_names], dtype=np.float32))
+        bounds_array = cls._scale_params(np.array([bounds[name] for name in param_names], dtype=np.float32))
 
         # Define model constraints
         crossover_offsets_ascend = {
@@ -189,9 +189,11 @@ class RefractorVelocity:
 
         # Fit a piecewise-linear velocity model
         loss_fn = partial(cls.calculate_loss, loss=loss, huber_coef=huber_coef)
-        fit_result = minimize(loss_fn, args=(offsets, fb_times), x0=init_array, bounds=bounds_array, method="SLSQP",
-                              constraints=[crossover_offsets_ascend, velocities_ascend], **kwargs)
-        params = dict(zip(param_names, postprocess_params(fit_result.x)))
+        fit_result = minimize(loss_fn, args=(offsets, fb_times), x0=init_array, bounds=bounds_array,
+                              constraints=[crossover_offsets_ascend, velocities_ascend],
+                              method="SLSQP", tol=tol, options=kwargs)
+        param_values = postprocess_params(cls._unscale_params(fit_result.x.copy()))
+        params = dict(zip(param_names, param_values))
 
         # Calculate max offset that can be described by the model
         max_offset = offsets.max()
@@ -384,6 +386,18 @@ class RefractorVelocity:
             piecewise_times[i + 1] = piecewise_times[i] + 1000 * (cross - prev_cross) / vel  # m/s to km/s
         return piecewise_offsets, piecewise_times
 
+    @staticmethod
+    def _scale_params(params):
+        params[0] /= 100
+        params[1:] /= 1000
+        return params
+
+    @staticmethod
+    def _unscale_params(params):
+        params[0] *= 100
+        params[1:] *= 1000
+        return params
+
     @classmethod
     def calculate_loss(cls, params, offsets, fb_times, loss='L1', huber_coef=20):
         """Calculate the result of the loss function based on the passed args.
@@ -423,7 +437,7 @@ class RefractorVelocity:
         ValueError
             If given `loss` does not exist.
         """
-        piecewise_offsets, piecewise_times = cls._calc_knots_by_params(params, offsets.max())
+        piecewise_offsets, piecewise_times = cls._calc_knots_by_params(cls._unscale_params(params), offsets.max())
         abs_diff = np.abs(np.interp(offsets, piecewise_offsets, piecewise_times) - fb_times)
         if loss == 'MSE':
             return (abs_diff ** 2).mean()
