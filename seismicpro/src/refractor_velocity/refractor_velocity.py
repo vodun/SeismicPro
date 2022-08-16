@@ -182,7 +182,7 @@ class RefractorVelocity:
         bounds_array = cls._scale_params(np.array(list(bounds.values()), dtype=np.float32))
 
         # Scale minimum crossover and velocity increases to match params units and clip them above so that initial
-        # values don't violate the constraint
+        # values don't violate model constraints
         min_crossover_increase = np.clip(min_crossover_increase / 1000, 0, np.diff(init_array[1:n_refractors]))
         min_velocity_increase = np.clip(min_velocity_increase / 1000, 0, np.diff(init_array[n_refractors:]))
 
@@ -253,7 +253,7 @@ class RefractorVelocity:
         """Return the expected times of first breaks for the given offsets."""
         return self.interpolator(offsets)
 
-    # Validation of model parameters correctness
+    # Methods to validate model parameters and their bounds for correctness
 
     @staticmethod
     def _validate_params_names(params):
@@ -302,7 +302,7 @@ class RefractorVelocity:
             if out_of_bounds:
                 raise ValueError(f"Values of the following parameters are out of their bounds: {out_of_bounds}")
 
-    # Methods for init and bounds calculation
+    # Methods to calculate initial model parameters and their bounds
 
     @staticmethod
     def _scale_standard(data):
@@ -370,6 +370,18 @@ class RefractorVelocity:
     # Loss definition
 
     @staticmethod
+    def _scale_params(params):
+        params[0] /= 100
+        params[1:] /= 1000
+        return params
+
+    @staticmethod
+    def _unscale_params(params):
+        params[0] *= 100
+        params[1:] *= 1000
+        return params
+
+    @staticmethod
     def _calc_knots_by_params(params, max_offset=None):
         """Calculate the coordinates of the knots of a piecewise linear function based on the given `params` and
         `max_offset`."""
@@ -385,18 +397,6 @@ class RefractorVelocity:
         for i, (cross, prev_cross, vel) in enumerate(params_zip):
             piecewise_times[i + 1] = piecewise_times[i] + 1000 * (cross - prev_cross) / vel  # m/s to km/s
         return piecewise_offsets, piecewise_times
-
-    @staticmethod
-    def _scale_params(params):
-        params[0] /= 100
-        params[1:] /= 1000
-        return params
-
-    @staticmethod
-    def _unscale_params(params):
-        params[0] *= 100
-        params[1:] *= 1000
-        return params
 
     @classmethod
     def calculate_loss(cls, params, offsets, times, loss='L1', huber_coef=20):
