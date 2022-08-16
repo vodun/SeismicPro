@@ -89,7 +89,7 @@ class RefractorVelocityField(SpatialField):
             item.init = rv.init
             item.bounds = rv.bounds
             item.offsets = rv.offsets
-            item.fb_times = rv.fb_times
+            item.times = rv.times
 
             smoothed_items.append(item)
 

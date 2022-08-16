@@ -108,10 +108,10 @@ class RefractorVelocity:
         self.init = None
         self.bounds = None
         self.offsets = None
-        self.fb_times = None
+        self.times = None
 
     @classmethod
-    def from_first_breaks(cls, offsets, fb_times, init=None, bounds=None, n_refractors=None, relative_margin=0.5,
+    def from_first_breaks(cls, offsets, times, init=None, bounds=None, n_refractors=None, relative_margin=0.5,
                           min_velocity_increase=0, min_crossover_increase=0, loss="L1", huber_coef=20, tol=1e-5,
                           coords=None, **kwargs):
         """Create a `RefractorVelocity` instance from offsets and times of first breaks. At least one of `init`,
@@ -121,7 +121,7 @@ class RefractorVelocity:
         ----------
         offsets : 1d ndarray
             Offsets of the traces. Measured in meters.
-        fb_times : 1d ndarray
+        times : 1d ndarray
             First break times. Measured in milliseconds.
         init : dict, defaults to None
             Initial parameters of a velocity model.
@@ -155,7 +155,7 @@ class RefractorVelocity:
         bounds = {} if bounds is None else bounds
 
         offsets = np.array(offsets)
-        fb_times = np.array(fb_times)
+        times = np.array(times)
 
         # If neither initial value nor bounds are given for t0, it is fit only by passed n_refractors. The obtained
         # estimate may be noisy in case when little to no points appear in first refractors resulting in inadequate
@@ -163,8 +163,7 @@ class RefractorVelocity:
         expand_t0_bounds = ("t0" not in init) and ("t0" not in bounds)
 
         # Calculate initial value and bounds for each parameter by given init, bounds and n_refractors
-        init = {**cls._calc_init_by_layers(offsets, fb_times, n_refractors),
-                **cls._calc_init_by_bounds(bounds), **init}
+        init = {**cls._calc_init_by_layers(offsets, times, n_refractors), **cls._calc_init_by_bounds(bounds), **init}
         bounds = {**cls._calc_bounds_by_init(init, relative_margin=relative_margin), **bounds}
         cls._validate_params(init, bounds)
         if expand_t0_bounds:
@@ -199,9 +198,8 @@ class RefractorVelocity:
 
         # Fit a piecewise-linear velocity model
         loss_fn = partial(cls.calculate_loss, loss=loss, huber_coef=huber_coef)
-        fit_result = minimize(loss_fn, args=(offsets, fb_times), x0=init_array, bounds=bounds_array,
-                              constraints=[crossover_offsets_ascend, velocities_ascend],
-                              method="SLSQP", tol=tol, options=kwargs)
+        fit_result = minimize(loss_fn, args=(offsets, times), method="SLSQP", tol=tol, options=kwargs, x0=init_array,
+                              bounds=bounds_array, constraints=[crossover_offsets_ascend, velocities_ascend])
         param_values = postprocess_params(cls._unscale_params(fit_result.x.copy()))
         params = dict(zip(param_names, param_values))
 
@@ -212,7 +210,7 @@ class RefractorVelocity:
         self.init = init
         self.bounds = bounds
         self.offsets = offsets
-        self.fb_times = fb_times
+        self.times = times
         return self
 
     @classmethod
@@ -316,7 +314,7 @@ class RefractorVelocity:
         return data_scaled, mean, std
 
     @classmethod
-    def _calc_init_by_layers(cls, offsets, fb_times, n_refractors=None):
+    def _calc_init_by_layers(cls, offsets, times, n_refractors=None):
         """Calculates `init` dict by a given an estimated quantity of layers.
 
         Method splits the first breaks times into `n_refractors` equal part by cross offsets and fits a separate linear
@@ -344,7 +342,7 @@ class RefractorVelocity:
             # Independently scale data for each refractor
             mask = (offsets > cross_offsets[i]) & (offsets <= cross_offsets[i + 1])
             scaled_offsets, mean_offset, std_offset = cls._scale_standard(offsets[mask])
-            scaled_times, mean_time, std_time = cls._scale_standard(fb_times[mask])
+            scaled_times, mean_time, std_time = cls._scale_standard(times[mask])
             if std_offset and std_time:
                 lin_reg = SGDRegressor(loss='huber', penalty=None, shuffle=True, epsilon=.1, eta0=0.1, alpha=0.01,
                                        tol=1e-6, max_iter=1000, learning_rate='optimal')
@@ -401,12 +399,12 @@ class RefractorVelocity:
         return params
 
     @classmethod
-    def calculate_loss(cls, params, offsets, fb_times, loss='L1', huber_coef=20):
+    def calculate_loss(cls, params, offsets, times, loss='L1', huber_coef=20):
         """Calculate the result of the loss function based on the passed args.
 
         Method calls `calc_knots_by_params` to calculate piecewise linear attributes of a RefractorVelocity instance.
         After that, the method calculates the loss function between the true first breaks times stored in the
-        `self.fb_times` and predicted piecewise linear function. The loss function is calculated at the offsets points.
+        `self.times` and predicted piecewise linear function. The loss function is calculated at the offsets points.
 
         Piecewise linear function is defined by the given `args`. `args` should be list-like and have the following
         structure:
@@ -440,7 +438,7 @@ class RefractorVelocity:
             If given `loss` does not exist.
         """
         piecewise_offsets, piecewise_times = cls._calc_knots_by_params(cls._unscale_params(params), offsets.max())
-        abs_diff = np.abs(np.interp(offsets, piecewise_offsets, piecewise_times) - fb_times)
+        abs_diff = np.abs(np.interp(offsets, piecewise_offsets, piecewise_times) - times)
         if loss == 'MSE':
             return (abs_diff ** 2).mean()
         if loss == 'huber':
@@ -507,7 +505,7 @@ class RefractorVelocity:
         set_ticks(ax, "x", tick_labels=None, label="offset, m", **x_ticker)
         set_ticks(ax, "y", tick_labels=None, label="time, ms", **y_ticker)
 
-        ax.scatter(self.offsets, self.fb_times, s=1, color='black', label='first breaks')
+        ax.scatter(self.offsets, self.times, s=1, color='black', label='first breaks')
         self._plot_lines(ax, curve_label='offset-traveltime curve', curve_color='red',
                          crossoffset_label='crossover point', crossover_color='blue')
 
