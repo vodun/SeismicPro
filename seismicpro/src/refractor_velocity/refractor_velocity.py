@@ -114,7 +114,8 @@ class RefractorVelocity:
 
     @classmethod
     def from_first_breaks(cls, offsets, fb_times, init=None, bounds=None, n_refractors=None, relative_margin=0.5,
-                          loss="L1", huber_coef=20, tol=1e-5, coords=None, **kwargs):
+                          min_velocity_increase=0, min_crossover_increase=0, loss="L1", huber_coef=20, tol=1e-5,
+                          coords=None, **kwargs):
         """Create a `RefractorVelocity` instance from offsets and times of first breaks. At least one of `init`,
         `bounds` or `n_refractors` must be passed.
 
@@ -160,7 +161,7 @@ class RefractorVelocity:
 
         # If neither initial value nor bounds are given for t0, it is fit only by passed n_refractors. The obtained
         # estimate may be noisy in case when little to no points appear in first refractors resulting in inadequate
-        # bounds for optimization. Bounds are set to be at least [0, 200] ms to handle the issue.
+        # bounds for optimization. Bounds are further set to be at least [0, 200] ms to handle the issue.
         expand_t0_bounds = ("t0" not in init) and ("t0" not in bounds)
 
         # Calculate initial value and bounds for each parameter by given init, bounds and n_refractors
@@ -175,7 +176,7 @@ class RefractorVelocity:
         n_refractors = len(init) // 2
         param_names = get_param_names(n_refractors)
 
-        # Store init and bounds in order defined by param_names
+        # Store init and bounds in the order defined by param_names
         init = {name: init[name] for name in param_names}
         bounds = {name: bounds[name] for name in param_names}
 
@@ -183,14 +184,19 @@ class RefractorVelocity:
         init_array = cls._scale_params(np.array(list(init.values()), dtype=np.float32))
         bounds_array = cls._scale_params(np.array(list(bounds.values()), dtype=np.float32))
 
+        # Scale minimum crossover and velocity increases to match params units and clip them above so that initial
+        # values don't violate the constraint
+        min_crossover_increase = np.clip(min_crossover_increase / 1000, 0, np.diff(init_array[1:n_refractors]))
+        min_velocity_increase = np.clip(min_velocity_increase / 1000, 0, np.diff(init_array[n_refractors:]))
+
         # Define model constraints
         crossover_offsets_ascend = {
             "type": "ineq",
-            "fun": lambda x: np.diff(x[1:n_refractors])
+            "fun": lambda x: np.diff(x[1:n_refractors]) - min_crossover_increase
         }
         velocities_ascend = {
             "type": "ineq",
-            "fun": lambda x: np.diff(x[n_refractors:])
+            "fun": lambda x: np.diff(x[n_refractors:]) - min_velocity_increase
         }
 
         # Fit a piecewise-linear velocity model
