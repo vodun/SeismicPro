@@ -357,15 +357,12 @@ class RefractorVelocity:
     @staticmethod
     def _calc_init_by_bounds(bounds):
         """Return dict with a calculated init from a bounds dict."""
-        return {key: val1 + (val2 - val1) / 3 for key, (val1, val2) in bounds.items()}
+        return {key: (val1 + val2) / 2 for key, (val1, val2) in bounds.items()}
 
     @staticmethod
     def _calc_bounds_by_init(init):
         """Return dict with calculated bounds from a init dict."""
-        bounds = {key: [val / 2, val * 2] for key, val in init.items()}
-        if 't0' in init:
-            bounds['t0'] = [min(0, bounds['t0'][0]), max(200, bounds['t0'][1])]
-        return bounds
+        return {key: [-np.inf, np.inf] for key in init}
 
     # Loss definition
 
