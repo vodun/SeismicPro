@@ -362,7 +362,7 @@ class RefractorVelocity:
     @staticmethod
     def _calc_bounds_by_init(init):
         """Return dict with calculated bounds from a init dict."""
-        return {key: [-np.inf, np.inf] for key in init}
+        return {key: [0, np.inf] for key in init}
 
     # Loss definition
 
