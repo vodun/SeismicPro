@@ -104,7 +104,7 @@ class RefractorVelocity:
         self.interpolator = interp1d(self.piecewise_offsets, self.piecewise_times)
         self.coords = coords
 
-        # Fit-related attributes
+        # Fit-related attributes, set only when from_first_breaks is called
         self.is_fit = False
         self.fit_result = None
         self.init = None
@@ -113,8 +113,8 @@ class RefractorVelocity:
         self.fb_times = None
 
     @classmethod
-    def from_first_breaks(cls, offsets, fb_times, init=None, bounds=None, n_refractors=None, loss="L1", huber_coef=20,
-                          tol=1e-5, coords=None, **kwargs):
+    def from_first_breaks(cls, offsets, fb_times, init=None, bounds=None, n_refractors=None, relative_margin=0.5,
+                          loss="L1", huber_coef=20, tol=1e-5, coords=None, **kwargs):
         """Create a `RefractorVelocity` instance from offsets and times of first breaks. At least one of `init`,
         `bounds` or `n_refractors` must be passed.
 
@@ -150,20 +150,26 @@ class RefractorVelocity:
             If `n_refractors` is less than 1.
             If passed `init` and/or `bounds` keys are insufficient or excessive.
         """
-        if all((param is None for param in (init, bounds, n_refractors))):
+        if all(param is None for param in (init, bounds, n_refractors)):
             raise ValueError("At least one of `init`, `bounds` or `n_refractors` must be defined")
+        init = {} if init is None else init
+        bounds = {} if bounds is None else bounds
+
         offsets = np.array(offsets)
         fb_times = np.array(fb_times)
 
+        # If neither initial value nor bounds are given for t0, it is fit only by passed n_refractors. The obtained
+        # estimate may be noisy in case when little to no points appear in first refractors resulting in inadequate
+        # bounds for optimization. Bounds are set to be at least [0, 200] ms to handle the issue.
+        expand_t0_bounds = ("t0" not in init) and ("t0" not in bounds)
+
         # Calculate initial value and bounds for each parameter by given init, bounds and n_refractors
-        if init is None:
-            init = {}
-        if bounds is None:
-            bounds = {}
         init = {**cls._calc_init_by_layers(offsets, fb_times, n_refractors),
                 **cls._calc_init_by_bounds(bounds), **init}
-        bounds = {**cls._calc_bounds_by_init(init), **bounds}
+        bounds = {**cls._calc_bounds_by_init(init, relative_margin=relative_margin), **bounds}
         cls._validate_params(init, bounds)
+        if expand_t0_bounds:
+            bounds["t0"] = [min(0, bounds["t0"][0]), max(200, bounds["t0"][1])]
 
         # Obtain the number of refractors and get names of model parameters in a canonical order
         n_refractors = len(init) // 2
@@ -174,8 +180,8 @@ class RefractorVelocity:
         bounds = {name: bounds[name] for name in param_names}
 
         # Calculate arrays of initial params and their bounds to be passed to minimize
-        init_array = cls._scale_params(np.array([init[name] for name in param_names], dtype=np.float32))
-        bounds_array = cls._scale_params(np.array([bounds[name] for name in param_names], dtype=np.float32))
+        init_array = cls._scale_params(np.array(list(init.values()), dtype=np.float32))
+        bounds_array = cls._scale_params(np.array(list(bounds.values()), dtype=np.float32))
 
         # Define model constraints
         crossover_offsets_ascend = {
@@ -360,9 +366,9 @@ class RefractorVelocity:
         return {key: (val1 + val2) / 2 for key, (val1, val2) in bounds.items()}
 
     @staticmethod
-    def _calc_bounds_by_init(init):
+    def _calc_bounds_by_init(init, relative_margin=0.5):
         """Return dict with calculated bounds from a init dict."""
-        return {key: [0, np.inf] for key in init}
+        return {key: [val * (1 - relative_margin), val * (1 + relative_margin)] for key, val in init.items()}
 
     # Loss definition
 
