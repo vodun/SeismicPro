@@ -93,14 +93,12 @@ class RefractorVelocity:
     interpolator : callable
         An interpolator returning expected arrival times for given offsets.
     """
-    def __init__(self, max_offset=None, coords=None, **params):
+    def __init__(self, coords=None, **params):
         self._validate_params(params)
 
         self.n_refractors = len(params) // 2
         self.params = {name: params[name] for name in self.param_names}  # Store params in order defined by param_names
-        params_values = np.array(list(self.params.values()))
-        self.piecewise_offsets, self.piecewise_times = self._calc_knots_by_params(params_values, max_offset=max_offset)
-        self.max_offset = max_offset if self.piecewise_offsets[-1] == max_offset else None
+        self.piecewise_offsets, self.piecewise_times = self._calc_knots_by_params(np.array(list(self.params.values())))
         self.interpolator = interp1d(self.piecewise_offsets, self.piecewise_times)
         self.coords = coords
 
@@ -207,13 +205,8 @@ class RefractorVelocity:
         param_values = postprocess_params(cls._unscale_params(fit_result.x.copy()))
         params = dict(zip(param_names, param_values))
 
-        # Calculate max offset that can be described by the model
-        max_offset = offsets.max()
-        if n_refractors > 1 and params[f"x{n_refractors - 1}"] > max_offset:
-            max_offset = None  # Max offset is undefined if no data appeared in the last refractor
-
         # Construct a refractor velocity instance
-        self = cls(coords=coords, max_offset=max_offset, **params)
+        self = cls(coords=coords, **params)
         self.is_fit = True
         self.fit_result = fit_result
         self.init = init
@@ -223,7 +216,7 @@ class RefractorVelocity:
         return self
 
     @classmethod
-    def from_constant_velocity(cls, velocity, max_offset=None, coords=None):
+    def from_constant_velocity(cls, velocity, coords=None):
         """Define a 1-layer near-surface velocity model with given velocity of the first layer and zero intercept time.
 
         Parameters
@@ -243,7 +236,7 @@ class RefractorVelocity:
         ValueError
             If passed `velocity` is negative.
         """
-        return cls(t0=0, v1=velocity, coords=coords, max_offset=max_offset)
+        return cls(t0=0, v1=velocity, coords=coords)
 
     @property
     def param_names(self):
