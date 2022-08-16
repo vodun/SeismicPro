@@ -13,6 +13,7 @@ from ..decorators import batch_method, plotter
 from ..gather.utils.correction import get_hodograph
 from ..stacking_velocity import StackingVelocity, calculate_stacking_velocity
 from ..utils import add_colorbar, set_ticks, set_text_formatting
+from ..gather.utils import correction
 
 
 class BaseCoherency:
@@ -37,7 +38,7 @@ class BaseCoherency:
     """
     def __init__(self, gather, win_size, mode):
         self.gather = gather
-        self.gather_data = np.ascontiguousarray(gather.data.T)
+        self.gather_data = gather.data
         self.win_size = win_size  # samples
 
         coherency_dict = {
@@ -171,12 +172,8 @@ class BaseCoherency:
         t_win_size_min_ix = max(0, t_min_ix - win_size)
         t_win_size_max_ix = min(len(times) - 1, t_max_ix + win_size)
 
-        corrected_gather = np.empty((t_win_size_max_ix - t_win_size_min_ix + 1, gather_data.shape[1]),
-                                    dtype=np.float32)
-        for i in prange(t_win_size_min_ix, t_win_size_max_ix):
-            nmo_func(gather_data, times[i], offsets, velocity, sample_rate,
-                     out=corrected_gather[i - t_win_size_min_ix], fill_value=np.nan)
-
+        new_times = times[t_win_size_min_ix: t_win_size_max_ix + 1]
+        corrected_gather = correction.apply_nmo(gather_data, times, offsets, np.repeat(velocity, len(times)), sample_rate).T
 
         numerator, denominator = coherency_func(corrected_gather)
         numerator[np.isnan(numerator)] = 0
@@ -366,12 +363,12 @@ class Coherency(BaseCoherency):
         semblance : 2d np.ndarray
             Array with vertical velocity semblance values.
         """
-        semblance = np.empty((len(gather_data), len(velocities)), dtype=np.float32)
+        semblance = np.empty((gather_data.shape[1], len(velocities)), dtype=np.float32)
         # TODO: use prange when fixed in numba
         for j in prange(len(velocities)):  # pylint: disable=consider-using-enumerate
             semblance[:, j] = semblance_func(nmo_func=nmo_func, coherency_func=coherency_func, gather_data=gather_data, times=times, offsets=offsets,
                                              velocity=velocities[j], sample_rate=sample_rate, win_size=win_size,
-                                             t_min_ix=0, t_max_ix=len(gather_data))
+                                             t_min_ix=0, t_max_ix=gather_data.shape[1])
         return semblance
 
     def _plot(self, stacking_velocity=None, *, title="Semblance", x_ticker=None, y_ticker=None, grid=False,

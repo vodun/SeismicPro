@@ -3,7 +3,8 @@
 import math
 
 import numpy as np
-from numba import njit
+from numba import njit, prange
+
 
 
 @njit(nogil=True, fastmath=True)
@@ -42,18 +43,19 @@ def get_hodograph(gather_data, time, offsets, velocity, sample_rate, interpolate
     for i, offset in enumerate(offsets):
         amplitude = fill_value
         hodograph_time = np.sqrt(time**2 + (offset/velocity)**2) / sample_rate
-        if hodograph_time <= len(gather_data) - 1:
+        if hodograph_time <= gather_data.shape[1] - 1:
             if interpolate:
                 time_prev = math.floor(hodograph_time)
                 time_next = math.ceil(hodograph_time)
                 weight = time_next - hodograph_time
-                amplitude = gather_data[time_prev, i] * weight + gather_data[time_next, i] * (1 - weight)
+                amplitude = gather_data[i, time_prev] * weight + gather_data[i, time_next] * (1 - weight)
             else:
-                amplitude = gather_data[int(hodograph_time), i]
+                amplitude = gather_data[i, int(hodograph_time)]
         out[i] = amplitude
     return out
 
-@njit(nogil=True)
+
+@njit(nogil=True, parallel=True)
 def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate):
     r"""Perform gather normal moveout correction with given stacking velocities for each timestamp.
 
@@ -87,12 +89,11 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate):
         NMO corrected gather with an ordinary shape of (num_traces, trace_length).
     """
     # Transpose gather_data to increase performance
-    gather_data = gather_data.T
     corrected_gather_data = np.empty_like(gather_data)
-    for i, (time, stacking_velocity) in enumerate(zip(times, stacking_velocities)):
-        corrected_gather_data[i] = get_hodograph(gather_data, time, offsets, stacking_velocity, sample_rate,
-                                                 fill_value=np.nan)
-    return np.ascontiguousarray(corrected_gather_data.T)
+    for i in prange(len(times)):
+        get_hodograph(gather_data, times[i], offsets, stacking_velocities[i], sample_rate, fill_value=np.nan, out=corrected_gather_data[:, i])
+    return corrected_gather_data
+
 
 @njit(nogil=True)
 def apply_lmo(gather_data, trace_delays, fill_value):
