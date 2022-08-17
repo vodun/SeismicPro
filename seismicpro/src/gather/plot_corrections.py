@@ -26,8 +26,8 @@ class SlidingVelocityPlot(InteractivePlot):
     kwargs : misc, optional
         Additional keyword arguments to `InteractivePlot.__init__`.
     """
-    def __init__(self, *, slider_min, slider_max, slide_fn=None, **kwargs):
-        self.slider = widgets.FloatSlider(min=slider_min, max=slider_max, step=1, readout=False,
+    def __init__(self, *, slider_min, slider_max, step=1, slide_fn=None, **kwargs):
+        self.slider = widgets.FloatSlider(min=slider_min, max=slider_max, step=step, readout=False,
                                           layout=widgets.Layout(width="80%"))
         self.slider.observe(slide_fn, "value")
         slider_box = [widgets.HTML(value=str(slider_min)), self.slider, widgets.HTML(value=str(slider_max))]
@@ -60,7 +60,7 @@ class CorrectionPlot:
     * `get_title` - the title of the corrected view,
     * `corrected_gather` - a property returning a corrected gather.
     """
-    def __init__(self, gather, min_vel, max_vel, figsize, show_grid=True, **kwargs):
+    def __init__(self, gather, min_vel, max_vel, figsize, step=0.1, show_grid=True, **kwargs):
         kwargs = {"fontsize": 8, **kwargs}
         event_headers = kwargs.pop("event_headers", None)
         self.event_headers = None
@@ -72,7 +72,7 @@ class CorrectionPlot:
                                                             event_headers=event_headers, **kwargs),
                                                     partial(self.gather.plot, **kwargs)],
                                            slide_fn=self.on_velocity_change, slider_min=min_vel, slider_max=max_vel,
-                                           title=[self.get_title, "Source gather"], figsize=figsize)
+                                           title=[self.get_title, "Source gather"], step=step, figsize=figsize)
 
     def get_title(self):
         """Get title of the corrected view."""

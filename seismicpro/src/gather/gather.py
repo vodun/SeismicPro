@@ -721,7 +721,7 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", copy_src=False)
-    def calculate_coherency(self, velocities, win_size=25, mode="semblance"):
+    def calculate_coherency(self, velocities, win_size=25, mode="semblance", stretch_factor=np.inf):
         """Calculate vertical velocity semblance for the gather.
 
         Notes
@@ -748,7 +748,7 @@ class Gather(TraceContainer, SamplesContainer):
             Calculated vertical velocity semblance.
         """
         gather = self.copy().sort(by="offset")
-        return Coherency(gather=gather, velocities=velocities, win_size=win_size, mode=mode)
+        return Coherency(gather=gather, velocities=velocities, win_size=win_size, mode=mode, stretch_factor=stretch_factor)
         
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
@@ -837,7 +837,7 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
-    def apply_nmo(self, stacking_velocity):
+    def apply_nmo(self, stacking_velocity, crossover_mute=False):
         """Perform gather normal moveout correction using the given stacking velocity.
 
         Notes
@@ -870,7 +870,7 @@ class Gather(TraceContainer, SamplesContainer):
             raise ValueError("stacking_velocity must be of int, float, StackingVelocity or StackingVelocityField type")
 
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
-        self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms, self.sample_rate)
+        self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms, self.sample_rate, crossover_mute)
         return self
 
     #------------------------------------------------------------------------#

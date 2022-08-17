@@ -5,10 +5,13 @@ import math
 import numpy as np
 from numba import njit, prange
 
+from ...muter.utils import compute_crossovers_times
+from .general_utils import mute_gather
+
 
 
 @njit(nogil=True, fastmath=True)
-def get_hodograph(gather_data, time, offsets, velocity, sample_rate, interpolate=True, fill_value=0, out=None):
+def get_hodograph(gather_data, hodograph_times, sample_rate, interpolate=True, fill_value=0, out=None):
     r"""Return gather amplitudes for a reflection traveltime curve starting from time `time` with velocity `velocity`,
     assuming that it follows hyperbolic trajectory as a function of offset given by:
     :math:`t(l) = \sqrt{t(0)^2 + \frac{l^2}{v^2}}`, where:
@@ -39,10 +42,9 @@ def get_hodograph(gather_data, time, offsets, velocity, sample_rate, interpolate
         Gather amplitudes along a hyperbolic traveltime curve.
     """
     if out is None:
-        out = np.empty(len(offsets), dtype=gather_data.dtype)
-    for i, offset in enumerate(offsets):
+        out = np.empty(len(hodograph_times), dtype=gather_data.dtype)
+    for i, hodograph_time in enumerate(hodograph_times / sample_rate):
         amplitude = fill_value
-        hodograph_time = np.sqrt(time**2 + (offset/velocity)**2) / sample_rate
         if hodograph_time <= gather_data.shape[1] - 1:
             if interpolate:
                 time_prev = math.floor(hodograph_time)
@@ -55,8 +57,13 @@ def get_hodograph(gather_data, time, offsets, velocity, sample_rate, interpolate
     return out
 
 
+@njit(nogil=True)
+def compute_hodograph_times(offsets, times, velocities):
+    return np.sqrt(times.reshape(-1, 1)**2 + (offsets/velocities.reshape(-1, 1))**2)
+
+
 @njit(nogil=True, parallel=True)
-def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate):
+def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate, crossover_mute):
     r"""Perform gather normal moveout correction with given stacking velocities for each timestamp.
 
     The process of NMO correction removes the moveout effect on traveltimes, assuming that reflection traveltimes in a
@@ -88,10 +95,16 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate):
     corrected_gather : 2d array
         NMO corrected gather with an ordinary shape of (num_traces, trace_length).
     """
-    # Transpose gather_data to increase performance
-    corrected_gather_data = np.empty_like(gather_data)
-    for i in prange(len(times)):
-        get_hodograph(gather_data, times[i], offsets, stacking_velocities[i], sample_rate, fill_value=np.nan, out=corrected_gather_data[:, i])
+    corrected_gather_data = np.full(gather_data.shape, fill_value=np.float32(np.nan))
+    hodograph_times = compute_hodograph_times(offsets, times, stacking_velocities)
+
+    for i in prange(len(times)):    
+        get_hodograph(gather_data, hodograph_times[i], sample_rate, fill_value=np.nan, out=corrected_gather_data[:, i])    
+ 
+    if crossover_mute:
+        crossovers_times = compute_crossovers_times(hodograph_times) * sample_rate
+        corrected_gather_data = mute_gather(corrected_gather_data, crossovers_times, times, np.nan)
+
     return corrected_gather_data
 
 

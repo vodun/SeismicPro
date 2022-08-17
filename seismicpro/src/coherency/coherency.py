@@ -141,7 +141,7 @@ class BaseCoherency:
     @staticmethod
     @njit(nogil=True, fastmath={'ninf'}, parallel=True)
     def calc_single_velocity_semblance(nmo_func, coherency_func, gather_data, times, offsets, velocity, sample_rate, win_size,
-                                       t_min_ix, t_max_ix):  # pylint: disable=too-many-arguments
+                                       t_min_ix, t_max_ix, stretch_factor):  # pylint: disable=too-many-arguments
         """Calculate semblance for given velocity and time range.
         Parameters
         ----------
@@ -173,7 +173,7 @@ class BaseCoherency:
         t_win_size_max_ix = min(len(times) - 1, t_max_ix + win_size)
 
         new_times = times[t_win_size_min_ix: t_win_size_max_ix + 1]
-        corrected_gather = correction.apply_nmo(gather_data, times, offsets, np.repeat(velocity, len(times)), sample_rate).T
+        corrected_gather = correction.apply_nmo(gather_data, new_times, offsets, np.repeat(velocity, len(new_times)), sample_rate, stretch_factor=stretch_factor).T
 
         numerator, denominator = coherency_func(corrected_gather)
         numerator[np.isnan(numerator)] = 0
@@ -320,14 +320,14 @@ class Coherency(BaseCoherency):
     semblance : 2d np.ndarray
         Array with calculated vertical velocity semblance values.
     """
-    def __init__(self, gather, velocities, win_size=25, mode='semblance'):
+    def __init__(self, gather, velocities, win_size=25, mode='semblance', stretch_factor=np.inf):
         super().__init__(gather, win_size=win_size, mode=mode)
         self.velocities = velocities  # m/s
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
         self.semblance = self._calc_semblance_numba(semblance_func=self.calc_single_velocity_semblance, coherency_func=self.coherency_func,
                                                     nmo_func=get_hodograph, gather_data=self.gather_data,
                                                     times=self.times, offsets=self.offsets, velocities=velocities_ms,
-                                                    sample_rate=self.sample_rate, win_size=self.win_size)
+                                                    sample_rate=self.sample_rate, win_size=self.win_size, stretch_factor=stretch_factor)
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
@@ -348,7 +348,7 @@ class Coherency(BaseCoherency):
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_semblance_numba(semblance_func, nmo_func, coherency_func, gather_data, times, offsets, velocities, 
-                              sample_rate, win_size):
+                              sample_rate, win_size, stretch_factor):
         """Parallelized and njitted method for vertical velocity semblance calculation.
         Parameters
         ----------
@@ -368,7 +368,7 @@ class Coherency(BaseCoherency):
         for j in prange(len(velocities)):  # pylint: disable=consider-using-enumerate
             semblance[:, j] = semblance_func(nmo_func=nmo_func, coherency_func=coherency_func, gather_data=gather_data, times=times, offsets=offsets,
                                              velocity=velocities[j], sample_rate=sample_rate, win_size=win_size,
-                                             t_min_ix=0, t_max_ix=gather_data.shape[1])
+                                             t_min_ix=0, t_max_ix=gather_data.shape[1], stretch_factor=stretch_factor)
         return semblance
 
     def _plot(self, stacking_velocity=None, *, title="Semblance", x_ticker=None, y_ticker=None, grid=False,

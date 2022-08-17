@@ -13,3 +13,9 @@ class MuterField(ValuesAgnosticField, VFUNCFieldMixin):
         items = [cls.item_class.from_refractor_velocity(item, delay=delay, velocity_reduction=velocity_reduction)
                  for item in field.item_container.values()]
         return cls(items, survey=field.survey, is_geographic=field.is_geographic)
+
+    @classmethod
+    def from_stacking_velocity_field(cls, field, stretch_factor=0.65):
+        items = [cls.item_class.from_stacking_velocity(item, stretch_factor=stretch_factor)
+                 for item in field.item_container.values()]
+        return cls(items, survey=field.survey, is_geographic=field.is_geographic)
