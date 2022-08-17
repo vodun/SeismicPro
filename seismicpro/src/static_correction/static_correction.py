@@ -19,7 +19,8 @@ DEFAULT_COLS = {
 }
 
 METRICS = {
-    "mape" : lambda headers: np.abs(headers['y'] - headers['pred']) / headers['FirstBreak']
+    "mape" : lambda headers: np.abs(headers['y'] - headers['pred']) / headers['FirstBreak'],
+    "mae": lambda headers: np.abs(headers['y'] - headers['pred'])
 }
 
 USED_COLS = [*sum(DEFAULT_COLS.values(), []), "offset", "SourceDepth", "CDP_X", "CDP_Y", "SourceSurfaceElevation",
@@ -164,18 +165,34 @@ class StaticCorrection:
 
         return IDWInterpolator(coords, elevations, radius=self.radius, neighbors=self.n_neighbors)
 
-    def optimize(self, n_iters=5, depths_kwargs=None, vel_kwargs=None):
+    def optimize(self, n_iters=5, depths_kwargs=None, depths_coefs=None, vel_kwargs=None, vels_coefs=None):
         """!!!"""
         depths_kwargs = depths_kwargs if depths_kwargs is not None else {}
         vel_kwargs = vel_kwargs if vel_kwargs is not None else {}
 
-        for i in tqdm(range(n_iters)):
-            if i == 0:
-                self.update_depths(name=f'first_depths_opt', **depths_kwargs)
-            self.update_velocity(name=f'{i}_velocity', **vel_kwargs)
-            self.update_depths(name=f'{i}_depth', **depths_kwargs)
+        depths_curr_iter = 0
+        depths_folder = depths_kwargs.get("cp_folder")
 
-    def update_depths(self, method='lsqr', smoothing_radius=0, **kwargs):
+        vel_curr_iter = 0
+        vel_folder = vel_kwargs.get("cp_folder")
+
+        for num_iter in tqdm(range(n_iters)):
+            if num_iter == 0:
+                depths_curr_iter, depths_kwargs = self.__update_cp_name(depths_curr_iter, depths_folder, depths_kwargs)
+                self.update_depths(coefs=depths_coefs, **depths_kwargs)
+            vel_curr_iter, vel_kwargs = self.__update_cp_name(vel_curr_iter, vel_folder, vel_kwargs)
+            vels_coefs = None if num_iter > 1 else vels_coefs
+            self.update_velocity(coefs=vels_coefs, **vel_kwargs)
+            depths_curr_iter, depths_kwargs = self.__update_cp_name(depths_curr_iter, depths_folder, depths_kwargs)
+            self.update_depths(**depths_kwargs)
+
+    def __update_cp_name(self, curr_iter, folder_name, kwargs):
+        if folder_name is not None:
+            kwargs["cp_folder"] = folder_name + f"_{curr_iter}"
+            curr_iter += 1
+        return curr_iter, kwargs
+
+    def update_depths(self, method='lsqr', smoothing_radius=0, coefs=None, **kwargs):
         headers = self._add_params_to_headers(headers=self.headers)
         layer_matrixes = []
         ixs = []
@@ -187,9 +204,10 @@ class StaticCorrection:
             layer_matrixes.append(sparse.hstack((source_matrix, rec_matrix)))
         matrix = sparse.vstack(layer_matrixes)
 
-        coefs = np.zeros(matrix.shape[1])
-        if self.interp_layers_els[0] is not None:
-            coefs = np.concatenate((self._get_coefs("source"), self._get_coefs("rec")))
+        if coefs is None:
+            coefs = np.zeros(matrix.shape[1])
+            if self.interp_layers_els[0] is not None:
+                coefs = np.concatenate((self._get_coefs("source"), self._get_coefs("rec")))
 
         if method == 'lsqr':
             result = sparse.linalg.lsqr(matrix, headers['y'].iloc[ixs], x0=coefs, **kwargs)[0]
@@ -198,8 +216,12 @@ class StaticCorrection:
             matrix, norms = normalize(matrix, 'max', axis=0, return_norm=True)
             target = headers['y'].iloc[ixs].values
             coefs = np.random.randint(1, 50, size=(matrix.shape[1], 1)) if np.sum(coefs) == 0 else coefs
-            result = optimize(matrix=matrix, target=target, weights=coefs.reshape(-1, 1), **kwargs)
-            result = result / norms
+            result = optimize(matrix=matrix, target=target, weights=(coefs.reshape(-1) * norms).reshape(-1, 1),
+                              norms=norms, **kwargs)
+            self.process_depths(result=result, smoothing_radius=smoothing_radius, matrix=matrix, ixs=ixs)
+
+    def process_depths(self, result, smoothing_radius=0, matrix=None, ixs=None):
+        # This function is needed to calculate depths if restoring from checkpoint
         sources = result[:self.n_sources * self.n_layers].reshape(self.n_layers, self.n_sources)
         recs = result[self.n_sources * self.n_layers:].reshape(self.n_layers, self.n_recs)
 
@@ -207,9 +229,9 @@ class StaticCorrection:
         sources[0] += upholes # Do we always add upholes to the first layer?
 
         self.interp_layers_els = self._mulitlayer_align_by_proximity(sources, recs, smoothing_radius=smoothing_radius)
-
-        self.headers["pred"].iloc[ixs] = matrix.dot(result)
-        self.matrix = matrix
+        if matrix is not None:
+            coefs = np.concatenate((self._get_coefs("source"), self._get_coefs("rec")))
+            self.headers["pred"].iloc[ixs] = matrix.dot(coefs)
 
     def _add_params_to_headers(self, headers):
         headers = headers.merge(self.source_params, on=self._get_cols("source") + self.source_headers)
@@ -260,21 +282,23 @@ class StaticCorrection:
             interps.append(IDWInterpolator(self.coords, joint_interp(self.coords), radius=self.radius, neighbors=self.n_neighbors))
         return interps
 
-    def update_velocity(self, method='lsmr', max_wv=None, smoothing_radius=0, **kwargs):
+    def update_velocity(self, method='lsmr', max_wv=None, smoothing_radius=0, coefs=None, **kwargs):
         layer_headers = self._add_params_to_headers(headers=self.headers[self.headers['layer']==1])
         ohe_source, unique_sources, ix_sources = self._get_sparse_velocities("source", layer_headers, 1)
         ohe_rec, unique_recs, ix_recs = self._get_sparse_velocities("rec", layer_headers, 1)
         matrix = sparse.hstack((ohe_source, ohe_rec))
 
-        coefs = layer_headers.iloc[ix_sources]['v1_source'].tolist() + layer_headers.iloc[ix_recs]['v1_rec'].tolist()
+        if coefs is None:
+            coefs = layer_headers.iloc[ix_sources]['v1_source'].tolist() + layer_headers.iloc[ix_recs]['v1_rec'].tolist()
         if method == 'lsmr':
             result = sparse.linalg.lsmr(matrix, layer_headers['y'], x0=np.array(coefs), **kwargs)[0]
         elif method == 'nn':
             matrix = matrix.tocsr()
             matrix, norms = normalize(matrix, 'max', axis=0, return_norm=True)
-            result = optimize(matrix=matrix, target=layer_headers['y'].values, weights=coefs, **kwargs)
-            result = result / norms
+            result = optimize(matrix=matrix, target=layer_headers['y'].values, weights=coefs * norms, norms=norms,
+                              **kwargs)
 
+        # TODO: Add pred for velocities
         source_v1, rec_v1 = self._calculate_velocities(result, layer_headers, ix_sources, ix_recs, max_wv)
 
         self.interp_v1 = self._align_by_proximity(unique_sources, source_v1, unique_recs, rec_v1, smoothing_radius)

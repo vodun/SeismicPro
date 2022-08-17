@@ -1,3 +1,5 @@
+import os
+
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -29,8 +31,9 @@ class SparseDataset(Dataset):
         return tensor, y
 
 
-def optimize(matrix, target, weights, batch_size, n_epochs, device='cuda:0', dtype=torch.float32, plot_loss=False,
-             optimizer_kwargs=None, sch_kwargs=None, name=None):
+
+def optimize(matrix, target, weights, norms, batch_size, n_epochs, device='cuda:0', dtype=torch.float32, plot_loss=False,
+             optimizer_kwargs=None, sch_kwargs=None, cp_folder=None, cp_frequency=None):
     optimizer_kwargs = {} if optimizer_kwargs is None else optimizer_kwargs
     sch_kwargs = {} if sch_kwargs is None else sch_kwargs
 
@@ -46,7 +49,7 @@ def optimize(matrix, target, weights, batch_size, n_epochs, device='cuda:0', dty
     pos_ix = tuple(zip(pos_ix[: -1], pos_ix[1:]))
 
     loss_list = []
-    for j in tqdm(range(n_epochs)):
+    for n_epoch in tqdm(range(n_epochs)):
         np.random.shuffle(indices)
         for i, idx in enumerate(pos_ix):
             sub_traces, y = sparse_dataset[indices[slice(*idx)]]
@@ -63,5 +66,19 @@ def optimize(matrix, target, weights, batch_size, n_epochs, device='cuda:0', dty
             plt.plot(loss_list)
             plt.show()
         scheduler.step()
-    np.savez(f'loss_{name}.npz', loss_list)
-    return weights.ravel().detach().cpu().numpy()
+
+        if cp_frequency is not None and (n_epoch % cp_frequency==0 or n_epoch == n_epochs-1):
+            n_epoch = n_epoch if n_epoch != n_epochs-1 else 'LAST'
+            dump_weights = weights.ravel().detach().cpu().numpy() / norms
+            add_checkpoint(folder=cp_folder, weights=dump_weights, loss=loss_list, n_epoch=n_epoch)
+
+    return weights.ravel().detach().cpu().numpy() / norms
+
+
+def add_checkpoint(folder, weights, loss, n_epoch):
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+    weights_path = os.path.join(folder, f"{n_epoch}_epoch_weights.npz")
+    loss_path = os.path.join(folder, f"{n_epoch}_epoch_loss.npz")
+    np.savez(weights_path, weights)
+    np.savez(loss_path, loss)
