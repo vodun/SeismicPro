@@ -2,25 +2,22 @@
 
 import warnings
 
+from functools import partial
+
 import numpy as np
 from scipy import signal
 
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-from seismicpro.batchflow import V, B
-
-from .pipeline_metric import PipelineMetric, pass_calc_args
+from .metrics import Metric
 from ..const import HDR_DEAD_TRACE, EPS
-from .utils import fill_nulls, calc_spikes, get_val_subseq, get_const_subseq
+from .utils import fill_nulls, calc_spikes, get_val_subseq, get_const_subseq, to_list
 
 
-class TracewiseMetric(PipelineMetric):
+class TracewiseMetric(Metric):
     """Base class for tracewise metrics with addidional plotters and aggregations
-
-    Child classes should redefine `get_res` method."""
-
-    args_to_unpack = "gather"
-
+    Child classes should redefine `get_res` method.
+    """
 
     min_value = None
     max_value = None
@@ -31,6 +28,14 @@ class TracewiseMetric(PipelineMetric):
     threshold = 10
     top_ax_y_scale='linear'
 
+
+    def __init__(self, survey, coords_cols, **kwargs):
+        super().__init__(**kwargs)
+        self.survey = survey.reindex(coords_cols)
+
+    def get_views(self, from_headers=True, **kwargs):
+        """List of views with `from_headers` argument defined."""
+        return [partial(getattr(self, view), from_headers=from_headers)  for view in to_list(self.views)], kwargs
 
     @staticmethod
     def get_res(gather, **kwargs):
@@ -44,9 +49,13 @@ class TracewiseMetric(PipelineMetric):
         raise NotImplementedError
 
     @classmethod
-    def filter_res(cls, gather):
+    def filter_res(cls, gather, from_headers=True):
         """Return QC indicator with zero traces masked with `np.nan`
-        and output shape eithet `gater.data.shape`, or (`gather.n_traces`,)."""
+        and output shape either `gater.data.shape`, or (`gather.n_traces`,)."""
+
+        if from_headers and cls.__name__ in gather.headers:
+            return np.stack(gather.headers[cls.__name__].values)
+
         res = cls.get_res(gather)
 
         if HDR_DEAD_TRACE in gather.headers:
@@ -59,17 +68,13 @@ class TracewiseMetric(PipelineMetric):
         return res
 
     @classmethod
-    def aggr(cls, gather, from_headers=None, to_headers=None, tracewise=False):
-        """Return aggregated QC indicator depending on `cls.is_lower_better`
+    def aggr(cls, res, tracewise=False):
+        """Aggregte input depending on `cls.is_lower_better`
 
         Parameters
         ----------
-        gather : SeismicGather
-            input gather
-        from_headers : str or None, optional
-            if not None, the result is taken from the corresponding gather header, it it exists, by default None
-        to_headers : str or None, optional
-            if not None, the tracewise result is written into specified gather heaader, by default None
+        res : np.array
+            input 1d or 2d array
         tracewise : bool, optional
             whether to return tracewise values, or to aggregate result for the whole gather, by default False
 
@@ -78,73 +83,67 @@ class TracewiseMetric(PipelineMetric):
         np.array or float
             aggregated result for the whole gather, or an array of values for each trace
         """
-
-        if from_headers and from_headers in gather.headers:
-            return gather.headers[from_headers].values
-
-        res = cls.filter_res(gather)
-
         fn = np.nanmax if cls.is_lower_better else np.nanmin
 
         tw_res = res if res.ndim == 1 else fn(res, axis=1)
-
-        if to_headers:
-            if isinstance(to_headers, str):
-                twm_hdr = to_headers
-            else:
-                twm_hdr = (from_headers or '_'.join(['twm', cls.__name__, gather.survey.name]))
-            gather.headers[twm_hdr] = tw_res
 
         if tracewise:
             return tw_res
         return fn(tw_res)
 
     @classmethod
-    def calc(cls, gather, from_headers=None, to_headers=None): # pylint: disable=arguments-renamed
+    def calc(cls, gather, from_headers=True): # pylint: disable=arguments-renamed
         """Return an already calculated metric."""
-        return cls.aggr(gather, from_headers, to_headers, tracewise=False)
+        res = cls.filter_res(gather, from_headers=from_headers)
+        return cls.aggr(res, tracewise=False)
 
-    @pass_calc_args
-    def plot_res(cls, gather, ax, from_headers=None, to_headers=None, **kwargs):
+    def plot_res(self, coords, ax, from_headers=True, **kwargs):
         """Gather plot with tracewise indicator on a separate axis"""
-        _ = to_headers
-        gather.plot(ax=ax, **kwargs)
+        _ = kwargs
+        gather = self.survey.get_gather(coords)
+
+        gather.plot(ax=ax)
         divider = make_axes_locatable(ax)
 
-        res = cls.aggr(gather, from_headers, tracewise=True)
+        res = self.filter_res(gather, from_headers=from_headers)
+        res = self.aggr(res, tracewise=True)
 
         top_ax = divider.append_axes("top", sharex=ax, size="12%", pad=0.05)
         top_ax.plot(res, '.--')
-        top_ax.axhline(cls.threshold, alpha=0.5)
+        top_ax.axhline(self.threshold, alpha=0.5)
         top_ax.xaxis.set_visible(False)
-        top_ax.set_yscale(cls.top_ax_y_scale)
+        top_ax.set_yscale(self.top_ax_y_scale)
 
         set_title(top_ax, gather)
 
-    @pass_calc_args
-    def plot_wiggle(cls, gather, ax, **kwargs):
+    def plot_wiggle(self, coords, ax, from_headers=True, **kwargs):
         """"Gather wiggle plot where samples with indicator above/blow `cls.threshold` are in red."""
         _ = kwargs
-        fn = np.greater_equal if cls.is_lower_better else np.less_equal
-        res = fn(cls.filter_res(gather), cls.threshold)
+        gather = self.survey.get_gather(coords)
+
+        fn = np.greater_equal if self.is_lower_better else np.less_equal
+        res = fn(self.filter_res(gather, from_headers=from_headers), self.threshold)
         wiggle_plot_with_filter(gather.data, res, ax, std=0.5)
         set_title(ax, gather)
 
-    @pass_calc_args
-    def plot_image_filter(cls, gather, ax, **kwargs):
+    def plot_image_filter(self, coords, ax, from_headers=True, **kwargs):
         """Gather plot where samples with indicator above/blow `cls.threshold` are highlited."""
         _ = kwargs
-        fn = np.greater_equal if cls.is_lower_better else np.less_equal
-        res = fn(cls.filter_res(gather), cls.threshold)
+        gather = self.survey.get_gather(coords)
+
+        fn = np.greater_equal if self.is_lower_better else np.less_equal
+        res = fn(self.filter_res(gather, from_headers=from_headers), self.threshold)
         image_filter(gather.data, res, ax)
         set_title(ax, gather)
 
-    @pass_calc_args
-    def plot_worst_trace(cls, gather, ax, **kwargs):
+    def plot_worst_trace(self, coords, ax, from_headers=True, **kwargs):
         """Wiggle plot of the trace with the worst indicator value and 2 its neighboring traces."""
         _ = kwargs
-        res = cls.aggr(gather, tracewise=True)
-        plot_worst_trace(ax, gather.data, gather.headers.TraceNumber.values, res, cls.is_lower_better)
+        gather = self.survey.get_gather(coords)
+        res = self.filter_res(gather, from_headers=from_headers)
+
+        res = self.aggr(res, tracewise=True)
+        plot_worst_trace(ax, gather.data, gather.headers.TraceNumber.values, res, self.is_lower_better)
         set_title(ax, gather)
 
 
@@ -376,17 +375,3 @@ class StdFraqMetricGlob(TracewiseMetric):
         res = np.log10(gather.data.std(axis=1) / gather.survey.std)
         return res
 
-def add_metric(ppl, metric_cls, src, **kwargs):
-    """Add PipelineMetrics to a pipeline, and write corresponding tracewise aggregations to a pipeline variable."""
-    acc_name = '_'.join(['mmap', metric_cls.__name__, src])
-    twm_name =  '_'.join(['twm', metric_cls.__name__, src])
-    ppl = (ppl
-           .init_variable(acc_name)
-           .calculate_metric(metric_cls, gather=src, save_to=V(acc_name, mode="a"), to_headers=twm_name, **kwargs)
-           ########## tracewise metics to ppl variable #####################
-           .init_variable(twm_name, [])
-           .apply_parallel(metric_cls.aggr, src=src, dst=twm_name, from_headers=twm_name, tracewise=True)
-           .update(V(twm_name, mode='e'), B(twm_name))
-    )
-
-    return ppl

@@ -18,6 +18,7 @@ from .plot_geometry import SurveyGeometryPlot
 from .utils import ibm_to_ieee, calculate_trace_stats, create_supergather_index
 from ..gather import Gather
 from ..metrics import PartialMetric
+from ..metrics.qc_metric import TracewiseMetric
 from ..containers import GatherContainer, SamplesContainer
 from ..utils import to_list, maybe_copy, get_cols
 from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK
@@ -856,6 +857,25 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         SurveyGeometryPlot(self, **kwargs).plot()
 
+    def _get_coords_cols(self, by):
+        """ convert `by` keyword to names of columns with coordinates """
+        if isinstance(by, str):
+            by_to_coords_cols = {
+                "shot": ["SourceX", "SourceY"],
+                "receiver": ["GroupX", "GroupY"],
+                "midpoint": ["CDP_X", "CDP_Y"],
+                "bin": ["INLINE_3D", "CROSSLINE_3D"],
+            }
+            coords_cols = by_to_coords_cols.get(by)
+            if coords_cols is None:
+                raise ValueError(f"by must be one of {', '.join(by_to_coords_cols.keys())} but {by} given.")
+        else:
+            coords_cols = to_list(by)
+        if len(coords_cols) != 2:
+            raise ValueError("Exactly 2 coordinates headers must be passed")
+        return coords_cols
+
+
     def construct_attribute_map(self, attribute, by, drop_duplicates=False, agg=None, bin_size=None, **kwargs):
         """Construct a map of trace attributes aggregated by gathers.
 
@@ -898,28 +918,114 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         attribute_map : BaseMetricMap
             Constructed attribute map.
         """
-        if isinstance(by, str):
-            by_to_coords_cols = {
-                "shot": ["SourceX", "SourceY"],
-                "receiver": ["GroupX", "GroupY"],
-                "midpoint": ["CDP_X", "CDP_Y"],
-                "bin": ["INLINE_3D", "CROSSLINE_3D"],
-            }
-            coords_cols = by_to_coords_cols.get(by)
-            if coords_cols is None:
-                raise ValueError(f"by must be one of {', '.join(by_to_coords_cols.keys())} but {by} given.")
-        else:
-            coords_cols = to_list(by)
-        if len(coords_cols) != 2:
-            raise ValueError("Exactly 2 coordinates headers must be passed")
+        coords_cols = self._get_coords_cols(by)
 
         if attribute == "fold":
             map_data = self.headers.groupby(coords_cols, as_index=False).size().rename(columns={"size": "Fold"})
         else:
             data_cols = coords_cols + [attribute]
             map_data = pd.DataFrame(self[data_cols], columns=data_cols)
-            if drop_duplicates:
+            if drop_duplicates: # this is for Elevation map
                 map_data.drop_duplicates(inplace=True)
 
         metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
+        return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
+
+    def qc_tracewise(self, metrics_list = [], muted_metrics_list=[], first_breaks_col=HDR_FIRST_BREAK,
+                     chunk_size=1000, inplace=False):
+        """Calculate tracewise QC metrics
+
+        Parameters
+        ----------
+        metrics_list : list of :class:`~metrics.qc_metric import TracewiseMetric`, optional, defaults to []
+            list of metrics, that use raw traces.
+        muted_metrics_list : list of :class:`~metrics.qc_metric import TracewiseMetric`, optional, defaults to []
+            list of metrics that use traces after muting and normalization
+        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+            A column of `self.headers` that contains first arrival times, measured in milliseconds.
+        chunk_size : int, optional, defaults to 1000
+            number of traces loaded on each iteration
+        inplace : bool, optional, defaults to False
+            Whether to transform the survey inplace or process its copy
+
+        Returns
+        -------
+        Survey
+            Survey with matrics written to headers
+
+        Raises
+        ------
+        TypeError
+            If provided metrics are not  :class:`~metrics.qc_metric import TracewiseMetric` subclasses
+        """
+        if not self.dead_traces_marked or self.n_dead_traces:
+            warnings.warn("The survey was not checked for dead traces or they were not removed. "
+                          "Run `remove_dead_traces` first.", RuntimeWarning)
+
+        if not metrics_list and not muted_metrics_list:
+            print("empty metrics lists")
+            return self
+
+        if muted_metrics_list and HDR_FIRST_BREAK not in self.headers.columns:
+            warnings.warn("First breaks not loaded, muted_metrics will not be computed", RuntimeWarning)
+            muted_metrics_list = []
+
+        for metric_cls in metrics_list + muted_metrics_list:
+            if not isinstance(metric_cls, TracewiseMetric):
+                raise TypeError(f"all metrics must be `TracewiseMetric` subtypes, but {metric_cls.__name__} is not")
+
+        self = self.reindex('TRACE_SEQUENCE_FILE', inplace=inplace)  # pylint: disable=self-cls-assignment
+
+        n_traces = len(self.headers)
+        buf = {metric_cls.__name__: [] for metric_cls in metrics_list + muted_metrics_list}
+        n_chunks = n_traces // chunk_size + (1 if n_traces % chunk_size else 0)
+        for i in tqdm(range(n_chunks)):
+            indices = self.headers.index[i*chunk_size:min(n_traces, (i+1)*chunk_size)]
+            headers = self.get_headers_by_indices(indices)
+
+            raw_gather = self.load_gather(headers)
+            gathers = [raw_gather] * len(metrics_list)
+            if muted_metrics_list:
+                muter = raw_gather.create_muter(first_breaks_col=first_breaks_col)
+                muted = raw_gather.copy().mute(muter=muter, fill_value=np.nan).scale_standard()
+                gathers += [muted] * len(muted_metrics_list)
+
+            for metric_cls, gather in zip(metrics_list + muted_metrics_list, gathers):
+                buf[metric_cls.__name__].extend(list(metric_cls.filter_res(gather, from_headers=False)))
+
+        for name in buf:
+            self.headers[name] = buf[name]
+
+        return self
+
+    def construct_qc_map(self, metric_cls, by, agg=None, bin_size=None, **kwargs):
+        """Construct a map of tracevise metric aggregated by gathers.
+
+        Parameters
+        ----------
+        metric_cls : :class:`~metrics.qc_metric import TracewiseMetric` subclass
+            metric for metric map
+        by : tuple with 2 elements or {"shot", "receiver", "midpoint", "bin"}
+            If `tuple`, survey headers names to get coordinates from.
+            If `str`, gather type to aggregate header values over.
+        agg : str or callable, optional, defaults to "mean"
+            An aggregation function. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
+        bin_size : int, float or array-like with length 2, optional
+            Bin size for X and Y axes. If single `int` or `float`, the same bin size will be used for both axes.
+
+        Returns
+        -------
+        BaseMetricMap
+            Constructed metric map.
+        """
+
+        coords_cols = self._get_coords_cols(by)
+
+        attribute = metric_cls.__name__
+
+        data_cols = coords_cols + [attribute]
+        map_data = pd.DataFrame(self[data_cols], columns=data_cols)
+        map_data[attribute] = metric_cls.aggr(np.stack(map_data[attribute].values), tracewise=True)
+
+        metric = PartialMetric(metric_cls, survey=self, name=attribute, **kwargs)
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
