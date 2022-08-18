@@ -253,8 +253,10 @@ class RefractorVelocity:
         n_refractors = len(init) // 2
         param_names = get_param_names(n_refractors)
 
-        default_params_bounds = np.array([[0, np.inf]] * 2 * n_refractors)
-        default_params_bounds[1:n_refractors, 1] = max_offset  # clip crossover offsets with max offset
+        default_crossover_bounds = [[min_crossover_step, max_offset - min_crossover_step]
+                                    for _ in range(n_refractors - 1)]
+        default_velocity_bounds = [[0, np.inf] for _ in range(n_refractors)]
+        default_params_bounds = [[0, np.inf]] + default_crossover_bounds + default_velocity_bounds
         bounds = {**dict(zip(param_names, default_params_bounds)), **bounds}
         cls._validate_params_bounds(init, bounds)
 
@@ -267,18 +269,19 @@ class RefractorVelocity:
         bounds_array = cls._scale_params(np.array(list(bounds.values()), dtype=np.float32))
 
         # Define model constraints, appropriately scale minimum velocity and crossover offset steps
-        scaled_max_offset = max_offset / 1000
-        scaled_crossover_step = min_crossover_step / 1000
-        scaled_velocity_step = min_velocity_step / 1000
         crossover_offsets_ascend = {
             "type": "ineq",
-            "fun": lambda x: (np.diff(x[1:n_refractors], prepend=0, append=scaled_max_offset) - scaled_crossover_step)
+            "fun": lambda x: np.diff(x[1:n_refractors]) - min_crossover_step / 1000
         }
         velocities_ascend = {
             "type": "ineq",
-            "fun": lambda x: np.diff(x[n_refractors:]) - scaled_velocity_step
+            "fun": lambda x: np.diff(x[n_refractors:]) - min_velocity_step / 1000
         }
-        constraints = [] if n_refractors == 1 else [crossover_offsets_ascend, velocities_ascend]
+        constraints = []
+        if n_refractors > 1:
+            constraints.append(velocities_ascend)
+        if n_refractors > 2:
+            constraints.append(crossover_offsets_ascend)
 
         # Fit a piecewise-linear velocity model
         loss_fn = partial(cls.calculate_loss, offsets=offsets, times=times, max_offset=max_offset,
