@@ -48,7 +48,9 @@ class BaseCoherency:
             "NS": self.normalized_stacked_amplitude,
             "semblance": self.semblance,
             "NE": self.semblance,
-            'CC': self.crosscorrelation
+            'crosscorrelation': self.crosscorrelation,
+            'CC': self.crosscorrelation,
+            'ENCC': self.energy_normalized_crosscorrelation
         }
 
         self.coherency_func = coherency_dict.get(mode)
@@ -112,36 +114,33 @@ class BaseCoherency:
             denominator[i] = np.nansum(corrected_gather[i, :] ** 2) * sum(~np.isnan(corrected_gather[i, :]))
         return numerator, denominator
 
-
     @staticmethod
-    @njit(nogil=True, parallel=True, fastmath=True)
-    def crosscorrelation(arr):
-        ix = np.concatenate((np.array([0]), np.cumsum(np.arange(arr.shape[0] - 1, 0, -1))))
-        res = np.zeros((1 + arr.shape[0] * (arr.shape[0] - 1) // 2, arr.shape[1]))
-        for i in prange(arr.shape[0]):
-            for j in prange(i + 1, arr.shape[0]):
-                res[ix[i] + arr.shape[0] - j] = arr[i] * arr[j]
-        numerator = np.ones(arr.shape[0])
-        denominator = np.ones(arr.shape[0])
+    @njit(nogil=True, parallel=True, fastmath={'ninf'})
+    def crosscorrelation(corrected_gather):
+        numerator = np.zeros(corrected_gather.shape[0])
+        denominator = np.full(corrected_gather.shape[0], 2)
+        for i in prange(corrected_gather.shape[0]):
+            numerator[i] = (np.nansum(corrected_gather[i, :]) ** 2) - np.nansum(corrected_gather[i, :] ** 2)
         return numerator, denominator
 
 
-    # @staticmethod
-    # @njit(nogil=True, fastmath={'ninf'}, parallel=True)
-    # def crosscorrelation(corrected_gather):
-    #     numerator = np.zeros(corrected_gather.shape[0])
-    #     denominator = np.ones(corrected_gather.shape[0])
-    #     for i in prange(corrected_gather.shape[0]):
-    #         s = 0
-    #         for lag in range(1, corrected_gather.shape[1]):
-    #             s += np.sum(corrected_gather[i, :-lag] * corrected_gather[i, lag:])
-    #         numerator[i] = s 
-    #     return numerator, denominator
+    @staticmethod
+    @njit(nogil=True, parallel=True, fastmath={'ninf'})
+    def energy_normalized_crosscorrelation(corrected_gather):
+        numerator = np.zeros(corrected_gather.shape[0])
+        denominator = np.zeros(corrected_gather.shape[0])
+        for i in prange(corrected_gather.shape[0]):
+            input_enerty =  np.nansum(corrected_gather[i, :] ** 2)
+            output_energy = np.nansum(corrected_gather[i, :]) ** 2
+            numerator[i] = output_energy - input_enerty
+            denominator[i] = input_enerty * sum(~np.isnan(corrected_gather[i, :])) / 2
+        return numerator, denominator
+
 
     @staticmethod
     @njit(nogil=True, fastmath={'ninf'}, parallel=True)
     def calc_single_velocity_semblance(nmo_func, coherency_func, gather_data, times, offsets, velocity, sample_rate, win_size,
-                                       t_min_ix, t_max_ix, stretch_factor):  # pylint: disable=too-many-arguments
+                                       t_min_ix, t_max_ix):  # pylint: disable=too-many-arguments
         """Calculate semblance for given velocity and time range.
         Parameters
         ----------
@@ -173,7 +172,7 @@ class BaseCoherency:
         t_win_size_max_ix = min(len(times) - 1, t_max_ix + win_size)
 
         new_times = times[t_win_size_min_ix: t_win_size_max_ix + 1]
-        corrected_gather = correction.apply_nmo(gather_data, new_times, offsets, np.repeat(velocity, len(new_times)), sample_rate, stretch_factor=stretch_factor).T
+        corrected_gather = correction.apply_nmo(gather_data, new_times, offsets, np.repeat(velocity, len(new_times)), sample_rate, crossover_mute=False).T
 
         numerator, denominator = coherency_func(corrected_gather)
         numerator[np.isnan(numerator)] = 0
@@ -190,7 +189,7 @@ class BaseCoherency:
     @staticmethod
     def _plot(semblance, title=None, x_label=None, x_ticklabels=None,  # pylint: disable=too-many-arguments
               x_ticker=None, y_ticklabels=None, y_ticker=None, grid=False, stacking_times_ix=None,
-              stacking_velocities_ix=None, colorbar=True, ax=None, levels = 10, q=1, **kwargs):
+              stacking_velocities_ix=None, colorbar=True, clip_threshold_quantile=0.99, n_levels=10, ax=None, **kwargs):
         """Plot vertical velocity semblance and, optionally, stacking velocity.
         Parameters
         ----------
@@ -217,6 +216,10 @@ class BaseCoherency:
         colorbar : bool or dict, optional, defaults to True
             Whether to add a colorbar to the right of the semblance plot. If `dict`, defines extra keyword arguments
             for `matplotlib.figure.Figure.colorbar`.
+        clip_threshold_quantile : float, optional, defaults to 0.99
+            Clip the semblance value.
+        n_levels: int, optional, defaluts to 10
+            The number of levels in the colorbar.
         ax : matplotlib.axes.Axes, optional, defaults to None
             Axes of the figure to plot on.
         kwargs : misc, optional
@@ -225,17 +228,8 @@ class BaseCoherency:
         # Cast text-related parameters to dicts and add text formatting parameters from kwargs to each of them
         (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
 
-        # Split the range of semblance amplitudes into 16 levels on a log scale,
-        # that will further be used as colormap bins
-        # max_val = np.max(semblance)
-        # levels = (np.logspace(0, 1, num=16, base=500) / 500) * max_val
-        # levels[0] = 0
-
-        # Add level lines and colorize the graph
         cmap = plt.get_cmap('seismic')
-        norm = mcolors.BoundaryNorm(np.linspace(0, np.quantile(semblance, q), levels), cmap.N)
-        x_grid, y_grid = np.meshgrid(np.arange(0, semblance.shape[1]), np.arange(0, semblance.shape[0]))
-#        ax.contour(x_grid, y_grid, semblance, levels, colors='k', linewidths=.5, alpha=.5)
+        norm = mcolors.BoundaryNorm(np.linspace(0, np.quantile(semblance, clip_threshold_quantile), n_levels), cmap.N, clip=True)
         img = ax.imshow(semblance, norm=norm, aspect='auto', cmap=cmap)
         add_colorbar(ax, img, colorbar, y_ticker=y_ticker)
         ax.set_title(**{"label": None, **title})
@@ -320,14 +314,14 @@ class Coherency(BaseCoherency):
     semblance : 2d np.ndarray
         Array with calculated vertical velocity semblance values.
     """
-    def __init__(self, gather, velocities, win_size=25, mode='semblance', stretch_factor=np.inf):
+    def __init__(self, gather, velocities, win_size=25, mode='semblance'):
         super().__init__(gather, win_size=win_size, mode=mode)
         self.velocities = velocities  # m/s
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
         self.semblance = self._calc_semblance_numba(semblance_func=self.calc_single_velocity_semblance, coherency_func=self.coherency_func,
                                                     nmo_func=get_hodograph, gather_data=self.gather_data,
                                                     times=self.times, offsets=self.offsets, velocities=velocities_ms,
-                                                    sample_rate=self.sample_rate, win_size=self.win_size, stretch_factor=stretch_factor)
+                                                    sample_rate=self.sample_rate, win_size=self.win_size)
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
@@ -348,7 +342,7 @@ class Coherency(BaseCoherency):
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_semblance_numba(semblance_func, nmo_func, coherency_func, gather_data, times, offsets, velocities, 
-                              sample_rate, win_size, stretch_factor):
+                              sample_rate, win_size):
         """Parallelized and njitted method for vertical velocity semblance calculation.
         Parameters
         ----------
@@ -368,7 +362,7 @@ class Coherency(BaseCoherency):
         for j in prange(len(velocities)):  # pylint: disable=consider-using-enumerate
             semblance[:, j] = semblance_func(nmo_func=nmo_func, coherency_func=coherency_func, gather_data=gather_data, times=times, offsets=offsets,
                                              velocity=velocities[j], sample_rate=sample_rate, win_size=win_size,
-                                             t_min_ix=0, t_max_ix=gather_data.shape[1], stretch_factor=stretch_factor)
+                                             t_min_ix=0, t_max_ix=gather_data.shape[1])
         return semblance
 
     def _plot(self, stacking_velocity=None, *, title="Semblance", x_ticker=None, y_ticker=None, grid=False,
@@ -598,7 +592,7 @@ class ResidualCoherency(BaseCoherency):
             Array with residual vertical velocity semblance values.
         """
         semblance = np.zeros((len(gather_data), len(velocities)), dtype=np.float32)
-        for i in range(left_bound_ix.min(), right_bound_ix.max() + 1):  # TODO: use prange when fixed in numba
+        for i in prange(left_bound_ix.min(), right_bound_ix.max() + 1):  # TODO: use prange when fixed in numba
             t_min_ix = np.where(right_bound_ix == i)[0]
             t_min_ix = 0 if len(t_min_ix) == 0 else t_min_ix[0]
 

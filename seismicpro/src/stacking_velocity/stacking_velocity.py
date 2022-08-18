@@ -2,6 +2,7 @@
 
 import numpy as np
 
+from ..decorators import batch_method
 from ..utils import to_list, VFUNC
 
 
@@ -129,6 +130,10 @@ class StackingVelocity(VFUNC):
             Created stacking velocity instance.
         """
         return cls([0, 10000], [velocity, velocity], coords=coords)
+
+    @batch_method(target="for", copy_src=False)
+    def create_muter(self, stretch_factor=0.65):
+        return Muter.from_stacking_velocity(self, stretch_factor=stretch_factor)
 
     def __call__(self, times):
         """Return stacking velocities for given `times`.

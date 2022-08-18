@@ -689,7 +689,7 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", args_to_unpack="muter")
-    def mute(self, muter, fill_value=0):
+    def mute(self, muter, fill_value=np.nan):
         """Mute the gather using given `muter`.
 
         The muting operation is performed by setting gather values above an offset-time boundary defined by `muter` to
@@ -721,7 +721,7 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", copy_src=False)
-    def calculate_coherency(self, velocities, win_size=25, mode="semblance", stretch_factor=np.inf):
+    def calculate_coherency(self, velocities, win_size=25, mode="semblance"):
         """Calculate vertical velocity semblance for the gather.
 
         Notes
@@ -748,7 +748,7 @@ class Gather(TraceContainer, SamplesContainer):
             Calculated vertical velocity semblance.
         """
         gather = self.copy().sort(by="offset")
-        return Coherency(gather=gather, velocities=velocities, win_size=win_size, mode=mode, stretch_factor=stretch_factor)
+        return Coherency(gather=gather, velocities=velocities, win_size=win_size, mode=mode)
         
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
@@ -788,7 +788,7 @@ class Gather(TraceContainer, SamplesContainer):
         """
         gather = self.copy().sort(by="offset")
         return ResidualCoherency(gather=gather, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
-                                 win_size=win_size, relative_margin=relative_margin, mode=mode, split=split)
+                                 win_size=win_size, relative_margin=relative_margin, mode=mode)
         
 
     #------------------------------------------------------------------------#

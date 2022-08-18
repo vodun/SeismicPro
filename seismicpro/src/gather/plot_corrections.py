@@ -60,7 +60,7 @@ class CorrectionPlot:
     * `get_title` - the title of the corrected view,
     * `corrected_gather` - a property returning a corrected gather.
     """
-    def __init__(self, gather, min_vel, max_vel, figsize, step=0.1, show_grid=True, **kwargs):
+    def __init__(self, gather, min_vel, max_vel, figsize, step=1, show_grid=True, **kwargs):
         kwargs = {"fontsize": 8, **kwargs}
         event_headers = kwargs.pop("event_headers", None)
         self.event_headers = None
