@@ -15,13 +15,16 @@ from ..utils.interpolation import interp1d
 
 def estimate_refractor_velocity(offsets, times, refractor_bounds):
     refractor_mask = (offsets > refractor_bounds[0]) & (offsets <= refractor_bounds[1])
+    if refractor_mask.sum() == 0:
+        return np.nan, np.nan
+
     refractor_offsets = offsets[refractor_mask]
     refractor_times = times[refractor_mask]
     mean_offset, std_offset = np.mean(refractor_offsets), np.std(refractor_offsets)
     mean_time, std_time = np.mean(refractor_times), np.std(refractor_times)
-
     if np.isclose([std_offset, std_time], 0).any():
         return np.nan, np.nan
+
     velocity = std_offset / std_time
     t0 = mean_time - mean_offset / velocity
     return max(0, 1000 * velocity), max(0, t0)
