@@ -5,7 +5,6 @@ from functools import partial
 
 import numpy as np
 from scipy.optimize import minimize
-from sklearn.linear_model import SGDRegressor
 
 from .utils import get_param_names, postprocess_params
 from ..muter import Muter
@@ -14,27 +13,17 @@ from ..utils import set_ticks, set_text_formatting
 from ..utils.interpolation import interp1d
 
 
-def _scale_standard(data):
-    """Scale data to zero mean and unit variance."""
-    if len(data) == 0:
-        return data, 0, 0
-    mean, std = np.mean(data), np.std(data)
-    data_scaled = (data - mean) / (std + 1e-10)
-    return data_scaled, mean, std
-
-
-def fit_refractor_velocity(offsets, times, refractor_bounds):
+def estimate_refractor_velocity(offsets, times, refractor_bounds):
     refractor_mask = (offsets > refractor_bounds[0]) & (offsets <= refractor_bounds[1])
-    scaled_offsets, mean_offset, std_offset = _scale_standard(offsets[refractor_mask])
-    scaled_times, mean_time, std_time = _scale_standard(times[refractor_mask])
-    if np.isclose(min(std_offset, std_time), 0):
-        return np.nan, np.nan
+    refractor_offsets = offsets[refractor_mask]
+    refractor_times = times[refractor_mask]
+    mean_offset, std_offset = np.mean(refractor_offsets), np.std(refractor_offsets)
+    mean_time, std_time = np.mean(refractor_times), np.std(refractor_times)
 
-    lin_reg = SGDRegressor(loss='huber', penalty=None, shuffle=True, epsilon=.1, eta0=0.1, alpha=0.01,
-                           tol=1e-6, max_iter=1000, learning_rate='optimal')
-    lin_reg.fit(scaled_offsets.reshape(-1, 1), scaled_times, coef_init=1, intercept_init=0)
-    velocity = std_offset / (lin_reg.coef_[0] * std_time)
-    t0 = mean_time + lin_reg.intercept_[0] * std_time - mean_offset / velocity
+    if np.isclose([std_offset, std_time], 0).any():
+        return np.nan, np.nan
+    velocity = std_offset / std_time
+    t0 = mean_time - mean_offset / velocity
     return max(0, 1000 * velocity), max(0, t0)
 
 
@@ -245,12 +234,12 @@ class RefractorVelocity:
             velocities = np.array([init.get(f"v{i}", np.nan) for i in range(1, n_refractors + 1)])
             undefined_mask = np.isnan(velocities)
             if undefined_mask[0] or ("t0" not in init):
-                vel, t0 = fit_refractor_velocity(offsets, times, cross_offsets[:2])
+                vel, t0 = estimate_refractor_velocity(offsets, times, cross_offsets[:2])
                 if undefined_mask[0]:
                     velocities[0] = vel
                 init_t0 = init.get("t0", np.nan_to_num(t0))
             for i in np.where(undefined_mask[1:])[0] + 1:
-                velocities[i] = fit_refractor_velocity(offsets, times, cross_offsets[i:i+2])[0]
+                velocities[i] = estimate_refractor_velocity(offsets, times, cross_offsets[i:i+2])[0]
             velocities = refine_refractor_velocities(velocities, np.where(~undefined_mask)[0], min_velocity_step)
             init = dict(zip(param_names, [init_t0, *cross_offsets[1:-1], *velocities]))
 
