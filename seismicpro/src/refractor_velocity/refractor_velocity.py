@@ -142,7 +142,7 @@ class RefractorVelocity:
         An interpolator returning expected arrival times for given offsets.
     """
     def __init__(self, max_offset=None, coords=None, **params):
-        self._validate_params(params)
+        self._validate_params(params, max_offset)
         self.n_refractors = len(params) // 2
 
         # Store params in the order defined by param_names
@@ -161,8 +161,9 @@ class RefractorVelocity:
         self.times = None
 
     @classmethod
-    def from_first_breaks(cls, offsets, times, init=None, bounds=None, n_refractors=None, min_velocity_increase=0,
-                          min_crossover_increase=0, loss="L1", huber_coef=20, tol=1e-5, coords=None, **kwargs):
+    def from_first_breaks(cls, offsets, times, init=None, bounds=None, n_refractors=None, max_offset=None,
+                          min_velocity_increase=0, min_crossover_increase=0, loss="L1", huber_coef=20, tol=1e-5,
+                          coords=None, **kwargs):
         """Create a `RefractorVelocity` instance from offsets and times of first breaks. At least one of `init`,
         `bounds` or `n_refractors` must be passed.
 
@@ -252,7 +253,7 @@ class RefractorVelocity:
             velocities = refine_velocities(velocities, np.where(~undefined_mask)[0], min_velocity_increase)
             init = dict(zip(param_names, [init_t0, *crossover_offsets[1:-1], *velocities]))
 
-        cls._validate_params(init, min_velocity_increase, min_crossover_increase)
+        cls._validate_params(init, max_offset, min_velocity_increase, min_crossover_increase)
         n_refractors = len(init) // 2
         param_names = get_param_names(n_refractors)
 
@@ -272,7 +273,7 @@ class RefractorVelocity:
         # Define model constraints, appropriately scale minimum velocity and crossover offset increase
         crossover_offsets_ascend = {
             "type": "ineq",
-            "fun": lambda x: np.diff(x[1:n_refractors]) - min_crossover_increase / 1000
+            "fun": lambda x: np.diff(x[1:n_refractors], prepend=0, append=max_offset) - min_crossover_increase / 1000
         }
         velocities_ascend = {
             "type": "ineq",
@@ -350,17 +351,19 @@ class RefractorVelocity:
                              "t0, v1, ..., v{n}, x1, ..., x{n-1}")
 
     @classmethod
-    def _validate_params(cls, params, min_velocity_increase=0, min_crossover_increase=0):
+    def _validate_params(cls, params, max_offset=None, min_velocity_increase=0, min_crossover_increase=0):
         cls._validate_params_names(params)
         n_refractors = len(params) // 2
         param_names = get_param_names(n_refractors)
         param_values = np.array([params[name] for name in param_names])
+        if max_offset is None:
+            max_offset = np.inf
 
         negative_param = {key: val for key, val in params.items() if val < 0}
         if negative_param:
             raise ValueError(f"The following parameters contain negative values: {negative_param}")
 
-        if (np.diff(param_values[1:n_refractors]) < min_crossover_increase).any():
+        if (np.diff(param_values[1:n_refractors], prepend=0, append=max_offset) < min_crossover_increase).any():
             raise ValueError(f"Crossover offsets must ascend by no less than {min_crossover_increase}")
 
         if (np.diff(param_values[n_refractors:]) < min_velocity_increase).any():
