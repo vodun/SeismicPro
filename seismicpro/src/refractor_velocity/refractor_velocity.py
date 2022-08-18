@@ -13,9 +13,12 @@ from ..utils import set_ticks, set_text_formatting
 from ..utils.interpolation import interp1d
 
 
+MIN_POINTS_IN_REFRACTOR = 10
+
+
 def estimate_refractor_velocity(offsets, times, refractor_bounds):
     refractor_mask = (offsets > refractor_bounds[0]) & (offsets <= refractor_bounds[1])
-    if refractor_mask.sum() == 0:
+    if refractor_mask.sum() <= MIN_POINTS_IN_REFRACTOR:
         return np.nan, np.nan
 
     refractor_offsets = offsets[refractor_mask]
@@ -27,7 +30,7 @@ def estimate_refractor_velocity(offsets, times, refractor_bounds):
 
     velocity = std_offset / std_time
     t0 = mean_time - mean_offset / velocity
-    return max(0, 1000 * velocity), max(0, t0)
+    return np.clip(1000 * velocity, 0, 5000), max(0, t0)
 
 
 def refine_refractor_velocities(velocities, fixed_indices, min_velocity_step):
