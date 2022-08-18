@@ -102,7 +102,7 @@ def load_rv(path, encoding):
     coords_list, params_list, max_offset_list = [], [], []
     for row in df.to_numpy(na_value=np.nan):
         if np.any(np.isnan(row[:-1])):
-            raise ValueError(f"Insufficient parameters in the file to create a correct RefractorVelocity instance.")
+            raise ValueError("Insufficient parameters in the file to create a correct RefractorVelocity instance.")
         coords_list.append(Coordinates(names=tuple(df.columns[:2]), coords=tuple(row[:2].astype(int))))
         params_list.append(dict(zip(get_param_names(n_refractors), row[2:-1])))
         max_offset_list.append(row[-1])
