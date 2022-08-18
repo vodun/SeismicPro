@@ -5,7 +5,7 @@ import pandas as pd
 
 from .refractor_velocity import RefractorVelocity
 from .interactive_plot import FitPlot
-from .utils import get_param_names, postprocess_params, calc_df_to_dump, read_rv, dump_rv
+from .utils import get_param_names, postprocess_params, calc_df_to_dump, load_rv, dump_rv
 from ..field import SpatialField
 from ..utils import to_list, Coordinates, IDWInterpolator
 
@@ -57,7 +57,7 @@ class RefractorVelocityField(SpatialField):
         self : RefractorVelocityField
             RefractorVelocityField instance created from a file.
         """
-        coords_list, params_list, max_offset_list = read_rv(path, encoding)
+        coords_list, params_list, max_offset_list = load_rv(path, encoding)
         rv_list = []
         for coords, params, max_offset in zip(coords_list, params_list, max_offset_list):
             # TODO: select one of the options when max_offset support will be determined
@@ -132,7 +132,7 @@ class RefractorVelocityField(SpatialField):
         return type(self)(smoothed_items, n_refractors=self.n_refractors, survey=self.survey,
                           is_geographic=self.is_geographic)
 
-    def dump(self, path, encoding="UTF-8", col_space=11):
+    def dump(self, path, encoding="UTF-8", min_col_size=11):
         """Save the RefractorVelocityField instance to a file.
 
         File example:
@@ -164,7 +164,7 @@ class RefractorVelocityField(SpatialField):
         if self.is_empty:
             raise ValueError("Field is empty. Could not dump empty field.")
         df_list = [calc_df_to_dump(rv) for rv in self.item_container.values()]
-        dump_rv(df_list, path=path, encoding=encoding, col_space=col_space)
+        dump_rv(df_list, path=path, encoding=encoding, min_col_size=min_col_size)
         return self
 
     def plot_fit(self, **kwargs):

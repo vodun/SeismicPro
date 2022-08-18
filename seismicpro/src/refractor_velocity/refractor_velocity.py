@@ -538,7 +538,7 @@ class RefractorVelocity:
         """
         if self.coords is None:
             raise ValueError("`coords` attribute should be defined.")
-        dump_rv([calc_df_to_dump(self)], path=path, encoding=encoding, col_space=min_col_size)
+        dump_rv([calc_df_to_dump(self)], path=path, encoding=encoding, min_col_size=min_col_size)
         return self
 
     @plotter(figsize=(10, 5), args_to_unpack="compare_to")
