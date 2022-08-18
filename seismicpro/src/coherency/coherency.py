@@ -38,7 +38,6 @@ class BaseCoherency:
     """
     def __init__(self, gather, win_size, mode):
         self.gather = gather
-        self.gather_data = gather.data
         self.win_size = win_size  # samples
 
         coherency_dict = {
@@ -319,7 +318,7 @@ class Coherency(BaseCoherency):
         self.velocities = velocities  # m/s
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
         self.semblance = self._calc_semblance_numba(semblance_func=self.calc_single_velocity_semblance, coherency_func=self.coherency_func,
-                                                    nmo_func=get_hodograph, gather_data=self.gather_data,
+                                                    nmo_func=get_hodograph, gather_data=self.gather.data,
                                                     times=self.times, offsets=self.offsets, velocities=velocities_ms,
                                                     sample_rate=self.sample_rate, win_size=self.win_size)
 
@@ -533,7 +532,7 @@ class ResidualCoherency(BaseCoherency):
 
         left_bound_ix, right_bound_ix = self._calc_velocity_bounds()
         self.residual_semblance = self._calc_res_semblance_numba(semblance_func=self.calc_single_velocity_semblance, coherency_func=self.coherency_func,
-                                                                 nmo_func=get_hodograph, gather_data=self.gather_data,
+                                                                 nmo_func=get_hodograph, gather_data=self.gather.data,
                                                                  times=self.times, offsets=self.offsets,
                                                                  velocities=velocities_ms,
                                                                  left_bound_ix=left_bound_ix,
