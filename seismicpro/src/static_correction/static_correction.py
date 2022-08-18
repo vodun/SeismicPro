@@ -45,15 +45,17 @@ class StaticCorrection:
         self.rec_params = self._create_params_df(name="rec")
         self.rec_uniques = self.rec_params.index.to_frame().values
         self.rec_headers = []
-
-        self.coords = np.concatenate((self.source_uniques, self.rec_uniques))
-
         self._add_cols_to_params("source", columns="SourceDepth", strict=strict)
         self._add_wv_to_params("source", interpolator=interpolator)
         self._add_wv_to_params("rec", interpolator=interpolator)
 
         self._set_traces_layer(interpolator=interpolator)
         self._calculate_traces_params_fast()#n_avg_coords, interpolator=interpolator)
+        self._fix_coords_amount(name='source')
+        self._fix_coords_amount(name='rec')
+
+        self.coords = np.concatenate((self.source_uniques, self.rec_uniques))
+
         self.interp_elevations = self._construct_elevations_interpolatior()
         self.interp_layers_els = [None] * self.n_layers
         self.interp_v1 = None
@@ -153,6 +155,21 @@ class StaticCorrection:
         self.headers["pred"] = np.nan
         self.headers = self.headers[self.headers['y'] > 0]
         self.headers.drop(columns='pos', inplace=True)
+
+    def _fix_coords_amount(self, name):
+        coords_names = self._get_cols(name)
+        curr_coords = self.headers[coords_names].drop_duplicates().values
+        if len(curr_coords) == getattr(self, f"n_{name}s"):
+            return
+
+        current_coords = set(map(tuple, curr_coords))
+        previous_coords = set(map(tuple, getattr(self, f"{name}_uniques")))
+
+        to_drop = previous_coords - current_coords
+        params = getattr(self, f"{name}_params")
+        params.drop(to_drop, inplace=True)
+        params['index'] = np.arange(0, len(params))
+        setattr(self, f"{name}_uniques", getattr(self, f"{name}_params").index.to_frame().values)
 
     def _construct_elevations_interpolatior(self):
         sources_els = pd.DataFrame(self.survey[["SourceX", "SourceY", "SourceSurfaceElevation"]]).drop_duplicates()
