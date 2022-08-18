@@ -273,7 +273,8 @@ class RefractorVelocity:
         # Define model constraints, appropriately scale minimum velocity and crossover offset increase
         crossover_offsets_ascend = {
             "type": "ineq",
-            "fun": lambda x: np.diff(x[1:n_refractors], prepend=0, append=max_offset) - min_crossover_increase / 1000
+            "fun": lambda x: (np.diff(x[1:n_refractors], prepend=0, append=max_offset / 1000) -
+                              min_crossover_increase / 1000)
         }
         velocities_ascend = {
             "type": "ineq",
