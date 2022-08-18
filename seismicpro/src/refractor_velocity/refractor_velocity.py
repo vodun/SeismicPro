@@ -6,7 +6,7 @@ import numpy as np
 from scipy.optimize import minimize
 from sklearn.linear_model import SGDRegressor
 
-from .utils import get_param_names, postprocess_params, read_rv, dump_rv, calc_df_to_dump
+from .utils import get_param_names, postprocess_params, load_rv, dump_rv, calc_df_to_dump
 from ..muter import Muter
 from ..decorators import batch_method, plotter
 from ..utils import set_ticks, set_text_formatting, Coordinates
@@ -93,27 +93,26 @@ class RefractorVelocity:
     interpolator : callable
         An interpolator returning expected arrival times for given offsets.
     """
-    def __init__(self, max_offset=None, coords=None, **params):
+    def __init__(self, coords=None, **params):
         self._validate_params(params)
 
         self.n_refractors = len(params) // 2
         self.params = {name: params[name] for name in self.param_names}  # Store params in order defined by param_names
-        params_values = np.array(list(self.params.values()))
-        self.piecewise_offsets, self.piecewise_times = self._calc_knots_by_params(params_values, max_offset=max_offset)
-        self.max_offset = max_offset if self.piecewise_offsets[-1] == max_offset else None
+        self.piecewise_offsets, self.piecewise_times = self._calc_knots_by_params(np.array(list(self.params.values())))
         self.interpolator = interp1d(self.piecewise_offsets, self.piecewise_times)
         self.coords = coords
 
-        # Fit-related attributes
+        # Fit-related attributes, set only when from_first_breaks is called
         self.is_fit = False
         self.fit_result = None
         self.init = None
         self.bounds = None
         self.offsets = None
-        self.fb_times = None
+        self.times = None
 
     @classmethod
-    def from_first_breaks(cls, offsets, fb_times, init=None, bounds=None, n_refractors=None, loss="L1", huber_coef=20,
+    def from_first_breaks(cls, offsets, times, init=None, bounds=None, n_refractors=None, relative_margin=0.5,
+                          min_velocity_increase=0, min_crossover_increase=0, loss="L1", huber_coef=20, tol=1e-5,
                           coords=None, **kwargs):
         """Create a `RefractorVelocity` instance from offsets and times of first breaks. At least one of `init`,
         `bounds` or `n_refractors` must be passed.
@@ -122,7 +121,7 @@ class RefractorVelocity:
         ----------
         offsets : 1d ndarray
             Offsets of the traces. Measured in meters.
-        fb_times : 1d ndarray
+        times : 1d ndarray
             First break times. Measured in milliseconds.
         init : dict, defaults to None
             Initial parameters of a velocity model.
@@ -150,62 +149,68 @@ class RefractorVelocity:
             If `n_refractors` is less than 1.
             If passed `init` and/or `bounds` keys are insufficient or excessive.
         """
-        if all((param is None for param in (init, bounds, n_refractors))):
+        if all(param is None for param in (init, bounds, n_refractors)):
             raise ValueError("At least one of `init`, `bounds` or `n_refractors` must be defined")
+        init = {} if init is None else init
+        bounds = {} if bounds is None else bounds
+
         offsets = np.array(offsets)
-        fb_times = np.array(fb_times)
+        times = np.array(times)
+
+        # If neither initial value nor bounds are given for t0, it is fit only by passed n_refractors. The obtained
+        # estimate may be noisy in case when little to no points appear in first refractors resulting in inadequate
+        # bounds for optimization. Bounds are further set to be at least [0, 200] ms to handle the issue.
+        expand_t0_bounds = ("t0" not in init) and ("t0" not in bounds)
 
         # Calculate initial value and bounds for each parameter by given init, bounds and n_refractors
-        if init is None:
-            init = {}
-        if bounds is None:
-            bounds = {}
-        init = {**cls._calc_init_by_layers(offsets, fb_times, n_refractors),
-                **cls._calc_init_by_bounds(bounds), **init}
-        bounds = {**cls._calc_bounds_by_init(init), **bounds}
+        init = {**cls._calc_init_by_layers(offsets, times, n_refractors), **cls._calc_init_by_bounds(bounds), **init}
+        bounds = {**cls._calc_bounds_by_init(init, relative_margin=relative_margin), **bounds}
         cls._validate_params(init, bounds)
+        if expand_t0_bounds:
+            bounds["t0"] = [min(0, bounds["t0"][0]), max(200, bounds["t0"][1])]
 
         # Obtain the number of refractors and get names of model parameters in a canonical order
         n_refractors = len(init) // 2
         param_names = get_param_names(n_refractors)
 
-        # Store init and bounds in order defined by param_names
+        # Store init and bounds in the order defined by param_names
         init = {name: init[name] for name in param_names}
         bounds = {name: bounds[name] for name in param_names}
 
         # Calculate arrays of initial params and their bounds to be passed to minimize
-        init_array = np.array([init[name] for name in param_names])
-        bounds_array = np.array([bounds[name] for name in param_names])
+        init_array = cls._scale_params(np.array(list(init.values()), dtype=np.float32))
+        bounds_array = cls._scale_params(np.array(list(bounds.values()), dtype=np.float32))
+
+        # Scale minimum crossover and velocity increases to match params units and clip them above so that initial
+        # values don't violate model constraints
+        min_crossover_increase = np.clip(min_crossover_increase / 1000, 0, np.diff(init_array[1:n_refractors]))
+        min_velocity_increase = np.clip(min_velocity_increase / 1000, 0, np.diff(init_array[n_refractors:]))
 
         # Define model constraints
         crossover_offsets_ascend = {
             "type": "ineq",
-            "fun": lambda x: np.diff(x[1:n_refractors])
+            "fun": lambda x: np.diff(x[1:n_refractors]) - min_crossover_increase
         }
         velocities_ascend = {
             "type": "ineq",
-            "fun": lambda x: np.diff(x[n_refractors:])
+            "fun": lambda x: np.diff(x[n_refractors:]) - min_velocity_increase
         }
 
         # Fit a piecewise-linear velocity model
         loss_fn = partial(cls.calculate_loss, loss=loss, huber_coef=huber_coef)
-        fit_result = minimize(loss_fn, args=(offsets, fb_times), x0=init_array, bounds=bounds_array, method="SLSQP",
-                              constraints=[crossover_offsets_ascend, velocities_ascend], **kwargs)
-        params = dict(zip(param_names, postprocess_params(fit_result.x)))
-
-        # Calculate max offset that can be described by the model
-        max_offset = offsets.max()
-        if n_refractors > 1 and params[f"x{n_refractors - 1}"] > max_offset:
-            max_offset = None  # Max offset is undefined if no data appeared in the last refractor
+        fit_result = minimize(loss_fn, args=(offsets, times), method="SLSQP", tol=tol, options=kwargs, x0=init_array,
+                              bounds=bounds_array, constraints=[crossover_offsets_ascend, velocities_ascend])
+        param_values = postprocess_params(cls._unscale_params(fit_result.x.copy()))
+        params = dict(zip(param_names, param_values))
 
         # Construct a refractor velocity instance
-        self = cls(coords=coords, max_offset=max_offset, **params)
+        self = cls(coords=coords, **params)
         self.is_fit = True
         self.fit_result = fit_result
         self.init = init
         self.bounds = bounds
         self.offsets = offsets
-        self.fb_times = fb_times
+        self.times = times
         return self
 
     @classmethod
@@ -226,8 +231,11 @@ class RefractorVelocity:
         self : RefractorVelocity
             RefractorVelocity instance created from a file.
         """
-        coords_list, params_list = read_rv(path, encoding)
-        return cls(max_offset=None, coords=coords_list[0], **params_list[0])
+        coords_list, params_list, max_offset_list = load_rv(path, encoding)
+        if len(coords_list) > 1:
+            raise ValueError("The loaded file contains more than one set of RefractorVelocity parameters.")
+        return cls(coords=coords_list[0], **params_list[0]) # TODO: update when max_offset attribute will added.
+        # return cls(max_offset=max_offset_list[0], coords=coords_list[0], **params_list[0])
 
     @classmethod
     def from_constant_velocity(cls, velocity, max_offset=None, coords=None):
@@ -250,7 +258,7 @@ class RefractorVelocity:
         ValueError
             If passed `velocity` is negative.
         """
-        return cls(t0=0, v1=velocity, coords=coords, max_offset=max_offset)
+        return cls(t0=0, v1=velocity, coords=coords)
 
     @property
     def param_names(self):
@@ -269,7 +277,7 @@ class RefractorVelocity:
         """Return the expected times of first breaks for the given offsets."""
         return self.interpolator(offsets)
 
-    # Validation of model parameters correctness
+    # Methods to validate model parameters and their bounds for correctness
 
     @staticmethod
     def _validate_params_names(params):
@@ -318,7 +326,7 @@ class RefractorVelocity:
             if out_of_bounds:
                 raise ValueError(f"Values of the following parameters are out of their bounds: {out_of_bounds}")
 
-    # Methods for init and bounds calculation
+    # Methods to calculate initial model parameters and their bounds
 
     @staticmethod
     def _scale_standard(data):
@@ -330,7 +338,7 @@ class RefractorVelocity:
         return data_scaled, mean, std
 
     @classmethod
-    def _calc_init_by_layers(cls, offsets, fb_times, n_refractors=None):
+    def _calc_init_by_layers(cls, offsets, times, n_refractors=None):
         """Calculates `init` dict by a given an estimated quantity of layers.
 
         Method splits the first breaks times into `n_refractors` equal part by cross offsets and fits a separate linear
@@ -358,7 +366,7 @@ class RefractorVelocity:
             # Independently scale data for each refractor
             mask = (offsets > cross_offsets[i]) & (offsets <= cross_offsets[i + 1])
             scaled_offsets, mean_offset, std_offset = cls._scale_standard(offsets[mask])
-            scaled_times, mean_time, std_time = cls._scale_standard(fb_times[mask])
+            scaled_times, mean_time, std_time = cls._scale_standard(times[mask])
             if std_offset and std_time:
                 lin_reg = SGDRegressor(loss='huber', penalty=None, shuffle=True, epsilon=.1, eta0=0.1, alpha=0.01,
                                        tol=1e-6, max_iter=1000, learning_rate='optimal')
@@ -376,17 +384,26 @@ class RefractorVelocity:
     @staticmethod
     def _calc_init_by_bounds(bounds):
         """Return dict with a calculated init from a bounds dict."""
-        return {key: val1 + (val2 - val1) / 3 for key, (val1, val2) in bounds.items()}
+        return {key: (val1 + val2) / 2 for key, (val1, val2) in bounds.items()}
 
     @staticmethod
-    def _calc_bounds_by_init(init):
+    def _calc_bounds_by_init(init, relative_margin=0.5):
         """Return dict with calculated bounds from a init dict."""
-        bounds = {key: [val / 2, val * 2] for key, val in init.items()}
-        if 't0' in init:
-            bounds['t0'] = [min(0, bounds['t0'][0]), max(200, bounds['t0'][1])]
-        return bounds
+        return {key: [val * (1 - relative_margin), val * (1 + relative_margin)] for key, val in init.items()}
 
     # Loss definition
+
+    @staticmethod
+    def _scale_params(params):
+        params[0] /= 100
+        params[1:] /= 1000
+        return params
+
+    @staticmethod
+    def _unscale_params(params):
+        params[0] *= 100
+        params[1:] *= 1000
+        return params
 
     @staticmethod
     def _calc_knots_by_params(params, max_offset=None):
@@ -406,12 +423,12 @@ class RefractorVelocity:
         return piecewise_offsets, piecewise_times
 
     @classmethod
-    def calculate_loss(cls, params, offsets, fb_times, loss='L1', huber_coef=20):
+    def calculate_loss(cls, params, offsets, times, loss='L1', huber_coef=20):
         """Calculate the result of the loss function based on the passed args.
 
         Method calls `calc_knots_by_params` to calculate piecewise linear attributes of a RefractorVelocity instance.
         After that, the method calculates the loss function between the true first breaks times stored in the
-        `self.fb_times` and predicted piecewise linear function. The loss function is calculated at the offsets points.
+        `self.times` and predicted piecewise linear function. The loss function is calculated at the offsets points.
 
         Piecewise linear function is defined by the given `args`. `args` should be list-like and have the following
         structure:
@@ -444,8 +461,8 @@ class RefractorVelocity:
         ValueError
             If given `loss` does not exist.
         """
-        piecewise_offsets, piecewise_times = cls._calc_knots_by_params(params, offsets.max())
-        abs_diff = np.abs(np.interp(offsets, piecewise_offsets, piecewise_times) - fb_times)
+        piecewise_offsets, piecewise_times = cls._calc_knots_by_params(cls._unscale_params(params), offsets.max())
+        abs_diff = np.abs(np.interp(offsets, piecewise_offsets, piecewise_times) - times)
         if loss == 'MSE':
             return (abs_diff ** 2).mean()
         if loss == 'huber':
@@ -468,8 +485,8 @@ class RefractorVelocity:
     def create_muter(self, delay=0, velocity_reduction=0):
         return Muter.from_refractor_velocity(self, delay=delay, velocity_reduction=velocity_reduction)
 
-    def dump(self, path, encoding="UTF-8", col_space=11):
-        """Save the RefractorVelocity instance to a file. Coords should be preloaded.
+    def dump(self, path, encoding="UTF-8", min_col_size=11):
+        """Dump the RefractorVelocity instance to a file. Coords should be preloaded.
 
         File example:
         SourceX   SourceY        t0        x1        v1        v2 max_offset
@@ -481,9 +498,8 @@ class RefractorVelocity:
             Path to a file.
         encoding : str, optional, defaults to "UTF-8"
             File encoding.
-        col_size : int, defaults to 10
-            Size of each columns in file. `col_size` will be increased for coordinate columns if coordinate names
-            are longer.
+        min_col_size : int, defaults to 11
+            Minimum size of each columns in file.
 
         Returns
         -------
@@ -497,7 +513,7 @@ class RefractorVelocity:
         """
         if self.coords is None:
             raise ValueError("`coords` attribute should be defined.")
-        dump_rv(calc_df_to_dump(self), path=path, encoding=encoding, col_space=col_space)
+        dump_rv([calc_df_to_dump(self)], path=path, encoding=encoding, col_space=min_col_size)
         return self
 
     @plotter(figsize=(10, 5), args_to_unpack="compare_to")
@@ -544,7 +560,7 @@ class RefractorVelocity:
         set_ticks(ax, "x", tick_labels=None, label="offset, m", **x_ticker)
         set_ticks(ax, "y", tick_labels=None, label="time, ms", **y_ticker)
 
-        ax.scatter(self.offsets, self.fb_times, s=1, color='black', label='first breaks')
+        ax.scatter(self.offsets, self.times, s=1, color='black', label='first breaks')
         self._plot_lines(ax, curve_label='offset-traveltime curve', curve_color='red',
                          crossoffset_label='crossover point', crossover_color='blue')
 

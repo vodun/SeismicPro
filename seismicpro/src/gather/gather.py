@@ -680,7 +680,7 @@ class Gather(TraceContainer, SamplesContainer):
         RefractorVelocity
             Calculated RefractorVelocity instance.
         """
-        return RefractorVelocity.from_first_breaks(offsets=self.offsets, fb_times=self[first_breaks_col].ravel(),
+        return RefractorVelocity.from_first_breaks(offsets=self.offsets, times=self[first_breaks_col].ravel(),
                                                    init=init, bounds=bounds, n_refractors=n_refractors,
                                                    coords=self.coords, **kwargs)
 
