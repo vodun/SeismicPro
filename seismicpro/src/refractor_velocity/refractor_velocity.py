@@ -113,6 +113,7 @@ class RefractorVelocity:
         self.bounds = None
         self.offsets = None
         self.times = None
+        self.is_valid_refractor = None
 
     @classmethod
     def from_first_breaks(cls, offsets, times, init=None, bounds=None, n_refractors=None, max_offset=None,
@@ -219,11 +220,18 @@ class RefractorVelocity:
         n_refractors = len(init) // 2
         param_names = get_param_names(n_refractors)
 
+        # Estimate maximum possible velocity: it should not be highly accurate, but should cover all initial velocities
+        # and their bounds. Used only to early-stop a diverging optimization on poor data.
+        last_refractor_velocity = init[f"v{n_refractors}"]
+        velocity_bounds = [bounds.get(f"v{i}", [0, 0]) for i in range(n_refractors)]
+        max_velocity_bounds_range = max(right - left for left, right in velocity_bounds)
+        max_velocity = last_refractor_velocity + max(max_velocity_bounds_range, last_refractor_velocity)
+
         # Set default bounds for parameters that don't have them specified, validate the result for correctness
         default_t0_bounds = [[0, times.max()]]
         default_crossover_bounds = [[min_crossover_step, max_offset - min_crossover_step]
                                     for _ in range(n_refractors - 1)]
-        default_velocity_bounds = [[0, np.inf] for _ in range(n_refractors)]
+        default_velocity_bounds = [[0, max_velocity] for _ in range(n_refractors)]
         default_params_bounds = default_t0_bounds + default_crossover_bounds + default_velocity_bounds
         bounds = {**dict(zip(param_names, default_params_bounds)), **bounds}
         cls._validate_params_bounds(init, bounds)
@@ -267,6 +275,8 @@ class RefractorVelocity:
         self.bounds = bounds
         self.offsets = offsets
         self.times = times
+        refractor_points = np.histogram(offsets, self.piecewise_offsets, density=False)[0]
+        self.is_valid_refractor = refractor_points >= min_refractor_points
         return self
 
     @classmethod
@@ -364,11 +374,13 @@ class RefractorVelocity:
     @staticmethod
     def estimate_refractor_velocity(offsets, times, refractor_bounds, min_refractor_points=0):
         """Perform rough estimation of a refractor velocity and intercept time by fitting a linear regression to an
-        offset-time data within given offsets bounds."""
+        offset-time point cloud within given offsets bounds."""
+        # Avoid fitting the regression if too few points lie within given offset bounds
         refractor_mask = (offsets > refractor_bounds[0]) & (offsets <= refractor_bounds[1])
         if refractor_mask.sum() <= min_refractor_points:
             return np.nan, np.nan
 
+        # Avoid fitting the regression if all points have constant offsets or times of first breaks
         refractor_offsets = offsets[refractor_mask]
         refractor_times = times[refractor_mask]
         mean_offset, std_offset = np.mean(refractor_offsets), np.std(refractor_offsets)
@@ -376,6 +388,7 @@ class RefractorVelocity:
         if np.isclose([std_offset, std_time], 0).any():
             return np.nan, np.nan
 
+        # Fit the model to obtain velocity in km/s and intercept time in ms
         scaled_offsets = (refractor_offsets - mean_offset) / std_offset
         scaled_times = (refractor_times - mean_time) / std_time
         reg = SGDRegressor(loss="huber", epsilon=0.1, penalty=None, learning_rate="optimal", alpha=0.01,
@@ -383,13 +396,20 @@ class RefractorVelocity:
         reg.fit(scaled_offsets.reshape(-1, 1), scaled_times, coef_init=1, intercept_init=0)
         velocity = std_offset / (std_time * reg.coef_[0])
         t0 = mean_time + reg.intercept_[0] * std_time - mean_offset / velocity
+
+        # Convert velocity to m/s, clip it to lie within a [0, 5000] interval. Clip intercept time to be non-negative.
         return np.clip(1000 * velocity, 0, 5000), max(0, t0)
 
     @staticmethod
     def refine_refractor_velocities(velocities, fixed_indices, min_velocity_step):
         nan_velocities = np.isnan(velocities)
+
+        # Return a dummy velocity range as an initial guess if no velocities were passed in init/bounds dicts and
+        # non of them was successfully fit using estimate_refractor_velocity
         if nan_velocities.all():
             return 1600 + min_velocity_step * np.arange(len(velocities))
+
+        # If no velocities were passed in init/bounds, start the refinement from the first one properly fit
         if len(fixed_indices) == 0:
             fixed_indices = np.where(~nan_velocities)[0][:1]
 
@@ -408,7 +428,7 @@ class RefractorVelocity:
 
         return velocities
 
-    # Loss definition
+    # Fit-related methods
 
     @staticmethod
     def _scale_params(unscaled_params):
@@ -431,7 +451,8 @@ class RefractorVelocity:
         n_refractors = len(unscaled_params) // 2
         params_max_offset = unscaled_params[n_refractors - 1] if n_refractors > 1 else 0
         if max_offset is None or max_offset < params_max_offset:
-            max_offset = params_max_offset + 1000  # Artificial setting of max offset to properly define interpolator
+            # Artificially set max_offset in order to properly define an interpolator
+            max_offset = params_max_offset + 1000
 
         piecewise_offsets = np.concatenate([[0], unscaled_params[1:n_refractors], [max_offset]])
         piecewise_times = np.empty(n_refractors + 1)
