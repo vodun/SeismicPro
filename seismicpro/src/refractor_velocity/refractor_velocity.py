@@ -200,7 +200,7 @@ class RefractorVelocity:
             undefined_mask = np.isnan(velocities)
             estimates = [cls.estimate_refractor_velocity(offsets, times, cross_offsets[i:i+2], min_refractor_points)
                          for i in np.where(undefined_mask)[0]]
-            velocities[undefined_mask] = [est[0] for est in estimates]
+            velocities[undefined_mask] = [vel for (vel, _) in estimates]
             velocities = cls.refine_refractor_velocities(velocities, np.where(~undefined_mask)[0], min_velocity_step)
 
             # Estimate t0 if not given in init
@@ -210,7 +210,7 @@ class RefractorVelocity:
                     t0 = estimates[0][1]
                 else:
                     _, t0 = cls.estimate_refractor_velocity(offsets, times, cross_offsets[:2], min_refractor_points)
-                t0 = np.nan_to_num(t0)  # can be nan if the regression hasn't fit
+                t0 = np.nan_to_num(t0)  # can be nan if the regression hasn't fit successfully
 
             init = dict(zip(param_names, [t0, *cross_offsets[1:-1], *velocities]))
 
@@ -256,7 +256,7 @@ class RefractorVelocity:
                           loss=loss, huber_coef=huber_coef)
         fit_result = minimize(loss_fn, x0=init_array, bounds=bounds_array, constraints=constraints,
                               method="SLSQP", tol=tol, options=kwargs)
-        param_values = postprocess_params(cls._unscale_params(fit_result.x.copy()))
+        param_values = postprocess_params(cls._unscale_params(fit_result.x))
         params = dict(zip(param_names, param_values))
 
         # Construct a refractor velocity instance
@@ -411,38 +411,38 @@ class RefractorVelocity:
     # Loss definition
 
     @staticmethod
-    def _scale_params(params):
-        scaled = np.empty_like(params)
-        scaled[0] = params[0] / 100
-        scaled[1:] = params[1:] / 1000
+    def _scale_params(unscaled_params):
+        scaled = np.empty_like(unscaled_params)
+        scaled[0] = unscaled_params[0] / 100
+        scaled[1:] = unscaled_params[1:] / 1000
         return scaled
 
     @staticmethod
-    def _unscale_params(params):
-        unscaled = np.empty_like(params)
-        unscaled[0] = params[0] * 100
-        unscaled[1:] = params[1:] * 1000
-        return unscaled
+    def _unscale_params(scaled_params):
+        unscaled_params = np.empty_like(scaled_params)
+        unscaled_params[0] = scaled_params[0] * 100
+        unscaled_params[1:] = scaled_params[1:] * 1000
+        return unscaled_params
 
     @staticmethod
-    def _calc_knots_by_params(params, max_offset=None):
+    def _calc_knots_by_params(unscaled_params, max_offset=None):
         """Calculate the coordinates of the knots of a piecewise linear function based on the given `params` and
         `max_offset`."""
-        n_refractors = len(params) // 2
-        params_max_offset = params[n_refractors - 1] if n_refractors > 1 else 0
+        n_refractors = len(unscaled_params) // 2
+        params_max_offset = unscaled_params[n_refractors - 1] if n_refractors > 1 else 0
         if max_offset is None or max_offset < params_max_offset:
             max_offset = params_max_offset + 1000  # Artificial setting of max offset to properly define interpolator
 
-        piecewise_offsets = np.concatenate([[0], params[1:n_refractors], [max_offset]])
+        piecewise_offsets = np.concatenate([[0], unscaled_params[1:n_refractors], [max_offset]])
         piecewise_times = np.empty(n_refractors + 1)
-        piecewise_times[0] = params[0]
-        params_zip = zip(piecewise_offsets[1:], piecewise_offsets[:-1], params[n_refractors:])
+        piecewise_times[0] = unscaled_params[0]
+        params_zip = zip(piecewise_offsets[1:], piecewise_offsets[:-1], unscaled_params[n_refractors:])
         for i, (cross, prev_cross, vel) in enumerate(params_zip):
             piecewise_times[i + 1] = piecewise_times[i] + 1000 * (cross - prev_cross) / max(0.01, vel)  # m/s to km/s
         return piecewise_offsets, piecewise_times
 
     @classmethod
-    def calculate_loss(cls, params, offsets, times, max_offset, loss='L1', huber_coef=20):
+    def calculate_loss(cls, scaled_params, offsets, times, max_offset, loss='L1', huber_coef=20):
         """Calculate the result of the loss function based on the passed args.
 
         Method calls `calc_knots_by_params` to calculate piecewise linear attributes of a RefractorVelocity instance.
@@ -480,7 +480,7 @@ class RefractorVelocity:
         ValueError
             If given `loss` does not exist.
         """
-        piecewise_offsets, piecewise_times = cls._calc_knots_by_params(cls._unscale_params(params), max_offset)
+        piecewise_offsets, piecewise_times = cls._calc_knots_by_params(cls._unscale_params(scaled_params), max_offset)
         abs_diff = np.abs(np.interp(offsets, piecewise_offsets, piecewise_times) - times)
         if loss == 'MSE':
             return (abs_diff ** 2).mean()
