@@ -236,18 +236,18 @@ class RefractorVelocity:
         init_array = cls._scale_params(np.array(list(init.values()), dtype=np.float32))
         bounds_array = cls._scale_params(np.array(list(bounds.values()), dtype=np.float32))
 
-        # Define model constraints, appropriately scale minimum velocity and crossover offset steps
+        # Define model constraints
         constraints = []
         if n_refractors > 1:
             velocities_ascend = {
                 "type": "ineq",
-                "fun": lambda x: np.diff(x[n_refractors:]) - min_velocity_step / 1000
+                "fun": lambda x: np.diff(cls._unscale_params(x)[n_refractors:]) - min_velocity_step
             }
             constraints.append(velocities_ascend)
         if n_refractors > 2:
             crossover_offsets_ascend = {
                 "type": "ineq",
-                "fun": lambda x: np.diff(x[1:n_refractors]) - min_crossover_step / 1000
+                "fun": lambda x: np.diff(cls._unscale_params(x)[1:n_refractors]) - min_crossover_step
             }
             constraints.append(crossover_offsets_ascend)
 
@@ -412,15 +412,17 @@ class RefractorVelocity:
 
     @staticmethod
     def _scale_params(params):
-        params[0] /= 100
-        params[1:] /= 1000
-        return params
+        scaled = np.empty_like(params)
+        scaled[0] = params[0] / 100
+        scaled[1:] = params[1:] / 1000
+        return scaled
 
     @staticmethod
     def _unscale_params(params):
-        params[0] *= 100
-        params[1:] *= 1000
-        return params
+        unscaled = np.empty_like(params)
+        unscaled[0] = params[0] * 100
+        unscaled[1:] = params[1:] * 1000
+        return unscaled
 
     @staticmethod
     def _calc_knots_by_params(params, max_offset=None):
