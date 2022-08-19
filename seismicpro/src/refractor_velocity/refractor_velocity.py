@@ -303,7 +303,11 @@ class RefractorVelocity:
 
     @classmethod
     def from_file(cls, path, encoding="UTF-8"):
-        """Load parameters from a file and create a RefractorVelocity instance from the loaded parameters.
+        """Create a RefractorVelocity instance from a file.
+
+        File should have coords and parameters of a single RefractorVelocity with next structure:
+        First row have the coords names and parameters names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset")
+        Second row have the coords and parameters values.
 
         File example:
         SourceX   SourceY        t0        x1        v1        v2 max_offset
@@ -323,8 +327,8 @@ class RefractorVelocity:
         if len(coords_list) > 1:
             raise ValueError("The loaded file contains more than one set of RefractorVelocity parameters.")
         # TODO: select one of the options when max_offset support will be determined
-        return cls(coords=coords_list[0], **params_list[0])
-        # return cls(max_offset=max_offset_list[0], coords=coords_list[0], **params_list[0])
+        # return cls(coords=coords_list[0], **params_list[0])
+        return cls(max_offset=max_offset_list[0], coords=coords_list[0], **params_list[0])
 
     @classmethod
     def from_constant_velocity(cls, velocity, max_offset=None, coords=None):
@@ -524,7 +528,7 @@ class RefractorVelocity:
         encoding : str, optional, defaults to "UTF-8"
             File encoding.
         min_col_size : int, defaults to 11
-            Minimum size of each columns in file.
+            Minimum size of each columns in the resulting file.
 
         Returns
         -------

@@ -135,6 +135,11 @@ class RefractorVelocityField(SpatialField):
     def dump(self, path, encoding="UTF-8", min_col_size=11):
         """Save the RefractorVelocityField instance to a file.
 
+        The file must have the coordinates and parameters of a single RefractorVelocity with the following structure:
+        The first line contains coords names and parameter names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
+        Each next line contains the coords and parameters values corresponding to a single RefractorVelocity in the
+        resulting RefractorVelocityField.
+
         File example:
         SourceX   SourceY        t0        x1        v1        v2 max_offset
         1111100   2222220     50.00   1000.00   1500.00   2000.00    2000.00
@@ -147,9 +152,8 @@ class RefractorVelocityField(SpatialField):
             Path to the file.
         encoding : str, optional, defaults to "UTF-8"
             File encoding.
-        col_size : int, defaults to 10
-            Size of each columns in file. `col_size` will be increased for coordinate columns if coordinate names
-            are longer.
+        min_col_size : int, defaults to 11
+            Minimum size of each columns in the resulting file.
 
         Returns
         -------

@@ -54,22 +54,24 @@ def calc_df_to_dump(rv):
 def dump_rv(df_list, path, encoding, min_col_size):
     """Dump list of DataFrame to a file.
 
-    Each DataFrame in the list should have the coords (x and y) and parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}")
-    of one RefractorVelocity instance.
+    Each DataFrame in the list should have next structure:
+    Columns contain the coords names and parameters names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
+    First row contains the coords and parameters values.
+
     DataFrame example :
         SourceX   SourceY        t0        x1        v1        v2 max_offset
-        1111100   2222220     50.00   1000.00   1500.00   2000.00    2000.00
+    0   1111100   2222220     50.00   1000.00   1500.00   2000.00    2000.00
 
     Parameters
     ----------
     df_list : iterable of :class:`~pandas.DataFrame`
-        Each DataFrame in the passed list should contain coordinates and parameters of a RefractorVelocity.
+        Each DataFrame in the passed list should contain coordinates and parameters of a :class:`~RefractorVelocity`.
     path : str
         Path to the created file.
     encoding : str, optional, defaults to "UTF-8"
         File encoding.
     min_col_size : int
-        Minimum size of each columns in file.
+        Minimum size of each columns in the resulting file.
 
     Returns
     -------
@@ -93,7 +95,7 @@ def load_rv(path, encoding):
     coords_list : list of :class:`~utils.Coordinates`
         List of Coordinates instances loaded from a file.
     params_list : list of dict
-        List of parameters of :class:`~RefractorVelocity`
+        List of parameters of :class:`~RefractorVelocity`.
     max_offset_list : list of float
         List of max offsets.
     """
