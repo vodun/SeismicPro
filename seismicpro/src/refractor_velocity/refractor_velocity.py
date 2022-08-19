@@ -378,8 +378,8 @@ class RefractorVelocity:
 
         scaled_offsets = (refractor_offsets - mean_offset) / std_offset
         scaled_times = (refractor_times - mean_time) / std_time
-        reg = SGDRegressor(loss="huber", penalty=None, shuffle=True, epsilon=0.1, eta0=0.1, alpha=0.01, tol=1e-6,
-                           max_iter=1000, learning_rate="optimal")
+        reg = SGDRegressor(loss="huber", epsilon=0.1, penalty=None, learning_rate="optimal", alpha=0.01,
+                           max_iter=1000, tol=1e-5, shuffle=True)
         reg.fit(scaled_offsets.reshape(-1, 1), scaled_times, coef_init=1, intercept_init=0)
         velocity = std_offset / (std_time * reg.coef_[0])
         t0 = mean_time + reg.intercept_[0] * std_time - mean_offset / velocity
