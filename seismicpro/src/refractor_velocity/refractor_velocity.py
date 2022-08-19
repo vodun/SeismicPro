@@ -5,7 +5,6 @@ from functools import partial
 
 import numpy as np
 from scipy.optimize import minimize
-from sklearn.linear_model import SGDRegressor
 
 from .utils import get_param_names, postprocess_params, load_rv, dump_rv, calc_df_to_dump
 from ..muter import Muter
@@ -14,49 +13,45 @@ from ..utils import set_ticks, set_text_formatting, Coordinates
 from ..utils.interpolation import interp1d
 
 
-def _scale_standard(data):
-    """Scale data to zero mean and unit variance."""
-    if len(data) == 0:
-        return data, 0, 0
-    mean, std = np.mean(data), np.std(data)
-    data_scaled = (data - mean) / (std + 1e-10)
-    return data_scaled, mean, std
+MIN_POINTS_IN_REFRACTOR = 10
 
 
-def fit_refractor_velocity(offsets, times, refractor_bounds):
+def estimate_refractor_velocity(offsets, times, refractor_bounds):
     refractor_mask = (offsets > refractor_bounds[0]) & (offsets <= refractor_bounds[1])
-    scaled_offsets, mean_offset, std_offset = _scale_standard(offsets[refractor_mask])
-    scaled_times, mean_time, std_time = _scale_standard(times[refractor_mask])
-    if np.isclose(min(std_offset, std_time), 0):
+    if refractor_mask.sum() <= MIN_POINTS_IN_REFRACTOR:
         return np.nan, np.nan
 
-    lin_reg = SGDRegressor(loss='huber', penalty=None, shuffle=True, epsilon=.1, eta0=0.1, alpha=0.01,
-                           tol=1e-6, max_iter=1000, learning_rate='optimal')
-    lin_reg.fit(scaled_offsets.reshape(-1, 1), scaled_times, coef_init=1, intercept_init=0)
-    velocity = std_offset / (lin_reg.coef_[0] * std_time)
-    t0 = max(0, mean_time + lin_reg.intercept_[0] * std_time - mean_offset / velocity)
-    return 1000 * velocity, t0
+    refractor_offsets = offsets[refractor_mask]
+    refractor_times = times[refractor_mask]
+    mean_offset, std_offset = np.mean(refractor_offsets), np.std(refractor_offsets)
+    mean_time, std_time = np.mean(refractor_times), np.std(refractor_times)
+    if np.isclose([std_offset, std_time], 0).any():
+        return np.nan, np.nan
+
+    velocity = std_offset / std_time
+    t0 = mean_time - mean_offset / velocity
+    return np.clip(1000 * velocity, 0, 5000), max(0, t0)
 
 
-def refine_velocities(velocities, fixed_indices, min_velocity_increase):
+def refine_refractor_velocities(velocities, fixed_indices, min_velocity_step):
     nan_velocities = np.isnan(velocities)
     if nan_velocities.all():
-        return 1600 + min_velocity_increase * np.arange(len(velocities))
+        return 1600 + min_velocity_step * np.arange(len(velocities))
     if len(fixed_indices) == 0:
         fixed_indices = np.where(~nan_velocities)[0][:1]
 
     # Refine velocities between each two adjacent velocities obtained from init
     for start, stop in zip(fixed_indices[:-1], fixed_indices[1:]):
         for pos in range(start + 1, stop):
-            velocities[pos] = np.nanmax([velocities[pos], velocities[pos - 1] + min_velocity_increase])
+            velocities[pos] = np.nanmax([velocities[pos], velocities[pos - 1] + min_velocity_step])
         for pos in range(stop - 1, start, -1):
-            velocities[pos] = np.nanmin([velocities[pos], velocities[pos + 1] - min_velocity_increase])
+            velocities[pos] = np.nanmin([velocities[pos], velocities[pos + 1] - min_velocity_step])
 
     # Refine velocities of refractors outside those defined in init
     for pos in range(fixed_indices[-1] + 1, len(velocities)):
-        velocities[pos] = np.nanmax([velocities[pos], velocities[pos - 1] + min_velocity_increase])
+        velocities[pos] = np.nanmax([velocities[pos], velocities[pos - 1] + min_velocity_step])
     for pos in range(fixed_indices[0] - 1, -1, -1):
-        velocities[pos] = np.nanmin([velocities[pos], velocities[pos + 1] - min_velocity_increase])
+        velocities[pos] = np.nanmin([velocities[pos], velocities[pos + 1] - min_velocity_step])
 
     return velocities
 
@@ -150,6 +145,7 @@ class RefractorVelocity:
         knots = self._calc_knots_by_params(np.array(list(self.params.values())), max_offset)
         self.piecewise_offsets, self.piecewise_times = knots
         self.interpolator = interp1d(self.piecewise_offsets, self.piecewise_times)
+        self.max_offset = max_offset
         self.coords = coords
 
         # Fit-related attributes, set only when from_first_breaks is called
@@ -162,7 +158,7 @@ class RefractorVelocity:
 
     @classmethod
     def from_first_breaks(cls, offsets, times, init=None, bounds=None, n_refractors=None, max_offset=None,
-                          min_velocity_increase=0, min_crossover_increase=0, loss="L1", huber_coef=20, tol=1e-5,
+                          min_velocity_step=1, min_crossover_step=1, loss="L1", huber_coef=20, tol=1e-5,
                           coords=None, **kwargs):
         """Create a `RefractorVelocity` instance from offsets and times of first breaks. At least one of `init`,
         `bounds` or `n_refractors` must be passed.
@@ -211,7 +207,7 @@ class RefractorVelocity:
         init = {**init_by_bounds, **init}
 
         # Check whether init dict contains only valid param names
-        pattern = re.compile("(t0)|([xv][1-9]\d*)")  # t0 or x{i}/v{i} for i >= 1
+        pattern = re.compile(r"(t0)|([xv][1-9]\d*)")  # t0 or x{i}/v{i} for i >= 1
         bad_names = [param_name for param_name in init.keys() if pattern.fullmatch(param_name) is None]
         if bad_names:
             raise ValueError(f"Wrong param names passed to init or bounds: {bad_names}")
@@ -235,30 +231,32 @@ class RefractorVelocity:
                                  "than defined by n_refractors")
 
             # Linearly interpolate unknown crossover offsets
-            crossover_offsets = np.array([0] + [init.get(f"x{i}", np.nan) for i in range(1, n_refractors)] + [max_offset])
-            undefined_mask = np.isnan(crossover_offsets)
-            crossover_indices = np.arange(n_refractors + 1)
-            crossover_offsets = np.interp(crossover_indices, crossover_indices[~undefined_mask], crossover_offsets[~undefined_mask])
+            cross_offsets = np.array([0] + [init.get(f"x{i}", np.nan) for i in range(1, n_refractors)] + [max_offset])
+            undefined_mask = np.isnan(cross_offsets)
+            cross_indices = np.arange(n_refractors + 1)
+            cross_offsets = np.interp(cross_indices, cross_indices[~undefined_mask], cross_offsets[~undefined_mask])
 
-            # Fit linear regressions to estimate unknown refractor velocities
+            # Fit linear regressions to estimate unknown intercept time and refractor velocities
             velocities = np.array([init.get(f"v{i}", np.nan) for i in range(1, n_refractors + 1)])
             undefined_mask = np.isnan(velocities)
             if undefined_mask[0] or ("t0" not in init):
-                vel, t0 = fit_refractor_velocity(offsets, times, crossover_offsets[:2])
+                vel, t0 = estimate_refractor_velocity(offsets, times, cross_offsets[:2])
                 if undefined_mask[0]:
                     velocities[0] = vel
                 init_t0 = init.get("t0", np.nan_to_num(t0))
             for i in np.where(undefined_mask[1:])[0] + 1:
-                velocities[i] = fit_refractor_velocity(offsets, times, crossover_offsets[i:i+2])[0]
-            velocities = refine_velocities(velocities, np.where(~undefined_mask)[0], min_velocity_increase)
-            init = dict(zip(param_names, [init_t0, *crossover_offsets[1:-1], *velocities]))
+                velocities[i] = estimate_refractor_velocity(offsets, times, cross_offsets[i:i+2])[0]
+            velocities = refine_refractor_velocities(velocities, np.where(~undefined_mask)[0], min_velocity_step)
+            init = dict(zip(param_names, [init_t0, *cross_offsets[1:-1], *velocities]))
 
-        cls._validate_params(init, max_offset, min_velocity_increase, min_crossover_increase)
+        cls._validate_params(init, max_offset, min_velocity_step, min_crossover_step)
         n_refractors = len(init) // 2
         param_names = get_param_names(n_refractors)
 
-        default_params_bounds = np.array([[0, np.inf]] * 2 * n_refractors)
-        default_params_bounds[1:n_refractors, 1] = max_offset  # clip crossover offsets with max offset
+        default_crossover_bounds = [[min_crossover_step, max_offset - min_crossover_step]
+                                    for _ in range(n_refractors - 1)]
+        default_velocity_bounds = [[0, np.inf] for _ in range(n_refractors)]
+        default_params_bounds = [[0, np.inf]] + default_crossover_bounds + default_velocity_bounds
         bounds = {**dict(zip(param_names, default_params_bounds)), **bounds}
         cls._validate_params_bounds(init, bounds)
 
@@ -270,22 +268,26 @@ class RefractorVelocity:
         init_array = cls._scale_params(np.array(list(init.values()), dtype=np.float32))
         bounds_array = cls._scale_params(np.array(list(bounds.values()), dtype=np.float32))
 
-        # Define model constraints, appropriately scale minimum velocity and crossover offset increase
+        # Define model constraints, appropriately scale minimum velocity and crossover offset steps
         crossover_offsets_ascend = {
             "type": "ineq",
-            "fun": lambda x: (np.diff(x[1:n_refractors], prepend=0, append=max_offset / 1000) -
-                              min_crossover_increase / 1000)
+            "fun": lambda x: np.diff(x[1:n_refractors]) - min_crossover_step / 1000
         }
         velocities_ascend = {
             "type": "ineq",
-            "fun": lambda x: np.diff(x[n_refractors:]) - min_velocity_increase / 1000
+            "fun": lambda x: np.diff(x[n_refractors:]) - min_velocity_step / 1000
         }
-        constraints = [crossover_offsets_ascend, velocities_ascend]
+        constraints = []
+        if n_refractors > 1:
+            constraints.append(velocities_ascend)
+        if n_refractors > 2:
+            constraints.append(crossover_offsets_ascend)
 
         # Fit a piecewise-linear velocity model
-        loss_fn = partial(cls.calculate_loss, loss=loss, huber_coef=huber_coef)
-        fit_result = minimize(loss_fn, args=(offsets, times, max_offset), method="SLSQP", tol=tol, options=kwargs,
-                              x0=init_array, bounds=bounds_array, constraints=constraints)
+        loss_fn = partial(cls.calculate_loss, offsets=offsets, times=times, max_offset=max_offset,
+                          loss=loss, huber_coef=huber_coef)
+        fit_result = minimize(loss_fn, x0=init_array, bounds=bounds_array, constraints=constraints,
+                              method="SLSQP", tol=tol, options=kwargs)
         param_values = postprocess_params(cls._unscale_params(fit_result.x.copy()))
         params = dict(zip(param_names, param_values))
 
@@ -377,7 +379,7 @@ class RefractorVelocity:
                              "t0, v1, ..., v{n}, x1, ..., x{n-1}")
 
     @classmethod
-    def _validate_params(cls, params, max_offset=None, min_velocity_increase=0, min_crossover_increase=0):
+    def _validate_params(cls, params, max_offset=None, min_velocity_step=0, min_crossover_step=0):
         cls._validate_params_names(params)
         n_refractors = len(params) // 2
         param_names = get_param_names(n_refractors)
@@ -389,11 +391,11 @@ class RefractorVelocity:
         if negative_param:
             raise ValueError(f"The following parameters contain negative values: {negative_param}")
 
-        if (np.diff(param_values[1:n_refractors], prepend=0, append=max_offset) < min_crossover_increase).any():
-            raise ValueError(f"Crossover offsets must ascend by no less than {min_crossover_increase}")
+        if (np.diff(param_values[1:n_refractors], prepend=0, append=max_offset) < min_crossover_step).any():
+            raise ValueError(f"Crossover offsets must ascend by no less than {min_crossover_step}")
 
-        if (np.diff(param_values[n_refractors:]) < min_velocity_increase).any():
-            raise ValueError(f"Refractor velocities must ascend by no less than {min_velocity_increase}")
+        if (np.diff(param_values[n_refractors:]) < min_velocity_step).any():
+            raise ValueError(f"Refractor velocities must ascend by no less than {min_velocity_step}")
 
     @classmethod
     def _validate_params_bounds(cls, params, bounds):
@@ -442,9 +444,7 @@ class RefractorVelocity:
         piecewise_times[0] = params[0]
         params_zip = zip(piecewise_offsets[1:], piecewise_offsets[:-1], params[n_refractors:])
         for i, (cross, prev_cross, vel) in enumerate(params_zip):
-            piecewise_times[i + 1] = piecewise_times[i]
-            if not np.isclose(vel, 0):
-                piecewise_times[i + 1] += 1000 * (cross - prev_cross) / vel  # m/s to km/s
+            piecewise_times[i + 1] = piecewise_times[i] + 1000 * (cross - prev_cross) / max(0.01, vel)  # m/s to km/s
         return piecewise_offsets, piecewise_times
 
     @classmethod
