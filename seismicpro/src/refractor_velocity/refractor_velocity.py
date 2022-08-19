@@ -517,6 +517,10 @@ class RefractorVelocity:
     def dump(self, path, encoding="UTF-8", min_col_size=11):
         """Dump the RefractorVelocity instance to a file. Coords should be preloaded.
 
+        The resulting file contains the coords and parameters of a single RefractorVelocity with the following
+        structure:
+        The first row contains coords names and parameter names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
+        The second row contains the coords and parameters values of a RefractorVelocity.
         File example:
         SourceX   SourceY        t0        x1        v1        v2 max_offset
         1111100   2222220     50.00   1000.00   1500.00   2000.00    2000.00
