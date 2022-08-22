@@ -394,11 +394,13 @@ class RefractorVelocity:
         reg = SGDRegressor(loss="huber", epsilon=0.1, penalty=None, learning_rate="optimal", alpha=0.01,
                            max_iter=1000, tol=1e-5, shuffle=True)
         reg.fit(scaled_offsets.reshape(-1, 1), scaled_times, coef_init=1, intercept_init=0)
-        velocity = std_offset / (std_time * reg.coef_[0])
-        t0 = mean_time + reg.intercept_[0] * std_time - mean_offset / velocity
+        slope = reg.coef_[0] * std_time / std_offset
+        t0 = mean_time + reg.intercept_[0] * std_time - slope * mean_offset
 
         # Convert velocity to m/s, clip it to lie within a [0, 5000] interval. Clip intercept time to be non-negative.
-        return np.clip(1000 * velocity, 0, 5000), max(0, t0)
+        velocity = 1000 / max(1/5, slope)
+        t0 = max(0, t0)
+        return velocity, t0
 
     @staticmethod
     def refine_refractor_velocities(velocities, fixed_indices, min_velocity_step):
@@ -409,9 +411,12 @@ class RefractorVelocity:
         if nan_velocities.all():
             return 1600 + min_velocity_step * np.arange(len(velocities))
 
-        # If no velocities were passed in init/bounds, start the refinement from the first one properly fit
+        # If no velocities were passed in init/bounds, start the refinement from the first one properly fit, but
+        # guarantee that all velocities will remain non-negative
         if len(fixed_indices) == 0:
-            fixed_indices = np.where(~nan_velocities)[0][:1]
+            first_fit_index = np.where(~nan_velocities)[0][0]
+            velocities[first_fit_index] = max(velocities[first_fit_index], first_fit_index * min_velocity_step + 1)
+            fixed_indices = [first_fit_index]
 
         # Refine velocities between each two adjacent velocities obtained from init
         for start, stop in zip(fixed_indices[:-1], fixed_indices[1:]):
