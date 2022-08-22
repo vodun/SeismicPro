@@ -1159,6 +1159,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Parameters
         ----------
+        show_contour : bool, optional, defaults to True
+            Whether to display a field contour if survey geometry was inferred.
         keep_aspect : bool, optional, defaults to False
             Whether to keep aspect ratio of the map plot.
         x_ticker : str or dict, optional
