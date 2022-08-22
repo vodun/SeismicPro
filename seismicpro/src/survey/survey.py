@@ -1033,6 +1033,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     @staticmethod
     def _get_optimal_origin(arr, step):
+        """Find a position in an array `arr` that maximizes sum of each `step`-th element from it to the end of the
+        array. In case of multiple such positions, return the one closer to `step // 2`."""
         mod = len(arr) % step
         if mod:
             arr = np.pad(arr, (0, step - mod))
@@ -1055,13 +1057,24 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Parameters
         ----------
-        size : tuple of 2 ints, optional, defaults to (3, 3)
-            Supergather size along inline and crossline axes. Measured in lines.
-        step : tuple of 2 ints, optional, defaults to (20, 20)
-            Supergather step along inline and crossline axes. Measured in lines.
-        modulo : tuple of 2 ints, optional, defaults to (0, 0)
-            The remainder of the division of gather coordinates by given `step` for it to become a supergather center.
-            Used to shift the grid of supergathers from the field origin. Measured in lines.
+        centers : 2d array-like with shape (n_supergathers, 2), optional
+            Centers of supergathers being generated. If not given, calculated by the `origin` of a supergather grid.
+            Measured in lines.
+        origin : int or tuple of 2 ints, optional
+            Origin of the supergather grid, used only if `centers` are not given. If `None`, generated automatically to
+            maximize the number of supergathers. Measured in lines.
+        size : int or tuple of 2 ints, optional, defaults to 3
+            Supergather size along inline and crossline axes. Single int defines sizes for both axes. Measured in
+            lines.
+        step : int or tuple of 2 ints, optional, defaults to 20
+            Supergather step along inline and crossline axes. Single int defines steps for both axes. Used to define a
+            grid of supergathers if `centers` are not given. Measured in lines.
+        border_indent : int, optional, defaults to 0
+            Avoid placing supergather centers closer than this distance to the field contour. Used only if `centers`
+            are not given. Measured in lines.
+        strict : bool, optional, defaults to True
+            If `True`, guarantees that each gather in a generated supergather will have at least one trace or, in other
+            words, that the supergather entirely lies within the field. Used only if `centers` are not given.
         reindex : bool, optional, defaults to True
             Whether to reindex a survey with the created `SUPERGATHER_INLINE_3D` and `SUPERGATHER_CROSSLINE_3D` headers
             columns.
