@@ -397,9 +397,8 @@ class RefractorVelocity:
         slope = reg.coef_[0] * std_time / std_offset
         t0 = mean_time + reg.intercept_[0] * std_time - slope * mean_offset
 
-        # Convert velocity to m/s, clip it to lie within a [0, 5000] interval. Clip intercept time to be non-negative.
-        velocity = 1000 / max(1/5, slope)
-        t0 = max(0, t0)
+        velocity = 1000 / max(1/5, slope)  # Convert slope to velocity in m/s, clip it to be in a [0, 5000] interval
+        t0 = min(max(0, t0), times.max())  # Clip intercept time to lie within a [0, times.max()] interval
         return velocity, t0
 
     @staticmethod
