@@ -971,7 +971,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             muted_metrics_list = []
 
         for metric_cls in metrics_list + muted_metrics_list:
-            if not isinstance(metric_cls, TracewiseMetric):
+            if not issubclass(metric_cls, TracewiseMetric):
                 raise TypeError(f"all metrics must be `TracewiseMetric` subtypes, but {metric_cls.__name__} is not")
 
         self = self.reindex('TRACE_SEQUENCE_FILE', inplace=inplace)  # pylint: disable=self-cls-assignment
