@@ -228,7 +228,7 @@ class RefractorVelocity:
         max_velocity = last_refractor_velocity + max(max_velocity_bounds_range, last_refractor_velocity)
 
         # Set default bounds for parameters that don't have them specified, validate the result for correctness
-        default_t0_bounds = [[0, times.max()]]
+        default_t0_bounds = [[0, max(init["t0"], times.max())]]
         default_crossover_bounds = [[min_crossover_step, max_offset - min_crossover_step]
                                     for _ in range(n_refractors - 1)]
         default_velocity_bounds = [[0, max_velocity] for _ in range(n_refractors)]
