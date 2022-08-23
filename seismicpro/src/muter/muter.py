@@ -1,6 +1,5 @@
 """Implements Muter class to define a boundary above which gather values should be zeroed out"""
 
-from ..refractor_velocity import RefractorVelocity
 from ..utils import VFUNC
 
 
@@ -116,5 +115,5 @@ class Muter(VFUNC):
         adjusted_params["t0"] += delay
         for i in range(1, refractor_velocity.n_refractors + 1):
             adjusted_params[f"v{i}"] -= velocity_reduction
-        adjusted_rv = RefractorVelocity(**adjusted_params)
+        adjusted_rv = type(refractor_velocity)(**adjusted_params)  # use type to avoid circular import
         return cls(adjusted_rv.piecewise_offsets, adjusted_rv.piecewise_times, coords=refractor_velocity.coords)
