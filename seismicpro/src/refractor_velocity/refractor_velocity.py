@@ -105,7 +105,6 @@ class RefractorVelocity:
         self.interpolator = None
 
         self._valid_keys = None
-        self._empty_layers = None
         self._model_params = None
 
     @classmethod
@@ -127,6 +126,10 @@ class RefractorVelocity:
             Number of layers of the velocity model.
         coords : Coordinates or None, optional
             Spatial coordinates of the created refractor velocity.
+        loss : str, defaults to "L1"
+            Loss function for `scipy.optimize.minimize`. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
+        huber_coef : float, default to 20
+            Coefficient for Huber loss function.
         kwargs : misc, optional
             Additional keyword arguments to `scipy.optimize.minimize`.
 
@@ -163,25 +166,18 @@ class RefractorVelocity:
         self.init = {key: self.init[key] for key in self._valid_keys}
         self.bounds = {key: self.bounds[key] for key in self._valid_keys}
 
-        # piecewise func parameters
-        # move max_offset to right if init crossoffset out of the data
-        if self.n_refractors > 1:
+        if self.n_refractors > 1:  # move max_offset to right if init crossoffset out of the data
             self.max_offset = max(self.init[f'x{self.n_refractors - 1}'], self.max_offset)
-        self.piecewise_offsets, self.piecewise_times = \
-            self._create_piecewise_coords(self.n_refractors, self.max_offset)
-        self.piecewise_offsets, self.piecewise_times = \
-            self._update_piecewise_coords(self.piecewise_offsets, self.piecewise_times,
-                                          self._ms_to_kms(self.init), self.n_refractors)
-
-        self._empty_layers = np.histogram(self.offsets, self.piecewise_offsets)[0] ==  0
-        constraints_list = self._get_constraints()
 
         # fitting piecewise linear regression
+        constraints_list = self._get_constraints()
         partial_loss_func = partial(self.loss_piecewise_linear, loss=kwargs.pop('loss', 'L1'),
-                                    huber_coef=kwargs.pop('huber_coef', .1))
+                                    huber_coef=kwargs.pop('huber_coef', 20))
         minimizer_kwargs = {'method': 'SLSQP', 'constraints': constraints_list, **kwargs}
         self._model_params = optimize.minimize(partial_loss_func, x0=self._ms_to_kms(self.init),
                                                bounds=self._ms_to_kms(self.bounds), **minimizer_kwargs)
+        self.piecewise_offsets, self.piecewise_times = \
+            self.calc_knots_by_params(self._model_params.x, max_offset=self.max_offset)
         self.params = dict(zip(self._valid_keys, self._postprocess_params(self._model_params.x)))
         self.interpolator = interp1d(self.piecewise_offsets, self.piecewise_times)
         return self
@@ -216,10 +212,8 @@ class RefractorVelocity:
         self.coords = coords
 
         self.piecewise_offsets, self.piecewise_times = \
-            self._create_piecewise_coords(self.n_refractors, self.params.get(f'x{self.n_refractors - 1}', 0) + 1000)
-        self.piecewise_offsets, self.piecewise_times = \
-            self._update_piecewise_coords(self.piecewise_offsets, self.piecewise_times, self._ms_to_kms(self.params),
-                                          self.n_refractors)
+            self.calc_knots_by_params(self._ms_to_kms(self.params),
+                                      max_offset=self.params.get(f'x{self.n_refractors - 1}', 0) + 1000)
         self.interpolator = interp1d(self.piecewise_offsets, self.piecewise_times)
         return self
 
@@ -262,15 +256,14 @@ class RefractorVelocity:
         """bool: Whether refractor velocity coordinates are not-None."""
         return self.coords is not None
 
-    def _create_piecewise_coords(self, n_refractors, max_offset=np.nan):
-        """Create two array corresponding to the piecewise linear function coords."""
+    @staticmethod
+    def calc_knots_by_params(params, max_offset):
+        """Calculate the coordinates of the knots of a piecewise linear function based on the given `params` and
+        `max_offset`."""
+        n_refractors = len(params) // 2
         piecewise_offsets = np.zeros(n_refractors + 1)
         piecewise_times = np.zeros(n_refractors + 1)
         piecewise_offsets[-1] = max_offset
-        return piecewise_offsets, piecewise_times
-
-    def _update_piecewise_coords(self, piecewise_offsets, piecewise_times, params, n_refractors):
-        """Update the given `offsets` and `times` arrays based on the `params` and `n_refractors`."""
         piecewise_times[0] = params[0]
         piecewise_offsets[1:n_refractors] = params[1:n_refractors]
         for i in range(n_refractors):
@@ -279,9 +272,9 @@ class RefractorVelocity:
         return piecewise_offsets, piecewise_times
 
     def loss_piecewise_linear(self, args, loss='L1', huber_coef=20):
-        """Update the piecewise linear attributes and returns the loss function result.
+        """Calculate the result of the loss function based on the passed args.
 
-        Method calls `_update_piecewise_coords` to update piecewise linear attributes of a RefractorVelocity instance.
+        Method calls `calc_knots_by_params` to calculate piecewise linear attributes of a RefractorVelocity instance.
         After that, the method calculates the loss function between the true first breaks times stored in the
         `self.fb_times` and predicted piecewise linear function. The loss function is calculated at the offsets points.
 
@@ -301,7 +294,7 @@ class RefractorVelocity:
         args : tuple, list, or 1d ndarray
             Parameters of the piecewise linear function.
         loss : str, optional, defaults to "L1".
-            The loss function type. Should be one of "MSE", "L1", "huber", "soft_L1", or "cauchy".
+            The loss function type. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
             All implemented loss functions have a mean reduction.
         huber_coef : float, default to 20
             Coefficient for Huber loss.
@@ -316,19 +309,18 @@ class RefractorVelocity:
         ValueError
             If given `loss` does not exist.
         """
-        self.piecewise_offsets, self.piecewise_times = \
-            self._update_piecewise_coords(self.piecewise_offsets, self.piecewise_times, args, self.n_refractors)
-        diff_abs = np.abs(np.interp(self.offsets, self.piecewise_offsets, self.piecewise_times) - self.fb_times)
+        piecewise_offsets, piecewise_times = self.calc_knots_by_params(args, self.max_offset)
+        diff_abs = np.abs(np.interp(self.offsets, piecewise_offsets, piecewise_times) - self.fb_times)
         if loss == 'MSE':
             return (diff_abs ** 2).mean()
-        if loss == 'L1':
-            return diff_abs.mean()
         if loss == 'huber':
             loss = np.empty_like(diff_abs)
             mask = diff_abs <= huber_coef
             loss[mask] = .5 * (diff_abs[mask] ** 2)
             loss[~mask] = huber_coef * diff_abs[~mask] - .5 * (huber_coef ** 2)
             return loss.mean()
+        if loss == 'L1':
+            return diff_abs.mean()
         if loss == 'soft_L1':
             return 2 * ((1 + diff_abs) ** .5 - 1).mean()
         if loss == 'cauchy':
@@ -338,48 +330,26 @@ class RefractorVelocity:
     def _get_valid_keys(self, n_refractors=None):
         """Returns a list with the valid keys based on `n_refractors` or `self.n_refractors`."""
         n_refractors = self.n_refractors if n_refractors is None else n_refractors
-        return ['t0'] + [f'x{i + 1}' for i in range(n_refractors - 1)] + [f'v{i + 1}' for i in range(n_refractors)]
+        return ['t0'] + [f'x{i}' for i in range(1, n_refractors)] + [f'v{i + 1}' for i in range(n_refractors)]
 
     def _get_constraints(self):
         """Define the constraints and return a list them."""
-        constraint_offset = {  # cross offsets ascend.
+        contraint_crossoffsets_ascend = {
             "type": "ineq",
-            "fun": lambda x: np.diff(np.concatenate((x[1:self.n_refractors], [self.max_offset])))}
-        constraint_velocity = {  # velocities ascend.
+            "fun": lambda x: np.diff(x[1:self.n_refractors], append=self.max_offset)}
+        constraint_velocity_ascend = {
             "type": "ineq",
             "fun": lambda x: np.diff(x[self.n_refractors:])}
-        constraint_freeze_velocity = {  # freeze the velocity if no data for layer is found.
-            "type": "eq",
-            "fun": lambda x: self._ms_to_kms(self.init)[self.n_refractors:][self._empty_layers]
-                             - x[self.n_refractors:][self._empty_layers]}
-        constraint_freeze_t0 = {  # freeze the intercept time if no data for layer is found.
-            "type": "eq",
-            "fun": lambda x: x[:1][self._empty_layers[:1]] - np.array([self.init['t0']])[self._empty_layers[:1]]}
-        return [constraint_offset, constraint_velocity, constraint_freeze_velocity, constraint_freeze_t0]
+        return [contraint_crossoffsets_ascend, constraint_velocity_ascend]
 
-    def _fit_regressor(self, x, y, start_slope, start_time):
-        """Method fits the linear regression by given data and initial values.
-
-        Parameters
-        ----------
-        x : 1d ndarray of shape (n_samples, 1)
-            Training data.
-        y : 1d ndarray of shape (n_samples,)
-            Target values.
-        start_slope : float
-            Starting coefficient to fit a linear regression.
-        start_time : float
-            Starting intercept to fit a linear regression.
-
-        Returns
-        -------
-        params : tuple
-            Linear regression `coef` and `intercept`.
-        """
-        lin_reg = SGDRegressor(loss='huber', penalty=None, shuffle=True, epsilon=0.05, eta0=0.1, alpha=0.01, tol=1e-6,
-                               max_iter=1000, learning_rate='optimal')
-        lin_reg.fit(x, y, coef_init=start_slope, intercept_init=start_time)
-        return lin_reg.coef_[0], lin_reg.intercept_
+    @staticmethod
+    def _scale_standard(data):
+        """Scale data to zero mean and unit variance."""
+        if len(data) == 0:
+            return data, 0, 0
+        mean, std = np.mean(data), np.std(data)
+        data_scaled = (data - mean) / (std + 1e-10)
+        return data_scaled, mean, std
 
     def _calc_init_by_layers(self, n_refractors):
         """Calculates `init` dict by a given an estimated quantity of layers.
@@ -401,34 +371,27 @@ class RefractorVelocity:
         if n_refractors is None or n_refractors < 1:
             return {}
 
-        max_fb_times = self.fb_times.max()  # times normalization parameter.
-        initial_slope = 4 / 5  # base slope corresponding velocity is 1.25 km/s (v = 1 / slope)
-        initial_slope = initial_slope * self.max_offset / max_fb_times  # add normalization
-        initial_time = 0
-        normalized_offsets = self.offsets / self.max_offset
-        normalized_times = self.fb_times / max_fb_times
+        cross_offsets = np.linspace(0, self.max_offset, num=n_refractors + 1)
+        slopes = 4 / 5 * (n_refractors / (n_refractors + 1)) ** np.arange(n_refractors)
+        init_t0 = 0
 
-        cross_offsets = np.linspace(0, 1, num=n_refractors + 1)  # split cross offsets on an equal intervals
-        current_slope = np.empty(n_refractors)
-        current_time = np.empty(n_refractors)
+        for i in range(n_refractors):
+            mask = (self.offsets > cross_offsets[i]) & (self.offsets <= cross_offsets[i + 1])
+            # data normalization occurs independently for each layer
+            scaled_offsets, mean_offset, std_offset = self._scale_standard(self.offsets[mask])
+            scaled_times, mean_time, std_time = self._scale_standard(self.fb_times[mask])
+            if std_offset and std_time:
+                lin_reg = SGDRegressor(loss='huber', penalty=None, shuffle=True, epsilon=.1, eta0=0.1, alpha=0.01,
+                                       tol=1e-6, max_iter=1000, learning_rate='optimal')
+                lin_reg.fit(scaled_offsets.reshape(-1, 1), scaled_times, coef_init=1, intercept_init=0)
+                slopes[i] = lin_reg.coef_[0] * std_time / std_offset
+                if not i:
+                    init_t0 = mean_time + lin_reg.intercept_ * std_time - slopes[i] * mean_offset
+                    init_t0 =  max(0, init_t0)
+            slopes[i] = max(.167, slopes[i])  # move maximal velocity to 6 km/s
 
-        for i in range(n_refractors):  # inside the loop work with normalized data only
-            mask = (normalized_offsets > cross_offsets[i]) & (normalized_offsets <= cross_offsets[i + 1])
-            if mask.sum() > 1:  # at least two point to fit
-                current_slope[i], current_time[i] = \
-                    self._fit_regressor(normalized_offsets[mask].reshape(-1, 1), normalized_times[mask],
-                                        initial_slope, initial_time)
-            else:
-                current_slope[i] = initial_slope
-                current_time[i] = initial_time
-            # move maximal velocity to 6 km/s
-            current_slope[i] = max(.167 * self.max_offset / max_fb_times, current_slope[i])
-            current_time[i] =  max(0, current_time[i])
-            # raise base velocity for the next layer (v = 1 / slope)
-            initial_slope = current_slope[i] * (n_refractors / (n_refractors + 1))
-            initial_time = current_time[i] + (current_slope[i] - initial_slope) * cross_offsets[i + 1]
-        velocities = 1 / (current_slope * max_fb_times / self.max_offset)
-        init = [current_time[0] * max_fb_times, *cross_offsets[1:-1] * self.max_offset, *(velocities * 1000)]
+        velocities = 1 / np.minimum.accumulate(slopes)
+        init = [init_t0, *cross_offsets[1:-1], *(velocities * 1000)]
         init = dict(zip(self._get_valid_keys(n_refractors), init))
         return init
 
