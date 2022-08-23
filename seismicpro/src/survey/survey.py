@@ -931,7 +931,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
 
-    def qc_tracewise(self, metrics_list = [], muted_metrics_list=[], first_breaks_col=HDR_FIRST_BREAK,
+    def qc_tracewise(self, metrics_list=None, muted_metrics_list=None, first_breaks_col=HDR_FIRST_BREAK,
                      chunk_size=1000, inplace=False):
         """Calculate tracewise QC metrics
 
@@ -965,6 +965,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if not metrics_list and not muted_metrics_list:
             print("empty metrics lists")
             return self
+
+        if metrics_list is None:
+            metrics_list = []
+        if muted_metrics_list is None:
+            muted_metrics_list = []
 
         if muted_metrics_list and HDR_FIRST_BREAK not in self.headers.columns:
             warnings.warn("First breaks not loaded, muted_metrics will not be computed", RuntimeWarning)

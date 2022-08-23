@@ -374,4 +374,3 @@ class StdFraqMetricGlob(TracewiseMetric):
         """QC indicator implementation."""
         res = np.log10(gather.data.std(axis=1) / gather.survey.std)
         return res
-
