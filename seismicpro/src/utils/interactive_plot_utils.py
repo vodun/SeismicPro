@@ -48,6 +48,10 @@ TITLE_TEMPLATE = "{style} <b><p>{title}</p></b>"
 class InteractivePlot:  # pylint: disable=too-many-instance-attributes
     """Construct an interactive plot with optional click handling.
 
+    The plot may contain multiple views: one for each of the passed `plot_fn`. If more than one view is defined, an
+    extra button is created in the header or toolbar to iterate over them. The plot is interactive: it can handle click
+    and slice events, while each view may define its own processing logic.
+
     Plotting must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and
     `ipympl` and `ipywidgets` libraries installed.
 
@@ -60,15 +64,21 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
         Click handlers for views defined by `plot_fn`. Each of them must accept a tuple with 2 elements defining
         click coordinates. If a single `click_fn` is given, it is used for all views. If not given, click events are
         not handled.
+    slice_fn : callable or list of callable, optional
+        Slice handlers for views defined by `plot_fn`. Slice is triggered by moving the mouse with the left button
+        held. Each handlers must accept two tuples with 2 elements defining coordinates of slice edges. If a single
+        `slice_fn` is given, it is used for all views. If not given, slice events are not handled.
     unclick_fn : callable or list of callable, optional
-        Handlers that undo clicks on views defined by `plot_fn`. Each of them is called without arguments. If a single
-        `unclick_fn` is given, it is used for all views. If not given, clicks can not be undone.
+        Handlers that undo clicks and slices on views defined by `plot_fn`. Each of them is called without arguments.
+        If a single `unclick_fn` is given, it is used for all views. If not given, clicks and slices can not be undone.
     marker_params : dict or list of dict, optional, defaults to {"marker": "+", "color": "black"}
         Click marker parameters for views defined by `plot_fn`. Passed directly to `Axes.scatter`. If a single `dict`
         is given, it is used for all views.
     title : str or callable or list of str or callable, optional
         Plot titles for views defined by `plot_fn`. If `callable`, it is called each time the title is being set (e.g.
         on `redraw`) allowing for dynamic title generation. If not given, an empty title is created.
+    preserve_clicks_on_view_change : bool, optional, defaults to False
+        Whether to preserve click/slice markers and trigger the corresponding event on view change.
     toolbar_position : {"top", "bottom", "left", "right"}, optional, defaults to "left"
         Matplotlib toolbar position relative to the main axes.
     figsize : tuple with 2 elements, optional, defaults to (4.5, 4.5)
@@ -172,7 +182,7 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
 
     @property
     def unclick_fn(self):
-        """callable: undo click/slice handler of the current view."""
+        """callable: undo click or slice on the current view."""
         return self.unclick_fn_list[self.current_view]
 
     @property
@@ -250,7 +260,7 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
             self.start_click_coords = (event.xdata, event.ydata)
 
     def on_motion(self, event):
-        """Handle mouse movement with the pressed button. Redraw currently selected slice line."""
+        """Handle mouse movement with the pressed left mouse button. Redraw currently selected slice line."""
         if self.is_sliceable and event.button == 1:
             self._plot_slice(self.start_click_coords, (event.xdata, event.ydata))
 
@@ -282,6 +292,7 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
     # General plot API
 
     def resize(self, width):
+        """Resize the plot to have the given `width`."""
         width += 4  # Correction for main axes margins
         self.header.layout.width = f"{int(width)}px"
 
@@ -296,6 +307,7 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
         self.slice_marker = None
 
     def click(self, coords):
+        """Trigger a click on the plot at given `coords`."""
         if not self.is_clickable:
             return
         coords = self.click_fn(coords)
@@ -309,12 +321,14 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
         self.fig.canvas.draw_idle()
 
     def _plot_slice(self, start_coords, stop_coords):
+        """Plot a line segment from `start_coords` to `stop_coords`."""
         self._clear_markers()
         self.slice_marker = self.ax.plot([start_coords[0], stop_coords[0]], [start_coords[1], stop_coords[1]],
                                          color="black", zorder=10)[0]
         self.fig.canvas.draw_idle()
 
     def slice(self, start_coords, stop_coords):
+        """Trigger slicking of the plot from `start_coords` to `stop_coords`."""
         if not self.is_sliceable:
             return
         self.slice_fn(start_coords, stop_coords)
@@ -324,6 +338,7 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
         self._plot_slice(start_coords, stop_coords)
 
     def unclick(self):
+        """Undo last click or slice event."""
         if not self.is_unclickable:
             return
         if self.click_marker is None and self.slice_marker is None:
@@ -389,7 +404,57 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
 
 
 class DropdownViewPlot(InteractivePlot):
+    """Construct an interactive plot with optional click handling.
+
+    The plot may contain multiple views: one for each of the passed `plot_fn`. The views can be iterated over either
+    using a dropdown list on top of the plot or arrow buttons on its sides. The plot is interactive: it can handle
+    click and slice events, while each view may define its own processing logic.
+
+    Plotting must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and
+    `ipympl` and `ipywidgets` libraries installed.
+
+    Parameters
+    ----------
+    plot_fn : callable or list of callable, optional
+        One or more plotters each accepting a single keyword argument `ax`. If not given, an empty plot is created.
+    click_fn : callable or list of callable, optional
+        Click handlers for views defined by `plot_fn`. Each of them must accept a tuple with 2 elements defining
+        click coordinates. If a single `click_fn` is given, it is used for all views. If not given, click events are
+        not handled.
+    slice_fn : callable or list of callable, optional
+        Slice handlers for views defined by `plot_fn`. Slice is triggered by moving the mouse with the left button
+        held. Each handlers must accept two tuples with 2 elements defining coordinates of slice edges. If a single
+        `slice_fn` is given, it is used for all views. If not given, slice events are not handled.
+    unclick_fn : callable or list of callable, optional
+        Handlers that undo clicks and slices on views defined by `plot_fn`. Each of them is called without arguments.
+        If a single `unclick_fn` is given, it is used for all views. If not given, clicks and slices can not be undone.
+    marker_params : dict or list of dict, optional, defaults to {"marker": "+", "color": "black"}
+        Click marker parameters for views defined by `plot_fn`. Passed directly to `Axes.scatter`. If a single `dict`
+        is given, it is used for all views.
+    title : str or list of str, optional
+        Plot titles for views defined by `plot_fn`, act as dropdown options.
+    preserve_clicks_on_view_change : bool, optional, defaults to False
+        Whether to preserve click/slice markers and trigger the corresponding event on view change.
+    toolbar_position : {"top", "bottom", "left", "right"}, optional, defaults to "left"
+        Matplotlib toolbar position relative to the main axes.
+    figsize : tuple with 2 elements, optional, defaults to (4.5, 4.5)
+        Size of the created figure. Measured in inches.
+
+    Attributes
+    ----------
+    fig : matplotlib.figure.Figure
+        The created figure.
+    ax : matplotlib.axes.Axes
+        Axes of the figure to plot views on.
+    box : ipywidgets.widgets.widget_box.Box
+        Main container that stores figure canvas, plot title, created buttons and, optionally, a toolbar.
+    n_views : int
+        The number of plot views.
+    current_view : int
+        An index of the current plot view.
+    """
     def __init__(self, **kwargs):
+        # Define widgets for view selection
         self.prev = widgets.Button(icon="angle-left", disabled=True, layout=widgets.Layout(**BUTTON_LAYOUT))
         self.drop = widgets.Dropdown(layout=widgets.Layout(**TEXT_LAYOUT))
         self.next = widgets.Button(icon="angle-right", disabled=True, layout=widgets.Layout(**BUTTON_LAYOUT))
@@ -403,9 +468,12 @@ class DropdownViewPlot(InteractivePlot):
         self.next.on_click(self.next_view)
 
     def construct_buttons(self):
+        """Don't use a parent button for view switching."""
         return []
 
     def construct_header(self):
+        """Construct a header of the plot. Contains a dropdown widget with available views and two arrow buttons on its
+        sides to iterate over views."""
         return widgets.HBox([self.prev, self.drop, self.next])
 
     def set_view(self, view):
@@ -416,14 +484,17 @@ class DropdownViewPlot(InteractivePlot):
         self.next.disabled = (view == (self.n_views - 1))
 
     def next_view(self, event):
+        """Switch to the next view."""
         _ = event
         self.set_view(min(self.current_view + 1, self.n_views - 1))
 
     def prev_view(self, event):
+        """Switch to the previous view."""
         _ = event
         self.set_view(max(self.current_view - 1, 0))
 
     def select_view(self, change):
+        """Set the current view of the plot according to the selected dropdown option."""
         _ = change
         self.set_view(self.drop.index)
 
