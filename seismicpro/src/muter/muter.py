@@ -1,7 +1,6 @@
 """Implements Muter class to define a boundary above which gather values should be zeroed out"""
 
-import numpy as np
-
+from ..refractor_velocity import RefractorVelocity
 from ..utils import VFUNC
 
 
@@ -23,9 +22,14 @@ class Muter(VFUNC):
 
     Examples
     --------
+    Create a muter from arrays of offsets and times:
     >>> muter = Muter(offsets=[100, 1000, 2000], times=[200, 2000, 3000])
     >>> muter([0, 100, 500, 1000, 1500, 2000])
     array([   0.,  200., 1000., 2000., 2500., 3000.])
+
+    Now a gather can be muted using a created object:
+    >>> gather = survey.sample_gather()
+    >>> gather.mute(muter)
 
     Parameters
     ----------
@@ -108,10 +112,9 @@ class Muter(VFUNC):
         self : Muter
             Created muter.
         """
-        times, offsets = refractor_velocity.piecewise_times, refractor_velocity.piecewise_offsets
-        offsets_diff = np.diff(offsets)
-        muting_velocities = offsets_diff / np.diff(times) - velocity_reduction / 1000  # m/ms
-        time_deltas = np.empty_like(times)
-        time_deltas[0] = times[0] + delay
-        time_deltas[1:] = offsets_diff / muting_velocities
-        return cls(offsets, np.cumsum(time_deltas), coords=refractor_velocity.coords)
+        adjusted_params = refractor_velocity.params.copy()
+        adjusted_params["t0"] += delay
+        for i in range(1, refractor_velocity.n_refractors + 1):
+            adjusted_params[f"v{i}"] -= velocity_reduction
+        adjusted_rv = RefractorVelocity(**adjusted_params)
+        return cls(adjusted_rv.piecewise_offsets, adjusted_rv.piecewise_times, coords=refractor_velocity.coords)
