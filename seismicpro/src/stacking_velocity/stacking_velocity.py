@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from ..utils import to_list, VFUNC
+from ..utils import VFUNC
 
 
 class StackingVelocity(VFUNC):
@@ -91,10 +91,10 @@ class StackingVelocity(VFUNC):
         ----------
         velocities : StackingVelocity or list of StackingVelocity
             Stacking velocities to be aggregated.
-        weights : float or list of floats or None, optional, defaults to None
+        weights : float or list of floats, optional
             Weight of each item in `velocities`. If not given, equal weights are assigned to all items and thus mean
             stacking velocity is calculated.
-        coords : Coordinates or None, optional, defaults to None
+        coords : Coordinates, optional
             Spatial coordinates of the created stacking velocity. If not given, the created instance won't be able to
             be added to a `StackingVelocityField`.
 
@@ -103,13 +103,7 @@ class StackingVelocity(VFUNC):
         self : StackingVelocity
             Created stacking velocity instance.
         """
-        velocities = to_list(velocities)
-        if weights is None:
-            weights = np.ones_like(velocities) / len(velocities)
-        weights = np.array(weights)
-        times = np.unique(np.concatenate([vel.times for vel in velocities]))
-        velocities = (np.stack([vel(times) for vel in velocities]) * weights[:, None]).sum(axis=0)
-        return cls(times, velocities, coords=coords)
+        return cls.from_vfuncs(velocities, weights, coords)
 
     @classmethod
     def from_constant_velocity(cls, velocity, coords=None):
@@ -119,7 +113,7 @@ class StackingVelocity(VFUNC):
         ----------
         velocity : float
             Stacking velocity returned for all times.
-        coords : Coordinates or None, optional, defaults to None
+        coords : Coordinates, optional
             Spatial coordinates of the created stacking velocity. If not given, the created instance won't be able to
             be added to a `StackingVelocityField`.
 

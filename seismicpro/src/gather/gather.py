@@ -690,15 +690,14 @@ class Gather(TraceContainer, SamplesContainer):
 
     @batch_method(target="threads", args_to_unpack="muter")
     def mute(self, muter, fill_value=0):
-        """Mute the gather using given `muter`.
-
-        The muting operation is performed by setting gather values above an offset-time boundary defined by `muter` to
-        `fill_value`.
+        """Mute the gather using given `muter` which defines an offset-time boundary above which gather amplitudes will
+        be set to `fill_value`.
 
         Parameters
         ----------
-        muter : Muter or str
-            An object that defines muting times by gather offsets.
+        muter : Muter, MuterField or str
+            A muter to use. `Muter` instance is used directly. If `MuterField` instance is passed, a `Muter`
+            corresponding to gather coordinates is fetched from it.
             May be `str` if called in a pipeline: in this case it defines a component with muters to apply.
         fill_value : float, optional, defaults to 0
             A value to fill the muted part of the gather with.
