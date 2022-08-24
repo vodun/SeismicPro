@@ -1142,13 +1142,15 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.headers = headers
         return self
 
-    def calculate_refractor_velocity_field(self, rv_kwargs, sg_kwargs=None, fb_col="FirstBreak", precalc_init=False,
+    def calculate_refractor_velocity_field(self, rv_kwargs, sg_kwargs=None, fb_col=HDR_FIRST_BREAK, precalc_init=False,
                                            smooth_radius=None):
+        max_offset = None
         if precalc_init:
             offsets = self.headers.offset
             times = self.headers[fb_col]
             rv = RefractorVelocity.from_first_breaks(offsets, times, **rv_kwargs)
             rv_kwargs = {'init': rv.params}
+            max_offset = offsets.max()
         survey = self if sg_kwargs is None else self.generate_supergathers(**sg_kwargs)
         rv_list = []
         for idx in tqdm(survey.headers.index.unique()):
@@ -1160,7 +1162,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             times = gather_headers[fb_col]
             coords_name = to_list(get_coords_cols(gather_headers.index.names))
             coords_value = gather_headers.reset_index()[coords_name]
-            rv = RefractorVelocity.from_first_breaks(offsets, times, **rv_kwargs)
+            rv = RefractorVelocity.from_first_breaks(offsets, times, max_offset=max_offset, **rv_kwargs)
             rv.coords = Coordinates(names=coords_name, coords=coords_value.to_numpy()[0])
             rv_list.append(rv)
         rv_field = RefractorVelocityField(rv_list)
