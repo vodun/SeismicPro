@@ -1142,7 +1142,13 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.headers = headers
         return self
 
-    def calculate_refractor_velocity_field(self, rv_kwargs, sg_kwargs=None, fb_col="FirstBreak", smooth_radius=None):
+    def calculate_refractor_velocity_field(self, rv_kwargs, sg_kwargs=None, fb_col="FirstBreak", precalc_init=False,
+                                           smooth_radius=None):
+        if precalc_init:
+            offsets = self.headers.offset
+            times = self.headers[fb_col]
+            rv = RefractorVelocity.from_first_breaks(offsets, times, **rv_kwargs)
+            rv_kwargs = {'init': rv.params}
         survey = self if sg_kwargs is None else self.generate_supergathers(**sg_kwargs)
         rv_list = []
         for idx in tqdm(survey.headers.index.unique()):
