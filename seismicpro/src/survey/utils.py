@@ -1,7 +1,10 @@
 """General survey processing utils"""
 
 import numpy as np
+from scipy.stats import ttest_ind
 from numba import njit, prange
+from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 
 @njit(nogil=True)
@@ -39,3 +42,26 @@ def ibm_to_ieee(hh, hl, lh, ll):
             exp16 = (np.int8(hh[i, j]) & np.int8(0x7f)) - 70
             res[i, j] = mant * 16.0**exp16
     return res
+
+def plot_n_refractors_losses(survey, max_refractor, n_samples): # strange naming here
+    loss = np.empty((n_samples, max_refractor))
+    stats = np.zeros((max_refractor, 2))
+    for i in tqdm(range(n_samples)):
+        g = survey.sample_gather()  # TODO: add different sampling politics
+        for j in range(1, max_refractor + 1):
+            rv = g.calculate_refractor_velocity(n_refractors=j)
+            loss[i][j-1] = rv.fit_result.fun
+    for i in range(max_refractor - 1):
+        stats[i + 1] = ttest_ind(loss[:, i], loss[:, i+1], nan_policy='propagate', alternative="greater")
+    fig, ax1 = plt.subplots(nrows=1, ncols=1, figsize=(10, 5))
+    ax1.plot(range(1, max_refractor + 1), np.nanmean(loss, axis=0), color="black")
+    ax1.set_title(survey.name)
+    ax1.set_ylabel("Mean loss")
+    ax1.set_xticks(range(1, max_refractor + 1))
+    ax1.set_ylim((0, np.nanmean(loss, axis=0).max() + 1))
+
+    ax2 = ax1.twinx()
+    ax2.plot(range(1, max_refractor + 1), np.clip(stats[:, 1], 0, .5), color="red")
+    ax2.tick_params(axis ='y', labelcolor = "red")
+    ax2.set_ylabel("Pvalue", color="red")
+    ax2.set_ylim((0, .51))

@@ -18,11 +18,12 @@ from sklearn.linear_model import LinearRegression
 from .headers import load_headers
 from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
-from .utils import ibm_to_ieee, calculate_trace_stats
+from .utils import ibm_to_ieee, calculate_trace_stats, plot_n_refractors_losses
 from ..gather import Gather
 from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
-from ..utils import to_list, maybe_copy, get_cols
+from ..refractor_velocity import RefractorVelocity, RefractorVelocityField
+from ..utils import to_list, maybe_copy, get_cols, get_coords_cols, Coordinates
 from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK
 
 
@@ -1141,6 +1142,26 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.headers = headers
         return self
 
+    def calculate_refractor_velocity_field(self, rv_kwargs, sg_kwargs=None, fb_col="FirstBreak", smooth_radius=None):
+        survey = self if sg_kwargs is None else self.generate_supergathers(**sg_kwargs)
+        rv_list = []
+        for idx in tqdm(survey.headers.index.unique()):
+            # avoid loading traces with `get_gather()`
+            gather_headers = survey.headers[survey.headers.index == idx].copy()
+            if len(gather_headers.index.unique()) > 1:
+                raise ValueError("Non unique gather index.")
+            offsets = gather_headers.offset
+            times = gather_headers[fb_col]
+            coords_name = to_list(get_coords_cols(gather_headers.index.names))
+            coords_value = gather_headers.reset_index()[coords_name]
+            rv = RefractorVelocity.from_first_breaks(offsets, times, **rv_kwargs)
+            rv.coords = Coordinates(names=coords_name, coords=coords_value.to_numpy()[0])
+            rv_list.append(rv)
+        rv_field = RefractorVelocityField(rv_list)
+        if smooth_radius is not None:
+            rv_field = rv_field.smooth(smooth_radius)
+        return rv_field
+
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #
     #------------------------------------------------------------------------#
@@ -1247,3 +1268,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
+
+    def plot_n_refractors_losses(self, max_refractor=5, n_samples=20):
+        plot_n_refractors_losses(self, max_refractor, n_samples)
