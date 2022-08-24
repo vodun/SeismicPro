@@ -403,32 +403,33 @@ class RefractorVelocity:
 
     @staticmethod
     def refine_refractor_velocities(velocities, fixed_indices, min_velocity_step):
+        min_velocity_step = np.broadcast_to(min_velocity_step, len(velocities) - 1)
         nan_velocities = np.isnan(velocities)
 
         # Return a dummy velocity range as an initial guess if no velocities were passed in init/bounds dicts and
         # non of them was successfully fit using estimate_refractor_velocity
         if nan_velocities.all():
-            return 1600 + min_velocity_step * np.arange(len(velocities))
+            return np.cumsum(np.r_[1600, min_velocity_step])
 
         # If no velocities were passed in init/bounds, start the refinement from the first one properly fit, but
         # guarantee that all velocities will remain non-negative
         if len(fixed_indices) == 0:
             first_fit_index = np.where(~nan_velocities)[0][0]
-            velocities[first_fit_index] = max(velocities[first_fit_index], first_fit_index * min_velocity_step + 1)
+            velocities[first_fit_index] = max(velocities[first_fit_index], min_velocity_step[:first_fit_index].sum())
             fixed_indices = [first_fit_index]
 
         # Refine velocities between each two adjacent velocities obtained from init
         for start, stop in zip(fixed_indices[:-1], fixed_indices[1:]):
             for pos in range(start + 1, stop):
-                velocities[pos] = np.nanmax([velocities[pos], velocities[pos - 1] + min_velocity_step])
+                velocities[pos] = np.nanmax([velocities[pos], velocities[pos - 1] + min_velocity_step[pos - 1]])
             for pos in range(stop - 1, start, -1):
-                velocities[pos] = np.nanmin([velocities[pos], velocities[pos + 1] - min_velocity_step])
+                velocities[pos] = np.nanmin([velocities[pos], velocities[pos + 1] - min_velocity_step[pos]])
 
         # Refine velocities of refractors outside those defined in init
         for pos in range(fixed_indices[-1] + 1, len(velocities)):
-            velocities[pos] = np.nanmax([velocities[pos], velocities[pos - 1] + min_velocity_step])
+            velocities[pos] = np.nanmax([velocities[pos], velocities[pos - 1] + min_velocity_step[pos - 1]])
         for pos in range(fixed_indices[0] - 1, -1, -1):
-            velocities[pos] = np.nanmin([velocities[pos], velocities[pos + 1] - min_velocity_step])
+            velocities[pos] = np.nanmin([velocities[pos], velocities[pos + 1] - min_velocity_step[pos]])
 
         return velocities
 
