@@ -316,6 +316,11 @@ class RefractorVelocity:
         """bool: Whether refractor velocity coordinates are not-None."""
         return self.coords is not None
 
+    def __repr__(self):
+        param_str = ", ".join([f"{param}={val:.0f}" for param, val in self.params.items()])
+        max_offset_str = None if self.max_offset is None else f"{self.max_offset:.0f}"
+        return f"RefractorVelocity({param_str}, max_offset={max_offset_str}, coords={repr(self.coords)})"
+
     def __getattr__(self, key):
         """Get requested parameter of the velocity model."""
         return self.params[key]
