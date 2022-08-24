@@ -327,6 +327,15 @@ class TraceMeanAbs(TracewiseMetric):
         """QC indicator implementation."""
         return np.abs(gather.data.mean(axis=1) / (gather.data.std(axis=1) + EPS))
 
+class TraceMaxAbs(TracewiseMetric):
+    """Absolute value of the traces mean."""
+    name = "trace_maxabs"
+
+    @staticmethod
+    def get_res(gather):
+        """QC indicator implementation."""
+        return np.nanmax(np.abs(gather.data), axis=1)
+
 class MaxClipsLenMetric(TracewiseMetric):
     """Detecting minimum/maximun clips"""
     name = "max_clips_len"
