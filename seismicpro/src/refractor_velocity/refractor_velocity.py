@@ -115,8 +115,9 @@ class RefractorVelocity:
         self.times = None
 
     @classmethod
-    def from_first_breaks(cls, offsets, times, init=None, bounds=None, n_refractors=None, max_offset=None, loss="L1",
-                          huber_coef=20, tol=1e-5, min_velocity_step=0, min_crossover_step=0, coords=None, **kwargs):
+    def from_first_breaks(cls, offsets, times, init=None, bounds=None, n_refractors=None, max_offset=None,
+                          min_velocity_step=1e-3, min_crossover_step=1e-3, loss="L1", huber_coef=20, tol=1e-5,
+                          coords=None, **kwargs):
         """Create a `RefractorVelocity` instance from offsets and times of first breaks. At least one of `init`,
         `bounds` or `n_refractors` must be passed.
 
