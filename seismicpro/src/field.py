@@ -149,11 +149,11 @@ class Field:
         coords_cols = "Undefined" if self.coords_cols is None else ", ".join(self.coords_cols)
 
         msg = f"""
-        Field type:                {type(self)}
-        Items type:                {self.item_class}
+        Field type:                {type(self).__name__}
+        Items type:                {"Undefined" if self.item_class is None else self.item_class.__name__}
         Has linked survey:         {self.has_survey}
         Number of items:           {self.n_items}
-        Mean distance to neighbor: {self.mean_distance_to_neighbor}
+        Mean distance to neighbor: {self.mean_distance_to_neighbor:.2f}
 
         Coordinate columns:        {coords_cols}
         Coordinate system:         {coordinate_system}
@@ -162,7 +162,7 @@ class Field:
 
         if self.has_interpolator:
             msg += f"""
-        Interpolator type:         {type(self.interpolator)}
+        Interpolator type:         {type(self.interpolator).__name__}
         Is dirty interpolator:     {self.is_dirty_interpolator}
         """
         return dedent(msg).strip()
