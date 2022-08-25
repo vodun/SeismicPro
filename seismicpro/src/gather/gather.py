@@ -766,8 +766,10 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        stacking_velocity : StackingVelocity or str
-            Stacking velocity around which residual semblance is calculated.
+        stacking_velocity : StackingVelocity or StackingVelocityField or str
+            Stacking velocity around which residual semblance is calculated. `StackingVelocity` instance is used
+            directly. If `StackingVelocityField` instance is passed, a `StackingVelocity` corresponding to gather
+            coordinates is fetched from it.
             May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
         n_velocities : int, optional, defaults to 140
             The number of velocities to compute residual semblance for.
@@ -783,6 +785,8 @@ class Gather(TraceContainer, SamplesContainer):
         semblance : ResidualSemblance
             Calculated residual vertical velocity semblance.
         """
+        if isinstance(stacking_velocity, StackingVelocityField):
+            stacking_velocity = stacking_velocity(self.coords)
         gather = self.copy().sort(by="offset")
         return ResidualSemblance(gather=gather, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
                                  win_size=win_size, relative_margin=relative_margin)
