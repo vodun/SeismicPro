@@ -188,8 +188,8 @@ class RefractorVelocity:
 
         # Automatically estimate all params that were not passed in init or bounds by n_refractors
         if n_refractors is not None:
-            init = cls.fill_missing_init_by_refractors(init, n_refractors, offsets, times, max_offset,
-                                                       min_velocity_step, min_crossover_step)
+            init = cls.complete_init_by_refractors(init, n_refractors, offsets, times, max_offset,
+                                                   min_velocity_step, min_crossover_step)
 
         # Validate initial values of model parameters and calculate the number of refractors
         cls._validate_params(init, max_offset, min_velocity_step, min_crossover_step)
@@ -405,8 +405,8 @@ class RefractorVelocity:
         return values
 
     @classmethod
-    def fill_missing_init_by_refractors(cls, init, n_refractors, offsets, times, max_offset,
-                                        min_velocity_step, min_crossover_step):
+    def complete_init_by_refractors(cls, init, n_refractors, offsets, times, max_offset,
+                                    min_velocity_step, min_crossover_step):
         param_names = get_param_names(n_refractors)
         if init.keys() - set(param_names):
             raise ValueError("Parameters defined by init and bounds describe more refractors "
