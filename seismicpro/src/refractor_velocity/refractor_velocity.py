@@ -115,9 +115,8 @@ class RefractorVelocity:
         self.times = None
 
     @classmethod
-    def from_first_breaks(cls, offsets, times, init=None, bounds=None, n_refractors=None, max_offset=None,
-                          loss="L1", huber_coef=20, loss_by_refractor=True, tol=1e-5,
-                          min_velocity_step=0, min_crossover_step=0, coords=None, **kwargs):
+    def from_first_breaks(cls, offsets, times, init=None, bounds=None, n_refractors=None, max_offset=None, loss="L1",
+                          huber_coef=20, tol=1e-5, min_velocity_step=0, min_crossover_step=0, coords=None, **kwargs):
         """Create a `RefractorVelocity` instance from offsets and times of first breaks. At least one of `init`,
         `bounds` or `n_refractors` must be passed.
 
@@ -241,7 +240,7 @@ class RefractorVelocity:
 
         # Fit a piecewise-linear velocity model
         loss_fn = partial(cls.calculate_loss, offsets=offsets, times=times, max_offset=max_offset,
-                          loss=loss, huber_coef=huber_coef, loss_by_refractor=loss_by_refractor)
+                          loss=loss, huber_coef=huber_coef)
         fit_result = minimize(loss_fn, x0=init_array, bounds=bounds_array, constraints=constraints,
                               method="SLSQP", tol=tol, options=kwargs)
         param_values = postprocess_params(cls._unscale_params(fit_result.x))
@@ -488,8 +487,7 @@ class RefractorVelocity:
         return piecewise_offsets, piecewise_times
 
     @classmethod
-    def calculate_loss(cls, scaled_params, offsets, times, max_offset, loss='L1', huber_coef=20,
-                       loss_by_refractor=True):
+    def calculate_loss(cls, scaled_params, offsets, times, max_offset, loss='L1', huber_coef=20):
         """Calculate the result of the loss function based on the passed args.
 
         Method calls `calc_knots_by_params` to calculate piecewise linear attributes of a RefractorVelocity instance.
@@ -545,14 +543,7 @@ class RefractorVelocity:
             loss_val = np.log(abs_diff + 1).mean()
         else:
             raise ValueError("Unknown loss function")
-
-        if not loss_by_refractor:
-            return loss_val.mean()
-
-        crossover_indices = np.searchsorted(offsets, piecewise_offsets, side="right")
-        refractor_losses = [loss_val[start:stop].mean()  # Mean loss over points in a particular refractor
-                            for start, stop in zip(crossover_indices[:-1], crossover_indices[1:]) if start != stop]
-        return np.mean(refractor_losses)
+        return loss_val.mean()
 
     # General processing methods
 
