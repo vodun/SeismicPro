@@ -31,8 +31,10 @@ redefine the following attributes and methods:
 """
 
 import warnings
+from textwrap import dedent
 
 import numpy as np
+from sklearn.neighbors import NearestNeighbors
 
 from .utils import to_list, read_vfunc, dump_vfunc, Coordinates
 from .utils.interpolation import IDWInterpolator, DelaunayInterpolator, CloughTocherInterpolator, RBFInterpolator
@@ -52,7 +54,7 @@ class Field:
     items : item_class or list of item_class, optional
         Items to be added to the field on instantiation. If not given, an empty field is created.
     survey : Survey, optional
-        A survey the field is describing.
+        A survey described by the field.
     is_geographic : bool, optional
         Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
         CROSSLINE_3D)). Inferred automatically on the first update if not given.
@@ -60,7 +62,7 @@ class Field:
     Attributes
     ----------
     survey : Survey or None
-        A survey the field is describing. `None` if not specified during instantiation.
+        A survey described by the field. `None` if not specified during instantiation.
     item_container : dict
         A mapping from coordinates of field items as 2-element tuples to the items themselves.
     is_geographic : bool
@@ -88,12 +90,30 @@ class Field:
 
     @property
     def n_items(self):
+        """int: The number of items in the field."""
         return len(self.item_container)
 
     @property
     def is_empty(self):
         """bool: Whether the field is empty."""
         return self.n_items == 0
+
+    @property
+    def mean_distance_to_neighbor(self):
+        """float or None: Distance to the closest neighbor averaged over all field items. `None` if the field contains
+        less than two items."""
+        if self.n_items < 2:
+            return None
+        return NearestNeighbors(n_neighbors=2, n_jobs=-1).fit(self.coords).kneighbors()[0][:, 1].mean()
+
+    @property
+    def default_neighborhood_radius(self):
+        """float: Default window radius for all spatial-based methods. Equals to 3 mean distances from a field item to
+        its closest neighbor."""
+        dist_to_neighbor = self.mean_distance_to_neighbor
+        if dist_to_neighbor is None:
+            return 0
+        return 3 * dist_to_neighbor
 
     @property
     def has_survey(self):
@@ -122,6 +142,36 @@ class Field:
         classes."""
         raise NotImplementedError
 
+    def __str__(self):
+        """Print field metadata including information about its items, their class, coordinate system and created
+        interpolator."""
+        coordinate_system = {True: "Geographic", False: "Bin", None: "Undefined"}[self.is_geographic]
+        coords_cols = "Undefined" if self.coords_cols is None else ", ".join(self.coords_cols)
+
+        msg = f"""
+        Field type:                {type(self)}
+        Items type:                {self.item_class}
+        Has linked survey:         {self.has_survey}
+        Number of items:           {self.n_items}
+        Mean distance to neighbor: {self.mean_distance_to_neighbor}
+
+        Coordinate columns:        {coords_cols}
+        Coordinate system:         {coordinate_system}
+        Supports coordinates cast: {self.has_survey and self.survey.has_inferred_geometry}
+        """
+
+        if self.has_interpolator:
+            msg += f"""
+        Interpolator type:         {type(self.interpolator)}
+        Is dirty interpolator:     {self.is_dirty_interpolator}
+        """
+        return dedent(msg).strip()
+
+    def info(self):
+        """Print field metadata including information about its items, their class, coordinate system and created
+        interpolator."""
+        print(self)
+
     def create_interpolator(self, interpolator, **kwargs):
         """Create a field interpolator. Chooses appropriate interpolator type by its name defined by `interpolator` and
         a mapping returned by `self.available_interpolators`."""
@@ -137,7 +187,11 @@ class Field:
 
     def transform_coords(self, coords, to_geographic=None, is_geographic=None):
         """Cast input `coords` either to geographic or line coordinates depending on the `to_geographic` flag. If the
-        flag is not given, `coords` are transformed to coordinate system of the field."""
+        flag is not given, `coords` are transformed to coordinate system of the field.
+
+        All non-`Coordinates` entities of `coords` are assumed to be passed in coordinate system defined by
+        `is_geographic` flag. If the flag is not given, they are assumed to be provided in coordinate system of the
+        field."""
         if to_geographic is None:
             to_geographic = self.is_geographic
         if is_geographic is None:
@@ -166,6 +220,7 @@ class Field:
         return coords_arr, coords, is_1d_coords
 
     def validate_items(self, items):
+        """Check if the field can be updated with the provided `items`."""
         #pylint: disable-next=isinstance-second-argument-not-valid-type
         if not all(isinstance(item, self.item_class) for item in items):
             raise TypeError(f"The field can be updated only with instances of {self.item_class} class")
@@ -243,6 +298,9 @@ class Field:
         ----------
         coords : 2-element array-like or 2d np.array with shape (n_coords, 2) or Coordinates or list of Coordinates
             Coordinates to interpolate field items at.
+        is_geographic : bool, optional
+            Coordinate system of all non-`Coordinates` entities of `coords`. Assumed to be in the coordinate system of
+            the field by default.
 
         Returns
         -------
@@ -332,6 +390,9 @@ class SpatialField(Field):
         ----------
         coords : 2-element array-like or 2d np.array with shape (n_coords, 2) or Coordinates or list of Coordinates
             Coordinates to interpolate field values at.
+        is_geographic : bool, optional
+            Coordinate system of all non-`Coordinates` entities of `coords`. Assumed to be in the coordinate system of
+            the field by default.
 
         Returns
         -------
