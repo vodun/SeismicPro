@@ -113,12 +113,11 @@ class RefractorVelocity:
         self.bounds = None
         self.offsets = None
         self.times = None
-        self.is_valid_refractor = None
 
     @classmethod
     def from_first_breaks(cls, offsets, times, init=None, bounds=None, n_refractors=None, max_offset=None,
-                          min_velocity_step=1, min_crossover_step=1, min_refractor_points=10,
-                          loss="L1", huber_coef=20, loss_by_refractor=True, tol=1e-5, coords=None, **kwargs):
+                          min_velocity_step=1, min_crossover_step=1, loss="L1", huber_coef=20, loss_by_refractor=True,
+                          tol=1e-5, coords=None, **kwargs):
         """Create a `RefractorVelocity` instance from offsets and times of first breaks. At least one of `init`,
         `bounds` or `n_refractors` must be passed.
 
@@ -200,11 +199,12 @@ class RefractorVelocity:
             undefined_mask = np.isnan(cross_offsets)
             cross_indices = np.arange(n_refractors + 1)
             cross_offsets = np.interp(cross_indices, cross_indices[~undefined_mask], cross_offsets[~undefined_mask])
+            cross_offsets = cls.refine_refractor_velocities(cross_offsets, np.where(~undefined_mask)[0], min_crossover_step)
 
             # Fit linear regressions to estimate unknown refractor velocities
             velocities = np.array([init.get(f"v{i}", np.nan) for i in range(1, n_refractors + 1)])
             undefined_mask = np.isnan(velocities)
-            estimates = [cls.estimate_refractor_velocity(offsets, times, cross_offsets[i:i+2], min_refractor_points)
+            estimates = [cls.estimate_refractor_velocity(offsets, times, cross_offsets[i:i+2])
                          for i in np.where(undefined_mask)[0]]
             velocities[undefined_mask] = [vel for (vel, _) in estimates]
             velocities = cls.refine_refractor_velocities(velocities, np.where(~undefined_mask)[0], min_velocity_step)
@@ -215,7 +215,7 @@ class RefractorVelocity:
                 if undefined_mask[0]:  # regression is already fit
                     t0 = estimates[0][1]
                 else:
-                    _, t0 = cls.estimate_refractor_velocity(offsets, times, cross_offsets[:2], min_refractor_points)
+                    _, t0 = cls.estimate_refractor_velocity(offsets, times, cross_offsets[:2])
                 t0 = np.nan_to_num(t0)  # can be nan if the regression hasn't fit successfully
 
             init = dict(zip(param_names, [t0, *cross_offsets[1:-1], *velocities]))
@@ -234,7 +234,7 @@ class RefractorVelocity:
 
         # Set default bounds for parameters that don't have them specified, validate the result for correctness
         default_t0_bounds = [[0, max(init["t0"], times.max())]]
-        default_crossover_bounds = [[min_crossover_step, max_offset - min_crossover_step]
+        default_crossover_bounds = [[min_crossover_step[0], max_offset - min_crossover_step[-1]]
                                     for _ in range(n_refractors - 1)]
         default_velocity_bounds = [[0, max_velocity] for _ in range(n_refractors)]
         default_params_bounds = default_t0_bounds + default_crossover_bounds + default_velocity_bounds
@@ -260,7 +260,7 @@ class RefractorVelocity:
         if n_refractors > 2:
             crossover_offsets_ascend = {
                 "type": "ineq",
-                "fun": lambda x: np.diff(cls._unscale_params(x)[1:n_refractors]) - min_crossover_step
+                "fun": lambda x: np.diff(cls._unscale_params(x)[1:n_refractors]) - min_crossover_step[1:-1]
             }
             constraints.append(crossover_offsets_ascend)
 
@@ -280,8 +280,6 @@ class RefractorVelocity:
         self.bounds = bounds
         self.offsets = offsets
         self.times = times
-        refractor_points = np.histogram(offsets, self.piecewise_offsets, density=False)[0]
-        self.is_valid_refractor = refractor_points >= min_refractor_points
         return self
 
     @classmethod
@@ -317,9 +315,9 @@ class RefractorVelocity:
         return self.coords is not None
 
     def __repr__(self):
-        param_str = ", ".join([f"{param}={val:.0f}" for param, val in self.params.items()])
+        params_str = ", ".join([f"{param}={val:.0f}" for param, val in self.params.items()])
         max_offset_str = None if self.max_offset is None else f"{self.max_offset:.0f}"
-        return f"RefractorVelocity({param_str}, max_offset={max_offset_str}, coords={repr(self.coords)})"
+        return f"RefractorVelocity({params_str}, max_offset={max_offset_str}, coords={repr(self.coords)})"
 
     def __getattr__(self, key):
         """Get requested parameter of the velocity model."""
@@ -382,12 +380,12 @@ class RefractorVelocity:
     # Methods to roughly estimate refractor velocities
 
     @staticmethod
-    def estimate_refractor_velocity(offsets, times, refractor_bounds, min_refractor_points=0):
+    def estimate_refractor_velocity(offsets, times, refractor_bounds):
         """Perform rough estimation of a refractor velocity and intercept time by fitting a linear regression to an
         offset-time point cloud within given offsets bounds."""
         # Avoid fitting the regression if too few points lie within given offset bounds
         refractor_mask = (offsets > refractor_bounds[0]) & (offsets <= refractor_bounds[1])
-        if refractor_mask.sum() <= min_refractor_points:
+        if np.all(~refractor_mask):
             return np.nan, np.nan
 
         # Avoid fitting the regression if all points have constant offsets or times of first breaks
