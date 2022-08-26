@@ -1,4 +1,4 @@
-"""Implements RefractorVelocity class for estimating the velocity model of an upper part of the section."""
+"""Implements RefractorVelocity class for estimating the velocity model of an upper part of the section"""
 
 import re
 from functools import partial
@@ -16,83 +16,98 @@ from ..utils.interpolation import interp1d
 
 # pylint: disable=too-many-instance-attributes
 class RefractorVelocity:
-    """The class stores and fits parameters of a velocity model of an upper part of the section.
+    """A class to fit and store parameters of a velocity model of an upper part of the section.
 
-    An instance can be created using one of the following `classmethod`s:
-        * `from_first_breaks` - fits a near-surface velocity model by offsets and times of first breaks.
-        * `from_params` - creates a `RefractorVelocity` instance from given parameters without model fitting.
-        * `from_constant` - creates a single-layer `RefractorVelocity` with zero intercept time and given velocity of
-                            the refractor.
+    Near-surface velocity model is used to estimate a depth model of the very first layers which, combined with the
+    velocity model, allows calculating static corrections for each trace of a survey.
 
-    Parameters of the constructed velocity model can be obtained by accessing the following attributes:
-        `t0`: two-way travel time from a shot to a receiver just above it on the surface for uphole surveys. Measured
-              in milliseconds.
-        `x{i}`: crossover offset: the offset where a wave refracted from the i-th layer arrives at the same time as
-                a wave refracted from the next underlying layer. Measured in meters.
-        `v{i}`: velocity of the i-th layer. Measured in meters per second.
+    A velocity model of the first `N` refractors can be described in terms of the following parameters:
+    * `t0` - intercept time, which theoretically equals to an uphole time in case when the first layer of the model
+      describes a direct wave. Measured in milliseconds.
+    * `x{i}` for i from 1 to `N`-1 - crossover offsets each defining an offset where a wave refracted from i-th layer
+      arrives at the same time as a wave refracted from the next underlying layer. Measured in meters.
+    * `v{i}` for i from 1 to `N` - velocity of the i-th layer. Measured in meters per second.
 
-    The same names are used as keys in `init` and `bounds` dicts passed to `RefractorVelocity.from_first_breaks`
-    constructor. Some keys may be omitted in one dict if they are passed in another, e.g. one can pass only bounds for
-    `v1` without an initial value, which will be inferred automatically. Both `init` and `bounds` dicts may not be
-    passed at all if `n_refractors` is given.
+    A velocity model can either be created from already known parameters by directly passing them to `__init__` or via
+    one of the following `classmethod`s:
+    * `from_constant_velocity` - to create a single-layer `RefractorVelocity` with zero intercept time and given
+      velocity of the refractor,
+    * `from_first_breaks` - to automatically fit a near-surface velocity model by offsets and times of first breaks.
+      This methods allows one to specify initial values of some parameters or bounds for their values or simply provide
+      the expected number of refractors.
+
+    The resulting object is callable and returns expected arrival times for given offsets. Each model parameter can be
+    obtained by accessing the corresponding attribute of the created instance.
 
     Examples
     --------
-    Create a `RefractorVelocity` instance from known parameters and avoid the fitting procedure:
-    >>> refractor_velocity = RefractorVelocity.from_params(params={'t0': 100, 'x1': 1500, 'v1': 2000, 'v2': 3000})
+    Define a near-surface velocity model from known parameters:
+    >>> rv = RefractorVelocity(t0=100, x1=1500, v1=1600, v2=2200)
 
-    `RefractorVelocity` can be estimated automatically by offsets of traces and times of first arrivals. First, let's
-    load them for a randomly selected common source gather:
+    Usually a velocity model is estimated by offsets of traces and times of first arrivals. First, let's load a survey
+    with pre-calculated first breaks and randomly select a common source gather:
     >>> survey = Survey(survey_path, header_index="FieldRecord", header_cols=["offset", "TraceNumber"])
     >>> survey = survey.load_first_breaks(first_breaks_path)
     >>> gather = survey.sample_gather()
+
+    Now an instance of `RefractorVelocity` can be created using a `from_first_breaks` method:
     >>> offsets = gather.offsets
     >>> fb_times = gather['FirstBreak'].ravel()
+    >>> rv = RefractorVelocity.from_first_breaks(offsets, fb_times, n_refractors=2)
 
-    Now an instance of `RefractorVelocity` can be created using `from_first_breaks` method:
-    >>> refractor_velocity = RefractorVelocity.from_first_breaks(offsets, fb_times, n_refractors=2)
-
-    The same can be done by calling `calculate_refractor_velocity` method of the gather:
-    >>> refractor_velocity = gather.calculate_refractor_velocity(n_refractors=2)
+    The same can be done by calling a `calculate_refractor_velocity` method of the gather:
+    >>> rv = gather.calculate_refractor_velocity(n_refractors=2)
 
     Fit a two-layer refractor velocity model using initial values of its parameters:
     >>> initial_params = {'t0': 100, 'x1': 1500, 'v1': 2000, 'v2': 3000}
-    >>> refractor_velocity = RefractorVelocity.from_first_breaks(offsets, fb_times, init=initial_params)
+    >>> rv = RefractorVelocity.from_first_breaks(offsets, fb_times, init=initial_params)
 
     Fit a single-layer model with constrained bounds:
-    >>> refractor_velocity = RefractorVelocity.from_first_breaks(offsets, fb_times,
-                                                                 bounds={'t0': [0, 200], 'v1': [1000, 3000]})
+    >>> rv = RefractorVelocity.from_first_breaks(offsets, fb_times, bounds={'t0': [0, 200], 'v1': [1000, 3000]})
 
     Some keys in `init` or `bounds` may be omitted if they are defined in another `dict` or `n_refractors` is given:
-    >>> refractor_velocity = RefractorVelocity.from_first_breaks(offsets, fb_times, init={'x1': 200, 'v1': 1000},
-                                                                 bounds={'t0': [0, 50]}, n_refractors=3)
+    >>> rv = RefractorVelocity.from_first_breaks(offsets, fb_times, init={'x1': 200, 'v1': 1000},
+    ...                                          bounds={'t0': [0, 50]}, n_refractors=3)
+
+    Parameters
+    ----------
+    params : misc
+        Parameters of the velocity model. Passed as keyword arguments.
+    max_offset : float, optional
+        Maximum offset reliably described by the model.
+    coords : Coordinates, optional
+        Spatial coordinates at which refractor velocity is defined.
 
     Attributes
     ----------
-    offsets : 1d ndarray
-        Offsets of traces. Measured in meters.
-    fb_times : 1d ndarray
-        First breaks times of traces. Measured in milliseconds.
-    max_offset : float
-        Maximum offset value.
-    coords : Coordinates or None
-        Spatial coordinates at which refractor velocity is estimated.
-    init : dict
-        The initial values used to fit the parameters of the velocity model. Includes the calculated values for
-        parameters that were not passed.
-    bounds : dict
-        Lower and upper bounds used to fit the parameters of the velocity model. Includes the calculated values for
-        parameters that were not passed.
     n_refractors : int
-        The number of layers used to fit the parameters of the velocity model.
+        The number of refractors described by the model.
+    params : dict
+        Parameters of the velocity model.
+    interpolator : callable
+        An interpolator returning expected arrival times for given offsets.
     piecewise_offsets : 1d ndarray
         Offsets of knots of the offset-traveltime curve. Measured in meters.
     piecewise_times : 1d ndarray
         Times of knots of the offset-traveltime curve. Measured in milliseconds.
-    params : dict
-        Parameters of the fitted velocity model.
-    interpolator : callable
-        An interpolator returning expected arrival times for given offsets.
+    max_offset : float or None
+        Maximum offset reliably described by the model.
+    coords : Coordinates or None
+        Spatial coordinates at which refractor velocity is defined.
+    is_fit : bool
+        Whether the model was fit using `from_first_breaks` method.
+    fit_result : OptimizeResult
+        Optimization result returned by `scipy.optimize.minimize`. Defined only if the model was fit.
+    init : dict
+        Initial values of model parameters used to fit the velocity model. Also includes calculated values for
+        parameters that were not passed in `init` argument. Defined only if the model was fit.
+    bounds : dict
+        Lower and upper bounds of model parameters used to fit the velocity model. Also includes calculated values for
+        parameters that were not passed in `bounds` argument. Defined only if the model was fit.
+    offsets : 1d ndarray
+        Offsets of traces used to fit the model. Measured in meters. Defined only if the model was fit.
+    times : 1d ndarray
+        Time of first break for each trace. Measured in milliseconds. Defined only if the model was fit.
     """
     def __init__(self, max_offset=None, coords=None, **params):
         self._validate_params(params, max_offset)
@@ -120,6 +135,11 @@ class RefractorVelocity:
                           coords=None, **kwargs):
         """Create a `RefractorVelocity` instance from offsets and times of first breaks. At least one of `init`,
         `bounds` or `n_refractors` must be passed.
+
+        The same names are used as keys in `init` and `bounds` dicts passed to `RefractorVelocity.from_first_breaks`
+        constructor. Some keys may be omitted in one dict if they are passed in another, e.g. one can pass only bounds for
+        `v1` without an initial value, which will be inferred automatically. Both `init` and `bounds` dicts may not be
+        passed at all if `n_refractors` is given.
 
         Parameters
         ----------
