@@ -6,6 +6,7 @@ from numba import njit, prange
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
+from ..refractor_velocity import RefractorVelocity
 
 @njit(nogil=True)
 def calculate_trace_stats(trace):
@@ -63,5 +64,6 @@ def plot_n_refractors_losses(survey, max_refractor, n_samples): # strange naming
     ax2 = ax1.twinx()
     ax2.plot(range(1, max_refractor + 1), np.clip(stats[:, 1], 0, .5), color="red")
     ax2.tick_params(axis ='y', labelcolor = "red")
+    # ax2.set_xticklabels([f"{i+1} vs {i}" for i in range(max_refractor)], color="red")
     ax2.set_ylabel("Pvalue", color="red")
     ax2.set_ylim((0, .51))

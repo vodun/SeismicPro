@@ -1,10 +1,12 @@
 """Implements Survey class describing a single SEG-Y file"""
 
 import os
+from re import S
 import warnings
 from copy import copy
 from textwrap import dedent
 import math
+import time
 
 import cv2
 import segyio
@@ -18,7 +20,7 @@ from sklearn.linear_model import LinearRegression
 from .headers import load_headers
 from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
-from .utils import ibm_to_ieee, calculate_trace_stats, plot_n_refractors_losses
+from .utils import ibm_to_ieee, calculate_trace_stats, plot_n_refractors_losses, finetune_rv
 from ..gather import Gather
 from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
@@ -1151,19 +1153,27 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             rv = RefractorVelocity.from_first_breaks(offsets, times, **rv_kwargs)
             rv_kwargs = {'init': rv.params}
             max_offset = offsets.max()
+
         survey = self if sg_kwargs is None else self.generate_supergathers(**sg_kwargs)
         rv_list = []
-        for idx in tqdm(survey.headers.index.unique()):
-            # avoid loading traces with `get_gather()`
-            gather_headers = survey.headers[survey.headers.index == idx].copy()
+        self.timing_loc = []
+        coords_name = to_list(get_coords_cols(survey.indexed_by))
+        
+        for _, gather_headers in tqdm(survey.headers.groupby(survey.headers.index)):
+            # print(to_list(idx))
+            # start = time.time()
+            # headers = survey.headers.loc[idx]
+            # indices = self.get_traces_locs(to_list(idx))
+            # headers = survey.headers.iloc[indices]
+            # end = time.time()
+            # self.timing_loc.append(end - start)
             if len(gather_headers.index.unique()) > 1:
                 raise ValueError("Non unique gather index.")
-            offsets = gather_headers.offset
-            times = gather_headers[fb_col]
-            coords_name = to_list(get_coords_cols(gather_headers.index.names))
-            coords_value = gather_headers.reset_index()[coords_name]
+            offsets = gather_headers['offset'].to_numpy()
+            times = gather_headers[fb_col].to_numpy()
+            coords_value = gather_headers.reset_index()[coords_name].iloc[0].values
             rv = RefractorVelocity.from_first_breaks(offsets, times, max_offset=max_offset, **rv_kwargs)
-            rv.coords = Coordinates(names=coords_name, coords=coords_value.to_numpy()[0])
+            rv.coords = Coordinates(names=coords_name, coords=coords_value)
             rv_list.append(rv)
         rv_field = RefractorVelocityField(rv_list)
         if smooth_radius is not None:
