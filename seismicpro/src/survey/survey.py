@@ -20,7 +20,7 @@ from sklearn.linear_model import LinearRegression
 from .headers import load_headers
 from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
-from .utils import ibm_to_ieee, calculate_trace_stats, plot_n_refractors_losses, finetune_rv
+from .utils import ibm_to_ieee, calculate_trace_stats, plot_n_refractors_losses
 from ..gather import Gather
 from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
@@ -1156,22 +1156,12 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         survey = self if sg_kwargs is None else self.generate_supergathers(**sg_kwargs)
         rv_list = []
-        self.timing_loc = []
         coords_name = to_list(get_coords_cols(survey.indexed_by))
-        
-        for _, gather_headers in tqdm(survey.headers.groupby(survey.headers.index)):
-            # print(to_list(idx))
-            # start = time.time()
-            # headers = survey.headers.loc[idx]
-            # indices = self.get_traces_locs(to_list(idx))
-            # headers = survey.headers.iloc[indices]
-            # end = time.time()
-            # self.timing_loc.append(end - start)
-            if len(gather_headers.index.unique()) > 1:
-                raise ValueError("Non unique gather index.")
+        for idx in tqdm(survey.indices):
+            gather_headers = survey.get_headers_by_indices([idx])
             offsets = gather_headers['offset'].to_numpy()
             times = gather_headers[fb_col].to_numpy()
-            coords_value = gather_headers.reset_index()[coords_name].iloc[0].values
+            coords_value = gather_headers.reset_index().iloc[0][coords_name].values # coords could be in index or cols
             rv = RefractorVelocity.from_first_breaks(offsets, times, max_offset=max_offset, **rv_kwargs)
             rv.coords = Coordinates(names=coords_name, coords=coords_value)
             rv_list.append(rv)
