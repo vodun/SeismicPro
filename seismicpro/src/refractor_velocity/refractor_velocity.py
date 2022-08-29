@@ -548,17 +548,17 @@ class RefractorVelocity:
 
         if loss == 'MSE':
             return (abs_diff ** 2).mean()
-        elif loss == 'huber':
+        if loss == 'huber':
             loss_val = np.empty_like(abs_diff)
             mask = abs_diff <= huber_coef
             loss_val[mask] = 0.5 * (abs_diff[mask] ** 2)
             loss_val[~mask] = huber_coef * abs_diff[~mask] - 0.5 * (huber_coef ** 2)
             return loss_val.mean()
-        elif loss == 'L1':
+        if loss == 'L1':
             return abs_diff.mean()
-        elif loss == 'soft_L1':
+        if loss == 'soft_L1':
             return 2 * ((1 + abs_diff) ** 0.5 - 1).mean()
-        elif loss == 'cauchy':
+        if loss == 'cauchy':
             return np.log(abs_diff + 1).mean()
         raise ValueError("Unknown loss function")
 

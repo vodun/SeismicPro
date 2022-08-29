@@ -381,7 +381,7 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
             self.clear()
         self.set_title()
         if self.plot_fn is not None:
-            self.plot_fn(ax=self.ax)
+            self.plot_fn(ax=self.ax)  # pylint: disable=not-callable
         if self.click_coords is not None:
             self.click(self.click_coords)
         if self.slice_coords is not None:

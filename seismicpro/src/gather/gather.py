@@ -648,7 +648,7 @@ class Gather(TraceContainer, SamplesContainer):
             f.write(rows_as_str)
         return self
 
-    @batch_method(target="for", copy_src=False)
+    @batch_method(target="for", copy_src=False)  # pylint: disable-next=too-many-arguments
     def calculate_refractor_velocity(self, init=None, bounds=None, n_refractors=None, max_offset=None,
                                      min_velocity_step=1e-3, min_refractor_size=1e-3, loss="L1", huber_coef=20,
                                      tol=1e-5, first_breaks_col=HDR_FIRST_BREAK, **kwargs):
