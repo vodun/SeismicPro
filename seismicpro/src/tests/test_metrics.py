@@ -22,7 +22,7 @@ CLIPS_PARAMS = [
 @pytest.mark.parametrize("arr,expected", CLIPS_PARAMS)
 def test_clips(arr, expected):
     """Test MaxClipsLenMetric"""
-    assert np.allclose(MaxClipsLenMetric.get_res(DummyGather(arr)).astype(int), np.asarray(expected))
+    assert np.allclose(MaxClipsLenMetric._get_res(DummyGather(arr)).astype(int), np.asarray(expected))
 
 
 CLIPLEN_IND_PARAMS = [
@@ -35,4 +35,4 @@ CLIPLEN_IND_PARAMS = [
 @pytest.mark.parametrize("arr,expected", CLIPLEN_IND_PARAMS)
 def test_const_subseq(arr, expected):
     """Test ConstLenMetric"""
-    assert np.allclose(ConstLenMetric.get_res(DummyGather(arr)).astype(int), np.asarray(expected))
+    assert np.allclose(ConstLenMetric._get_res(DummyGather(arr)).astype(int), np.asarray(expected))

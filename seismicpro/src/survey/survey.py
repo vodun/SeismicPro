@@ -931,17 +931,28 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
 
-    def qc_tracewise(self, metrics_list=None, chunk_size=1000, inplace=False):
+    @staticmethod
+    def _prepare_metrics_dict(metrics):
+
+        if not isinstance(metrics, dict):
+            metrics = to_list(metrics)
+            metrics = list(set(metrics)) # Remove duplicates in metrics_list
+            metrics = {metric_cls: {} for metric_cls in metrics}
+
+        for metric_cls in metrics:
+            if not issubclass(metric_cls, TracewiseMetric):
+                raise TypeError(f"all metrics must be `TracewiseMetric` subtypes, but {metric_cls.__name__} is not")
+
+        return metrics
+
+
+    def qc_tracewise(self, metrics, chunk_size=1000, inplace=False):
         """Calculate tracewise QC metrics
 
         Parameters
         ----------
-        metrics_list : list of :class:`~metrics.qc_metric import TracewiseMetric`, optional, defaults to []
+        metrics : TracewiseMetric, or list of :class:`~metrics.qc_metric import TracewiseMetric`, or dict
             list of metrics, that use raw traces.
-        muted_metrics_list : list of :class:`~metrics.qc_metric import TracewiseMetric`, optional, defaults to []
-            list of metrics that use traces after muting and normalization
-        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
-            A column of `self.headers` that contains first arrival times, measured in milliseconds.
         chunk_size : int, optional, defaults to 1000
             number of traces loaded on each iteration
         inplace : bool, optional, defaults to False
@@ -961,29 +972,20 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             warnings.warn("The survey was not checked for dead traces or they were not removed. "
                           "Run `remove_dead_traces` first.", RuntimeWarning)
 
-        if not metrics_list:
-            print("empty metrics lists")
-            return self
-
-        metrics_list = list(set(metrics_list)) # Remove duplicates in metrics_list
-
-        for metric_cls in metrics_list:
-            if not issubclass(metric_cls, TracewiseMetric):
-                raise TypeError(f"all metrics must be `TracewiseMetric` subtypes, but {metric_cls.__name__} is not")
+        metrics = self._prepare_metrics_dict(metrics)
 
         self = self.reindex('TRACE_SEQUENCE_FILE', inplace=inplace)  # pylint: disable=self-cls-assignment
 
         n_traces = len(self.headers)
-        buf = {metric_cls.__name__: [] for metric_cls in metrics_list}
+        buf = {metric_cls.__name__: [] for metric_cls in metrics}
         n_chunks = n_traces // chunk_size + (1 if n_traces % chunk_size else 0)
         for i in tqdm(range(n_chunks)):
             indices = self.headers.index[i*chunk_size:min(n_traces, (i+1)*chunk_size)]
             headers = self.get_headers_by_indices(indices)
             raw_gather = self.load_gather(headers)
 
-            for metric_cls in metrics_list:
-                vals = metric_cls.filter_res(raw_gather, from_headers=False)
-                buf[metric_cls.__name__].append(metric_cls.aggr(vals, tracewise=True))
+            for metric_cls, kwargs in metrics.items():
+                buf[metric_cls.__name__].append(metric_cls.calc_tw(raw_gather, from_headers=False, **kwargs))
 
         for name in buf:
             self.headers[name] = np.concatenate(buf[name])
