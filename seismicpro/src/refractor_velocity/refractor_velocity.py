@@ -1,6 +1,5 @@
 """Implements RefractorVelocity class for estimating the velocity model of an upper part of the section"""
 
-import re
 from functools import partial
 
 import numpy as np
@@ -131,55 +130,73 @@ class RefractorVelocity:
 
     @classmethod
     def from_first_breaks(cls, offsets, times, init=None, bounds=None, n_refractors=None, max_offset=None,
-                          min_velocity_step=1e-3, min_crossover_step=1e-3, loss="L1", huber_coef=20, tol=1e-5,
+                          min_velocity_step=1e-3, min_refractor_size=1e-3, loss="L1", huber_coef=20, tol=1e-5,
                           coords=None, **kwargs):
-        """Create a `RefractorVelocity` instance from offsets and times of first breaks. At least one of `init`,
-        `bounds` or `n_refractors` must be passed.
+        """Fit a near-surface velocity model by offsets of traces and times of their first breaks.
 
-        The same names are used as keys in `init` and `bounds` dicts passed to `RefractorVelocity.from_first_breaks`
-        constructor. Some keys may be omitted in one dict if they are passed in another, e.g. one can pass only bounds for
-        `v1` without an initial value, which will be inferred automatically. Both `init` and `bounds` dicts may not be
-        passed at all if `n_refractors` is given.
+        This methods allows specifying:
+        - initial values of some model parameters via `init`,
+        - bounds for parameter values via `bounds`,
+        - or simply the expected number of refractors via `n_refractors`.
+
+        At least one of `init`, `bounds` or `n_refractors` must be passed. Some keys may be omitted in one of `init` or
+        `bounds` dicts if they are passed in another, e.g. one can pass only bounds for `v1` without an initial value,
+        which will be inferred automatically. Both `init` and `bounds` dicts may not be passed at all if `n_refractors`
+        is given.
 
         Parameters
         ----------
         offsets : 1d ndarray
-            Offsets of the traces. Measured in meters.
+            Offsets of traces. Measured in meters.
         times : 1d ndarray
-            First break times. Measured in milliseconds.
-        init : dict, defaults to None
-            Initial parameters of a velocity model.
-        bounds : dict, defaults to None
-            Lower and upper bounds of the velocity model parameters.
-        n_refractors : int, defaults to None
-            Number of layers of the velocity model.
-        coords : Coordinates or None, optional
-            Spatial coordinates of the created refractor velocity.
+            Time of first break for each trace. Measured in milliseconds.
+        init : dict, optional
+            Initial values of model parameters.
+        bounds : dict, optional
+            Lower and upper bounds of model parameters.
+        n_refractors : int, optional
+            The number of refractors described by the model.
+        max_offset : float, optional
+            Maximum offset reliably described by the model. Defaults to the maximum offset provided but preferably
+            should be explicitly passed.
+        min_velocity_step : float, or 1d array-like with shape (n_refractors - 1,), optional, defaults to 1e-3
+            Minimum difference between velocities of two adjacent refractors. Default value ensures that velocities are
+            strictly increasing.
+        min_refractor_size : float, or 1d array-like with shape (n_refractors,), optional, defaults to 1e-3
+            Minimum offset range covered by each refractor. Default value ensures that refractors do not degenerate
+            into single points.
         loss : str, defaults to "L1"
-            Loss function for `scipy.optimize.minimize`. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
+            Loss function to be minimized. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
         huber_coef : float, default to 20
             Coefficient for Huber loss function.
+        tol : float, optional, defaults to 1e-5
+            Precision goal for the value of loss in the stopping criterion.
+        coords : Coordinates or None, optional
+            Spatial coordinates of the created refractor velocity.
         kwargs : misc, optional
-            Additional keyword arguments to `scipy.optimize.minimize`.
+            Additional `SLSQP` options, see https://docs.scipy.org/doc/scipy/reference/optimize.minimize-slsqp.html for
+            more details.
+
+        Returns
+        -------
+        rv : RefractorVelocity
+            Constructed near-surface velocity model.
 
         Raises
         ------
         ValueError
             If all `init`, `bounds`, and `n_refractors` are `None`.
+            If `n_refractors` is given but is less than 1.
+            If provided `init` and `bounds` are insufficient.
             If any `init` values are negative.
             If any `bounds` values are negative.
             If left bound is greater than the right bound for any of model parameters.
             If initial value of a parameter is out of defined bounds.
-            If `n_refractors` is less than 1.
-            If passed `init` and/or `bounds` keys are insufficient or excessive.
+            If any of `min_velocity_step` or `min_refractor_size` constraints are violated by initial values of
+            parameters.
         """
         offsets = np.array(offsets)
         times = np.array(times)
-
-        # Sort offset-time pairs to be monotonically non-decreasing in offset
-        ind = np.argsort(offsets, kind="mergesort")
-        offsets = offsets[ind]
-        times = times[ind]
 
         if all(param is None for param in (init, bounds, n_refractors)):
             raise ValueError("At least one of `init`, `bounds` or `n_refractors` must be defined")
@@ -189,12 +206,6 @@ class RefractorVelocity:
         # Merge initial values of parameters with those defined by bounds
         init_by_bounds = {key: (val1 + val2) / 2 for key, (val1, val2) in bounds.items()}
         init = {**init_by_bounds, **init}
-
-        # Check whether init dict contains only valid names of parameters
-        pattern = re.compile(r"(t0)|([xv][1-9]\d*)")  # t0 or x{i}/v{i} for i >= 1
-        bad_names = [param_name for param_name in init.keys() if pattern.fullmatch(param_name) is None]
-        if bad_names:
-            raise ValueError(f"Wrong param names passed to init or bounds: {bad_names}")
 
         # Estimate max_offset if it is not given and check whether it is greater than all user-defined inits and bounds
         # for crossover offsets
@@ -210,14 +221,14 @@ class RefractorVelocity:
         # Automatically estimate all params that were not passed in init or bounds by n_refractors
         if n_refractors is not None:
             init = cls.complete_init_by_refractors(init, n_refractors, offsets, times, max_offset,
-                                                   min_velocity_step, min_crossover_step)
+                                                   min_velocity_step, min_refractor_size)
 
         # Validate initial values of model parameters and calculate the number of refractors
-        cls._validate_params(init, max_offset, min_velocity_step, min_crossover_step)
+        cls._validate_params(init, max_offset, min_velocity_step, min_refractor_size)
         n_refractors = len(init) // 2
         param_names = get_param_names(n_refractors)
         min_velocity_step = np.broadcast_to(min_velocity_step, n_refractors-1)
-        min_crossover_step = np.broadcast_to(min_crossover_step, n_refractors)
+        min_refractor_size = np.broadcast_to(min_refractor_size, n_refractors)
 
         # Estimate maximum possible velocity: it should not be highly accurate, but should cover all initial velocities
         # and their bounds. Used only to early-stop a diverging optimization on poor data when optimal velocity
@@ -229,7 +240,7 @@ class RefractorVelocity:
 
         # Set default bounds for parameters that don't have them specified, validate the result for correctness
         default_t0_bounds = [[0, max(init["t0"], times.max())]]
-        default_crossover_bounds = [[min_crossover_step[0], max_offset - min_crossover_step[-1]]
+        default_crossover_bounds = [[min_refractor_size[0], max_offset - min_refractor_size[-1]]
                                     for _ in range(n_refractors - 1)]
         default_velocity_bounds = [[0, max_velocity] for _ in range(n_refractors)]
         default_params_bounds = default_t0_bounds + default_crossover_bounds + default_velocity_bounds
@@ -255,7 +266,7 @@ class RefractorVelocity:
         if n_refractors > 2:
             crossover_offsets_ascend = {
                 "type": "ineq",
-                "fun": lambda x: np.diff(cls._unscale_params(x)[1:n_refractors]) - min_crossover_step[1:-1]
+                "fun": lambda x: np.diff(cls._unscale_params(x)[1:n_refractors]) - min_refractor_size[1:-1]
             }
             constraints.append(crossover_offsets_ascend)
 
@@ -285,13 +296,13 @@ class RefractorVelocity:
         ----------
         velocity : float
             Velocity of the first layer.
-        coords : Coordinates or None, optional
+        coords : Coordinates, optional
             Spatial coordinates of the created object.
 
         Returns
         -------
-        RefractorVelocity
-            RefractorVelocity instance based on given velocity.
+        rv : RefractorVelocity
+            1-layer near-surface velocity model.
 
         Raises
         ------
@@ -302,6 +313,7 @@ class RefractorVelocity:
 
     @property
     def param_names(self):
+        """list of str: Names of model parameters."""
         return get_param_names(self.n_refractors)
 
     @property
@@ -310,12 +322,13 @@ class RefractorVelocity:
         return self.coords is not None
 
     def __repr__(self):
+        """String representation of the velocity model."""
         params_str = ", ".join([f"{param}={val:.0f}" for param, val in self.params.items()])
         max_offset_str = None if self.max_offset is None else f"{self.max_offset:.0f}"
         return f"RefractorVelocity({params_str}, max_offset={max_offset_str}, coords={repr(self.coords)})"
 
     def __getattr__(self, key):
-        """Get requested parameter of the velocity model."""
+        """Get requested parameter of the velocity model by its name."""
         return self.params[key]
 
     def __call__(self, offsets):
@@ -336,7 +349,7 @@ class RefractorVelocity:
             raise ValueError(err_msg)
 
     @classmethod
-    def _validate_params(cls, params, max_offset=None, min_velocity_step=0, min_crossover_step=0):
+    def _validate_params(cls, params, max_offset=None, min_velocity_step=0, min_refractor_size=0):
         cls._validate_params_names(params)
         n_refractors = len(params) // 2
         param_values = np.array([params[name] for name in get_param_names(n_refractors)])
@@ -347,12 +360,11 @@ class RefractorVelocity:
         if negative_params:
             raise ValueError(f"The following parameters contain negative values: {negative_params}")
 
-        if np.any(np.diff(param_values[1:n_refractors], prepend=0, append=max_offset) < min_crossover_step):
-            raise ValueError("Distance between two adjacent crossover offsets "
-                             f"must be no less than {min_crossover_step}")
+        if np.any(np.diff(param_values[1:n_refractors], prepend=0, append=max_offset) < min_refractor_size):
+            raise ValueError(f"Offset range covered by refractors must be no less than {min_refractor_size} meters")
 
         if np.any(np.diff(param_values[n_refractors:]) < min_velocity_step):
-            raise ValueError(f"Refractor velocities must increase by no less than {min_velocity_step}")
+            raise ValueError(f"Refractor velocities must increase by no less than {min_velocity_step} m/s")
 
     @classmethod
     def _validate_params_bounds(cls, params, bounds):
@@ -427,18 +439,18 @@ class RefractorVelocity:
 
     @classmethod
     def complete_init_by_refractors(cls, init, n_refractors, offsets, times, max_offset,
-                                    min_velocity_step, min_crossover_step):
+                                    min_velocity_step, min_refractor_size):
         param_names = get_param_names(n_refractors)
         if init.keys() - set(param_names):
             raise ValueError("Parameters defined by init and bounds describe more refractors "
                              "than defined by n_refractors")
 
-        # Linearly interpolate unknown crossover offsets but enforce min_crossover_step constraint
+        # Linearly interpolate unknown crossover offsets but enforce min_refractor_size constraint
         cross_offsets = np.array([0] + [init.get(f"x{i}", np.nan) for i in range(1, n_refractors)] + [max_offset])
         defined_indices = np.where(~np.isnan(cross_offsets))[0]
         cross_indices = np.arange(n_refractors + 1)
         cross_offsets = np.interp(cross_indices, cross_indices[defined_indices], cross_offsets[defined_indices])
-        cross_offsets = cls.enforce_step_constraints(cross_offsets, defined_indices, min_crossover_step)
+        cross_offsets = cls.enforce_step_constraints(cross_offsets, defined_indices, min_refractor_size)
 
         # Fit linear regressions to estimate unknown refractor velocities
         velocities = np.array([init.get(f"v{i}", np.nan) for i in range(1, n_refractors + 1)])
@@ -550,21 +562,20 @@ class RefractorVelocity:
         abs_diff = np.abs(np.interp(offsets, piecewise_offsets, piecewise_times) - times)
 
         if loss == 'MSE':
-            loss_val = abs_diff ** 2
+            return (abs_diff ** 2).mean()
         elif loss == 'huber':
             loss_val = np.empty_like(abs_diff)
             mask = abs_diff <= huber_coef
             loss_val[mask] = 0.5 * (abs_diff[mask] ** 2)
             loss_val[~mask] = huber_coef * abs_diff[~mask] - 0.5 * (huber_coef ** 2)
+            return loss_val.mean()
         elif loss == 'L1':
-            loss_val = abs_diff
+            return abs_diff.mean()
         elif loss == 'soft_L1':
-            loss_val = 2 * ((1 + abs_diff) ** 0.5 - 1)
+            return 2 * ((1 + abs_diff) ** 0.5 - 1).mean()
         elif loss == 'cauchy':
-            loss_val = np.log(abs_diff + 1).mean()
-        else:
-            raise ValueError("Unknown loss function")
-        return loss_val.mean()
+            return np.log(abs_diff + 1).mean()
+        raise ValueError("Unknown loss function")
 
     # General processing methods
 

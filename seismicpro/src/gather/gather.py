@@ -649,13 +649,16 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target="for", copy_src=False)
-    def calculate_refractor_velocity(self, init=None, bounds=None, n_refractors=None, first_breaks_col=HDR_FIRST_BREAK,
-                                     **kwargs):
-        """Estimate velocities of first refractors by offsets and times of first breaks.
+    def calculate_refractor_velocity(self, init=None, bounds=None, n_refractors=None, max_offset=None,
+                                     min_velocity_step=1e-3, min_refractor_size=1e-3, loss="L1", huber_coef=20,
+                                     tol=1e-5, first_breaks_col=HDR_FIRST_BREAK, **kwargs):
+        """Fit a near-surface velocity model by offsets of traces and times of their first breaks.
 
-        The method fits a velocity model of the upper part of the section, read the
-        :class:`~refractor_velocity.RefractorVelocity` docs for more details about the algorithm and its parameters.
-        At least one of `init`, `bounds` or `n_refractors` should be passed.
+        Notes
+        -----
+        Please refer to the :class:`~refractor_velocity.RefractorVelocity` docs for more details about the velocity
+        model, its computation algorithm and available parameters. At least one of `init`, `bounds` or `n_refractors`
+        should be passed.
 
         Examples
         --------
@@ -663,26 +666,41 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        init : dict or None, optional, defaults to None
-            Initial values for a velocity model.
-        bounds : dict or None, optional, defaults to None
-            Bounds for the fitted velocity model parameters.
-        n_refractors : int or None, optional, defaults to None
-            Number of the velocity model layers.
+        init : dict, optional
+            Initial values of model parameters.
+        bounds : dict, optional
+            Lower and upper bounds of model parameters.
+        n_refractors : int, optional
+            The number of refractors described by the model.
+        max_offset : float, optional
+            Maximum offset reliably described by the model. Defaults to the maximum offset of gather traces but
+            preferably should be explicitly passed.
+        min_velocity_step : float, or 1d array-like with shape (n_refractors - 1,), optional, defaults to 1e-3
+            Minimum difference between velocities of two adjacent refractors. Default value ensures that velocities are
+            strictly increasing.
+        min_refractor_size : float, or 1d array-like with shape (n_refractors,), optional, defaults to 1e-3
+            Minimum offset range covered by each refractor. Default value ensures that refractors do not degenerate
+            into single points.
+        loss : str, defaults to "L1"
+            Loss function to be minimized. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
+        huber_coef : float, default to 20
+            Coefficient for Huber loss function.
+        tol : float, optional, defaults to 1e-5
+            Precision goal for the value of loss in the stopping criterion.
         first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `self.headers` where times of first break are stored.
         kwargs : misc, optional
-            Additional keyword arguments to be passed to
-            :func:`~refractor_velocity.RefractorVelocity.from_first_breaks`.
+            Additional `SLSQP` options, see https://docs.scipy.org/doc/scipy/reference/optimize.minimize-slsqp.html for
+            more details.
 
         Returns
         -------
-        RefractorVelocity
-            Calculated RefractorVelocity instance.
+        rv : RefractorVelocity
+            Constructed near-surface velocity model.
         """
-        return RefractorVelocity.from_first_breaks(offsets=self.offsets, times=self[first_breaks_col].ravel(),
-                                                   init=init, bounds=bounds, n_refractors=n_refractors,
-                                                   coords=self.coords, **kwargs)
+        return RefractorVelocity.from_first_breaks(self.offsets, self[first_breaks_col].ravel(), init, bounds,
+                                                   n_refractors, max_offset, min_velocity_step, min_refractor_size,
+                                                   loss, huber_coef, tol, coords=self.coords, **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #
