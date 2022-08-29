@@ -130,8 +130,8 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
             return type(self)(survey=self.survey, is_geographic=self.is_geographic)
         if radius is None:
             radius = self.default_neighborhood_radius
-        smoothing_interpolator = IDWInterpolator(self.coords, radius=radius, dist_transform=0)
-        weights = smoothing_interpolator.get_weights(self.coords)
+        smoother = IDWInterpolator(self.coords, radius=radius, dist_transform=0)
+        weights = smoother.get_weights(self.coords)
         items_coords = [item.coords for item in self.item_container.values()]
         smoothed_items = self.weights_to_items(weights, items_coords)
         return type(self)(smoothed_items, survey=self.survey, is_geographic=self.is_geographic)

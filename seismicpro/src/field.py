@@ -172,16 +172,21 @@ class Field:
         interpolator."""
         print(self)
 
-    def create_interpolator(self, interpolator, **kwargs):
-        """Create a field interpolator. Chooses appropriate interpolator type by its name defined by `interpolator` and
-        a mapping returned by `self.available_interpolators`."""
+    def _get_interpolator_class(self, interpolator):
+        """Chooses appropriate interpolator type by its name defined by `interpolator` and a mapping returned by
+        `self.available_interpolators`."""
         if self.is_empty:
             raise ValueError("Interpolator cannot be created for an empty field")
         interpolator_class = self.available_interpolators.get(interpolator)
         if interpolator_class is None:
             raise ValueError(f"Unknown interpolator {interpolator}. Available options are: "
                              f"{', '.join(self.available_interpolators.keys())}")
-        self.interpolator = interpolator_class(self.coords, self.values, **kwargs)
+        return interpolator_class
+
+    def create_interpolator(self, interpolator, **kwargs):
+        """Create a field interpolator. Chooses appropriate interpolator type by its name defined by `interpolator` and
+        a mapping returned by `self.available_interpolators`."""
+        self.interpolator = self._get_interpolator_class(interpolator)(self.coords, self.values, **kwargs)
         self.is_dirty_interpolator = False
         return self
 
