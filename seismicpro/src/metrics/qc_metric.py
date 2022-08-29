@@ -25,7 +25,7 @@ class TracewiseMetric(Metric):
 
     views = ("plot_res", "plot_image_filter", "plot_worst_trace", "plot_wiggle")
 
-    threshold = 10
+    threshold = None
     top_ax_y_scale='linear'
 
 
@@ -123,33 +123,40 @@ class TracewiseMetric(Metric):
 
         top_ax = divider.append_axes("top", sharex=ax, size="12%", pad=0.05)
         top_ax.plot(res, '.--')
-        top_ax.axhline(self.threshold, alpha=0.5)
+        if self.threshold is not None:
+            top_ax.axhline(self.threshold, alpha=0.5)
         top_ax.xaxis.set_visible(False)
         top_ax.set_yscale(self.top_ax_y_scale)
 
         set_title(top_ax, gather)
 
-    def plot_wiggle(self, coords, ax, from_headers=True, **kwargs):
-        """"Gather wiggle plot where samples with indicator above/blow `cls.threshold` are in red."""
+    def _plot_filter(self, mode, coords, ax, from_headers, **kwargs):
+        """Gather plot with filter"""
         gather = self.survey.get_gather(coords)
 
         fn = np.greater_equal if self.is_lower_better else np.less_equal
-        res = fn(self.get_res(gather, from_headers=from_headers, **kwargs), self.threshold)
+
+        if self.threshold is not None:
+            res = fn(self.get_res(gather, from_headers=from_headers, **kwargs), self.threshold)
+        else:
+            res = np.zeros_like(gather.data)
 
         gather = self.preprocess(gather, **kwargs)
-        wiggle_plot_with_filter(gather.data, res, ax, std=0.5)
+
+        if mode == 'wiggle':
+            wiggle_plot_with_filter(gather.data, res, ax, std=0.5)
+        else:
+            image_filter(gather.data, res, ax)
+
         set_title(ax, gather)
+
+    def plot_wiggle(self, coords, ax, from_headers=True, **kwargs):
+        """"Gather wiggle plot where samples with indicator above/blow `cls.threshold` are in red."""
+        self._plot_filter('wiggle', coords, ax, from_headers, **kwargs)
 
     def plot_image_filter(self, coords, ax, from_headers=True, **kwargs):
         """Gather plot where samples with indicator above/blow `cls.threshold` are highlited."""
-        gather = self.survey.get_gather(coords)
-
-        fn = np.greater_equal if self.is_lower_better else np.less_equal
-        res = fn(self.get_res(gather, from_headers=from_headers, **kwargs), self.threshold)
-
-        gather = self.preprocess(gather, **kwargs)
-        image_filter(gather.data, res, ax)
-        set_title(ax, gather)
+        self._plot_filter('image', coords, ax, from_headers, **kwargs)
 
     def plot_worst_trace(self, coords, ax, from_headers=True, **kwargs):
         """Wiggle plot of the trace with the worst indicator value and 2 its neighboring traces."""
@@ -363,6 +370,7 @@ class TraceAbsMean(TracewiseMetric):
 class TraceMaxAbs(TracewiseMetric):
     """Absolute value of the traces mean."""
     name = "trace_maxabs"
+    threshold = None
 
     @staticmethod
     def _get_res(gather, **kwargs):
