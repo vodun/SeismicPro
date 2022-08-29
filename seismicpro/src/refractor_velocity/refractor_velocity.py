@@ -7,10 +7,10 @@ import numpy as np
 from scipy.optimize import minimize
 from sklearn.linear_model import SGDRegressor
 
-from .utils import get_param_names, postprocess_params
+from .utils import get_param_names, postprocess_params, load_rv, dump_rv, calc_df_to_dump
 from ..muter import Muter
 from ..decorators import batch_method, plotter
-from ..utils import set_ticks, set_text_formatting
+from ..utils import set_ticks, set_text_formatting, Coordinates
 from ..utils.interpolation import interp1d
 
 
@@ -280,6 +280,35 @@ class RefractorVelocity:
         return self
 
     @classmethod
+    def from_file(cls, path, encoding="UTF-8"):
+        """Create a RefractorVelocity instance from a file.
+
+        File should have coords and parameters of a single RefractorVelocity with next structure:
+        First row have the coords names and parameters names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset")
+        Second row have the coords and parameters values.
+
+        File example:
+        SourceX   SourceY        t0        x1        v1        v2 max_offset
+        1111100   2222220     50.00   1000.00   1500.00   2000.00    2000.00
+
+        Parameters
+        ----------
+        path : str,
+            path to the file with parameters.
+
+        Returns
+        -------
+        self : RefractorVelocity
+            RefractorVelocity instance created from a file.
+        """
+        coords_list, params_list, max_offset_list = load_rv(path, encoding)
+        if len(coords_list) > 1:
+            raise ValueError("The loaded file contains more than one set of RefractorVelocity parameters.")
+        # TODO: select one of the options when max_offset support will be determined
+        # return cls(coords=coords_list[0], **params_list[0])
+        return cls(max_offset=max_offset_list[0], coords=coords_list[0], **params_list[0])
+
+    @classmethod
     def from_constant_velocity(cls, velocity, max_offset=None, coords=None):
         """Define a 1-layer near-surface velocity model with given velocity of the first layer and zero intercept time.
 
@@ -528,6 +557,41 @@ class RefractorVelocity:
     @batch_method(target="for", copy_src=False)
     def create_muter(self, delay=0, velocity_reduction=0):
         return Muter.from_refractor_velocity(self, delay=delay, velocity_reduction=velocity_reduction)
+
+    def dump(self, path, encoding="UTF-8", min_col_size=11):
+        """Dump the RefractorVelocity instance to a file. Coords should be preloaded.
+
+        The resulting file contains the coords and parameters of a single RefractorVelocity with the following
+        structure:
+        The first row contains coords names and parameter names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
+        The second row contains the coords and parameters values of a RefractorVelocity.
+        File example:
+        SourceX   SourceY        t0        x1        v1        v2 max_offset
+        1111100   2222220     50.00   1000.00   1500.00   2000.00    2000.00
+
+        Parameters
+        ----------
+        path : str
+            Path to a file.
+        encoding : str, optional, defaults to "UTF-8"
+            File encoding.
+        min_col_size : int, defaults to 11
+            Minimum size of each columns in the resulting file.
+
+        Returns
+        -------
+        self : RefractorVelocity
+            RefractorVelocity unchanged.
+
+        Raises
+        ------
+        ValueError
+            If coords attributes is None.
+        """
+        if self.coords is None:
+            raise ValueError("`coords` attribute should be defined.")
+        dump_rv([calc_df_to_dump(self)], path=path, encoding=encoding, min_col_size=min_col_size)
+        return self
 
     @plotter(figsize=(10, 5), args_to_unpack="compare_to")
     def plot(self, *, ax=None, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_times=None,

@@ -1,12 +1,13 @@
 from functools import partial
 
 import numpy as np
+import pandas as pd
 
 from .refractor_velocity import RefractorVelocity
 from .interactive_plot import FitPlot
-from .utils import get_param_names, postprocess_params
+from .utils import get_param_names, postprocess_params, calc_df_to_dump, load_rv, dump_rv
 from ..field import SpatialField
-from ..utils import to_list, IDWInterpolator
+from ..utils import to_list, Coordinates, IDWInterpolator
 
 
 class RefractorVelocityField(SpatialField):
@@ -22,6 +23,10 @@ class RefractorVelocityField(SpatialField):
             raise ValueError("The number of refractors is undefined")
         return get_param_names(self.n_refractors)
 
+    @property
+    def max_offset(self):
+        return np.max([item.max_offset for coords, item in self.item_container.items()])
+
     def validate_items(self, items):
         super().validate_items(items)
         n_refractors_set = {item.n_refractors for item in items}
@@ -29,6 +34,37 @@ class RefractorVelocityField(SpatialField):
             n_refractors_set.add(self.n_refractors)
         if len(n_refractors_set) != 1:
             raise ValueError("Each RefractorVelocity must describe the same number of refractors as the field")
+
+    @classmethod
+    def from_file(cls, path, encoding="UTF-8"):
+        """Load RefractorVelocityField from a file.
+
+        File example:
+        SourceX   SourceY        t0        x1        v1        v2 max_offset
+        1111100   2222220     50.00   1000.00   1500.00   2000.00    2000.00
+        ...
+        1111200   2222240     60.00   1050.00   1550.00   1950.00    2050.00
+
+        Parameters
+        ----------
+        path : str,
+            path to the file.
+        encoding : str, defaults to "UTF-8"
+            File encoding.
+
+        Returns
+        -------
+        self : RefractorVelocityField
+            RefractorVelocityField instance created from a file.
+        """
+        coords_list, params_list, max_offset_list = load_rv(path, encoding)
+        rv_list = []
+        for coords, params, max_offset in zip(coords_list, params_list, max_offset_list):
+            # TODO: select one of the options when max_offset support will be determined
+            rv = RefractorVelocity(coords=coords, **params)
+            # rv = RefractorVelocity(max_offset=max_offset, coords=coords_list[0], **params_list[0])
+            rv_list.append(rv)
+        return cls(rv_list)
 
     def update(self, items):
         items = to_list(items)
@@ -95,6 +131,45 @@ class RefractorVelocityField(SpatialField):
 
         return type(self)(smoothed_items, n_refractors=self.n_refractors, survey=self.survey,
                           is_geographic=self.is_geographic)
+
+    def dump(self, path, encoding="UTF-8", min_col_size=11):
+        """Save the RefractorVelocityField instance to a file.
+
+        The file must have the coordinates and parameters of a single RefractorVelocity with the following structure:
+        The first line contains coords names and parameter names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
+        Each next line contains the coords and parameters values corresponding to a single RefractorVelocity in the
+        resulting RefractorVelocityField.
+
+        File example:
+        SourceX   SourceY        t0        x1        v1        v2 max_offset
+        1111100   2222220     50.00   1000.00   1500.00   2000.00    2000.00
+        ...
+        1111200   2222240     60.00   1050.00   1550.00   1950.00    2050.00
+
+        Parameters
+        ----------
+        path : str
+            Path to the file.
+        encoding : str, optional, defaults to "UTF-8"
+            File encoding.
+        min_col_size : int, defaults to 11
+            Minimum size of each columns in the resulting file.
+
+        Returns
+        -------
+        self : RefractorVelocityField
+            RefractorVelocityField unchanged.
+
+        Raises
+        ------
+        ValueError
+            If RefractorVelocityField is empty.
+        """
+        if self.is_empty:
+            raise ValueError("Field is empty. Could not dump empty field.")
+        df_list = [calc_df_to_dump(rv) for rv in self.item_container.values()]
+        dump_rv(df_list, path=path, encoding=encoding, min_col_size=min_col_size)
+        return self
 
     def plot_fit(self, **kwargs):
         FitPlot(self, **kwargs).plot()
