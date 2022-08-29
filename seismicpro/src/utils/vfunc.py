@@ -2,6 +2,7 @@
 
 import numpy as np
 
+from .general_utils import to_list
 from .interpolation import interp1d
 from .coordinates import Coordinates
 
@@ -139,6 +140,30 @@ class VFUNC:
     def has_coords(self):
         """bool: Whether VFUNC coordinates are not-None."""
         return self.coords is not None
+
+    @classmethod
+    def from_vfuncs(cls, vfuncs, weights=None, coords=None):
+        """Init a vertical function by averaging other vertical functions with given weights.
+
+        Parameters
+        ----------
+        vfuncs : VFUNC or list of VFUNC
+            Vertical functions to be aggregated.
+        weights : float or list of floats, optional
+            Weight of each item in `vfuncs`. If not given, equal weights are assigned to all items and thus mean
+            vertical function is calculated.
+        coords : Coordinates, optional
+            Spatial coordinates of the created vertical function.
+
+        Returns
+        -------
+        self : VFUNC
+            Created vertical function.
+        """
+        vfuncs = to_list(vfuncs)
+        data_x = np.unique(np.concatenate([vfunc.data_x for vfunc in vfuncs]))
+        data_y = np.average([vfunc(data_x) for vfunc in vfuncs], axis=0, weights=weights)
+        return cls(data_x, data_y, coords=coords)
 
     @classmethod
     def from_file(cls, path, coords_cols=("INLINE_3D", "CROSSLINE_3D"), encoding="UTF-8"):
