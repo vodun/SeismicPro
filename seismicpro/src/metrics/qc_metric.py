@@ -339,7 +339,7 @@ class AutocorrMetric(TracewiseMetric):
         return (np.nansum(gather.data[...,1:] * gather.data[..., :-1], axis=1) /
                 (gather.n_samples - np.isnan(gather.data).sum(axis=1) + EPS))
 
-class TraceMeanAbs(TracewiseMetric):
+class TraceAbsMean(TracewiseMetric):
     """Absolute value of the traces mean."""
     name = "trace_meanabs"
     is_lower_better = True
