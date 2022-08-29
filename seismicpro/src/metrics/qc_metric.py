@@ -10,7 +10,7 @@ from scipy import signal
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .metrics import Metric
-from ..const import HDR_DEAD_TRACE, EPS
+from ..const import HDR_DEAD_TRACE, EPS, HDR_FIRST_BREAK
 from .utils import fill_nulls, calc_spikes, get_val_subseq, get_const_subseq, to_list
 
 
@@ -49,12 +49,18 @@ class TracewiseMetric(Metric):
         raise NotImplementedError
 
     @classmethod
+    def preprocess(cls, gather):
+        return gather
+
+    @classmethod
     def filter_res(cls, gather, from_headers=True):
         """Return QC indicator with zero traces masked with `np.nan`
         and output shape either `gater.data.shape`, or (`gather.n_traces`,)."""
 
         if from_headers and cls.__name__ in gather.headers:
             return np.stack(gather.headers[cls.__name__].values)
+
+        gather = cls.preprocess(gather)
 
         res = cls.get_res(gather)
 
@@ -102,11 +108,12 @@ class TracewiseMetric(Metric):
         _ = kwargs
         gather = self.survey.get_gather(coords)
 
-        gather.plot(ax=ax)
-        divider = make_axes_locatable(ax)
-
         res = self.filter_res(gather, from_headers=from_headers)
         res = self.aggr(res, tracewise=True)
+
+        gather = self.preprocess(gather)
+        gather.plot(ax=ax)
+        divider = make_axes_locatable(ax)
 
         top_ax = divider.append_axes("top", sharex=ax, size="12%", pad=0.05)
         top_ax.plot(res, '.--')
@@ -123,6 +130,8 @@ class TracewiseMetric(Metric):
 
         fn = np.greater_equal if self.is_lower_better else np.less_equal
         res = fn(self.filter_res(gather, from_headers=from_headers), self.threshold)
+
+        gather = self.preprocess(gather)
         wiggle_plot_with_filter(gather.data, res, ax, std=0.5)
         set_title(ax, gather)
 
@@ -133,6 +142,8 @@ class TracewiseMetric(Metric):
 
         fn = np.greater_equal if self.is_lower_better else np.less_equal
         res = fn(self.filter_res(gather, from_headers=from_headers), self.threshold)
+
+        gather = self.preprocess(gather)
         image_filter(gather.data, res, ax)
         set_title(ax, gather)
 
@@ -141,8 +152,9 @@ class TracewiseMetric(Metric):
         _ = kwargs
         gather = self.survey.get_gather(coords)
         res = self.filter_res(gather, from_headers=from_headers)
-
         res = self.aggr(res, tracewise=True)
+
+        gather = self.preprocess(gather)
         plot_worst_trace(ax, gather.data, gather.headers.TraceNumber.values, res, self.is_lower_better)
         set_title(ax, gather)
 
@@ -282,6 +294,13 @@ def plot_worst_trace(ax, traces, trace_numbers, indicators, max_is_worse, std=0.
     ax.invert_yaxis()
 
 
+def mute_and_norm(gather):
+    if HDR_FIRST_BREAK not in gather.headers:
+        raise RuntimeError("First breaks not loaded")
+
+    muter = gather.create_muter(first_breaks_col=HDR_FIRST_BREAK)
+    return gather.copy().mute(muter=muter, fill_value=np.nan).scale_standard()
+
 class SpikesMetric(TracewiseMetric):
     """Spikes detection."""
     name = "spikes"
@@ -290,6 +309,10 @@ class SpikesMetric(TracewiseMetric):
     is_lower_better = True
 
     threshold=2
+
+    @classmethod
+    def preprocess(cls, gather):
+        return mute_and_norm(gather)
 
     @staticmethod
     def get_res(gather):
@@ -300,19 +323,21 @@ class SpikesMetric(TracewiseMetric):
         res = calc_spikes(traces)
         return np.pad(res, ((0,0), (1, 1)))
 
-
 class AutocorrMetric(TracewiseMetric):
     """Autocorrelation with shift 1"""
     name = "autocorr"
     is_lower_better = False
     threshold = 0.9
 
+    @classmethod
+    def preprocess(cls, gather):
+        return mute_and_norm(gather)
+
     @staticmethod
     def get_res(gather):
         """QC indicator implementation."""
         return (np.nansum(gather.data[...,1:] * gather.data[..., :-1], axis=1) /
                 (gather.n_samples - np.isnan(gather.data).sum(axis=1) + EPS))
-
 
 class TraceMeanAbs(TracewiseMetric):
     """Absolute value of the traces mean."""
@@ -334,7 +359,7 @@ class TraceMaxAbs(TracewiseMetric):
     @staticmethod
     def get_res(gather):
         """QC indicator implementation."""
-        return np.nanmax(np.abs(gather.data), axis=1)
+        return np.max(np.abs(gather.data), axis=1)
 
 class MaxClipsLenMetric(TracewiseMetric):
     """Detecting minimum/maximun clips"""
