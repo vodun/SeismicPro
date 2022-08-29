@@ -947,7 +947,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
 
     def qc_tracewise(self, metrics, chunk_size=1000, inplace=False):
-        """Calculate tracewise QC metrics
+        """Calculate tracewise QC metrics.
 
         Parameters
         ----------
