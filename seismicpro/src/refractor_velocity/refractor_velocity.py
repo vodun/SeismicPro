@@ -13,7 +13,7 @@ from ..utils import set_ticks, set_text_formatting
 from ..utils.interpolation import interp1d
 
 
-# pylint: disable=too-many-instance-attributes
+# pylint: disable-next=too-many-instance-attributes
 class RefractorVelocity:
     """A class to fit and store parameters of a velocity model of an upper part of the section.
 
@@ -128,7 +128,7 @@ class RefractorVelocity:
         self.offsets = None
         self.times = None
 
-    @classmethod
+    @classmethod  # pylint: disable-next=too-many-arguments, too-many-statements
     def from_first_breaks(cls, offsets, times, init=None, bounds=None, n_refractors=None, max_offset=None,
                           min_velocity_step=1e-3, min_refractor_size=1e-3, loss="L1", huber_coef=20, tol=1e-5,
                           coords=None, **kwargs):
@@ -339,6 +339,8 @@ class RefractorVelocity:
 
     @staticmethod
     def _validate_params_names(params):
+        """Check if keys of `params` dict describe a valid velocity model. This method checks only names of parameters,
+        not their values."""
         err_msg = ("The model is underdetermined. Pass t0 and v1 to define a one-layer model. "
                    "Pass t0, x1, ..., x{N-1}, v1, ..., v{N} to define an N-layer model for N >= 2.")
         n_refractors = len(params) // 2
@@ -350,6 +352,7 @@ class RefractorVelocity:
 
     @classmethod
     def _validate_params(cls, params, max_offset=None, min_velocity_step=0, min_refractor_size=0):
+        """Check if `params` dict describes a valid velocity model."""
         cls._validate_params_names(params)
         n_refractors = len(params) // 2
         param_values = np.array([params[name] for name in get_param_names(n_refractors)])
@@ -368,6 +371,7 @@ class RefractorVelocity:
 
     @classmethod
     def _validate_params_bounds(cls, params, bounds):
+        """Check if provided `bounds` are consistent with model parameters from `params`."""
         cls._validate_params_names(bounds)
         if params.keys() != bounds.keys():
             raise ValueError("params and bounds must contain the same keys")
@@ -388,7 +392,7 @@ class RefractorVelocity:
 
     @staticmethod
     def estimate_refractor_velocity(offsets, times, refractor_bounds):
-        """Perform rough estimation of a refractor velocity and intercept time by fitting a linear regression to an
+        """Perform a rough estimation of a refractor velocity and intercept time by fitting a linear regression to an
         offset-time point cloud within given offsets bounds."""
         # Avoid fitting a regression if an empty refractor is processed
         refractor_mask = (offsets > refractor_bounds[0]) & (offsets <= refractor_bounds[1])
@@ -413,12 +417,15 @@ class RefractorVelocity:
         slope = reg.coef_[0] * std_time / std_offset
         t0 = mean_time + reg.intercept_[0] * std_time - slope * mean_offset
 
+        # Postprocess the obtained params
         velocity = 1000 / max(1/5, slope)  # Convert slope to velocity in m/s, clip it to be in a [0, 5000] interval
         t0 = min(max(0, t0), times.max())  # Clip intercept time to lie within a [0, times.max()] interval
         return velocity, t0, n_refractor_points
 
     @staticmethod
     def enforce_step_constraints(values, fixed_indices, min_step=0):
+        """Modify values whose indices are not in `fixed_indices` so that a difference between each two adjacent values
+        is no less than the corresponding `min_step`. Fill all `nan` values so that this constraint is satisfied."""
         fixed_indices = np.sort(np.atleast_1d(fixed_indices))
         min_step = np.broadcast_to(min_step, len(values) - 1)
 
@@ -440,6 +447,8 @@ class RefractorVelocity:
     @classmethod
     def complete_init_by_refractors(cls, init, n_refractors, offsets, times, max_offset,
                                     min_velocity_step, min_refractor_size):
+        """Determine all the values in `init` that are insufficient to define a valid velocity model by the expected
+        number of refractors."""
         param_names = get_param_names(n_refractors)
         if init.keys() - set(param_names):
             raise ValueError("Parameters defined by init and bounds describe more refractors "
@@ -489,6 +498,7 @@ class RefractorVelocity:
 
     @staticmethod
     def _scale_params(unscaled_params):
+        """Scale a vector of model parameters before passing to `scipy.optimize.minimize`."""
         scaled = np.empty_like(unscaled_params)
         scaled[0] = unscaled_params[0] / 100
         scaled[1:] = unscaled_params[1:] / 1000
@@ -496,6 +506,7 @@ class RefractorVelocity:
 
     @staticmethod
     def _unscale_params(scaled_params):
+        """Unscale results of `scipy.optimize.minimize` to the original units."""
         unscaled_params = np.empty_like(scaled_params)
         unscaled_params[0] = scaled_params[0] * 100
         unscaled_params[1:] = scaled_params[1:] * 1000
@@ -503,8 +514,8 @@ class RefractorVelocity:
 
     @staticmethod
     def _calc_knots_by_params(unscaled_params, max_offset=None):
-        """Calculate the coordinates of the knots of a piecewise linear function based on the given `params` and
-        `max_offset`."""
+        """Calculate coordinates of the knots of a piecewise linear function by a vector of unscaled velocity model
+        parameters and `max_offset`."""
         n_refractors = len(unscaled_params) // 2
         params_max_offset = unscaled_params[n_refractors - 1] if n_refractors > 1 else 0
         if max_offset is None or max_offset < params_max_offset:
@@ -521,42 +532,16 @@ class RefractorVelocity:
 
     @classmethod
     def calculate_loss(cls, scaled_params, offsets, times, max_offset, loss='L1', huber_coef=20):
-        """Calculate the result of the loss function based on the passed args.
+        """Calculate the value of loss function for a given vector of model parameters scaled according to
+        `cls._scale_params`.
 
-        Method calls `calc_knots_by_params` to calculate piecewise linear attributes of a RefractorVelocity instance.
-        After that, the method calculates the loss function between the true first breaks times stored in the
-        `self.times` and predicted piecewise linear function. The loss function is calculated at the offsets points.
+        `scaled_params` should be a 1d `np.ndarray` with shape (2 * n_refractors,) with the following structure:
+        - args[0] : intercept time,
+        - args[1:n_refractors] : crossover offsets,
+        - args[n_refractors:] : refractor velocities.
 
-        Piecewise linear function is defined by the given `args`. `args` should be list-like and have the following
-        structure:
-            args[0] : intercept time in milliseconds.
-            args[1:n_refractors] : cross offsets points in meters.
-            args[n_refractors:] : velocities of each layer in kilometers/seconds.
-            Total length of args should be n_refractors * 2.
-
-        Notes:
-            * 'init', 'bounds' and 'params' store velocity in m/s unlike args for `loss_piecewise_linear`.
-            * The list-like `args` is due to the `scipy.optimize.minimize`.
-
-        Parameters
-        ----------
-        args : tuple, list, or 1d ndarray
-            Parameters of the piecewise linear function.
-        loss : str, optional, defaults to "L1".
-            The loss function type. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
-            All implemented loss functions have a mean reduction.
-        huber_coef : float, default to 20
-            Coefficient for Huber loss.
-
-        Returns
-        -------
-        loss : float
-            Loss function result between true first breaks times and a predicted piecewise linear function.
-
-        Raises
-        ------
-        ValueError
-            If given `loss` does not exist.
+        Available loss functions are "MSE", "huber", "L1", "soft_L1", or "cauchy", coefficient for Huber loss is
+        defined by `huber_coef` argument. All losses apply mean reduction of point-wise losses.
         """
         piecewise_offsets, piecewise_times = cls._calc_knots_by_params(cls._unscale_params(scaled_params), max_offset)
         abs_diff = np.abs(np.interp(offsets, piecewise_offsets, piecewise_times) - times)
@@ -581,44 +566,65 @@ class RefractorVelocity:
 
     @batch_method(target="for", copy_src=False)
     def create_muter(self, delay=0, velocity_reduction=0):
+        """Create a muter to attenuate high amplitudes immediately following the first breaks in the following way:
+        1) Reduce velocity of each refractor by `velocity_reduction` to account for imperfect model fit and variability
+           of first arrivals at a given offset,
+        2) Take an offset-time curve defined by an adjusted model from the previous step and shift it by `delay` to
+           handle near-offset traces.
+
+        Parameters
+        ----------
+        delay : float, optional, defaults to 0
+            Introduced constant delay. Measured in milliseconds.
+        velocity_reduction : float, optional, defaults to 0
+            A value used to decrement each refractor velocity. Measured in meters/seconds.
+
+        Returns
+        -------
+        muter : Muter
+            Created muter.
+        """
         return Muter.from_refractor_velocity(self, delay=delay, velocity_reduction=velocity_reduction)
 
     @plotter(figsize=(10, 5), args_to_unpack="compare_to")
     def plot(self, *, ax=None, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_times=None,
              compare_to=None, text_kwargs=None, **kwargs):
-        """Plot the RefractorVelocity data, fitted curve, cross offsets, and additional information.
+        """Plot an offset-traveltime curve and data used to fit the model if it was constructed from offsets and times
+        of first breaks.
 
         Parameters
         ----------
-        ax : matplotlib.axes.Axes, optional, defaults to None
-            An axis of the figure to plot on. If not given, it will be created automatically.
-        title : str, optional, defaults to None
+        ax : matplotlib.axes.Axes, optional
+            Axes of a figure to plot on. Will be created automatically if not given.
+        title : str, optional
             Plot title.
-        x_ticker : dict, optional, defaults to None
+        x_ticker : dict, optional
             Parameters for ticks and ticklabels formatting for the x-axis; see :func:`~utils.set_ticks`
             for more details.
-        y_ticker : dict, optional, defaults to None
+        y_ticker : dict, optional
             Parameters for ticks and ticklabels formatting for the y-axis; see :func:`~utils.set_ticks`
             for more details.
         show_params : bool, optional, defaults to True
             If `True` shows the velocity model parameters on the plot.
-        threshold_times : float or None, optional. Defaults to None
-            Neighborhood margins of the fitted curve to fill in the area inside. If None the area don't show.
-        compare_to : RefractorVelocity, str or None, optional
-            RefractorVelocity instance. Used to plot an additional RefractorVelocity on the same axis.
+        threshold_times : float, optional
+            Size of the neighborhood around the offset-time curve that will be highlighted on the plot. Won't be shown
+            if the parameter is not given.
+        compare_to : RefractorVelocity, dict or str, optional
+            Additional velocity model to be displayed on the same axes. `RefractorVelocity` instance is used directly.
+            `dict` value represents parameters of the velocity model.
             May be `str` if plotted in a pipeline: in this case it defines a component with refractor velocities to
-            compare to.
+            plot.
         text_kwargs : dict, optional
-            Additional arguments to the :func:`~matplotlib.pyplot.text`. This function plot velocity model parameters
-            on the plot.
+            Additional arguments to the :func:`~matplotlib.pyplot.text` to format model parameters on the plot if they
+            are displayed.
         kwargs : dict, optional
-            Additional keyword arguments to :func:`~utils.set_text_formatting`. Used to the modify the text and titles
-            formatting.
+            Additional keyword arguments to :func:`~utils.set_text_formatting`. Used to the modify text, title and
+            ticker formatting.
 
         Returns
         -------
         self : RefractorVelocity
-            RefractorVelocity without changes.
+            Velocity model unchanged.
         """
         (title, x_ticker, y_ticker, text_kwargs), kwargs = set_text_formatting(title, x_ticker, y_ticker, text_kwargs,
                                                                                **kwargs)
@@ -647,6 +653,10 @@ class RefractorVelocity:
                             label=f'+/- {threshold_times}ms threshold area', alpha=.2)
 
         if compare_to is not None:
+            if isinstance(compare_to, dict):
+                compare_to = RefractorVelocity(**compare_to, max_offset=self.max_offset)
+            if not isinstance(compare_to, RefractorVelocity):
+                raise ValueError("compare_to must be either a dict or a RefractorVelocity instance")
             # pylint: disable-next=protected-access
             compare_to._plot_lines(ax, curve_label='compared offset-traveltime curve', curve_color='#ff7900',
                                    crossoffset_label='compared crossover point', crossover_color='green')
@@ -658,7 +668,7 @@ class RefractorVelocity:
         return self
 
     def _plot_lines(self, ax, curve_label, curve_color, crossoffset_label, crossover_color):
-        """Plot offset-traveltime curve and a vertical line for each crossover offset."""
+        """Plot an offset-traveltime curve and a vertical line for each crossover offset."""
         ax.plot(self.piecewise_offsets, self.piecewise_times, '-', color=curve_color, label=curve_label)
         if self.n_refractors > 1:
             crossoffset_label += 's'
