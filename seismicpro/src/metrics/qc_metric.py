@@ -33,10 +33,6 @@ class TracewiseMetric(Metric):
         super().__init__(**kwargs)
         self.survey = survey.reindex(coords_cols)
 
-    def get_views(self, from_headers=True, **kwargs):
-        """List of views with `from_headers` argument defined."""
-        return [partial(getattr(self, view), from_headers=from_headers)  for view in to_list(self.views)], kwargs
-
     @staticmethod
     def _get_res(gather, **kwargs):
         """QC indicator implementation.
@@ -99,7 +95,7 @@ class TracewiseMetric(Metric):
         return fn(tw_res)
 
     @classmethod
-    def calc(cls, gather, from_headers=True, **kwargs): # pylint: disable=arguments-renamed
+    def calc(cls, gather, from_headers=False, **kwargs): # pylint: disable=arguments-renamed
         """Return an already calculated metric."""
         res = cls.get_res(gather, from_headers=from_headers, **kwargs)
         return cls.aggr(res, tracewise=False)
@@ -110,11 +106,11 @@ class TracewiseMetric(Metric):
         res = cls.get_res(gather, from_headers=from_headers, **kwargs)
         return cls.aggr(res, tracewise=True)
 
-    def plot_res(self, coords, ax, from_headers=True, **kwargs):
+    def plot_res(self, coords, ax, **kwargs):
         """Gather plot with tracewise indicator on a separate axis"""
         gather = self.survey.get_gather(coords)
 
-        res = self.get_res(gather, from_headers=from_headers, **kwargs)
+        res = self.get_res(gather, from_headers=False, **kwargs)
         res = self.aggr(res, tracewise=True)
 
         gather = self.preprocess(gather, **kwargs)
@@ -130,14 +126,14 @@ class TracewiseMetric(Metric):
 
         set_title(top_ax, gather)
 
-    def _plot_filter(self, mode, coords, ax, from_headers, **kwargs):
+    def _plot_filter(self, mode, coords, ax, **kwargs):
         """Gather plot with filter"""
         gather = self.survey.get_gather(coords)
 
         fn = np.greater_equal if self.is_lower_better else np.less_equal
 
         if self.threshold is not None:
-            res = fn(self.get_res(gather, from_headers=from_headers, **kwargs), self.threshold)
+            res = fn(self.get_res(gather, from_headers=False, **kwargs), self.threshold)
         else:
             res = np.zeros_like(gather.data)
 
@@ -150,18 +146,18 @@ class TracewiseMetric(Metric):
 
         set_title(ax, gather)
 
-    def plot_wiggle(self, coords, ax, from_headers=True, **kwargs):
+    def plot_wiggle(self, coords, ax, **kwargs):
         """"Gather wiggle plot where samples with indicator above/blow `cls.threshold` are in red."""
-        self._plot_filter('wiggle', coords, ax, from_headers, **kwargs)
+        self._plot_filter('wiggle', coords, ax, **kwargs)
 
-    def plot_image_filter(self, coords, ax, from_headers=True, **kwargs):
+    def plot_image_filter(self, coords, ax, **kwargs):
         """Gather plot where samples with indicator above/blow `cls.threshold` are highlited."""
-        self._plot_filter('image', coords, ax, from_headers, **kwargs)
+        self._plot_filter('image', coords, ax, **kwargs)
 
-    def plot_worst_trace(self, coords, ax, from_headers=True, **kwargs):
+    def plot_worst_trace(self, coords, ax, **kwargs):
         """Wiggle plot of the trace with the worst indicator value and 2 its neighboring traces."""
         gather = self.survey.get_gather(coords)
-        res = self.get_res(gather, from_headers=from_headers, **kwargs)
+        res = self.get_res(gather, from_headers=False, **kwargs)
         res = self.aggr(res, tracewise=True)
 
         gather = self.preprocess(gather, **kwargs)
