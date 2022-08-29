@@ -20,10 +20,10 @@ from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices
 from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_yticklabels, set_text_formatting,
                      add_colorbar, piecewise_polynomial, Coordinates)
 from ..containers import TraceContainer, SamplesContainer
-from ..muter import Muter, MuterField
 from ..semblance import Semblance, ResidualSemblance
+from ..muter import Muter, MuterField
 from ..stacking_velocity import StackingVelocity, StackingVelocityField
-from ..refractor_velocity import RefractorVelocity
+from ..refractor_velocity import RefractorVelocity, RefractorVelocityField
 from ..decorators import batch_method, plotter
 from ..const import HDR_FIRST_BREAK, DEFAULT_SDC_VELOCITY
 
@@ -819,9 +819,10 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        refractor_velocity : int, float, RefractorVelocity or str
-            `RefractorVelocity` object to perform LMO correction with. If `int` or `float` then constant-velocity
-            correction is performed.
+        refractor_velocity : int, float, RefractorVelocity, RefractorVelocityField or str
+            Near-surface velocity model to perform LMO correction with. `RefractorVelocity` instance is used directly.
+            If `RefractorVelocityField` instance is passed, a `RefractorVelocity` corresponding to gather coordinates
+            is fetched from it. If `int` or `float` then constant-velocity correction is performed.
             May be `str` if called in a pipeline: in this case it defines a component with refractor velocities to use.
         delay : float, optional, defaults to 100
             An extra delay in milliseconds introduced in each trace, positive values result in shifting gather traces
@@ -843,8 +844,11 @@ class Gather(TraceContainer, SamplesContainer):
         """
         if isinstance(refractor_velocity, (int, float)):
             refractor_velocity = RefractorVelocity.from_constant_velocity(refractor_velocity)
+        if isinstance(refractor_velocity, RefractorVelocityField):
+            refractor_velocity = refractor_velocity(self.coords)
         if not isinstance(refractor_velocity, RefractorVelocity):
-            raise ValueError("refractor_velocity must be of int, float or RefractorVelocity type")
+            raise ValueError("refractor_velocity must be of int, float, RefractorVelocity or RefractorVelocityField "
+                             "type")
 
         trace_delays = delay - refractor_velocity(self.offsets)
         trace_delays_samples = times_to_indices(trace_delays, self.samples, round=True).astype(int)

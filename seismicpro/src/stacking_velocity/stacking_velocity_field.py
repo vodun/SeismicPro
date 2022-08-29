@@ -52,6 +52,9 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
     Now the field allows for velocity interpolation at given coordinates:
     >>> velocity = field((10, 10))
 
+    Or can be passed directly to some gather processing methods:
+    >>> gather = survey.sample_gather().apply_nmo(field)
+
     Quality control can be performed by calling `qc` method and visualizing the resulting maps:
     >>> metrics_maps = cube.qc(radius=40, times=np.arange(0, 3000, 2))
     >>> for metric_map in metrics_maps:
