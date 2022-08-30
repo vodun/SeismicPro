@@ -2,8 +2,6 @@
 
 import warnings
 
-from functools import partial
-
 import numpy as np
 from scipy import signal
 
@@ -11,7 +9,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .metrics import Metric
 from ..const import HDR_DEAD_TRACE, EPS, HDR_FIRST_BREAK
-from .utils import fill_nulls, calc_spikes, get_val_subseq, get_const_subseq, to_list
+from .utils import fill_nulls, calc_spikes, get_val_subseq, get_const_subseq
 
 
 class TracewiseMetric(Metric):
@@ -46,6 +44,7 @@ class TracewiseMetric(Metric):
 
     @classmethod
     def preprocess(cls, gather, **kwargs):
+        """Preprocess gather for calculatingh metric. Identity by default."""
         _ = kwargs
         return gather
 
@@ -301,6 +300,7 @@ def plot_worst_trace(ax, traces, trace_numbers, indicators, max_is_worse, std=0.
 
 
 def mute_and_norm(gather, first_breaks_col=HDR_FIRST_BREAK):
+    """Mute direct wave using `first_breaks_col` and normalise"""
     if first_breaks_col not in gather.headers:
         raise RuntimeError("First breaks not loaded into", first_breaks_col)
 
