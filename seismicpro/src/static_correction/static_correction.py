@@ -209,6 +209,66 @@ class StaticCorrection:
             curr_iter += 1
         return curr_iter, kwargs
 
+
+    def update_depth(self, step, smoothing_radius, **kwargs):
+        sx_min, sy_min = np.min(self.source_uniques, axis=0)
+        sx_max, sy_max = np.max(self.source_uniques, axis=0)
+        cx_min, cy_min = np.min(self.rec_uniques, axis=0)
+        cx_max, cy_max = np.max(self.rec_uniques, axis=0)
+
+        x_min = min(sx_min, cx_min)
+        x_max = max(sx_max, cx_max)
+        y_min = min(sy_min, cy_min)
+        y_max = max(sy_max, cy_max)
+
+        step = 100
+
+        xs = np.arange(x_min, x_max + step, step, dtype=np.int32)
+        ys = np.arange(y_min, y_max + step, step, dtype=np.int32)
+
+        points = np.meshgrid(xs, ys, indexing='ij')
+        coords = np.stack(points).T.reshape(-1, 2)
+        print(f"Number of points: {len(coords)}")
+
+        min_coords = np.min(coords, axis=0)
+        max_coords = np.max(coords, axis=0)
+
+        #find depth only for the first layer
+        layer_headers = sc.headers[sc.headers['layer'] == 1]
+        targets = layer_headers['y'].values.astype(np.float32)
+
+        #normalize traces coords to (-1, 1)
+        normalize = lambda c: 2 * (c - min_coords) / (max_coords - min_coords) - 1
+        tr_coords = layer_headers[['SourceX', 'SourceY', 'GroupX', 'GroupY']].values.astype(np.float32)
+        tr_coords = np.hstack((normalize(tr_coords[:, :2]), normalize(tr_coords[:, 2:])))
+
+
+        source_ixs = layer_headers[['SourceX', 'SourceY']].merge(self.source_params[['index', 'SourceDepth']],
+                                                                 on=['SourceX', 'SourceY'])
+        rec_ixs = layer_headers[['GroupX', 'GroupY']].merge(self.rec_params[['index']], on=['GroupX', 'GroupY'])
+        tr_events_ixs = np.hstack((source_ixs[['index']].values, rec_ixs[['index']].values)).astype(np.int32)
+        upholes = source_ixs['SourceDepth'].values
+
+        source_wv_params = sc.source_params[['v1', 'v2', 'v2']].values.T
+        source_coefs = calculate_layer_coefs(*source_wv_params)
+
+        rec_wv_params = sc.rec_params[['v1', 'v2', 'v2']].values.T
+        rec_coefs = calculate_layer_coefs(*rec_wv_params)
+
+        weights = np.zeros((ys.shape[0], xs.shape[0])) + 40
+
+        weights_mx = dense_optimize(tr_events_ixs=tr_events_ixs, tr_coords=tr_coords, source_coefs=source_coefs,
+                                    upholes=upholes, rec_coefs=rec_coefs, weights=weights, targets=targets, **kwargs)
+
+        from torch.nn.functional import grid_sample
+        coords = np.hstack((source_ixs.index.to_frame().drop_duplicates().values, rec_ixs.index.to_frame().drop_duplicates().values))
+        norm_coords = torch.tensor(normalize(coords), device=kwargs.get('device', 'cuda:0'), dtype=kwargs.get('dtype', torch.float32)
+        weights = grid_sample(weights_mx[None, None], norm_coords[None, None], align_corners=True, mode="bicubic").ravel()
+        weights = weights.detach().cpu().numpy().ravel()
+        joint_interp = IDWInterpolator(coords, weights, radius=smoothing_radius, dist_transform=0)
+        self.interp_layers_els[0] = IDWInterpolator(coords, joint_interp(weights), radius=self.radius, neighbors=self.n_neighbors)
+
+
     def update_depths(self, method='lsqr', smoothing_radius=0, coefs=None, **kwargs):
         headers = self._add_params_to_headers(headers=self.headers)
         layer_matrixes = []
