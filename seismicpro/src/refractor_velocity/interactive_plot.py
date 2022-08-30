@@ -59,8 +59,8 @@ class FitPlot(PairedPlot):
         self.aux.clear()
         rv = self.field.item_container[coords]
         rv.plot(ax=self.aux.ax, **self.refractor_velocity_plot_kwargs)
-        self.aux.set_xlim(*self.x_lim)
-        self.aux.set_ylim(*self.y_lim)
+        self.aux.ax.set_xlim(*self.x_lim)
+        self.aux.ax.set_ylim(*self.y_lim)
         return coords
 
     def plot(self):
