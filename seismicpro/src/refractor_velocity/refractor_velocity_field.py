@@ -1,6 +1,8 @@
+from textwrap import dedent
 from functools import partial, cached_property
 
 import numpy as np
+import pandas as pd
 from tqdm.auto import tqdm
 
 from .refractor_velocity import RefractorVelocity
@@ -37,6 +39,20 @@ class RefractorVelocityField(SpatialField):
     @cached_property
     def mean_velocity(self):
         return self.construct_item(self.values.mean(axis=0), coords=None)
+
+    def __str__(self):
+        msg = super().__str__() + dedent(f"""\n
+        Number of refractors:      {self.n_refractors}
+        Mean max offset of items:  {self.max_offset}
+        Is fit:                    {self.is_fit}
+        """)
+
+        if not self.is_empty:
+            params_df = pd.DataFrame(self.values, columns=self.param_names)
+            params_stats_str = params_df.describe().iloc[1:].T.to_string(col_space=8, float_format="{:.02f}".format)
+            msg += f"""\nDescriptive statistics of the near-surface velocity model:\n{params_stats_str}"""
+
+        return msg
 
     def validate_items(self, items):
         super().validate_items(items)
