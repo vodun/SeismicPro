@@ -323,15 +323,13 @@ class BinarizedMap(BaseMetricMap):
 
     def _plot_map(self, ax, is_lower_better, xlim=None, ylim=None, **kwargs):
         """Display map data as an image."""
-        _ = is_lower_better
+        _ = is_lower_better, xlim, ylim
 
         # Construct an image of the map
         x = self.map_data.index.get_level_values(0)
         y = self.map_data.index.get_level_values(1)
         map_image = np.full((len(self.x_bin_coords), len(self.y_bin_coords)), fill_value=np.nan)
         map_image[x, y] = self.map_data
-
-        _ = xlim, ylim
 
         kwargs = {"interpolation": "none", "origin": "lower", "aspect": "auto", **kwargs}
         return ax.imshow(map_image.T, **kwargs)

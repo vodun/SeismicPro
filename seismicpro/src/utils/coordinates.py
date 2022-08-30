@@ -28,12 +28,45 @@ INDEX_TO_COORDS = {
 INDEX_TO_COORDS = {frozenset(to_list(key)): val for key, val in INDEX_TO_COORDS.items()}
 
 
+ALIAS_TO_COORDS = {
+    "shot": ["SourceX", "SourceY"],
+    "receiver": ["GroupX", "GroupY"],
+    "midpoint": ["CDP_X", "CDP_Y"],
+    "bin": ["INLINE_3D", "CROSSLINE_3D"],
+}
+
+
 def get_coords_cols(index_cols):
     """Return headers columns to get coordinates from depending on the type of headers index. See the mapping in
     `INDEX_TO_COORDS`."""
     coords_cols = INDEX_TO_COORDS.get(frozenset(to_list(index_cols)))
     if coords_cols is None:
         raise KeyError(f"Unknown coordinates columns for {index_cols} index")
+    return coords_cols
+
+
+def get_coord_cols_by_alias(alias):
+    """Convert `alias`` to names of columns with coordinates.
+
+    Parameters
+    ----------
+    alias : tuple with 2 elements or {"shot", "receiver", "midpoint", "bin"}
+        If `tuple`, survey headers names to get coordinates from.
+        If `str`, gather type to aggregate header values over.
+
+    Returns
+    -------
+    coords_cols : list
+        List of survey headers names with coordinates.
+    """
+    if isinstance(alias, str):
+        coords_cols = ALIAS_TO_COORDS.get(alias)
+        if coords_cols is None:
+            raise ValueError(f"by must be one of {', '.join(ALIAS_TO_COORDS.keys())} but {alias} given.")
+    else:
+        coords_cols = to_list(alias)
+    if len(coords_cols) != 2:
+        raise ValueError("Exactly 2 coordinates headers must be passed")
     return coords_cols
 
 

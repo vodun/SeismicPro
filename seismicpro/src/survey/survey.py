@@ -20,7 +20,7 @@ from ..gather import Gather
 from ..metrics import PartialMetric
 from ..metrics.qc_metric import TracewiseMetric
 from ..containers import GatherContainer, SamplesContainer
-from ..utils import to_list, maybe_copy, get_cols
+from ..utils import to_list, maybe_copy, get_cols, get_coord_cols_by_alias
 from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK
 
 
@@ -635,7 +635,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     # pylint: disable=anomalous-backslash-in-string
     def load_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col=HDR_FIRST_BREAK,
-                          delimiter='\s+', decimal=None, encoding="UTF-8", inplace=False, merge_inner=True, **kwargs):
+                          delimiter='\s+', decimal=None, encoding="UTF-8", inplace=False, keep_missing_fb=False, **kwargs):
         """Load times of first breaks from a file and save them to a new column in headers.
 
         Each line of the file stores the first break time for a trace in the last column.
@@ -662,6 +662,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             File encoding.
         inplace : bool, optional, defaults to False
             Whether to load first break times inplace or to a survey copy.
+        keep_missing_fb : bool, optional, defaults to False
+            Whether to kepp traces with missing first breaks in the resulting survey.
         kwargs : misc, optional
             Additional keyword arguments to pass to `pd.read_csv`.
 
@@ -690,7 +692,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         headers = self.headers
         headers_index = self.indexed_by
         headers.reset_index(inplace=True)
-        headers = headers.merge(first_breaks_df, on=trace_id_cols, how='inner' if merge_inner else 'left')
+        headers = headers.merge(first_breaks_df, on=trace_id_cols, how='left' if keep_missing_fb else 'inner')
         if headers.empty:
             raise ValueError('Empty headers after first breaks loading.')
         headers.set_index(headers_index, inplace=True)
@@ -857,24 +859,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         SurveyGeometryPlot(self, **kwargs).plot()
 
-    def _get_coords_cols(self, by):
-        """ convert `by` keyword to names of columns with coordinates """
-        if isinstance(by, str):
-            by_to_coords_cols = {
-                "shot": ["SourceX", "SourceY"],
-                "receiver": ["GroupX", "GroupY"],
-                "midpoint": ["CDP_X", "CDP_Y"],
-                "bin": ["INLINE_3D", "CROSSLINE_3D"],
-            }
-            coords_cols = by_to_coords_cols.get(by)
-            if coords_cols is None:
-                raise ValueError(f"by must be one of {', '.join(by_to_coords_cols.keys())} but {by} given.")
-        else:
-            coords_cols = to_list(by)
-        if len(coords_cols) != 2:
-            raise ValueError("Exactly 2 coordinates headers must be passed")
-        return coords_cols
-
 
     def construct_attribute_map(self, attribute, by, drop_duplicates=False, agg=None, bin_size=None, **kwargs):
         """Construct a map of trace attributes aggregated by gathers.
@@ -918,7 +902,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         attribute_map : BaseMetricMap
             Constructed attribute map.
         """
-        coords_cols = self._get_coords_cols(by)
+        coords_cols = get_coord_cols_by_alias(by)
 
         if attribute == "fold":
             map_data = self.headers.groupby(coords_cols, as_index=False).size().rename(columns={"size": "Fold"})
@@ -931,27 +915,13 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
 
-    @staticmethod
-    def _prepare_metrics_dict(metrics):
-
-        if not isinstance(metrics, dict):
-            metrics = to_list(metrics)
-            metrics = list(set(metrics)) # Remove duplicates in metrics_list
-            metrics = {metric_cls: {} for metric_cls in metrics}
-
-        for metric_cls in metrics:
-            if not issubclass(metric_cls, TracewiseMetric):
-                raise TypeError(f"all metrics must be `TracewiseMetric` subtypes, but {metric_cls.__name__} is not")
-
-        return metrics
-
 
     def qc_tracewise(self, metrics, chunk_size=1000, inplace=False):
         """Calculate tracewise QC metrics.
 
         Parameters
         ----------
-        metrics : TracewiseMetric, or list of :class:`~metrics.qc_metric import TracewiseMetric`, or dict
+        metrics : TracewiseMetric, or list of :class:`~metrics.qc_metric.TracewiseMetric`, or dict
             list of metrics, that use raw traces.
         chunk_size : int, optional, defaults to 1000
             number of traces loaded on each iteration
@@ -972,7 +942,14 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             warnings.warn("The survey was not checked for dead traces or they were not removed. "
                           "Run `remove_dead_traces` first.", RuntimeWarning)
 
-        metrics = self._prepare_metrics_dict(metrics)
+        if not isinstance(metrics, dict):
+            metrics = to_list(metrics)
+            metrics = list(set(metrics)) # Remove duplicates in metrics_list
+            metrics = {metric_cls: {} for metric_cls in metrics}
+
+        for metric_cls in metrics:
+            if not issubclass(metric_cls, TracewiseMetric):
+                raise TypeError(f"all metrics must be `TracewiseMetric` subtypes, but {metric_cls.__name__} is not")
 
         self = self.reindex('TRACE_SEQUENCE_FILE', inplace=inplace)  # pylint: disable=self-cls-assignment
 
@@ -1013,7 +990,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             Constructed metric map.
         """
 
-        coords_cols = self._get_coords_cols(by)
+        coords_cols = get_coord_cols_by_alias(by)
 
         attribute = metric_cls.__name__
 

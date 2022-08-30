@@ -207,12 +207,12 @@ def test_gather_get_quantile(gather, tracewise, use_global, q):
 
 
 @pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
-@pytest.mark.parametrize('use_muter', [False, True, 0])
-def test_gather_scale_standard(gather, tracewise, use_global, use_muter):
+@pytest.mark.parametrize('use_muter, fill_value', [[False, None], [True, np.nan], [True, 0]])
+def test_gather_scale_standard(gather, tracewise, use_global, use_muter, fill_value):
     """test_gather_scale_standard"""
-    if use_muter is not False:
+    if use_muter:
         muter = gather.create_muter()
-        gather = gather.mute(muter, fill_value=np.nan if use_muter is True else use_muter)
+        gather = gather.mute(muter, fill_value=fill_value)
 
     gather2 = gather.copy()
     gather.scale_standard(tracewise=tracewise, use_global=use_global)
@@ -226,12 +226,12 @@ def test_gather_scale_standard(gather, tracewise, use_global, use_muter):
     compare_gathers(gather, gather2)
 
 @pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
-@pytest.mark.parametrize('use_muter', [False, True, 0])
-def test_gather_scale_minmax(gather, tracewise, use_global, use_muter):
+@pytest.mark.parametrize('use_muter, fill_value', [[False, None], [True, np.nan], [True, 0]])
+def test_gather_scale_minmax(gather, tracewise, use_global, use_muter, fill_value):
     """test_gather_scale_minmax"""
-    if use_muter is not False:
+    if use_muter:
         muter = gather.create_muter()
-        gather = gather.mute(muter, fill_value=np.nan if use_muter is True else use_muter)
+        gather = gather.mute(muter, fill_value=fill_value)
 
     gather2 = gather.copy()
     gather.scale_minmax(tracewise=tracewise, use_global=use_global)
@@ -248,12 +248,12 @@ def test_gather_scale_minmax(gather, tracewise, use_global, use_muter):
 
 
 @pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
-@pytest.mark.parametrize('use_muter', [False, True, 0])
-def test_gather_scale_maxabs(gather, tracewise, use_global, use_muter):
+@pytest.mark.parametrize('use_muter, fill_value', [[False, None], [True, np.nan], [True, 0]])
+def test_gather_scale_maxabs(gather, tracewise, use_global, use_muter, fill_value):
     """test_gather_scale_minmax"""
-    if use_muter is not False:
+    if use_muter:
         muter = gather.create_muter()
-        gather = gather.mute(muter, fill_value=np.nan if use_muter is True else use_muter)
+        gather = gather.mute(muter, fill_value=fill_value)
 
     gather2 = gather.copy()
     gather.scale_maxabs(tracewise=tracewise, use_global=use_global)
