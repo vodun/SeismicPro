@@ -19,7 +19,7 @@ from .plot_corrections import NMOCorrectionPlot, LMOCorrectionPlot
 from .utils import correction, normalization, gain
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
 from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_yticklabels, set_text_formatting,
-                     add_colorbar, piecewise_polynomial, Coordinates, dump_header)
+                     add_colorbar, piecewise_polynomial, Coordinates)
 from ..containers import TraceContainer, SamplesContainer
 from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, StackingVelocityField
@@ -640,36 +640,6 @@ class Gather(TraceContainer, SamplesContainer):
         return self.dump_header(path, header_col=first_breaks_col, trace_id_cols=trace_id_cols,
                                 col_space=col_space, encoding=encoding)
 
-    @batch_method(target='for', use_lock=True)
-    def dump_header(self, path, header_col, trace_id_cols=('FieldRecord', 'TraceNumber'),
-                    col_space=8, encoding="UTF-8"):
-        """ Save values from a headers column to a file.
-
-        Each line in the resulting file corresponds to one trace, where all columns but
-        the last one store values from `trace_id_cols` headers and identify the trace
-        while the last column stores the desired header.
-
-        Parameters
-        ----------
-        path : str
-            Path to the file.
-        trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
-            Columns names from `self.headers` that act as trace id. These would be present in the file.
-        header_col : str'
-            Column name from `self.headers` to dump.
-        col_space : int, defaults to 8
-            The minimum width of each column.
-        encoding : str, optional, defaults to "UTF-8"
-            File encoding.
-
-        Returns
-        -------
-        self : Gather
-            Gather unchanged
-        """
-
-        dump_header(self, path, header_col, trace_id_cols, col_space, encoding)
-        return self
 
     @batch_method(target="for", copy_src=False)
     def calculate_refractor_velocity(self, init=None, bounds=None, n_refractors=None, first_breaks_col=HDR_FIRST_BREAK,

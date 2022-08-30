@@ -257,6 +257,45 @@ class TraceContainer:
         self.headers[res_cols] = res
         return self
 
+    @batch_method(target='for', use_lock=True)
+    def dump_header(self, path, header_col, trace_id_cols=('FieldRecord', 'TraceNumber'),
+                    col_space=8, encoding="UTF-8"):
+        """ Save values from a headers column to a file.
+
+        Each line in the resulting file corresponds to one trace, where all columns but
+        the last one store values from `trace_id_cols` headers and identify the trace
+        while the last column stores the desired header.
+
+        Parameters
+        ----------
+        path : str
+            Path to the file.
+        trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
+            Columns names from `self.headers` that act as trace id. These would be present in the file.
+        header_col : str'
+            Column name from `self.headers` to dump.
+        col_space : int, defaults to 8
+            The minimum width of each column.
+        encoding : str, optional, defaults to "UTF-8"
+            File encoding.
+
+        Returns
+        -------
+        self : TraceContainer
+            TraceContainer unchanged
+        """
+
+        rows = self[to_list(trace_id_cols) + [header_col]]
+
+        # SEG-Y specification states that all headers values are integers, but first break values can be float
+        row_fmt = '{:{col_space}.0f}' * (rows.shape[1] - 1) + '{:{col_space}.2f}\n'
+        fmt = row_fmt * len(rows)
+        rows_as_str = fmt.format(*rows.ravel(), col_space=col_space)
+
+        with open(path, 'a', encoding=encoding) as f:
+            f.write(rows_as_str)
+        return self
+
 
 class GatherContainer(TraceContainer):
     """A mixin class that implements extra properties and processing methods for concrete subclasses with defined
