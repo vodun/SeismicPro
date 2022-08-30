@@ -32,6 +32,7 @@ redefine the following attributes and methods:
 
 import warnings
 from textwrap import dedent
+from functools import cached_property
 
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
@@ -94,11 +95,16 @@ class Field:
         return len(self.item_container)
 
     @property
+    def items(self):
+        """list of item_class: Items of the field."""
+        return list(self.item_container.values())
+
+    @property
     def is_empty(self):
         """bool: Whether the field is empty."""
         return self.n_items == 0
 
-    @property
+    @cached_property
     def mean_distance_to_neighbor(self):
         """float or None: Distance to the closest neighbor averaged over all field items. `None` if the field contains
         less than two items."""
@@ -110,10 +116,9 @@ class Field:
     def default_neighborhood_radius(self):
         """float: Default window radius for all spatial-based methods. Equals to 3 mean distances from a field item to
         its closest neighbor."""
-        dist_to_neighbor = self.mean_distance_to_neighbor
-        if dist_to_neighbor is None:
+        if self.mean_distance_to_neighbor is None:
             return 0
-        return 3 * dist_to_neighbor
+        return 3 * self.mean_distance_to_neighbor
 
     @property
     def has_survey(self):
@@ -131,7 +136,7 @@ class Field:
         concrete child classes."""
         return {}
 
-    @property
+    @cached_property
     def coords(self):
         """2d np.ndarray with shape (n_items, 2): Stacked spatial coordinates of field items."""
         return np.stack(list(self.item_container.keys()))
@@ -189,6 +194,14 @@ class Field:
         self.interpolator = self._get_interpolator_class(interpolator)(self.coords, self.values, **kwargs)
         self.is_dirty_interpolator = False
         return self
+
+    def invalidate_cache(self):
+        """Invalidate cache of all cached properties and force them to be recalculated during the next access. Set
+        `is_dirty_interpolator` flag to `True`."""
+        for key, val in type(self).__dict__.items():
+            if isinstance(val, cached_property):
+                self.__dict__.pop(key, None)
+        self.is_dirty_interpolator = True
 
     def transform_coords(self, coords, to_geographic=None, is_geographic=None):
         """Cast input `coords` either to geographic or line coordinates depending on the `to_geographic` flag. If the
@@ -276,9 +289,9 @@ class Field:
         field_coords, _, _ = self.transform_coords([item.coords for item in items], to_geographic=is_geographic)
         for coords, item in zip(field_coords, items):
             self.item_container[tuple(coords)] = item
-        self.is_dirty_interpolator = True
         self.is_geographic = is_geographic
         self.coords_cols = coords_cols
+        self.invalidate_cache()
         return self
 
     def validate_interpolator(self):
@@ -368,11 +381,11 @@ class SpatialField(Field):
         """
         return super().create_interpolator(interpolator, **kwargs)
 
-    @property
+    @cached_property
     def values(self):
         """2d np.ndarray with shape (n_items, n_values): Stacked values of items in the field to construct an
         interpolator."""
-        return np.stack([self.item_to_values(item) for item in self.item_container.values()])
+        return np.stack([self.item_to_values(item) for item in self.items])
 
     @staticmethod
     def item_to_values(item):

@@ -2,6 +2,7 @@
 and allows for spatial velocity interpolation"""
 
 import os
+from functools import cached_property
 
 import numpy as np
 from tqdm.contrib.concurrent import thread_map
@@ -108,10 +109,10 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
         """
         return self.item_class.from_stacking_velocities(items, weights, coords=coords)
 
-    @property
+    @cached_property
     def mean_velocity(self):
         """StackingVelocity: Mean stacking velocity over the field."""
-        return self.item_class.from_stacking_velocities(list(self.item_container.values()))
+        return self.item_class.from_stacking_velocities(self.items)
 
     def smooth(self, radius=None):
         """Smooth the field by averaging its stacking velocities within given radius.

@@ -1,4 +1,4 @@
-from functools import partial
+from functools import partial, cached_property
 
 import numpy as np
 from tqdm.auto import tqdm
@@ -23,16 +23,20 @@ class RefractorVelocityField(SpatialField):
             raise ValueError("The number of refractors is undefined")
         return get_param_names(self.n_refractors)
 
-    @property
+    @cached_property
     def is_fit(self):
-        return all(rv.is_fit for rv in self.item_container.values())
+        return all(item.is_fit for item in self.items)
 
-    @property
+    @cached_property
     def max_offset(self):
-        max_offsets = [rv.max_offset for rv in self.item_container.values() if rv.max_offset is not None]
+        max_offsets = [item.max_offset for item in self.items if item.max_offset is not None]
         if max_offsets:
             return np.mean(max_offsets)
         return None
+
+    @cached_property
+    def mean_velocity(self):
+        return self.construct_item(self.values.mean(axis=0), coords=None)
 
     def validate_items(self, items):
         super().validate_items(items)
@@ -72,8 +76,8 @@ class RefractorVelocityField(SpatialField):
                 n_refractor_points[i] = np.histogram(rv.offsets, rv.piecewise_offsets, density=False)[0]
 
         # Calculate minimum acceptable number of points in each refractor, should be at least 2
-        min_refractor_points = np.maximum(np.nanquantile(n_p, min_refractor_points_quantile, axis=0),
-                                        max(2, min_refractor_points))
+        min_refractor_points = np.maximum(np.nanquantile(n_refractor_points, min_refractor_points_quantile, axis=0),
+                                          max(2, min_refractor_points))
         ignore_mask = n_refractor_points < min_refractor_points
 
         # If a refractor is ignored for all items of a field, use it anyway
@@ -114,7 +118,7 @@ class RefractorVelocityField(SpatialField):
         values = self._get_refined_values(smoother, min_refractor_points, min_refractor_points_quantile)
 
         smoothed_items = []
-        for rv, val in zip(self.item_container.values(), values):
+        for rv, val in zip(self.items, values):
             item = self.construct_item(val, rv.coords)
 
             # Copy all fit-related items from the parent field
@@ -135,20 +139,18 @@ class RefractorVelocityField(SpatialField):
         if not self.is_fit:
             raise ValueError("Only fields that were constructed using offset-traveltime data can be refined")
         smoothed_field = self.smooth(radius, neighbors, min_refractor_points, min_refractor_points_quantile)
-        params_values = smoothed_field.values
-        bounds_size = params_values.ptp(axis=0) * relative_bounds_size / 2
-        params_bounds = np.stack([params_values - bounds_size, params_values + bounds_size], axis=2)
+        bounds_size = smoothed_field.values.ptp(axis=0) * relative_bounds_size / 2
+        params_bounds = np.stack([smoothed_field.values - bounds_size, smoothed_field.values + bounds_size], axis=2)
 
         # Clip t0 bounds to be positive and all crossover bounds to be no greater than max offset
-        max_offset = self.max_offset
         params_bounds[:, 0] = np.maximum(params_bounds[:, 0], 0)
-        params_bounds[:, 1:self.n_refractors] = np.minimum(params_bounds[:, 1:self.n_refractors], max_offset)
+        params_bounds[:, 1:self.n_refractors] = np.minimum(params_bounds[:, 1:self.n_refractors], self.max_offset)
 
         refined_items = []
-        data_iter = zip(smoothed_field.item_container.values(), params_bounds)
-        for rv, bounds in tqdm(data_iter, total=self.n_items, desc="Velocity models refined", disable=not bar):
+        for rv, bounds in tqdm(zip(smoothed_field.items, params_bounds), total=self.n_items,
+                               desc="Velocity models refined", disable=not bar):
             rv = RefractorVelocity.from_first_breaks(rv.offsets, rv.times, bounds=dict(zip(self.param_names, bounds)),
-                                                     max_offset=max_offset, coords=rv.coords)
+                                                     max_offset=self.max_offset, coords=rv.coords)
             refined_items.append(rv)
         return type(self)(refined_items, n_refractors=self.n_refractors, survey=self.survey,
                           is_geographic=self.is_geographic)
