@@ -489,7 +489,7 @@ class RefractorVelocity:
             if undefined_mask[0]:  # regression is already fit
                 t0 = estimates[0][1]
             else:
-                _, t0 = cls.estimate_refractor_velocity(offsets, times, cross_offsets[:2])
+                _, t0, _ = cls.estimate_refractor_velocity(offsets, times, cross_offsets[:2])
             t0 = np.nan_to_num(t0)  # can be nan if the regression hasn't fit successfully
 
         return dict(zip(param_names, [t0, *cross_offsets[1:-1], *velocities]))

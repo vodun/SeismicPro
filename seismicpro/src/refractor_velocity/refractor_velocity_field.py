@@ -143,14 +143,15 @@ class RefractorVelocityField(SpatialField):
         params_bounds = np.stack([smoothed_field.values - bounds_size, smoothed_field.values + bounds_size], axis=2)
 
         # Clip t0 bounds to be positive and all crossover bounds to be no greater than max offset
+        max_offsets = np.array(rv.max_offset for rv in self.items)[:, None, None]
         params_bounds[:, 0] = np.maximum(params_bounds[:, 0], 0)
-        params_bounds[:, 1:self.n_refractors] = np.minimum(params_bounds[:, 1:self.n_refractors], self.max_offset)
+        params_bounds[:, 1:self.n_refractors] = np.minimum(params_bounds[:, 1:self.n_refractors], max_offsets)
 
         refined_items = []
         for rv, bounds in tqdm(zip(smoothed_field.items, params_bounds), total=self.n_items,
                                desc="Velocity models refined", disable=not bar):
             rv = RefractorVelocity.from_first_breaks(rv.offsets, rv.times, bounds=dict(zip(self.param_names, bounds)),
-                                                     max_offset=self.max_offset, coords=rv.coords)
+                                                     max_offset=rv.max_offset, coords=rv.coords)
             refined_items.append(rv)
         return type(self)(refined_items, n_refractors=self.n_refractors, survey=self.survey,
                           is_geographic=self.is_geographic)
