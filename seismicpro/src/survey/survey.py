@@ -635,7 +635,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     # pylint: disable=anomalous-backslash-in-string
     def load_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col=HDR_FIRST_BREAK,
-                          delimiter='\s+', decimal=None, encoding="UTF-8", inplace=False, keep_missing_fb=False, **kwargs):
+                          delimiter='\s+', decimal=None, encoding="UTF-8",
+                          inplace=False, keep_missing_fb=False, **kwargs):
         """Load times of first breaks from a file and save them to a new column in headers.
 
         Each line of the file stores the first break time for a trace in the last column.
