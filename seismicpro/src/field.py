@@ -32,6 +32,7 @@ redefine the following attributes and methods:
 
 import warnings
 from textwrap import dedent
+from inspect import getmembers
 from functools import cached_property
 
 import numpy as np
@@ -198,9 +199,8 @@ class Field:
     def invalidate_cache(self):
         """Invalidate cache of all cached properties and force them to be recalculated during the next access. Set
         `is_dirty_interpolator` flag to `True`."""
-        for key, val in type(self).__dict__.items():
-            if isinstance(val, cached_property):
-                self.__dict__.pop(key, None)
+        for prop, _ in getmembers(type(self), lambda x: isinstance(x, cached_property)):
+            self.__dict__.pop(prop, None)
         self.is_dirty_interpolator = True
 
     def transform_coords(self, coords, to_geographic=None, is_geographic=None):
