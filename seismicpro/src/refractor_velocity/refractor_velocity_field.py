@@ -60,9 +60,7 @@ class RefractorVelocityField(SpatialField):
         coords_list, params_list, max_offset_list = load_rv(path, encoding)
         rv_list = []
         for coords, params, max_offset in zip(coords_list, params_list, max_offset_list):
-            # TODO: select one of the options when max_offset support will be determined
-            rv = RefractorVelocity(coords=coords, **params)
-            # rv = RefractorVelocity(max_offset=max_offset, coords=coords_list[0], **params_list[0])
+            rv = RefractorVelocity(max_offset=max_offset, coords=coords, **params)
             rv_list.append(rv)
         return cls(rv_list)
 

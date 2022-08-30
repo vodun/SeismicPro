@@ -46,9 +46,8 @@ def calc_df_to_dump(rv):
     df : pandas.DataFrame
         DataFrame with the coordinates and parameters of a RefractorVelocity.
     """
-    max_offset = np.nan if rv.offsets is None else rv.offsets.max()
     columns = [*rv.coords.names] + list(rv.params.keys()) + ["max_offset"]
-    data = [*rv.coords.coords] + list(rv.params.values()) + [max_offset]
+    data = [*rv.coords.coords] + list(rv.params.values()) + [rv.max_offset]
     return pd.DataFrame.from_dict({col: [data] for col, data in zip(columns, data)})
 
 def dump_rv(df_list, path, encoding, min_col_size):
@@ -77,8 +76,10 @@ def dump_rv(df_list, path, encoding, min_col_size):
     -------
     None
     """
+    coords_cols = {cols: None for df in df_list for cols in list(df.columns[:2])}
+    base_df = pd.DataFrame(columns=list(coords_cols.keys()) + list(df_list[0].columns[2:]))
     with open(path, 'w', encoding=encoding) as f:
-        pd.concat(df_list).to_string(buf=f, col_space=min_col_size, float_format="%.2f", index=False)
+        pd.concat([base_df, *df_list]).to_string(buf=f, col_space=min_col_size, float_format="%.2f", index=False)
 
 def load_rv(path, encoding):
     """Load the coordinates and parameters of RefractorVelocity from a file.
@@ -100,12 +101,16 @@ def load_rv(path, encoding):
         List of max offsets.
     """
     df = pd.read_csv(path, sep=r'\s+', encoding=encoding)
-    n_refractors = (len(df.columns) - 3) // 2
+    n_refractors = (len(df.loc[:0].dropna(axis=1).columns) - 3) // 2
     coords_list, params_list, max_offset_list = [], [], []
-    for row in df.to_numpy(na_value=np.nan):
-        if np.any(np.isnan(row[:-1])):
-            raise ValueError("Insufficient parameters in the file to create a correct RefractorVelocity instance.")
-        coords_list.append(Coordinates(names=tuple(df.columns[:2]), coords=tuple(row[:2].astype(int))))
+    for row in df.to_numpy():
+        mask = ~np.isnan(row)
+        if mask.sum() != 2 * n_refractors + 3:
+            raise ValueError("Wrong quantity of parameters in the file to create a correct RefractorVelocity "
+                              "instance.")
+        row = row[mask]
+        columns = df.columns[mask]
+        coords_list.append(Coordinates(names=tuple(columns[:2]), coords=tuple(row[:2].astype(int))))
         params_list.append(dict(zip(get_param_names(n_refractors), row[2:-1])))
         max_offset_list.append(row[-1])
     return coords_list, params_list, max_offset_list

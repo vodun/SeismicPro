@@ -326,8 +326,6 @@ class RefractorVelocity:
         coords_list, params_list, max_offset_list = load_rv(path, encoding)
         if len(coords_list) > 1:
             raise ValueError("The loaded file contains more than one set of RefractorVelocity parameters.")
-        # TODO: select one of the options when max_offset support will be determined
-        # return cls(coords=coords_list[0], **params_list[0])
         return cls(max_offset=max_offset_list[0], coords=coords_list[0], **params_list[0])
 
     @classmethod
