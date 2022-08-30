@@ -197,11 +197,9 @@ class Field:
         return self
 
     def invalidate_cache(self):
-        """Invalidate cache of all cached properties and force them to be recalculated during the next access. Set
-        `is_dirty_interpolator` flag to `True`."""
+        """Invalidate cache of all cached properties and force them to be recalculated during the next access."""
         for prop, _ in getmembers(type(self), lambda x: isinstance(x, cached_property)):
             self.__dict__.pop(prop, None)
-        self.is_dirty_interpolator = True
 
     def transform_coords(self, coords, to_geographic=None, is_geographic=None):
         """Cast input `coords` either to geographic or line coordinates depending on the `to_geographic` flag. If the
@@ -291,6 +289,7 @@ class Field:
             self.item_container[tuple(coords)] = item
         self.is_geographic = is_geographic
         self.coords_cols = coords_cols
+        self.is_dirty_interpolator = True
         self.invalidate_cache()
         return self
 

@@ -143,7 +143,7 @@ class RefractorVelocityField(SpatialField):
         params_bounds = np.stack([smoothed_field.values - bounds_size, smoothed_field.values + bounds_size], axis=2)
 
         # Clip t0 bounds to be positive and all crossover bounds to be no greater than max offset
-        max_offsets = np.array(rv.max_offset for rv in self.items)[:, None, None]
+        max_offsets = np.array([rv.max_offset for rv in self.items])[:, None, None]
         params_bounds[:, 0] = np.maximum(params_bounds[:, 0], 0)
         params_bounds[:, 1:self.n_refractors] = np.minimum(params_bounds[:, 1:self.n_refractors], max_offsets)
 
