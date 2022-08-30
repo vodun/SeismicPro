@@ -152,17 +152,27 @@ class Field:
         """Print field metadata including information about its items, their class, coordinate system and created
         interpolator."""
         coordinate_system = {True: "Geographic", False: "Bin", None: "Undefined"}[self.is_geographic]
-        coords_cols = "Undefined" if self.coords_cols is None else ", ".join(self.coords_cols)
+        coords_cols = ["Undefined", "Undefined"] if self.coords_cols is None else self.coords_cols
+
+        if self.is_empty:
+            coords_range = ["Undefined", "Undefined"]
+        else:
+            min_coords = self.coords.min(axis=0)
+            max_coords = self.coords.max(axis=0)
+            coords_range = (f"[{min_coords[0]}, {max_coords[0]}]", f"[{min_coords[1]}, {max_coords[1]}]")
 
         msg = f"""
         Field type:                {type(self).__name__}
         Items type:                {"Undefined" if self.item_class is None else self.item_class.__name__}
         Has linked survey:         {self.has_survey}
         Number of items:           {self.n_items}
-        Mean distance to neighbor: {self.mean_distance_to_neighbor:.2f}
 
-        Coordinate columns:        {coords_cols}
         Coordinate system:         {coordinate_system}
+        X coordinate header:       {coords_cols[0]}
+        Y coordinate header:       {coords_cols[1]}
+        X coordinate range:        {coords_range[0]}
+        Y coordinate range:        {coords_range[1]}
+        Mean distance to neighbor: {self.mean_distance_to_neighbor:.2f}
         Supports coordinates cast: {self.has_survey and self.survey.has_inferred_geometry}
         """
 

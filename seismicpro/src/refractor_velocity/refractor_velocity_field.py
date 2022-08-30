@@ -44,7 +44,7 @@ class RefractorVelocityField(SpatialField):
         msg = super().__str__() + dedent(f"""\n
         Number of refractors:      {self.n_refractors}
         Mean max offset of items:  {self.max_offset}
-        Is fit:                    {self.is_fit}
+        Is fit from first breaks:  {self.is_fit}
         """)
 
         if not self.is_empty:
