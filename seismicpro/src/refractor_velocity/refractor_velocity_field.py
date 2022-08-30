@@ -62,7 +62,7 @@ class RefractorVelocityField(SpatialField):
         for coords, params, max_offset in zip(coords_list, params_list, max_offset_list):
             rv = RefractorVelocity(max_offset=max_offset, coords=coords, **params)
             rv_list.append(rv)
-        return cls(rv_list)
+        return cls(rv_list, is_geographic=all([coords.is_geographic for coords in coords_list]))
 
     def update(self, items):
         items = to_list(items)
