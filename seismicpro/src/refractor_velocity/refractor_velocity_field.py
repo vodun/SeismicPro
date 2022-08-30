@@ -36,7 +36,7 @@ class RefractorVelocityField(SpatialField):
             raise ValueError("Each RefractorVelocity must describe the same number of refractors as the field")
 
     @classmethod
-    def from_file(cls, path, encoding="UTF-8"):
+    def from_file(cls, path, is_geographic=None, encoding="UTF-8"):
         """Load RefractorVelocityField from a file.
 
         File example:
@@ -62,7 +62,7 @@ class RefractorVelocityField(SpatialField):
         for coords, params, max_offset in zip(coords_list, params_list, max_offset_list):
             rv = RefractorVelocity(max_offset=max_offset, coords=coords, **params)
             rv_list.append(rv)
-        return cls(rv_list, is_geographic=all([coords.is_geographic for coords in coords_list]))
+        return cls(rv_list, is_geographic=is_geographic)
 
     def update(self, items):
         items = to_list(items)
