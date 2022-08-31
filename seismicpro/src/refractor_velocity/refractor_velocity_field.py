@@ -185,6 +185,28 @@ class RefractorVelocityField(SpatialField):
         return type(self)(smoothed_items, n_refractors=self.n_refractors, survey=self.survey,
                           is_geographic=self.is_geographic)
 
+    def refine(self, radius=None, neighbors=10, min_refractor_points=0, min_refractor_points_quantile=0,
+               relative_bounds_size=0.25, bar=True):
+        if not self.is_fit:
+            raise ValueError("Only fields that were constructed using offset-traveltime data can be refined")
+        smoothed_field = self.smooth(radius, neighbors, min_refractor_points, min_refractor_points_quantile)
+        bounds_size = smoothed_field.values.ptp(axis=0) * relative_bounds_size / 2
+        params_bounds = np.stack([smoothed_field.values - bounds_size, smoothed_field.values + bounds_size], axis=2)
+
+        # Clip t0 bounds to be positive and all crossover bounds to be no greater than max offset
+        max_offsets = np.array([rv.max_offset for rv in self.items])[:, None, None]
+        params_bounds[:, 0] = np.maximum(params_bounds[:, 0], 0)
+        params_bounds[:, 1:self.n_refractors] = np.minimum(params_bounds[:, 1:self.n_refractors], max_offsets)
+
+        refined_items = []
+        for rv, bounds in tqdm(zip(smoothed_field.items, params_bounds), total=self.n_items,
+                               desc="Velocity models refined", disable=not bar):
+            rv = RefractorVelocity.from_first_breaks(rv.offsets, rv.times, bounds=dict(zip(self.param_names, bounds)),
+                                                     max_offset=rv.max_offset, coords=rv.coords)
+            refined_items.append(rv)
+        return type(self)(refined_items, n_refractors=self.n_refractors, survey=self.survey,
+                          is_geographic=self.is_geographic)
+
     def dump(self, path, encoding="UTF-8", min_col_size=11):
         """Save the RefractorVelocityField instance to a file.
 
@@ -225,27 +247,6 @@ class RefractorVelocityField(SpatialField):
         df_list = [calc_df_to_dump(rv) for rv in self.item_container.values()]
         dump_rv(df_list, path=path, encoding=encoding, min_col_size=min_col_size)
         return self
-    def refine(self, radius=None, neighbors=10, min_refractor_points=0, min_refractor_points_quantile=0,
-               relative_bounds_size=0.25, bar=True):
-        if not self.is_fit:
-            raise ValueError("Only fields that were constructed using offset-traveltime data can be refined")
-        smoothed_field = self.smooth(radius, neighbors, min_refractor_points, min_refractor_points_quantile)
-        bounds_size = smoothed_field.values.ptp(axis=0) * relative_bounds_size / 2
-        params_bounds = np.stack([smoothed_field.values - bounds_size, smoothed_field.values + bounds_size], axis=2)
-
-        # Clip t0 bounds to be positive and all crossover bounds to be no greater than max offset
-        max_offsets = np.array([rv.max_offset for rv in self.items])[:, None, None]
-        params_bounds[:, 0] = np.maximum(params_bounds[:, 0], 0)
-        params_bounds[:, 1:self.n_refractors] = np.minimum(params_bounds[:, 1:self.n_refractors], max_offsets)
-
-        refined_items = []
-        for rv, bounds in tqdm(zip(smoothed_field.items, params_bounds), total=self.n_items,
-                               desc="Velocity models refined", disable=not bar):
-            rv = RefractorVelocity.from_first_breaks(rv.offsets, rv.times, bounds=dict(zip(self.param_names, bounds)),
-                                                     max_offset=rv.max_offset, coords=rv.coords)
-            refined_items.append(rv)
-        return type(self)(refined_items, n_refractors=self.n_refractors, survey=self.survey,
-                          is_geographic=self.is_geographic)
 
     def plot_fit(self, **kwargs):
         FitPlot(self, **kwargs).plot()
