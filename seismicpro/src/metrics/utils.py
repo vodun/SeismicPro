@@ -10,6 +10,7 @@ from numba import njit
 from matplotlib import pyplot as plt
 from matplotlib import colors, cm
 
+from ..const import EPS
 from ..utils import to_list, get_first_defined, Coordinates
 
 
@@ -141,6 +142,17 @@ def get_const_subseq(traces):
             indicators[t, -counter - 1:] = counter + 1
 
     return indicators.reshape(*old_shape)
+
+@njit
+def rms_ratio(data, mask, n_samples, s_samples):
+    """Compute RMS ratio for traces under `mask`"""
+    res = np.full(data.shape[0], fill_value=np.nan)
+
+    for i in range(data.shape[0]):
+        if mask[i]:
+            res[i] = np.sqrt(np.mean(data[i][s_samples]**2)) / (np.sqrt(np.mean(data[i][n_samples]**2)) + EPS)
+
+    return res
 
 
 def deb_wiggle_plot(sur_std, ax, arr, labels, norm_tracewize, std=0.1, **kwargs):

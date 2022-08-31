@@ -5,11 +5,13 @@ import warnings
 import numpy as np
 from scipy import signal
 
+import matplotlib.patches as patches
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .metrics import Metric
 from ..const import HDR_DEAD_TRACE, EPS, HDR_FIRST_BREAK
-from .utils import fill_nulls, calc_spikes, get_val_subseq, get_const_subseq
+from .utils import fill_nulls, calc_spikes, get_val_subseq, get_const_subseq, rms_ratio
+from ..gather.utils import times_to_indices
 
 
 class TracewiseMetric(Metric):
@@ -272,7 +274,7 @@ def plot_worst_trace(ax, traces, trace_numbers, indicators, max_is_worse, std=0.
 
     _, n_samples = traces.shape
 
-    fn = np.argmax if max_is_worse else np.argmin
+    fn = np.nanargmax if max_is_worse else np.nanargmin
     worst_tr_idx = fn(indicators)
 
     if worst_tr_idx == 0:
@@ -425,3 +427,76 @@ class StdFraqMetricGlob(TracewiseMetric):
         _ = kwargs
         res = np.log10(gather.data.std(axis=1) / gather.survey.std)
         return res
+
+class TraceSinalToNoiseRMSRatio(TracewiseMetric):
+    """ Signal to Noise RMS ratio computed using provided windows """
+    name = "trace_RMS_Ratio"
+    is_lower_better = False
+    threshold = None
+    top_ax_y_scale = 'log'
+    views = 'plot'
+
+    @staticmethod
+    def _times2slices(gather, noise_win_beg, noise_win_end, signal_win_beg, signal_win_end, mask):
+        """Convert times to use for noise and signal windows into indices"""
+        if HDR_FIRST_BREAK in gather.headers:
+            fb_high = gather.headers.HDR_FIRST_BREAK[mask].max()
+            fb_low = gather.headers.HDR_FIRST_BREAK[mask].min()
+        else:
+            fb_high = gather.samples[-1]
+            fb_low = gather.samples[0]
+
+        i1, i2, i3, i4 = times_to_indices(np.asarray([gather.samples[0], noise_win_beg, noise_win_end, fb_high]),
+                                          gather.samples).astype(int)
+        n_samples = slice(max(i1, i2), min(i3, i4))
+
+        i1, i2, i3, i4 = times_to_indices(np.asarray([fb_low, signal_win_beg, signal_win_end, gather.samples[-1]]),
+                                          gather.samples).astype(int)
+        s_samples = slice(max(i1, i2), min(i3, i4))
+
+        return n_samples, s_samples
+
+    @staticmethod
+    def _get_res(gather, offsets, n_times, s_times, **kwargs):
+        """QC indicator implementation."""
+
+        mask = ((gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1]))
+
+        n_samples, s_samples = TraceSinalToNoiseRMSRatio._times2slices(gather, *n_times, *s_times, mask)
+
+        res = rms_ratio(gather.data, mask, n_samples, s_samples)
+
+        return res
+
+    def plot(self, coords, ax, offsets, n_times, s_times, **kwargs):
+        """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
+        gather = self.survey.get_gather(coords)
+
+        res = self.get_res(gather, from_headers=False, offsets=offsets, n_times=n_times, s_times=s_times, **kwargs)
+        res = self.aggr(res, tracewise=True)
+
+        gather = self.preprocess(gather, **kwargs)
+        order = np.argsort(gather.offsets.ravel(), kind='stable')
+
+        gather.sort(by='offset').plot(ax=ax)
+
+        divider = make_axes_locatable(ax)
+        top_ax = divider.append_axes("top", sharex=ax, size="12%", pad=0.05)
+        top_ax.xaxis.set_visible(False)
+        top_ax.set_yscale(self.top_ax_y_scale)
+
+        top_ax.plot(res[order], '.--')
+        if self.threshold is not None:
+            top_ax.axhline(self.threshold, alpha=0.5)
+
+        mask = (gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1])
+        offs_ind = np.nonzero(mask)[0]
+
+        n_samples, s_samples = TraceSinalToNoiseRMSRatio._times2slices(gather, *n_times, *s_times, mask)
+
+        n_rec = (offs_ind[0], n_samples.start), len(offs_ind), len(range(*n_samples.indices(gather.n_samples)))
+        ax.add_patch(patches.Rectangle(*n_rec, linewidth=1, edgecolor='magenta', facecolor='none'))
+        s_rec = (offs_ind[0], s_samples.start), len(offs_ind), len(range(*s_samples.indices(gather.n_samples)))
+        ax.add_patch(patches.Rectangle(*s_rec, linewidth=1, edgecolor='lime',facecolor='none'))
+
+        set_title(top_ax, gather)

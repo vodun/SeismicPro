@@ -25,7 +25,14 @@ from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, StackingVelocityField
 from ..refractor_velocity import RefractorVelocity
 from ..decorators import batch_method, plotter
-from ..const import EPS, HDR_FIRST_BREAK, DEFAULT_SDC_VELOCITY
+from ..const import EPS, HDR_FIRST_BREAK
+
+
+# Default velocity for spherical divergence correction as provided in Paradigm.
+DEFAULT_SDC_VELOCITY = StackingVelocity(
+    times=[0.0, 100.0, 700.0, 1000.0, 1400.0, 1800.0, 1950.0, 4200.0, 7000.0],  # milliseconds
+    velocities=[1524.0, 1524.0, 1924.5, 2184.0, 2339.6, 2676.0, 2889.5, 3566.0, 4785.3]  # meters/second
+)
 
 
 class Gather(TraceContainer, SamplesContainer):
