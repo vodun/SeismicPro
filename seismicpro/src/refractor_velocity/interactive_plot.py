@@ -1,3 +1,5 @@
+"""Implements interactive plots of RefractorVelocityField"""
+
 from functools import partial
 from sklearn.neighbors import NearestNeighbors
 
@@ -6,7 +8,11 @@ from ..utils import get_text_formatting_kwargs
 from ..utils.interactive_plot_utils import InteractivePlot, DropdownViewPlot, PairedPlot
 
 
-class FitPlot(PairedPlot):
+class FitPlot(PairedPlot):  # pylint: disable=too-many-instance-attributes
+    """Plot an interactive map of each parameter of a near-surface velocity model and display an offset-traveltime
+    curve with data used to fit the model upon clicking on a map. Can be created only for fields constructed
+    directly from first break data."""
+
     def __init__(self, field, refractor_velocity_plot_kwargs=None, figsize=(4.5, 4.5), fontsize=8,
                  orientation="horizontal", **kwargs):
         if field.is_empty:
@@ -25,8 +31,8 @@ class FitPlot(PairedPlot):
         self.values = self.field.values
         self.coords_neighbors = NearestNeighbors(n_neighbors=1).fit(self.coords)
 
-        self.x_lim = [0, max(rv.piecewise_offsets[-1] for rv in field.items) * 1.1]
-        self.y_lim = [0, max(rv.piecewise_times[-1] for rv in field.items) * 1.1]
+        self.x_lim = [0, max(rv.piecewise_offsets[-1] for rv in field.items) * 1.05]
+        self.y_lim = [0, max(rv.piecewise_times[-1] for rv in field.items) * 1.05]
         self.titles = (
             ["t0 - Intercept time"] +
             [f"x{i} - Crossover offset {i}" for i in range(1, field.n_refractors)] +
@@ -45,14 +51,17 @@ class FitPlot(PairedPlot):
         super().__init__(orientation=orientation)
 
     def construct_main_plot(self):
+        """Construct a clickable multi-view plot of parameters of the near-surface velocity model."""
         return DropdownViewPlot(plot_fn=self.plot_fn, click_fn=self.click, title=self.titles,
                                 preserve_clicks_on_view_change=True)
 
     def construct_aux_plot(self):
+        """Construct a plot of a velocity model at given field coordinates."""
         toolbar_position = "right" if self.orientation == "horizontal" else "left"
         return InteractivePlot(figsize=self.figsize, toolbar_position=toolbar_position)
 
     def click(self, coords):
+        """Display a near-surface velocity model at given field coordinates."""
         closest_ix = self.coords_neighbors.kneighbors([coords], return_distance=False).item()
         coords = tuple(self.coords[closest_ix])
         self.aux.set_title(f"Refractor velocity at {int(coords[0]), int(coords[1])}")
@@ -64,5 +73,6 @@ class FitPlot(PairedPlot):
         return coords
 
     def plot(self):
+        """Display the plot and perform initial clicking."""
         super().plot()
         self.main.click(self.init_click_coords)

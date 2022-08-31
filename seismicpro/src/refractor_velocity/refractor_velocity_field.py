@@ -153,7 +153,7 @@ class RefractorVelocityField(SpatialField):
     def refine(self, radius=None, neighbors=10, min_refractor_points=0, min_refractor_points_quantile=0,
                relative_bounds_size=0.25, bar=True):
         if not self.is_fit:
-            raise ValueError("Only fields that were constructed using offset-traveltime data can be refined")
+            raise ValueError("Only fields that were constructed directly from offset-traveltime data can be refined")
         smoothed_field = self.smooth(radius, neighbors, min_refractor_points, min_refractor_points_quantile)
         bounds_size = smoothed_field.values.ptp(axis=0) * relative_bounds_size / 2
         params_bounds = np.stack([smoothed_field.values - bounds_size, smoothed_field.values + bounds_size], axis=2)
@@ -173,4 +173,20 @@ class RefractorVelocityField(SpatialField):
                           is_geographic=self.is_geographic)
 
     def plot_fit(self, **kwargs):
+        """Plot an interactive map of each parameter of a near-surface velocity model and display an offset-traveltime
+        curve with data used to fit the model upon clicking on a map. Can be called only for fields constructed
+        directly from first break data.
+
+        Plotting must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and
+        `ipympl` and `ipywidgets` libraries installed.
+
+        Parameters
+        ----------
+        figsize : tuple with 2 elements, optional, defaults to (4.5, 4.5)
+            Size of the created figures. Measured in inches.
+        refractor_velocity_plot_kwargs : dict, optional
+            Additional keyword arguments to be passed to `RefractorVelocity.plot`.
+        kwargs : misc, optional
+            Additional keyword arguments to be passed to `MetricMap.plot`.
+        """
         FitPlot(self, **kwargs).plot()
