@@ -2,6 +2,7 @@
 and allows for spatial velocity interpolation"""
 
 import os
+from functools import cached_property
 
 import numpy as np
 from tqdm.contrib.concurrent import thread_map
@@ -52,6 +53,9 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
     Now the field allows for velocity interpolation at given coordinates:
     >>> velocity = field((10, 10))
 
+    Or can be passed directly to some gather processing methods:
+    >>> gather = survey.sample_gather().apply_nmo(field)
+
     Quality control can be performed by calling `qc` method and visualizing the resulting maps:
     >>> metrics_maps = cube.qc(radius=40, times=np.arange(0, 3000, 2))
     >>> for metric_map in metrics_maps:
@@ -62,7 +66,7 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
     items : StackingVelocity or list of StackingVelocity, optional
         Stacking velocities to be added to the field on instantiation. If not given, an empty field is created.
     survey : Survey, optional
-        A survey the field is describing.
+        A survey described by the field.
     is_geographic : bool, optional
         Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
         CROSSLINE_3D)). Inferred automatically on the first update if not given.
@@ -70,7 +74,7 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
     Attributes
     ----------
     survey : Survey or None
-        A survey the field is describing. `None` if not specified during instantiation.
+        A survey described by the field. `None` if not specified during instantiation.
     item_container : dict
         A mapping from coordinates of field items as 2-element tuples to the items themselves.
     is_geographic : bool
@@ -105,26 +109,30 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
         """
         return self.item_class.from_stacking_velocities(items, weights, coords=coords)
 
-    @property
+    @cached_property
     def mean_velocity(self):
         """StackingVelocity: Mean stacking velocity over the field."""
-        return self.item_class.from_stacking_velocities(list(self.item_container.values()))
+        return self.item_class.from_stacking_velocities(self.items)
 
-    def smooth(self, radius):
+    def smooth(self, radius=None):
         """Smooth the field by averaging its stacking velocities within given radius.
 
         Parameters
         ----------
-        radius : positive float
-            Spatial window radius (Euclidean distance).
+        radius : positive float, optional
+            Spatial window radius (Euclidean distance). Equals to `self.default_neighborhood_radius` if not given.
 
         Returns
         -------
         field : StackingVelocityField
             Smoothed field.
         """
-        smoothing_interpolator = IDWInterpolator(self.coords, radius=radius, dist_transform=0)
-        weights = smoothing_interpolator.get_weights(self.coords)
+        if self.is_empty:
+            return type(self)(survey=self.survey, is_geographic=self.is_geographic)
+        if radius is None:
+            radius = self.default_neighborhood_radius
+        smoother = IDWInterpolator(self.coords, radius=radius, dist_transform=0)
+        weights = smoother.get_weights(self.coords)
         items_coords = [item.coords for item in self.item_container.values()]
         smoothed_items = self.weights_to_items(weights, items_coords)
         return type(self)(smoothed_items, survey=self.survey, is_geographic=self.is_geographic)
@@ -142,6 +150,9 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
             Coordinates to interpolate stacking velocities at.
         times : 1d array-like
             Times to interpolate stacking velocities at.
+        is_geographic : bool, optional
+            Coordinate system of all non-`Coordinates` entities of `coords`. Assumed to be in the coordinate system of
+            the field by default.
 
         Returns
         -------
@@ -162,7 +173,7 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
         return res
 
     #pylint: disable-next=invalid-name
-    def qc(self, radius, metrics=None, coords=None, times=None, n_workers=None, bar=True):
+    def qc(self, metrics=None, radius=None, coords=None, times=None, n_workers=None, bar=True):
         """Perform quality control of the velocity field by calculating spatial-window-based metrics for its stacking
         velocities evaluated at given `coords` and `times`.
 
@@ -178,10 +189,10 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
 
         Parameters
         ----------
-        radius : positive float
-            Spatial window radius (Euclidean distance).
         metrics : StackingVelocityMetric or list of StackingVelocityMetric, optional
             Metrics to calculate. Defaults to those defined in `~metrics.VELOCITY_QC_METRICS`.
+        radius : positive float, optional
+            Spatial window radius (Euclidean distance). Equals to `self.default_neighborhood_radius` if not given.
         coords : 2d np.array or list of Coordinates or None, optional
             Spatial coordinates of stacking velocities to calculate metrics for. If not given, coordinates of items in
             the field are used.
@@ -206,7 +217,9 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
         if not all(isinstance(metric, type) and issubclass(metric, StackingVelocityMetric) for metric in metrics):
             raise ValueError("All passed metrics must be subclasses of StackingVelocityMetric")
 
-        # Set default coords and times
+        # Set default radius, coords and times
+        if radius is None:
+            radius = self.default_neighborhood_radius
         if coords is None:
             coords = self.coords
         if times is None:
