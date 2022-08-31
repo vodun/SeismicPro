@@ -18,9 +18,9 @@ from ..utils import to_list, IDWInterpolator
 class RefractorVelocityField(SpatialField):
     item_class = RefractorVelocity
 
-    def __init__(self, items=None, n_refractors=None, survey=None, is_geographic=None):
+    def __init__(self, items=None, n_refractors=None, survey=None, is_geographic=None, auto_create_interpolator=True):
         self.n_refractors = n_refractors
-        super().__init__(items, survey, is_geographic)
+        super().__init__(items, survey, is_geographic, auto_create_interpolator)
 
     @property
     def param_names(self):
@@ -115,8 +115,7 @@ class RefractorVelocityField(SpatialField):
         - Crossover offsets are non-negative and increasing,
         - Velocities of refractors are non-negative and increasing.
         `coords` are guaranteed to be a 2d `np.ndarray` with shape (n_coords, 2), converted to the coordinate system of
-        the field.
-        """
+        the field."""
         values = self.interpolator(coords)
         return postprocess_params(values)
 
@@ -167,7 +166,7 @@ class RefractorVelocityField(SpatialField):
         a mapping returned by `self.available_interpolators`."""
         interpolator_class = self._get_interpolator_class(interpolator)
         values = self._get_refined_values(interpolator_class, min_refractor_points, min_refractor_points_quantile)
-        self.interpolator = self._get_interpolator_class(interpolator)(self.coords, values, **kwargs)
+        self.interpolator = interpolator_class(self.coords, values, **kwargs)
         self.is_dirty_interpolator = False
         return self
 
