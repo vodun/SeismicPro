@@ -48,6 +48,13 @@ class RefractorVelocityField(SpatialField):
 
     Note that in both these cases all velocity models in the filed must describe the same number of refractors.
 
+    Velocity models of an upper part of the section are usually estimated independently of one another and thus may
+    appear inconsistent. `refine` method allows utilizing local information about near-surface conditions to refit
+    the field:
+    >>> field = field.refine()
+
+    Only fields that were constructed directly from offset-traveltime data can be refined.
+
     Field interpolator will be created automatically upon the first call by default, but one may do it explicitly by
     executing `create_interpolator` method:
     >>> field.create_interpolator("rbf")
@@ -197,8 +204,17 @@ class RefractorVelocityField(SpatialField):
         return self.item_class(**dict(zip(self.param_names, values)), max_offset=self.max_offset, coords=coords)
 
     def _get_refined_values(self, interpolator_class, min_refractor_points=0, min_refractor_points_quantile=0):
-        """Redefine parameters of velocity models for refractors that contain a small number of points and thus may
-        have produced noisy estimates during fitting."""
+        """Redefine parameters of velocity models for refractors that contain small number of points and may thus have
+        produced noisy estimates during fitting.
+
+        Parameters of such refractors are redefined using an interpolator of the given type constructed over all
+        well-fit data of the field.
+
+        The number of points in a refractor of a given field item is considered to be small if it is less than:
+        - 2 or `min_refractor_points`,
+        - A quantile of the number of points in the very same refractor over the whole field defined by
+          `min_refractor_points_quantile`.
+        """
         coords = self.coords
         values = self.values
         refined_values = np.empty_like(values)
@@ -208,15 +224,13 @@ class RefractorVelocityField(SpatialField):
         for i, rv in enumerate(self.item_container.values()):
             if rv.is_fit:
                 n_refractor_points[i] = np.histogram(rv.offsets, rv.piecewise_offsets, density=False)[0]
+        n_refractor_points[:, np.isnan(n_refractor_points).all(axis=0)] = 0
 
         # Calculate minimum acceptable number of points in each refractor, should be at least 2
         min_refractor_points = np.maximum(np.nanquantile(n_refractor_points, min_refractor_points_quantile, axis=0),
                                           max(2, min_refractor_points))
         ignore_mask = n_refractor_points < min_refractor_points
-
-        # If a refractor is ignored for all items of a field, use it anyway
-        ignore_refractors = ignore_mask.all(axis=0)
-        ignore_mask[:, ignore_refractors] = False
+        ignore_mask[:, ignore_mask.all(axis=0)] = False  # Use a refractor anyway if it is ignored for all items
 
         # Refine t0 using only items with well-fitted first refractor
         refined_values[:, 0] = interpolator_class(coords[~ignore_mask[:, 0]], values[~ignore_mask[:, 0], 0])(coords)
@@ -235,8 +249,31 @@ class RefractorVelocityField(SpatialField):
         return postprocess_params(refined_values)
 
     def create_interpolator(self, interpolator, min_refractor_points=0, min_refractor_points_quantile=0, **kwargs):
-        """Create a field interpolator. Chooses appropriate interpolator type by its name defined by `interpolator` and
-        a mapping returned by `self.available_interpolators`."""
+        """Create a field interpolator whose name is defined by `interpolator`.
+
+        Available options are:
+        - "idw" - to create `IDWInterpolator`,
+        - "delaunay" - to create `DelaunayInterpolator`,
+        - "ct" - to create `CloughTocherInterpolator`,
+        - "rbf" - to create `RBFInterpolator`.
+
+        Parameters
+        ----------
+        interpolator : str
+            Name of the interpolator to create.
+        min_refractor_points : int, optional, defaults to 0
+            Ignore parameters of refractors with less than `min_refractor_points` points during interpolation.
+        min_refractor_points_quantile : float, optional, defaults to 0
+            Defines quantiles of the number of points in each refractor of the field. Parameters of refractors with
+            less points than the corresponding quantile are ignored during interpolation.
+        kwargs : misc, optional
+            Additional keyword arguments to be passed to the constructor of interpolator class.
+
+        Returns
+        -------
+        field : Field
+            A field with created interpolator. Sets `is_dirty_interpolator` flag to `False`.
+        """
         interpolator_class = self._get_interpolator_class(interpolator)
         values = self._get_refined_values(interpolator_class, min_refractor_points, min_refractor_points_quantile)
         self.interpolator = interpolator_class(self.coords, values, **kwargs)
@@ -244,6 +281,26 @@ class RefractorVelocityField(SpatialField):
         return self
 
     def smooth(self, radius=None, neighbors=4, min_refractor_points=0, min_refractor_points_quantile=0):
+        """Smooth the field by averaging its velocity models within given radius.
+
+        Parameters
+        ----------
+        radius : positive float, optional
+            Spatial window radius (Euclidean distance). Equals to `self.default_neighborhood_radius` if not given.
+        neighbors : int, optional, defaults to 4
+            The number of neighbors to use for averaging if no velocities are considered to be well-fit in given
+            `radius` according to provided `min_refractor_points` and `min_refractor_points_quantile`.
+        min_refractor_points : int, optional, defaults to 0
+            Ignore parameters of refractors with less than `min_refractor_points` points during averaging.
+        min_refractor_points_quantile : float, optional, defaults to 0
+            Defines quantiles of the number of points in each refractor of the field. Parameters of refractors with
+            less points than the corresponding quantile are ignored during averaging.
+
+        Returns
+        -------
+        field : RefractorVelocityField
+            Smoothed field.
+        """
         if self.is_empty:
             return type(self)(survey=self.survey, is_geographic=self.is_geographic)
         if radius is None:
@@ -270,6 +327,33 @@ class RefractorVelocityField(SpatialField):
 
     def refine(self, radius=None, neighbors=4, min_refractor_points=0, min_refractor_points_quantile=0,
                relative_bounds_size=0.25, bar=True):
+        """Refine the field by first smoothing it and then refitting each velocity model within narrow parameter bounds
+        around smoothed values. Only fields that were constructed directly from offset-traveltime data can be refined.
+
+        Parameters
+        ----------
+        radius : positive float, optional
+            Spatial window radius for smoothing (Euclidean distance). Equals to `self.default_neighborhood_radius` if
+            not given.
+        neighbors : int, optional, defaults to 4
+            The number of neighbors to use for smoothing if no velocities are considered to be well-fit in given
+            `radius` according to provided `min_refractor_points` and `min_refractor_points_quantile`.
+        min_refractor_points : int, optional, defaults to 0
+            Ignore parameters of refractors with less than `min_refractor_points` points during smoothing.
+        min_refractor_points_quantile : float, optional, defaults to 0
+            Defines quantiles of the number of points in each refractor of the field. Parameters of refractors with
+            less points than the corresponding quantile are ignored during smoothing.
+        relative_bounds_size : float, optional, defaults to 0.25
+            Size of parameters bound used to refit velocity models relative to their range in the smoothed field. The
+            bounds are centered around smoothed parameter values.
+        bar : bool, optional, defaults to True
+            Whether to show a refinement progress bar.
+
+        Returns
+        -------
+        field : RefractorVelocityField
+            Refined field.
+        """
         if not self.is_fit:
             raise ValueError("Only fields that were constructed directly from offset-traveltime data can be refined")
         smoothed_field = self.smooth(radius, neighbors, min_refractor_points, min_refractor_points_quantile)
