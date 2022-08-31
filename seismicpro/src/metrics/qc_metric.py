@@ -351,11 +351,10 @@ class AutocorrMetric(TracewiseMetric):
 
 class TraceAbsMean(TracewiseMetric):
     """Absolute value of the traces mean."""
-    name = "trace_meanabs"
+    name = "trace_absmean"
     is_lower_better = True
     threshold = 0.1
     top_ax_y_scale = 'log'
-
 
     @staticmethod
     def _get_res(gather, **kwargs):
@@ -364,15 +363,17 @@ class TraceAbsMean(TracewiseMetric):
         return np.abs(gather.data.mean(axis=1) / (gather.data.std(axis=1) + EPS))
 
 class TraceMaxAbs(TracewiseMetric):
-    """Absolute value of the traces mean."""
+    """Maximun absolute amplitude value."""
     name = "trace_maxabs"
+    is_lower_better = True
     threshold = None
+    top_ax_y_scale = 'log'
 
     @staticmethod
     def _get_res(gather, **kwargs):
         """QC indicator implementation."""
         _ = kwargs
-        return np.max(np.abs(gather.data), axis=1)
+        return np.max(np.abs(gather.data), axis=1) / (gather.data.std(axis=1) + EPS)
 
 class MaxClipsLenMetric(TracewiseMetric):
     """Detecting minimum/maximun clips"""
