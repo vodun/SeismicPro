@@ -16,6 +16,79 @@ from ..utils import to_list, IDWInterpolator
 
 
 class RefractorVelocityField(SpatialField):
+    """A class for storing near-surface velocity models calculated at different field location and interpolating them
+    spatially over the whole field.
+
+    Refractor velocities used to compute a depth model of the very first layers are usually estimated on a sparse grid
+    of inlines and crosslines and then interpolated over the whole field in order to reduce computational costs. Such
+    interpolation can be performed by `RefractorVelocityField` which provides an interface to obtain a velocity model
+    of an upper part of the section at given spatial coordinates via its `__call__` and `interpolate` methods.
+
+    A field can be populated with refractor velocities in 2 main ways:
+    - by passing precalculated velocities in the `__init__`,
+    - by creating an empty field and then iteratively updating it with estimated velocities using `update`.
+
+    After all velocities are added, field interpolator should be created to make the field callable. It can be done
+    either manually by executing `create_interpolator` method or automatically during the first call to the field if
+    `auto_create_interpolator` flag was set to `True` upon field instantiation. Manual interpolator creation is useful
+    when one wants to fine-tune its parameters or the field should be later passed to different processes (e.g. in a
+    pipeline with prefetch with `mpc` target) since otherwise the interpolator will be independently created in all the
+    processes.
+
+    Examples
+    --------
+    A field can be created empty and updated with instances of `RefractorVelocity` class:
+    >>> field = RefractorVelocityField()
+    >>> rv = RefractorVelocity(t0=100, x1=1500, v1=1600, v2=2200,
+                               coords=Coordinates((150, 80), names=("INLINE_3D", "CROSSLINE_3D")))
+    >>> field.update(rv)
+
+    Or created from precalculated instances:
+    >>> field = RefractorVelocityField(list_of_rv)
+
+    Note that in both these cases all velocity models in the filed must describe the same number of refractors.
+
+    Field interpolator will be created automatically upon the first call by default, but one may do it explicitly by
+    executing `create_interpolator` method:
+    >>> field.create_interpolator("rbf")
+
+    Now the field allows for velocity interpolation at given coordinates:
+    >>> rv = field((100, 100))
+
+    Or can be passed directly to some gather processing methods:
+    >>> gather = survey.sample_gather().apply_lmo(field)
+
+    Parameters
+    ----------
+    items : RefractorVelocity or list of RefractorVelocity, optional
+        Velocity models to be added to the field on instantiation. If not given, an empty field is created.
+    survey : Survey, optional
+        A survey described by the field.
+    is_geographic : bool, optional
+        Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
+        CROSSLINE_3D)). Inferred automatically on the first update if not given.
+    auto_create_interpolator : bool, optional, defaults to True
+        Whether to automatically create default interpolator upon the first call to the field.
+
+    Attributes
+    ----------
+    survey : Survey or None
+        A survey described by the field. `None` if not specified during instantiation.
+    item_container : dict
+        A mapping from coordinates of field items as 2-element tuples to the items themselves.
+    is_geographic : bool
+        Whether coordinate system of the field is geographic. `None` for an empty field if was not specified during
+        instantiation.
+    coords_cols : tuple with 2 elements or None
+        Names of SEG-Y trace headers representing coordinates of items in the field. `None` if names of coordinates are
+        mixed or the field is empty.
+    interpolator : SpatialInterpolator or None
+        Field data interpolator.
+    is_dirty_interpolator : bool
+        Whether the field was updated after the interpolator was created.
+    auto_create_interpolator : bool
+        Whether to automatically create default interpolator upon the first call to the field.
+    """
     item_class = RefractorVelocity
 
     def __init__(self, items=None, n_refractors=None, survey=None, is_geographic=None, auto_create_interpolator=True):
