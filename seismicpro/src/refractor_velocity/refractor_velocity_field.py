@@ -1,3 +1,6 @@
+"""Implements a RefractorVelocityField class which stores near-surface velocity models calculated at different field
+location and allows for their spatial interpolation"""
+
 from textwrap import dedent
 from functools import partial, cached_property
 
@@ -21,16 +24,19 @@ class RefractorVelocityField(SpatialField):
 
     @property
     def param_names(self):
+        """list of str: Names of model parameters."""
         if self.n_refractors is None:
             raise ValueError("The number of refractors is undefined")
         return get_param_names(self.n_refractors)
 
     @cached_property
     def is_fit(self):
+        """bool: Whether the field was constructed directly from offset-traveltime data."""
         return all(item.is_fit for item in self.items)
 
     @cached_property
     def max_offset(self):
+        """float: Mean maximum offset reliably described by field items."""
         max_offsets = [item.max_offset for item in self.items if item.max_offset is not None]
         if max_offsets:
             return np.mean(max_offsets)
@@ -38,9 +44,12 @@ class RefractorVelocityField(SpatialField):
 
     @cached_property
     def mean_velocity(self):
+        """RefractorVelocity: Mean near-surface velocity model over the field."""
         return self.construct_item(self.values.mean(axis=0), coords=None)
 
     def __str__(self):
+        """Print field metadata including descriptive statistics of the near-surface velocity model, coordinate system
+        and created interpolator."""
         msg = super().__str__() + dedent(f"""\n
         Number of refractors:      {self.n_refractors}
         Mean max offset of items:  {self.max_offset}
@@ -55,6 +64,7 @@ class RefractorVelocityField(SpatialField):
         return msg
 
     def validate_items(self, items):
+        """Check if the field can be updated with the provided `items`."""
         super().validate_items(items)
         n_refractors_set = {item.n_refractors for item in items}
         if self.n_refractors is not None:
@@ -63,6 +73,30 @@ class RefractorVelocityField(SpatialField):
             raise ValueError("Each RefractorVelocity must describe the same number of refractors as the field")
 
     def update(self, items):
+        """Add new items to the field. All passed `items` must have not-None coordinates and describe the same number
+        of refractors as the field.
+
+        Parameters
+        ----------
+        items : RefractorVelocity or list of RefractorVelocity
+            Items to add to the field.
+
+        Returns
+        -------
+        self : RefractorVelocityField
+            `self` with new items added. Changes `item_container` inplace and sets the `is_dirty_interpolator` flag to
+            `True` if the `items` list is not empty. Sets `is_geographic` flag and `n_refractors` attribute during the
+            first update if they were not defined during field creation. Resets `coords_cols` attribute if headers,
+            defining coordinates of any item being added, differ from those of the field.
+
+        Raises
+        ------
+        TypeError
+            If wrong type of items were found.
+        ValueError
+            If any of the passed items have `None` coordinates or describe not the same number of refractors as the
+            field.
+        """
         items = to_list(items)
         super().update(items)
         if items:
@@ -71,16 +105,28 @@ class RefractorVelocityField(SpatialField):
 
     @staticmethod
     def item_to_values(item):
+        """Convert a field item to a 1d `np.ndarray` of its values being interpolated."""
         return np.array(list(item.params.values()))
 
     def _interpolate(self, coords):
+        """Interpolate field values at given `coords` and postprocess them so that the following constraints are
+        satisfied:
+        - Intercept time is non-negative,
+        - Crossover offsets are non-negative and increasing,
+        - Velocities of refractors are non-negative and increasing.
+        `coords` are guaranteed to be a 2d `np.ndarray` with shape (n_coords, 2), converted to the coordinate system of
+        the field.
+        """
         values = self.interpolator(coords)
         return postprocess_params(values)
 
     def construct_item(self, values, coords):
+        """Construct an instance of `RefractorVelocity` from its `values` at given `coords`."""
         return self.item_class(**dict(zip(self.param_names, values)), max_offset=self.max_offset, coords=coords)
 
     def _get_refined_values(self, interpolator_class, min_refractor_points=0, min_refractor_points_quantile=0):
+        """Redefine parameters of velocity models for refractors that contain a small number of points and thus may
+        have produced noisy estimates during fitting."""
         coords = self.coords
         values = self.values
         refined_values = np.empty_like(values)
@@ -125,7 +171,7 @@ class RefractorVelocityField(SpatialField):
         self.is_dirty_interpolator = False
         return self
 
-    def smooth(self, radius=None, neighbors=10, min_refractor_points=0, min_refractor_points_quantile=0):
+    def smooth(self, radius=None, neighbors=4, min_refractor_points=0, min_refractor_points_quantile=0):
         if self.is_empty:
             return type(self)(survey=self.survey, is_geographic=self.is_geographic)
         if radius is None:
@@ -150,7 +196,7 @@ class RefractorVelocityField(SpatialField):
         return type(self)(smoothed_items, n_refractors=self.n_refractors, survey=self.survey,
                           is_geographic=self.is_geographic)
 
-    def refine(self, radius=None, neighbors=10, min_refractor_points=0, min_refractor_points_quantile=0,
+    def refine(self, radius=None, neighbors=4, min_refractor_points=0, min_refractor_points_quantile=0,
                relative_bounds_size=0.25, bar=True):
         if not self.is_fit:
             raise ValueError("Only fields that were constructed directly from offset-traveltime data can be refined")
