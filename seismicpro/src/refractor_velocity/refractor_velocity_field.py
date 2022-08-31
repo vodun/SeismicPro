@@ -39,11 +39,17 @@ class RefractorVelocityField(SpatialField):
     def from_file(cls, path, is_geographic=None, encoding="UTF-8"):
         """Load RefractorVelocityField from a file.
 
+        File should have coords and parameters of a single RefractorVelocity with next structure:
+         - The first row contains name_x, name_y, coord_x, coord_y, and parameter names ("t0", "x1"..."x{n-1}",
+        "v1"..."v{n}", "max_offset").
+         - Each next line contains row contains the coords names, coords values, and parameters values of one
+        RefractorVelocity.
+
         File example:
-        SourceX   SourceY        t0        x1        v1        v2 max_offset
-        1111100   2222220     50.00   1000.00   1500.00   2000.00    2000.00
+         name_x     name_y    coord_x    coord_y        t0        x1        v1        v2 max_offset
+        SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00    2000.00
         ...
-        1111200   2222240     60.00   1050.00   1550.00   1950.00    2050.00
+        SourceX    SourceY    1111200    2222240     60.00   1050.00   1550.00   1950.00    2050.00
 
         Parameters
         ----------
@@ -133,16 +139,18 @@ class RefractorVelocityField(SpatialField):
     def dump(self, path, encoding="UTF-8", min_col_size=11):
         """Save the RefractorVelocityField instance to a file.
 
-        The file must have the coordinates and parameters of a single RefractorVelocity with the following structure:
-        The first line contains coords names and parameter names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
-        Each next line contains the coords and parameters values corresponding to a single RefractorVelocity in the
-        resulting RefractorVelocityField.
+        The resulting file have the coordinates and parameters of a single RefractorVelocity with the following
+        structure:
+         - The first line contains name_x, name_y, coord_x, coord_y, and parameter names ("t0", "x1"..."x{n-1}",
+        "v1"..."v{n}", "max_offset").
+         - Each next line contains the coords names, coords values, and parameters values corresponding to one
+        RefractorVelocity in the resulting RefractorVelocityField.
 
         File example:
-        SourceX   SourceY        t0        x1        v1        v2 max_offset
-        1111100   2222220     50.00   1000.00   1500.00   2000.00    2000.00
+         name_x     name_y    coord_x    coord_y        t0        x1        v1        v2 max_offset
+        SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00    2000.00
         ...
-        1111200   2222240     60.00   1050.00   1550.00   1950.00    2050.00
+        SourceX    SourceY    1111200    2222240     60.00   1050.00   1550.00   1950.00    2050.00
 
         Parameters
         ----------
