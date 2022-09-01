@@ -157,8 +157,8 @@ class RefractorVelocityField(SpatialField):
         """Load RefractorVelocityField from a file.
 
         File should have coords and parameters of a single RefractorVelocity with next structure:
-         - The first row contains name_x, name_y, coord_x, coord_y, and parameter names ("t0", "x1"..."x{n-1}",
-        "v1"..."v{n}", "max_offset").
+         - The first row contain the Coordinates parameters names (name_x, name_y, coord_x, coord_y) and
+        the RefractorVelocity parameters names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
          - Each next line contains row contains the coords names, coords values, and parameters values of one
         RefractorVelocity.
 
@@ -414,8 +414,8 @@ class RefractorVelocityField(SpatialField):
 
         The resulting file have the coordinates and parameters of a single RefractorVelocity with the following
         structure:
-         - The first line contains name_x, name_y, coord_x, coord_y, and parameter names ("t0", "x1"..."x{n-1}",
-        "v1"..."v{n}", "max_offset").
+         - The first line contain the Coordinates parameters names (name_x, name_y, coord_x, coord_y) and
+        the RefractorVelocity parameters names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
          - Each next line contains the coords names, coords values, and parameters values corresponding to one
         RefractorVelocity in the resulting RefractorVelocityField.
 

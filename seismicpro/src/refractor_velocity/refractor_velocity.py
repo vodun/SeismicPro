@@ -295,8 +295,8 @@ class RefractorVelocity:
         """Create a RefractorVelocity instance from a file.
 
         File should have coords and parameters of a single RefractorVelocity with next structure:
-         - The first row contains name_x, name_y, coord_x, coord_y, and parameter names ("t0", "x1"..."x{n-1}",
-        "v1"..."v{n}", "max_offset").
+         - The first row contain the Coordinates parameters names (name_x, name_y, coord_x, coord_y) and
+        the RefractorVelocity parameters names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
          - The second row contains the coords names, coords values, and parameters values of a RefractorVelocity.
 
         File example:
@@ -314,7 +314,7 @@ class RefractorVelocity:
             RefractorVelocity instance created from a file.
         """
         coords_list, params_list, max_offset_list = load_rv(path, encoding)
-        if any(len(coords_list) > 1, len(params_list) > 1, len(max_offset_list)) > 1:
+        if len(coords_list) > 1:
             raise ValueError("The loaded file contains more than one set of RefractorVelocity parameters.")
         return cls(max_offset=max_offset_list[0], coords=coords_list[0], **params_list[0])
 
@@ -621,8 +621,8 @@ class RefractorVelocity:
 
         The resulting file contains the coords and parameters of a single RefractorVelocity with the following
         structure:
-         - The first row contains name_x, name_y, coord_x, coord_y, and parameter names ("t0", "x1"..."x{n-1}",
-        "v1"..."v{n}", "max_offset").
+         - The first row contain the Coordinates parameters names (name_x, name_y, coord_x, coord_y) and
+        the RefractorVelocity parameters names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
          - The second row contains the coords and parameters values of a RefractorVelocity.
 
         File example:

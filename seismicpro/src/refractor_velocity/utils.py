@@ -61,8 +61,9 @@ def dump_rv(df_list, path, encoding, min_col_size):
     """Dump list of DataFrame to a file.
 
     Each DataFrame in the list should have next structure:
-     - Columns contain the name_x, name_y, coord_x, coord_y, and parameters names ("t0", "x1"..."x{n-1}",
-    "v1"..."v{n}", "max_offset").
+
+     - Columns contain the Coordinates parameters names (name_x, name_y, coord_x, coord_y) and the RefractorVelocity
+     parameters names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
      - First row contains the coords names, coords values, and parameters values.
 
     DataFrame example :
