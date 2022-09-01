@@ -5,7 +5,7 @@ import warnings
 import numpy as np
 from scipy import signal
 
-import matplotlib.patches as patches
+from matplotlib import patches
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .metrics import Metric
