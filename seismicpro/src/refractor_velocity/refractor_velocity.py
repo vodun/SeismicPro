@@ -130,8 +130,8 @@ class RefractorVelocity:
 
     @classmethod  # pylint: disable-next=too-many-arguments, too-many-statements
     def from_first_breaks(cls, offsets, times, init=None, bounds=None, n_refractors=None, max_offset=None,
-                          min_velocity_step=1e-3, min_refractor_size=1e-3, loss="L1", huber_coef=20, tol=1e-5,
-                          coords=None, **kwargs):
+                          min_velocity_step=1, min_refractor_size=1, loss="L1", huber_coef=20, tol=1e-5, coords=None,
+                          **kwargs):
         """Fit a near-surface velocity model by offsets of traces and times of their first breaks.
 
         This methods allows specifying:
@@ -159,10 +159,10 @@ class RefractorVelocity:
         max_offset : float, optional
             Maximum offset reliably described by the model. Defaults to the maximum offset provided but preferably
             should be explicitly passed.
-        min_velocity_step : float, or 1d array-like with shape (n_refractors - 1,), optional, defaults to 1e-3
+        min_velocity_step : int, or 1d array-like with shape (n_refractors - 1,), optional, defaults to 1
             Minimum difference between velocities of two adjacent refractors. Default value ensures that velocities are
             strictly increasing.
-        min_refractor_size : float, or 1d array-like with shape (n_refractors,), optional, defaults to 1e-3
+        min_refractor_size : int, or 1d array-like with shape (n_refractors,), optional, defaults to 1
             Minimum offset range covered by each refractor. Default value ensures that refractors do not degenerate
             into single points.
         loss : str, defaults to "L1"
@@ -197,6 +197,8 @@ class RefractorVelocity:
         """
         offsets = np.array(offsets)
         times = np.array(times)
+        min_velocity_step = np.ceil(np.array(min_velocity_step))
+        min_refractor_size = np.ceil(np.array(min_refractor_size))
 
         if all(param is None for param in (init, bounds, n_refractors)):
             raise ValueError("At least one of `init`, `bounds` or `n_refractors` must be defined")
@@ -518,7 +520,7 @@ class RefractorVelocity:
             if undefined_mask[0]:  # regression is already fit
                 t0 = estimates[0][1]
             else:
-                _, t0 = cls.estimate_refractor_velocity(offsets, times, cross_offsets[:2])
+                _, t0, _ = cls.estimate_refractor_velocity(offsets, times, cross_offsets[:2])
             t0 = np.nan_to_num(t0)  # can be nan if the regression hasn't fit successfully
 
         return dict(zip(param_names, [t0, *cross_offsets[1:-1], *velocities]))

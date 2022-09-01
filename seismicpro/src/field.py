@@ -32,6 +32,8 @@ redefine the following attributes and methods:
 
 import warnings
 from textwrap import dedent
+from inspect import getmembers
+from functools import cached_property
 
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
@@ -46,6 +48,8 @@ class Field:
     Each concrete subclass must redefine the following attributes and methods:
     - `item_class` class attribute containing the type of items in the field,
     - `available_interpolators` with a mapping from names of available interpolators to the corresponding classes,
+    - `create_default_interpolator` method that creates a default interpolator if `auto_create_interpolator` flag is
+      set to `True` upon field instantiation,
     - `values` property returning values to be passed to field interpolator,
     - `construct_items` method that constructs new items at given field coordinates.
 
@@ -58,6 +62,8 @@ class Field:
     is_geographic : bool, optional
         Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
         CROSSLINE_3D)). Inferred automatically on the first update if not given.
+    auto_create_interpolator : bool, optional, defaults to True
+        Whether to automatically create default interpolator upon the first call to the field.
 
     Attributes
     ----------
@@ -75,16 +81,19 @@ class Field:
         Field data interpolator.
     is_dirty_interpolator : bool
         Whether the field was updated after the interpolator was created.
+    auto_create_interpolator : bool
+        Whether to automatically create default interpolator upon the first call to the field.
     """
     item_class = None
 
-    def __init__(self, items=None, survey=None, is_geographic=None):
+    def __init__(self, items=None, survey=None, is_geographic=None, auto_create_interpolator=True):
         self.survey = survey
         self.item_container = {}
         self.is_geographic = is_geographic
         self.coords_cols = None
         self.interpolator = None
         self.is_dirty_interpolator = True
+        self.auto_create_interpolator = auto_create_interpolator
         if items is not None:
             self.update(items)
 
@@ -94,26 +103,28 @@ class Field:
         return len(self.item_container)
 
     @property
+    def items(self):
+        """list of item_class: Items of the field."""
+        return list(self.item_container.values())
+
+    @property
     def is_empty(self):
         """bool: Whether the field is empty."""
         return self.n_items == 0
 
-    @property
+    @cached_property
     def mean_distance_to_neighbor(self):
-        """float or None: Distance to the closest neighbor averaged over all field items. `None` if the field contains
-        less than two items."""
+        """float: Distance to the closest neighbor averaged over all field items. 0 if the field contains less than two
+        items."""
         if self.n_items < 2:
-            return None
+            return 0
         return NearestNeighbors(n_neighbors=2, n_jobs=-1).fit(self.coords).kneighbors()[0][:, 1].mean()
 
     @property
     def default_neighborhood_radius(self):
         """float: Default window radius for all spatial-based methods. Equals to 3 mean distances from a field item to
         its closest neighbor."""
-        dist_to_neighbor = self.mean_distance_to_neighbor
-        if dist_to_neighbor is None:
-            return 0
-        return 3 * dist_to_neighbor
+        return 3 * self.mean_distance_to_neighbor
 
     @property
     def has_survey(self):
@@ -131,7 +142,7 @@ class Field:
         concrete child classes."""
         return {}
 
-    @property
+    @cached_property
     def coords(self):
         """2d np.ndarray with shape (n_items, 2): Stacked spatial coordinates of field items."""
         return np.stack(list(self.item_container.keys()))
@@ -146,24 +157,36 @@ class Field:
         """Print field metadata including information about its items, their class, coordinate system and created
         interpolator."""
         coordinate_system = {True: "Geographic", False: "Bin", None: "Undefined"}[self.is_geographic]
-        coords_cols = "Undefined" if self.coords_cols is None else ", ".join(self.coords_cols)
-
         msg = f"""
         Field type:                {type(self).__name__}
         Items type:                {"Undefined" if self.item_class is None else self.item_class.__name__}
-        Has linked survey:         {self.has_survey}
         Number of items:           {self.n_items}
-        Mean distance to neighbor: {self.mean_distance_to_neighbor:.2f}
-
-        Coordinate columns:        {coords_cols}
+        Has linked survey:         {self.has_survey}
         Coordinate system:         {coordinate_system}
         Supports coordinates cast: {self.has_survey and self.survey.has_inferred_geometry}
+
+        Has interpolator:          {self.has_interpolator}
+        Auto-creates interpolator: {self.auto_create_interpolator}
         """
 
         if self.has_interpolator:
             msg += f"""
-        Interpolator type:         {type(self.interpolator).__name__}
+        Interpolator type:         {type(self.interpolator).__name__ if self.has_interpolator else "Undefined"}
         Is dirty interpolator:     {self.is_dirty_interpolator}
+        """.lstrip()
+
+        if not self.is_empty:
+            min_coords = self.coords.min(axis=0)
+            max_coords = self.coords.max(axis=0)
+            coords_range = (f"[{min_coords[0]}, {max_coords[0]}]", f"[{min_coords[1]}, {max_coords[1]}]")
+            coords_cols = ["Undefined", "Undefined"] if self.coords_cols is None else self.coords_cols
+
+            msg += f"""
+        X coordinate header:       {coords_cols[0]}
+        Y coordinate header:       {coords_cols[1]}
+        X coordinate range:        {coords_range[0]}
+        Y coordinate range:        {coords_range[1]}
+        Mean distance to neighbor: {self.mean_distance_to_neighbor:.2f}
         """
         return dedent(msg).strip()
 
@@ -172,18 +195,32 @@ class Field:
         interpolator."""
         print(self)
 
-    def create_interpolator(self, interpolator, **kwargs):
-        """Create a field interpolator. Chooses appropriate interpolator type by its name defined by `interpolator` and
-        a mapping returned by `self.available_interpolators`."""
+    def _get_interpolator_class(self, interpolator):
+        """Chooses appropriate interpolator type by its name defined by `interpolator` and a mapping returned by
+        `self.available_interpolators`."""
         if self.is_empty:
             raise ValueError("Interpolator cannot be created for an empty field")
         interpolator_class = self.available_interpolators.get(interpolator)
         if interpolator_class is None:
             raise ValueError(f"Unknown interpolator {interpolator}. Available options are: "
                              f"{', '.join(self.available_interpolators.keys())}")
-        self.interpolator = interpolator_class(self.coords, self.values, **kwargs)
+        return interpolator_class
+
+    def create_interpolator(self, interpolator, **kwargs):
+        """Create a field interpolator. Chooses appropriate interpolator type by its name defined by `interpolator` and
+        a mapping returned by `self.available_interpolators`."""
+        self.interpolator = self._get_interpolator_class(interpolator)(self.coords, self.values, **kwargs)
         self.is_dirty_interpolator = False
         return self
+
+    def create_default_interpolator(self):
+        """Create a default field interpolator."""
+        raise NotImplementedError
+
+    def invalidate_cache(self):
+        """Invalidate cache of all cached properties and force them to be recalculated during the next access."""
+        for prop, _ in getmembers(type(self), lambda x: isinstance(x, cached_property)):
+            self.__dict__.pop(prop, None)
 
     def transform_coords(self, coords, to_geographic=None, is_geographic=None):
         """Cast input `coords` either to geographic or line coordinates depending on the `to_geographic` flag. If the
@@ -271,13 +308,17 @@ class Field:
         field_coords, _, _ = self.transform_coords([item.coords for item in items], to_geographic=is_geographic)
         for coords, item in zip(field_coords, items):
             self.item_container[tuple(coords)] = item
-        self.is_dirty_interpolator = True
         self.is_geographic = is_geographic
         self.coords_cols = coords_cols
+        self.is_dirty_interpolator = True
+        self.invalidate_cache()
         return self
 
     def validate_interpolator(self):
-        """Verify that field interpolator is created and warn if it's dirty."""
+        """Verify that field interpolator is created and warn if it's dirty. Create a default interpolator if it's not
+        the case but `auto_create_interpolator` flag was set to `True` upon field instantiation."""
+        if self.auto_create_interpolator and (not self.has_interpolator or self.is_dirty_interpolator):
+            self.create_default_interpolator()
         if not self.has_interpolator:
             raise ValueError("Field interpolator was not created, call create_interpolator method first")
         if self.is_dirty_interpolator:
@@ -363,11 +404,18 @@ class SpatialField(Field):
         """
         return super().create_interpolator(interpolator, **kwargs)
 
-    @property
+    def create_default_interpolator(self):
+        """Create a default field interpolator."""
+        if self.n_items >= 3:  # Otherwise instantiation of RBF interpolator with default parameters will fail
+            self.create_interpolator("rbf")
+        else:
+            self.create_interpolator("idw", radius=self.default_neighborhood_radius)
+
+    @cached_property
     def values(self):
         """2d np.ndarray with shape (n_items, n_values): Stacked values of items in the field to construct an
         interpolator."""
-        return np.stack([self.item_to_values(item) for item in self.item_container.values()])
+        return np.stack([self.item_to_values(item) for item in self.items])
 
     @staticmethod
     def item_to_values(item):
@@ -472,6 +520,10 @@ class ValuesAgnosticField(Field):
         """
         return super().create_interpolator(interpolator, **kwargs)
 
+    def create_default_interpolator(self):
+        """Create a default field interpolator."""
+        self.create_interpolator("idw", radius=self.default_neighborhood_radius, neighbors=4)
+
     @property
     def values(self):
         """None: The field is values-agnostic and does not require values to be passed to the interpolator class."""
@@ -522,7 +574,8 @@ class VFUNCFieldMixin:
     to be a subclass of `VFUNC`."""
 
     @classmethod
-    def from_file(cls, path, coords_cols=("INLINE_3D", "CROSSLINE_3D"), encoding="UTF-8", survey=None):
+    def from_file(cls, path, coords_cols=("INLINE_3D", "CROSSLINE_3D"), encoding="UTF-8", survey=None,
+                  auto_create_interpolator=True):
         """Init a field from a file with vertical functions in Paradigm Echos VFUNC format.
 
         The file may have one or more records with the following structure:
@@ -539,6 +592,8 @@ class VFUNCFieldMixin:
             File encoding.
         survey : Survey, optional
             A survey the field is describing.
+        auto_create_interpolator : bool, optional, defaults to True
+            Whether to automatically create default interpolator upon the first call to the field.
 
         Returns
         -------
@@ -547,7 +602,7 @@ class VFUNCFieldMixin:
         """
         vfunc_data = read_vfunc(path, coords_cols=coords_cols, encoding=encoding)
         items = [cls.item_class(data_x, data_y, coords=coords) for coords, data_x, data_y in vfunc_data]
-        return cls(items, survey=survey)
+        return cls(items, survey=survey, auto_create_interpolator=auto_create_interpolator)
 
     def dump(self, path, encoding="UTF-8"):
         """Dump all items of the field to a file in Paradigm Echos VFUNC format.

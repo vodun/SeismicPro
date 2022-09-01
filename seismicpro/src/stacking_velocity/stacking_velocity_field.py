@@ -2,6 +2,7 @@
 and allows for spatial velocity interpolation"""
 
 import os
+from functools import cached_property
 
 import numpy as np
 from tqdm.contrib.concurrent import thread_map
@@ -25,11 +26,16 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
     - by passing precalculated velocities in the `__init__`,
     - by creating an empty field and then iteratively updating it with calculated stacking velocities using `update`,
     - by loading a field from a file of vertical functions via its `from_file` `classmethod`.
-    After all velocities are added, an interpolator must be created by running `create_interpolator` method to make the
-    field callable.
+
+    After all velocities are added, field interpolator should be created to make the field callable. It can be done
+    either manually by executing `create_interpolator` method or automatically during the first call to the field if
+    `auto_create_interpolator` flag was set to `True` upon field instantiation. Manual interpolator creation is useful
+    when one wants to fine-tune its parameters or the field should be later passed to different processes (e.g. in a
+    pipeline with prefetch with `mpc` target) since otherwise the interpolator will be independently created in all the
+    processes.
 
     The field provides an interface to its quality control via `qc` method, which returns maps for several
-    spatial-window-based metrics calculated for its stacking velocities. These maps may be interactively visualized to
+    spatial-window-based metrics calculated for its stacking velocities. These maps can be interactively visualized to
     assess field quality in detail.
 
     Examples
@@ -46,8 +52,9 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
     Or simply loaded from a file of vertical functions:
     >>> field = StackingVelocityField.from_file(path)
 
-    Field construction must be finalized with `create_interpolator` method call:
-    >>> field.create_interpolator("idw")
+    Field interpolator will be created automatically upon the first call by default, but one may do it explicitly by
+    executing `create_interpolator` method:
+    >>> field.create_interpolator("delaunay")
 
     Now the field allows for velocity interpolation at given coordinates:
     >>> velocity = field((10, 10))
@@ -69,6 +76,8 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
     is_geographic : bool, optional
         Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
         CROSSLINE_3D)). Inferred automatically on the first update if not given.
+    auto_create_interpolator : bool, optional, defaults to True
+        Whether to automatically create default interpolator upon the first call to the field.
 
     Attributes
     ----------
@@ -86,6 +95,8 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
         Field data interpolator.
     is_dirty_interpolator : bool
         Whether the field was updated after the interpolator was created.
+    auto_create_interpolator : bool
+        Whether to automatically create default interpolator upon the first call to the field.
     """
     item_class = StackingVelocity
 
@@ -108,10 +119,10 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
         """
         return self.item_class.from_stacking_velocities(items, weights, coords=coords)
 
-    @property
+    @cached_property
     def mean_velocity(self):
         """StackingVelocity: Mean stacking velocity over the field."""
-        return self.item_class.from_stacking_velocities(list(self.item_container.values()))
+        return self.item_class.from_stacking_velocities(self.items)
 
     def smooth(self, radius=None):
         """Smooth the field by averaging its stacking velocities within given radius.
@@ -130,8 +141,8 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
             return type(self)(survey=self.survey, is_geographic=self.is_geographic)
         if radius is None:
             radius = self.default_neighborhood_radius
-        smoothing_interpolator = IDWInterpolator(self.coords, radius=radius, dist_transform=0)
-        weights = smoothing_interpolator.get_weights(self.coords)
+        smoother = IDWInterpolator(self.coords, radius=radius, dist_transform=0)
+        weights = smoother.get_weights(self.coords)
         items_coords = [item.coords for item in self.item_container.values()]
         smoothed_items = self.weights_to_items(weights, items_coords)
         return type(self)(smoothed_items, survey=self.survey, is_geographic=self.is_geographic)

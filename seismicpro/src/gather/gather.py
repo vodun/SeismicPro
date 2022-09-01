@@ -650,8 +650,8 @@ class Gather(TraceContainer, SamplesContainer):
 
     @batch_method(target="for", copy_src=False)  # pylint: disable-next=too-many-arguments
     def calculate_refractor_velocity(self, init=None, bounds=None, n_refractors=None, max_offset=None,
-                                     min_velocity_step=1e-3, min_refractor_size=1e-3, loss="L1", huber_coef=20,
-                                     tol=1e-5, first_breaks_col=HDR_FIRST_BREAK, **kwargs):
+                                     min_velocity_step=1, min_refractor_size=1, loss="L1", huber_coef=20, tol=1e-5,
+                                     first_breaks_col=HDR_FIRST_BREAK, **kwargs):
         """Fit a near-surface velocity model by offsets of traces and times of their first breaks.
 
         Notes
@@ -675,10 +675,10 @@ class Gather(TraceContainer, SamplesContainer):
         max_offset : float, optional
             Maximum offset reliably described by the model. Defaults to the maximum offset of gather traces but
             preferably should be explicitly passed.
-        min_velocity_step : float, or 1d array-like with shape (n_refractors - 1,), optional, defaults to 1e-3
+        min_velocity_step : int, or 1d array-like with shape (n_refractors - 1,), optional, defaults to 1
             Minimum difference between velocities of two adjacent refractors. Default value ensures that velocities are
             strictly increasing.
-        min_refractor_size : float, or 1d array-like with shape (n_refractors,), optional, defaults to 1e-3
+        min_refractor_size : int, or 1d array-like with shape (n_refractors,), optional, defaults to 1
             Minimum offset range covered by each refractor. Default value ensures that refractors do not degenerate
             into single points.
         loss : str, defaults to "L1"
