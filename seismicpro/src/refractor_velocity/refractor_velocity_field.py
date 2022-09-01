@@ -12,7 +12,8 @@ from .refractor_velocity import RefractorVelocity
 from .interactive_plot import FitPlot
 from .utils import get_param_names, postprocess_params, calc_df_to_dump, load_rv, dump_rv
 from ..field import SpatialField
-from ..utils import to_list, Coordinates, IDWInterpolator
+from ..utils import to_list, get_coords_cols, get_cols, Coordinates, IDWInterpolator
+from ..const import HDR_FIRST_BREAK
 
 
 class RefractorVelocityField(SpatialField):
@@ -102,7 +103,69 @@ class RefractorVelocityField(SpatialField):
         self.n_refractors = n_refractors
         super().__init__(items, survey, is_geographic, auto_create_interpolator)
 
-    
+    @classmethod
+    def from_survey(cls, survey, rv_kwargs, precalc_init=False, is_geographic=None, refine_kwargs=None,
+                    fb_col=HDR_FIRST_BREAK, bar=True):
+        max_offset = None
+        if precalc_init:
+            # print("Calculate init")
+
+            offsets = survey.headers.offset[::int(np.log2(len(survey.indices)))]
+            times = survey.headers[fb_col][::int(np.log2(len(survey.indices)))]
+            rv = RefractorVelocity.from_first_breaks(offsets, times, **rv_kwargs)
+            rv_kwargs = {'init': rv.params}
+            max_offset = offsets.max()
+            print(f"Init is {rv.params}")
+
+        rv_list = []
+        coords_name = to_list(get_coords_cols(survey.indexed_by))
+        for idx in tqdm(survey.indices, desc="Calculate RefractorVelocityField", disable=not bar):
+            gather_headers = survey.get_headers_by_indices([idx])
+            offsets = gather_headers['offset'].to_numpy()
+            times = gather_headers[fb_col].to_numpy()
+            coords_value = get_cols(gather_headers, coords_name)[0] # use __getitem__ code from TraceContainer
+            rv = RefractorVelocity.from_first_breaks(offsets, times, max_offset=max_offset, **rv_kwargs)
+            rv.coords = Coordinates(names=coords_name, coords=coords_value)
+            rv_list.append(rv)
+        rv_field = cls(items=rv_list, survey=survey, is_geographic=is_geographic)
+        if refine_kwargs is not None:
+            rv_field = rv_field.refine(**refine_kwargs)
+        return rv_field
+
+    @classmethod
+    def from_file(cls, path, is_geographic=None, encoding="UTF-8"):
+        """Load RefractorVelocityField from a file.
+
+        File should have coords and parameters of a single RefractorVelocity with next structure:
+         - The first row contain the Coordinates parameters names (name_x, name_y, coord_x, coord_y) and
+        the RefractorVelocity parameters names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
+         - Each next line contains row contains the coords names, coords values, and parameters values of one
+        RefractorVelocity.
+
+        File example:
+         name_x     name_y    coord_x    coord_y        t0        x1        v1        v2 max_offset
+        SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00    2000.00
+        ...
+        SourceX    SourceY    1111200    2222240     60.00   1050.00   1550.00   1950.00    2050.00
+
+        Parameters
+        ----------
+        path : str,
+            path to the file.
+        encoding : str, defaults to "UTF-8"
+            File encoding.
+
+        Returns
+        -------
+        self : RefractorVelocityField
+            RefractorVelocityField instance created from a file.
+        """
+        coords_list, params_list, max_offset_list = load_rv(path, encoding)
+        rv_list = []
+        for coords, params, max_offset in zip(coords_list, params_list, max_offset_list):
+            rv = RefractorVelocity(max_offset=max_offset, coords=coords, **params)
+            rv_list.append(rv)
+        return cls(rv_list, is_geographic=is_geographic)
 
     @property
     def param_names(self):
@@ -153,41 +216,6 @@ class RefractorVelocityField(SpatialField):
             n_refractors_set.add(self.n_refractors)
         if len(n_refractors_set) != 1:
             raise ValueError("Each RefractorVelocity must describe the same number of refractors as the field")
-
-    @classmethod
-    def from_file(cls, path, is_geographic=None, encoding="UTF-8"):
-        """Load RefractorVelocityField from a file.
-
-        File should have coords and parameters of a single RefractorVelocity with next structure:
-         - The first row contain the Coordinates parameters names (name_x, name_y, coord_x, coord_y) and
-        the RefractorVelocity parameters names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
-         - Each next line contains row contains the coords names, coords values, and parameters values of one
-        RefractorVelocity.
-
-        File example:
-         name_x     name_y    coord_x    coord_y        t0        x1        v1        v2 max_offset
-        SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00    2000.00
-        ...
-        SourceX    SourceY    1111200    2222240     60.00   1050.00   1550.00   1950.00    2050.00
-
-        Parameters
-        ----------
-        path : str,
-            path to the file.
-        encoding : str, defaults to "UTF-8"
-            File encoding.
-
-        Returns
-        -------
-        self : RefractorVelocityField
-            RefractorVelocityField instance created from a file.
-        """
-        coords_list, params_list, max_offset_list = load_rv(path, encoding)
-        rv_list = []
-        for coords, params, max_offset in zip(coords_list, params_list, max_offset_list):
-            rv = RefractorVelocity(max_offset=max_offset, coords=coords, **params)
-            rv_list.append(rv)
-        return cls(rv_list, is_geographic=is_geographic)
 
     def update(self, items):
         """Add new items to the field. All passed `items` must have not-None coordinates and describe the same number
@@ -362,45 +390,6 @@ class RefractorVelocityField(SpatialField):
         return type(self)(smoothed_items, n_refractors=self.n_refractors, survey=self.survey,
                           is_geographic=self.is_geographic)
 
-    def dump(self, path, encoding="UTF-8", min_col_size=11):
-        """Save the RefractorVelocityField instance to a file.
-
-        The file must have the coordinates and parameters of a single RefractorVelocity with the following structure:
-        The first line contains coords names and parameter names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
-        Each next line contains the coords and parameters values corresponding to a single RefractorVelocity in the
-        resulting RefractorVelocityField.
-
-        File example:
-        SourceX   SourceY        t0        x1        v1        v2 max_offset
-        1111100   2222220     50.00   1000.00   1500.00   2000.00    2000.00
-        ...
-        1111200   2222240     60.00   1050.00   1550.00   1950.00    2050.00
-
-        Parameters
-        ----------
-        path : str
-            Path to the file.
-        encoding : str, optional, defaults to "UTF-8"
-            File encoding.
-        min_col_size : int, defaults to 11
-            Minimum size of each columns in the resulting file.
-
-        Returns
-        -------
-        self : RefractorVelocityField
-            RefractorVelocityField unchanged.
-
-        Raises
-        ------
-        ValueError
-            If RefractorVelocityField is empty.
-        """
-        if self.is_empty:
-            raise ValueError("Field is empty. Could not dump empty field.")
-        df_list = [calc_df_to_dump(rv) for rv in self.item_container.values()]
-        dump_rv(df_list, path=path, encoding=encoding, min_col_size=min_col_size)
-        return self
-
     def refine(self, radius=None, neighbors=4, min_refractor_points=0, min_refractor_points_quantile=0,
                relative_bounds_size=0.25, bar=True):
         """Refine the field by first smoothing it and then refitting each velocity model within narrow parameter bounds
@@ -445,7 +434,7 @@ class RefractorVelocityField(SpatialField):
         for rv, bounds in tqdm(zip(smoothed_field.items, params_bounds), total=self.n_items,
                                desc="Velocity models refined", disable=not bar):
             rv = RefractorVelocity.from_first_breaks(rv.offsets, rv.times, bounds=dict(zip(self.param_names, bounds)),
-                                                     max_offset=rv.max_offset, coords=rv.coords)
+                                                     max_offset=max(rv.max_offset, rv.offsets.max()), coords=rv.coords)
             refined_items.append(rv)
         return type(self)(refined_items, n_refractors=self.n_refractors, survey=self.survey,
                           is_geographic=self.is_geographic)

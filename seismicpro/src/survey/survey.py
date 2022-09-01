@@ -1144,32 +1144,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.headers = headers
         return self
 
-    def calculate_refractor_velocity_field(self, rv_kwargs, sg_kwargs=None, fb_col=HDR_FIRST_BREAK, precalc_init=False,
-                                           smooth_radius=None):
-        max_offset = None
-        if precalc_init:
-            offsets = self.headers.offset
-            times = self.headers[fb_col]
-            rv = RefractorVelocity.from_first_breaks(offsets, times, **rv_kwargs)
-            rv_kwargs = {'init': rv.params}
-            max_offset = offsets.max()
-
-        survey = self if sg_kwargs is None else self.generate_supergathers(**sg_kwargs)
-        rv_list = []
-        coords_name = to_list(get_coords_cols(survey.indexed_by))
-        for idx in tqdm(survey.indices):
-            gather_headers = survey.get_headers_by_indices([idx])
-            offsets = gather_headers['offset'].to_numpy()
-            times = gather_headers[fb_col].to_numpy()
-            coords_value = gather_headers.reset_index().iloc[0][coords_name].values # coords could be in index or cols
-            rv = RefractorVelocity.from_first_breaks(offsets, times, max_offset=max_offset, **rv_kwargs)
-            rv.coords = Coordinates(names=coords_name, coords=coords_value)
-            rv_list.append(rv)
-        rv_field = RefractorVelocityField(rv_list)
-        if smooth_radius is not None:
-            rv_field = rv_field.smooth(smooth_radius)
-        return rv_field
-
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #
     #------------------------------------------------------------------------#
@@ -1276,6 +1250,3 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
-
-    def plot_n_refractors_losses(self, max_refractor=5, n_samples=20):
-        plot_n_refractors_losses(self, max_refractor, n_samples)
