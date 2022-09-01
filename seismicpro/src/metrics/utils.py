@@ -143,14 +143,17 @@ def get_const_subseq(traces):
 
     return indicators.reshape(*old_shape)
 
+
 @njit
-def rms_ratio(data, mask, n_samples, s_samples):
-    """Compute RMS ratio for traces under `mask`"""
+def rms_2_windows_ratio(data, n_begs, s_begs, win_size):
+    """Compute RMS ratio for 2 windows defined by their starting samples and window size."""
     res = np.full(data.shape[0], fill_value=np.nan)
 
-    for i in range(data.shape[0]):
-        if mask[i]:
-            res[i] = np.sqrt(np.mean(data[i][s_samples]**2)) / (np.sqrt(np.mean(data[i][n_samples]**2)) + EPS)
+    for i, (trace, n_beg, s_beg) in enumerate(zip(data, n_begs, s_begs)):
+        if n_beg > 0 and s_beg > 0:
+            signal = trace[s_beg:s_beg + win_size]
+            noise = trace[n_beg:n_beg + win_size]
+            res[i] = np.sqrt(np.mean(signal**2)) / (np.sqrt(np.mean(noise**2)) + EPS)
 
     return res
 

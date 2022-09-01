@@ -10,7 +10,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .metrics import Metric
 from ..const import HDR_DEAD_TRACE, EPS, HDR_FIRST_BREAK
-from .utils import fill_nulls, calc_spikes, get_val_subseq, get_const_subseq, rms_ratio
+from .utils import fill_nulls, calc_spikes, get_val_subseq, get_const_subseq, rms_2_windows_ratio
 from ..gather.utils import times_to_indices
 
 
@@ -437,7 +437,7 @@ class TraceSinalToNoiseRMSRatio(TracewiseMetric):
     views = 'plot'
 
     @staticmethod
-    def _times2slices(gather, noise_win_beg, noise_win_end, signal_win_beg, signal_win_end, mask):
+    def _get_indices(gather, win_size, n_start, s_start, mask):
         """Convert times to use for noise and signal windows into indices"""
         if HDR_FIRST_BREAK in gather.headers:
             fb_high = gather.headers[HDR_FIRST_BREAK][mask].min()
@@ -446,33 +446,41 @@ class TraceSinalToNoiseRMSRatio(TracewiseMetric):
             fb_high = gather.samples[-1]
             fb_low = gather.samples[0]
 
-        i1, i2, i3, i4 = times_to_indices(np.asarray([gather.samples[0], noise_win_beg, noise_win_end, fb_high]),
+        i1, i2, i3, i4 = times_to_indices(np.asarray([gather.samples[0], n_start, n_start + win_size, fb_high]),
                                           gather.samples).astype(int)
-        n_samples = slice(max(i1, i2), min(i3, i4))
+        n_beg, n_end = max(i1, i2), min(i3, i4)
 
-        i1, i2, i3, i4 = times_to_indices(np.asarray([fb_low, signal_win_beg, signal_win_end, gather.samples[-1]]),
+        i1, i2, i3, i4 = times_to_indices(np.asarray([fb_low, s_start, s_start + win_size, gather.samples[-1]]),
                                           gather.samples).astype(int)
-        s_samples = slice(max(i1, i2), min(i3, i4))
+        s_beg, s_end = max(i1, i2), min(i3, i4)
 
-        return n_samples, s_samples
+        n_begs = np.full(gather.n_traces, fill_value=n_beg, dtype=int)
+        s_begs = np.full(gather.n_traces, fill_value=s_beg, dtype=int)
+        win_size = min(n_end - n_beg, s_end - s_beg)
+
+        return n_begs, s_begs, win_size
 
     @staticmethod
-    def _get_res(gather, offsets, n_times, s_times, **kwargs):
+    def _get_res(gather, offsets, win_size=100, n_start=10, s_start=1500, **kwargs):
         """QC indicator implementation."""
 
         mask = ((gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1]))
 
-        n_samples, s_samples = TraceSinalToNoiseRMSRatio._times2slices(gather, *n_times, *s_times, mask)
+        n_begs, s_begs, win_size = TraceSinalToNoiseRMSRatio._get_indices(gather, win_size, n_start, s_start, mask)
 
-        res = rms_ratio(gather.data, mask, n_samples, s_samples)
+        s_begs[~mask] = -1
+        n_begs[~mask] = -1
+
+        res = rms_2_windows_ratio(gather.data, n_begs, s_begs, win_size)
 
         return res
 
-    def plot(self, coords, ax, offsets, n_times, s_times, **kwargs):
+    def plot(self, coords, ax, offsets, win_size=100, n_start=10, s_start=1500, **kwargs):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
         gather = self.survey.get_gather(coords)
 
-        res = self.get_res(gather, from_headers=False, offsets=offsets, n_times=n_times, s_times=s_times, **kwargs)
+        res = self.get_res(gather, from_headers=False, offsets=offsets,
+                           win_size=win_size, n_start=n_start, s_start=s_start, **kwargs)
         res = self.aggr(res, tracewise=True)
 
         gather = self.preprocess(gather, **kwargs)
@@ -492,11 +500,85 @@ class TraceSinalToNoiseRMSRatio(TracewiseMetric):
         mask = (gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1])
         offs_ind = np.nonzero(mask)[0]
 
-        n_samples, s_samples = TraceSinalToNoiseRMSRatio._times2slices(gather, *n_times, *s_times, mask)
+        n_begs, s_begs, win_size = TraceSinalToNoiseRMSRatio._get_indices(gather, win_size, n_start, s_start, mask)
 
-        n_rec = (offs_ind[0], n_samples.start), len(offs_ind), len(range(*n_samples.indices(gather.n_samples)))
+        n_rec = (offs_ind[0], n_begs[0]), len(offs_ind), win_size
         ax.add_patch(patches.Rectangle(*n_rec, linewidth=1, edgecolor='magenta', facecolor='none'))
-        s_rec = (offs_ind[0], s_samples.start), len(offs_ind), len(range(*s_samples.indices(gather.n_samples)))
+        s_rec = (offs_ind[0], s_begs[0]), len(offs_ind), win_size
         ax.add_patch(patches.Rectangle(*s_rec, linewidth=1, edgecolor='lime',facecolor='none'))
+
+        set_title(top_ax, gather)
+
+class TraceSinalToNoiseRMSRatioAdaptive(TracewiseMetric):
+    """ Signal to Noise RMS ratio computed using provided windows """
+    name = "trace_RMS_Ratio_Adaptive"
+    is_lower_better = False
+    threshold = None
+    top_ax_y_scale = 'log'
+    views = 'plot'
+
+    @staticmethod
+    def _get_indices(gather,  win_size, shift_up, shift_down):
+        """Convert times to use for noise and signal windows into indices"""
+        fbp = gather.headers[HDR_FIRST_BREAK].values
+
+        noise_beg = fbp - shift_up - win_size
+        noise_beg[noise_beg < 0] = np.nan
+
+        signal_beg = fbp + shift_down
+        signal_beg[signal_beg > gather.samples[-1] - win_size] = np.nan
+
+        s_begs = times_to_indices(signal_beg, gather.samples)
+        n_begs = times_to_indices(noise_beg, gather.samples)
+
+        return n_begs, s_begs
+
+    @staticmethod
+    def _get_res(gather, win_size=100, shift_up=10, shift_down=200, **kwargs):
+        """QC indicator implementation."""
+
+        n_begs, s_begs = TraceSinalToNoiseRMSRatioAdaptive._get_indices(gather,  win_size, shift_up, shift_down)
+
+        s_begs[np.isnan(s_begs)] = -1
+        n_begs[np.isnan(n_begs)] = -1
+
+        win_size = np.rint(win_size/gather.sample_rate).astype(int)
+
+        res = rms_2_windows_ratio(gather.data, n_begs.astype(int), s_begs.astype(int), win_size)
+
+        return res
+
+    def plot(self, coords, ax,  win_size=100, shift_up=10, shift_down=200, **kwargs):
+        """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
+        gather = self.survey.get_gather(coords)
+
+        res = self.get_res(gather, from_headers=False, win_size=win_size, shift_up=shift_up, shift_down=shift_down, **kwargs)
+        res = self.aggr(res, tracewise=True)
+
+        gather = self.preprocess(gather, **kwargs)
+        order = np.argsort(gather.offsets.ravel(), kind='stable')
+
+        gather.sort(by='offset').plot(ax=ax)
+
+        divider = make_axes_locatable(ax)
+        top_ax = divider.append_axes("top", sharex=ax, size="12%", pad=0.05)
+        top_ax.xaxis.set_visible(False)
+        top_ax.set_yscale(self.top_ax_y_scale)
+
+        top_ax.plot(res[order], '.--')
+        if self.threshold is not None:
+            top_ax.axhline(self.threshold, alpha=0.5)
+
+        n_begs, s_begs = TraceSinalToNoiseRMSRatioAdaptive._get_indices(gather, win_size, shift_up, shift_down)
+
+        n_begs[np.isnan(s_begs)] = np.nan
+        s_begs[np.isnan(n_begs)] = np.nan
+
+        win_size = np.rint(win_size/gather.sample_rate)
+
+        ax.plot(np.arange(gather.n_traces), n_begs, color='magenta')
+        ax.plot(np.arange(gather.n_traces), n_begs+win_size, color='magenta')
+        ax.plot(np.arange(gather.n_traces), s_begs, color='lime')
+        ax.plot(np.arange(gather.n_traces), s_begs+win_size, color='lime')
 
         set_title(top_ax, gather)
