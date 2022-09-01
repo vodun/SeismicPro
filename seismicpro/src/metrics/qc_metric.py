@@ -440,8 +440,8 @@ class TraceSinalToNoiseRMSRatio(TracewiseMetric):
     def _times2slices(gather, noise_win_beg, noise_win_end, signal_win_beg, signal_win_end, mask):
         """Convert times to use for noise and signal windows into indices"""
         if HDR_FIRST_BREAK in gather.headers:
-            fb_high = gather.headers.HDR_FIRST_BREAK[mask].max()
-            fb_low = gather.headers.HDR_FIRST_BREAK[mask].min()
+            fb_high = gather.headers[HDR_FIRST_BREAK][mask].min()
+            fb_low = gather.headers[HDR_FIRST_BREAK][mask].max()
         else:
             fb_high = gather.samples[-1]
             fb_low = gather.samples[0]
