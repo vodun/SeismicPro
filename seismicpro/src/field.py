@@ -48,6 +48,8 @@ class Field:
     Each concrete subclass must redefine the following attributes and methods:
     - `item_class` class attribute containing the type of items in the field,
     - `available_interpolators` with a mapping from names of available interpolators to the corresponding classes,
+    - `create_default_interpolator` method that creates a default interpolator if `auto_create_interpolator` flag is
+      set to `True` upon field instantiation,
     - `values` property returning values to be passed to field interpolator,
     - `construct_items` method that constructs new items at given field coordinates.
 
@@ -60,6 +62,8 @@ class Field:
     is_geographic : bool, optional
         Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
         CROSSLINE_3D)). Inferred automatically on the first update if not given.
+    auto_create_interpolator : bool, optional, defaults to True
+        Whether to automatically create default interpolator upon the first call to the field.
 
     Attributes
     ----------
@@ -77,16 +81,19 @@ class Field:
         Field data interpolator.
     is_dirty_interpolator : bool
         Whether the field was updated after the interpolator was created.
+    auto_create_interpolator : bool
+        Whether to automatically create default interpolator upon the first call to the field.
     """
     item_class = None
 
-    def __init__(self, items=None, survey=None, is_geographic=None):
+    def __init__(self, items=None, survey=None, is_geographic=None, auto_create_interpolator=True):
         self.survey = survey
         self.item_container = {}
         self.is_geographic = is_geographic
         self.coords_cols = None
         self.interpolator = None
         self.is_dirty_interpolator = True
+        self.auto_create_interpolator = auto_create_interpolator
         if items is not None:
             self.update(items)
 
@@ -157,7 +164,16 @@ class Field:
         Has linked survey:         {self.has_survey}
         Coordinate system:         {coordinate_system}
         Supports coordinates cast: {self.has_survey and self.survey.has_inferred_geometry}
+
+        Has interpolator:          {self.has_interpolator}
+        Auto-creates interpolator: {self.auto_create_interpolator}
         """
+
+        if self.has_interpolator:
+            msg += f"""
+        Interpolator type:         {type(self.interpolator).__name__ if self.has_interpolator else "Undefined"}
+        Is dirty interpolator:     {self.is_dirty_interpolator}
+        """.lstrip()
 
         if not self.is_empty:
             min_coords = self.coords.min(axis=0)
@@ -171,12 +187,6 @@ class Field:
         X coordinate range:        {coords_range[0]}
         Y coordinate range:        {coords_range[1]}
         Mean distance to neighbor: {self.mean_distance_to_neighbor:.2f}
-        """
-
-        if self.has_interpolator:
-            msg += f"""
-        Interpolator type:         {type(self.interpolator).__name__}
-        Is dirty interpolator:     {self.is_dirty_interpolator}
         """
         return dedent(msg).strip()
 
@@ -202,6 +212,10 @@ class Field:
         self.interpolator = self._get_interpolator_class(interpolator)(self.coords, self.values, **kwargs)
         self.is_dirty_interpolator = False
         return self
+
+    def create_default_interpolator(self):
+        """Create a default field interpolator."""
+        raise NotImplementedError
 
     def invalidate_cache(self):
         """Invalidate cache of all cached properties and force them to be recalculated during the next access."""
@@ -301,7 +315,10 @@ class Field:
         return self
 
     def validate_interpolator(self):
-        """Verify that field interpolator is created and warn if it's dirty."""
+        """Verify that field interpolator is created and warn if it's dirty. Create a default interpolator if it's not
+        the case but `auto_create_interpolator` flag was set to `True` upon field instantiation."""
+        if self.auto_create_interpolator and (not self.has_interpolator or self.is_dirty_interpolator):
+            self.create_default_interpolator()
         if not self.has_interpolator:
             raise ValueError("Field interpolator was not created, call create_interpolator method first")
         if self.is_dirty_interpolator:
@@ -386,6 +403,13 @@ class SpatialField(Field):
             A field with created interpolator. Sets `is_dirty_interpolator` flag to `False`.
         """
         return super().create_interpolator(interpolator, **kwargs)
+
+    def create_default_interpolator(self):
+        """Create a default field interpolator."""
+        if self.n_items >= 3:  # Otherwise instantiation of RBF interpolator with default parameters will fail
+            self.create_interpolator("rbf")
+        else:
+            self.create_interpolator("idw", radius=self.default_neighborhood_radius)
 
     @cached_property
     def values(self):
@@ -496,6 +520,10 @@ class ValuesAgnosticField(Field):
         """
         return super().create_interpolator(interpolator, **kwargs)
 
+    def create_default_interpolator(self):
+        """Create a default field interpolator."""
+        self.create_interpolator("idw", radius=self.default_neighborhood_radius, neighbors=4)
+
     @property
     def values(self):
         """None: The field is values-agnostic and does not require values to be passed to the interpolator class."""
@@ -546,7 +574,8 @@ class VFUNCFieldMixin:
     to be a subclass of `VFUNC`."""
 
     @classmethod
-    def from_file(cls, path, coords_cols=("INLINE_3D", "CROSSLINE_3D"), encoding="UTF-8", survey=None):
+    def from_file(cls, path, coords_cols=("INLINE_3D", "CROSSLINE_3D"), encoding="UTF-8", survey=None,
+                  auto_create_interpolator=True):
         """Init a field from a file with vertical functions in Paradigm Echos VFUNC format.
 
         The file may have one or more records with the following structure:
@@ -563,6 +592,8 @@ class VFUNCFieldMixin:
             File encoding.
         survey : Survey, optional
             A survey the field is describing.
+        auto_create_interpolator : bool, optional, defaults to True
+            Whether to automatically create default interpolator upon the first call to the field.
 
         Returns
         -------
@@ -571,7 +602,7 @@ class VFUNCFieldMixin:
         """
         vfunc_data = read_vfunc(path, coords_cols=coords_cols, encoding=encoding)
         items = [cls.item_class(data_x, data_y, coords=coords) for coords, data_x, data_y in vfunc_data]
-        return cls(items, survey=survey)
+        return cls(items, survey=survey, auto_create_interpolator=auto_create_interpolator)
 
     def dump(self, path, encoding="UTF-8"):
         """Dump all items of the field to a file in Paradigm Echos VFUNC format.

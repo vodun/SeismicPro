@@ -26,11 +26,16 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
     - by passing precalculated velocities in the `__init__`,
     - by creating an empty field and then iteratively updating it with calculated stacking velocities using `update`,
     - by loading a field from a file of vertical functions via its `from_file` `classmethod`.
-    After all velocities are added, an interpolator must be created by running `create_interpolator` method to make the
-    field callable.
+
+    After all velocities are added, field interpolator should be created to make the field callable. It can be done
+    either manually by executing `create_interpolator` method or automatically during the first call to the field if
+    `auto_create_interpolator` flag was set to `True` upon field instantiation. Manual interpolator creation is useful
+    when one wants to fine-tune its parameters or the field should be later passed to different processes (e.g. in a
+    pipeline with prefetch with `mpc` target) since otherwise the interpolator will be independently created in all the
+    processes.
 
     The field provides an interface to its quality control via `qc` method, which returns maps for several
-    spatial-window-based metrics calculated for its stacking velocities. These maps may be interactively visualized to
+    spatial-window-based metrics calculated for its stacking velocities. These maps can be interactively visualized to
     assess field quality in detail.
 
     Examples
@@ -47,8 +52,9 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
     Or simply loaded from a file of vertical functions:
     >>> field = StackingVelocityField.from_file(path)
 
-    Field construction must be finalized with `create_interpolator` method call:
-    >>> field.create_interpolator("idw")
+    Field interpolator will be created automatically upon the first call by default, but one may do it explicitly by
+    executing `create_interpolator` method:
+    >>> field.create_interpolator("delaunay")
 
     Now the field allows for velocity interpolation at given coordinates:
     >>> velocity = field((10, 10))
@@ -70,6 +76,8 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
     is_geographic : bool, optional
         Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
         CROSSLINE_3D)). Inferred automatically on the first update if not given.
+    auto_create_interpolator : bool, optional, defaults to True
+        Whether to automatically create default interpolator upon the first call to the field.
 
     Attributes
     ----------
@@ -87,6 +95,8 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
         Field data interpolator.
     is_dirty_interpolator : bool
         Whether the field was updated after the interpolator was created.
+    auto_create_interpolator : bool
+        Whether to automatically create default interpolator upon the first call to the field.
     """
     item_class = StackingVelocity
 

@@ -163,6 +163,7 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method
         raise NotImplementedError
 
     def plot(self):
+        """Display the map and perform initial clicking."""
         super().plot()
         self.main.click(self.init_click_coords)
 

@@ -14,8 +14,13 @@ class MuterField(ValuesAgnosticField, VFUNCFieldMixin):
     - by loading a field from a file of vertical functions via its `from_file` `classmethod`,
     - by constructing a muter field to attenuate high amplitudes immediately following the first breaks from a
       near-surface velocity model via its `from_refractor_velocity_field` `classmethod`.
-    After all muters are added, an interpolator must be created by running `create_interpolator` method to make the
-    field callable.
+
+    After all muters are added, field interpolator should be created to make the field callable. It can be done either
+    manually by executing `create_interpolator` method or automatically during the first call to the field if
+    `auto_create_interpolator` flag was set to `True` upon field instantiation. Manual interpolator creation is useful
+    when one wants to fine-tune its parameters or the field should be later passed to different processes (e.g. in a
+    pipeline with prefetch with `mpc` target) since otherwise the interpolator will be independently created in all the
+    processes.
 
     Examples
     --------
@@ -35,7 +40,8 @@ class MuterField(ValuesAgnosticField, VFUNCFieldMixin):
     created from a `RefractorVelocityField`:
     >>> field = MuterField.from_refractor_velocity_field(rvf, delay=50, velocity_reduction=150)
 
-    Field construction must be finalized with `create_interpolator` method call:
+    Field interpolator will be created automatically upon the first call by default, but one may do it explicitly by
+    executing `create_interpolator` method:
     >>> field.create_interpolator("idw")
 
     Now the field allows for muter interpolation at given coordinates:
@@ -53,6 +59,8 @@ class MuterField(ValuesAgnosticField, VFUNCFieldMixin):
     is_geographic : bool, optional
         Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
         CROSSLINE_3D)). Inferred automatically on the first update if not given.
+    auto_create_interpolator : bool, optional, defaults to True
+        Whether to automatically create default interpolator upon the first call to the field.
 
     Attributes
     ----------
@@ -70,6 +78,8 @@ class MuterField(ValuesAgnosticField, VFUNCFieldMixin):
         Field data interpolator.
     is_dirty_interpolator : bool
         Whether the field was updated after the interpolator was created.
+    auto_create_interpolator : bool
+        Whether to automatically create default interpolator upon the first call to the field.
     """
     item_class = Muter
 
@@ -115,4 +125,5 @@ class MuterField(ValuesAgnosticField, VFUNCFieldMixin):
         """
         items = [cls.item_class.from_refractor_velocity(item, delay=delay, velocity_reduction=velocity_reduction)
                  for item in field.item_container.values()]
-        return cls(items, survey=field.survey, is_geographic=field.is_geographic)
+        return cls(items, survey=field.survey, is_geographic=field.is_geographic,
+                   auto_create_interpolator=field.auto_create_interpolator)
