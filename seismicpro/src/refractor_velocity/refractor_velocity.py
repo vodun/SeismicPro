@@ -9,7 +9,7 @@ from sklearn.linear_model import SGDRegressor
 from .utils import get_param_names, postprocess_params, load_rv, dump_rv, calc_df_to_dump
 from ..muter import Muter
 from ..decorators import batch_method, plotter
-from ..utils import set_ticks, set_text_formatting, Coordinates
+from ..utils import set_ticks, set_text_formatting
 from ..utils.interpolation import interp1d
 
 
@@ -295,12 +295,13 @@ class RefractorVelocity:
         """Create a RefractorVelocity instance from a file.
 
         File should have coords and parameters of a single RefractorVelocity with next structure:
-        First row have the coords names and parameters names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset")
-        Second row have the coords and parameters values.
+         - The first row contain the Coordinates parameters names (name_x, name_y, coord_x, coord_y) and
+        the RefractorVelocity parameters names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
+         - The second row contains the coords names, coords values, and parameters values of a RefractorVelocity.
 
         File example:
-        SourceX   SourceY        t0        x1        v1        v2 max_offset
-        1111100   2222220     50.00   1000.00   1500.00   2000.00    2000.00
+         name_x     name_y    coord_x    coord_y        t0        x1        v1        v2 max_offset
+        SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00    2000.00
 
         Parameters
         ----------
@@ -315,8 +316,6 @@ class RefractorVelocity:
         coords_list, params_list, max_offset_list = load_rv(path, encoding)
         if len(coords_list) > 1:
             raise ValueError("The loaded file contains more than one set of RefractorVelocity parameters.")
-        # TODO: select one of the options when max_offset support will be determined
-        # return cls(coords=coords_list[0], **params_list[0])
         return cls(max_offset=max_offset_list[0], coords=coords_list[0], **params_list[0])
 
     @classmethod
@@ -622,11 +621,13 @@ class RefractorVelocity:
 
         The resulting file contains the coords and parameters of a single RefractorVelocity with the following
         structure:
-        The first row contains coords names and parameter names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
-        The second row contains the coords and parameters values of a RefractorVelocity.
+         - The first row contain the Coordinates parameters names (name_x, name_y, coord_x, coord_y) and
+        the RefractorVelocity parameters names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
+         - The second row contains the coords and parameters values of a RefractorVelocity.
+
         File example:
-        SourceX   SourceY        t0        x1        v1        v2 max_offset
-        1111100   2222220     50.00   1000.00   1500.00   2000.00    2000.00
+         name_x     name_y    coord_x    coord_y        t0        x1        v1        v2 max_offset
+        SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00    2000.00
 
         Parameters
         ----------
