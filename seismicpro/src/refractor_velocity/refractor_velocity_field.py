@@ -12,7 +12,7 @@ from .refractor_velocity import RefractorVelocity
 from .interactive_plot import FitPlot
 from .utils import get_param_names, postprocess_params, calc_df_to_dump, load_rv, dump_rv
 from ..field import SpatialField
-from ..utils import to_list, Coordinates, IDWInterpolator
+from ..utils import to_list, IDWInterpolator
 
 
 class RefractorVelocityField(SpatialField):
