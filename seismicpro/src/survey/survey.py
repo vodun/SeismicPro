@@ -664,7 +664,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         inplace : bool, optional, defaults to False
             Whether to load first break times inplace or to a survey copy.
         keep_missing_fb : bool, optional, defaults to False
-            Whether to kepp traces with missing first breaks in the resulting survey.
+            Whether to keep traces with missing first breaks in the resulting survey.
         kwargs : misc, optional
             Additional keyword arguments to pass to `pd.read_csv`.
 
@@ -958,8 +958,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         buf = {metric_cls.__name__: [] for metric_cls in metrics}
         n_chunks = n_traces // chunk_size + (1 if n_traces % chunk_size else 0)
         for i in tqdm(range(n_chunks)):
-            indices = self.headers.index[i*chunk_size:min(n_traces, (i+1)*chunk_size)]
-            headers = self.get_headers_by_indices(indices)
+            headers = self.headers.iloc[i*chunk_size:min(n_traces, (i+1)*chunk_size)]
             raw_gather = self.load_gather(headers)
 
             for metric_cls, kwargs in metrics.items():
