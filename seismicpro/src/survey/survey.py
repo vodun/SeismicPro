@@ -1250,3 +1250,26 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
+
+    def calc_n_refractors(self, min_cross_offsets=100, min_velocity_diff=100, min_points=10, max_refractors=10,
+                          threshold=0.5, fb_col=HDR_FIRST_BREAK, n_samples=10):
+        n_refractors = np.ones(n_samples)
+        indices = np.random.choice(self.indices, size=n_samples)
+        for i, idx in enumerate(indices):
+            gather_headers = self.get_headers_by_indices([idx])
+            offsets = gather_headers['offset'].to_numpy()
+            times = gather_headers[fb_col].to_numpy()
+            for refractor in range(2, max_refractors + 1):
+                rv = RefractorVelocity.from_first_breaks(offsets, times, n_refractors=refractor)
+                cross_offsets_diff = np.diff(rv.piecewise_offsets)
+                velocity_diff = np.diff(list(rv.params.values())[refractor:], prepend=0)
+                points, _ = np.histogram(offsets, rv.piecewise_offsets)
+                mask = np.vstack([cross_offsets_diff > min_cross_offsets,
+                                  velocity_diff > min_velocity_diff,
+                                  points > min_points])
+                if np.prod(mask, axis=0).sum() == refractor:
+                    n_refractors[i] = refractor
+                else:
+                    break
+        # print(n_refractors)
+        return max([i for i in range(1, max_refractors + 1) if (n_refractors >= i).sum() >= threshold * n_samples])

@@ -114,9 +114,9 @@ class RefractorVelocityField(SpatialField):
             offsets = survey.headers.offset
             times = survey.headers[fb_col]
             rv = RefractorVelocity.from_first_breaks(offsets[::step], times[::step], **rv_kwargs)
-            rv.plot()  # debug feature
             rv_kwargs = {'init': rv.params}
             max_offset = offsets.max()
+            rv.plot()  # debug feature
             print(f"Init is {rv.params}") # debug feature
 
         rv_list = []
