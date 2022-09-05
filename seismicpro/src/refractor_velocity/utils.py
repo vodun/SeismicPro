@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from ..utils import Coordinates
+from ..utils import Coordinates, to_list
 
 
 def get_param_names(n_refractors):
@@ -41,7 +41,7 @@ def postprocess_params(params):
     return params
 
 def calc_df_to_dump(rv):
-    """Calculate a DataFrame with coordinates and parameter of the passed RefractorVelocity.
+    """Calculate a DataFrame with coordinates and parameters of the passed RefractorVelocity.
 
     Parameters
     ----------
@@ -58,13 +58,12 @@ def calc_df_to_dump(rv):
     return pd.DataFrame.from_dict({col: [data] for col, data in zip(columns, data)})
 
 def dump_rv(df_list, path, encoding, min_col_size):
-    """Dump list of DataFrame to a file.
+    """Dump list of DataFrames to a file.
 
     Each DataFrame in the list should have next structure:
-
-     - Columns contain the Coordinates parameters names (name_x, name_y, coord_x, coord_y) and the RefractorVelocity
-     parameters names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
-     - First row contains the coords names, coords values, and parameters values.
+    - Columns contain the Coordinates parameters names (name_x, name_y, coord_x, coord_y) and the RefractorVelocity
+    parameters names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
+    - First row contains the coords names, coords values, and parameters values.
 
     DataFrame example :
          name_x      name_y     coord_x     coord_y        t0        x1        v1        v2 max_offset
@@ -72,21 +71,17 @@ def dump_rv(df_list, path, encoding, min_col_size):
 
     Parameters
     ----------
-    df_list : iterable of :class:`~pandas.DataFrame`
-        Each DataFrame in the passed list should contain coordinates and parameters of a :class:`~RefractorVelocity`.
+    df_list : signle :class:`~pandas.DataFrame` or iterable of :class:`~pandas.DataFrame`
+        DataFrame(s) with coordinates and parameters of a :class:`~RefractorVelocity`.
     path : str
         Path to the created file.
-    encoding : str, optional, defaults to "UTF-8"
+    encoding : str
         File encoding.
     min_col_size : int
         Minimum size of each columns in the resulting file.
-
-    Returns
-    -------
-    None
     """
     with open(path, 'w', encoding=encoding) as f:
-        pd.concat(df_list).to_string(buf=f, col_space=min_col_size, float_format="%.2f", index=False)
+        pd.concat(to_list(df_list)).to_string(buf=f, col_space=min_col_size, float_format="%.2f", index=False)
 
 def load_rv(path, encoding):
     """Load the coordinates and parameters of RefractorVelocity from a file.
@@ -95,14 +90,14 @@ def load_rv(path, encoding):
     ----------
     path : str
         Path to the file.
-    encoding : str, optional, defaults to "UTF-8"
+    encoding : str
         File encoding.
 
     Returns
     -------
     coords_list : list of :class:`~utils.Coordinates`
         List of Coordinates instances loaded from a file.
-    params_list : list of dict
+    params_list : list of dicts
         List of parameters of :class:`~RefractorVelocity`.
     max_offset_list : list of float
         List of max offsets.
@@ -112,10 +107,9 @@ def load_rv(path, encoding):
     coords_list, params_list, max_offset_list = [], [], []
     for row in df.to_numpy():
         if not all([isinstance(names, str) for names in row[:2]] + [isinstance(val, (int, float)) for val in row[2:]]):
-            raise ValueError(f"Wrong parameter type in the row {row} to create a correct RefractorVelocity instance.")
-        if np.any(np.isnan(row[-1])):
-            raise ValueError(f"Unsufficient parameters in the row {row} to create a correct RefractorVelocity "
-                             "instance.")
+            raise ValueError(f"Found wrong parameter type in the row {row}.")
+        if np.isnan(row[-1]):
+            raise ValueError(f"Unsufficient parameters in the row {row}.")
         coords_list.append(Coordinates(names=tuple(row[:2]), coords=tuple(row[2:4].astype(int))))
         params_list.append(dict(zip(get_param_names(n_refractors), row[4:-1])))
         max_offset_list.append(row[-1])

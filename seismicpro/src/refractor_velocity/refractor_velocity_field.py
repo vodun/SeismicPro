@@ -156,11 +156,10 @@ class RefractorVelocityField(SpatialField):
     def from_file(cls, path, is_geographic=None, encoding="UTF-8"):
         """Load RefractorVelocityField from a file.
 
-        File should have coords and parameters of a single RefractorVelocity with next structure:
-         - The first row contain the Coordinates parameters names (name_x, name_y, coord_x, coord_y) and
-        the RefractorVelocity parameters names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
-         - Each next line contains row contains the coords names, coords values, and parameters values of one
-        RefractorVelocity.
+        File should have coords and parameters of a RefractorVelocity with next structure:
+        - The first row contains names of the Coordinates parameters (name_x, name_y, coord_x, coord_y) and names of
+        the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
+        - Each next line contains the coords names, coords values, and parameters values of one RefractorVelocity.
 
         File example:
          name_x     name_y    coord_x    coord_y        t0        x1        v1        v2 max_offset
@@ -172,6 +171,9 @@ class RefractorVelocityField(SpatialField):
         ----------
         path : str,
             path to the file.
+        is_geographic : bool, optional
+            Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
+            CROSSLINE_3D)). Inferred automatically on the first update if not given.
         encoding : str, defaults to "UTF-8"
             File encoding.
 
@@ -183,8 +185,7 @@ class RefractorVelocityField(SpatialField):
         coords_list, params_list, max_offset_list = load_rv(path, encoding)
         rv_list = []
         for coords, params, max_offset in zip(coords_list, params_list, max_offset_list):
-            rv = RefractorVelocity(max_offset=max_offset, coords=coords, **params)
-            rv_list.append(rv)
+            rv_list.append(RefractorVelocity(max_offset=max_offset, coords=coords, **params))
         return cls(rv_list, is_geographic=is_geographic)
 
     def update(self, items):
@@ -412,12 +413,12 @@ class RefractorVelocityField(SpatialField):
     def dump(self, path, encoding="UTF-8", min_col_size=11):
         """Save the RefractorVelocityField instance to a file.
 
-        The resulting file have the coordinates and parameters of a single RefractorVelocity with the following
+        The output file have the coordinates and parameters of a single RefractorVelocity with the following
         structure:
-         - The first line contain the Coordinates parameters names (name_x, name_y, coord_x, coord_y) and
-        the RefractorVelocity parameters names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
-         - Each next line contains the coords names, coords values, and parameters values corresponding to one
-        RefractorVelocity in the resulting RefractorVelocityField.
+        - The first row contains names of the Coordinates parameters (name_x, name_y, coord_x, coord_y) and names of
+        the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
+        - Each next line contains the coords names, coords values, and parameters values corresponding to one
+        RefractorVelocity in the RefractorVelocityField.
 
         File example:
          name_x     name_y    coord_x    coord_y        t0        x1        v1        v2 max_offset

@@ -294,9 +294,9 @@ class RefractorVelocity:
     def from_file(cls, path, encoding="UTF-8"):
         """Create a RefractorVelocity instance from a file.
 
-        File should have coords and parameters of a single RefractorVelocity with next structure:
-         - The first row contain the Coordinates parameters names (name_x, name_y, coord_x, coord_y) and
-        the RefractorVelocity parameters names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
+        File should have coords and parameters of a single RefractorVelocity with the following structure:
+         - The first row contains names of the Coordinates parameters (name_x, name_y, coord_x, coord_y) and
+        names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
          - The second row contains the coords names, coords values, and parameters values of a RefractorVelocity.
 
         File example:
@@ -305,8 +305,8 @@ class RefractorVelocity:
 
         Parameters
         ----------
-        path : str,
-            path to the file with parameters.
+        path : str
+            Path to the file with parameters.
 
         Returns
         -------
@@ -617,17 +617,21 @@ class RefractorVelocity:
         return Muter.from_refractor_velocity(self, delay=delay, velocity_reduction=velocity_reduction)
 
     def dump(self, path, encoding="UTF-8", min_col_size=11):
-        """Dump the RefractorVelocity instance to a file. Coords should be preloaded.
+        """Dump the RefractorVelocity instance to a file.
 
-        The resulting file contains the coords and parameters of a single RefractorVelocity with the following
+        The output file contains the coords and parameters of a single RefractorVelocity with the following
         structure:
-         - The first row contain the Coordinates parameters names (name_x, name_y, coord_x, coord_y) and
-        the RefractorVelocity parameters names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
-         - The second row contains the coords and parameters values of a RefractorVelocity.
+         - The first row contains names of the Coordinates parameters (name_x, name_y, coord_x, coord_y) and names of
+        the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
+         - The second row contains the coords names, coords values, and parameters values of a RefractorVelocity.
 
-        File example:
+        Output file example:
          name_x     name_y    coord_x    coord_y        t0        x1        v1        v2 max_offset
         SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00    2000.00
+
+        Notes
+        -----
+        Coords should be preloaded.
 
         Parameters
         ----------
@@ -650,7 +654,7 @@ class RefractorVelocity:
         """
         if self.coords is None:
             raise ValueError("`coords` attribute should be defined.")
-        dump_rv([calc_df_to_dump(self)], path=path, encoding=encoding, min_col_size=min_col_size)
+        dump_rv(calc_df_to_dump(self), path=path, encoding=encoding, min_col_size=min_col_size)
         return self
 
     @plotter(figsize=(10, 5), args_to_unpack="compare_to")
