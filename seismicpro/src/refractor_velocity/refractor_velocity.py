@@ -621,9 +621,9 @@ class RefractorVelocity:
 
         The output file contains the coords and parameters of a single RefractorVelocity with the following
         structure:
-         - The first row contains names of the Coordinates parameters (name_x, name_y, coord_x, coord_y) and names of
+        - The first row contains names of the Coordinates parameters (name_x, name_y, coord_x, coord_y) and names of
         the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
-         - The second row contains the coords names, coords values, and parameters values of a RefractorVelocity.
+        - The second row contains the coords names, coords values, and parameters values of a RefractorVelocity.
 
         Output file example:
          name_x     name_y    coord_x    coord_y        t0        x1        v1        v2 max_offset
