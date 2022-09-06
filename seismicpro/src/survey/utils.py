@@ -43,3 +43,13 @@ def ibm_to_ieee(hh, hl, lh, ll):
             exp16 = (np.int8(hh[i, j]) & np.int8(0x7f)) - 70
             res[i, j] = mant * 16.0**exp16
     return res
+
+def binarization_offsets(offsets, times, step=20):
+    bins = np.arange(0, offsets.max() + step, step=step)
+    mean_offsets = np.arange(bins.shape[0] + 1) * step + step / 2
+    mean_time = np.full(shape=bins.shape[0] + 1, fill_value=np.nan)
+    indices = np.digitize(offsets, bins)
+    for idx in np.unique(indices):
+        mean_time[idx] = times[idx == indices].mean()
+    nan_mask = np.isnan(mean_time)
+    return mean_offsets[~nan_mask], mean_time[~nan_mask]
