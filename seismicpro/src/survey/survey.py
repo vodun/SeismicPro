@@ -20,7 +20,7 @@ from sklearn.linear_model import LinearRegression
 from .headers import load_headers
 from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
-from .utils import ibm_to_ieee, calculate_trace_stats, binarization_offsets
+from .utils import ibm_to_ieee, calculate_trace_stats, binarization_offsets, calc_max_refractor
 from ..gather import Gather
 from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
@@ -1252,23 +1252,21 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
 
     def calc_n_refractors(self, min_cross_offsets=200, min_velocity_diff=200, min_points=3, max_refractors=10,
-                          fb_col=HDR_FIRST_BREAK, n_samples=10, binarization=False):
+                          fb_col=HDR_FIRST_BREAK, n_samples=10, binarization=False, sg_kwargs=None):
+        survey = self if sg_kwargs is None else self.generate_supergathers(**sg_kwargs)
+        if len(survey.indices) < 1:
+            raise ValueError("Survey is empty")
+        n_samples = min(len(survey.indices), n_samples)
         n_refractors = np.ones(n_samples)
-        indices = np.random.choice(self.indices, size=n_samples)
+        indices = np.random.choice(survey.indices, size=n_samples)
+        # for i, idx in tqdm(enumerate(indices), desc="Calculate number of refractors"): 
         for i, idx in enumerate(indices):
-            gather_headers = self.get_headers_by_indices([idx])
+            gather_headers = survey.get_headers_by_indices([idx])
             offsets = gather_headers['offset'].to_numpy()
             times = gather_headers[fb_col].to_numpy()
             if binarization:
                 offsets, times = binarization_offsets(offsets, times)
-            for refractor in range(2, max_refractors + 1):
-                rv = RefractorVelocity.from_first_breaks(offsets, times, n_refractors=refractor)
-                cross_offsets_diff = np.diff(rv.piecewise_offsets)
-                velocity_diff = np.diff(list(rv.params.values())[refractor:])
-                points, _ = np.histogram(offsets, rv.piecewise_offsets)
-                if all(cross_offsets_diff > min_cross_offsets) and all(velocity_diff > min_velocity_diff) and \
-                   all(points > min_points):
-                    n_refractors[i] = refractor
-                else:
-                    break
+            n_refractors[i] = calc_max_refractor(offsets, times, max_refractors, min_cross_offsets,
+                                                 min_velocity_diff, min_points)
+        return n_refractors.mean()
         return np.round(n_refractors.mean()).astype(int)

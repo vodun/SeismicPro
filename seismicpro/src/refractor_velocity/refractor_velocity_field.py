@@ -106,7 +106,7 @@ class RefractorVelocityField(SpatialField):
     @classmethod
     def from_survey(cls, survey, rv_kwargs, precalc_init=False, is_geographic=None, refine_kwargs=None,
                     fb_col=HDR_FIRST_BREAK, bar=True):
-        if len(survey.headers) < 1:
+        if len(survey.indices) < 1:
             raise ValueError("Survey is empty.")
         max_offset = None
         if precalc_init:

@@ -46,10 +46,21 @@ def ibm_to_ieee(hh, hl, lh, ll):
 
 def binarization_offsets(offsets, times, step=20):
     bins = np.arange(0, offsets.max() + step, step=step)
-    mean_offsets = np.arange(bins.shape[0] + 1) * step + step / 2
-    mean_time = np.full(shape=bins.shape[0] + 1, fill_value=np.nan)
-    indices = np.digitize(offsets, bins)
+    mean_offsets = np.arange(bins.shape[0]) * step + step / 2
+    mean_time = np.full(shape=bins.shape[0], fill_value=np.nan)
+    indices = np.digitize(offsets, bins, right=True)
     for idx in np.unique(indices):
         mean_time[idx] = times[idx == indices].mean()
     nan_mask = np.isnan(mean_time)
     return mean_offsets[~nan_mask], mean_time[~nan_mask]
+
+def calc_max_refractor(offsets, times, max_refractors, min_cross_offsets, min_velocity_diff, min_points):
+    for refractor in range(2, max_refractors + 1):
+        rv = RefractorVelocity.from_first_breaks(offsets, times, n_refractors=refractor)
+        cross_offsets_diff = np.diff(rv.piecewise_offsets)
+        velocity_diff = np.diff(list(rv.params.values())[refractor:], prepend=0)
+        points, _ = np.histogram(offsets, rv.piecewise_offsets)
+        if not (np.all(cross_offsets_diff > min_cross_offsets) and np.all(velocity_diff > min_velocity_diff) and \
+            np.all(points > min_points)):
+            return refractor - 1
+    return max_refractors
