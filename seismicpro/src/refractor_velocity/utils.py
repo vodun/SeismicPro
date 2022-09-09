@@ -99,7 +99,7 @@ def load_rv(path, encoding):
     for row in df.to_numpy():
         if np.isnan(row[-1]):
             raise ValueError(f"Unsufficient parameters in the row {row}.")
-        params = {name: value for name, value in zip(params_names, row[4:])}
+        params = dict(zip(params_names, row[4:]))
         params['coords'] = Coordinates(names=tuple(row[:2]), coords=tuple(row[2:4].astype(int)))
         params_list.append(params)
     return params_list
