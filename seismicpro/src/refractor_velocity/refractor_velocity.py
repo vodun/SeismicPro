@@ -6,7 +6,7 @@ import numpy as np
 from scipy.optimize import minimize
 from sklearn.linear_model import SGDRegressor
 
-from .utils import get_param_names, postprocess_params, load_rv, dump_rv, calc_df_to_dump
+from .utils import get_param_names, postprocess_params, load_rv, dump_df, calc_df_to_dump
 from ..muter import Muter
 from ..decorators import batch_method, plotter
 from ..utils import set_ticks, set_text_formatting
@@ -294,7 +294,7 @@ class RefractorVelocity:
     def from_file(cls, path, encoding="UTF-8"):
         """Create a RefractorVelocity instance from a file.
 
-        File should have coords and parameters of a single RefractorVelocity with the following structure:
+        The file should define near-surface velocity model at some location and have the following structure:
          - The first row contains names of the Coordinates parameters (name_x, name_y, coord_x, coord_y) and
         names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
          - The second row contains the coords names, coords values, and parameters values of a RefractorVelocity.
@@ -307,16 +307,19 @@ class RefractorVelocity:
         ----------
         path : str
             Path to the file with parameters.
+        encoding : str, optional, defaults to "UTF-8"
+            File encoding.
 
         Returns
         -------
         self : RefractorVelocity
             RefractorVelocity instance created from a file.
         """
-        coords_list, params_list, max_offset_list = load_rv(path, encoding)
-        if len(coords_list) > 1:
+        params = load_rv(path, encoding)
+        if len(params) > 1:
             raise ValueError("The loaded file contains more than one set of RefractorVelocity parameters.")
-        return cls(max_offset=max_offset_list[0], coords=coords_list[0], **params_list[0])
+        # pylint: disable-next=not-a-mapping
+        return cls(**params[0])
 
     @classmethod
     def from_constant_velocity(cls, velocity, max_offset=None, coords=None):
@@ -652,9 +655,9 @@ class RefractorVelocity:
         ValueError
             If coords attributes is None.
         """
-        if self.coords is None:
+        if not self.has_coords:
             raise ValueError("`coords` attribute should be defined.")
-        dump_rv(calc_df_to_dump(self), path=path, encoding=encoding, min_col_size=min_col_size)
+        dump_df(calc_df_to_dump(self), path=path, encoding=encoding, min_col_size=min_col_size)
         return self
 
     @plotter(figsize=(10, 5), args_to_unpack="compare_to")

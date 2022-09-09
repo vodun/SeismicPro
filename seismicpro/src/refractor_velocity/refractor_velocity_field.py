@@ -10,7 +10,7 @@ from tqdm.auto import tqdm
 
 from .refractor_velocity import RefractorVelocity
 from .interactive_plot import FitPlot
-from .utils import get_param_names, postprocess_params, calc_df_to_dump, load_rv, dump_rv
+from .utils import get_param_names, postprocess_params, calc_df_to_dump, load_rv, dump_df
 from ..field import SpatialField
 from ..utils import to_list, IDWInterpolator
 
@@ -153,10 +153,11 @@ class RefractorVelocityField(SpatialField):
             raise ValueError("Each RefractorVelocity must describe the same number of refractors as the field")
 
     @classmethod
-    def from_file(cls, path, is_geographic=None, encoding="UTF-8"):
+    def from_file(cls, path, survey=None, is_geographic=None, encoding="UTF-8"):
         """Load RefractorVelocityField from a file.
 
-        File should have coords and parameters of a RefractorVelocity with next structure:
+        The file should define near-surface velocity model at one or more field locations and have the following
+        structure:
         - The first row contains names of the Coordinates parameters (name_x, name_y, coord_x, coord_y) and names of
         the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
         - Each next line contains the coords names, coords values, and parameters values of one RefractorVelocity.
@@ -169,11 +170,13 @@ class RefractorVelocityField(SpatialField):
 
         Parameters
         ----------
-        path : str,
+        path : str
             path to the file.
+        survey : Survey, optional
+            A :class:`~survey.Survey` described by the field.
         is_geographic : bool, optional
             Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
-            CROSSLINE_3D)). Inferred automatically on the first update if not given.
+            CROSSLINE_3D)). Inferred from coordinates of the first `RefractorVelocity` in the file if not given.
         encoding : str, defaults to "UTF-8"
             File encoding.
 
@@ -182,11 +185,9 @@ class RefractorVelocityField(SpatialField):
         self : RefractorVelocityField
             RefractorVelocityField instance created from a file.
         """
-        coords_list, params_list, max_offset_list = load_rv(path, encoding)
-        rv_list = []
-        for coords, params, max_offset in zip(coords_list, params_list, max_offset_list):
-            rv_list.append(RefractorVelocity(max_offset=max_offset, coords=coords, **params))
-        return cls(rv_list, is_geographic=is_geographic)
+        # pylint: disable-next=not-a-mapping
+        rv_list = [RefractorVelocity(**params) for params in load_rv(path, encoding)]
+        return cls(rv_list, survey=survey, is_geographic=is_geographic)
 
     def update(self, items):
         """Add new items to the field. All passed `items` must have not-None coordinates and describe the same number
@@ -413,7 +414,7 @@ class RefractorVelocityField(SpatialField):
     def dump(self, path, encoding="UTF-8", min_col_size=11):
         """Save the RefractorVelocityField instance to a file.
 
-        The output file have the coordinates and parameters of a single RefractorVelocity with the following
+        The output file should define near-surface velocity model at one or more field locations and have the following
         structure:
         - The first row contains names of the Coordinates parameters (name_x, name_y, coord_x, coord_y) and names of
         the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
@@ -447,8 +448,7 @@ class RefractorVelocityField(SpatialField):
         """
         if self.is_empty:
             raise ValueError("Field is empty. Could not dump empty field.")
-        df_list = [calc_df_to_dump(rv) for rv in self.item_container.values()]
-        dump_rv(df_list, path=path, encoding=encoding, min_col_size=min_col_size)
+        dump_df(calc_df_to_dump(self.items), path=path, encoding=encoding, min_col_size=min_col_size)
         return self
 
     def plot_fit(self, **kwargs):
