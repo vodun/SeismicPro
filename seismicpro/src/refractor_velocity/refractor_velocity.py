@@ -619,7 +619,7 @@ class RefractorVelocity:
         """
         return Muter.from_refractor_velocity(self, delay=delay, velocity_reduction=velocity_reduction)
 
-    def dump(self, path, encoding="UTF-8", min_col_size=11):
+    def dump(self, path, encoding="UTF-8"):
         """Dump the RefractorVelocity instance to a file.
 
         The output file contains the coords and parameters of a single RefractorVelocity with the following
@@ -657,7 +657,7 @@ class RefractorVelocity:
         """
         if not self.has_coords:
             raise ValueError("`coords` attribute should be defined.")
-        dump_df(calc_df_to_dump(self), path=path, encoding=encoding, min_col_size=min_col_size)
+        dump_df(calc_df_to_dump(self), path=path, encoding=encoding)
         return self
 
     @plotter(figsize=(10, 5), args_to_unpack="compare_to")

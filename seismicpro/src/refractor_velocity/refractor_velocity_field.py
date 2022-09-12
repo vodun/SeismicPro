@@ -411,7 +411,7 @@ class RefractorVelocityField(SpatialField):
         return type(self)(refined_items, n_refractors=self.n_refractors, survey=self.survey,
                           is_geographic=self.is_geographic)
 
-    def dump(self, path, encoding="UTF-8", min_col_size=11):
+    def dump(self, path, encoding="UTF-8"):
         """Save the RefractorVelocityField instance to a file.
 
         The output file should define near-surface velocity model at one or more field locations and have the following
@@ -448,7 +448,7 @@ class RefractorVelocityField(SpatialField):
         """
         if self.is_empty:
             raise ValueError("Field is empty. Could not dump empty field.")
-        dump_df(calc_df_to_dump(self.items), path=path, encoding=encoding, min_col_size=min_col_size)
+        dump_df(calc_df_to_dump(self.items), path=path, encoding=encoding)
         return self
 
     def plot_fit(self, **kwargs):

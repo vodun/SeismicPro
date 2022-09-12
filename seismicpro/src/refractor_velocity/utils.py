@@ -60,7 +60,7 @@ def calc_df_to_dump(rv_list):
         df_list.append(pd.DataFrame.from_dict({col: [data] for col, data in zip(columns, data)}))
     return pd.concat(df_list)
 
-def dump_df(df, path, encoding, min_col_size):
+def dump_df(df, path, encoding):
     """Dump DataFrames to a file.
 
     Parameters
@@ -74,6 +74,7 @@ def dump_df(df, path, encoding, min_col_size):
     min_col_size : int
         Minimum size of each columns in the resulting file.
     """
+    min_col_size = max(len(str(int(df.to_numpy()[:, 2:4].max()))) + 2, len(str(int(df.to_numpy()[:, 4:].max()))) + 5)
     with open(path, 'w', encoding=encoding) as f:
         df.to_string(buf=f, col_space=min_col_size, float_format="%.2f", index=False)
 
