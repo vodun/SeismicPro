@@ -433,8 +433,6 @@ class RefractorVelocityField(SpatialField):
             Path to the file.
         encoding : str, optional, defaults to "UTF-8"
             File encoding.
-        min_col_size : int, defaults to 11
-            Minimum size of each columns in the resulting file.
 
         Returns
         -------

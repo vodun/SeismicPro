@@ -71,10 +71,10 @@ def dump_df(df, path, encoding):
         Path to the created file.
     encoding : str
         File encoding.
-    min_col_size : int
-        Minimum size of each columns in the resulting file.
     """
-    min_col_size = max(len(str(int(df.to_numpy()[:, 2:4].max()))) + 2, len(str(int(df.to_numpy()[:, 4:].max()))) + 5)
+    arr = df.to_numpy()
+    # Makes at least 3 spaces between columns. Integer coords values and float parameters values are expected.
+    min_col_size = max(len(str(int(arr[:, 2:4].max()))) + 3, len(str(int(arr[:, 4:].max()))) + 6)
     with open(path, 'w', encoding=encoding) as f:
         df.to_string(buf=f, col_space=min_col_size, float_format="%.2f", index=False)
 
@@ -91,8 +91,8 @@ def load_rv(path, encoding):
     Returns
     -------
     params_list : list of dict,
-        List of dict. Each dict contains parameters and coords sufficient to define near-surface velocity model at one
-        or more locations.
+        Each dict in the returned list contains parameters and coords sufficient to define near-surface velocity model
+        at one or more locations.
     """
     df = pd.read_csv(path, sep=r'\s+', encoding=encoding)
     params_names = df.columns[4:]
