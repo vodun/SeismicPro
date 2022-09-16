@@ -10,7 +10,7 @@ from tqdm.auto import tqdm
 
 from .refractor_velocity import RefractorVelocity
 from .interactive_plot import FitPlot
-from .utils import get_param_names, postprocess_params, calc_df_to_dump, load_rv, dump_df
+from .utils import get_param_names, postprocess_params, dump_refractor_velocity, load_refractor_velocity_params
 from ..field import SpatialField
 from ..utils import to_list, IDWInterpolator
 
@@ -184,9 +184,10 @@ class RefractorVelocityField(SpatialField):
         -------
         self : RefractorVelocityField
             RefractorVelocityField instance created from a file.
-        """
+
         # pylint: disable-next=not-a-mapping
-        rv_list = [RefractorVelocity(**params) for params in load_rv(path, encoding)]
+        """
+        rv_list = [RefractorVelocity(**params) for params in load_refractor_velocity_params(path, encoding)]
         return cls(rv_list, survey=survey, is_geographic=is_geographic)
 
     def update(self, items):
@@ -414,7 +415,7 @@ class RefractorVelocityField(SpatialField):
     def dump(self, path, encoding="UTF-8"):
         """Save the RefractorVelocityField instance to a file.
 
-        The output file should define near-surface velocity model at one or more field locations and have the following
+        The output file defines near-surface velocity model at one or more field locations and have the following
         structure:
         - The first row contains names of the Coordinates parameters (name_x, name_y, coord_x, coord_y) and names of
         the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
@@ -446,7 +447,7 @@ class RefractorVelocityField(SpatialField):
         """
         if self.is_empty:
             raise ValueError("Field is empty. Could not dump empty field.")
-        dump_df(calc_df_to_dump(self.items), path=path, encoding=encoding)
+        dump_refractor_velocity(self.items, path=path, encoding=encoding)
         return self
 
     def plot_fit(self, **kwargs):

@@ -6,7 +6,7 @@ import numpy as np
 from scipy.optimize import minimize
 from sklearn.linear_model import SGDRegressor
 
-from .utils import get_param_names, postprocess_params, load_rv, dump_df, calc_df_to_dump
+from .utils import get_param_names, postprocess_params,  dump_refractor_velocity, load_refractor_velocity_params
 from ..muter import Muter
 from ..decorators import batch_method, plotter
 from ..utils import set_ticks, set_text_formatting
@@ -315,10 +315,9 @@ class RefractorVelocity:
         self : RefractorVelocity
             RefractorVelocity instance created from a file.
         """
-        params = load_rv(path, encoding)
+        params = load_refractor_velocity_params(path, encoding)
         if len(params) > 1:
             raise ValueError("The loaded file contains more than one set of RefractorVelocity parameters.")
-        # pylint: disable-next=not-a-mapping
         return cls(**params[0])
 
     @classmethod
@@ -655,7 +654,7 @@ class RefractorVelocity:
         """
         if not self.has_coords:
             raise ValueError("`coords` attribute should be defined.")
-        dump_df(calc_df_to_dump(self), path=path, encoding=encoding)
+        dump_refractor_velocity(self, path=path, encoding=encoding)
         return self
 
     @plotter(figsize=(10, 5), args_to_unpack="compare_to")

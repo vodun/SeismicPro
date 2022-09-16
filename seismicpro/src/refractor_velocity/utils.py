@@ -40,59 +40,41 @@ def postprocess_params(params):
         return params[0]
     return params
 
-def calc_df_to_dump(rv_list):
-    """Calculate a DataFrame with coordinates and parameters of the passed RefractorVelocity.
+def dump_refractor_velocity(rv_list, path, encoding="UTF-8"):
+    """Dump DataFrames to a file.
 
     Parameters
     ----------
-    rv_list : iterable of :class:`~refractor_velocity.RefractorVelocity`
-        List of RefractorVelocity instances.
-
-    Returns
-    -------
-    df : DataFrame
-        DataFrame with coordinates and parameters of passed RefractorVelocity instances.
+    rv_list : iterable of RefractorVelocity or single RefractorVelocity.
+        List of :class:`~refractor_velocity.RefractorVelocity` instances.
+    path : str
+        Path to the created file.
+    encoding : str, defaults to "UTF-8"
+        File encoding.
     """
     df_list = []
     for rv in to_list(rv_list):
         columns = ['name_x', 'name_y', 'coord_x', 'coord_y'] + list(rv.params.keys()) + ["max_offset"]
         data = [*rv.coords.names] + [*rv.coords.coords] + list(rv.params.values()) + [rv.max_offset]
         df_list.append(pd.DataFrame.from_dict({col: [data] for col, data in zip(columns, data)}))
-    return pd.concat(df_list)
-
-def dump_df(df, path, encoding):
-    """Dump DataFrames to a file.
-
-    Parameters
-    ----------
-    df : DataFrame
-        DataFrame to dump.
-    path : str
-        Path to the created file.
-    encoding : str
-        File encoding.
-    """
-    arr = df.to_numpy()
-    # Makes at least 3 spaces between columns. Integer coords values and float parameters values are expected.
-    min_col_size = max(len(str(int(arr[:, 2:4].max()))) + 3, len(str(int(arr[:, 4:].max()))) + 6)
     with open(path, 'w', encoding=encoding) as f:
-        df.to_string(buf=f, col_space=min_col_size, float_format="%.2f", index=False)
+        pd.concat(df_list).to_string(buf=f, float_format="%.2f", index=False)
 
-def load_rv(path, encoding):
+def load_refractor_velocity_params(path, encoding="UTF-8"):
     """Load the coordinates and parameters of RefractorVelocity from a file.
 
     Parameters
     ----------
     path : str
         Path to the file.
-    encoding : str
+    encoding : str, defaults to "UTF-8"
         File encoding.
 
     Returns
     -------
-    params_list : list of dict,
+    params_list : list of dict
         Each dict in the returned list contains parameters and coords sufficient to define near-surface velocity model
-        at one or more locations.
+        at a given locations.
     """
     df = pd.read_csv(path, sep=r'\s+', encoding=encoding)
     params_names = df.columns[4:]
