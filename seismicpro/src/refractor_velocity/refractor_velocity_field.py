@@ -184,8 +184,6 @@ class RefractorVelocityField(SpatialField):
         -------
         self : RefractorVelocityField
             RefractorVelocityField instance created from a file.
-
-        # pylint: disable-next=not-a-mapping
         """
         rv_list = [RefractorVelocity(**params) for params in load_refractor_velocity_params(path, encoding)]
         return cls(rv_list, survey=survey, is_geographic=is_geographic)
@@ -415,7 +413,7 @@ class RefractorVelocityField(SpatialField):
     def dump(self, path, encoding="UTF-8"):
         """Save the RefractorVelocityField instance to a file.
 
-        The output file defines near-surface velocity model at one or more field locations and have the following
+        The output file defines near-surface velocity model at one or more field locations and has the following
         structure:
         - The first row contains names of the Coordinates parameters (name_x, name_y, coord_x, coord_y) and names of
         the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
