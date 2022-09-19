@@ -316,8 +316,8 @@ class RefractorVelocity:
             RefractorVelocity instance created from a file.
         """
         params = load_refractor_velocity_params(path, encoding)
-        if len(params) > 1:
-            raise ValueError("The loaded file contains more than one set of RefractorVelocity parameters.")
+        if len(params) != 1:
+            raise ValueError("The loaded file should contain one set of RefractorVelocity parameters.")
         return cls(**params[0])
 
     @classmethod
