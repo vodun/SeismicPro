@@ -104,21 +104,9 @@ class RefractorVelocityField(SpatialField):
         super().__init__(items, survey, is_geographic, auto_create_interpolator)
 
     @classmethod
-    def from_survey(cls, survey, rv_kwargs, precalc_init=False, is_geographic=None, refine_kwargs=None,
-                    fb_col=HDR_FIRST_BREAK, bar=True):
+    def from_survey(cls, survey, rv_kwargs, is_geographic=None, refine_kwargs=None, fb_col=HDR_FIRST_BREAK, bar=True):
         if len(survey.indices) < 1:
             raise ValueError("Survey is empty.")
-        max_offset = None
-        if precalc_init:
-            step = int(np.log2(len(survey.indices))) + 1
-            offsets = survey.headers.offset
-            times = survey.headers[fb_col]
-            rv = RefractorVelocity.from_first_breaks(offsets[::step], times[::step], **rv_kwargs)
-            rv_kwargs = {'init': rv.params}
-            max_offset = offsets.max()
-            rv.plot()  # debug feature
-            print(f"Init is {rv.params}") # debug feature
-
         rv_list = []
         coords_name = to_list(get_coords_cols(survey.indexed_by))
         for idx in tqdm(survey.indices, desc="Calculate RefractorVelocityField", disable=not bar):
@@ -126,12 +114,11 @@ class RefractorVelocityField(SpatialField):
             offsets = gather_headers['offset'].to_numpy()
             times = gather_headers[fb_col].to_numpy()
             coords_value = get_cols(gather_headers, coords_name)[0] # use __getitem__ code from TraceContainer
-            rv_max_offset = offsets.max() if max_offset is None else max_offset
-            rv = RefractorVelocity.from_first_breaks(offsets, times, max_offset=rv_max_offset, **rv_kwargs)
+            rv = RefractorVelocity.from_first_breaks(offsets, times, **rv_kwargs)
             rv.coords = Coordinates(names=coords_name, coords=coords_value)
             rv_list.append(rv)
         rv_field = cls(items=rv_list, survey=survey, is_geographic=is_geographic)
-        if refine_kwargs is not None:  # remove maybe
+        if refine_kwargs is not None:  # maybe remove
             rv_field = rv_field.refine(**refine_kwargs)
         return rv_field
 

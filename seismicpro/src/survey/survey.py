@@ -1251,22 +1251,20 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
 
-    def calc_n_refractors(self, min_cross_offsets=200, min_velocity_diff=200, min_points=3, max_refractors=10,
-                          fb_col=HDR_FIRST_BREAK, n_samples=10, binarization=False, sg_kwargs=None):
-        survey = self if sg_kwargs is None else self.generate_supergathers(**sg_kwargs)
-        if len(survey.indices) < 1:
+    def calc_n_refractors(self, min_cross_offsets=200, min_velocity_diff=200, min_points=5, max_refractors=10,
+                          fb_col=HDR_FIRST_BREAK, binarization=False, as_dict=True):
+        if len(self.indices) < 1:
             raise ValueError("Survey is empty")
-        n_samples = min(len(survey.indices), n_samples)
-        n_refractors = np.ones(n_samples)
-        indices = np.random.choice(survey.indices, size=n_samples)
-        # for i, idx in tqdm(enumerate(indices), desc="Calculate number of refractors"): 
-        for i, idx in enumerate(indices):
-            gather_headers = survey.get_headers_by_indices([idx])
-            offsets = gather_headers['offset'].to_numpy()
-            times = gather_headers[fb_col].to_numpy()
-            if binarization:
-                offsets, times = binarization_offsets(offsets, times)
-            n_refractors[i] = calc_max_refractor(offsets, times, max_refractors, min_cross_offsets,
-                                                 min_velocity_diff, min_points)
-        return n_refractors.mean()
-        return np.round(n_refractors.mean()).astype(int)
+        offsets = self.headers.offset
+        times = self.headers[fb_col]
+        if binarization:
+            offsets, times = binarization_offsets(offsets, times)
+            step = 1
+        else:
+            step = int(np.log2(len(self.indices))) + 1
+        init = calc_max_refractor(offsets[::step], times[::step], max_refractors, min_cross_offsets,
+                                    min_velocity_diff, min_points, name=self.name) # name is debug params
+        n_refractors = 1 if init is None else len(init) // 2
+        if as_dict:
+            return {"init": init, "n_refractors": n_refractors}
+        return n_refractors
