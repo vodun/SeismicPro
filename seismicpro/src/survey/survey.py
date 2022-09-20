@@ -1251,8 +1251,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
 
-    def calc_n_refractors(self, min_cross_offsets=200, min_velocity_diff=200, min_points=5, max_refractors=10,
-                          fb_col=HDR_FIRST_BREAK, binarization=False, as_dict=True):
+    def calc_n_refractors(self, min_cross_offsets=200, min_velocity_diff=200, min_points_percentile=.05,
+                          max_refractors=10, fb_col=HDR_FIRST_BREAK, binarization=False, as_init=False):
         if len(self.indices) < 1:
             raise ValueError("Survey is empty")
         offsets = self.headers.offset
@@ -1261,10 +1261,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             offsets, times = binarization_offsets(offsets, times)
             step = 1
         else:
-            step = int(np.log2(len(self.indices))) + 1
+            step = int(np.log10(len(offsets))) + 1
+        # remove debug params
         init = calc_max_refractor(offsets[::step], times[::step], max_refractors, min_cross_offsets,
-                                    min_velocity_diff, min_points, name=self.name) # name is debug params
+                                    min_velocity_diff, min_points_percentile, name=self.name, plot_last=True)
         n_refractors = 1 if init is None else len(init) // 2
-        if as_dict:
-            return {"init": init, "n_refractors": n_refractors}
+        if as_init:
+            return init
         return n_refractors
