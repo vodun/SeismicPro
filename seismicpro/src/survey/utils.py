@@ -55,9 +55,10 @@ def binarization_offsets(offsets, times, step=20):
     return mean_offsets[~nan_mask], mean_time[~nan_mask]
 
 def calc_max_refractor(offsets, times, max_refractors, min_cross_offsets, min_velocity_diff, min_points_percentile,
-                       name, plot_last):
+                       name=None, plot_last=False):
     init = None
-    for refractor in range(2, max_refractors + 1):
+    rv_last = None
+    for refractor in range(1, max_refractors + 1):
         rv = RefractorVelocity.from_first_breaks(offsets, times, n_refractors=refractor)
         cross_offsets_diff = np.diff(rv.piecewise_offsets[1:-1])
         velocity_diff = np.diff(list(rv.params.values())[refractor:])
@@ -66,8 +67,9 @@ def calc_max_refractor(offsets, times, max_refractors, min_cross_offsets, min_ve
         if (np.all(cross_offsets_diff > min_cross_offsets) and np.all(velocity_diff > min_velocity_diff) and \
                 np.all(points_percentile > min_points_percentile)):
             init = rv.params
+            rv_last = rv
         else:
             break
-    if plot_last:   # debug feature
-        rv.plot(title=name + '\n'+ str(rv.fit_result.fun))
+    if plot_last and rv_last is not None:   # debug feature
+        rv_last.plot(title=str(name) + '\n'+ str(rv.fit_result.fun))
     return init
