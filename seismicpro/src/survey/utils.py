@@ -54,22 +54,35 @@ def binarization_offsets(offsets, times, step=20):
     nan_mask = np.isnan(mean_time)
     return mean_offsets[~nan_mask], mean_time[~nan_mask]
 
-def calc_max_refractor(offsets, times, max_refractors, min_cross_offsets, min_velocity_diff, min_points_percentile,
-                       name=None, plot_last=False):
-    init = None
-    rv_last = None
+def _fit_rv(offsets, times, refractor, min_cross_offsets, min_velocity_diff, min_points_percentile, bounds):
+    rv = RefractorVelocity.from_first_breaks(offsets, times, n_refractors=refractor, bounds=bounds)
+    cross_offsets_diff = np.diff(rv.piecewise_offsets[1:]) # except 0
+    velocity_diff = np.diff(list(rv.params.values())[refractor:])
+    points, _ = np.histogram(offsets, rv.piecewise_offsets)
+    points_percentile = points / points.sum()
+    if (np.all(cross_offsets_diff > min_cross_offsets) and np.all(velocity_diff > min_velocity_diff) and \
+        np.all(points_percentile > min_points_percentile)):
+        return rv
+    return None
+
+def calc_max_refractor(offsets, times, max_refractors, min_offsets_diff, min_velocity_diff, min_points_percentile,
+                       weathering, max_weathering_offset=300, name=None, plot_last=False):
+    rv = None
     for refractor in range(1, max_refractors + 1):
-        rv = RefractorVelocity.from_first_breaks(offsets, times, n_refractors=refractor)
-        cross_offsets_diff = np.diff(rv.piecewise_offsets[1:-1])
-        velocity_diff = np.diff(list(rv.params.values())[refractor:])
-        points, _ = np.histogram(offsets, rv.piecewise_offsets)
-        points_percentile = points / points.sum()
-        if (np.all(cross_offsets_diff > min_cross_offsets) and np.all(velocity_diff > min_velocity_diff) and \
-                np.all(points_percentile > min_points_percentile)):
-            init = rv.params
-            rv_last = rv
+        rv_last = _fit_rv(offsets, times, refractor, min_offsets_diff, min_velocity_diff, min_points_percentile,
+                                bounds=None)
+        if rv_last is not None:
+            rv = rv_last
         else:
+            if weathering:   # try to find weathering layer
+                # print("try to find weathering layer")
+                rv_last = _fit_rv(offsets, times, refractor, min_offsets_diff, min_velocity_diff,
+                                  min_points_percentile, bounds={'x1': [1, max_weathering_offset]})
+                if rv_last is not None:
+                    rv = rv_last
+                    name = str(name) + '\nwith weathering'   # debug feature
             break
-    if plot_last and rv_last is not None:   # debug feature
-        rv_last.plot(title=str(name) + '\n'+ str(rv.fit_result.fun))
-    return init
+    name = str(name) + '\n'
+    if plot_last and rv is not None:   # debug feature
+        rv.plot(title=name)
+    return rv.params

@@ -1251,23 +1251,22 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
 
-    @staticmethod
-    def calc_n_refractors(obj, min_cross_offsets=200, min_velocity_diff=200, min_points_percentile=.05,
-                          max_refractors=10, fb_col=HDR_FIRST_BREAK, binarization=False, as_init=False, name=None):
-        # print(cls.indices)
-        # if len(cls.indices) < 1:
-        #     raise ValueError("Object is empty")
-        offsets = obj.headers['offset']
-        times = obj.headers[fb_col]
+    def calc_n_refractors(self, min_offsets_diff=300, min_velocity_diff=200, min_points_percentile=.01,
+                          max_refractors=10, fb_col=HDR_FIRST_BREAK, binarization=False, as_init=False, name=None,
+                          weathering=False):
+        if len(self.indices) < 1:
+            raise ValueError("Object is empty")
+        offsets = self.headers['offset'].ravel()
+        times = self.headers[fb_col].ravel()
         if binarization:
             offsets, times = binarization_offsets(offsets, times)
             step = 1
         else:
-            step = int(np.log10(len(offsets))) + 1
-        # remove debug params
-        name = obj.__dict__.get('name', None) if name is None else name
-        init = calc_max_refractor(offsets[::step], times[::step], max_refractors, min_cross_offsets,
-                                    min_velocity_diff, min_points_percentile, name=name, plot_last=True)
+            step = int(np.log10(len(offsets))) + 1  # reduce points
+        name = self.__dict__.get('name', None) if name is None else name  # debug params
+        init = calc_max_refractor(offsets[::step], times[::step], max_refractors, min_offsets_diff,
+                                    min_velocity_diff, min_points_percentile, weathering=weathering,
+                                    name=name, plot_last=True)
         n_refractors = 1 if init is None else len(init) // 2
         if as_init:
             return init
