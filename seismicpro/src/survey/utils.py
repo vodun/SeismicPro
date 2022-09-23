@@ -1,12 +1,10 @@
 """General survey processing utils"""
 
 import numpy as np
-from scipy.stats import ttest_ind
 from numba import njit, prange
-from tqdm import tqdm
-import matplotlib.pyplot as plt
 
 from ..refractor_velocity import RefractorVelocity
+
 
 @njit(nogil=True)
 def calculate_trace_stats(trace):
@@ -54,35 +52,32 @@ def binarization_offsets(offsets, times, step=20):
     nan_mask = np.isnan(mean_time)
     return mean_offsets[~nan_mask], mean_time[~nan_mask]
 
-def _fit_rv(offsets, times, refractor, min_cross_offsets, min_velocity_diff, min_points_percentile, bounds):
-    rv = RefractorVelocity.from_first_breaks(offsets, times, n_refractors=refractor, bounds=bounds)
+def _is_refractors_valid(rv, min_offsets_diff, min_velocity_diff, min_points_percentile):
     cross_offsets_diff = np.diff(rv.piecewise_offsets[1:]) # except 0
-    velocity_diff = np.diff(list(rv.params.values())[refractor:])
-    points, _ = np.histogram(offsets, rv.piecewise_offsets)
+    velocity_diff = np.diff(list(rv.params.values())[rv.n_refractors:])
+    points, _ = np.histogram(rv.offsets, rv.piecewise_offsets)
     points_percentile = points / points.sum()
-    if (np.all(cross_offsets_diff > min_cross_offsets) and np.all(velocity_diff > min_velocity_diff) and \
-        np.all(points_percentile > min_points_percentile)):
-        return rv
-    return None
+    if (np.all(cross_offsets_diff > min_offsets_diff) and np.all(velocity_diff > min_velocity_diff) and \
+            np.all(points_percentile > min_points_percentile)):
+        return True
+    return False
 
-def calc_max_refractor(offsets, times, max_refractors, min_offsets_diff, min_velocity_diff, min_points_percentile,
-                       weathering, max_weathering_offset=300, name=None, plot_last=False):
-    rv = None
+def calc_max_refractors_params(offsets, times, max_refractors, min_offsets_diff, min_velocity_diff,
+                               min_points_percentile, weathering, max_weathering_offset=300, name=None,
+                               plot_last=False): # name and plot_last is debug features
     for refractor in range(1, max_refractors + 1):
-        rv_last = _fit_rv(offsets, times, refractor, min_offsets_diff, min_velocity_diff, min_points_percentile,
-                                bounds=None)
-        if rv_last is not None:
+        rv_last = RefractorVelocity.from_first_breaks(offsets, times, n_refractors=refractor)
+        if _is_refractors_valid(rv_last, min_offsets_diff, min_velocity_diff, min_points_percentile):
             rv = rv_last
+        elif weathering:
+            rv_last = RefractorVelocity.from_first_breaks(offsets, times, n_refractors=refractor,
+                                                          bounds={'x1': [1, max_weathering_offset]})
+            if _is_refractors_valid(rv_last, min_offsets_diff, min_velocity_diff, min_points_percentile):
+                rv = rv_last
+                name = str(name) + '\nweathering layer detected'   # debug feature
         else:
-            if weathering:   # try to find weathering layer
-                # print("try to find weathering layer")
-                rv_last = _fit_rv(offsets, times, refractor, min_offsets_diff, min_velocity_diff,
-                                  min_points_percentile, bounds={'x1': [1, max_weathering_offset]})
-                if rv_last is not None:
-                    rv = rv_last
-                    name = str(name) + '\nwith weathering'   # debug feature
             break
-    name = str(name) + '\n'
+    name = str(name) + '\n' # debug feature
     if plot_last and rv is not None:   # debug feature
         rv.plot(title=name)
     return rv.params

@@ -20,12 +20,11 @@ from sklearn.linear_model import LinearRegression
 from .headers import load_headers
 from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
-from .utils import ibm_to_ieee, calculate_trace_stats, binarization_offsets, calc_max_refractor
+from .utils import ibm_to_ieee, calculate_trace_stats, binarization_offsets, calc_max_refractors_params
 from ..gather import Gather
 from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
-from ..refractor_velocity import RefractorVelocity, RefractorVelocityField
-from ..utils import to_list, maybe_copy, get_cols, get_coords_cols, Coordinates
+from ..utils import to_list, maybe_copy, get_cols
 from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK
 
 
@@ -1251,7 +1250,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
 
-    def calc_n_refractors(self, min_offsets_diff=300, min_velocity_diff=200, min_points_percentile=.01,
+    def calc_n_refractors(self, min_offsets_diff=300, min_velocity_diff=300, min_points_percentile=.01,
                           max_refractors=10, fb_col=HDR_FIRST_BREAK, binarization=False, as_init=False, name=None,
                           weathering=False):
         if len(self.indices) < 1:
@@ -1264,10 +1263,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         else:
             step = int(np.log10(len(offsets))) + 1  # reduce points
         name = self.__dict__.get('name', None) if name is None else name  # debug params
-        init = calc_max_refractor(offsets[::step], times[::step], max_refractors, min_offsets_diff,
-                                    min_velocity_diff, min_points_percentile, weathering=weathering,
-                                    name=name, plot_last=True)
-        n_refractors = 1 if init is None else len(init) // 2
+        init = calc_max_refractors_params(offsets[::step], times[::step], max_refractors, min_offsets_diff,
+                                          min_velocity_diff, min_points_percentile, weathering=weathering,
+                                          name=name, plot_last=True)
         if as_init:
             return init
-        return n_refractors
+        return len(init) // 2
