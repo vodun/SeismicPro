@@ -10,7 +10,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .metrics import Metric
 from ..const import HDR_DEAD_TRACE, EPS, HDR_FIRST_BREAK
-from .utils import fill_nulls, calc_spikes, get_val_subseq, get_const_subseq, rms_2_windows_ratio
+from .utils import fill_leading_nulls, get_val_subseq, get_const_subseq, rms_2_windows_ratio, mute_and_norm
 from ..gather.utils import times_to_indices
 
 
@@ -301,14 +301,6 @@ def plot_worst_trace(ax, traces, trace_numbers, indicators, max_is_worse, std=0.
     ax.invert_yaxis()
 
 
-def mute_and_norm(gather, first_breaks_col=HDR_FIRST_BREAK):
-    """Mute direct wave using `first_breaks_col` and normalise"""
-    if first_breaks_col not in gather.headers:
-        raise RuntimeError("First breaks not loaded into", first_breaks_col)
-
-    muter = gather.create_muter(first_breaks_col=first_breaks_col)
-    return gather.copy().mute(muter=muter, fill_value=np.nan).scale_standard()
-
 class SpikesMetric(TracewiseMetric):
     """Spikes detection."""
     name = "spikes"
@@ -327,10 +319,12 @@ class SpikesMetric(TracewiseMetric):
     def _get_res(gather, **kwargs):
         """QC indicator implementation."""
         _ = kwargs
-        traces = gather.data.copy()
-        fill_nulls(traces)
+        traces = gather.data
+        fill_leading_nulls(traces)
 
-        res = calc_spikes(traces)
+        running_mean = (traces[:, 1:-1] + traces[:, 2:] + traces[:, :-2])/3
+        res = np.abs(traces[:, 1:-1] - running_mean)
+
         return np.pad(res, ((0,0), (1, 1)))
 
 class AutocorrMetric(TracewiseMetric):

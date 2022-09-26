@@ -10,7 +10,7 @@ from numba import njit
 from matplotlib import pyplot as plt
 from matplotlib import colors, cm
 
-from ..const import EPS
+from ..const import EPS, HDR_FIRST_BREAK
 from ..utils import to_list, get_first_defined, Coordinates
 
 
@@ -74,15 +74,17 @@ def parse_metric_values(metric_values, metric_name=None, metric_type=None):
     metric_name = get_first_defined(metric_name, data_metric_name, getattr(metric_type, "name"), "metric")
     return metric_values, metric_name
 
+def mute_and_norm(gather, first_breaks_col=HDR_FIRST_BREAK):
+    """Mute direct wave using `first_breaks_col` and normalise"""
+    if first_breaks_col not in gather.headers:
+        raise RuntimeError("First breaks not loaded into", first_breaks_col)
 
-def calc_spikes(arr):
-    """Calculate spikes indicator."""
-    running_mean = (arr[:, 1:-1] + arr[:, 2:] + arr[:, :-2])/3
-    return np.abs(arr[..., 1:-1] - running_mean)
+    muter = gather.create_muter(first_breaks_col=first_breaks_col)
+    return gather.copy().mute(muter=muter, fill_value=np.nan).scale_standard()
 
 
 @njit
-def fill_nulls(arr):
+def fill_leading_nulls(arr):
     """"Fill leading null values of array's row with the first non null value in a row."""
 
     n_samples = arr.shape[1]

@@ -636,7 +636,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     # pylint: disable=anomalous-backslash-in-string
     def load_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col=HDR_FIRST_BREAK,
                           delimiter='\s+', decimal=None, encoding="UTF-8",
-                          inplace=False, keep_missing_fb=False, **kwargs):
+                          inplace=False, keep_all_traces=False, **kwargs):
         """Load times of first breaks from a file and save them to a new column in headers.
 
         Each line of the file stores the first break time for a trace in the last column.
@@ -663,7 +663,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             File encoding.
         inplace : bool, optional, defaults to False
             Whether to load first break times inplace or to a survey copy.
-        keep_missing_fb : bool, optional, defaults to False
+        keep_all_traces : bool, optional, defaults to False
             Whether to keep traces with missing first breaks in the resulting survey.
         kwargs : misc, optional
             Additional keyword arguments to pass to `pd.read_csv`.
@@ -693,7 +693,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         headers = self.headers
         headers_index = self.indexed_by
         headers.reset_index(inplace=True)
-        headers = headers.merge(first_breaks_df, on=trace_id_cols, how='left' if keep_missing_fb else 'inner')
+        headers = headers.merge(first_breaks_df, on=trace_id_cols, how='left' if keep_all_traces else 'inner')
         if headers.empty:
             raise ValueError('Empty headers after first breaks loading.')
         headers.set_index(headers_index, inplace=True)
