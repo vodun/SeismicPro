@@ -96,22 +96,16 @@ class TracewiseMetric(Metric):
         return fn(tw_res)
 
     @classmethod
-    def calc(cls, gather, from_headers=False, **kwargs): # pylint: disable=arguments-renamed
+    def calc(cls, gather, from_headers=False, tracewise=False, **kwargs): # pylint: disable=arguments-renamed
         """Return an already calculated metric."""
         res = cls.get_res(gather, from_headers=from_headers, **kwargs)
-        return cls.aggr(res, tracewise=False)
-
-    @classmethod
-    def calc_tw(cls, gather, from_headers=False, **kwargs): # pylint: disable=arguments-renamed
-        """Return an already calculated metric."""
-        res = cls.get_res(gather, from_headers=from_headers, **kwargs)
-        return cls.aggr(res, tracewise=True)
+        return cls.aggr(res, tracewise=tracewise)
 
     def plot_res(self, coords, ax, **kwargs):
         """Gather plot with tracewise indicator on a separate axis"""
         gather = self.survey.get_gather(coords)
 
-        res = self.calc_tw(gather, **kwargs)
+        res = self.calc(gather, tracewise=True, **kwargs)
 
         gather = self.preprocess(gather, **kwargs)
         gather.plot(ax=ax)
@@ -157,7 +151,7 @@ class TracewiseMetric(Metric):
     def plot_worst_trace(self, coords, ax, **kwargs):
         """Wiggle plot of the trace with the worst indicator value and 2 its neighboring traces."""
         gather = self.survey.get_gather(coords)
-        res = self.calc_tw(gather, **kwargs)
+        res = self.calc(gather, tracewise=True, **kwargs)
 
         gather = self.preprocess(gather, **kwargs)
         plot_worst_trace(ax, gather.data, gather.headers.TraceNumber.values, res, self.is_lower_better)
