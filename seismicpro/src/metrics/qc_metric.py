@@ -438,13 +438,11 @@ class TraceSinalToNoiseRMSRatio(TracewiseMetric):
             fb_high = gather.samples[-1]
             fb_low = gather.samples[0]
 
-        i1, i2, i3, i4 = times_to_indices(np.asarray([gather.samples[0], n_start, n_start + win_size, fb_high]),
+        n_beg, n_end = times_to_indices(np.asarray([max(gather.samples[0], n_start), min(n_start + win_size, fb_high)]),
                                           gather.samples).astype(int)
-        n_beg, n_end = max(i1, i2), min(i3, i4)
 
-        i1, i2, i3, i4 = times_to_indices(np.asarray([fb_low, s_start, s_start + win_size, gather.samples[-1]]),
+        s_beg, s_end = times_to_indices(np.asarray([max(fb_low, s_start), min(s_start + win_size, gather.samples[-1])]),
                                           gather.samples).astype(int)
-        s_beg, s_end = max(i1, i2), min(i3, i4)
 
         n_begs = np.full(gather.n_traces, fill_value=n_beg, dtype=int)
         s_begs = np.full(gather.n_traces, fill_value=s_beg, dtype=int)
