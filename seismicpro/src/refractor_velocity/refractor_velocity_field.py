@@ -104,7 +104,7 @@ class RefractorVelocityField(SpatialField):
         super().__init__(items, survey, is_geographic, auto_create_interpolator)
 
     @classmethod
-    def from_survey(cls, survey, rv_kwargs, is_geographic=None, refine_kwargs=None, fb_col=HDR_FIRST_BREAK, bar=True):
+    def from_survey(cls, survey, rv_init, is_geographic=None, refine_kwargs=None, fb_col=HDR_FIRST_BREAK, bar=True):
         if len(survey.indices) < 1:
             raise ValueError("Survey is empty.")
         rv_list = []
@@ -114,7 +114,7 @@ class RefractorVelocityField(SpatialField):
             offsets = gather_headers['offset'].to_numpy()
             times = gather_headers[fb_col].to_numpy()
             coords_value = get_cols(gather_headers, coords_name)[0] # use __getitem__ code from TraceContainer
-            rv = RefractorVelocity.from_first_breaks(offsets, times, **rv_kwargs)
+            rv = RefractorVelocity.from_first_breaks(offsets, times, init=rv_init)
             rv.coords = Coordinates(names=coords_name, coords=coords_value)
             rv_list.append(rv)
         rv_field = cls(items=rv_list, survey=survey, is_geographic=is_geographic)
