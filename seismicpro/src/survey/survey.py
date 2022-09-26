@@ -20,7 +20,7 @@ from sklearn.linear_model import LinearRegression
 from .headers import load_headers
 from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
-from .utils import ibm_to_ieee, calculate_trace_stats, binarization_offsets, calc_max_refractors_params
+from .utils import ibm_to_ieee, calculate_trace_stats, binarization_offsets, calc_max_refractors_rv
 from ..gather import Gather
 from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
@@ -1250,22 +1250,35 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
 
-    def calc_n_refractors(self, min_offsets_diff=300, min_velocity_diff=300, min_points_percentile=.01,
-                          max_refractors=10, fb_col=HDR_FIRST_BREAK, binarization=False, as_init=False, name=None,
-                          weathering=False):
+    def calc_n_refractors(self, min_offsets_diff=300, min_velocity_diff=300, min_points_percentile=.02,
+                          max_refractors=10, fb_col=HDR_FIRST_BREAK, binarization=False, as_params=False, name=None,
+                          weathering=False, plot_last=False):
         if len(self.indices) < 1:
             raise ValueError("Object is empty")
         offsets = self.headers['offset'].ravel()
         times = self.headers[fb_col].ravel()
-        if binarization:
+        # reduce points
+        if binarization:# remove maybe
             offsets, times = binarization_offsets(offsets, times)
             step = 1
         else:
-            step = int(np.log10(len(offsets))) + 1  # reduce points
+            step = int(np.log10(len(offsets))) + 1
+
         name = self.__dict__.get('name', None) if name is None else name  # debug params
-        init = calc_max_refractors_params(offsets[::step], times[::step], max_refractors, min_offsets_diff,
-                                          min_velocity_diff, min_points_percentile, weathering=weathering,
-                                          name=name, plot_last=True)
-        if as_init:
-            return init
-        return len(init) // 2
+        rv = calc_max_refractors_rv(offsets[::step], times[::step], max_refractors, min_offsets_diff,
+                                        min_velocity_diff, min_points_percentile, name=name, plot_last=plot_last,
+                                        )
+        if weathering:
+            init = {'x1': 150, 'v1': rv.v1 / 2}
+            bounds = {'v1': [1, rv.v1], 'x1': [1, 300]}
+            min_points_percentile /= 2
+            start_refractors = max(rv.n_refractors, 2)
+            weathering_rv = calc_max_refractors_rv(offsets[::step], times[::step], max_refractors, min_offsets_diff,
+                                    min_velocity_diff, min_points_percentile, start_refractors=start_refractors,
+                                    init=init, bounds=bounds,
+                                    name=name, plot_last=plot_last) # debug
+            if weathering_rv is not None:
+                rv = weathering_rv
+        if as_params:
+            return rv.params
+        return rv.n_refractors
