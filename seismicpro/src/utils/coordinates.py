@@ -46,7 +46,7 @@ def get_coords_cols(index_cols):
 
 
 def get_coord_cols_by_alias(alias):
-    """Convert `alias`` to names of columns with coordinates.
+    """Convert `alias` to names of columns with coordinates.
 
     Parameters
     ----------

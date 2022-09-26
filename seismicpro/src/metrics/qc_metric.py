@@ -46,7 +46,7 @@ class TracewiseMetric(Metric):
 
     @classmethod
     def preprocess(cls, gather, **kwargs):
-        """Preprocess gather for calculatingh metric. Identity by default."""
+        """Preprocess gather for calculating metric. Identity by default."""
         _ = kwargs
         return gather
 
@@ -111,8 +111,7 @@ class TracewiseMetric(Metric):
         """Gather plot with tracewise indicator on a separate axis"""
         gather = self.survey.get_gather(coords)
 
-        res = self.get_res(gather, from_headers=False, **kwargs)
-        res = self.aggr(res, tracewise=True)
+        res = self.calc_tw(gather, **kwargs)
 
         gather = self.preprocess(gather, **kwargs)
         gather.plot(ax=ax)
@@ -158,8 +157,7 @@ class TracewiseMetric(Metric):
     def plot_worst_trace(self, coords, ax, **kwargs):
         """Wiggle plot of the trace with the worst indicator value and 2 its neighboring traces."""
         gather = self.survey.get_gather(coords)
-        res = self.get_res(gather, from_headers=False, **kwargs)
-        res = self.aggr(res, tracewise=True)
+        res = self.calc_tw(gather, **kwargs)
 
         gather = self.preprocess(gather, **kwargs)
         plot_worst_trace(ax, gather.data, gather.headers.TraceNumber.values, res, self.is_lower_better)
@@ -531,7 +529,7 @@ class TraceSinalToNoiseRMSRatioAdaptive(TracewiseMetric):
     def _get_res(gather, win_size=100, shift_up=10, shift_down=200, **kwargs):
         """QC indicator implementation."""
 
-        n_begs, s_begs = TraceSinalToNoiseRMSRatioAdaptive._get_indices(gather,  win_size, shift_up, shift_down)
+        n_begs, s_begs = TraceSinalToNoiseRMSRatioAdaptive._get_indices(gather, win_size, shift_up, shift_down)
 
         s_begs[np.isnan(s_begs)] = -1
         n_begs[np.isnan(n_begs)] = -1

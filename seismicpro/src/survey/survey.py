@@ -944,9 +944,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                           "Run `remove_dead_traces` first.", RuntimeWarning)
 
         if not isinstance(metrics, dict):
-            metrics = to_list(metrics)
-            metrics = list(set(metrics)) # Remove duplicates in metrics_list
-            metrics = {metric_cls: {} for metric_cls in metrics}
+           metrics = {metric_cls: {} for metric_cls in to_list(metrics)}
 
         for metric_cls in metrics:
             if not issubclass(metric_cls, TracewiseMetric):
@@ -958,7 +956,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         buf = {metric_cls.__name__: [] for metric_cls in metrics}
         n_chunks = n_traces // chunk_size + (1 if n_traces % chunk_size else 0)
         for i in tqdm(range(n_chunks)):
-            headers = self.headers.iloc[i*chunk_size:min(n_traces, (i+1)*chunk_size)]
+            headers = self.headers.iloc[i*chunk_size:(i+1)*chunk_size]
             raw_gather = self.load_gather(headers)
 
             for metric_cls, kwargs in metrics.items():
