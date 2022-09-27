@@ -70,12 +70,13 @@ def _is_all_refractors_valid(rv, min_offsets_diff, min_velocity_diff, min_points
 
 def calc_max_refractors_rv(offsets, times, max_refractors, min_offsets_diff, min_velocity_diff,
                                min_points_percentile, start_refractors=1, name=None,
-                               plot_last=False, init=None, bounds=None): # name and plot_last is debug features 
+                               plot_last=False, init=None, bounds=None): # name and plot_last is debug features
                                # weathering=False,
     name = str(name)   # debug feature
     rv = None # debug feature
     for refractor in range(start_refractors, max_refractors + 1):
-        rv_last = RefractorVelocity.from_first_breaks(offsets, times, n_refractors=refractor, init=init, bounds=bounds, tol=1e-6)
+        rv_last = RefractorVelocity.from_first_breaks(offsets, times, n_refractors=refractor, init=init, bounds=bounds,
+                                                      tol=1e-6)
         if _is_all_refractors_valid(rv_last, min_offsets_diff, min_velocity_diff, min_points_percentile):
             rv = rv_last
         else:
