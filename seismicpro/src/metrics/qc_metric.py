@@ -303,9 +303,9 @@ class SpikesMetric(TracewiseMetric):
     threshold=2
 
     @classmethod
-    def preprocess(cls, gather, first_breaks_col=HDR_FIRST_BREAK, **kwargs):
+    def preprocess(cls, gather, muter_col=HDR_FIRST_BREAK, **kwargs):
         _ = kwargs
-        return mute_and_norm(gather, first_breaks_col)
+        return mute_and_norm(gather, muter_col)
 
     @staticmethod
     def _get_res(gather, **kwargs):
@@ -326,9 +326,9 @@ class AutocorrMetric(TracewiseMetric):
     threshold = 0.9
 
     @classmethod
-    def preprocess(cls, gather, first_breaks_col=HDR_FIRST_BREAK, **kwargs):
+    def preprocess(cls, gather, muter_col=HDR_FIRST_BREAK, **kwargs):
         _ = kwargs
-        return mute_and_norm(gather, first_breaks_col)
+        return mute_and_norm(gather, muter_col)
 
     @staticmethod
     def _get_res(gather, **kwargs):
@@ -423,20 +423,20 @@ class TraceSinalToNoiseRMSRatio(TracewiseMetric):
     views = 'plot'
 
     @staticmethod
-    def _get_indices(gather, win_size, n_start, s_start, mask):
+    def _get_indices(gather, win_size, n_start, s_start, mask, first_breaks_col):
         """Convert times to use for noise and signal windows into indices"""
-        if HDR_FIRST_BREAK in gather.headers:
-            fb_high = gather.headers[HDR_FIRST_BREAK][mask].min()
-            fb_low = gather.headers[HDR_FIRST_BREAK][mask].max()
+        if first_breaks_col in gather.headers:
+            fb_high = gather.headers[first_breaks_col][mask].min()
+            fb_low = gather.headers[first_breaks_col][mask].max()
         else:
             fb_high = gather.samples[-1]
             fb_low = gather.samples[0]
 
         n_beg, n_end = times_to_indices(np.asarray([max(gather.samples[0], n_start), min(n_start + win_size, fb_high)]),
-                                          gather.samples).astype(int)
+                                        gather.samples).astype(int)
 
         s_beg, s_end = times_to_indices(np.asarray([max(fb_low, s_start), min(s_start + win_size, gather.samples[-1])]),
-                                          gather.samples).astype(int)
+                                        gather.samples).astype(int)
 
         n_begs = np.full(gather.n_traces, fill_value=n_beg, dtype=int)
         s_begs = np.full(gather.n_traces, fill_value=s_beg, dtype=int)
@@ -445,12 +445,14 @@ class TraceSinalToNoiseRMSRatio(TracewiseMetric):
         return n_begs, s_begs, win_size
 
     @staticmethod
-    def _get_res(gather, offsets, win_size=100, n_start=10, s_start=1500, **kwargs):
+    def _get_res(gather, offsets, win_size, n_start, s_start, first_breaks_col=HDR_FIRST_BREAK, **kwargs):
         """QC indicator implementation."""
+        _ = kwargs
 
         mask = ((gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1]))
 
-        n_begs, s_begs, win_size = TraceSinalToNoiseRMSRatio._get_indices(gather, win_size, n_start, s_start, mask)
+        n_begs, s_begs, win_size = TraceSinalToNoiseRMSRatio._get_indices(gather, win_size, n_start, s_start,
+                                                                          mask, first_breaks_col)
 
         s_begs[~mask] = -1
         n_begs[~mask] = -1
@@ -459,13 +461,12 @@ class TraceSinalToNoiseRMSRatio(TracewiseMetric):
 
         return res
 
-    def plot(self, coords, ax, offsets, win_size=100, n_start=10, s_start=1500, **kwargs):
+    def plot(self, coords, ax, offsets, win_size, n_start, s_start, first_breaks_col=HDR_FIRST_BREAK, **kwargs):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
         gather = self.survey.get_gather(coords)
 
-        res = self.get_res(gather, from_headers=False, offsets=offsets,
-                           win_size=win_size, n_start=n_start, s_start=s_start, **kwargs)
-        res = self.aggr(res, tracewise=True)
+        res = self.calc(gather, from_headers=False, tracewise=True, offsets=offsets, win_size=win_size,
+                        n_start=n_start, s_start=s_start, first_breaks_col=first_breaks_col, **kwargs)
 
         gather = self.preprocess(gather, **kwargs)
         order = np.argsort(gather.offsets.ravel(), kind='stable')
@@ -484,7 +485,7 @@ class TraceSinalToNoiseRMSRatio(TracewiseMetric):
         mask = (gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1])
         offs_ind = np.nonzero(mask)[0]
 
-        n_begs, s_begs, win_size = TraceSinalToNoiseRMSRatio._get_indices(gather, win_size, n_start, s_start, mask)
+        n_begs, s_begs, win_size = self._get_indices(gather, win_size, n_start, s_start, mask, first_breaks_col)
 
         n_rec = (offs_ind[0], n_begs[0]), len(offs_ind), win_size
         ax.add_patch(patches.Rectangle(*n_rec, linewidth=1, edgecolor='magenta', facecolor='none'))
@@ -502,9 +503,12 @@ class TraceSinalToNoiseRMSRatioAdaptive(TracewiseMetric):
     views = 'plot'
 
     @staticmethod
-    def _get_indices(gather,  win_size, shift_up, shift_down):
+    def _get_indices(gather,  win_size, shift_up, shift_down, first_breaks_col):
         """Convert times to use for noise and signal windows into indices"""
-        fbp = gather.headers[HDR_FIRST_BREAK].values
+        if first_breaks_col not in gather.headers:
+            raise RuntimeError(f"{first_breaks_col} not in headers")
+
+        fbp = gather.headers[first_breaks_col].values
 
         noise_beg = fbp - shift_up - win_size
         noise_beg[noise_beg < 0] = np.nan
@@ -518,10 +522,12 @@ class TraceSinalToNoiseRMSRatioAdaptive(TracewiseMetric):
         return n_begs, s_begs
 
     @staticmethod
-    def _get_res(gather, win_size=100, shift_up=10, shift_down=200, **kwargs):
+    def _get_res(gather, win_size, shift_up, shift_down, first_breaks_col=HDR_FIRST_BREAK, **kwargs):
         """QC indicator implementation."""
+        _ = kwargs
 
-        n_begs, s_begs = TraceSinalToNoiseRMSRatioAdaptive._get_indices(gather, win_size, shift_up, shift_down)
+        n_begs, s_begs = TraceSinalToNoiseRMSRatioAdaptive._get_indices(gather, win_size,
+                                                                        shift_up, shift_down, first_breaks_col)
 
         s_begs[np.isnan(s_begs)] = -1
         n_begs[np.isnan(n_begs)] = -1
@@ -532,12 +538,12 @@ class TraceSinalToNoiseRMSRatioAdaptive(TracewiseMetric):
 
         return res
 
-    def plot(self, coords, ax,  win_size=100, shift_up=10, shift_down=200, **kwargs):
+    def plot(self, coords, ax,  win_size, shift_up, shift_down, first_breaks_col=HDR_FIRST_BREAK, **kwargs):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
         gather = self.survey.get_gather(coords)
 
-        res = self.get_res(gather, from_headers=False, win_size=win_size, shift_up=shift_up, shift_down=shift_down, **kwargs)
-        res = self.aggr(res, tracewise=True)
+        res = self.calc(gather, from_headers=False, tracewise=True, win_size=win_size,
+                        shift_up=shift_up, shift_down=shift_down, first_breaks_col=first_breaks_col, **kwargs)
 
         gather = self.preprocess(gather, **kwargs)
         order = np.argsort(gather.offsets.ravel(), kind='stable')
@@ -553,7 +559,7 @@ class TraceSinalToNoiseRMSRatioAdaptive(TracewiseMetric):
         if self.threshold is not None:
             top_ax.axhline(self.threshold, alpha=0.5)
 
-        n_begs, s_begs = TraceSinalToNoiseRMSRatioAdaptive._get_indices(gather, win_size, shift_up, shift_down)
+        n_begs, s_begs = self._get_indices(gather, win_size, shift_up, shift_down, first_breaks_col)
 
         n_begs[np.isnan(s_begs)] = np.nan
         s_begs[np.isnan(n_begs)] = np.nan
