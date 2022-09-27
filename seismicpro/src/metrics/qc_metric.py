@@ -411,6 +411,10 @@ class StdFraqMetricGlob(TracewiseMetric):
     def _get_res(gather, **kwargs):
         """QC indicator implementation."""
         _ = kwargs
+
+        if not gather.survey.has_stats:
+            raise RuntimeError('Global statistics were not calculated, call `Survey.collect_stats` first.')
+
         res = np.log10(gather.data.std(axis=1) / gather.survey.std)
         return res
 

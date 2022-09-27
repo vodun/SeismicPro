@@ -944,7 +944,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                           "Run `remove_dead_traces` first.", RuntimeWarning)
 
         if not isinstance(metrics, dict):
-           metrics = {metric_cls: {} for metric_cls in to_list(metrics)}
+            metrics = {metric_cls: {} for metric_cls in to_list(metrics)}
 
         for metric_cls in metrics:
             if not issubclass(metric_cls, TracewiseMetric):
