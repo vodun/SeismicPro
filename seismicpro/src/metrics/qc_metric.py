@@ -429,7 +429,7 @@ class TraceSinalToNoiseRMSRatio(TracewiseMetric):
     @staticmethod
     def _get_indices(gather, win_size, n_start, s_start, mask, first_breaks_col):
         """Convert times to use for noise and signal windows into indices"""
-        if first_breaks_col in gather.headers:
+        if first_breaks_col is not None and first_breaks_col in gather.headers:
             fb_high = gather.headers[first_breaks_col][mask].min()
             fb_low = gather.headers[first_breaks_col][mask].max()
         else:
@@ -449,7 +449,7 @@ class TraceSinalToNoiseRMSRatio(TracewiseMetric):
         return n_begs, s_begs, win_size
 
     @staticmethod
-    def _get_res(gather, offsets, win_size, n_start, s_start, first_breaks_col=HDR_FIRST_BREAK, **kwargs):
+    def _get_res(gather, offsets, win_size, n_start, s_start, first_breaks_col=None, **kwargs):
         """QC indicator implementation."""
         _ = kwargs
 
@@ -465,7 +465,7 @@ class TraceSinalToNoiseRMSRatio(TracewiseMetric):
 
         return res
 
-    def plot(self, coords, ax, offsets, win_size, n_start, s_start, first_breaks_col=HDR_FIRST_BREAK, **kwargs):
+    def plot(self, coords, ax, offsets, win_size, n_start, s_start, first_breaks_col=None, **kwargs):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
         gather = self.survey.get_gather(coords)
 
