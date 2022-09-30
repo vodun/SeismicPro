@@ -43,6 +43,7 @@ def ibm_to_ieee(hh, hl, lh, ll):
     return res
 
 def binarization_offsets(offsets, times, step=20):
+    """Binarize offsets-times points."""
     bins = np.arange(0, offsets.max() + step, step=step)
     mean_offsets = np.arange(bins.shape[0]) * step + step / 2
     mean_time = np.full(shape=bins.shape[0], fill_value=np.nan)
@@ -53,6 +54,11 @@ def binarization_offsets(offsets, times, step=20):
     return mean_offsets[~nan_mask], mean_time[~nan_mask]
 
 def _is_all_refractors_valid(rv, min_offsets_diff, min_velocity_diff, min_points_percentile):
+    """Check all refractors in given RefractorVelocity for next conditions:
+    - crossoffsets and max_offsets are no closer than 'min_offsets_diff'
+    - velocity is raised more than 'min_velocity_diff'
+    - percentage of points in each refractor not less than 'min_points_percentile'
+    """
     cross_offsets_diff = np.diff(rv.piecewise_offsets[1:]) # except 0
     velocity_diff = np.diff(list(rv.params.values())[rv.n_refractors:])
     points, _ = np.histogram(rv.offsets, rv.piecewise_offsets)
@@ -68,19 +74,19 @@ def _is_all_refractors_valid(rv, min_offsets_diff, min_velocity_diff, min_points
         return True
     return False
 
-def calc_max_refractors_rv(offsets, times, max_refractors, min_offsets_diff, min_velocity_diff,
-                               min_points_percentile, start_refractors=1, name=None,
-                               plot_last=False, init=None, bounds=None): # name and plot_last is debug features
-                               # weathering=False,
+def calc_max_refractors_rv(offsets, times, min_offsets_diff, min_velocity_diff, min_points_percentile,
+                           start_refractor=1, max_refractors=10, init=None, bounds=None,
+                           name=None, plot_last=False):  # name and plot_last is debug features
+    """Calculate RefractorVelocity which have maximum number of refractor based on given constraints.    
+    """
     name = str(name)   # debug feature
-    rv = None # debug feature
-    for refractor in range(start_refractors, max_refractors + 1):
-        rv_last = RefractorVelocity.from_first_breaks(offsets, times, n_refractors=refractor, init=init, bounds=bounds,
-                                                      tol=1e-6)
+    rv = None
+    for refractor in range(start_refractor, max_refractors + 1):
+        rv_last = RefractorVelocity.from_first_breaks(offsets, times, n_refractors=refractor, init=init, bounds=bounds)
         if _is_all_refractors_valid(rv_last, min_offsets_diff, min_velocity_diff, min_points_percentile):
             rv = rv_last
         else:
             break
-    if plot_last and rv is not None:   # debug feature
+    if plot_last and rv is not None:  # debug feature
         rv.plot(title=name)
     return rv

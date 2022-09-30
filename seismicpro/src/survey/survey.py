@@ -1258,7 +1258,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         offsets = self.headers['offset'].ravel()
         times = self.headers[fb_col].ravel()
         # reduce points
-        if binarization:# remove maybe
+        if binarization:  # remove maybe
             offsets, times = binarization_offsets(offsets, times)
             step = 1
         else:
@@ -1266,15 +1266,14 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         name = self.__dict__.get('name', None) if name is None else name  # debug params
         rv = calc_max_refractors_rv(offsets[::step], times[::step], max_refractors, min_offsets_diff,
-                                        min_velocity_diff, min_points_percentile, name=name, plot_last=plot_last,
-                                        )
+                                    min_velocity_diff, min_points_percentile, name=name, plot_last=plot_last)
         if weathering:  # try to find the weathering layer
             init = {'x1': 150, 'v1': rv.v1 / 2}
-            bounds = {'v1': [1, rv.v1], 'x1': [1, 300]}
+            bounds = {'x1': [1, 300], 'v1': [1, rv.v1]}
             min_points_percentile /= 2
-            start_refractors = max(rv.n_refractors, 2)
+            start_refractor = max(rv.n_refractors, 2)
             weathering_rv = calc_max_refractors_rv(offsets[::step], times[::step], max_refractors, min_offsets_diff,
-                                    min_velocity_diff, min_points_percentile, start_refractors=start_refractors,
+                                    min_velocity_diff, min_points_percentile, start_refractor=start_refractor,
                                     init=init, bounds=bounds,
                                     name=name, plot_last=plot_last) # debug
             if weathering_rv is not None and weathering_rv.fit_result.fun < rv.fit_result.fun:
