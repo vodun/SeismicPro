@@ -28,7 +28,6 @@ class TracewiseMetric(Metric):
     threshold = None
     top_ax_y_scale='linear'
 
-
     def __init__(self, survey, coords_cols, **kwargs):
         super().__init__(**kwargs)
         self.survey = survey.reindex(coords_cols)
@@ -73,14 +72,14 @@ class TracewiseMetric(Metric):
 
     @classmethod
     def aggr(cls, res, tracewise=False):
-        """Aggregte input depending on `cls.is_lower_better`
+        """Aggregate input depending on `cls.is_lower_better`
 
         Parameters
         ----------
         res : np.array
             input 1d or 2d array
         tracewise : bool, optional
-            whether to return tracewise values, or to aggregate result for the whole gather, by default False
+            whether to return tracewise values, or to aggregate result for the whole gather.
 
         Returns
         -------
@@ -158,7 +157,6 @@ class TracewiseMetric(Metric):
         set_title(ax, gather)
 
 
-
 def set_title(ax, gather):
     """Set gather index as the axis title"""
     idx = np.unique(gather.headers.index.values)
@@ -196,7 +194,7 @@ def wiggle_plot_with_filter(traces, mask, ax, std=0.1, **kwargs):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning)
         traces = std * ((traces - np.nanmean(traces, axis=1, keepdims=True)) /
-                        (np.nanstd(traces, axis=1, keepdims=True) + 1e-10))
+                        (np.nanstd(traces, axis=1, keepdims=True) + EPS))
     for i, trace in enumerate(traces):
         ax.plot(i + trace, y_coords, color='black', alpha=0.1, **kwargs)
         ax.fill_betweenx(y_coords, i, i + trace, where=(trace > 0), color='black', alpha=0.1, **kwargs)
@@ -207,7 +205,7 @@ def wiggle_plot_with_filter(traces, mask, ax, std=0.1, **kwargs):
 def blure_mask(flt, eps=EPS):
     """Blure filter values"""
     if np.any(flt == 1):
-        win_size = np.floor(min((np.prod(flt.shape)/np.sum(flt == 1)), np.min(flt.shape)/10)).astype(int)
+        win_size = np.floor(min((np.prod(flt.shape) / np.sum(flt == 1)), np.min(flt.shape) / 10)).astype(int)
 
         if win_size > 4:
             kernel_1d = signal.windows.gaussian(win_size, win_size//2)
@@ -299,8 +297,7 @@ class SpikesMetric(TracewiseMetric):
     min_value = 0
     max_value = None
     is_lower_better = True
-
-    threshold=2
+    threshold = 2
 
     @staticmethod
     def preprocess(gather, muter_col=HDR_FIRST_BREAK, **kwargs):
@@ -350,6 +347,7 @@ class TraceAbsMean(TracewiseMetric):
         _ = kwargs
         return np.abs(gather.data.mean(axis=1) / (gather.data.std(axis=1) + EPS))
 
+
 class TraceMaxAbs(TracewiseMetric):
     """Maximun absolute amplitude value."""
     name = "trace_maxabs"
@@ -369,7 +367,6 @@ class MaxClipsLenMetric(TracewiseMetric):
     min_value = 1
     max_value = None
     is_lower_better = True
-
     threshold = 3
 
     @staticmethod
@@ -386,6 +383,7 @@ class MaxClipsLenMetric(TracewiseMetric):
 
         return (res_plus + res_minus).astype(np.float32)
 
+
 class ConstLenMetric(TracewiseMetric):
     """Detecting constant subsequences"""
     name = "const_len"
@@ -398,6 +396,7 @@ class ConstLenMetric(TracewiseMetric):
         _ = kwargs
         res = get_const_subseq(gather.data)
         return res.astype(np.float32)
+
 
 class StdFraqMetricGlob(TracewiseMetric):
     """Traces std relative to survey's std, log10 scale"""
