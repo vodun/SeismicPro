@@ -242,7 +242,7 @@ def test_gather_scale_minmax(gather, tracewise, use_global, use_muter, fill_valu
         kwargs = dict(axis=(1 if tracewise else None), keepdims=True)
         vmin, vmax = np.nanmin(gather2.data, **kwargs), np.nanmax(gather2.data, **kwargs)
 
-    gather2.data = (gather2.data - vmin)/(vmax - vmin + EPS)
+    gather2.data = (gather2.data - vmin) / (vmax - vmin + EPS)
 
     compare_gathers(gather, gather2)
 

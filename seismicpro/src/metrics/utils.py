@@ -92,7 +92,7 @@ def fill_leading_nulls(arr):
     for i in range(arr.shape[0]):
         nan_indices = np.nonzero(np.isnan(arr[i]))[0]
         if len(nan_indices) > 0:
-            j = nan_indices[-1]+1
+            j = nan_indices[-1] + 1
             if j < n_samples:
                 arr[i, :j] = arr[i, j]
 
@@ -120,7 +120,6 @@ def get_val_subseq(traces, cmpval):
 
     return indicators.reshape(*old_shape)
 
-
 @njit(nogil=True)
 def get_const_subseq(traces):
     """Indicator of constant subsequences."""
@@ -137,7 +136,7 @@ def get_const_subseq(traces):
                 counter += 1
             else:
                 if counter > 0:
-                    indicators[t, i - counter - 1: i] = counter + 1
+                    indicators[t, i - counter - 1:i] = counter + 1
                 counter = 0
 
         if counter > 0:
