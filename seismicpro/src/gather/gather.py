@@ -671,8 +671,8 @@ class Gather(TraceContainer, SamplesContainer):
 
         Returns
         -------
-        self : TraceContainer
-            TraceContainer unchanged
+        self : Gather
+            Gather unchanged
         """
 
         rows = self[to_list(trace_id_cols) + [header_col]]

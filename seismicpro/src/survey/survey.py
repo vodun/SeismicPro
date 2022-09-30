@@ -932,7 +932,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Returns
         -------
         Survey
-            Survey with matrics written to headers
+            Survey with metrics written to headers
 
         Raises
         ------
