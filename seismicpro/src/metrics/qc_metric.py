@@ -44,8 +44,8 @@ class TracewiseMetric(Metric):
         """
         raise NotImplementedError
 
-    @classmethod
-    def preprocess(cls, gather, **kwargs):
+    @staticmethod
+    def preprocess(gather, **kwargs):
         """Preprocess gather for calculating metric. Identity by default."""
         _ = kwargs
         return gather
@@ -302,8 +302,8 @@ class SpikesMetric(TracewiseMetric):
 
     threshold=2
 
-    @classmethod
-    def preprocess(cls, gather, muter_col=HDR_FIRST_BREAK, **kwargs):
+    @staticmethod
+    def preprocess(gather, muter_col=HDR_FIRST_BREAK, **kwargs):
         _ = kwargs
         return mute_and_norm(gather, muter_col)
 
@@ -325,8 +325,8 @@ class AutocorrMetric(TracewiseMetric):
     is_lower_better = False
     threshold = 0.9
 
-    @classmethod
-    def preprocess(cls, gather, muter_col=HDR_FIRST_BREAK, **kwargs):
+    @staticmethod
+    def preprocess(gather, muter_col=HDR_FIRST_BREAK, **kwargs):
         _ = kwargs
         return mute_and_norm(gather, muter_col)
 

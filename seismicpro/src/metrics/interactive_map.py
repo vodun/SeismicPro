@@ -141,7 +141,7 @@ class SliderPlot(InteractivePlot):
     kwargs : misc, optional
         Additional keyword arguments to `InteractivePlot.__init__`.
     """
-    def __init__(self, *, slider_min, slider_max, slide_fn=None, **kwargs):
+    def __init__(self, *, slider_min, slider_max, slide_fn, **kwargs):
         self.slider = widgets.FloatRangeSlider(value=[slider_min, slider_max],
                                                min=slider_min, max=slider_max, step=(slider_max-slider_min)/100,
                                                continuous_update=False, description='',

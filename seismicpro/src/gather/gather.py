@@ -660,10 +660,10 @@ class Gather(TraceContainer, SamplesContainer):
         ----------
         path : str
             Path to the file.
-        trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
-            Columns names from `self.headers` that act as trace id. These would be present in the file.
         header_col : str
             Column name from `self.headers` to dump.
+        trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
+            Columns names from `self.headers` that act as trace id. These would be present in the file.
         col_space : int, defaults to 8
             The minimum width of each column.
         encoding : str, optional, defaults to "UTF-8"
