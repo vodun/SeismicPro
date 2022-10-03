@@ -128,7 +128,7 @@ def get_const_subseq(traces):
     traces = np.atleast_2d(traces)
 
     indicators = np.full_like(traces, fill_value=0, dtype=np.int16)
-    indicators[:, 1:] = (traces[..., 1:] == traces[..., :-1]).astype(np.int16)
+    indicators[:, 1:] = (traces[:, 1:] == traces[:, :-1]).astype(np.int16)
     for t, indicator in enumerate(indicators):
         counter = 0
         for i, sample in enumerate(indicator):

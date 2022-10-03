@@ -78,7 +78,7 @@ class TracewiseMetric(Metric):
         ----------
         res : np.array
             input 1d or 2d array
-        tracewise : bool, optional
+        tracewise : bool, optional, defaults to False
             whether to return tracewise values, or to aggregate result for the whole gather.
 
         Returns
@@ -314,7 +314,8 @@ class SpikesMetric(TracewiseMetric):
         running_mean = (traces[:, 1:-1] + traces[:, 2:] + traces[:, :-2])/3
         res = np.abs(traces[:, 1:-1] - running_mean)
 
-        return np.pad(res, ((0,0), (1, 1)))
+        return np.pad(res, ((0, 0), (1, 1)))
+
 
 class AutocorrMetric(TracewiseMetric):
     """Autocorrelation with shift 1"""
@@ -333,6 +334,7 @@ class AutocorrMetric(TracewiseMetric):
         _ = kwargs
         return (np.nansum(gather.data[...,1:] * gather.data[..., :-1], axis=1) /
                 (gather.n_samples - np.isnan(gather.data).sum(axis=1) + EPS))
+
 
 class TraceAbsMean(TracewiseMetric):
     """Absolute value of the traces mean."""
@@ -360,6 +362,7 @@ class TraceMaxAbs(TracewiseMetric):
         """QC indicator implementation."""
         _ = kwargs
         return np.max(np.abs(gather.data), axis=1) / (gather.data.std(axis=1) + EPS)
+
 
 class MaxClipsLenMetric(TracewiseMetric):
     """Detecting minimum/maximun clips"""
@@ -416,6 +419,7 @@ class StdFraqMetricGlob(TracewiseMetric):
 
         res = np.log10(gather.data.std(axis=1) / gather.survey.std)
         return res
+
 
 class TraceSinalToNoiseRMSRatio(TracewiseMetric):
     """ Signal to Noise RMS ratio computed using provided windows """
@@ -496,6 +500,7 @@ class TraceSinalToNoiseRMSRatio(TracewiseMetric):
         ax.add_patch(patches.Rectangle(*s_rec, linewidth=1, edgecolor='lime',facecolor='none'))
 
         set_title(top_ax, gather)
+
 
 class TraceSinalToNoiseRMSRatioAdaptive(TracewiseMetric):
     """ Signal to Noise RMS ratio computed using provided windows """
