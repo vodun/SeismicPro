@@ -216,7 +216,7 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
         xlim, ylim = calculate_axis_limits(coords_x), calculate_axis_limits(coords_y)
 
         def plot_map(*args, **kwargs):
-            kwargs = {'title':'', 'is_lower_better': self.is_lower_better,
+            kwargs = {'title': '', 'is_lower_better': self.is_lower_better,
                       'vmin': vmin, 'vmax': vmax,
                       'xlim': xlim, 'ylim': ylim,
                       **self.plot_map_kwargs,
