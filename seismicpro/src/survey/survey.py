@@ -1265,14 +1265,14 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             step = int(np.log10(len(offsets))) + 1
 
         name = self.__dict__.get('name', None) if name is None else name  # debug params
-        rv = calc_max_refractors_rv(offsets[::step], times[::step], max_refractors, min_offsets_diff,
+        rv = calc_max_refractors_rv(offsets[::step], times[::step], min_offsets_diff,
                                     min_velocity_diff, min_points_percentile, name=name, plot_last=plot_last)
         if weathering:  # try to find the weathering layer
             init = {'x1': 150, 'v1': rv.v1 / 2}
             bounds = {'x1': [1, 300], 'v1': [1, rv.v1]}
             min_points_percentile /= 2
             start_refractor = max(rv.n_refractors, 2)
-            weathering_rv = calc_max_refractors_rv(offsets[::step], times[::step], max_refractors, min_offsets_diff,
+            weathering_rv = calc_max_refractors_rv(offsets[::step], times[::step], min_offsets_diff,
                                     min_velocity_diff, min_points_percentile, start_refractor=start_refractor,
                                     init=init, bounds=bounds,
                                     name=name, plot_last=plot_last) # debug

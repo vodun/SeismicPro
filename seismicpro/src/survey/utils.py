@@ -77,10 +77,11 @@ def _is_all_refractors_valid(rv, min_offsets_diff, min_velocity_diff, min_points
 def calc_max_refractors_rv(offsets, times, min_offsets_diff, min_velocity_diff, min_points_percentile,
                            start_refractor=1, max_refractors=10, init=None, bounds=None,
                            name=None, plot_last=False):  # name and plot_last is debug features
-    """Calculate RefractorVelocity which have maximum number of refractor based on given constraints.    
+    """Calculate RefractorVelocity which have maximum number of refractor based on given constraints.
     """
     name = str(name)   # debug feature
     rv = None
+    # print(start_refractor, max_refractors)
     for refractor in range(start_refractor, max_refractors + 1):
         rv_last = RefractorVelocity.from_first_breaks(offsets, times, n_refractors=refractor, init=init, bounds=bounds)
         if _is_all_refractors_valid(rv_last, min_offsets_diff, min_velocity_diff, min_points_percentile):
