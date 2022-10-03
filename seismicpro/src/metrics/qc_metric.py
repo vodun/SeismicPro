@@ -50,12 +50,9 @@ class TracewiseMetric(Metric):
         return gather
 
     @classmethod
-    def get_res(cls, gather, from_headers=True, **kwargs):
+    def get_res(cls, gather, **kwargs):
         """Return QC indicator with zero traces masked with `np.nan`
         and output shape either `gater.data.shape`, or (`gather.n_traces`,)."""
-
-        if from_headers and cls.__name__ in gather.headers:
-            return np.stack(gather.headers[cls.__name__].values)
 
         gather = cls.preprocess(gather, **kwargs)
 
@@ -95,9 +92,9 @@ class TracewiseMetric(Metric):
         return fn(tw_res)
 
     @classmethod
-    def calc(cls, gather, from_headers=False, tracewise=False, **kwargs): # pylint: disable=arguments-renamed
+    def calc(cls, gather, tracewise=False, **kwargs): # pylint: disable=arguments-renamed
         """Return an already calculated metric."""
-        res = cls.get_res(gather, from_headers=from_headers, **kwargs)
+        res = cls.get_res(gather, **kwargs)
         return cls.aggr(res, tracewise=tracewise)
 
     def plot_res(self, coords, ax, **kwargs):
@@ -126,7 +123,7 @@ class TracewiseMetric(Metric):
         fn = np.greater_equal if self.is_lower_better else np.less_equal
 
         if self.threshold is not None:
-            res = fn(self.get_res(gather, from_headers=False, **kwargs), self.threshold)
+            res = fn(self.get_res(gather, **kwargs), self.threshold)
         else:
             res = np.zeros_like(gather.data)
 
@@ -472,7 +469,7 @@ class TraceSinalToNoiseRMSRatio(TracewiseMetric):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
         gather = self.survey.get_gather(coords)
 
-        res = self.calc(gather, from_headers=False, tracewise=True, offsets=offsets, win_size=win_size,
+        res = self.calc(gather, tracewise=True, offsets=offsets, win_size=win_size,
                         n_start=n_start, s_start=s_start, first_breaks_col=first_breaks_col, **kwargs)
 
         gather = self.preprocess(gather, **kwargs)
@@ -550,7 +547,7 @@ class TraceSinalToNoiseRMSRatioAdaptive(TracewiseMetric):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
         gather = self.survey.get_gather(coords)
 
-        res = self.calc(gather, from_headers=False, tracewise=True, win_size=win_size,
+        res = self.calc(gather, tracewise=True, win_size=win_size,
                         shift_up=shift_up, shift_down=shift_down, first_breaks_col=first_breaks_col, **kwargs)
 
         gather = self.preprocess(gather, **kwargs)

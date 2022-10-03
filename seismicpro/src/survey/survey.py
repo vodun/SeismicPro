@@ -960,7 +960,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             raw_gather = self.load_gather(headers)
 
             for metric_cls, kwargs in metrics.items():
-                metric_val = metric_cls.calc(raw_gather, from_headers=False, tracewise=True, **kwargs)
+                metric_val = metric_cls.calc(raw_gather, tracewise=True, **kwargs)
                 buf[metric_cls.__name__].append(metric_val)
 
         for name in buf:
