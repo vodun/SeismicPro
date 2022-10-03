@@ -3,6 +3,7 @@ location and allows for their spatial interpolation"""
 
 from textwrap import dedent
 from functools import partial, cached_property
+from turtle import Vec2D
 
 import numpy as np
 import pandas as pd
@@ -25,7 +26,7 @@ class RefractorVelocityField(SpatialField):
     interpolation can be performed by `RefractorVelocityField` which provides an interface to obtain a velocity model
     of an upper part of the section at given spatial coordinates via its `__call__` and `interpolate` methods.
 
-    A field can be populated with refractor velocities in 2 main ways:
+    A field can be populated with refractor velocities in 3 main ways:
     - by passing precalculated velocities in the `__init__`,
     - by creating an empty field and then iteratively updating it with estimated velocities using `update`.
 
@@ -104,23 +105,32 @@ class RefractorVelocityField(SpatialField):
         super().__init__(items, survey, is_geographic, auto_create_interpolator)
 
     @classmethod
-    def from_survey(cls, survey, rv_init, is_geographic=None, refine_kwargs=None, fb_col=HDR_FIRST_BREAK, bar=True):
+    def from_survey(cls, survey, is_geographic=None, init=None, bounds=None, n_refractors=None, max_offset=None,
+                    loss='L1', min_velocity_step=1, min_refractor_size=1, bar=True, huber_coef=20, tol=1e-5,
+                    fb_col=HDR_FIRST_BREAK, **kwargs):
+        """Calculate nearsurface velocity models for all gathers in the passed Survey.
+        """
         if len(survey.indices) < 1:
             raise ValueError("Survey is empty.")
         rv_list = []
-        coords_name = to_list(get_coords_cols(survey.indexed_by))
-        for idx in tqdm(survey.indices, desc="Calculate RefractorVelocityField", disable=not bar):
-            gather_headers = survey.get_headers_by_indices([idx])
-            offsets = gather_headers['offset'].to_numpy()
-            times = gather_headers[fb_col].to_numpy()
-            coords_value = get_cols(gather_headers, coords_name)[0] # use __getitem__ code from TraceContainer
-            rv = RefractorVelocity.from_first_breaks(offsets, times, init=rv_init)
-            rv.coords = Coordinates(names=coords_name, coords=coords_value)
+        coords_name = get_coords_cols(survey.indexed_by)
+        # get only the needed data from survey headers.
+        survey_data = survey[['offset', fb_col] + list(coords_name)]
+        max_offset = survey_data[:, 0].max() if max_offset is None else max_offset
+        for idx in tqdm(survey.indices, desc="Calculate velocity models", disable=not bar):
+            trace_idx = survey.get_traces_locs([idx])
+            gather_data = survey_data[trace_idx]
+            offsets = gather_data[:, 0]
+            times = gather_data[:, 1]
+            coords_value = gather_data[:, [2, 3]]
+            if (coords_value != coords_value[0]).any():
+                raise ValueError(f"Coordinates non-unique for gather with index {idx}.")
+            coords = Coordinates(names=coords_name, coords=coords_value[0])
+            rv = RefractorVelocity.from_first_breaks(offsets, times, init, bounds, n_refractors, max_offset,
+                                                     min_velocity_step, min_refractor_size, loss, huber_coef, tol,
+                                                     coords=coords, **kwargs)
             rv_list.append(rv)
-        rv_field = cls(items=rv_list, survey=survey, is_geographic=is_geographic)
-        if refine_kwargs is not None:  # maybe remove
-            rv_field = rv_field.refine(**refine_kwargs)
-        return rv_field
+        return cls(items=rv_list, survey=survey, is_geographic=is_geographic)
 
     @classmethod
     def from_file(cls, path, is_geographic=None, encoding="UTF-8"):
