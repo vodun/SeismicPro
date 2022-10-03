@@ -68,7 +68,7 @@ class TracewiseMetric(Metric):
         return res
 
     @classmethod
-    def aggr(cls, res, tracewise=False):
+    def aggregate(cls, res, tracewise=False):
         """Aggregate input depending on `cls.is_lower_better`
 
         Parameters
@@ -95,7 +95,7 @@ class TracewiseMetric(Metric):
     def calc(cls, gather, tracewise=False, **kwargs): # pylint: disable=arguments-renamed
         """Return an already calculated metric."""
         res = cls.get_res(gather, **kwargs)
-        return cls.aggr(res, tracewise=tracewise)
+        return cls.aggregate(res, tracewise=tracewise)
 
     def plot_res(self, coords, ax, **kwargs):
         """Gather plot with tracewise indicator on a separate axis"""
