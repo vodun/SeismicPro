@@ -3,7 +3,6 @@ location and allows for their spatial interpolation"""
 
 from textwrap import dedent
 from functools import partial, cached_property
-from turtle import Vec2D
 
 import numpy as np
 import pandas as pd
@@ -11,9 +10,9 @@ from tqdm.auto import tqdm
 
 from .refractor_velocity import RefractorVelocity
 from .interactive_plot import FitPlot
-from .utils import get_param_names, postprocess_params, calc_df_to_dump, load_rv, dump_rv
+from .utils import get_param_names, postprocess_params, dump_refractor_velocity, load_refractor_velocity_params
 from ..field import SpatialField
-from ..utils import to_list, get_coords_cols, get_cols, Coordinates, IDWInterpolator
+from ..utils import to_list, get_coords_cols, Coordinates, IDWInterpolator
 from ..const import HDR_FIRST_BREAK
 
 
@@ -214,7 +213,7 @@ class RefractorVelocityField(SpatialField):
         self : RefractorVelocityField
             RefractorVelocityField instance created from a file.
         """
-        coords_list, params_list, max_offset_list = load_rv(path, encoding)
+        coords_list, params_list, max_offset_list = load_refractor_velocity_params(path, encoding)
         rv_list = []
         for coords, params, max_offset in zip(coords_list, params_list, max_offset_list):
             rv = RefractorVelocity(max_offset=max_offset, coords=coords, **params)
@@ -270,6 +269,42 @@ class RefractorVelocityField(SpatialField):
             n_refractors_set.add(self.n_refractors)
         if len(n_refractors_set) != 1:
             raise ValueError("Each RefractorVelocity must describe the same number of refractors as the field")
+
+    @classmethod
+    def from_file(cls, path, survey=None, is_geographic=None, encoding="UTF-8"):
+        """Load RefractorVelocityField from a file.
+
+        The file should define near-surface velocity model at one or more field locations and have the following
+        structure:
+        - The first row contains names of the Coordinates parameters (name_x, name_y, coord_x, coord_y) and names of
+        the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
+        - Each next line contains the coords names, coords values, and parameters values of one RefractorVelocity.
+
+        File example:
+         name_x     name_y    coord_x    coord_y        t0        x1        v1        v2 max_offset
+        SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00    2000.00
+        ...
+        SourceX    SourceY    1111200    2222240     60.00   1050.00   1550.00   1950.00    2050.00
+
+        Parameters
+        ----------
+        path : str
+            path to the file.
+        survey : Survey, optional
+            A :class:`~survey.Survey` described by the field.
+        is_geographic : bool, optional
+            Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
+            CROSSLINE_3D)). Inferred from coordinates of the first `RefractorVelocity` in the file if not given.
+        encoding : str, defaults to "UTF-8"
+            File encoding.
+
+        Returns
+        -------
+        self : RefractorVelocityField
+            RefractorVelocityField instance created from a file.
+        """
+        rv_list = [RefractorVelocity(**params) for params in load_refractor_velocity_params(path, encoding)]
+        return cls(rv_list, survey=survey, is_geographic=is_geographic)
 
     def update(self, items):
         """Add new items to the field. All passed `items` must have not-None coordinates and describe the same number
@@ -493,15 +528,15 @@ class RefractorVelocityField(SpatialField):
         return type(self)(refined_items, n_refractors=self.n_refractors, survey=self.survey,
                           is_geographic=self.is_geographic)
 
-    def dump(self, path, encoding="UTF-8", min_col_size=11):
+    def dump(self, path, encoding="UTF-8"):
         """Save the RefractorVelocityField instance to a file.
 
-        The resulting file have the coordinates and parameters of a single RefractorVelocity with the following
+        The output file defines near-surface velocity model at one or more field locations and has the following
         structure:
-         - The first line contain the Coordinates parameters names (name_x, name_y, coord_x, coord_y) and
-        the RefractorVelocity parameters names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
-         - Each next line contains the coords names, coords values, and parameters values corresponding to one
-        RefractorVelocity in the resulting RefractorVelocityField.
+        - The first row contains names of the Coordinates parameters (name_x, name_y, coord_x, coord_y) and names of
+        the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
+        - Each next line contains the coords names, coords values, and parameters values corresponding to one
+        RefractorVelocity in the RefractorVelocityField.
 
         File example:
          name_x     name_y    coord_x    coord_y        t0        x1        v1        v2 max_offset
@@ -515,8 +550,6 @@ class RefractorVelocityField(SpatialField):
             Path to the file.
         encoding : str, optional, defaults to "UTF-8"
             File encoding.
-        min_col_size : int, defaults to 11
-            Minimum size of each columns in the resulting file.
 
         Returns
         -------
@@ -530,8 +563,7 @@ class RefractorVelocityField(SpatialField):
         """
         if self.is_empty:
             raise ValueError("Field is empty. Could not dump empty field.")
-        df_list = [calc_df_to_dump(rv) for rv in self.item_container.values()]
-        dump_rv(df_list, path=path, encoding=encoding, min_col_size=min_col_size)
+        dump_refractor_velocity(self.items, path=path, encoding=encoding)
         return self
 
     def plot_fit(self, **kwargs):
