@@ -27,7 +27,8 @@ class RefractorVelocityField(SpatialField):
 
     A field can be populated with refractor velocities in 3 main ways:
     - by passing precalculated velocities in the `__init__`,
-    - by creating an empty field and then iteratively updating it with estimated velocities using `update`.
+    - by creating an empty field and then iteratively updating it with estimated velocities using `update`,
+    - by using `from_survey` method.
 
     After all velocities are added, field interpolator should be created to make the field callable. It can be done
     either manually by executing `create_interpolator` method or automatically during the first call to the field if
