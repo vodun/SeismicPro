@@ -128,7 +128,7 @@ class Field:
 
     @property
     def has_survey(self):
-        """bool: Whether a survey is defined for the filed."""
+        """bool: Whether a survey is defined for the field."""
         return self.survey is not None
 
     @property

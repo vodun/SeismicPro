@@ -46,7 +46,7 @@ class RefractorVelocityField(SpatialField):
     Or created from precalculated instances:
     >>> field = RefractorVelocityField(list_of_rv)
 
-    Note that in both these cases all velocity models in the filed must describe the same number of refractors.
+    Note that in both these cases all velocity models in the field must describe the same number of refractors.
 
     Velocity models of an upper part of the section are usually estimated independently of one another and thus may
     appear inconsistent. `refine` method allows utilizing local information about near-surface conditions to refit
@@ -69,6 +69,8 @@ class RefractorVelocityField(SpatialField):
     ----------
     items : RefractorVelocity or list of RefractorVelocity, optional
         Velocity models to be added to the field on instantiation. If not given, an empty field is created.
+    n_refractors : int, optional
+        The number of refractors described by the field. Inferred automatically on the first update if not given.
     survey : Survey, optional
         A survey described by the field.
     is_geographic : bool, optional
@@ -82,6 +84,9 @@ class RefractorVelocityField(SpatialField):
     ----------
     survey : Survey or None
         A survey described by the field. `None` if not specified during instantiation.
+    n_refractors : int or None
+        The number of refractors described by the field. `None` for an empty field if was not specified during
+        instantiation.
     item_container : dict
         A mapping from coordinates of field items as 2-element tuples to the items themselves.
     is_geographic : bool

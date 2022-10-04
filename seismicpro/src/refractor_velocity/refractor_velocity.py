@@ -1,4 +1,4 @@
-"""Implements RefractorVelocity class for estimating the velocity model of an upper part of the section"""
+"""Implements RefractorVelocity class for estimating the velocity model of an upper part of the seismic section"""
 
 from functools import partial
 
@@ -61,7 +61,7 @@ class RefractorVelocity:
     >>> initial_params = {'t0': 100, 'x1': 1500, 'v1': 2000, 'v2': 3000}
     >>> rv = RefractorVelocity.from_first_breaks(offsets, fb_times, init=initial_params)
 
-    Fit a single-layer model with constrained bounds:
+    Fit a single-layer model with bounded parameters:
     >>> rv = RefractorVelocity.from_first_breaks(offsets, fb_times, bounds={'t0': [0, 200], 'v1': [1000, 3000]})
 
     Some keys in `init` or `bounds` may be omitted if they are defined in another `dict` or `n_refractors` is given:
@@ -94,14 +94,14 @@ class RefractorVelocity:
     coords : Coordinates or None
         Spatial coordinates at which refractor velocity is defined.
     is_fit : bool
-        Whether the model was fit using `from_first_breaks` method.
+        Whether the model parameters were estimated using `from_first_breaks` method.
     fit_result : OptimizeResult
         Optimization result returned by `scipy.optimize.minimize`. Defined only if the model was fit.
     init : dict
-        Initial values of model parameters used to fit the velocity model. Also includes calculated values for
+        Initial values of model parameters used to fit the velocity model. Also includes estimated values for
         parameters that were not passed in `init` argument. Defined only if the model was fit.
     bounds : dict
-        Lower and upper bounds of model parameters used to fit the velocity model. Also includes calculated values for
+        Lower and upper bounds of model parameters used to fit the velocity model. Also includes estimated values for
         parameters that were not passed in `bounds` argument. Defined only if the model was fit.
     offsets : 1d ndarray
         Offsets of traces used to fit the model. Measured in meters. Defined only if the model was fit.
@@ -135,7 +135,7 @@ class RefractorVelocity:
         """Fit a near-surface velocity model by offsets of traces and times of their first breaks.
 
         This methods allows specifying:
-        - initial values of some model parameters via `init`,
+        - initial values of model parameters via `init`,
         - bounds for parameter values via `bounds`,
         - or simply the expected number of refractors via `n_refractors`.
 
@@ -197,8 +197,10 @@ class RefractorVelocity:
         """
         offsets = np.array(offsets)
         times = np.array(times)
-        min_velocity_step = np.ceil(np.array(min_velocity_step))
-        min_refractor_size = np.ceil(np.array(min_refractor_size))
+
+        # Convert values to int to avoid numerical instability in constraint checks which may occur for small floats
+        min_velocity_step = np.ceil(min_velocity_step)
+        min_refractor_size = np.ceil(min_refractor_size)
 
         if all(param is None for param in (init, bounds, n_refractors)):
             raise ValueError("At least one of `init`, `bounds` or `n_refractors` must be defined")
@@ -292,7 +294,7 @@ class RefractorVelocity:
 
     @classmethod
     def from_constant_velocity(cls, velocity, max_offset=None, coords=None):
-        """Define a 1-layer near-surface velocity model with given velocity of the first layer and zero intercept time.
+        """Define a 1-layer near-surface velocity model with given layer velocity and zero intercept time.
 
         Parameters
         ----------
@@ -420,7 +422,7 @@ class RefractorVelocity:
         t0 = mean_time + reg.intercept_[0] * std_time - slope * mean_offset
 
         # Postprocess the obtained params
-        velocity = 1000 / max(1/5, slope)  # Convert slope to velocity in m/s, clip it to be in a [0, 5000] interval
+        velocity = 1000 / max(0.1, slope)  # Convert slope to velocity in m/s, clip it to be in a [0, 10000] interval
         t0 = min(max(0, t0), times.max())  # Clip intercept time to lie within a [0, times.max()] interval
         return velocity, t0, n_refractor_points
 
@@ -453,8 +455,9 @@ class RefractorVelocity:
         number of refractors."""
         param_names = get_param_names(n_refractors)
         if init.keys() - set(param_names):
-            raise ValueError("Parameters defined by init and bounds describe more refractors "
-                             "than defined by n_refractors")
+            raise ValueError("The model is overdetermined: init or bounds contain parameters inconsistent with "
+                             "n_refractors passed. Maximum valid set of parameters contains only t0 and v1 keys for a "
+                             "single refractor and t0, x1, ..., x{N-1}, v1, ..., v{N} keys for N >= 2 refractors.")
 
         # Linearly interpolate unknown crossover offsets but enforce min_refractor_size constraint
         cross_offsets = np.array([0] + [init.get(f"x{i}", np.nan) for i in range(1, n_refractors)] + [max_offset])

@@ -328,7 +328,7 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
         self.fig.canvas.draw_idle()
 
     def slice(self, start_coords, stop_coords):
-        """Trigger slicking of the plot from `start_coords` to `stop_coords`."""
+        """Trigger slicing of the plot from `start_coords` to `stop_coords`."""
         if not self.is_sliceable:
             return
         self.slice_fn(start_coords, stop_coords)

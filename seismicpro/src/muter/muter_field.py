@@ -113,6 +113,8 @@ class MuterField(ValuesAgnosticField, VFUNCFieldMixin):
 
         Parameters
         ----------
+        field : RefractorVelocityField
+            A near-surface velocity model to construct a muter field from.
         delay : float, optional, defaults to 0
             Introduced constant delay. Measured in milliseconds.
         velocity_reduction : float, optional, defaults to 0
