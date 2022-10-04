@@ -1,12 +1,10 @@
 """Implements Survey class describing a single SEG-Y file"""
 
 import os
-from re import S
 import warnings
 from copy import copy
 from textwrap import dedent
 import math
-import time
 
 import cv2
 import segyio
