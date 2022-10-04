@@ -201,6 +201,12 @@ class RefractorVelocity:
             raise ValueError("offsets and times must be 1-dimensional and have the same length")
         if (~np.isfinite(offsets)).any() or (~np.isfinite(times)).any():
             raise ValueError("offsets and times must contain only finite values")
+        if max_offset is not None:
+            valid_mask = offsets <= max_offset
+            offsets = offsets[valid_mask]
+            times = times[valid_mask]
+        if len(offsets) == 0:
+            raise ValueError("Not enough points to fit the model")
 
         # Convert values to int to avoid numerical instability in constraint checks which may occur for small floats
         min_velocity_step = np.ceil(min_velocity_step)
@@ -215,17 +221,6 @@ class RefractorVelocity:
         init_by_bounds = {key: (val1 + val2) / 2 for key, (val1, val2) in bounds.items()}
         init = {**init_by_bounds, **init}
 
-        # Estimate max_offset if it is not given and check whether it is greater than all user-defined inits and bounds
-        # for crossover offsets
-        max_data_offset = offsets.max()
-        max_crossover_offset_init = max((val for key, val in init.items() if key.startswith("x")), default=0)
-        max_crossover_offset_bound = max((max(val) for key, val in bounds.items() if key.startswith("x")), default=0)
-        if max_offset is None:
-            max_offset = max_data_offset
-        if max_offset < max(max_data_offset, max_crossover_offset_init, max_crossover_offset_bound):
-            raise ValueError("max_offset must be greater than maximum data offset and all user-defined "
-                             "inits and bounds for crossover offsets")
-
         # Automatically estimate all params that were not passed in init or bounds by n_refractors
         if n_refractors is not None:
             init = cls.complete_init_by_refractors(init, n_refractors, offsets, times, max_offset,
@@ -237,6 +232,12 @@ class RefractorVelocity:
         param_names = get_param_names(n_refractors)
         min_velocity_step = np.broadcast_to(min_velocity_step, n_refractors-1)
         min_refractor_size = np.broadcast_to(min_refractor_size, n_refractors)
+
+        # Estimate max_offset if it was not given
+        if max_offset is None:
+            max_init = init.get(f"x{n_refractors - 1}", 0) + min_refractor_size[-1]
+            max_bound = max((max(val) for key, val in bounds.items() if key.startswith("x")), default=0)
+            max_offset = max(offsets.max(), max_init, max_bound)
 
         # Estimate maximum possible velocity: it should not be highly accurate, but should cover all initial velocities
         # and their bounds. Used only to early-stop a diverging optimization on poor data when optimal velocity
@@ -304,6 +305,8 @@ class RefractorVelocity:
         ----------
         velocity : float
             Velocity of the first layer.
+        max_offset : float, optional
+            Maximum offset reliably described by the model.
         coords : Coordinates, optional
             Spatial coordinates of the created object.
 
@@ -454,8 +457,8 @@ class RefractorVelocity:
         return values
 
     @classmethod
-    def complete_init_by_refractors(cls, init, n_refractors, offsets, times, max_offset,
-                                    min_velocity_step, min_refractor_size):
+    def complete_init_by_refractors(cls, init, n_refractors, offsets, times, max_offset=None,
+                                    min_velocity_step=1, min_refractor_size=1):
         """Determine all the values in `init` that are insufficient to define a valid velocity model by the expected
         number of refractors."""
         param_names = get_param_names(n_refractors)
@@ -464,8 +467,16 @@ class RefractorVelocity:
                              "n_refractors passed. Maximum valid set of parameters contains only t0 and v1 keys for a "
                              "single refractor and t0, x1, ..., x{N-1}, v1, ..., v{N} keys for N >= 2 refractors.")
 
+        min_velocity_step = np.broadcast_to(min_velocity_step, n_refractors-1)
+        min_refractor_size = np.broadcast_to(min_refractor_size, n_refractors)
+
+        cross_offsets = [0] + [init.get(f"x{i}", np.nan) for i in range(1, n_refractors)]
+        if max_offset is None:
+            max_defined_ix = np.nanargmax(cross_offsets)
+            max_offset = max(offsets.max(), cross_offsets[max_defined_ix] + min_refractor_size[max_defined_ix:].sum())
+        cross_offsets = np.array(cross_offsets + [max_offset])
+
         # Linearly interpolate unknown crossover offsets but enforce min_refractor_size constraint
-        cross_offsets = np.array([0] + [init.get(f"x{i}", np.nan) for i in range(1, n_refractors)] + [max_offset])
         defined_indices = np.where(~np.isnan(cross_offsets))[0]
         cross_indices = np.arange(n_refractors + 1)
         cross_offsets = np.interp(cross_indices, cross_indices[defined_indices], cross_offsets[defined_indices])
@@ -478,7 +489,6 @@ class RefractorVelocity:
                      for i in np.where(undefined_mask)[0]]
         velocities[undefined_mask] = [vel for (vel, _, _) in estimates]
 
-        min_velocity_step = np.broadcast_to(min_velocity_step, n_refractors-1)
         if np.isnan(velocities).all():
             # Use a dummy velocity range as an initial guess if no velocities were passed in init/bounds dicts and
             # non of them were successfully fit using estimate_refractor_velocity
