@@ -427,23 +427,24 @@ class RefractorVelocity:
         return velocity, t0, n_refractor_points
 
     @staticmethod
-    def enforce_step_constraints(values, fixed_indices, min_step=0):
-        """Modify values whose indices are not in `fixed_indices` so that a difference between each two adjacent values
-        is no less than the corresponding `min_step`. Fill all `nan` values so that this constraint is satisfied."""
-        fixed_indices = np.sort(np.atleast_1d(fixed_indices))
+    def enforce_step_constraints(values, defined_indices, min_step=0):
+        """Modify values whose indices are not in `defined_indices` so that a difference between each two adjacent
+        values is no less than the corresponding `min_step`. Fill all `nan` values so that this constraint is
+        satisfied."""
+        defined_indices = np.sort(np.atleast_1d(defined_indices))
         min_step = np.broadcast_to(min_step, len(values) - 1)
 
         # Refine values between each two adjacent fixed values
-        for start, stop in zip(fixed_indices[:-1], fixed_indices[1:]):
+        for start, stop in zip(defined_indices[:-1], defined_indices[1:]):
             for pos in range(start + 1, stop):
                 values[pos] = np.nanmax([values[pos], values[pos - 1] + min_step[pos - 1]])
             for pos in range(stop - 1, start, -1):
                 values[pos] = np.nanmin([values[pos], values[pos + 1] - min_step[pos]])
 
-        # Refine values with indices outside the fixed_indices range
-        for pos in range(fixed_indices[-1] + 1, len(values)):
+        # Refine values with indices outside the defined_indices range
+        for pos in range(defined_indices[-1] + 1, len(values)):
             values[pos] = np.nanmax([values[pos], values[pos - 1] + min_step[pos - 1]])
-        for pos in range(fixed_indices[0] - 1, -1, -1):
+        for pos in range(defined_indices[0] - 1, -1, -1):
             values[pos] = np.nanmin([values[pos], values[pos + 1] - min_step[pos]])
 
         return values
@@ -479,14 +480,14 @@ class RefractorVelocity:
             # non of them were successfully fit using estimate_refractor_velocity
             velocities = np.cumsum(np.r_[1600, min_velocity_step])
         else:
-            fixed_indices = np.where(~undefined_mask)[0]
+            defined_indices = np.where(~undefined_mask)[0]
             if undefined_mask.all():
                 # If no velocities were passed in init, start the refinement from the refractor with maximum number of
-                # points among those with properly estimated velocity
-                fixed_index = max(enumerate(estimates), key=lambda x: x[1][-1])[0]
-                velocities[fixed_index] = max(velocities[fixed_index], min_velocity_step[:fixed_index].sum())
-                fixed_indices = [fixed_index]
-            velocities = cls.enforce_step_constraints(velocities, fixed_indices, min_velocity_step)
+                # points among those with properly estimated velocity. At least one of them is guaranteed to exist.
+                defined_index = max(enumerate(estimates), key=lambda x: 0 if np.isnan(x[1][0]) else x[1][-1])[0]
+                velocities[defined_index] = max(velocities[defined_index], min_velocity_step[:defined_index].sum())
+                defined_indices = [defined_index]
+            velocities = cls.enforce_step_constraints(velocities, defined_indices, min_velocity_step)
 
         # Estimate t0 if not given in init
         t0 = init.get("t0")
@@ -541,9 +542,9 @@ class RefractorVelocity:
         `cls._scale_params`.
 
         `scaled_params` should be a 1d `np.ndarray` with shape (2 * n_refractors,) with the following structure:
-        - args[0] : intercept time,
-        - args[1:n_refractors] : crossover offsets,
-        - args[n_refractors:] : refractor velocities.
+        - scaled_params[0] : intercept time,
+        - scaled_params[1:n_refractors] : crossover offsets,
+        - scaled_params[n_refractors:] : refractor velocities.
 
         Available loss functions are "MSE", "huber", "L1", "soft_L1", or "cauchy", coefficient for Huber loss is
         defined by `huber_coef` argument. All losses apply mean reduction of point-wise losses.
