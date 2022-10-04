@@ -48,6 +48,9 @@ class RefractorVelocityField(SpatialField):
     Or created from precalculated instances:
     >>> field = RefractorVelocityField(list_of_rv)
 
+    Or creating from survey:
+    >>> field = RefractorVelocityField(survey, n_refractors=2)
+
     Note that in both these cases all velocity models in the filed must describe the same number of refractors.
 
     Velocity models of an upper part of the section are usually estimated independently of one another and thus may
@@ -104,18 +107,69 @@ class RefractorVelocityField(SpatialField):
         self.n_refractors = n_refractors
         super().__init__(items, survey, is_geographic, auto_create_interpolator)
 
-    @classmethod
+    @classmethod  # pylint: disable-next=too-many-arguments
     def from_survey(cls, survey, is_geographic=None, init=None, bounds=None, n_refractors=None, max_offset=None,
-                    loss='L1', min_velocity_step=1, min_refractor_size=1, bar=True, huber_coef=20, tol=1e-5,
-                    fb_col=HDR_FIRST_BREAK, **kwargs):
-        """Calculate nearsurface velocity models for all gathers in the passed Survey.
+                    loss='L1', huber_coef=20, min_velocity_step=1, min_refractor_size=1, tol=1e-5, bar=True,
+                    first_breaks_col=HDR_FIRST_BREAK, **kwargs):
+        """Calculate nearsurface velocity models for all gather in the passed Survey.
+
+        First, method uses the preloaded offsets, first break picking, and coords values to calculate velocity model of
+        the upper part of section for each gather in Survey. This step need to specify the initial values of some
+        parameters or bounds or the number of refractors. These parameters will be used to calculate all velocity
+        models. Finally, creating field from precalculated velocity models.
+        Read :class:~`RefractorVelocity` docs for more information about the calculating velocity model.
+
+        Parameters
+        ----------
+        survey : Survey
+            Survey with preloaded offsets, time of first break, coords values.
+        is_geographic : bool, optional
+            Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
+            CROSSLINE_3D)). Inferred automatically on the first update if not given.
+        init : dict, optional
+            Initial values of model parameters.
+        bounds : dict, optional
+            Lower and upper bounds of model parameters.
+        n_refractors : int, optional
+            The number of refractors described by the model.
+        max_offset : float, optional
+            Maximum offset reliably described by the model. Defaults to the maximum offset provided but preferably
+            should be explicitly passed.
+        loss : str, defaults to "L1"
+            Loss function to be minimized. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
+        huber_coef : float, default to 20
+            Coefficient for Huber loss function.
+        min_velocity_step : int, or 1d array-like with shape (n_refractors - 1,), optional, defaults to 1
+            Minimum difference between velocities of two adjacent refractors. Default value ensures that velocities are
+            strictly increasing.
+        min_refractor_size : int, or 1d array-like with shape (n_refractors,), optional, defaults to 1
+            Minimum offset range covered by each refractor. Default value ensures that refractors do not degenerate
+            into single points.
+        tol : float, optional, defaults to 1e-5
+            Precision goal for the value of loss in the stopping criterion.
+        bar : bool, optional, defualt to True
+            Whether to show field calculating progress bar.
+        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+            Column name from `survey.headers` where times of first break are stored.
+        kwargs : misc, optional
+            Additional `SLSQP` options, see https://docs.scipy.org/doc/scipy/reference/optimize.minimize-slsqp.html for
+            more details.
+
+        Raises
+        ------
+        ValueError
+            If survey does not contain any indices.
+            If all `init`, `bounds`, and `n_refractors` are `None`.
+            If coords value non-unique for any one gather.
         """
         if len(survey.indices) < 1:
             raise ValueError("Survey is empty.")
+        if all(param is None for param in (init, bounds, n_refractors)):
+            raise ValueError("At least one of `init`, `bounds` or `n_refractors` must be defined")
         rv_list = []
         coords_name = get_coords_cols(survey.indexed_by)
         # get only the needed data from survey headers.
-        survey_data = survey[['offset', fb_col] + list(coords_name)]
+        survey_data = survey[['offset', first_breaks_col] + list(coords_name)]
         max_offset = survey_data[:, 0].max() if max_offset is None else max_offset
         for idx in tqdm(survey.indices, desc="Calculate velocity models", disable=not bar):
             trace_idx = survey.get_traces_locs([idx])
