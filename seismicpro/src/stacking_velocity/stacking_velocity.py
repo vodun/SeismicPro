@@ -92,8 +92,8 @@ class StackingVelocity(VFUNC):
         velocities : StackingVelocity or list of StackingVelocity
             Stacking velocities to be aggregated.
         weights : float or list of floats, optional
-            Weight of each item in `velocities`. If not given, equal weights are assigned to all items and thus mean
-            stacking velocity is calculated.
+            Weight of each item in `velocities`. Normalized to have sum of 1 before aggregation. If not given, equal
+            weights are assigned to all items and thus mean stacking velocity is calculated.
         coords : Coordinates, optional
             Spatial coordinates of the created stacking velocity. If not given, the created instance won't be able to
             be added to a `StackingVelocityField`.

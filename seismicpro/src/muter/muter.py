@@ -73,8 +73,8 @@ class Muter(VFUNC):
         muters : Muter or list of Muter
             Muters to be aggregated.
         weights : float or list of floats, optional
-            Weight of each item in `muters`. If not given, equal weights are assigned to all items and thus mean muter
-            is calculated.
+            Weight of each item in `muters`. Normalized to have sum of 1 before aggregation. If not given, equal
+            weights are assigned to all items and thus mean muter is calculated.
         coords : Coordinates, optional
             Spatial coordinates of the created muter. If not given, the created instance won't be able to be added to a
             `MuterField`.
