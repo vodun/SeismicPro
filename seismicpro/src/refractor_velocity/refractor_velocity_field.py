@@ -523,7 +523,7 @@ class RefractorVelocityField(SpatialField):
         for rv, bounds in tqdm(zip(smoothed_field.items, params_bounds), total=self.n_items,
                                desc="Velocity models refined", disable=not bar):
             rv = RefractorVelocity.from_first_breaks(rv.offsets, rv.times, bounds=dict(zip(self.param_names, bounds)),
-                                                     max_offset=max(rv.max_offset, rv.offsets.max()), coords=rv.coords)
+                                                     max_offset=rv.max_offset, coords=rv.coords)
             refined_items.append(rv)
         return type(self)(refined_items, n_refractors=self.n_refractors, survey=self.survey,
                           is_geographic=self.is_geographic)
