@@ -197,6 +197,10 @@ class RefractorVelocity:
         """
         offsets = np.array(offsets)
         times = np.array(times)
+        if (offsets.ndim != 1) or (offsets.shape != times.shape):
+            raise ValueError("offsets and times must be 1-dimensional and have the same length")
+        if (~np.isfinite(offsets)).any() or (~np.isfinite(times)).any():
+            raise ValueError("offsets and times must contain only finite values")
 
         # Convert values to int to avoid numerical instability in constraint checks which may occur for small floats
         min_velocity_step = np.ceil(min_velocity_step)
