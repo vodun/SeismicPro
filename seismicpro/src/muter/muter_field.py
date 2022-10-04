@@ -60,7 +60,7 @@ class MuterField(ValuesAgnosticField, VFUNCFieldMixin):
         Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
         CROSSLINE_3D)). Inferred automatically on the first update if not given.
     auto_create_interpolator : bool, optional, defaults to True
-        Whether to automatically create default interpolator upon the first call to the field.
+        Whether to automatically create default interpolator (IDW) upon the first call to the field.
 
     Attributes
     ----------
@@ -79,7 +79,7 @@ class MuterField(ValuesAgnosticField, VFUNCFieldMixin):
     is_dirty_interpolator : bool
         Whether the field was updated after the interpolator was created.
     auto_create_interpolator : bool
-        Whether to automatically create default interpolator upon the first call to the field.
+        Whether to automatically create default interpolator (IDW) upon the first call to the field.
     """
     item_class = Muter
 

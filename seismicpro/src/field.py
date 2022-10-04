@@ -214,7 +214,7 @@ class Field:
         return self
 
     def create_default_interpolator(self):
-        """Create a default field interpolator."""
+        """Create a default field interpolator. Must be redefined in concrete child classes."""
         raise NotImplementedError
 
     def invalidate_cache(self):
@@ -405,9 +405,9 @@ class SpatialField(Field):
         return super().create_interpolator(interpolator, **kwargs)
 
     def create_default_interpolator(self):
-        """Create a default field interpolator."""
+        """Create a default field interpolator: RBF for more than 3 items in the field or IDW otherwise."""
         if self.n_items >= 3:  # Otherwise instantiation of RBF interpolator with default parameters will fail
-            self.create_interpolator("rbf")
+            self.create_interpolator("rbf", neighbors=min(self.n_items, 128))
         else:
             self.create_interpolator("idw", radius=self.default_neighborhood_radius)
 
@@ -521,7 +521,7 @@ class ValuesAgnosticField(Field):
         return super().create_interpolator(interpolator, **kwargs)
 
     def create_default_interpolator(self):
-        """Create a default field interpolator."""
+        """Create a default field interpolator (IDW)."""
         self.create_interpolator("idw", radius=self.default_neighborhood_radius, neighbors=4)
 
     @property
