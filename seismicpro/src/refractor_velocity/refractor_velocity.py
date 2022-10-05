@@ -642,11 +642,6 @@ class RefractorVelocity:
         encoding : str, optional, defaults to "UTF-8"
             File encoding.
 
-        Returns
-        -------
-        self : RefractorVelocity
-            RefractorVelocity unchanged.
-
         Raises
         ------
         ValueError
@@ -655,7 +650,6 @@ class RefractorVelocity:
         if not self.has_coords:
             raise ValueError("RefractorVelocity missing `coords` attribute.")
         dump_refractor_velocity(self, path=path, encoding=encoding)
-        return self
 
     @plotter(figsize=(10, 5), args_to_unpack="compare_to")
     def plot(self, *, ax=None, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_times=None,

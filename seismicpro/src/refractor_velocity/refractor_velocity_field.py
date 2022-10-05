@@ -432,11 +432,6 @@ class RefractorVelocityField(SpatialField):
         encoding : str, optional, defaults to "UTF-8"
             File encoding.
 
-        Returns
-        -------
-        self : RefractorVelocityField
-            RefractorVelocityField unchanged.
-
         Raises
         ------
         ValueError
@@ -445,7 +440,6 @@ class RefractorVelocityField(SpatialField):
         if self.is_empty:
             raise ValueError("Field is empty. Could not dump empty field.")
         dump_refractor_velocity(self.items, path=path, encoding=encoding)
-        return self
 
     def plot_fit(self, **kwargs):
         """Plot an interactive map of each parameter of a near-surface velocity model and display an offset-traveltime
