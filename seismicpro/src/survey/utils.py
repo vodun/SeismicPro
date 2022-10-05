@@ -3,8 +3,6 @@
 import numpy as np
 from numba import njit, prange
 
-from ..refractor_velocity import RefractorVelocity
-
 
 @njit(nogil=True)
 def calculate_trace_stats(trace):

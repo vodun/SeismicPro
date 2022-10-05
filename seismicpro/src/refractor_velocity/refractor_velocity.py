@@ -6,7 +6,7 @@ import numpy as np
 from scipy.optimize import minimize
 from sklearn.linear_model import SGDRegressor
 
-from .utils import get_param_names, postprocess_params
+from .utils import get_param_names, postprocess_params,  dump_refractor_velocity, load_refractor_velocity_params
 from ..muter import Muter
 from ..decorators import batch_method, plotter
 from ..utils import set_ticks, set_text_formatting
@@ -294,8 +294,8 @@ class RefractorVelocity:
     def from_file(cls, path, encoding="UTF-8"):
         """Create a `RefractorVelocity` instance from a file.
 
-        The file should define near-surface velocity model at given location and have the following structure:
-         - The first row contains names of the Coordinates parameters ("name_x", "name_y", "coord_x", "coord_y") and
+        The file should define near-surface velocity model at some location and have the following structure:
+         - The first row contains names of the Coordinates parameters (name_x, name_y, coord_x, coord_y) and
         names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
          - The second row contains the coords names, coords values, and parameters values of a RefractorVelocity.
 
@@ -315,10 +315,10 @@ class RefractorVelocity:
         self : RefractorVelocity
             RefractorVelocity instance created from a file.
         """
-        rv_list = load_refractor_velocity(path, encoding)
-        if len(rv_list) != 1:
-            raise ValueError("The file should contain only one set of RefractorVelocity parameters.")
-        return rv_list[0]
+        params = load_refractor_velocity_params(path, encoding)
+        if len(params) != 1:
+            raise ValueError("The loaded file should contain one set of RefractorVelocity parameters.")
+        return cls(**params[0])
 
     @classmethod
     def from_constant_velocity(cls, velocity, max_offset=None, coords=None):
@@ -625,8 +625,8 @@ class RefractorVelocity:
 
         The output file contains the coords and parameters of a single RefractorVelocity with the following
         structure:
-        - The first row contains names of the Coordinates parameters ("name_x", "name_y", "coord_x", "coord_y") and
-        names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
+        - The first row contains names of the Coordinates parameters (name_x, name_y, coord_x, coord_y) and names of
+        the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
         - The second row contains the coords names, coords values, and parameters values of a RefractorVelocity.
 
         Output file example:
@@ -635,7 +635,7 @@ class RefractorVelocity:
 
         Notes
         -----
-        `RefractorVelocity` instance should have well defined `coords`.
+        Coords should be preloaded.
 
         Parameters
         ----------
@@ -655,7 +655,7 @@ class RefractorVelocity:
             If coords attributes is None.
         """
         if not self.has_coords:
-            raise ValueError("RefractorVelocity missing `coords` attribute.")
+            raise ValueError("`coords` attribute should be defined.")
         dump_refractor_velocity(self, path=path, encoding=encoding)
         return self
 

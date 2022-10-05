@@ -1,12 +1,10 @@
 """Implements Survey class describing a single SEG-Y file"""
 
 import os
-from re import S
 import warnings
 from copy import copy
 from textwrap import dedent
 import math
-import time
 
 import cv2
 import segyio
@@ -20,7 +18,7 @@ from sklearn.linear_model import LinearRegression
 from .headers import load_headers
 from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
-from .utils import ibm_to_ieee, calculate_trace_stats, binarization_offsets, calc_max_refractors_rv
+from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
 from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
@@ -1249,6 +1247,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
+<<<<<<< HEAD
 
     def calc_n_refractors(self, min_offsets_diff=300, min_velocity_diff=300, fb_col=HDR_FIRST_BREAK,
                           binarization=False, as_params=False, name=None, weathering=False, plot_last=False):
@@ -1279,3 +1278,5 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if as_params:
             return rv.params
         return rv.n_refractors
+=======
+>>>>>>> a2bf45976ef7966386e5e0ac68e6bdde8dc61282
