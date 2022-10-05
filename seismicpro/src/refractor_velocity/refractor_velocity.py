@@ -9,7 +9,7 @@ from sklearn.linear_model import SGDRegressor
 from .utils import get_param_names, postprocess_params
 from ..muter import Muter
 from ..decorators import batch_method, plotter
-from ..utils import set_ticks, set_text_formatting
+from ..utils import get_first_defined, set_ticks, set_text_formatting
 from ..utils.interpolation import interp1d
 
 
@@ -72,8 +72,6 @@ class RefractorVelocity:
     ----------
     params : misc
         Parameters of the velocity model. Passed as keyword arguments.
-    max_offset : float, optional
-        Maximum offset reliably described by the model.
     coords : Coordinates, optional
         Spatial coordinates at which refractor velocity is defined.
 
@@ -89,14 +87,14 @@ class RefractorVelocity:
         Offsets of knots of the offset-traveltime curve. Measured in meters.
     piecewise_times : 1d ndarray
         Times of knots of the offset-traveltime curve. Measured in milliseconds.
-    max_offset : float or None
-        Maximum offset reliably described by the model.
     coords : Coordinates or None
         Spatial coordinates at which refractor velocity is defined.
     is_fit : bool
         Whether the model parameters were estimated using `from_first_breaks` method.
     fit_result : OptimizeResult
         Optimization result returned by `scipy.optimize.minimize`. Defined only if the model was fit.
+    max_offset : float or None
+        Maximum offset reliably described by the model. Defined only if the model was fit.
     init : dict
         Initial values of model parameters used to fit the velocity model. Also includes estimated values for
         parameters that were not passed in `init` argument. Defined only if the model was fit.
@@ -108,21 +106,20 @@ class RefractorVelocity:
     times : 1d ndarray
         Time of first break for each trace. Measured in milliseconds. Defined only if the model was fit.
     """
-    def __init__(self, max_offset=None, coords=None, **params):
-        self._validate_params(params, max_offset)
+    def __init__(self, coords=None, **params):
+        self._validate_params(params)
         self.n_refractors = len(params) // 2
 
         # Store params in the order defined by param_names
         self.params = {name: params[name] for name in self.param_names}
-        knots = self._calc_knots_by_params(np.array(list(self.params.values())), max_offset)
-        self.piecewise_offsets, self.piecewise_times = knots
+        self.piecewise_offsets, self.piecewise_times = self._calc_knots_by_params(np.array(list(self.params.values())))
         self.interpolator = interp1d(self.piecewise_offsets, self.piecewise_times)
-        self.max_offset = max_offset
         self.coords = coords
 
         # Fit-related attributes, set only when from_first_breaks is called
         self.is_fit = False
         self.fit_result = None
+        self.max_offset = None
         self.init = None
         self.bounds = None
         self.offsets = None
@@ -157,8 +154,8 @@ class RefractorVelocity:
         n_refractors : int, optional
             The number of refractors described by the model.
         max_offset : float, optional
-            Maximum offset reliably described by the model. Defaults to the maximum offset provided but preferably
-            should be explicitly passed.
+            Maximum offset reliably described by the model. Inferred automatically by `offsets`, `init` and `bounds`
+            provided but should be preferably explicitly passed.
         min_velocity_step : int, or 1d array-like with shape (n_refractors - 1,), optional, defaults to 1
             Minimum difference between velocities of two adjacent refractors. Default value ensures that velocities are
             strictly increasing.
@@ -205,8 +202,6 @@ class RefractorVelocity:
             valid_mask = offsets <= max_offset
             offsets = offsets[valid_mask]
             times = times[valid_mask]
-        if len(offsets) == 0:
-            raise ValueError("Not enough points to fit the model")
 
         # Convert values to int to avoid numerical instability in constraint checks which may occur for small floats
         min_velocity_step = np.ceil(min_velocity_step)
@@ -288,9 +283,10 @@ class RefractorVelocity:
         params = dict(zip(param_names, param_values))
 
         # Construct a refractor velocity instance
-        self = cls(coords=coords, max_offset=max_offset, **params)
+        self = cls(coords=coords, **params)
         self.is_fit = True
         self.fit_result = fit_result
+        self.max_offset = max_offset
         self.init = init
         self.bounds = bounds
         self.offsets = offsets
@@ -298,15 +294,13 @@ class RefractorVelocity:
         return self
 
     @classmethod
-    def from_constant_velocity(cls, velocity, max_offset=None, coords=None):
+    def from_constant_velocity(cls, velocity, coords=None):
         """Define a 1-layer near-surface velocity model with given layer velocity and zero intercept time.
 
         Parameters
         ----------
         velocity : float
             Velocity of the first layer.
-        max_offset : float, optional
-            Maximum offset reliably described by the model.
         coords : Coordinates, optional
             Spatial coordinates of the created object.
 
@@ -320,7 +314,7 @@ class RefractorVelocity:
         ValueError
             If passed `velocity` is negative.
         """
-        return cls(t0=0, v1=velocity, max_offset=max_offset, coords=coords)
+        return cls(t0=0, v1=velocity, coords=coords)
 
     @property
     def param_names(self):
@@ -335,8 +329,7 @@ class RefractorVelocity:
     def __repr__(self):
         """String representation of the velocity model."""
         params_str = ", ".join([f"{param}={val:.0f}" for param, val in self.params.items()])
-        max_offset_str = None if self.max_offset is None else f"{self.max_offset:.0f}"
-        return f"RefractorVelocity({params_str}, max_offset={max_offset_str}, coords={repr(self.coords)})"
+        return f"RefractorVelocity({params_str}, coords={repr(self.coords)})"
 
     def __getattr__(self, key):
         """Get requested parameter of the velocity model by its name."""
@@ -608,8 +601,8 @@ class RefractorVelocity:
         return Muter.from_refractor_velocity(self, delay=delay, velocity_reduction=velocity_reduction)
 
     @plotter(figsize=(10, 5), args_to_unpack="compare_to")
-    def plot(self, *, ax=None, title=None, x_ticker=None, y_ticker=None, show_params=True, threshold_times=None,
-             compare_to=None, text_kwargs=None, **kwargs):
+    def plot(self, *, ax=None, max_offset=None, title=None, x_ticker=None, y_ticker=None, show_params=True,
+             threshold_times=None, compare_to=None, text_kwargs=None, **kwargs):
         """Plot an offset-traveltime curve and data used to fit the model if it was constructed from offsets and times
         of first breaks.
 
@@ -617,6 +610,8 @@ class RefractorVelocity:
         ----------
         ax : matplotlib.axes.Axes, optional
             Axes of a figure to plot on. Will be created automatically if not given.
+        max_offset : float, optional
+            Maximum offset displayed on the plot.
         title : str, optional
             Plot title.
         x_ticker : dict, optional
@@ -650,13 +645,14 @@ class RefractorVelocity:
         (title, x_ticker, y_ticker, text_kwargs), kwargs = set_text_formatting(title, x_ticker, y_ticker, text_kwargs,
                                                                                **kwargs)
         if kwargs:
-            raise ValueError(f'kwargs contains unknown keys {kwargs.keys()}')
+            raise ValueError(f"kwargs contains unknown keys {kwargs.keys()}")
         set_ticks(ax, "x", tick_labels=None, label="offset, m", **x_ticker)
         set_ticks(ax, "y", tick_labels=None, label="time, ms", **y_ticker)
 
-        ax.scatter(self.offsets, self.times, s=1, color='black', label='first breaks')
-        self._plot_lines(ax, curve_label='offset-traveltime curve', curve_color='red',
-                         crossoffset_label='crossover point', crossover_color='blue')
+        max_offset = get_first_defined(max_offset, self.max_offset, self.piecewise_offsets[-1])
+        ax.scatter(self.offsets, self.times, s=1, color="black", label="first breaks")
+        self._plot_lines(ax, max_offset=max_offset, curve_label="offset-traveltime curve", curve_color="red",
+                         crossoffset_label="crossover point", crossover_color="blue", threshold_times=threshold_times)
 
         if show_params:
             params = [self.params[name] for name in self.param_names]
@@ -664,35 +660,41 @@ class RefractorVelocity:
             if self.n_refractors > 1:
                 text_info += f"\ncrossover offsets: {', '.join(str(round(x)) for x in params[1:self.n_refractors])} m"
             text_info += f"\nvelocities: {', '.join(f'{v:.0f}' for v in params[self.n_refractors:])} m/s"
-            text_kwargs = {'fontsize': 12, 'va': 'top', **text_kwargs}
-            text_ident = text_kwargs.pop('x', .03), text_kwargs.pop('y', .94)
+            text_kwargs = {"fontsize": 12, "va": "top", **text_kwargs}
+            text_ident = text_kwargs.pop("x", .03), text_kwargs.pop("y", .94)
             ax.text(*text_ident, text_info, transform=ax.transAxes, **text_kwargs)
-
-        if threshold_times is not None:
-            ax.fill_between(self.piecewise_offsets, self.piecewise_times - threshold_times,
-                            self.piecewise_times + threshold_times, color='red',
-                            label=f'+/- {threshold_times}ms threshold area', alpha=.2)
 
         if compare_to is not None:
             if isinstance(compare_to, dict):
-                compare_to = RefractorVelocity(**compare_to, max_offset=self.max_offset)
+                compare_to = RefractorVelocity(**compare_to)
             if not isinstance(compare_to, RefractorVelocity):
                 raise ValueError("compare_to must be either a dict or a RefractorVelocity instance")
             # pylint: disable-next=protected-access
-            compare_to._plot_lines(ax, curve_label='compared offset-traveltime curve', curve_color='#ff7900',
-                                   crossoffset_label='compared crossover point', crossover_color='green')
+            compare_to._plot_lines(ax, max_offset=max_offset, curve_label="compared offset-traveltime curve",
+                                   curve_color="#ff7900", crossoffset_label="compared crossover point",
+                                   crossover_color="green")
 
-        ax.set_xlim(0)
+        ax.set_xlim(0, max_offset)
         ax.set_ylim(0)
-        ax.legend(loc='lower right')
+        ax.legend(loc="lower right")
         ax.set_title(**{"label": None, **title})
         return self
 
-    def _plot_lines(self, ax, curve_label, curve_color, crossoffset_label, crossover_color):
+    def _plot_lines(self, ax, max_offset, curve_label, curve_color, crossoffset_label, crossover_color,
+                    threshold_times=None):
         """Plot an offset-traveltime curve and a vertical line for each crossover offset."""
-        ax.plot(self.piecewise_offsets, self.piecewise_times, '-', color=curve_color, label=curve_label)
-        if self.n_refractors > 1:
+        crossover_offsets = self.piecewise_offsets[1:-1]
+        covered_offsets = crossover_offsets[:np.searchsorted(crossover_offsets, max_offset)]
+        offsets = np.concatenate([[0], covered_offsets, [max_offset]])
+        times = self(offsets)
+
+        ax.plot(offsets, times, "-", color=curve_color, label=curve_label)
+        if threshold_times is not None:
+            ax.fill_between(offsets, times - threshold_times, times + threshold_times, color=curve_color, alpha=0.2,
+                            label=f"+/- {threshold_times} ms threshold area")
+
+        if len(covered_offsets) > 1:
             crossoffset_label += 's'
-        for i in range(1, self.n_refractors):
-            label = crossoffset_label if i == 1 else None
-            ax.axvline(self.piecewise_offsets[i], ls='--', color=crossover_color, label=label)
+        for i, offset in enumerate(covered_offsets):
+            label = None if i else crossoffset_label
+            ax.axvline(offset, ls="--", color=crossover_color, label=label)

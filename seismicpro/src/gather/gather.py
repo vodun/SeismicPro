@@ -673,8 +673,8 @@ class Gather(TraceContainer, SamplesContainer):
         n_refractors : int, optional
             The number of refractors described by the model.
         max_offset : float, optional
-            Maximum offset reliably described by the model. Defaults to the maximum offset of gather traces but
-            preferably should be explicitly passed.
+            Maximum offset reliably described by the model. Inferred automatically by `offsets`, `init` and `bounds`
+            provided but should be preferably explicitly passed.
         min_velocity_step : int, or 1d array-like with shape (n_refractors - 1,), optional, defaults to 1
             Minimum difference between velocities of two adjacent refractors. Default value ensures that velocities are
             strictly increasing.
