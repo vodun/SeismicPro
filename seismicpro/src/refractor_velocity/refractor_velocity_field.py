@@ -370,7 +370,7 @@ class RefractorVelocityField(SpatialField):
 
         refined_items = []
         for rv, init, bounds in tqdm(zip(self.items, params_init, params_bounds), total=self.n_items,
-                               desc="Velocity models refined", disable=not bar):
+                                     desc="Velocity models refined", disable=not bar):
             init = dict(zip(self.param_names, init))
             bounds = dict(zip(self.param_names, bounds))
             rv = RefractorVelocity.from_first_breaks(rv.offsets, rv.times, init=init, bounds=bounds,
