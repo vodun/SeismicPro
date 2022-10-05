@@ -5,6 +5,7 @@ import pandas as pd
 
 from ..utils import Coordinates, to_list
 
+
 def get_param_names(n_refractors):
     """Return names of parameters of a near-surface velocity model describing given number of refractors."""
     return ["t0"] + [f"x{i}" for i in range(1, n_refractors)] + [f"v{i}" for i in range(1, n_refractors + 1)]
@@ -76,7 +77,7 @@ def load_refractor_velocity(path, encoding="UTF-8"):
         at a given locations.
     """
     #pylint: disable-next=import-outside-toplevel
-    from .refractor_velocity import RefractorVelocity  # avoid circular import
+    from .refractor_velocity import RefractorVelocity  # import inside to avoid the circular import
     df = pd.read_csv(path, sep=r'\s+', encoding=encoding)
     params_names = df.columns[4:]
     rv_list = []
@@ -84,6 +85,6 @@ def load_refractor_velocity(path, encoding="UTF-8"):
         if np.isnan(row[-1]):
             raise ValueError(f"Unsufficient parameters in the row {row}.")
         params = dict(zip(params_names, row[4:].astype(df.dtypes[4:])))
-        params['coords'] = Coordinates(names=tuple(row[:2]), coords=tuple(row[2:4].astype(df.dtypes[2:4])))
+        params['coords'] = Coordinates(names=row[:2], coords=row[2:4].astype(df.dtypes[2:4]))
         rv_list.append(RefractorVelocity(**params))
     return rv_list
