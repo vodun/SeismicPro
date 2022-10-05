@@ -356,21 +356,23 @@ class RefractorVelocityField(SpatialField):
         if not self.is_fit:
             raise ValueError("Only fields that were constructed directly from offset-traveltime data can be refined")
 
-        smoothed_values = self._get_smoothed_values(radius, neighbors, min_refractor_points,
-                                                    min_refractor_points_quantile)
-        bounds_size = smoothed_values.ptp(axis=0) * relative_bounds_size / 2
+        params_init = self._get_smoothed_values(radius, neighbors, min_refractor_points, min_refractor_points_quantile)
+        bounds_size = params_init.ptp(axis=0) * relative_bounds_size / 2
 
         # Clip all bounds to be non-negative
-        params_bounds = np.stack([np.maximum(smoothed_values - bounds_size, 0), smoothed_values + bounds_size], axis=2)
+        params_bounds = np.stack([np.maximum(params_init - bounds_size, 0), params_init + bounds_size], axis=2)
 
-        # Clip crossover bounds to be no greater than max offset
+        # Clip init and bounds for crossover offsets to be no greater than max offset
         max_offsets = np.array([rv.max_offset for rv in self.items])[:, None, None]
+        np.minimum(params_init[:, 1:self.n_refractors], max_offsets, out=params_init[:, 1:self.n_refractors])
         np.minimum(params_bounds[:, 1:self.n_refractors], max_offsets, out=params_bounds[:, 1:self.n_refractors])
 
         refined_items = []
-        for rv, bounds in tqdm(zip(self.items, params_bounds), total=self.n_items,
+        for rv, init, bounds in tqdm(zip(self.items, params_init, params_bounds), total=self.n_items,
                                desc="Velocity models refined", disable=not bar):
-            rv = RefractorVelocity.from_first_breaks(rv.offsets, rv.times, bounds=dict(zip(self.param_names, bounds)),
+            init = dict(zip(self.param_names, init))
+            bounds = dict(zip(self.param_names, bounds))
+            rv = RefractorVelocity.from_first_breaks(rv.offsets, rv.times, init=init, bounds=bounds,
                                                      max_offset=rv.max_offset, min_velocity_step=0,
                                                      min_refractor_size=0, coords=rv.coords)
             refined_items.append(rv)
