@@ -108,7 +108,7 @@ def dump_vfunc(path, vfunc_list, encoding="UTF-8"):
     """
     with open(path, "w", encoding=encoding) as f:
         for coords, x, y in vfunc_list:
-            f.write(f"{'VFUNC':8}{coords[0]:<8}{coords[1]:<8}\n")
+            f.write(f"{'VFUNC':8}{round(coords[0]):<8}{round(coords[1]):<8}\n")
             data = np.column_stack([x, y]).ravel()
             rows = np.split(data, np.arange(8, len(data), 8))
             for row in rows:
