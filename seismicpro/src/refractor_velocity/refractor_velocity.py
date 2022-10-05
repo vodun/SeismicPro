@@ -6,7 +6,7 @@ import numpy as np
 from scipy.optimize import minimize
 from sklearn.linear_model import SGDRegressor
 
-from .utils import get_param_names, postprocess_params, load_rv, dump_rv, calc_df_to_dump
+from .utils import get_param_names, postprocess_params
 from ..muter import Muter
 from ..decorators import batch_method, plotter
 from ..utils import set_ticks, set_text_formatting
@@ -292,11 +292,11 @@ class RefractorVelocity:
 
     @classmethod
     def from_file(cls, path, encoding="UTF-8"):
-        """Create a RefractorVelocity instance from a file.
+        """Create a `RefractorVelocity` instance from a file.
 
-        File should have coords and parameters of a single RefractorVelocity with next structure:
-         - The first row contain the Coordinates parameters names (name_x, name_y, coord_x, coord_y) and
-        the RefractorVelocity parameters names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
+        The file should define near-surface velocity model at given location and have the following structure:
+         - The first row contains names of the Coordinates parameters ("name_x", "name_y", "coord_x", "coord_y") and
+        names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
          - The second row contains the coords names, coords values, and parameters values of a RefractorVelocity.
 
         File example:
@@ -305,18 +305,20 @@ class RefractorVelocity:
 
         Parameters
         ----------
-        path : str,
-            path to the file with parameters.
+        path : str
+            Path to the file with parameters.
+        encoding : str, optional, defaults to "UTF-8"
+            File encoding.
 
         Returns
         -------
         self : RefractorVelocity
             RefractorVelocity instance created from a file.
         """
-        coords_list, params_list, max_offset_list = load_rv(path, encoding)
-        if len(coords_list) > 1:
-            raise ValueError("The loaded file contains more than one set of RefractorVelocity parameters.")
-        return cls(max_offset=max_offset_list[0], coords=coords_list[0], **params_list[0])
+        rv_list = load_refractor_velocity(path, encoding)
+        if len(rv_list) != 1:
+            raise ValueError("The file should contain only one set of RefractorVelocity parameters.")
+        return rv_list[0]
 
     @classmethod
     def from_constant_velocity(cls, velocity, max_offset=None, coords=None):
@@ -396,8 +398,10 @@ class RefractorVelocity:
         if np.any(np.diff(param_values[1:n_refractors], prepend=0, append=max_offset) < min_refractor_size):
             raise ValueError(f"Offset range covered by refractors must be no less than {min_refractor_size} meters")
 
-        if np.any(np.diff(param_values[n_refractors:]) < min_velocity_step):
-            raise ValueError(f"Refractor velocities must increase by no less than {min_velocity_step} m/s")
+        # if np.any(np.diff(param_values[n_refractors:]) < min_velocity_step):
+        if np.any((np.diff(param_values[n_refractors:]) < min_velocity_step) *
+            ~np.isclose(np.diff(param_values[n_refractors:]) - min_velocity_step, 0)):
+            raise ValueError(f"Refractor velocities {param_values[n_refractors:]} must increase by no less than {min_velocity_step} m/s")
 
     @classmethod
     def _validate_params_bounds(cls, params, bounds):
@@ -616,18 +620,22 @@ class RefractorVelocity:
         """
         return Muter.from_refractor_velocity(self, delay=delay, velocity_reduction=velocity_reduction)
 
-    def dump(self, path, encoding="UTF-8", min_col_size=11):
-        """Dump the RefractorVelocity instance to a file. Coords should be preloaded.
+    def dump(self, path, encoding="UTF-8"):
+        """Dump the RefractorVelocity instance to a file.
 
-        The resulting file contains the coords and parameters of a single RefractorVelocity with the following
+        The output file contains the coords and parameters of a single RefractorVelocity with the following
         structure:
-         - The first row contain the Coordinates parameters names (name_x, name_y, coord_x, coord_y) and
-        the RefractorVelocity parameters names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
-         - The second row contains the coords and parameters values of a RefractorVelocity.
+        - The first row contains names of the Coordinates parameters ("name_x", "name_y", "coord_x", "coord_y") and
+        names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
+        - The second row contains the coords names, coords values, and parameters values of a RefractorVelocity.
 
-        File example:
+        Output file example:
          name_x     name_y    coord_x    coord_y        t0        x1        v1        v2 max_offset
         SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00    2000.00
+
+        Notes
+        -----
+        `RefractorVelocity` instance should have well defined `coords`.
 
         Parameters
         ----------
@@ -635,8 +643,6 @@ class RefractorVelocity:
             Path to a file.
         encoding : str, optional, defaults to "UTF-8"
             File encoding.
-        min_col_size : int, defaults to 11
-            Minimum size of each columns in the resulting file.
 
         Returns
         -------
@@ -648,9 +654,9 @@ class RefractorVelocity:
         ValueError
             If coords attributes is None.
         """
-        if self.coords is None:
-            raise ValueError("`coords` attribute should be defined.")
-        dump_rv([calc_df_to_dump(self)], path=path, encoding=encoding, min_col_size=min_col_size)
+        if not self.has_coords:
+            raise ValueError("RefractorVelocity missing `coords` attribute.")
+        dump_refractor_velocity(self, path=path, encoding=encoding)
         return self
 
     @plotter(figsize=(10, 5), args_to_unpack="compare_to")

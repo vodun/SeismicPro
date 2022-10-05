@@ -74,17 +74,25 @@ def _is_all_refractors_valid(rv, min_offsets_diff, min_velocity_diff, min_points
         return True
     return False
 
-def calc_max_refractors_rv(offsets, times, min_offsets_diff, min_velocity_diff, min_points_percentile,
-                           start_refractor=1, max_refractors=10, init=None, bounds=None,
+def calc_max_refractors_rv(offsets, times, min_offsets_diff, min_velocity_diff, start_refractor=1,
+                           max_refractors=10, init=None, bounds=None, weathering=False,
                            name=None, plot_last=False):  # name and plot_last is debug features
     """Calculate RefractorVelocity which have maximum number of refractor based on given constraints.
     """
     name = str(name)   # debug feature
     rv = None
-    # print(start_refractor, max_refractors)
     for refractor in range(start_refractor, max_refractors + 1):
-        rv_last = RefractorVelocity.from_first_breaks(offsets, times, n_refractors=refractor, init=init, bounds=bounds)
-        if _is_all_refractors_valid(rv_last, min_offsets_diff, min_velocity_diff, min_points_percentile):
+        min_refractor_size = np.repeat(min_offsets_diff, refractor)
+        if weathering:
+            min_refractor_size[0] = 1
+        if offsets.max() > min_refractor_size[-1] * refractor:
+            rv_last = RefractorVelocity.from_first_breaks(offsets, times, n_refractors=refractor, init=init, tol=1e-6,
+                          bounds=bounds, min_velocity_step=min_velocity_diff, min_refractor_size=min_refractor_size)
+            # rv_last.plot(title=rv_last.fit_result.fun)
+        else:
+            break
+        n_points, _ = np.histogram(rv_last.offsets, bins=rv_last.piecewise_offsets)
+        if (n_points > 1).all() and (rv is None or rv_last.fit_result.fun < rv.fit_result.fun):
             rv = rv_last
         else:
             break
