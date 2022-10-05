@@ -363,9 +363,10 @@ class RefractorVelocityField(SpatialField):
         params_bounds = np.stack([np.maximum(params_init - bounds_size, 0), params_init + bounds_size], axis=2)
 
         # Clip init and bounds for crossover offsets to be no greater than max offset
-        max_offsets = np.array([rv.max_offset for rv in self.items])[:, None, None]
-        np.minimum(params_init[:, 1:self.n_refractors], max_offsets, out=params_init[:, 1:self.n_refractors])
-        np.minimum(params_bounds[:, 1:self.n_refractors], max_offsets, out=params_bounds[:, 1:self.n_refractors])
+        max_offsets = np.array([rv.max_offset for rv in self.items])
+        np.minimum(params_init[:, 1:self.n_refractors], max_offsets[:, None], out=params_init[:, 1:self.n_refractors])
+        np.minimum(params_bounds[:, 1:self.n_refractors], max_offsets[:, None, None],
+                   out=params_bounds[:, 1:self.n_refractors])
 
         refined_items = []
         for rv, init, bounds in tqdm(zip(self.items, params_init, params_bounds), total=self.n_items,
