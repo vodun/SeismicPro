@@ -10,7 +10,7 @@ from tqdm.auto import tqdm
 
 from .refractor_velocity import RefractorVelocity
 from .interactive_plot import FitPlot
-from .utils import get_param_names, postprocess_params, dump_refractor_velocity, load_refractor_velocity_params
+from .utils import get_param_names, postprocess_params, dump_refractor_velocity, load_refractor_velocity
 from ..field import SpatialField
 from ..utils import to_list, IDWInterpolator
 
@@ -158,8 +158,8 @@ class RefractorVelocityField(SpatialField):
 
         The file should define near-surface velocity model at one or more field locations and have the following
         structure:
-        - The first row contains names of the Coordinates parameters (name_x, name_y, coord_x, coord_y) and names of
-        the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
+        - The first row contains names of the Coordinates parameters ("name_x", "name_y", "coord_x", "coord_y") and
+        names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
         - Each next line contains the coords names, coords values, and parameters values of one RefractorVelocity.
 
         File example:
@@ -185,8 +185,7 @@ class RefractorVelocityField(SpatialField):
         self : RefractorVelocityField
             RefractorVelocityField instance created from a file.
         """
-        rv_list = [RefractorVelocity(**params) for params in load_refractor_velocity_params(path, encoding)]
-        return cls(rv_list, survey=survey, is_geographic=is_geographic)
+        return cls(load_refractor_velocity(path, encoding), survey=survey, is_geographic=is_geographic)
 
     def update(self, items):
         """Add new items to the field. All passed `items` must have not-None coordinates and describe the same number
@@ -415,8 +414,8 @@ class RefractorVelocityField(SpatialField):
 
         The output file defines near-surface velocity model at one or more field locations and has the following
         structure:
-        - The first row contains names of the Coordinates parameters (name_x, name_y, coord_x, coord_y) and names of
-        the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
+        - The first row contains names of the Coordinates parameters ("name_x", "name_y", "coord_x", "coord_y") and
+        names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
         - Each next line contains the coords names, coords values, and parameters values corresponding to one
         RefractorVelocity in the RefractorVelocityField.
 
