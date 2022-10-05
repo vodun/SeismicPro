@@ -1247,36 +1247,3 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
-<<<<<<< HEAD
-
-    def calc_n_refractors(self, min_offsets_diff=300, min_velocity_diff=300, fb_col=HDR_FIRST_BREAK,
-                          binarization=False, as_params=False, name=None, weathering=False, plot_last=False):
-        if len(self.indices) < 1:
-            raise ValueError("Object is empty")
-        offsets = self.headers['offset'].ravel()
-        times = self.headers[fb_col].ravel()
-        # reduce points
-        if binarization:  # remove maybe
-            offsets, times = binarization_offsets(offsets, times)
-            step = 1
-        else:
-            step = int(np.log10(len(offsets))) + 1
-
-        name = self.__dict__.get('name', None) if name is None else name  # debug params
-        rv = calc_max_refractors_rv(offsets[::step], times[::step], min_offsets_diff,
-                                    min_velocity_diff, name=name, plot_last=plot_last)
-        if weathering:  # try to find the weathering layer
-            init = {'x1': 150, 'v1': rv.v1 / 2}
-            bounds = {'x1': [1, 300], 'v1': [1, rv.v1]}
-            start_refractor = max(rv.n_refractors, 2)
-            weathering_rv = calc_max_refractors_rv(offsets[::step], times[::step], min_offsets_diff,
-                                    min_velocity_diff, start_refractor=start_refractor,
-                                    init=init, bounds=bounds, weathering=True,
-                                    name=name, plot_last=plot_last) # debug
-            if weathering_rv is not None and weathering_rv.fit_result.fun < rv.fit_result.fun:
-                rv = weathering_rv
-        if as_params:
-            return rv.params
-        return rv.n_refractors
-=======
->>>>>>> a2bf45976ef7966386e5e0ac68e6bdde8dc61282
