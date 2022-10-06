@@ -14,8 +14,6 @@ jobs:
     steps:
     - name: Checkout SeismicPro
       uses: actions/checkout@v2
-      with:
-        submodules: true
 
     - name: Update pylint
       run: pip3 install -U pylint
@@ -24,4 +22,4 @@ jobs:
       run: pylint -rn --rcfile pylintrc seismicpro
 
     - name: Run tests
-      run: pytest -m "not slow" --disable-pytest-warnings -v seismicpro/src/tests
+      run: pytest -m "not slow" --disable-pytest-warnings -v seismicpro/tests
