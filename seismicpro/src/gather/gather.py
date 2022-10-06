@@ -201,7 +201,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         # Format gather coordinates
         coords = self.coords
-        coords_str = "unknown" if coords is None else str(coords)
+        coords_str = "Unknown" if coords is None else str(coords)
 
         # Count the number of zero/constant traces
         n_dead_traces = np.isclose(np.max(self.data, axis=1), np.min(self.data, axis=1)).sum()
@@ -211,7 +211,7 @@ class Gather(TraceContainer, SamplesContainer):
         Parent survey name:          {self.survey.name}
 
         Indexed by:                  {', '.join(to_list(self.indexed_by))}
-        Index value:                 {'combined' if self.index is None else self.index}
+        Index value:                 {'Combined' if self.index is None else self.index}
         Gather coordinates:          {coords_str}
         Gather sorting:              {self.sort_by}
 
@@ -673,8 +673,8 @@ class Gather(TraceContainer, SamplesContainer):
         n_refractors : int, optional
             The number of refractors described by the model.
         max_offset : float, optional
-            Maximum offset reliably described by the model. Defaults to the maximum offset of gather traces but
-            preferably should be explicitly passed.
+            Maximum offset reliably described by the model. Inferred automatically by `offsets`, `init` and `bounds`
+            provided but should be preferably explicitly passed.
         min_velocity_step : int, or 1d array-like with shape (n_refractors - 1,), optional, defaults to 1
             Minimum difference between velocities of two adjacent refractors. Default value ensures that velocities are
             strictly increasing.
@@ -949,7 +949,7 @@ class Gather(TraceContainer, SamplesContainer):
         self.data = self.data[mask]
         return self
 
-    @batch_method(target="for")
+    @batch_method(target="threads")
     def stack(self):
         """Stack a gather by calculating mean value of all non-nan amplitudes for each time over the offset axis.
 
@@ -1059,7 +1059,7 @@ class Gather(TraceContainer, SamplesContainer):
         cv2.filter2D(self.data, dst=self.data, ddepth=-1, kernel=kernel.reshape(1, -1))
         return self
 
-    @batch_method(target="for")
+    @batch_method(target="threads")
     def resample(self, new_sample_rate, kind=3, anti_aliasing=True):
         """Change sample rate of traces in the gather.
 

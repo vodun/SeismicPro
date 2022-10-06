@@ -85,7 +85,7 @@ class CroppedGather:
             return np.pad(self.gather.data, ((0, pad_width_x), (0, pad_width_y)), **kwargs)
         return self.gather.data
 
-    @batch_method(target='threads', copy_src=False)
+    @batch_method(target='for', copy_src=False)
     def assemble_gather(self):
         """Assemble crops back to a `Gather` instance.
 

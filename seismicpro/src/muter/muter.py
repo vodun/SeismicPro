@@ -1,5 +1,7 @@
 """Implements Muter class to define a boundary above which gather values should be zeroed out"""
 
+import numpy as np
+
 from ..utils import VFUNC
 
 
@@ -73,8 +75,8 @@ class Muter(VFUNC):
         muters : Muter or list of Muter
             Muters to be aggregated.
         weights : float or list of floats, optional
-            Weight of each item in `muters`. If not given, equal weights are assigned to all items and thus mean muter
-            is calculated.
+            Weight of each item in `muters`. Normalized to have sum of 1 before aggregation. If not given, equal
+            weights are assigned to all items and thus mean muter is calculated.
         coords : Coordinates, optional
             Spatial coordinates of the created muter. If not given, the created instance won't be able to be added to a
             `MuterField`.
@@ -103,17 +105,22 @@ class Muter(VFUNC):
             A near-surface velocity model to construct a muter from.
         delay : float, optional, defaults to 0
             Introduced constant delay. Measured in milliseconds.
-        velocity_reduction : float, optional, defaults to 0
-            A value used to decrement each refractor velocity. Measured in meters/seconds.
+        velocity_reduction : float or array-like of float, optional, defaults to 0
+            A value used to decrement velocity of each refractor. If a single `float`, the same value is used for all
+            refractors. Measured in meters/seconds.
 
         Returns
         -------
         self : Muter
             Created muter.
         """
-        adjusted_params = refractor_velocity.params.copy()
-        adjusted_params["t0"] += delay
-        for i in range(1, refractor_velocity.n_refractors + 1):
-            adjusted_params[f"v{i}"] -= velocity_reduction
-        adjusted_rv = type(refractor_velocity)(**adjusted_params)  # use type to avoid circular import
-        return cls(adjusted_rv.piecewise_offsets, adjusted_rv.piecewise_times, coords=refractor_velocity.coords)
+        times, offsets = refractor_velocity.piecewise_times, refractor_velocity.piecewise_offsets
+        offsets_diff = np.diff(offsets)
+        muting_velocities = offsets_diff / np.diff(times) - np.array(velocity_reduction) / 1000  # m/s to m/ms
+        if (muting_velocities <= 0).any():
+            raise ValueError("Refractor velocities must remain positive after velocity reduction")
+
+        time_deltas = np.empty_like(times)
+        time_deltas[0] = times[0] + delay
+        time_deltas[1:] = offsets_diff / muting_velocities
+        return cls(offsets, np.cumsum(time_deltas), coords=refractor_velocity.coords)
