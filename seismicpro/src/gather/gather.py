@@ -201,7 +201,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         # Format gather coordinates
         coords = self.coords
-        coords_str = "unknown" if coords is None else str(coords)
+        coords_str = "Unknown" if coords is None else str(coords)
 
         # Count the number of zero/constant traces
         n_dead_traces = np.isclose(np.max(self.data, axis=1), np.min(self.data, axis=1)).sum()
@@ -211,7 +211,7 @@ class Gather(TraceContainer, SamplesContainer):
         Parent survey name:          {self.survey.name}
 
         Indexed by:                  {', '.join(to_list(self.indexed_by))}
-        Index value:                 {'combined' if self.index is None else self.index}
+        Index value:                 {'Combined' if self.index is None else self.index}
         Gather coordinates:          {coords_str}
         Gather sorting:              {self.sort_by}
 
