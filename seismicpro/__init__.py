@@ -11,3 +11,6 @@ from .stacking_velocity import StackingVelocity, StackingVelocityField
 from .refractor_velocity import RefractorVelocity, RefractorVelocityField
 from .metrics import Metric, MetricMap, MetricsAccumulator
 from .utils import aggregate_segys, make_prestack_segy
+
+
+__version__ = "2.1.0"
