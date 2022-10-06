@@ -28,7 +28,7 @@ class RefractorVelocityField(SpatialField):
     A field can be populated with refractor velocities in 3 main ways:
     - by passing precalculated velocities in the `__init__`,
     - by creating an empty field and then iteratively updating it with estimated velocities using `update`.
-    - by creating a populated field using "from_survey".
+    - by creating a populated field using `from_survey`.
 
     After all velocities are added, field interpolator should be created to make the field callable. It can be done
     either manually by executing `create_interpolator` method or automatically during the first call to the field if
@@ -139,8 +139,8 @@ class RefractorVelocityField(SpatialField):
         n_refractors : int, optional
             The number of refractors described by the model.
         max_offset : float, optional
-            Maximum offset reliably described by the model. Inferred automatically by survey offsets, `init` and
-            `bounds` provided but should be preferably explicitly passed.
+            Maximum offset reliably described by the model. Inferred automatically by `survey`, but should be
+            preferably explicitly passed.
         loss : str, defaults to "L1"
             Loss function to be minimized. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
         huber_coef : float, default to 20
