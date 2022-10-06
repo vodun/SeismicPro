@@ -15,8 +15,12 @@ jobs:
     - name: Checkout SeismicPro
       uses: actions/checkout@v2
 
-    - name: Update pylint
-      run: pip3 install -U pylint
+    - name: Install requirements
+      run: |
+        pip install --user -U pip
+        pip install --user -U pylint
+        pip install --user -U pytest
+        pip install --user -r requirements.txt
 
     - name: Check pylint
       run: pylint -rn --rcfile pylintrc seismicpro
