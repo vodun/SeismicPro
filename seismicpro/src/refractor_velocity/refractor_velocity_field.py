@@ -152,7 +152,7 @@ class RefractorVelocityField(SpatialField):
 
     @classmethod
     def from_file(cls, path, survey=None, is_geographic=None, encoding="UTF-8"):
-        """Create the field from the loaded near-surface velocity models from a file.
+        """Create the field from the near-surface velocity models loaded from a file.
 
         The file should define a near-surface velocity models at one or more field locations and have the following
         structure:
