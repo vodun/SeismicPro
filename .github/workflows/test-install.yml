@@ -40,7 +40,6 @@ jobs:
         pip install --user -U pip
         pip install --user -U pytest
         pip install --user -r requirements.txt
-        pip install --user -r seismicpro/batchflow/requirements.txt
 
     - name: Import SeismicPro
       run: python -c 'import seismicpro'
