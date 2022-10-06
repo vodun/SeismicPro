@@ -1,13 +1,12 @@
 """Implements Benchmark class to choose optimal inbatch_parallel target for SeismicBatch methods"""
-# pylint: disable=import-error
 
 import dill
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-from seismicpro.batchflow import Pipeline, CPUMonitor, C
-from seismicpro.batchflow.research import Option, Research, EC
+from batchflow import Pipeline, CPUMonitor, C
+from batchflow.research import Option, Research, EC
 
 
 sns.set_theme(style="darkgrid")
@@ -130,7 +129,7 @@ class Benchmark:
         Returns
         -------
         self : Benchmark
-            Benchmark with computed reuslts.
+            Benchmark with computed results.
         """
         # Create research that will run pipeline with different parameters based on given `domain`
         research = (Research(domain=self.domain, n_reps=1)
