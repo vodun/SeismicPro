@@ -19,19 +19,21 @@ class FitPlot(PairedPlot):  # pylint: disable=too-many-instance-attributes
             raise ValueError("Empty fields do not support interactive plotting")
         if not field.is_fit:
             raise ValueError("Only fields constructed from offset-traveltime data can be plotted")
+        max_offset = max(rv.max_offset for rv in field.items)
 
         kwargs = {"fontsize": fontsize, **kwargs}
         text_kwargs = get_text_formatting_kwargs(**kwargs)
         if refractor_velocity_plot_kwargs is None:
             refractor_velocity_plot_kwargs = {}
-        self.refractor_velocity_plot_kwargs = {"title": None, **text_kwargs, **refractor_velocity_plot_kwargs}
+        self.refractor_velocity_plot_kwargs = {"title": None, **text_kwargs, "max_offset": max_offset,
+                                               **refractor_velocity_plot_kwargs}
 
         self.field = field
         self.coords = self.field.coords
         self.values = self.field.values
         self.coords_neighbors = NearestNeighbors(n_neighbors=1).fit(self.coords)
 
-        self.x_lim = [0, max(rv.piecewise_offsets[-1] for rv in field.items) * 1.05]
+        self.x_lim = [0, max_offset * 1.05]
         self.y_lim = [0, max(rv.piecewise_times[-1] for rv in field.items) * 1.05]
         self.titles = (
             ["t0 - Intercept time"] +

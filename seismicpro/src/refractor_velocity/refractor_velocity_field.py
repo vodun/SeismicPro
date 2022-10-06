@@ -46,7 +46,7 @@ class RefractorVelocityField(SpatialField):
     Or created from precalculated instances:
     >>> field = RefractorVelocityField(list_of_rv)
 
-    Note that in both these cases all velocity models in the filed must describe the same number of refractors.
+    Note that in both these cases all velocity models in the field must describe the same number of refractors.
 
     Velocity models of an upper part of the section are usually estimated independently of one another and thus may
     appear inconsistent. `refine` method allows utilizing local information about near-surface conditions to refit
@@ -69,18 +69,24 @@ class RefractorVelocityField(SpatialField):
     ----------
     items : RefractorVelocity or list of RefractorVelocity, optional
         Velocity models to be added to the field on instantiation. If not given, an empty field is created.
+    n_refractors : int, optional
+        The number of refractors described by the field. Inferred automatically on the first update if not given.
     survey : Survey, optional
         A survey described by the field.
     is_geographic : bool, optional
         Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
         CROSSLINE_3D)). Inferred automatically on the first update if not given.
     auto_create_interpolator : bool, optional, defaults to True
-        Whether to automatically create default interpolator upon the first call to the field.
+        Whether to automatically create default interpolator (RBF for more than 3 items in the field or IDW otherwise)
+        upon the first call to the field.
 
     Attributes
     ----------
     survey : Survey or None
         A survey described by the field. `None` if not specified during instantiation.
+    n_refractors : int or None
+        The number of refractors described by the field. `None` for an empty field if was not specified during
+        instantiation.
     item_container : dict
         A mapping from coordinates of field items as 2-element tuples to the items themselves.
     is_geographic : bool
@@ -94,7 +100,8 @@ class RefractorVelocityField(SpatialField):
     is_dirty_interpolator : bool
         Whether the field was updated after the interpolator was created.
     auto_create_interpolator : bool
-        Whether to automatically create default interpolator upon the first call to the field.
+        Whether to automatically create default interpolator (RBF for more than 3 items in the field or IDW otherwise)
+        upon the first call to the field.
     """
     item_class = RefractorVelocity
 
@@ -115,14 +122,6 @@ class RefractorVelocityField(SpatialField):
         return all(item.is_fit for item in self.items)
 
     @cached_property
-    def max_offset(self):
-        """float: Mean maximum offset reliably described by field items."""
-        max_offsets = [item.max_offset for item in self.items if item.max_offset is not None]
-        if max_offsets:
-            return np.mean(max_offsets)
-        return None
-
-    @cached_property
     def mean_velocity(self):
         """RefractorVelocity: Mean near-surface velocity model over the field."""
         return self.construct_item(self.values.mean(axis=0), coords=None)
@@ -132,7 +131,6 @@ class RefractorVelocityField(SpatialField):
         and created interpolator."""
         msg = super().__str__() + dedent(f"""\n
         Number of refractors:      {self.n_refractors}
-        Mean max offset of items:  {self.max_offset}
         Is fit from first breaks:  {self.is_fit}
         """)
 
@@ -236,7 +234,7 @@ class RefractorVelocityField(SpatialField):
 
     def construct_item(self, values, coords):
         """Construct an instance of `RefractorVelocity` from its `values` at given `coords`."""
-        return self.item_class(**dict(zip(self.param_names, values)), max_offset=self.max_offset, coords=coords)
+        return self.item_class(**dict(zip(self.param_names, values)), coords=coords)
 
     def _get_refined_values(self, interpolator_class, min_refractor_points=0, min_refractor_points_quantile=0):
         """Redefine parameters of velocity models for refractors that contain small number of points and may thus have
@@ -258,7 +256,8 @@ class RefractorVelocityField(SpatialField):
         n_refractor_points = np.full((self.n_items, self.n_refractors), fill_value=np.nan)
         for i, rv in enumerate(self.item_container.values()):
             if rv.is_fit:
-                n_refractor_points[i] = np.histogram(rv.offsets, rv.piecewise_offsets, density=False)[0]
+                bin_edges = [0] + [rv.params[f"x{i}"] for i in range(1, rv.n_refractors)] + [rv.max_offset]
+                n_refractor_points[i] = np.histogram(rv.offsets, bin_edges, density=False)[0]
         n_refractor_points[:, np.isnan(n_refractor_points).all(axis=0)] = 0
 
         # Calculate minimum acceptable number of points in each refractor, should be at least 2
@@ -267,21 +266,34 @@ class RefractorVelocityField(SpatialField):
         ignore_mask = n_refractor_points < min_refractor_points
         ignore_mask[:, ignore_mask.all(axis=0)] = False  # Use a refractor anyway if it is ignored for all items
 
-        # Refine t0 using only items with well-fitted first refractor
+        # Refine t0 using only items with well-fit first refractor
         refined_values[:, 0] = interpolator_class(coords[~ignore_mask[:, 0]], values[~ignore_mask[:, 0], 0])(coords)
 
-        # Refine crossover offsets using only items with well-fitted neighboring refractors
+        # Refine crossover offsets using only items with well-fit neighboring refractors
         for i in range(1, self.n_refractors):
             proper_items_mask = ~(ignore_mask[:, i - 1] | ignore_mask[:, i])
             refined_values[:, i] = interpolator_class(coords[proper_items_mask], values[proper_items_mask, i])(coords)
 
-        # Refine velocities using only items with well-fitted corresponding refractor
+        # Refine velocities using only items with well-fit corresponding refractor
         for i in range(self.n_refractors, 2 * self.n_refractors):
             proper_items_mask = ~ignore_mask[:, i - self.n_refractors]
             refined_values[:, i] = interpolator_class(coords[proper_items_mask], values[proper_items_mask, i])(coords)
 
         # Postprocess refined values
         return postprocess_params(refined_values)
+
+    def _get_smoothed_values(self, radius=None, neighbors=None, min_refractor_points=0,
+                             min_refractor_points_quantile=0):
+        """Average refractor parameters within a given `radius` while ignoring refractors that contain less points
+        than:
+        - 2 or `min_refractor_points`,
+        - A quantile of the number of points in the very same refractor over the whole field defined by
+          `min_refractor_points_quantile`.
+        """
+        if radius is None:
+            radius = self.default_neighborhood_radius
+        smoother = partial(IDWInterpolator, radius=radius, neighbors=neighbors, dist_transform=0)
+        return self._get_refined_values(smoother, min_refractor_points, min_refractor_points_quantile)
 
     def create_interpolator(self, interpolator, min_refractor_points=0, min_refractor_points_quantile=0, **kwargs):
         """Create a field interpolator whose name is defined by `interpolator`.
@@ -338,25 +350,10 @@ class RefractorVelocityField(SpatialField):
         """
         if self.is_empty:
             return type(self)(survey=self.survey, is_geographic=self.is_geographic)
-        if radius is None:
-            radius = self.default_neighborhood_radius
-        smoother = partial(IDWInterpolator, radius=radius, neighbors=neighbors, dist_transform=0)
-        values = self._get_refined_values(smoother, min_refractor_points, min_refractor_points_quantile)
 
-        smoothed_items = []
-        for rv, val in zip(self.items, values):
-            item = self.construct_item(val, rv.coords)
-
-            # Copy all fit-related items from the parent field
-            item.is_fit = rv.is_fit
-            item.fit_result = rv.fit_result
-            item.init = rv.init
-            item.bounds = rv.bounds
-            item.offsets = rv.offsets
-            item.times = rv.times
-
-            smoothed_items.append(item)
-
+        smoothed_values = self._get_smoothed_values(radius, neighbors, min_refractor_points,
+                                                    min_refractor_points_quantile)
+        smoothed_items = [self.construct_item(val, rv.coords) for rv, val in zip(self.items, smoothed_values)]
         return type(self)(smoothed_items, n_refractors=self.n_refractors, survey=self.survey,
                           is_geographic=self.is_geographic)
 
@@ -389,22 +386,31 @@ class RefractorVelocityField(SpatialField):
         field : RefractorVelocityField
             Refined field.
         """
+        if self.is_empty:
+            return type(self)(survey=self.survey, is_geographic=self.is_geographic)
         if not self.is_fit:
             raise ValueError("Only fields that were constructed directly from offset-traveltime data can be refined")
-        smoothed_field = self.smooth(radius, neighbors, min_refractor_points, min_refractor_points_quantile)
-        bounds_size = smoothed_field.values.ptp(axis=0) * relative_bounds_size / 2
-        params_bounds = np.stack([smoothed_field.values - bounds_size, smoothed_field.values + bounds_size], axis=2)
 
-        # Clip t0 bounds to be positive and all crossover bounds to be no greater than max offset
-        max_offsets = np.array([rv.max_offset for rv in self.items])[:, None, None]
-        params_bounds[:, 0] = np.maximum(params_bounds[:, 0], 0)
-        params_bounds[:, 1:self.n_refractors] = np.minimum(params_bounds[:, 1:self.n_refractors], max_offsets)
+        params_init = self._get_smoothed_values(radius, neighbors, min_refractor_points, min_refractor_points_quantile)
+        bounds_size = params_init.ptp(axis=0) * relative_bounds_size / 2
+
+        # Clip all bounds to be non-negative
+        params_bounds = np.stack([np.maximum(params_init - bounds_size, 0), params_init + bounds_size], axis=2)
+
+        # Clip init and bounds for crossover offsets to be no greater than max offset
+        max_offsets = np.array([rv.max_offset for rv in self.items])
+        np.minimum(params_init[:, 1:self.n_refractors], max_offsets[:, None], out=params_init[:, 1:self.n_refractors])
+        np.minimum(params_bounds[:, 1:self.n_refractors], max_offsets[:, None, None],
+                   out=params_bounds[:, 1:self.n_refractors])
 
         refined_items = []
-        for rv, bounds in tqdm(zip(smoothed_field.items, params_bounds), total=self.n_items,
-                               desc="Velocity models refined", disable=not bar):
-            rv = RefractorVelocity.from_first_breaks(rv.offsets, rv.times, bounds=dict(zip(self.param_names, bounds)),
-                                                     max_offset=rv.max_offset, coords=rv.coords)
+        for rv, init, bounds in tqdm(zip(self.items, params_init, params_bounds), total=self.n_items,
+                                     desc="Velocity models refined", disable=not bar):
+            init = dict(zip(self.param_names, init))
+            bounds = dict(zip(self.param_names, bounds))
+            rv = RefractorVelocity.from_first_breaks(rv.offsets, rv.times, init=init, bounds=bounds,
+                                                     max_offset=rv.max_offset, min_velocity_step=0,
+                                                     min_refractor_size=0, coords=rv.coords)
             refined_items.append(rv)
         return type(self)(refined_items, n_refractors=self.n_refractors, survey=self.survey,
                           is_geographic=self.is_geographic)

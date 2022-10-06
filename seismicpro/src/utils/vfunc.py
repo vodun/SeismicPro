@@ -108,7 +108,7 @@ def dump_vfunc(path, vfunc_list, encoding="UTF-8"):
     """
     with open(path, "w", encoding=encoding) as f:
         for coords, x, y in vfunc_list:
-            f.write(f"{'VFUNC':8}{coords[0]:<8}{coords[1]:<8}\n")
+            f.write(f"{'VFUNC':8}{round(coords[0]):<8}{round(coords[1]):<8}\n")
             data = np.column_stack([x, y]).ravel()
             rows = np.split(data, np.arange(8, len(data), 8))
             for row in rows:
@@ -150,8 +150,8 @@ class VFUNC:
         vfuncs : VFUNC or list of VFUNC
             Vertical functions to be aggregated.
         weights : float or list of floats, optional
-            Weight of each item in `vfuncs`. If not given, equal weights are assigned to all items and thus mean
-            vertical function is calculated.
+            Weight of each item in `vfuncs`. Normalized to have sum of 1 before aggregation. If not given, equal
+            weights are assigned to all items and thus mean vertical function is calculated.
         coords : Coordinates, optional
             Spatial coordinates of the created vertical function.
 
