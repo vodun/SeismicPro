@@ -152,9 +152,9 @@ class RefractorVelocityField(SpatialField):
 
     @classmethod
     def from_file(cls, path, survey=None, is_geographic=None, encoding="UTF-8"):
-        """Load RefractorVelocityField from a file.
+        """Create the field from the loaded near-surface velocity models from a file.
 
-        The file should define a near-surface velocity model at one or more field locations and have the following
+        The file should define a near-surface velocity models at one or more field locations and have the following
         structure:
         - The first row contains names of the Coordinates parameters ("name_x", "name_y", "coord_x", "coord_y") and
         names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
@@ -416,7 +416,7 @@ class RefractorVelocityField(SpatialField):
                           is_geographic=self.is_geographic)
 
     def dump(self, path, encoding="UTF-8"):
-        """Save the RefractorVelocityField instance to a file.
+        """Save the near-surface velocity models stored in the field to a file.
 
         The output file defines near-surface velocity model at one or more field locations and has the following
         structure:
