@@ -6,6 +6,7 @@ from collections import defaultdict
 
 import numpy as np
 import matplotlib.pyplot as plt
+from batchflow import action, inbatch_parallel, save_data_to, Batch, DatasetIndex, NamedExpression
 
 from .index import SeismicIndex
 from .gather import Gather, CroppedGather
@@ -15,7 +16,6 @@ from .field import Field
 from .metrics import define_pipeline_metric, PartialMetric, MetricsAccumulator
 from .decorators import create_batch_methods, apply_to_each_component
 from .utils import to_list, as_dict, save_figure
-from ..batchflow import action, inbatch_parallel, save_data_to, Batch, DatasetIndex, NamedExpression
 
 
 @create_batch_methods(Gather, CroppedGather, Semblance, ResidualSemblance)

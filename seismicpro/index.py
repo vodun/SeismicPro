@@ -7,11 +7,11 @@ from textwrap import indent, dedent
 
 import numpy as np
 import pandas as pd
+from batchflow import DatasetIndex
 
 from .survey import Survey
 from .containers import GatherContainer
 from .utils import to_list, maybe_copy
-from ..batchflow import DatasetIndex
 
 
 class IndexPart(GatherContainer):
