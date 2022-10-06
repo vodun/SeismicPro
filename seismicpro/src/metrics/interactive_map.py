@@ -155,13 +155,17 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method
 
     def construct_main_plot(self):
         """Construct the metric map plot."""
-        return InteractivePlot(plot_fn=self.plot_map, click_fn=self.click, init_click_coords=self.init_click_coords,
-                               title=self.title, figsize=self.figsize)
+        return InteractivePlot(plot_fn=self.plot_map, click_fn=self.click, title=self.title, figsize=self.figsize)
 
     def click(self, coords):
         """Handle a click on the map plot."""
         _ = coords
         raise NotImplementedError
+
+    def plot(self):
+        """Display the map and perform initial clicking."""
+        super().plot()
+        self.main.click(self.init_click_coords)
 
 
 class ScatterMapPlot(MetricMapPlot):

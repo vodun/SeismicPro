@@ -186,10 +186,11 @@ class IDWInterpolator(ValuesAgnosticInterpolator):
         A constant to be added to transformed distances before inverting and normalizing into weights. The interpolant
         perfectly fits the data when `smoothing` is set to 0. For large values, the interpolant approaches mean
         function value in the neighborhood being considered.
-    min_weight : float, optional, defaults to 1e-4
-        Ignore points whose weight is lower than `min_weight` during interpolation. Weights of the remaining points are
-        renormalized so that their sum equals 1. Allows reducing computational costs since weights generally decrease
-        rapidly for distant points and the number of points that affect the interpolation result significantly is low.
+    min_relative_weight : float, optional, defaults to 1e-3
+        Ignore points whose weight divided by the weight of the closest point is lower than `min_relative_weight`
+        during interpolation. Weights of the remaining points are renormalized so that their sum equals 1. Allows
+        reducing computational costs since weights generally decrease rapidly for distant points and the number of
+        points that affect the interpolation result significantly is low.
 
     Attributes
     ----------
@@ -201,11 +202,12 @@ class IDWInterpolator(ValuesAgnosticInterpolator):
         A function used to transform distances before smoothing, inverting and normalizing into weights.
     smoothing : float
         A constant to be added to transformed distances before inverting and normalizing into weights.
-    min_weight : float
-        Ignore points whose weight is lower than `min_weight` during interpolation.
+    min_relative_weight : float
+        Ignore points whose weight divided by the weight of the closest point is lower than `min_relative_weight`
+        during interpolation.
     """
     def __init__(self, coords, values=None, radius=None, neighbors=None, dist_transform=2, smoothing=0,
-                 min_weight=1e-4):
+                 min_relative_weight=1e-3):
         super().__init__(coords, values)
         if neighbors is None:
             neighbors = len(self.coords)
@@ -214,7 +216,7 @@ class IDWInterpolator(ValuesAgnosticInterpolator):
         self.use_radius = radius is not None
         self.dist_transform = dist_transform
         self.smoothing = smoothing
-        self.min_weight = min_weight
+        self.min_relative_weight = min_relative_weight
 
     def _distances_to_weights(self, dist):
         """Convert distances to neighboring points into weights."""
@@ -236,7 +238,7 @@ class IDWInterpolator(ValuesAgnosticInterpolator):
         weights[zero_mask] = 1
 
         # Zero out weights less than a threshold and norm the result
-        weights[weights < weights.sum(axis=1, keepdims=True) * self.min_weight] = 0
+        weights[weights / weights.max(axis=1, keepdims=True) < self.min_relative_weight] = 0
         weights /= weights.sum(axis=1, keepdims=True)
 
         if is_1d_dist:
