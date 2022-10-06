@@ -41,27 +41,27 @@ def postprocess_params(params):
     return params
 
 def dump_refractor_velocity(rv_list, path, encoding="UTF-8"):
-    """Dump DataFrames to a file.
+    """Dump the parameters of passed velocity models to a file.
 
     Parameters
     ----------
-    rv_list : iterable of RefractorVelocity or single RefractorVelocity.
-        List of :class:`~refractor_velocity.RefractorVelocity` instances.
+    rv_list : RefractorVelocity or iterable of RefractorVelocity.
+        Refractor Velocity instances to dump to the file.
     path : str
         Path to the created file.
     encoding : str, defaults to "UTF-8"
         File encoding.
     """
-    df_list = []
-    for rv in to_list(rv_list):
-        columns = ['name_x', 'name_y', 'coord_x', 'coord_y'] + list(rv.params.keys()) + ["max_offset"]
-        data = [*rv.coords.names] + [*rv.coords.coords] + list(rv.params.values()) + [rv.max_offset]
-        df_list.append(pd.DataFrame.from_dict({col: [data] for col, data in zip(columns, data)}))
-    with open(path, 'w', encoding=encoding) as f:
-        pd.concat(df_list).to_string(buf=f, float_format="%.2f", index=False)
+    rv_list = to_list(rv_list)
+    columns = ['name_x', 'name_y', 'coord_x', 'coord_y'] + list(rv_list[0].params.keys()) + ["max_offset"]
+    dict_list = []
+    for rv in rv_list:
+        params = [*rv.coords.names] + [*rv.coords.coords] + list(rv.params.values()) + [rv.max_offset]
+        dict_list.append(dict(zip(columns, params)))
+    pd.DataFrame.from_dict(dict_list).to_string(buf=path, float_format="%.2f", index=False, encoding=encoding)
 
-def load_refractor_velocity_params(path, encoding="UTF-8"):
-    """Load the coordinates and parameters of RefractorVelocity from a file.
+def load_refractor_velocity(path, encoding="UTF-8"):
+    """Load the coordinates and parameters of the velocity models from a file.
 
     Parameters
     ----------
@@ -72,17 +72,18 @@ def load_refractor_velocity_params(path, encoding="UTF-8"):
 
     Returns
     -------
-    params_list : list of dict
-        Each dict in the returned list contains parameters and coords sufficient to define near-surface velocity model
-        at a given locations.
+    rv_list : list of RefractorVelocity
+        List of RefractorVelocities that are created from the parameters and coords loaded from the file.
     """
+    #pylint: disable-next=import-outside-toplevel
+    from .refractor_velocity import RefractorVelocity  # import inside to avoid the circular import
     df = pd.read_csv(path, sep=r'\s+', encoding=encoding)
     params_names = df.columns[4:]
-    params_list = []
+    rv_list = []
     for row in df.to_numpy():
         if np.isnan(row[-1]):
             raise ValueError(f"Unsufficient parameters in the row {row}.")
-        params = dict(zip(params_names, row[4:]))
-        params['coords'] = Coordinates(names=tuple(row[:2]), coords=tuple(row[2:4].astype(int)))
-        params_list.append(params)
-    return params_list
+        params = dict(zip(params_names, row[4:].astype(df.dtypes[4:])))
+        params['coords'] = Coordinates(names=row[:2], coords=row[2:4].astype(df.dtypes[2:4]))
+        rv_list.append(RefractorVelocity(**params))
+    return rv_list
