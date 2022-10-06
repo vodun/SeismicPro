@@ -297,7 +297,8 @@ class RefractorVelocity:
     def from_file(cls, path, encoding="UTF-8"):
         """Create a `RefractorVelocity` instance from a file.
 
-        The file should define a near-surface velocity model at given field location and have the following structure:
+        The file should define a near-surface velocity model at a given field location and have the following
+        structure:
          - The first row contains names of the Coordinates parameters ("name_x", "name_y", "coord_x", "coord_y") and
         names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
          - The second row contains the corresponding values of the velocity model.
