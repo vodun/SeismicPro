@@ -34,38 +34,34 @@ Main features:
 
 > `SeismicPro` module is in the beta stage. Your suggestions and improvements via [issues](https://github.com/gazprom-neft/SeismicPro/issues) are very welcome.
 
+> Note that the [Benchmark](./benchmark/) module may not work on Windows due to dependency issues. Use it with caution.
+
 `SeismicPro` is compatible with Python 3.8+ and tested on Ubuntu 20.04 and Windows Server 2019.
 
-> Note that the [Benchmark](./seismicpro/benchmark/) module and [Research](./seismicpro/batchflow/batchflow/research/) may not work on Windows due to dependency issues. Use it with caution.
-
-### Installation as a python package
-
-With [pip](https://pip.pypa.io/en/stable/):
+Installation as a python package with [pip](https://pip.pypa.io/en/stable/):
 
     pip3 install git+https://github.com/gazprom-neft/SeismicPro.git
 
-With [pipenv](https://docs.pipenv.org/):
+Installation as a python package with [pipenv](https://docs.pipenv.org/):
 
     pipenv install git+https://github.com/gazprom-neft/SeismicPro.git#egg=SeismicPro
 
-### Installation as a project repository
+Cloning a a project repository:
 
-When cloning a repo from GitHub use ``--recursive`` flag to make sure that ``batchflow`` submodule is also cloned.
-
-    git clone --recursive https://github.com/gazprom-neft/SeismicPro.git
+    git clone https://github.com/gazprom-neft/SeismicPro.git
 
 ## Getting Started
 
 `SeismicPro` provides a simple interface to work with pre-stack data.
 
 ```python
-import seismicpro
+import seismicpro as spr
 ```
 
 A single `SEG-Y` file can be represented by a `Survey` instance that stores a requested subset of trace headers and allows for gather loading:
 
 ```python
-survey = seismicpro.Survey(path_to_file, header_index='FieldRecord', header_cols='offset')
+survey = spr.Survey(path_to_file, header_index='FieldRecord', header_cols='offset')
 ```
 
 `header_index` argument specifies how individual traces are combined into gathers: in this example, we consider common source gathers. Both `header_index` and `header_cols` correspond to names of trace headers in [segyio](https://segyio.readthedocs.io/en/latest/segyio.html#constants).
