@@ -25,9 +25,10 @@ class RefractorVelocityField(SpatialField):
     interpolation can be performed by `RefractorVelocityField` which provides an interface to obtain a velocity model
     of an upper part of the section at given spatial coordinates via its `__call__` and `interpolate` methods.
 
-    A field can be populated with refractor velocities in 2 main ways:
+    A field can be populated with refractor velocities in 3 main ways:
     - by passing precalculated velocities in the `__init__`,
     - by creating an empty field and then iteratively updating it with estimated velocities using `update`.
+    - by creating a populated field using "from_survey".
 
     After all velocities are added, field interpolator should be created to make the field callable. It can be done
     either manually by executing `create_interpolator` method or automatically during the first call to the field if
@@ -117,12 +118,11 @@ class RefractorVelocityField(SpatialField):
     def from_survey(cls, survey, is_geographic=None, init=None, bounds=None, n_refractors=None, max_offset=None,
                     loss='L1', huber_coef=20, min_velocity_step=1, min_refractor_size=1, tol=1e-5, bar=True,
                     first_breaks_col=HDR_FIRST_BREAK, **kwargs):
-        """Calculate a near-surface velocity model for each gather in the survey.
+        """Create the field populated from near-surface velocity models for each gather in the passed survey.
 
-        First, method uses the offsets, first break picking, and coords values stored in survey headers to calculate
-        velocity model of the upper part of section for each gather. This step need to specify the initial values of
-        some parameters or bounds or the number of refractors. These parameters will be used to calculate all velocity
-        models. Finally, creating field from precalculated velocity models.
+        First, methods calculates near-surface velocity models from offsets, times of first breaks, and coords
+        separately for all gathers defined by the passed survey. Finally, create field by passing precalcualted
+        velocity models in the `__init__`.
         Read :class:~`RefractorVelocity` docs for more information about the calculating velocity model.
 
         Parameters
@@ -139,8 +139,8 @@ class RefractorVelocityField(SpatialField):
         n_refractors : int, optional
             The number of refractors described by the model.
         max_offset : float, optional
-            Maximum offset reliably described by the model. Inferred automatically by `offsets`, `init` and `bounds`
-            provided but should be preferably explicitly passed.
+            Maximum offset reliably described by the model. Inferred automatically by survey offsets, `init` and
+            `bounds` provided but should be preferably explicitly passed.
         loss : str, defaults to "L1"
             Loss function to be minimized. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
         huber_coef : float, default to 20
@@ -168,7 +168,7 @@ class RefractorVelocityField(SpatialField):
             If all `init`, `bounds`, and `n_refractors` are `None`.
             If coords value non-unique for any one gather.
         """
-        if len(survey.n_gathers) < 1:
+        if survey.n_gathers < 1:
             raise ValueError("Survey is empty.")
         if all(param is None for param in (init, bounds, n_refractors)):
             raise ValueError("At least one of `init`, `bounds` or `n_refractors` must be defined")
@@ -194,7 +194,7 @@ class RefractorVelocityField(SpatialField):
 
     @classmethod
     def from_file(cls, path, survey=None, is_geographic=None, encoding="UTF-8"):
-        """Load RefractorVelocityField from a file.
+        """Create the field from the near-surface velocity models loaded from a file.
 
         The file should define a near-surface velocity model at one or more field locations and have the following
         structure:
@@ -499,7 +499,7 @@ class RefractorVelocityField(SpatialField):
                           is_geographic=self.is_geographic)
 
     def dump(self, path, encoding="UTF-8"):
-        """Save the RefractorVelocityField instance to a file.
+        """Save the near-surface velocity models stored in the field to a file.
 
         The output file defines near-surface velocity model at one or more field locations and has the following
         structure:
