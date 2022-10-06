@@ -154,17 +154,17 @@ class RefractorVelocityField(SpatialField):
     def from_file(cls, path, survey=None, is_geographic=None, encoding="UTF-8"):
         """Load RefractorVelocityField from a file.
 
-        The file should define near-surface velocity model at one or more field locations and have the following
+        The file should define a near-surface velocity model at one or more field locations and have the following
         structure:
         - The first row contains names of the Coordinates parameters ("name_x", "name_y", "coord_x", "coord_y") and
-        names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
+        names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
         - Each next line contains the coords names, coords values, and parameters values of one RefractorVelocity.
 
         File example:
-         name_x     name_y    coord_x    coord_y        t0        x1        v1        v2 max_offset
-        SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00    2000.00
+         name_x     name_y    coord_x    coord_y        t0        x1        v1        v2
+        SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00
         ...
-        SourceX    SourceY    1111200    2222240     60.00   1050.00   1550.00   1950.00    2050.00
+        SourceX    SourceY    1111200    2222240     60.00   1050.00   1550.00   1950.00
 
         Parameters
         ----------
@@ -175,7 +175,7 @@ class RefractorVelocityField(SpatialField):
         is_geographic : bool, optional
             Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
             CROSSLINE_3D)). Inferred from coordinates of the first `RefractorVelocity` in the file if not given.
-        encoding : str, defaults to "UTF-8"
+        encoding : str, optional, defaults to "UTF-8"
             File encoding.
 
         Returns
@@ -421,15 +421,15 @@ class RefractorVelocityField(SpatialField):
         The output file defines near-surface velocity model at one or more field locations and has the following
         structure:
         - The first row contains names of the Coordinates parameters ("name_x", "name_y", "coord_x", "coord_y") and
-        names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
+        names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
         - Each next line contains the coords names, coords values, and parameters values corresponding to one
         RefractorVelocity in the RefractorVelocityField.
 
         File example:
-         name_x     name_y    coord_x    coord_y        t0        x1        v1        v2 max_offset
-        SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00    2000.00
+         name_x     name_y    coord_x    coord_y        t0        x1        v1        v2
+        SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00
         ...
-        SourceX    SourceY    1111200    2222240     60.00   1050.00   1550.00   1950.00    2050.00
+        SourceX    SourceY    1111200    2222240     60.00   1050.00   1550.00   1950.00
 
         Parameters
         ----------
@@ -444,7 +444,7 @@ class RefractorVelocityField(SpatialField):
             If RefractorVelocityField is empty.
         """
         if self.is_empty:
-            raise ValueError("Field is empty. Could not dump empty field.")
+            raise ValueError("Empty field can't be dumped.")
         dump_refractor_velocity(self.items, path=path, encoding=encoding)
 
     def plot_fit(self, **kwargs):
