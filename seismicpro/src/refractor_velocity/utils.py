@@ -103,12 +103,12 @@ def binarization_offsets(offsets, times, step=20):
 
 def calc_max_refractors_rv(offsets, times, min_offsets_diff, min_velocity_diff, start_refractor=1,
                            max_refractors=10, init=None, bounds=None, weathering=False,
-                           name=None, plot_last=False):  # name and plot_last is debug features
+                           plot_last=False):  # name and plot_last is debug features
     """Calculate RefractorVelocity which have maximum number of refractor based on given constraints.
     """
     #pylint: disable-next=import-outside-toplevel
     from .refractor_velocity import RefractorVelocity
-    name = str(name)   # debug feature
+    name = ""   # debug feature
     rv = None
     for refractor in range(start_refractor, max_refractors + 1):
         min_refractor_size = np.repeat(min_offsets_diff, refractor)
@@ -129,8 +129,9 @@ def calc_max_refractors_rv(offsets, times, min_offsets_diff, min_velocity_diff, 
         rv.plot(title=name)
     return rv
 
-def calc_optimal_init(survey, min_offsets_diff=300, min_velocity_diff=300, fb_col=HDR_FIRST_BREAK, weathering=True,
+def calc_optimal_velocity(survey, min_offsets_diff=300, min_velocity_diff=300, fb_col=HDR_FIRST_BREAK, weathering=True,
                      name=None, plot_last=False):
+    """Calculate one velocity model describe passed survey."""
     if len(survey.indices) < 1:
         raise ValueError("Object is empty")
     offsets = survey.headers['offset'].ravel()
@@ -150,4 +151,4 @@ def calc_optimal_init(survey, min_offsets_diff=300, min_velocity_diff=300, fb_co
                                 name=name, plot_last=plot_last) # debug
         if weathering_rv is not None and weathering_rv.fit_result.fun < rv.fit_result.fun:
             rv = weathering_rv
-    return rv.params
+    return rv
