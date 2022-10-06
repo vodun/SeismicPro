@@ -949,7 +949,7 @@ class Gather(TraceContainer, SamplesContainer):
         self.data = self.data[mask]
         return self
 
-    @batch_method(target="for")
+    @batch_method(target="threads")
     def stack(self):
         """Stack a gather by calculating mean value of all non-nan amplitudes for each time over the offset axis.
 
@@ -1059,7 +1059,7 @@ class Gather(TraceContainer, SamplesContainer):
         cv2.filter2D(self.data, dst=self.data, ddepth=-1, kernel=kernel.reshape(1, -1))
         return self
 
-    @batch_method(target="for")
+    @batch_method(target="threads")
     def resample(self, new_sample_rate, kind=3, anti_aliasing=True):
         """Change sample rate of traces in the gather.
 
