@@ -72,9 +72,8 @@ def load_refractor_velocity(path, encoding="UTF-8"):
 
     Returns
     -------
-    params_list : list of dict
-        Each dict in the returned list contains parameters and coords sufficient to define near-surface velocity model
-        at a given locations.
+    rv_list : list of RefractorVelocity
+        List of RefractorVelocities that are created from the parameters and coords loaded from the file.
     """
     #pylint: disable-next=import-outside-toplevel
     from .refractor_velocity import RefractorVelocity  # import inside to avoid the circular import
