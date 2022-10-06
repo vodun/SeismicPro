@@ -20,15 +20,15 @@
 
 ---
 
-`SeismicPro` is a framework for accelerating processing of pre-stack seismic data with deep learning models.
+`SeismicPro` is a framework for acceleration of pre-stack seismic data processing with deep learning models.
 
 Main features:
-
 * Load pre-stack data in `SEG-Y` format at any exploration stage in a highly efficient manner
 * Utilize stacking velocities, times of first breaks, and other types of auxiliary data from multiple geological frameworks
 * Transform seismic data by both general and complex task-specific methods in a massively parallel way
-* Combine processing functions into concise and readable pipelines
-* Define a wide range of neural network architectures from vanilla `UNet` to sophisticated `EfficientNet`s with simple and intuitive configurations in just a few lines of code
+* Combine processing routines into concise and readable pipelines
+* Solve applied tasks with a wide range of neural network architectures from a vanilla `UNet` to sophisticated `EfficientNet`s defined in just a few lines of code
+* Evaluate the obtained results using interactive quality maps
 
 ## Installation
 
@@ -36,19 +36,20 @@ Main features:
 
 > Note that the [Benchmark](./benchmark/) module may not work on Windows due to dependency issues. Use it with caution.
 
-`SeismicPro` is compatible with Python 3.8+ and tested on Ubuntu 20.04 and Windows Server 2019.
+`SeismicPro` is compatible with Python 3.8+ and is tested on Ubuntu 20.04 and Windows Server 2022.
 
-Installation as a python package with [pip](https://pip.pypa.io/en/stable/):
-
+* Installation as a python package using [pip](https://pip.pypa.io/en/stable/):
+    ```bash
     pip3 install git+https://github.com/gazprom-neft/SeismicPro.git
-
-Installation as a python package with [pipenv](https://docs.pipenv.org/):
-
+    ```
+* Installation as a python package using [pipenv](https://docs.pipenv.org/):
+    ```bash
     pipenv install git+https://github.com/gazprom-neft/SeismicPro.git#egg=SeismicPro
-
-Cloning a a project repository:
-
+    ```
+* Cloning the project repository:
+    ```bash
     git clone https://github.com/gazprom-neft/SeismicPro.git
+    ```
 
 ## Getting Started
 
