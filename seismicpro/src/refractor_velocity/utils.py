@@ -130,7 +130,7 @@ def calc_max_refractors_rv(offsets, times, min_offsets_diff, min_velocity_diff, 
     return rv
 
 def calc_optimal_velocity(survey, min_offsets_diff=300, min_velocity_diff=300, fb_col=HDR_FIRST_BREAK, weathering=True,
-                     name=None, plot_last=False):
+                          plot_last=False):
     """Calculate one velocity model describe passed survey."""
     if len(survey.indices) < 1:
         raise ValueError("Object is empty")
@@ -140,7 +140,7 @@ def calc_optimal_velocity(survey, min_offsets_diff=300, min_velocity_diff=300, f
     offsets, times = binarization_offsets(offsets, times)
 
     rv = calc_max_refractors_rv(offsets, times, min_offsets_diff,
-                                min_velocity_diff, name=name, plot_last=plot_last)
+                                min_velocity_diff, plot_last=plot_last)
     if weathering:  # try to find the weathering layer
         init = {'x1': 150, 'v1': rv.v1 / 2}
         bounds = {'x1': [1, 300], 'v1': [1, rv.v1]}
@@ -148,7 +148,7 @@ def calc_optimal_velocity(survey, min_offsets_diff=300, min_velocity_diff=300, f
         weathering_rv = calc_max_refractors_rv(offsets, times, min_offsets_diff,
                                 min_velocity_diff, start_refractor=start_refractor,
                                 init=init, bounds=bounds, weathering=True,
-                                name=name, plot_last=plot_last) # debug
+                                plot_last=plot_last) # debug
         if weathering_rv is not None and weathering_rv.fit_result.fun < rv.fit_result.fun:
             rv = weathering_rv
     return rv
