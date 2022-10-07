@@ -165,7 +165,7 @@ class RefractorVelocityField(SpatialField):
         if len(survey.indices) < 1:
             raise ValueError("Survey is empty.")
         if all(param is None for param in (init, bounds, n_refractors)):
-            init = calc_optimal_velocity(survey, weathering=True).params
+            init = calc_optimal_velocity(survey, first_breaks_col=HDR_FIRST_BREAK, weathering=True).params
         rv_list = []
         coords_name = get_coords_cols(survey.indexed_by)
         # get only the needed data from survey headers.
