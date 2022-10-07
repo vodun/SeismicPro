@@ -10,7 +10,7 @@ from tqdm.auto import tqdm
 
 from .refractor_velocity import RefractorVelocity
 from .interactive_plot import FitPlot
-from .utils import (get_param_names, postprocess_params, dump_refractor_velocity, load_refractor_velocity_params,
+from .utils import (get_param_names, postprocess_params, dump_refractor_velocity, load_refractor_velocity,
                     calc_optimal_velocity)
 from ..field import SpatialField
 from ..utils import to_list, get_coords_cols, Coordinates, IDWInterpolator
@@ -26,9 +26,10 @@ class RefractorVelocityField(SpatialField):
     interpolation can be performed by `RefractorVelocityField` which provides an interface to obtain a velocity model
     of an upper part of the section at given spatial coordinates via its `__call__` and `interpolate` methods.
 
-    A field can be populated with refractor velocities in 2 main ways:
+    A field can be populated with refractor velocities in 3 main ways:
     - by passing precalculated velocities in the `__init__`,
     - by creating an empty field and then iteratively updating it with estimated velocities using `update`.
+    - by creating a populated field using `from_survey`.
 
     After all velocities are added, field interpolator should be created to make the field callable. It can be done
     either manually by executing `create_interpolator` method or automatically during the first call to the field if
@@ -48,7 +49,7 @@ class RefractorVelocityField(SpatialField):
     Or created from precalculated instances:
     >>> field = RefractorVelocityField(list_of_rv)
 
-    Or creating from survey:
+    Usually a field is directly created from a survey with loaded first breaks:
     >>> field = RefractorVelocityField.from_survey(survey, n_refractors=2)
 
     Note that in both these cases all velocity models in the filed must describe the same number of refractors.
@@ -74,18 +75,24 @@ class RefractorVelocityField(SpatialField):
     ----------
     items : RefractorVelocity or list of RefractorVelocity, optional
         Velocity models to be added to the field on instantiation. If not given, an empty field is created.
+    n_refractors : int, optional
+        The number of refractors described by the field. Inferred automatically on the first update if not given.
     survey : Survey, optional
         A survey described by the field.
     is_geographic : bool, optional
         Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
         CROSSLINE_3D)). Inferred automatically on the first update if not given.
     auto_create_interpolator : bool, optional, defaults to True
-        Whether to automatically create default interpolator upon the first call to the field.
+        Whether to automatically create default interpolator (RBF for more than 3 items in the field or IDW otherwise)
+        upon the first call to the field.
 
     Attributes
     ----------
     survey : Survey or None
         A survey described by the field. `None` if not specified during instantiation.
+    n_refractors : int or None
+        The number of refractors described by the field. `None` for an empty field if was not specified during
+        instantiation.
     item_container : dict
         A mapping from coordinates of field items as 2-element tuples to the items themselves.
     is_geographic : bool
@@ -99,7 +106,8 @@ class RefractorVelocityField(SpatialField):
     is_dirty_interpolator : bool
         Whether the field was updated after the interpolator was created.
     auto_create_interpolator : bool
-        Whether to automatically create default interpolator upon the first call to the field.
+        Whether to automatically create default interpolator (RBF for more than 3 items in the field or IDW otherwise)
+        upon the first call to the field.
     """
     item_class = RefractorVelocity
 
@@ -111,12 +119,11 @@ class RefractorVelocityField(SpatialField):
     def from_survey(cls, survey, is_geographic=None, init=None, bounds=None, n_refractors=None, max_offset=None,
                     loss='L1', huber_coef=20, min_velocity_step=1, min_refractor_size=1, tol=1e-5, bar=True,
                     first_breaks_col=HDR_FIRST_BREAK, **kwargs):
-        """Calculate nearsurface velocity models for all gather in the passed Survey.
+        """Create the field populated from near-surface velocity models for each gather in the passed survey.
 
-        First, method uses the offsets, first break picking, and coords values stored in survey headers to calculate
-        velocity model of the upper part of section for each gather. This step need to specify the initial values of
-        some parameters or bounds or the number of refractors. These parameters will be used to calculate all velocity
-        models. Finally, creating field from precalculated velocity models.
+        First, methods calculates near-surface velocity models from offsets, times of first breaks, and coords
+        separately for all gathers defined by the passed survey. Finally, create field by passing precalcualted
+        velocity models in the `__init__`.
         Read :class:~`RefractorVelocity` docs for more information about the calculating velocity model.
 
         Parameters
@@ -133,8 +140,8 @@ class RefractorVelocityField(SpatialField):
         n_refractors : int, optional
             The number of refractors described by the model.
         max_offset : float, optional
-            Maximum offset reliably described by the model. Defaults to the maximum offset provided but preferably
-            should be explicitly passed.
+            Maximum offset reliably described by the model. Inferred automatically by `survey`, but should be
+            preferably explicitly passed.
         loss : str, defaults to "L1"
             Loss function to be minimized. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
         huber_coef : float, default to 20
@@ -162,21 +169,21 @@ class RefractorVelocityField(SpatialField):
             If all `init`, `bounds`, and `n_refractors` are `None`.
             If coords value non-unique for any one gather.
         """
-        if len(survey.indices) < 1:
+        if survey.n_gathers < 1:
             raise ValueError("Survey is empty.")
         if all(param is None for param in (init, bounds, n_refractors)):
             init = calc_optimal_velocity(survey, first_breaks_col=HDR_FIRST_BREAK, weathering=True).params
         rv_list = []
         coords_name = get_coords_cols(survey.indexed_by)
         # get only the needed data from survey headers.
-        survey_data = survey[['offset', first_breaks_col] + list(coords_name)]
-        max_offset = survey_data[:, 0].max() if max_offset is None else max_offset
+        survey_headers = survey[['offset', first_breaks_col] + list(coords_name)]
+        max_offset = survey_headers[:, 0].max() if max_offset is None else max_offset
         for idx in tqdm(survey.indices, desc="Calculate velocity models", disable=not bar):
             trace_idx = survey.get_traces_locs([idx])
-            gather_data = survey_data[trace_idx]
+            gather_data = survey_headers[trace_idx]
             offsets = gather_data[:, 0]
             times = gather_data[:, 1]
-            coords_value = gather_data[:, [2, 3]]
+            coords_value = gather_data[:, 2:]
             if (coords_value != coords_value[0]).any():
                 raise ValueError(f"Coordinates non-unique for gather with index {idx}.")
             coords = Coordinates(names=coords_name, coords=coords_value[0])
@@ -187,26 +194,31 @@ class RefractorVelocityField(SpatialField):
         return cls(items=rv_list, survey=survey, is_geographic=is_geographic)
 
     @classmethod
-    def from_file(cls, path, is_geographic=None, encoding="UTF-8"):
-        """Load RefractorVelocityField from a file.
+    def from_file(cls, path, survey=None, is_geographic=None, encoding="UTF-8"):
+        """Create the field from the near-surface velocity models loaded from a file.
 
-        File should have coords and parameters of a single RefractorVelocity with next structure:
-         - The first row contain the Coordinates parameters names (name_x, name_y, coord_x, coord_y) and
-        the RefractorVelocity parameters names ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
-         - Each next line contains row contains the coords names, coords values, and parameters values of one
-        RefractorVelocity.
+        The file should define a near-surface velocity model at one or more field locations and have the following
+        structure:
+        - The first row contains names of the Coordinates parameters ("name_x", "name_y", "coord_x", "coord_y") and
+        names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
+        - Each next line contains the coords names, coords values, and parameters values of one RefractorVelocity.
 
         File example:
-         name_x     name_y    coord_x    coord_y        t0        x1        v1        v2 max_offset
-        SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00    2000.00
+         name_x     name_y    coord_x    coord_y        t0        x1        v1        v2
+        SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00
         ...
-        SourceX    SourceY    1111200    2222240     60.00   1050.00   1550.00   1950.00    2050.00
+        SourceX    SourceY    1111200    2222240     60.00   1050.00   1550.00   1950.00
 
         Parameters
         ----------
-        path : str,
+        path : str
             path to the file.
-        encoding : str, defaults to "UTF-8"
+        survey : Survey, optional
+            A :class:`~survey.Survey` described by the field.
+        is_geographic : bool, optional
+            Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
+            CROSSLINE_3D)). Inferred from coordinates of the first `RefractorVelocity` in the file if not given.
+        encoding : str, optional, defaults to "UTF-8"
             File encoding.
 
         Returns
@@ -214,12 +226,7 @@ class RefractorVelocityField(SpatialField):
         self : RefractorVelocityField
             RefractorVelocityField instance created from a file.
         """
-        coords_list, params_list, max_offset_list = load_refractor_velocity_params(path, encoding)
-        rv_list = []
-        for coords, params, max_offset in zip(coords_list, params_list, max_offset_list):
-            rv = RefractorVelocity(max_offset=max_offset, coords=coords, **params)
-            rv_list.append(rv)
-        return cls(rv_list, is_geographic=is_geographic)
+        return cls(load_refractor_velocity(path, encoding), survey=survey, is_geographic=is_geographic)
 
     @property
     def param_names(self):
@@ -234,14 +241,6 @@ class RefractorVelocityField(SpatialField):
         return all(item.is_fit for item in self.items)
 
     @cached_property
-    def max_offset(self):
-        """float: Mean maximum offset reliably described by field items."""
-        max_offsets = [item.max_offset for item in self.items if item.max_offset is not None]
-        if max_offsets:
-            return np.mean(max_offsets)
-        return None
-
-    @cached_property
     def mean_velocity(self):
         """RefractorVelocity: Mean near-surface velocity model over the field."""
         return self.construct_item(self.values.mean(axis=0), coords=None)
@@ -251,7 +250,6 @@ class RefractorVelocityField(SpatialField):
         and created interpolator."""
         msg = super().__str__() + dedent(f"""\n
         Number of refractors:      {self.n_refractors}
-        Mean max offset of items:  {self.max_offset}
         Is fit from first breaks:  {self.is_fit}
         """)
 
@@ -320,7 +318,7 @@ class RefractorVelocityField(SpatialField):
 
     def construct_item(self, values, coords):
         """Construct an instance of `RefractorVelocity` from its `values` at given `coords`."""
-        return self.item_class(**dict(zip(self.param_names, values)), max_offset=self.max_offset, coords=coords)
+        return self.item_class(**dict(zip(self.param_names, values)), coords=coords)
 
     def _get_refined_values(self, interpolator_class, min_refractor_points=0, min_refractor_points_quantile=0):
         """Redefine parameters of velocity models for refractors that contain small number of points and may thus have
@@ -342,7 +340,8 @@ class RefractorVelocityField(SpatialField):
         n_refractor_points = np.full((self.n_items, self.n_refractors), fill_value=np.nan)
         for i, rv in enumerate(self.item_container.values()):
             if rv.is_fit:
-                n_refractor_points[i] = np.histogram(rv.offsets, rv.piecewise_offsets, density=False)[0]
+                bin_edges = [0] + [rv.params[f"x{i}"] for i in range(1, rv.n_refractors)] + [rv.max_offset]
+                n_refractor_points[i] = np.histogram(rv.offsets, bin_edges, density=False)[0]
         n_refractor_points[:, np.isnan(n_refractor_points).all(axis=0)] = 0
 
         # Calculate minimum acceptable number of points in each refractor, should be at least 2
@@ -351,21 +350,34 @@ class RefractorVelocityField(SpatialField):
         ignore_mask = n_refractor_points < min_refractor_points
         ignore_mask[:, ignore_mask.all(axis=0)] = False  # Use a refractor anyway if it is ignored for all items
 
-        # Refine t0 using only items with well-fitted first refractor
+        # Refine t0 using only items with well-fit first refractor
         refined_values[:, 0] = interpolator_class(coords[~ignore_mask[:, 0]], values[~ignore_mask[:, 0], 0])(coords)
 
-        # Refine crossover offsets using only items with well-fitted neighboring refractors
+        # Refine crossover offsets using only items with well-fit neighboring refractors
         for i in range(1, self.n_refractors):
             proper_items_mask = ~(ignore_mask[:, i - 1] | ignore_mask[:, i])
             refined_values[:, i] = interpolator_class(coords[proper_items_mask], values[proper_items_mask, i])(coords)
 
-        # Refine velocities using only items with well-fitted corresponding refractor
+        # Refine velocities using only items with well-fit corresponding refractor
         for i in range(self.n_refractors, 2 * self.n_refractors):
             proper_items_mask = ~ignore_mask[:, i - self.n_refractors]
             refined_values[:, i] = interpolator_class(coords[proper_items_mask], values[proper_items_mask, i])(coords)
 
         # Postprocess refined values
         return postprocess_params(refined_values)
+
+    def _get_smoothed_values(self, radius=None, neighbors=None, min_refractor_points=0,
+                             min_refractor_points_quantile=0):
+        """Average refractor parameters within a given `radius` while ignoring refractors that contain less points
+        than:
+        - 2 or `min_refractor_points`,
+        - A quantile of the number of points in the very same refractor over the whole field defined by
+          `min_refractor_points_quantile`.
+        """
+        if radius is None:
+            radius = self.default_neighborhood_radius
+        smoother = partial(IDWInterpolator, radius=radius, neighbors=neighbors, dist_transform=0)
+        return self._get_refined_values(smoother, min_refractor_points, min_refractor_points_quantile)
 
     def create_interpolator(self, interpolator, min_refractor_points=0, min_refractor_points_quantile=0, **kwargs):
         """Create a field interpolator whose name is defined by `interpolator`.
@@ -422,25 +434,10 @@ class RefractorVelocityField(SpatialField):
         """
         if self.is_empty:
             return type(self)(survey=self.survey, is_geographic=self.is_geographic)
-        if radius is None:
-            radius = self.default_neighborhood_radius
-        smoother = partial(IDWInterpolator, radius=radius, neighbors=neighbors, dist_transform=0)
-        values = self._get_refined_values(smoother, min_refractor_points, min_refractor_points_quantile)
 
-        smoothed_items = []
-        for rv, val in zip(self.items, values):
-            item = self.construct_item(val, rv.coords)
-
-            # Copy all fit-related items from the parent field
-            item.is_fit = rv.is_fit
-            item.fit_result = rv.fit_result
-            item.init = rv.init
-            item.bounds = rv.bounds
-            item.offsets = rv.offsets
-            item.times = rv.times
-
-            smoothed_items.append(item)
-
+        smoothed_values = self._get_smoothed_values(radius, neighbors, min_refractor_points,
+                                                    min_refractor_points_quantile)
+        smoothed_items = [self.construct_item(val, rv.coords) for rv, val in zip(self.items, smoothed_values)]
         return type(self)(smoothed_items, n_refractors=self.n_refractors, survey=self.survey,
                           is_geographic=self.is_geographic)
 
@@ -473,41 +470,50 @@ class RefractorVelocityField(SpatialField):
         field : RefractorVelocityField
             Refined field.
         """
+        if self.is_empty:
+            return type(self)(survey=self.survey, is_geographic=self.is_geographic)
         if not self.is_fit:
             raise ValueError("Only fields that were constructed directly from offset-traveltime data can be refined")
-        smoothed_field = self.smooth(radius, neighbors, min_refractor_points, min_refractor_points_quantile)
-        bounds_size = smoothed_field.values.ptp(axis=0) * relative_bounds_size / 2
-        params_bounds = np.stack([smoothed_field.values - bounds_size, smoothed_field.values + bounds_size], axis=2)
 
-        # Clip t0 bounds to be positive and all crossover bounds to be no greater than max offset
-        max_offsets = np.array([rv.max_offset for rv in self.items])[:, None, None]
-        params_bounds[:, 0] = np.maximum(params_bounds[:, 0], 0)
-        params_bounds[:, 1:self.n_refractors] = np.minimum(params_bounds[:, 1:self.n_refractors], max_offsets)
+        params_init = self._get_smoothed_values(radius, neighbors, min_refractor_points, min_refractor_points_quantile)
+        bounds_size = params_init.ptp(axis=0) * relative_bounds_size / 2
+
+        # Clip all bounds to be non-negative
+        params_bounds = np.stack([np.maximum(params_init - bounds_size, 0), params_init + bounds_size], axis=2)
+
+        # Clip init and bounds for crossover offsets to be no greater than max offset
+        max_offsets = np.array([rv.max_offset for rv in self.items])
+        np.minimum(params_init[:, 1:self.n_refractors], max_offsets[:, None], out=params_init[:, 1:self.n_refractors])
+        np.minimum(params_bounds[:, 1:self.n_refractors], max_offsets[:, None, None],
+                   out=params_bounds[:, 1:self.n_refractors])
 
         refined_items = []
-        for rv, bounds in tqdm(zip(smoothed_field.items, params_bounds), total=self.n_items,
-                               desc="Velocity models refined", disable=not bar):
-            rv = RefractorVelocity.from_first_breaks(rv.offsets, rv.times, bounds=dict(zip(self.param_names, bounds)),
-                                                     max_offset=rv.max_offset, coords=rv.coords)
+        for rv, init, bounds in tqdm(zip(self.items, params_init, params_bounds), total=self.n_items,
+                                     desc="Velocity models refined", disable=not bar):
+            init = dict(zip(self.param_names, init))
+            bounds = dict(zip(self.param_names, bounds))
+            rv = RefractorVelocity.from_first_breaks(rv.offsets, rv.times, init=init, bounds=bounds,
+                                                     max_offset=rv.max_offset, min_velocity_step=0,
+                                                     min_refractor_size=0, coords=rv.coords)
             refined_items.append(rv)
         return type(self)(refined_items, n_refractors=self.n_refractors, survey=self.survey,
                           is_geographic=self.is_geographic)
 
     def dump(self, path, encoding="UTF-8"):
-        """Save the RefractorVelocityField instance to a file.
+        """Save the near-surface velocity models stored in the field to a file.
 
         The output file defines near-surface velocity model at one or more field locations and has the following
         structure:
-        - The first row contains names of the Coordinates parameters (name_x, name_y, coord_x, coord_y) and names of
-        the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}", "max_offset").
+        - The first row contains names of the Coordinates parameters ("name_x", "name_y", "coord_x", "coord_y") and
+        names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
         - Each next line contains the coords names, coords values, and parameters values corresponding to one
         RefractorVelocity in the RefractorVelocityField.
 
         File example:
-         name_x     name_y    coord_x    coord_y        t0        x1        v1        v2 max_offset
-        SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00    2000.00
+         name_x     name_y    coord_x    coord_y        t0        x1        v1        v2
+        SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00
         ...
-        SourceX    SourceY    1111200    2222240     60.00   1050.00   1550.00   1950.00    2050.00
+        SourceX    SourceY    1111200    2222240     60.00   1050.00   1550.00   1950.00
 
         Parameters
         ----------
@@ -516,20 +522,14 @@ class RefractorVelocityField(SpatialField):
         encoding : str, optional, defaults to "UTF-8"
             File encoding.
 
-        Returns
-        -------
-        self : RefractorVelocityField
-            RefractorVelocityField unchanged.
-
         Raises
         ------
         ValueError
             If RefractorVelocityField is empty.
         """
         if self.is_empty:
-            raise ValueError("Field is empty. Could not dump empty field.")
+            raise ValueError("Empty field can't be dumped.")
         dump_refractor_velocity(self.items, path=path, encoding=encoding)
-        return self
 
     def plot_fit(self, **kwargs):
         """Plot an interactive map of each parameter of a near-surface velocity model and display an offset-traveltime

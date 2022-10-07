@@ -63,7 +63,7 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
     >>> gather = survey.sample_gather().apply_nmo(field)
 
     Quality control can be performed by calling `qc` method and visualizing the resulting maps:
-    >>> metrics_maps = cube.qc(radius=40, times=np.arange(0, 3000, 2))
+    >>> metrics_maps = field.qc(radius=40, times=np.arange(0, 3000, 2))
     >>> for metric_map in metrics_maps:
     >>>     metric_map.plot(interactive=True)
 
@@ -77,7 +77,7 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
         Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
         CROSSLINE_3D)). Inferred automatically on the first update if not given.
     auto_create_interpolator : bool, optional, defaults to True
-        Whether to automatically create default interpolator upon the first call to the field.
+        Whether to automatically create default interpolator (IDW) upon the first call to the field.
 
     Attributes
     ----------
@@ -96,7 +96,7 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
     is_dirty_interpolator : bool
         Whether the field was updated after the interpolator was created.
     auto_create_interpolator : bool
-        Whether to automatically create default interpolator upon the first call to the field.
+        Whether to automatically create default interpolator (IDW) upon the first call to the field.
     """
     item_class = StackingVelocity
 
