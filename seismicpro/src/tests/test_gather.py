@@ -211,7 +211,7 @@ def test_gather_get_quantile(gather, tracewise, use_global, q):
 def test_gather_scale_standard(gather, tracewise, use_global, use_muter, fill_value):
     """test_gather_scale_standard"""
     if use_muter:
-        muter = gather.create_muter()
+        muter = gather.calculate_refractor_velocity(n_refractors=1).create_muter()
         gather = gather.mute(muter, fill_value=fill_value)
 
     gather2 = gather.copy()
@@ -230,7 +230,7 @@ def test_gather_scale_standard(gather, tracewise, use_global, use_muter, fill_va
 def test_gather_scale_minmax(gather, tracewise, use_global, use_muter, fill_value):
     """test_gather_scale_minmax"""
     if use_muter:
-        muter = gather.create_muter()
+        muter = gather.calculate_refractor_velocity(n_refractors=1).create_muter()
         gather = gather.mute(muter, fill_value=fill_value)
 
     gather2 = gather.copy()
@@ -252,7 +252,7 @@ def test_gather_scale_minmax(gather, tracewise, use_global, use_muter, fill_valu
 def test_gather_scale_maxabs(gather, tracewise, use_global, use_muter, fill_value):
     """test_gather_scale_minmax"""
     if use_muter:
-        muter = gather.create_muter()
+        muter = gather.calculate_refractor_velocity(n_refractors=1).create_muter()
         gather = gather.mute(muter, fill_value=fill_value)
 
     gather2 = gather.copy()
