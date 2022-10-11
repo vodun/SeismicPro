@@ -74,12 +74,15 @@ def parse_metric_values(metric_values, metric_name=None, metric_type=None):
     metric_name = get_first_defined(metric_name, data_metric_name, getattr(metric_type, "name"), "metric")
     return metric_values, metric_name
 
-def mute_and_norm(gather, muter_col=HDR_FIRST_BREAK):
+def mute_and_norm(gather, muter_col=HDR_FIRST_BREAK, rv_params=None):
     """Mute direct wave using `first_breaks_col` and normalise"""
     if muter_col not in gather.headers:
         raise RuntimeError(f"{muter_col} not in headers")
 
-    muter = gather.create_muter(first_breaks_col=muter_col)
+    if rv_params is None:
+        rv_params = dict(n_refractors=1)
+
+    muter = gather.calculate_refractor_velocity(first_breaks_col=muter_col, **rv_params).create_muter()
     return gather.copy().mute(muter=muter, fill_value=np.nan).scale_standard()
 
 

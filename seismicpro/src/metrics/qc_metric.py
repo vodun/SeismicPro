@@ -297,9 +297,9 @@ class SpikesMetric(TracewiseMetric):
     threshold = 2
 
     @staticmethod
-    def preprocess(gather, muter_col=HDR_FIRST_BREAK, **kwargs):
+    def preprocess(gather, muter_col=HDR_FIRST_BREAK, rv_params=None, **kwargs):
         _ = kwargs
-        return mute_and_norm(gather, muter_col)
+        return mute_and_norm(gather, muter_col, rv_params=rv_params)
 
     @staticmethod
     def _get_res(gather, **kwargs):
@@ -321,9 +321,9 @@ class AutocorrMetric(TracewiseMetric):
     threshold = 0.9
 
     @staticmethod
-    def preprocess(gather, muter_col=HDR_FIRST_BREAK, **kwargs):
+    def preprocess(gather, muter_col=HDR_FIRST_BREAK, rv_params=None, **kwargs):
         _ = kwargs
-        return mute_and_norm(gather, muter_col)
+        return mute_and_norm(gather, muter_col, rv_params=rv_params)
 
     @staticmethod
     def _get_res(gather, **kwargs):

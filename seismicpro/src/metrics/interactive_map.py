@@ -205,7 +205,7 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
         self.current_metric_map = self.original_metric_map.select_by_thresholds(*self.main.slider.value)
         self.main.redraw()
         # pylint: disable=protected-access
-        self.main._click(self.current_metric_map.get_worst_coords(self.is_lower_better))
+        self.main.click(self.current_metric_map.get_worst_coords(self.is_lower_better))
 
     def construct_main_plot(self):
         """Construct the metric map plot."""
@@ -223,10 +223,9 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
                       **kwargs}
             self.current_metric_map.plot(*args, **kwargs)
 
-        init_click_coords = self.original_metric_map.get_worst_coords(self.is_lower_better)
+        self.init_click_coords = self.original_metric_map.get_worst_coords(self.is_lower_better)
 
-        interactive_plot_kwargs = dict(plot_fn=plot_map, click_fn=self.click, init_click_coords=init_click_coords,
-                                       title=self.title, figsize=self.figsize)
+        interactive_plot_kwargs = dict(plot_fn=plot_map, click_fn=self.click, title=self.title, figsize=self.figsize)
         if not self.show_slider:
             return InteractivePlot(**interactive_plot_kwargs)
 
