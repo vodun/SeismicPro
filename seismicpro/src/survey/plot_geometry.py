@@ -18,6 +18,8 @@ class SurveyGeometryPlot(PairedPlot):  # pylint: disable=too-many-instance-attri
     * Receiver view: displays receiver locations. Highlights all shots that activated the receiver on click and
       displays the corresponding common receiver gather.
     """
+
+    #pylint: disable-next=too-many-arguments
     def __init__(self, survey, show_contour=True, keep_aspect=False, sort_by=None, gather_plot_kwargs=None,
                  x_ticker=None, y_ticker=None, figsize=(4.5, 4.5), fontsize=8, orientation="horizontal", **kwargs):
         kwargs = {"fontsize": fontsize, **kwargs}

@@ -123,7 +123,7 @@ class SeismicBatch(Batch):
             return combined_batch.load_combined_gather(src=src, dst=dst, parent_index=self.index, **kwargs)
         return super().load(src=src, fmt=fmt, dst=dst, **kwargs)
 
-    @apply_to_each_component(target="for", fetch_method_target=False)
+    @apply_to_each_component(target="threads", fetch_method_target=False)
     def load_gather(self, pos, src, dst, **kwargs):
         """Load a gather with ordinal number `pos` in the batch from a survey `src`."""
         index, part = self.index.index_by_pos(pos)

@@ -23,7 +23,7 @@ from ..containers import TraceContainer, SamplesContainer
 from ..muter import Muter, MuterField
 from ..coherency import Coherency, ResidualCoherency
 from ..stacking_velocity import StackingVelocity, StackingVelocityField
-from ..refractor_velocity import RefractorVelocity
+from ..refractor_velocity import RefractorVelocity, RefractorVelocityField
 from ..decorators import batch_method, plotter
 from ..const import HDR_FIRST_BREAK, DEFAULT_SDC_VELOCITY
 
@@ -201,7 +201,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         # Format gather coordinates
         coords = self.coords
-        coords_str = "unknown" if coords is None else str(coords)
+        coords_str = "Unknown" if coords is None else str(coords)
 
         # Count the number of zero/constant traces
         n_dead_traces = np.isclose(np.max(self.data, axis=1), np.min(self.data, axis=1)).sum()
@@ -211,7 +211,7 @@ class Gather(TraceContainer, SamplesContainer):
         Parent survey name:          {self.survey.name}
 
         Indexed by:                  {', '.join(to_list(self.indexed_by))}
-        Index value:                 {'combined' if self.index is None else self.index}
+        Index value:                 {'Combined' if self.index is None else self.index}
         Gather coordinates:          {coords_str}
         Gather sorting:              {self.sort_by}
 
@@ -648,14 +648,17 @@ class Gather(TraceContainer, SamplesContainer):
             f.write(rows_as_str)
         return self
 
-    @batch_method(target="for", copy_src=False)
-    def calculate_refractor_velocity(self, init=None, bounds=None, n_refractors=None, first_breaks_col=HDR_FIRST_BREAK,
-                                     **kwargs):
-        """Estimate velocities of first refractors by offsets and times of first breaks.
+    @batch_method(target="for", copy_src=False)  # pylint: disable-next=too-many-arguments
+    def calculate_refractor_velocity(self, init=None, bounds=None, n_refractors=None, max_offset=None,
+                                     min_velocity_step=1, min_refractor_size=1, loss="L1", huber_coef=20, tol=1e-5,
+                                     first_breaks_col=HDR_FIRST_BREAK, **kwargs):
+        """Fit a near-surface velocity model by offsets of traces and times of their first breaks.
 
-        The method fits a velocity model of the upper part of the section, read the
-        :class:`~refractor_velocity.RefractorVelocity` docs for more details about the algorithm and its parameters.
-        At least one of `init`, `bounds` or `n_refractors` should be passed.
+        Notes
+        -----
+        Please refer to the :class:`~refractor_velocity.RefractorVelocity` docs for more details about the velocity
+        model, its computation algorithm and available parameters. At least one of `init`, `bounds` or `n_refractors`
+        should be passed.
 
         Examples
         --------
@@ -663,26 +666,41 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        init : dict or None, optional, defaults to None
-            Initial values for a velocity model.
-        bounds : dict or None, optional, defaults to None
-            Bounds for the fitted velocity model parameters.
-        n_refractors : int or None, optional, defaults to None
-            Number of the velocity model layers.
+        init : dict, optional
+            Initial values of model parameters.
+        bounds : dict, optional
+            Lower and upper bounds of model parameters.
+        n_refractors : int, optional
+            The number of refractors described by the model.
+        max_offset : float, optional
+            Maximum offset reliably described by the model. Inferred automatically by `offsets`, `init` and `bounds`
+            provided but should be preferably explicitly passed.
+        min_velocity_step : int, or 1d array-like with shape (n_refractors - 1,), optional, defaults to 1
+            Minimum difference between velocities of two adjacent refractors. Default value ensures that velocities are
+            strictly increasing.
+        min_refractor_size : int, or 1d array-like with shape (n_refractors,), optional, defaults to 1
+            Minimum offset range covered by each refractor. Default value ensures that refractors do not degenerate
+            into single points.
+        loss : str, defaults to "L1"
+            Loss function to be minimized. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
+        huber_coef : float, default to 20
+            Coefficient for Huber loss function.
+        tol : float, optional, defaults to 1e-5
+            Precision goal for the value of loss in the stopping criterion.
         first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `self.headers` where times of first break are stored.
         kwargs : misc, optional
-            Additional keyword arguments to be passed to
-            :func:`~refractor_velocity.RefractorVelocity.from_first_breaks`.
+            Additional `SLSQP` options, see https://docs.scipy.org/doc/scipy/reference/optimize.minimize-slsqp.html for
+            more details.
 
         Returns
         -------
-        RefractorVelocity
-            Calculated RefractorVelocity instance.
+        rv : RefractorVelocity
+            Constructed near-surface velocity model.
         """
-        return RefractorVelocity.from_first_breaks(offsets=self.offsets, fb_times=self[first_breaks_col].ravel(),
-                                                   init=init, bounds=bounds, n_refractors=n_refractors,
-                                                   coords=self.coords, **kwargs)
+        return RefractorVelocity.from_first_breaks(self.offsets, self[first_breaks_col].ravel(), init, bounds,
+                                                   n_refractors, max_offset, min_velocity_step, min_refractor_size,
+                                                   loss, huber_coef, tol, coords=self.coords, **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #
@@ -697,8 +715,9 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        muter : Muter or str
-            An object that defines muting times by gather offsets.
+        muter : Muter, MuterField or str
+            A muter to use. `Muter` instance is used directly. If `MuterField` instance is passed, a `Muter`
+            corresponding to gather coordinates is fetched from it.
             May be `str` if called in a pipeline: in this case it defines a component with muters to apply.
         fill_value : float, optional, defaults to 0
             A value to fill the muted part of the gather with.
@@ -769,8 +788,10 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        stacking_velocity : StackingVelocity or str
-            Stacking velocity around which residual semblance is calculated.
+        stacking_velocity : StackingVelocity or StackingVelocityField or str
+            Stacking velocity around which residual semblance is calculated. `StackingVelocity` instance is used
+            directly. If `StackingVelocityField` instance is passed, a `StackingVelocity` corresponding to gather
+            coordinates is fetched from it.
             May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
         n_velocities : int, optional, defaults to 140
             The number of velocities to compute residual semblance for.
@@ -786,6 +807,8 @@ class Gather(TraceContainer, SamplesContainer):
         semblance : ResidualSemblance
             Calculated residual vertical velocity semblance.
         """
+        if isinstance(stacking_velocity, StackingVelocityField):
+            stacking_velocity = stacking_velocity(self.coords)
         gather = self.copy().sort(by="offset")
         return ResidualCoherency(gather=gather, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
                                  win_size=win_size, relative_margin=relative_margin, mode=mode)
@@ -801,9 +824,10 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        refractor_velocity : int, float, RefractorVelocity or str
-            `RefractorVelocity` object to perform LMO correction with. If `int` or `float` then constant-velocity
-            correction is performed.
+        refractor_velocity : int, float, RefractorVelocity, RefractorVelocityField or str
+            Near-surface velocity model to perform LMO correction with. `RefractorVelocity` instance is used directly.
+            If `RefractorVelocityField` instance is passed, a `RefractorVelocity` corresponding to gather coordinates
+            is fetched from it. If `int` or `float` then constant-velocity correction is performed.
             May be `str` if called in a pipeline: in this case it defines a component with refractor velocities to use.
         delay : float, optional, defaults to 100
             An extra delay in milliseconds introduced in each trace, positive values result in shifting gather traces
@@ -825,8 +849,11 @@ class Gather(TraceContainer, SamplesContainer):
         """
         if isinstance(refractor_velocity, (int, float)):
             refractor_velocity = RefractorVelocity.from_constant_velocity(refractor_velocity)
+        if isinstance(refractor_velocity, RefractorVelocityField):
+            refractor_velocity = refractor_velocity(self.coords)
         if not isinstance(refractor_velocity, RefractorVelocity):
-            raise ValueError("refractor_velocity must be of int, float or RefractorVelocity type")
+            raise ValueError("refractor_velocity must be of int, float, RefractorVelocity or RefractorVelocityField "
+                             "type")
 
         trace_delays = delay - refractor_velocity(self.offsets)
         trace_delays_samples = times_to_indices(trace_delays, self.samples, round=True).astype(int)
@@ -927,7 +954,7 @@ class Gather(TraceContainer, SamplesContainer):
         self.data = self.data[mask]
         return self
 
-    @batch_method(target="for")
+    @batch_method(target="threads")
     def stack(self):
         """Stack a gather by calculating mean value of all non-nan amplitudes for each time over the offset axis.
 
@@ -1037,7 +1064,7 @@ class Gather(TraceContainer, SamplesContainer):
         cv2.filter2D(self.data, dst=self.data, ddepth=-1, kernel=kernel.reshape(1, -1))
         return self
 
-    @batch_method(target="for")
+    @batch_method(target="threads")
     def resample(self, new_sample_rate, kind=3, anti_aliasing=True):
         """Change sample rate of traces in the gather.
 
