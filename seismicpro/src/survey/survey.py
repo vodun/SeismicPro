@@ -6,16 +6,19 @@ from copy import copy
 from textwrap import dedent
 import math
 
+import cv2
 import segyio
 import numpy as np
+import scipy as sp
 import pandas as pd
 from tqdm.auto import tqdm
 from scipy.interpolate import interp1d
+from sklearn.linear_model import LinearRegression
 
 from .headers import load_headers
 from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
-from .utils import ibm_to_ieee, calculate_trace_stats, create_supergather_index
+from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
 from ..metrics import PartialMetric
 from ..metrics.qc_metric import TracewiseMetric
@@ -50,10 +53,17 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     header is not loaded from the file but always automatically reconstructed.
 
     The survey sample rate is calculated by two values stored in:
-    * bytes 3217-3218 of the binary header, called `Interval` in `segyio`,
-    * bytes 117-118 of the trace header of the first trace in the file, called `TRACE_SAMPLE_INTERVAL` in `segyio`.
+    - bytes 3217-3218 of the binary header, called `Interval` in `segyio`,
+    - bytes 117-118 of the trace header of the first trace in the file, called `TRACE_SAMPLE_INTERVAL` in `segyio`.
     If both of them are present and equal or only one of them is well-defined (non-zero), it is used as a sample rate.
     Otherwise, an error is raised.
+
+    If `INLINE_3D`, `CROSSLINE_3D`, `CDP_X` and `CDP_Y` trace headers are loaded, field geometry is automatically
+    inferred on survey construction which allows accessing:
+    - Some geometry-related attributes of a survey, such as `area`, `perimeter` and `bin_size`,
+    - `coords_to_bins` and `bins_to_coords` methods which convert geographic coordinates to bins and back respectively,
+    - `dist_to_bin_contours` and `dist_to_geographic_contours` methods which calculate distances from points to a
+      contour of the survey in bin and geographic coordinates respectively.
 
     Examples
     --------
@@ -110,19 +120,43 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     segy_handler : segyio.segy.SegyFile
         Source SEG-Y file handler.
     has_stats : bool
-        Whether the survey has trace statistics calculated.
-    min : np.float32
-        Minimum trace value. Available only if trace statistics were calculated.
-    max : np.float32
-        Maximum trace value. Available only if trace statistics were calculated.
-    mean : np.float32
-        Mean trace value. Available only if trace statistics were calculated.
-    std : np.float32
-        Standard deviation of trace values. Available only if trace statistics were calculated.
-    quantile_interpolator : scipy.interpolate.interp1d
-        Trace values quantile interpolator. Available only if trace statistics were calculated.
-    n_dead_traces : int
-        The number of traces with constant value (dead traces). None until `mark_dead_traces` is called.
+        Whether the survey has trace statistics calculated. `False` until `collect_stats` method is called.
+    min : np.float32 or None
+        Minimum trace value. `None` until trace statistics are calculated.
+    max : np.float32 or None
+        Maximum trace value. `None` until trace statistics are calculated.
+    mean : np.float32 or None
+        Mean trace value. `None` until trace statistics are calculated.
+    std : np.float32 or None
+        Standard deviation of trace values. `None` until trace statistics are calculated.
+    quantile_interpolator : scipy.interpolate.interp1d or None
+        Interpolator of trace values quantiles. `None` until trace statistics are calculated.
+    n_dead_traces : int or None
+        The number of traces with constant value (dead traces). `None` until `mark_dead_traces` method is called.
+    has_inferred_geometry : bool
+        Whether the survey has inferred geometry. `True` if `INLINE_3D`, `CROSSLINE_3D`, `CDP_X` and `CDP_Y` trace
+        headers are loaded on survey instantiation or `infer_geometry` method is explicitly called.
+    is_2d : bool or None
+        Whether the survey is 2D. `None` until survey geometry is inferred.
+    is_stacked : bool or None
+        Whether the survey is stacked. `None` until survey geometry is inferred.
+    n_bins : int or None
+        The number of bins in the survey. `None` until survey geometry is inferred.
+    bin_size : np.ndarray with 2 elements or None
+        Bin sizes in meters along inline and crossline directions. `None` until survey geometry is inferred.
+    inline_length : float or None
+        Maximum field length along inline direction in meters. `None` until survey geometry is inferred.
+    crossline_length : float or None
+        Maximum field length along crossline direction in meters. `None` until survey geometry is inferred.
+    area : float or None
+        Field area in squared meters. `None` until survey geometry is inferred.
+    perimeter : float or None
+        Field perimeter in meters. `None` until survey geometry is inferred.
+    bin_contours : tuple of np.ndarray or None
+        Contours of all connected components of the field in bin coordinates. `None` until survey geometry is inferred.
+    geographic_contours : tuple of np.ndarray or None
+        Contours of all connected components of the field in geographic coordinates. `None` until survey geometry is
+        inferred.
     """
 
     # pylint: disable-next=too-many-arguments, too-many-statements
@@ -224,6 +258,23 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.quantile_interpolator = None
         self.n_dead_traces = None
 
+        # Define all geometry-related attributes and automatically infer field geometry if required headers are loaded
+        self.has_inferred_geometry = False
+        self._bins_to_coords_reg = None
+        self._coords_to_bins_reg = None
+        self.n_bins = None
+        self.is_stacked = None
+        self.bin_size = None  # m
+        self.inline_length = None  # m
+        self.crossline_length = None  # m
+        self.area = None  # m^2
+        self.perimeter = None  # m
+        self.bin_contours = None
+        self.geographic_contours = None
+        self.is_2d = None
+        if {"INLINE_3D", "CROSSLINE_3D", "CDP_X", "CDP_Y"} <= headers_to_load:
+            self.infer_geometry()
+
     def _infer_sample_rate(self):
         """Get sample rate from file headers."""
         bin_sample_rate = self.segy_handler.bin[segyio.BinField.Interval]
@@ -276,8 +327,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.traces_mmap = self._construct_traces_mmap()
 
     def __str__(self):
-        """Print survey metadata including information about source file and trace statistics if they were
-        calculated."""
+        """Print survey metadata including information about the source file, field geometry if it was inferred and
+        trace statistics if they were calculated."""
         offsets = self.headers.get('offset')
         offset_range = f'[{np.min(offsets)} m, {np.max(offsets)} m]' if offsets is not None else None
         msg = f"""
@@ -292,6 +343,20 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Sample rate:               {self.sample_rate} ms
         Times range:               [{min(self.samples)} ms, {max(self.samples)} ms]
         Offsets range:             {offset_range}
+        """
+
+        if self.has_inferred_geometry:
+            msg += f"""
+        Field geometry:
+        Dimensionality:            {"2D" if self.is_2d else "3D"}
+        Is stacked:                {self.is_stacked}
+        Number of bins:            {self.n_bins}
+        Area:                      {(self.area / 1000**2):.2f} km^2
+        Perimeter:                 {(self.perimeter / 1000):.2f} km
+        Inline bin size:           {self.bin_size[0]:.1f} m
+        Crossline bin size:        {self.bin_size[1]:.1f} m
+        Inline length:             {(self.inline_length / 1000):.2f} km
+        Crossline length:          {(self.crossline_length / 1000):.2f} km
         """
 
         if self.has_stats:
@@ -309,9 +374,212 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return dedent(msg).strip()
 
     def info(self):
-        """Print survey metadata including information about source file and trace statistics if they were
-        calculated."""
+        """Print survey metadata including information about the source file, field geometry if it was inferred and
+        trace statistics if they were calculated."""
         print(self)
+
+    #------------------------------------------------------------------------#
+    #                        Geometry-related methods                        #
+    #------------------------------------------------------------------------#
+
+    def _get_field_mask(self):
+        """Get a binary mask of the field with ones set for bins with at least one trace and zeros otherwise. Mask
+        origin corresponds to a bin with minimum inline and crossline over the field and is also returned."""
+        # Find unique pairs of inlines and crosslines, drop_duplicates is way faster than np.unique
+        lines = pd.DataFrame(self[["INLINE_3D", "CROSSLINE_3D"]]).drop_duplicates().values
+
+        # Construct a binary mask of a field where True value is set for bins containing at least one trace
+        # and False otherwise
+        origin = lines.min(axis=0)
+        normed_lines = lines - origin
+        field_mask = np.zeros(normed_lines.max(axis=0) + 1, dtype=np.uint8)
+        field_mask[normed_lines[:, 0], normed_lines[:, 1]] = 1
+        return field_mask, origin
+
+    def infer_geometry(self):
+        """Infer survey geometry by estimating the following entities:
+        1. Survey dimensionality (2D/3D),
+        2. Pre- or post-stack flag,
+        3. Number of bins and bin size,
+        4. Lengths along inline and crossline directions,
+        5. Area and perimeter,
+        6. Field contours in geographic and bin coordinate systems,
+        7. Mappings from geographic coordinates to bins and back.
+
+        After the method is executed `has_inferred_geometry` flag is set to `True` and all the calculated values can be
+        obtained via corresponding attributes.
+
+        Returns
+        -------
+        survey : Survey
+            The survey with inferred geometry. Sets `has_inferred_geometry` flag to `True` and updates geometry-related
+            attributes inplace.
+        """
+        coords_cols = ["CDP_X", "CDP_Y"]
+        bins_cols = ["INLINE_3D", "CROSSLINE_3D"]
+        cols = coords_cols + bins_cols
+
+        # Construct a mapping from bins to their coordinates and back
+        bins_to_coords = pd.DataFrame(self[cols], columns=cols)
+        bins_to_coords = bins_to_coords.groupby(bins_cols, sort=False, as_index=False).agg("mean")
+        bins_to_coords_reg = LinearRegression(copy_X=False, n_jobs=-1)
+        bins_to_coords_reg.fit(bins_to_coords[bins_cols], bins_to_coords[coords_cols])
+        coords_to_bins_reg = LinearRegression(copy_X=False, n_jobs=-1)
+        coords_to_bins_reg.fit(bins_to_coords[coords_cols], bins_to_coords[bins_cols])
+
+        # Compute field contour
+        field_mask, origin = self._get_field_mask()
+        bin_contours = cv2.findContours(field_mask.T, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE, offset=origin)[0]
+        geographic_contours = tuple(bins_to_coords_reg.predict(contour[:, 0])[:, None].astype(np.float32)
+                                    for contour in bin_contours)
+        perimeter = sum(cv2.arcLength(contour, closed=True) for contour in geographic_contours)
+
+        # Set all geometry-related attributes
+        self.has_inferred_geometry = True
+        self._bins_to_coords_reg = bins_to_coords_reg
+        self._coords_to_bins_reg = coords_to_bins_reg
+        self.n_bins = len(bins_to_coords)
+        self.is_stacked = (self.n_traces == self.n_bins)
+        self.bin_size = np.diag(sp.linalg.polar(bins_to_coords_reg.coef_)[1])
+        self.inline_length = (np.ptp(bins_to_coords["INLINE_3D"]) + 1) * self.bin_size[0]
+        self.crossline_length = (np.ptp(bins_to_coords["CROSSLINE_3D"]) + 1) * self.bin_size[1]
+        self.area = self.n_bins * np.prod(self.bin_size)
+        self.perimeter = perimeter
+        self.bin_contours = bin_contours
+        self.geographic_contours = geographic_contours
+        self.is_2d = np.isclose(self.area, 0)
+        return self
+
+    @staticmethod
+    def _cast_coords(coords, transformer):
+        """Linearly convert `coords` from one coordinate system to another according to a passed `transformer`."""
+        if transformer is None:
+            raise ValueError("Survey geometry was not inferred, call `infer_geometry` method first.")
+        coords = np.array(coords)
+        is_coords_1d = (coords.ndim == 1)
+        coords = np.atleast_2d(coords)
+        transformed_coords = transformer.predict(coords)
+        if is_coords_1d:
+            return transformed_coords[0]
+        return transformed_coords
+
+    def coords_to_bins(self, coords):
+        """Convert `coords` from geographic coordinate system to floating-valued bins.
+
+        Notes
+        -----
+        Before calling this method, survey geometry must be inferred using :func:`~Survey.infer_geometry`.
+
+        Parameters
+        ----------
+        coords : array-like with 2 elements or 2d array-like with shape (n_coords, 2)
+            Geographic coordinates to be converted to bins.
+
+        Returns
+        -------
+        bins : np.ndarray with 2 elements or 2d np.ndarray with shape (n_coords, 2)
+            Floating-valued bin for each coordinate from `coords`. Has the same shape as `coords`.
+
+        Raises
+        ------
+        ValueError
+            If survey geometry was not inferred.
+        """
+        return self._cast_coords(coords, self._coords_to_bins_reg)
+
+    def bins_to_coords(self, bins):
+        """Convert `bins` to coordinates in geographic coordinate system.
+
+        Notes
+        -----
+        Before calling this method, survey geometry must be inferred using :func:`~Survey.infer_geometry`.
+
+        Parameters
+        ----------
+        bins : array-like with 2 elements or 2d array-like with shape (n_bins, 2)
+            Bins to be converted to geographic coordinates.
+
+        Returns
+        -------
+        coords : np.ndarray with 2 elements or 2d np.ndarray with shape (n_bins, 2)
+            Floating-valued geographic coordinates for each bin from `bins`. Has the same shape as `bins`.
+
+        Raises
+        ------
+        ValueError
+            If survey geometry was not inferred.
+        """
+        return self._cast_coords(bins, self._bins_to_coords_reg)
+
+    @staticmethod
+    def _dist_to_contours(coords, contours):
+        """Calculate minimum signed distance from points in `coords` to each contour in `contours`."""
+        if contours is None:
+            raise ValueError("Survey geometry was not inferred, call `infer_geometry` method first.")
+        coords = np.array(coords, dtype=np.float32)
+        is_coords_1d = (coords.ndim == 1)
+        coords = np.atleast_2d(coords)
+        dist = np.empty(len(coords), dtype=np.float32)
+        for i, coord in enumerate(coords):
+            dists = [cv2.pointPolygonTest(contour, coord, measureDist=True) for contour in contours]
+            dist[i] = dists[np.abs(dists).argmin()]
+        if is_coords_1d:
+            return dist[0]
+        return dist
+
+    def dist_to_geographic_contours(self, coords):
+        """Calculate signed distances from each of `coords` to the field contour in geographic coordinate system.
+
+        Returned values may by positive (inside the contour), negative (outside the contour) or zero (on an edge).
+
+        Notes
+        -----
+        Before calling this method, survey geometry must be inferred using :func:`~Survey.infer_geometry`.
+
+        Parameters
+        ----------
+        coords : array-like with 2 elements or 2d array-like with shape (n_coords, 2)
+            Geographic coordinates to estimate distance to field contour for.
+
+        Returns
+        -------
+        dist : np.float32 or np.ndarray with shape (n_coords,)
+            Signed distances from each of `coords` to the field contour in geographic coordinate system. Matches the
+            length of `coords`.
+
+        Raises
+        ------
+        ValueError
+            If survey geometry was not inferred.
+        """
+        return self._dist_to_contours(coords, self.geographic_contours)
+
+    def dist_to_bin_contours(self, bins):
+        """Calculate signed distances from each of `bins` to the field contour in bin coordinate system.
+
+        Returned values may by positive (inside the contour), negative (outside the contour) or zero (on an edge).
+
+        Notes
+        -----
+        Before calling this method, survey geometry must be inferred using :func:`~Survey.infer_geometry`.
+
+        Parameters
+        ----------
+        bins : array-like with 2 elements or 2d array-like with shape (n_bins, 2)
+            Bin coordinates to estimate distance to field contour for.
+
+        Returns
+        -------
+        dist : np.float32 or np.ndarray with shape (n_bins,)
+            Signed distances from each of `bins` to the field contour in bin coordinate system. Matches the length of
+            `coords`.
+
+        Raises
+        ------
+        ValueError
+            If survey geometry was not inferred.
+        """
+        return self._dist_to_contours(bins, self.bin_contours)
 
     #------------------------------------------------------------------------#
     #                     Statistics computation methods                     #
@@ -432,6 +700,34 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.has_stats = True
         return self
 
+    def get_quantile(self, q):
+        """Calculate an approximation of the `q`-th quantile of the survey data.
+
+        Notes
+        -----
+        Before calling this method, survey statistics must be calculated using :func:`~Survey.collect_stats`.
+
+        Parameters
+        ----------
+        q : float or array-like of floats
+            Quantile or a sequence of quantiles to compute, which must be between 0 and 1 inclusive.
+
+        Returns
+        -------
+        quantile : float or array-like of floats
+            Approximate `q`-th quantile values. Has the same shape as `q`.
+
+        Raises
+        ------
+        ValueError
+            If survey statistics were not calculated.
+        """
+        if not self.has_stats:
+            raise ValueError('Global statistics were not calculated, call `Survey.collect_stats` first.')
+        quantiles = self.quantile_interpolator(q).astype(np.float32)
+        # return the same type as q: either single float or array-like
+        return quantiles.item() if quantiles.ndim == 0 else quantiles
+
     def mark_dead_traces(self, limits=None, bar=True):
         """Mark dead traces (those having constant amplitudes) by setting a value of a new `DeadTrace`
         header to `True` and store the overall number of dead traces in the `n_dead_traces` attribute.
@@ -471,34 +767,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.headers.iloc[dead_indices, self.headers.columns.get_loc(HDR_DEAD_TRACE)] = True
 
         return self
-
-    def get_quantile(self, q):
-        """Calculate an approximation of the `q`-th quantile of the survey data.
-
-        Notes
-        -----
-        Before calling this method, survey statistics must be calculated using :func:`~Survey.collect_stats`.
-
-        Parameters
-        ----------
-        q : float or array-like of floats
-            Quantile or a sequence of quantiles to compute, which must be between 0 and 1 inclusive.
-
-        Returns
-        -------
-        quantile : float or array-like of floats
-            Approximate `q`-th quantile values. Has the same shape as `q`.
-
-        Raises
-        ------
-        ValueError
-            If survey statistics were not calculated.
-        """
-        if not self.has_stats:
-            raise ValueError('Global statistics were not calculated, call `Survey.collect_stats` first.')
-        quantiles = self.quantile_interpolator(q).astype(np.float32)
-        # return the same type as q: either single float or array-like
-        return quantiles.item() if quantiles.ndim == 0 else quantiles
 
     #------------------------------------------------------------------------#
     #                            Loading methods                             #
@@ -768,7 +1036,19 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     #                         Task specific methods                          #
     #------------------------------------------------------------------------#
 
-    def generate_supergathers(self, size=(3, 3), step=(20, 20), modulo=(0, 0), reindex=True, inplace=False):
+    @staticmethod
+    def _get_optimal_origin(arr, step):
+        """Find a position in an array `arr` that maximizes sum of each `step`-th element from it to the end of the
+        array. In case of multiple such positions, return the one closer to `step // 2`."""
+        mod = len(arr) % step
+        if mod:
+            arr = np.pad(arr, (0, step - mod))
+        step_sums = arr.reshape(-1, step).sum(axis=0)
+        max_indices = np.nonzero(step_sums == step_sums.max())[0]
+        return max_indices[np.abs(max_indices - step // 2).argmin()]
+
+    def generate_supergathers(self, centers=None, origin=None, size=3, step=20, border_indent=0, strict=True,
+                              reindex=True, inplace=False):
         """Combine several adjacent CDP gathers into ensembles called supergathers.
 
         Supergather generation is usually performed as a first step of velocity analysis. A substantially larger number
@@ -782,13 +1062,24 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Parameters
         ----------
-        size : tuple of 2 ints, optional, defaults to (3, 3)
-            Supergather size along inline and crossline axes. Measured in lines.
-        step : tuple of 2 ints, optional, defaults to (20, 20)
-            Supergather step along inline and crossline axes. Measured in lines.
-        modulo : tuple of 2 ints, optional, defaults to (0, 0)
-            The remainder of the division of gather coordinates by given `step` for it to become a supergather center.
-            Used to shift the grid of supergathers from the field origin. Measured in lines.
+        centers : 2d array-like with shape (n_supergathers, 2), optional
+            Centers of supergathers being generated. If not given, calculated by the `origin` of a supergather grid.
+            Measured in lines.
+        origin : int or tuple of 2 ints, optional
+            Origin of the supergather grid, used only if `centers` are not given. If `None`, generated automatically to
+            maximize the number of supergathers. Measured in lines.
+        size : int or tuple of 2 ints, optional, defaults to 3
+            Supergather size along inline and crossline axes. Single int defines sizes for both axes. Measured in
+            lines.
+        step : int or tuple of 2 ints, optional, defaults to 20
+            Supergather step along inline and crossline axes. Single int defines steps for both axes. Used to define a
+            grid of supergathers if `centers` are not given. Measured in lines.
+        border_indent : int, optional, defaults to 0
+            Avoid placing supergather centers closer than this distance to the field contour. Used only if `centers`
+            are not given. Measured in lines.
+        strict : bool, optional, defaults to True
+            If `True`, guarantees that each gather in a generated supergather will have at least one trace or, in other
+            words, that the supergather entirely lies within the field. Used only if `centers` are not given.
         reindex : bool, optional, defaults to True
             Whether to reindex a survey with the created `SUPERGATHER_INLINE_3D` and `SUPERGATHER_CROSSLINE_3D` headers
             columns.
@@ -805,19 +1096,51 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         KeyError
             If `INLINE_3D` and `CROSSLINE_3D` headers were not loaded.
         """
+        size = np.broadcast_to(size, 2)
+        step = np.broadcast_to(step, 2)
+
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]
         super_line_cols = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
         index_cols = super_line_cols if reindex else self.indexed_by
 
-        line_coords = pd.DataFrame(self[line_cols], columns=line_cols).drop_duplicates().sort_values(by=line_cols)
-        supergather_centers = line_coords[(line_coords.mod(step) == modulo).all(axis=1)].values
-        supergather_lines = pd.DataFrame(create_supergather_index(supergather_centers, size),
-                                         columns=super_line_cols+line_cols)
+        if centers is None:
+            # Construct a field mask and erode it according to border_indent and strict flag
+            field_mask, field_mask_origin = self._get_field_mask()
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, np.broadcast_to(border_indent, 2) * 2 + 1).T
+            field_mask = cv2.erode(field_mask, kernel, borderType=cv2.BORDER_CONSTANT, borderValue=0)
+            if strict:
+                kernel = cv2.getStructuringElement(cv2.MORPH_RECT, size).T
+                field_mask = cv2.erode(field_mask, kernel, borderType=cv2.BORDER_CONSTANT, borderValue=0)
+            step = np.minimum(step, field_mask.shape)
+
+            # Calculate origins of the supergather grid along inline and crossline directions
+            if origin is not None:
+                origin_i, origin_x = (np.broadcast_to(origin, 2) - field_mask_origin) % step
+            else:
+                origin_i = self._get_optimal_origin(field_mask.sum(axis=1), step[0])
+                origin_x = self._get_optimal_origin(field_mask.sum(axis=0), step[1])
+
+            # Calculate supergather centers by their grid
+            grid_i = np.arange(origin_i, field_mask.shape[0], step[0])
+            grid_x = np.arange(origin_x, field_mask.shape[1], step[1])
+            centers = np.stack(np.meshgrid(grid_i, grid_x), -1).reshape(-1, 2)
+            is_valid = field_mask[centers[:, 0], centers[:, 1]].astype(np.bool)
+            centers = centers[is_valid] + field_mask_origin
+
+        centers = np.array(centers)
+        if centers.ndim != 2 or centers.shape[1] != 2:
+            raise ValueError("Passed centers must have shape (n_supergathers, 2)")
+
+        # Construct a bridge table with mapping from supergather centers to their bins
+        shifts_grid = np.meshgrid(np.arange(size[0]) - size[0] // 2, np.arange(size[1]) - size[1] // 2)
+        shifts = np.stack(shifts_grid, axis=-1).reshape(-1, 2)
+        bridge = np.column_stack([centers.repeat(size.prod(), axis=0), (centers[:, None] + shifts).reshape(-1, 2)])
+        bridge = pd.DataFrame(bridge, columns=super_line_cols+line_cols)
 
         headers = self.headers
         headers.reset_index(inplace=True)
-        headers = pd.merge(supergather_lines, headers, on=line_cols)
+        headers = pd.merge(bridge, headers, on=line_cols)
         headers.set_index(index_cols, inplace=True)
         headers.sort_index(kind="stable", inplace=True)
         self.headers = headers
@@ -841,6 +1164,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Parameters
         ----------
+        show_contour : bool, optional, defaults to True
+            Whether to display a field contour if survey geometry was inferred.
         keep_aspect : bool, optional, defaults to False
             Whether to keep aspect ratio of the map plot.
         x_ticker : str or dict, optional

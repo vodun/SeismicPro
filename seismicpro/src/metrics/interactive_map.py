@@ -241,6 +241,11 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
         _ = coords
         raise NotImplementedError
 
+    def plot(self):
+        """Display the map and perform initial clicking."""
+        super().plot()
+        self.main.click(self.init_click_coords)
+
 
 class ScatterMapPlot(MetricMapPlot):
     """Construct an interactive plot of a non-aggregated metric map."""

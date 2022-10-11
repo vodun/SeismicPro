@@ -6,7 +6,7 @@ from itertools import product, combinations
 import pytest
 import numpy as np
 
-from seismicpro import Survey, StackingVelocity
+from seismicpro import Survey, Muter, StackingVelocity
 from seismicpro.src.utils import to_list
 from seismicpro.src.const import HDR_FIRST_BREAK, EPS
 
@@ -278,9 +278,7 @@ def test_gather_sort(gather):
 
 def test_gather_muting(gather):
     """test_gather_muting"""
-    offsets = [1000, 2000, 3000]
-    times = [100, 300, 600]
-    muter = gather.create_muter(mode='points', offsets=offsets, times=times)
+    muter = Muter(offsets=[1000, 2000, 3000], times=[100, 300, 600])
     gather.mute(muter)
 
 def test_gather_semblance(gather):
@@ -305,7 +303,7 @@ def test_gather_get_central_gather(segy_path):
     """test_gather_get_central_gather"""
     survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'], header_cols=['offset', 'FieldRecord'])
     survey = survey.generate_supergathers()
-    gather = survey.get_gather((0, 0))
+    gather = survey.sample_gather()
     gather.get_central_gather()
 
 def test_gather_stack(gather):
