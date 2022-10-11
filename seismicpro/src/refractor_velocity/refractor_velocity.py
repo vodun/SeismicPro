@@ -299,12 +299,12 @@ class RefractorVelocity:
 
         The file should define a near-surface velocity model at a given field location and have the following
         structure:
-         - The first row contains names of the Coordinates parameters ("name_x", "name_y", "coord_x", "coord_y") and
+         - The first row contains names of the Coordinates parameters ("name_x", "name_y", "x", "y") and
         names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
          - The second row contains the corresponding values of the velocity model.
 
         File example:
-         name_x     name_y    coord_x    coord_y        t0        x1        v1        v2
+         name_x     name_y          x          y        t0        x1        v1        v2
         SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00
 
         Parameters
@@ -635,12 +635,12 @@ class RefractorVelocity:
         """Dump the near-surface velocity model to a file.
 
         The resulting file will have the following structure:
-        - The first row contains names of the Coordinates parameters ("name_x", "name_y", "coord_x", "coord_y") and
+        - The first row contains names of the Coordinates parameters ("name_x", "name_y", "x", "y") and
         names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
         - The second row contains the corresponding parameters of a RefractorVelocity.
 
         Output file example:
-         name_x     name_y    coord_x    coord_y        t0        x1        v1        v2
+         name_x     name_y          x          y        t0        x1        v1        v2
         SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00
 
         Notes

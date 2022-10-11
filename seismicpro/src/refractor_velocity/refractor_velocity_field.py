@@ -156,12 +156,12 @@ class RefractorVelocityField(SpatialField):
 
         The file should define a near-surface velocity models at one or more field locations and have the following
         structure:
-        - The first row contains names of the Coordinates parameters ("name_x", "name_y", "coord_x", "coord_y") and
+        - The first row contains names of the Coordinates parameters ("name_x", "name_y", "x", "y") and
         names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
         - Each next line contains the coords names, coords values, and parameters values of one RefractorVelocity.
 
         File example:
-         name_x     name_y    coord_x    coord_y        t0        x1        v1        v2
+         name_x     name_y          x          y        t0        x1        v1        v2
         SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00
         ...
         SourceX    SourceY    1111200    2222240     60.00   1050.00   1550.00   1950.00
@@ -420,13 +420,13 @@ class RefractorVelocityField(SpatialField):
 
         The output file defines near-surface velocity model at one or more field locations and has the following
         structure:
-        - The first row contains names of the Coordinates parameters ("name_x", "name_y", "coord_x", "coord_y") and
+        - The first row contains names of the Coordinates parameters ("name_x", "name_y", "x", "y") and
         names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
         - Each next line contains the coords names, coords values, and parameters values corresponding to one
         RefractorVelocity in the RefractorVelocityField.
 
         File example:
-         name_x     name_y    coord_x    coord_y        t0        x1        v1        v2
+         name_x     name_y          x          y        t0        x1        v1        v2
         SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00
         ...
         SourceX    SourceY    1111200    2222240     60.00   1050.00   1550.00   1950.00

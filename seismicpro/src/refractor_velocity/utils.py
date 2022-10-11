@@ -45,7 +45,7 @@ def dump_refractor_velocities(refractor_velocities, path, encoding="UTF-8"):
         File encoding.
     """
     rv_list = to_list(refractor_velocities)
-    columns = ['name_x', 'name_y', 'coord_x', 'coord_y'] + list(rv_list[0].params.keys())
+    columns = ['name_x', 'name_y', 'x', 'y'] + list(rv_list[0].params.keys())
     data = np.empty((len(rv_list), len(columns)), dtype=object)
     for i, rv in enumerate(rv_list):
         data[i] = [*rv.coords.names] + [*rv.coords.coords] + list(rv.params.values())
@@ -69,7 +69,7 @@ def load_refractor_velocities(path, encoding="UTF-8"):
     """
     #pylint: disable-next=import-outside-toplevel
     from .refractor_velocity import RefractorVelocity  # import inside to avoid the circular import
-    df = pd.read_csv(path, sep=r'\s+', encoding=encoding)
+    df = pd.read_csv(path, sep=r'\s+', encoding=encoding).convert_dtypes()
     params_names = df.columns[4:]
     rv_list = []
     for row in df.itertuples():
