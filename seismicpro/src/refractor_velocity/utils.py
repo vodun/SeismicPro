@@ -93,8 +93,7 @@ def load_refractor_velocity(path, encoding="UTF-8"):
 
 def binarize_df(df, first_breaks_col, step=20):
     df['bins'] = df['offset'] // step
-    res = df[['bins', first_breaks_col]].groupby(by='bins').mean()
-    res['offset'] = res.index * step + step / 2
+    res = df.groupby(by='bins').mean()
     return res['offset'].to_numpy(), res[first_breaks_col].to_numpy()
 
 def calc_max_refractors_rv(offsets, times, min_refractor_size, min_velocity_step, start_refractor=1,
@@ -105,12 +104,12 @@ def calc_max_refractors_rv(offsets, times, min_refractor_size, min_velocity_step
     from .refractor_velocity import RefractorVelocity
     rv = None
     for refractor in range(start_refractor, max_refractors + 1):
-        min_refractor_size_ = np.full(min_refractor_size, refractor)
+        min_refractor_size_ = np.full(refractor, min_refractor_size)
         if weathering:
             min_refractor_size_[0] = 1
         if offsets.max() < min_refractor_size_[-1] * refractor:
             break
-        rv_last = RefractorVelocity.from_first_breaks(offsets, times, n_refractors=refractor, init=init, tol=1e-6,
+        rv_last = RefractorVelocity.from_first_breaks(offsets, times, n_refractors=refractor, init=init,
                           bounds=bounds, min_velocity_step=min_velocity_step, min_refractor_size=min_refractor_size_)
         rv_last.plot(title=rv_last.fit_result.fun)  # debug
         n_points, _ = np.histogram(rv_last.offsets, bins=rv_last.piecewise_offsets)
@@ -119,19 +118,19 @@ def calc_max_refractors_rv(offsets, times, min_refractor_size, min_velocity_step
         rv = rv_last
     return rv
 
-def calc_optimal_velocity(survey, min_offsets_diff=300, min_velocity_diff=300, first_breaks_col=HDR_FIRST_BREAK,
+def calc_optimal_velocity(survey, min_refractor_size=300, min_velocity_step=500, first_breaks_col=HDR_FIRST_BREAK,
                           weathering=False):
     """Calculate one velocity model describe passed survey."""
     if survey.n_gathers < 1:  # need if the func calls separately from `RefractorVelocityField.from_survey`
         raise ValueError("Survey is empty.")
-    # # reduce points
+    # reduce points
     offsets, times = binarize_df(survey.headers[['offset', first_breaks_col]], first_breaks_col=first_breaks_col)
-    rv = calc_max_refractors_rv(offsets, times, min_offsets_diff, min_velocity_diff)
+    rv = calc_max_refractors_rv(offsets, times, min_refractor_size, min_velocity_step)
     if weathering:  # try to find the weathering layer
         init = {'x1': 150, 'v1': rv.v1 / 2}
         bounds = {'x1': [1, 300], 'v1': [1, rv.v1]}
         start_refractor = max(rv.n_refractors, 2)
-        rv_weathering = calc_max_refractors_rv(offsets, times, min_offsets_diff, min_velocity_diff,
+        rv_weathering = calc_max_refractors_rv(offsets, times, min_refractor_size, min_velocity_step,
                                 start_refractor=start_refractor, init=init, bounds=bounds, weathering=True)
         if rv_weathering is not None and rv_weathering.fit_result.fun < rv.fit_result.fun:
             rv = rv_weathering
