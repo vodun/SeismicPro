@@ -10,7 +10,7 @@ from tqdm.auto import tqdm
 
 from .refractor_velocity import RefractorVelocity
 from .interactive_plot import FitPlot
-from .utils import get_param_names, postprocess_params, dump_refractor_velocity, load_refractor_velocity
+from .utils import get_param_names, postprocess_params, dump_refractor_velocities, load_refractor_velocities
 from ..field import SpatialField
 from ..utils import to_list, IDWInterpolator
 
@@ -183,7 +183,7 @@ class RefractorVelocityField(SpatialField):
         self : RefractorVelocityField
             RefractorVelocityField instance created from a file.
         """
-        return cls(load_refractor_velocity(path, encoding), survey=survey, is_geographic=is_geographic)
+        return cls(load_refractor_velocities(path, encoding), survey=survey, is_geographic=is_geographic)
 
     def update(self, items):
         """Add new items to the field. All passed `items` must have not-None coordinates and describe the same number
@@ -445,7 +445,7 @@ class RefractorVelocityField(SpatialField):
         """
         if self.is_empty:
             raise ValueError("Empty field can't be dumped.")
-        dump_refractor_velocity(self.items, path=path, encoding=encoding)
+        dump_refractor_velocities(self.items, path=path, encoding=encoding)
 
     def plot_fit(self, **kwargs):
         """Plot an interactive map of each parameter of a near-surface velocity model and display an offset-traveltime

@@ -32,32 +32,28 @@ def postprocess_params(params):
         return params[0]
     return params
 
-def dump_refractor_velocity(rv_list, path, encoding="UTF-8"):
+def dump_refractor_velocities(refractor_velocities, path, encoding="UTF-8"):
     """Dump the parameters of passed velocity models to a file.
 
     Parameters
     ----------
-    rv_list : RefractorVelocity or iterable of RefractorVelocity.
+    refractor_velocities : RefractorVelocity or iterable of RefractorVelocity.
         Refractor Velocity instances to dump to the file.
     path : str
         Path to the created file.
     encoding : str, optional, defaults to "UTF-8"
         File encoding.
     """
-    rv_list = to_list(rv_list)
+    rv_list = to_list(refractor_velocities)
     columns = ['name_x', 'name_y', 'coord_x', 'coord_y'] + list(rv_list[0].params.keys())
-    coords_names = np.empty((len(rv_list), 2), dtype=object)
-    coords_values = np.empty((len(rv_list), 2), dtype=np.int32)
-    params_values = np.empty((len(rv_list), len(list(rv_list[0].params.keys()))), dtype=np.float32)
+    data = np.empty((len(rv_list), len(columns)), dtype=object)
     for i, rv in enumerate(rv_list):
-        coords_names[i] = rv.coords.names
-        coords_values[i] = rv.coords.coords
-        params_values[i] = list(rv.params.values())
-    df = pd.concat([pd.DataFrame(coords_names), pd.DataFrame(coords_values), pd.DataFrame(params_values)], axis=1)
-    df.columns = columns
+        data[i] = [*rv.coords.names] + [*rv.coords.coords] + list(rv.params.values())
+    df =  pd.DataFrame(data, columns=columns)
+    df = df.infer_objects()
     df.to_string(buf=path, float_format="%.2f", index=False, encoding=encoding)
 
-def load_refractor_velocity(path, encoding="UTF-8"):
+def load_refractor_velocities(path, encoding="UTF-8"):
     """Load the coordinates and parameters of the velocity models from a file.
 
     Parameters
@@ -75,15 +71,14 @@ def load_refractor_velocity(path, encoding="UTF-8"):
     #pylint: disable-next=import-outside-toplevel
     from .refractor_velocity import RefractorVelocity  # import inside to avoid the circular import
     df = pd.read_csv(path, sep=r'\s+', encoding=encoding)
+    params_names = df.columns[4:]
+    params_values = df[df.columns[4:]].to_numpy()
+
     coords_names = df[df.columns[:2]].to_numpy()
     coords_values = df[df.columns[2:4]].to_numpy()
-    params_values = df[df.columns[4:]].to_numpy()
-    params_names = df.columns[4:]
     rv_list = []
-    for i in range(df.shape[0]):
-        if np.isnan(params_values[i, -1]):
-            raise ValueError(f"Unsufficient parameters in the row {i}.")
-        params = dict(zip(params_names, params_values[i]))
-        params['coords'] = Coordinates(names=coords_names[i], coords=coords_values[i])
-        rv_list.append(RefractorVelocity(**params))
+    for coords_name, coords_value, params_value in zip(coords_names, coords_values, params_values):
+        params = dict(zip(params_names, params_value))
+        coords = Coordinates(names=coords_name, coords=coords_value)
+        rv_list.append(RefractorVelocity(coords=coords, **params))
     return rv_list
