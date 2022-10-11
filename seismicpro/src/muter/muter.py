@@ -2,12 +2,8 @@
 
 import numpy as np
 
-<<<<<<< HEAD
 from .utils import compute_crossovers_times
 from ..utils import to_list, VFUNC
-=======
-from ..utils import VFUNC
->>>>>>> master
 
 
 class Muter(VFUNC):
