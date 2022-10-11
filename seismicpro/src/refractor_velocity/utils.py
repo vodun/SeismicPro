@@ -49,8 +49,7 @@ def dump_refractor_velocities(refractor_velocities, path, encoding="UTF-8"):
     data = np.empty((len(rv_list), len(columns)), dtype=object)
     for i, rv in enumerate(rv_list):
         data[i] = [*rv.coords.names] + [*rv.coords.coords] + list(rv.params.values())
-    df =  pd.DataFrame(data, columns=columns)
-    df = df.infer_objects()
+    df =  pd.DataFrame(data, columns=columns).convert_dtypes(convert_floating=False)
     df.to_string(buf=path, float_format="%.2f", index=False, encoding=encoding)
 
 def load_refractor_velocities(path, encoding="UTF-8"):
@@ -72,13 +71,9 @@ def load_refractor_velocities(path, encoding="UTF-8"):
     from .refractor_velocity import RefractorVelocity  # import inside to avoid the circular import
     df = pd.read_csv(path, sep=r'\s+', encoding=encoding)
     params_names = df.columns[4:]
-    params_values = df[df.columns[4:]].to_numpy()
-
-    coords_names = df[df.columns[:2]].to_numpy()
-    coords_values = df[df.columns[2:4]].to_numpy()
     rv_list = []
-    for coords_name, coords_value, params_value in zip(coords_names, coords_values, params_values):
-        params = dict(zip(params_names, params_value))
-        coords = Coordinates(names=coords_name, coords=coords_value)
+    for row in df.itertuples():
+        coords = Coordinates(names=row[1:3], coords=row[3:5])
+        params = dict(zip(params_names, row[5:]))
         rv_list.append(RefractorVelocity(coords=coords, **params))
     return rv_list
