@@ -49,8 +49,8 @@ def dump_refractor_velocities(refractor_velocities, path, encoding="UTF-8"):
     data = np.empty((len(rv_list), len(columns)), dtype=object)
     for i, rv in enumerate(rv_list):
         data[i] = [*rv.coords.names] + [*rv.coords.coords] + list(rv.params.values())
-    df =  pd.DataFrame(data, columns=columns).convert_dtypes(convert_floating=False)
-    df.to_string(buf=path, float_format="%.2f", index=False, encoding=encoding)
+    df =  pd.DataFrame(data, columns=columns).convert_dtypes()
+    df.to_string(buf=path, float_format=lambda x: f"{x:.2f}", index=False, encoding=encoding)
 
 def load_refractor_velocities(path, encoding="UTF-8"):
     """Load the coordinates and parameters of the velocity models from a file.
@@ -71,9 +71,5 @@ def load_refractor_velocities(path, encoding="UTF-8"):
     from .refractor_velocity import RefractorVelocity  # import inside to avoid the circular import
     df = pd.read_csv(path, sep=r'\s+', encoding=encoding).convert_dtypes()
     params_names = df.columns[4:]
-    rv_list = []
-    for row in df.itertuples():
-        coords = Coordinates(names=row[1:3], coords=row[3:5])
-        params = dict(zip(params_names, row[5:]))
-        rv_list.append(RefractorVelocity(coords=coords, **params))
-    return rv_list
+    return [RefractorVelocity(**dict(zip(params_names, row[4:])), coords=Coordinates(row[2:4], row[:2]))
+            for row in df.itertuples(index=False)]
