@@ -28,7 +28,7 @@ class RefractorVelocityField(SpatialField):
     A field can be populated with refractor velocities in 3 main ways:
     - by passing precalculated velocities in the `__init__`,
     - by creating an empty field and then iteratively updating it with estimated velocities using `update`.
-    - by creating a populated field using `from_survey`.
+    - by creating a fully populated field using `from_survey`.
 
     After all velocities are added, field interpolator should be created to make the field callable. It can be done
     either manually by executing `create_interpolator` method or automatically during the first call to the field if
@@ -116,13 +116,14 @@ class RefractorVelocityField(SpatialField):
 
     @classmethod  # pylint: disable-next=too-many-arguments
     def from_survey(cls, survey, is_geographic=None, init=None, bounds=None, n_refractors=None, max_offset=None,
-                    loss='L1', huber_coef=20, min_velocity_step=1, min_refractor_size=1, tol=1e-5, bar=True,
+                    min_velocity_step=1, min_refractor_size=1, loss='L1', huber_coef=20, tol=1e-5, bar=True,
                     first_breaks_col=HDR_FIRST_BREAK, **kwargs):
-        """Create the field populated from near-surface velocity models for each gather in the passed survey.
+        """Create the field from fitted near-surface velocity models for each gather (or supergather) in the survey.
 
-        First, methods calculates near-surface velocity models from offsets, times of first breaks, and coords
-        separately for all gathers defined by the passed survey. Finally, create field by passing precalcualted
-        velocity models in the `__init__`.
+        The method creates subsample of the offsets and times of first breaks from the survey headers, splits it by
+        the gathers and uses the splitted data to calculate a velocity models.
+        Offsets and times of breaks should be preloaded to the survey. Also coords should be preloaded too.
+
         Read :class:~`RefractorVelocity` docs for more information about the calculating velocity model.
 
         Parameters
@@ -137,10 +138,10 @@ class RefractorVelocityField(SpatialField):
         bounds : dict, optional
             Lower and upper bounds of model parameters.
         n_refractors : int, optional
-            The number of refractors described by the model.
+            The number of refractors described by the all velocities model.
         max_offset : float, optional
-            Maximum offset reliably described by the model. Inferred automatically by `survey`, but should be
-            preferably explicitly passed.
+            Maximum offset reliably described by the all velocities models. Inferred automatically by `survey`, but
+            should be preferably explicitly passed.
         loss : str, defaults to "L1"
             Loss function to be minimized. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
         huber_coef : float, default to 20
