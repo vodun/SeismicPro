@@ -27,9 +27,9 @@ class RefractorVelocityField(SpatialField):
 
     A field can be populated with velocity models in 4 main ways:
     - by passing precalculated velocities in the `__init__`,
-    - by creating an empty field and then iteratively updating it with estimated velocities using `update`.
-    - by loading a field from a file with velocity models parameters and coords by using `from_file`.
-    - by creating a fully populated field using `from_survey`.
+    - by creating an empty field and then iteratively updating it with estimated velocities using `update`,
+    - by loading a field from a file with velocity models parameters and coords by using `from_file`,
+    - by calculating a field directly from a survey using `from_survey`.
 
     After all velocities are added, field interpolator should be created to make the field callable. It can be done
     either manually by executing `create_interpolator` method or automatically during the first call to the field if
@@ -55,7 +55,7 @@ class RefractorVelocityField(SpatialField):
     Or created from velocity models loaded from a file:
     >>> field = RefractorVelocityField.from_file(path_to_file)
 
-    Note that in both these cases all velocity models in the field must describe the same number of refractors.
+    Note that in all these cases all velocity models in the field must describe the same number of refractors.
 
     Velocity models of an upper part of the section are usually estimated independently of one another and thus may
     appear inconsistent. `refine` method allows utilizing local information about near-surface conditions to refit
@@ -118,6 +118,38 @@ class RefractorVelocityField(SpatialField):
         self.n_refractors = n_refractors
         super().__init__(items, survey, is_geographic, auto_create_interpolator)
 
+    @property
+    def param_names(self):
+        """list of str: Names of model parameters."""
+        if self.n_refractors is None:
+            raise ValueError("The number of refractors is undefined")
+        return get_param_names(self.n_refractors)
+
+    @cached_property
+    def is_fit(self):
+        """bool: Whether the field was constructed directly from offset-traveltime data."""
+        return all(item.is_fit for item in self.items)
+
+    @cached_property
+    def mean_velocity(self):
+        """RefractorVelocity: Mean near-surface velocity model over the field."""
+        return self.construct_item(self.values.mean(axis=0), coords=None)
+
+    def __str__(self):
+        """Print field metadata including descriptive statistics of the near-surface velocity model, coordinate system
+        and created interpolator."""
+        msg = super().__str__() + dedent(f"""\n
+        Number of refractors:      {self.n_refractors}
+        Is fit from first breaks:  {self.is_fit}
+        """)
+
+        if not self.is_empty:
+            params_df = pd.DataFrame(self.values, columns=self.param_names)
+            params_stats_str = params_df.describe().iloc[1:].T.to_string(col_space=8, float_format="{:.02f}".format)
+            msg += f"""\nDescriptive statistics of the near-surface velocity model:\n{params_stats_str}"""
+
+        return msg
+
     @classmethod  # pylint: disable-next=too-many-arguments
     def from_survey(cls, survey, is_geographic=None, init=None, bounds=None, n_refractors=None, max_offset=None,
                     min_velocity_step=1, min_refractor_size=1, loss='L1', huber_coef=20, tol=1e-5, bar=True,
@@ -125,7 +157,8 @@ class RefractorVelocityField(SpatialField):
         """Create the field from fitted near-surface velocity models for each gather (or supergather) in the survey.
 
         The method creates subsample of the offsets and times of first breaks from the survey headers, splits it by
-        the gathers and uses the splitted data to calculate a velocity models.
+        the gathers and uses the splitted data to calculate the velocity models. Finally, creates the field from
+        the calculated velocity models.
         Offsets and times of breaks should be preloaded to the survey. Also coords should be preloaded too.
 
         Read :class:~`RefractorVelocity` docs for more information about the calculating velocity model.
@@ -146,16 +179,16 @@ class RefractorVelocityField(SpatialField):
         max_offset : float, optional
             Maximum offset reliably described by the all velocities models. Inferred automatically by `survey`, but
             should be preferably explicitly passed.
-        loss : str, defaults to "L1"
-            Loss function to be minimized. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
-        huber_coef : float, default to 20
-            Coefficient for Huber loss function.
         min_velocity_step : int, or 1d array-like with shape (n_refractors - 1,), optional, defaults to 1
             Minimum difference between velocities of two adjacent refractors. Default value ensures that velocities are
             strictly increasing.
         min_refractor_size : int, or 1d array-like with shape (n_refractors,), optional, defaults to 1
             Minimum offset range covered by each refractor. Default value ensures that refractors do not degenerate
             into single points.
+        loss : str, defaults to "L1"
+            Loss function to be minimized. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
+        huber_coef : float, default to 20
+            Coefficient for Huber loss function.
         tol : float, optional, defaults to 1e-5
             Precision goal for the value of loss in the stopping criterion.
         bar : bool, optional, defualt to True
@@ -197,7 +230,6 @@ class RefractorVelocityField(SpatialField):
             rv_list.append(rv)
         return cls(items=rv_list, survey=survey, is_geographic=is_geographic)
 
-
     @classmethod
     def from_file(cls, path, survey=None, is_geographic=None, auto_create_interpolator=True, encoding="UTF-8"):
         """Load the field with velocity models from a file.
@@ -236,38 +268,6 @@ class RefractorVelocityField(SpatialField):
         """
         return cls(load_refractor_velocities(path, encoding), survey=survey, is_geographic=is_geographic,
                    auto_create_interpolator=auto_create_interpolator)
-
-    @property
-    def param_names(self):
-        """list of str: Names of model parameters."""
-        if self.n_refractors is None:
-            raise ValueError("The number of refractors is undefined")
-        return get_param_names(self.n_refractors)
-
-    @cached_property
-    def is_fit(self):
-        """bool: Whether the field was constructed directly from offset-traveltime data."""
-        return all(item.is_fit for item in self.items)
-
-    @cached_property
-    def mean_velocity(self):
-        """RefractorVelocity: Mean near-surface velocity model over the field."""
-        return self.construct_item(self.values.mean(axis=0), coords=None)
-
-    def __str__(self):
-        """Print field metadata including descriptive statistics of the near-surface velocity model, coordinate system
-        and created interpolator."""
-        msg = super().__str__() + dedent(f"""\n
-        Number of refractors:      {self.n_refractors}
-        Is fit from first breaks:  {self.is_fit}
-        """)
-
-        if not self.is_empty:
-            params_df = pd.DataFrame(self.values, columns=self.param_names)
-            params_stats_str = params_df.describe().iloc[1:].T.to_string(col_space=8, float_format="{:.02f}".format)
-            msg += f"""\nDescriptive statistics of the near-surface velocity model:\n{params_stats_str}"""
-
-        return msg
 
     def validate_items(self, items):
         """Check if the field can be updated with the provided `items`."""
