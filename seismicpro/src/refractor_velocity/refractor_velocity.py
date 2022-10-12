@@ -34,7 +34,7 @@ class RefractorVelocity:
     * `from_first_breaks` - to automatically fit a near-surface velocity model by offsets and times of first breaks.
       This methods allows one to specify initial values of some parameters or bounds for their values or simply provide
       the expected number of refractors.
-    * `from_file` - to create velocity model from parameters and coords loaded from a file.
+    * `from_file` - to create a velocity model from parameters and coords loaded from a file.
 
     The resulting object is callable and returns expected arrival times for given offsets. Each model parameter can be
     obtained by accessing the corresponding attribute of the created instance.
@@ -300,7 +300,7 @@ class RefractorVelocity:
 
         The file should define a near-surface velocity model at a given field location and have the following
         structure:
-         - The first row contains names of the Coordinates parameters ("name_x", "name_y", "x", "y") and
+         - The first row contains names of the coordinates parameters ("name_x", "name_y", "x", "y") and
         names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
          - The second row contains the corresponding values of the velocity model.
 

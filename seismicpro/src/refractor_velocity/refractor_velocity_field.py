@@ -426,7 +426,7 @@ class RefractorVelocityField(SpatialField):
     def dump(self, path, encoding="UTF-8"):
         """Save the near-surface velocity models stored in the field to a file.
 
-        The output file defines near-surface velocity model at one or more field locations and has the following
+        The output file defines a near-surface velocity model at one or more field locations and has the following
         structure:
         - The first row contains names of the Coordinates parameters ("name_x", "name_y", "x", "y") and
         names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
