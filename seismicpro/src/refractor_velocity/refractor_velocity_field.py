@@ -24,9 +24,10 @@ class RefractorVelocityField(SpatialField):
     interpolation can be performed by `RefractorVelocityField` which provides an interface to obtain a velocity model
     of an upper part of the section at given spatial coordinates via its `__call__` and `interpolate` methods.
 
-    A field can be populated with refractor velocities in 2 main ways:
+    A field can be populated with refractor velocities in 3 main ways:
     - by passing precalculated velocities in the `__init__`,
     - by creating an empty field and then iteratively updating it with estimated velocities using `update`.
+    - by creating a fully updated field from the velocity model parameters and coords loaded from a file.
 
     After all velocities are added, field interpolator should be created to make the field callable. It can be done
     either manually by executing `create_interpolator` method or automatically during the first call to the field if
@@ -45,6 +46,9 @@ class RefractorVelocityField(SpatialField):
 
     Or created from precalculated instances:
     >>> field = RefractorVelocityField(list_of_rv)
+
+    Or created from paramerets and coords loaded from a file:
+    >>> field = RefractorVelocityField.from_file(path_to_file)
 
     Note that in both these cases all velocity models in the field must describe the same number of refractors.
 
@@ -151,7 +155,7 @@ class RefractorVelocityField(SpatialField):
             raise ValueError("Each RefractorVelocity must describe the same number of refractors as the field")
 
     @classmethod
-    def from_file(cls, path, survey=None, is_geographic=None, encoding="UTF-8"):
+    def from_file(cls, path, survey=None, is_geographic=None, auto_create_interpolator=True, encoding="UTF-8"):
         """Create the field from the near-surface velocity models loaded from a file.
 
         The file should define a near-surface velocity models at one or more field locations and have the following
@@ -175,6 +179,9 @@ class RefractorVelocityField(SpatialField):
         is_geographic : bool, optional
             Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
             CROSSLINE_3D)). Inferred from coordinates of the first `RefractorVelocity` in the file if not given.
+        auto_create_interpolator : bool, optional, defaults to True
+            Whether to automatically create default interpolator (RBF for more than 3 items in the field or IDW
+            otherwise) upon the first call to the field.
         encoding : str, optional, defaults to "UTF-8"
             File encoding.
 
@@ -183,7 +190,8 @@ class RefractorVelocityField(SpatialField):
         self : RefractorVelocityField
             RefractorVelocityField instance created from a file.
         """
-        return cls(load_refractor_velocities(path, encoding), survey=survey, is_geographic=is_geographic)
+        return cls(load_refractor_velocities(path, encoding), survey=survey, is_geographic=is_geographic,
+                   auto_create_interpolator=auto_create_interpolator)
 
     def update(self, items):
         """Add new items to the field. All passed `items` must have not-None coordinates and describe the same number
