@@ -129,14 +129,14 @@ class RefractorVelocityField(SpatialField):
         Parameters
         ----------
         survey : Survey
-            Survey with preloaded offsets, time of first break, coords values.
+            Survey with preloaded offsets, time of first break, and coords.
         is_geographic : bool, optional
             Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
             CROSSLINE_3D)). Inferred automatically on the first update if not given.
         init : dict, optional
-            Initial values of model parameters.
+            Initial values of all velocity models parameters.
         bounds : dict, optional
-            Lower and upper bounds of model parameters.
+            Lower and upper bounds of all velocity models parameters.
         n_refractors : int, optional
             The number of refractors described by the all velocities model.
         max_offset : float, optional
