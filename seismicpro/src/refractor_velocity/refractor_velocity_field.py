@@ -145,15 +145,6 @@ class RefractorVelocityField(SpatialField):
 
         return msg
 
-    def validate_items(self, items):
-        """Check if the field can be updated with the provided `items`."""
-        super().validate_items(items)
-        n_refractors_set = {item.n_refractors for item in items}
-        if self.n_refractors is not None:
-            n_refractors_set.add(self.n_refractors)
-        if len(n_refractors_set) != 1:
-            raise ValueError("Each RefractorVelocity must describe the same number of refractors as the field")
-
     @classmethod
     def from_file(cls, path, survey=None, is_geographic=None, auto_create_interpolator=True, encoding="UTF-8"):
         """Load the field with velocity models from a file.
@@ -192,6 +183,15 @@ class RefractorVelocityField(SpatialField):
         """
         return cls(load_refractor_velocities(path, encoding), survey=survey, is_geographic=is_geographic,
                    auto_create_interpolator=auto_create_interpolator)
+
+    def validate_items(self, items):
+        """Check if the field can be updated with the provided `items`."""
+        super().validate_items(items)
+        n_refractors_set = {item.n_refractors for item in items}
+        if self.n_refractors is not None:
+            n_refractors_set.add(self.n_refractors)
+        if len(n_refractors_set) != 1:
+            raise ValueError("Each RefractorVelocity must describe the same number of refractors as the field")
 
     def update(self, items):
         """Add new items to the field. All passed `items` must have not-None coordinates and describe the same number
