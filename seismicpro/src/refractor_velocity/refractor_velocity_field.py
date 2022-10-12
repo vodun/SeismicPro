@@ -203,13 +203,10 @@ class RefractorVelocityField(SpatialField):
         ------
         ValueError
             If survey does not contain any indices.
-            If all `init`, `bounds`, and `n_refractors` are `None`.
             If coords value non-unique for any one gather.
         """
         if survey.n_gathers < 1:
             raise ValueError("Survey is empty.")
-        if all(param is None for param in (init, bounds, n_refractors)):
-            raise ValueError("At least one of `init`, `bounds` or `n_refractors` must be defined")
         rv_list = []
         coords_name = get_coords_cols(survey.indexed_by)
         # get only the needed data from survey headers.
