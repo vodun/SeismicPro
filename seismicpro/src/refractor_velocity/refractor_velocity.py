@@ -296,10 +296,9 @@ class RefractorVelocity:
 
     @classmethod
     def from_file(cls, path, encoding="UTF-8"):
-        """Create a `RefractorVelocity` instance from a file.
+        """Load a velocity model from a file.
 
-        The file should define a near-surface velocity model at a given field location and have the following
-        structure:
+        The file should define a near-surface velocity model at a given location and have the following structure:
          - The first row contains names of the coordinates parameters ("name_x", "name_y", "x", "y") and
         names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
          - The second row contains the corresponding values of the velocity model.
@@ -319,6 +318,11 @@ class RefractorVelocity:
         -------
         self : RefractorVelocity
             RefractorVelocity instance created from a file.
+
+        Raises
+        ------
+        ValueError
+            If file contains more than one set of parameters.
         """
         rv_list = load_refractor_velocities(path, encoding)
         if len(rv_list) != 1:
@@ -327,7 +331,7 @@ class RefractorVelocity:
 
     @classmethod
     def from_constant_velocity(cls, velocity, coords=None):
-        """Define a 1-layer near-surface velocity model with given velocity of the first layer and zero intercept time.
+        """Define a 1-layer near-surface velocity model with given layer velocity and zero intercept time.
 
         Parameters
         ----------

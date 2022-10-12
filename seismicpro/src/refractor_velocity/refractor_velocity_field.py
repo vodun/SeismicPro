@@ -24,10 +24,10 @@ class RefractorVelocityField(SpatialField):
     interpolation can be performed by `RefractorVelocityField` which provides an interface to obtain a velocity model
     of an upper part of the section at given spatial coordinates via its `__call__` and `interpolate` methods.
 
-    A field can be populated with refractor velocities in 3 main ways:
+    A field can be populated with velocity models in 3 main ways:
     - by passing precalculated velocities in the `__init__`,
     - by creating an empty field and then iteratively updating it with estimated velocities using `update`.
-    - by creating a fully updated field from the velocity model parameters and coords loaded from a file.
+    - by loading a field from a file with velocity models parameters and coords by using `from_file`.
 
     After all velocities are added, field interpolator should be created to make the field callable. It can be done
     either manually by executing `create_interpolator` method or automatically during the first call to the field if
@@ -156,13 +156,13 @@ class RefractorVelocityField(SpatialField):
 
     @classmethod
     def from_file(cls, path, survey=None, is_geographic=None, auto_create_interpolator=True, encoding="UTF-8"):
-        """Create the field from the near-surface velocity models loaded from a file.
+        """Load the field with velocity models from a file.
 
         The file should define a near-surface velocity models at one or more field locations and have the following
         structure:
         - The first row contains names of the Coordinates parameters ("name_x", "name_y", "x", "y") and
         names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
-        - Each next line contains the coords names, coords values, and parameters values of one RefractorVelocity.
+        - Each next row contains the coords names, coords values, and parameters values of one RefractorVelocity.
 
         File example:
          name_x     name_y          x          y        t0        x1        v1        v2
@@ -424,13 +424,13 @@ class RefractorVelocityField(SpatialField):
                           is_geographic=self.is_geographic)
 
     def dump(self, path, encoding="UTF-8"):
-        """Save the near-surface velocity models stored in the field to a file.
+        """Dump the near-surface velocity models stored in the field to a file.
 
         The output file defines a near-surface velocity model at one or more field locations and has the following
         structure:
         - The first row contains names of the Coordinates parameters ("name_x", "name_y", "x", "y") and
         names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
-        - Each next line contains the coords names, coords values, and parameters values corresponding to one
+        - Each next row contains the coords names, coords values, and parameters values corresponding to one
         RefractorVelocity in the RefractorVelocityField.
 
         File example:
