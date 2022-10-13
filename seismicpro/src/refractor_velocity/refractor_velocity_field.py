@@ -154,14 +154,11 @@ class RefractorVelocityField(SpatialField):
     def from_survey(cls, survey, is_geographic=None, init=None, bounds=None, n_refractors=None, max_offset=None,
                     min_velocity_step=1, min_refractor_size=1, loss='L1', huber_coef=20, tol=1e-5, bar=True,
                     first_breaks_col=HDR_FIRST_BREAK, **kwargs):
-        """Create the field from fitted near-surface velocity models for each gather (or supergather) in the survey.
+        """Create the field by fitting the near-surface velocity model for each gather (or supergather) in the survey.
 
-        The method creates subsample of the offsets and times of first breaks from the survey headers, splits it by
-        the gathers and uses the splitted data to calculate the velocity models. Finally, creates the field from
-        the calculated velocity models.
-        Offsets and times of breaks should be preloaded to the survey. Also coords should be preloaded too.
-
-        Read :class:~`RefractorVelocity` docs for more information about the calculating velocity model.
+        Offsets, times of first breaks, and coords headers should be preloaded to the survey.
+        Read :class:~`.refractor_velocity.RefractorVelocity` docs for more information about the calculating velocity
+        model.
 
         Parameters
         ----------
@@ -203,7 +200,7 @@ class RefractorVelocityField(SpatialField):
         ------
         ValueError
             If survey does not contain any indices.
-            If coords value non-unique for any one gather.
+            If any gather has non-unique pair of coords.
         """
         if survey.n_gathers < 1:
             raise ValueError("Survey is empty.")
@@ -212,18 +209,15 @@ class RefractorVelocityField(SpatialField):
         # get only the needed data from survey headers.
         survey_headers = survey[['offset', first_breaks_col] + list(coords_name)]
         max_offset = survey_headers[:, 0].max() if max_offset is None else max_offset
-        for idx in tqdm(survey.indices, desc="Calculate velocity models", disable=not bar):
-            trace_idx = survey.get_traces_locs([idx])
-            gather_data = survey_headers[trace_idx]
-            offsets = gather_data[:, 0]
-            times = gather_data[:, 1]
-            coords_value = gather_data[:, 2:]
-            if (coords_value != coords_value[0]).any():
-                raise ValueError(f"Coordinates non-unique for gather with index {idx}.")
-            coords = Coordinates(names=coords_name, coords=coords_value[0])
-            rv = RefractorVelocity.from_first_breaks(offsets, times, init, bounds, n_refractors, max_offset,
-                                                     min_velocity_step, min_refractor_size, loss, huber_coef, tol,
-                                                     coords=coords, **kwargs)
+        for gather_idx in tqdm(survey.indices, desc="Calculate velocity models", disable=not bar):
+            trace_locs = survey.get_traces_locs([gather_idx])
+            gather_headers = survey_headers[trace_locs]
+            if (gather_headers[:, 2:] != gather_headers[0, 2:]).any():
+                raise ValueError(f"Coordinates non-unique for gather with index {gather_idx}.")
+            coords = Coordinates(names=coords_name, coords=gather_headers[0, 2:])
+            rv = RefractorVelocity.from_first_breaks(gather_headers[:, 0], gather_headers[:, 1], init, bounds,
+                                                     n_refractors, max_offset, min_velocity_step, min_refractor_size,
+                                                     loss, huber_coef, tol, coords=coords, **kwargs)
             rv_list.append(rv)
         return cls(items=rv_list, survey=survey, is_geographic=is_geographic)
 
