@@ -33,32 +33,27 @@ def postprocess_params(params):
         return params[0]
     return params
 
-def dump_refractor_velocity(rv_list, path, encoding="UTF-8"):
+def dump_refractor_velocities(refractor_velocities, path, encoding="UTF-8"):
     """Dump the parameters of passed velocity models to a file.
 
     Parameters
     ----------
-    rv_list : RefractorVelocity or iterable of RefractorVelocity.
+    refractor_velocities : RefractorVelocity or iterable of RefractorVelocity.
         Refractor Velocity instances to dump to the file.
     path : str
         Path to the created file.
     encoding : str, optional, defaults to "UTF-8"
         File encoding.
     """
-    rv_list = to_list(rv_list)
-    columns = ['name_x', 'name_y', 'coord_x', 'coord_y'] + list(rv_list[0].params.keys())
-    coords_names = np.empty((len(rv_list), 2), dtype=object)
-    coords_values = np.empty((len(rv_list), 2), dtype=np.int32)
-    params_values = np.empty((len(rv_list), len(list(rv_list[0].params.keys()))), dtype=np.float32)
+    rv_list = to_list(refractor_velocities)
+    columns = ['name_x', 'name_y', 'x', 'y'] + list(rv_list[0].params.keys())
+    data = np.empty((len(rv_list), len(columns)), dtype=object)
     for i, rv in enumerate(rv_list):
-        coords_names[i] = rv.coords.names
-        coords_values[i] = rv.coords.coords
-        params_values[i] = list(rv.params.values())
-    df = pd.concat([pd.DataFrame(coords_names), pd.DataFrame(coords_values), pd.DataFrame(params_values)], axis=1)
-    df.columns = columns
-    df.to_string(buf=path, float_format="%.2f", index=False, encoding=encoding)
+        data[i] = [*rv.coords.names] + [*rv.coords.coords] + list(rv.params.values())
+    df =  pd.DataFrame(data, columns=columns).convert_dtypes()
+    df.to_string(buf=path, float_format=lambda x: f"{x:.2f}", index=False, encoding=encoding)
 
-def load_refractor_velocity(path, encoding="UTF-8"):
+def load_refractor_velocities(path, encoding="UTF-8"):
     """Load the coordinates and parameters of the velocity models from a file.
 
     Parameters
@@ -75,42 +70,35 @@ def load_refractor_velocity(path, encoding="UTF-8"):
     """
     #pylint: disable-next=import-outside-toplevel
     from .refractor_velocity import RefractorVelocity  # import inside to avoid the circular import
-    df = pd.read_csv(path, sep=r'\s+', encoding=encoding)
-    coords_names = df[df.columns[:2]].to_numpy()
-    coords_values = df[df.columns[2:4]].to_numpy()
-    params_values = df[df.columns[4:]].to_numpy()
+    df = pd.read_csv(path, sep=r'\s+', encoding=encoding).convert_dtypes()
     params_names = df.columns[4:]
-    rv_list = []
-    for i in range(df.shape[0]):
-        if np.isnan(params_values[i, -1]):
-            raise ValueError(f"Unsufficient parameters in the row {i}.")
-        params = dict(zip(params_names, params_values[i]))
-        params['coords'] = Coordinates(names=coords_names[i], coords=coords_values[i])
-        rv_list.append(RefractorVelocity(**params))
-    return rv_list
+    return [RefractorVelocity(**dict(zip(params_names, row[4:])), coords=Coordinates(row[2:4], row[:2]))
+            for row in df.itertuples(index=False)]
 
 # calculate number of refractors
 
-def binarize_df(df, first_breaks_col, step=20):
-    df['bins'] = df['offset'] // step
+def reduce_df(df, x='offset', y=HDR_FIRST_BREAK, step=20):
+    """Reduce DataFrame columns `x` and `y` by spliting `x` by `step` value."""
+    df['bins'] = df[x] // step
     res = df.groupby(by='bins').mean()
-    return res['offset'].to_numpy(), res[first_breaks_col].to_numpy()
+    return res[x].to_numpy(), res[y].to_numpy()
 
 def calc_max_refractors_rv(offsets, times, min_refractor_size, min_velocity_step, start_refractor=1,
-                           max_refractors=10, init=None, bounds=None, weathering=False):
+                           max_refractors=10, init=None, bounds=None, find_weathering=False):
     """Calculate RefractorVelocity which have maximum number of refractor based on given constraints.
     """
     #pylint: disable-next=import-outside-toplevel
     from .refractor_velocity import RefractorVelocity
     rv = None
     for refractor in range(start_refractor, max_refractors + 1):
-        min_refractor_size_ = np.full(refractor, min_refractor_size)
-        if weathering:
-            min_refractor_size_[0] = 1
-        if offsets.max() < min_refractor_size_[-1] * refractor:
+        min_refractor_size_vec = np.full(refractor, min_refractor_size)
+        if find_weathering:
+            min_refractor_size_vec[0] = 1
+        if offsets.max() < min_refractor_size * refractor:
             break
-        rv_last = RefractorVelocity.from_first_breaks(offsets, times, n_refractors=refractor, init=init,
-                          bounds=bounds, min_velocity_step=min_velocity_step, min_refractor_size=min_refractor_size_)
+        rv_last = RefractorVelocity.from_first_breaks(offsets, times, n_refractors=refractor, init=init, bounds=bounds,
+                                                      min_velocity_step=min_velocity_step,
+                                                      min_refractor_size=min_refractor_size_vec)
         rv_last.plot(title=rv_last.fit_result.fun)  # debug
         n_points, _ = np.histogram(rv_last.offsets, bins=rv_last.piecewise_offsets)
         if not ((n_points > 1).all() and (rv is None or rv_last.fit_result.fun < rv.fit_result.fun)):
@@ -119,19 +107,19 @@ def calc_max_refractors_rv(offsets, times, min_refractor_size, min_velocity_step
     return rv
 
 def calc_optimal_velocity(survey, min_refractor_size=300, min_velocity_step=500, first_breaks_col=HDR_FIRST_BREAK,
-                          weathering=False):
+                          find_weathering=False):
     """Calculate one velocity model describe passed survey."""
     if survey.n_gathers < 1:  # need if the func calls separately from `RefractorVelocityField.from_survey`
         raise ValueError("Survey is empty.")
     # reduce points
-    offsets, times = binarize_df(survey.headers[['offset', first_breaks_col]], first_breaks_col=first_breaks_col)
+    offsets, times = reduce_df(survey.headers[['offset', first_breaks_col]])
     rv = calc_max_refractors_rv(offsets, times, min_refractor_size, min_velocity_step)
-    if weathering:  # try to find the weathering layer
+    if find_weathering:  # try to find the weathering layer
         init = {'x1': 150, 'v1': rv.v1 / 2}
         bounds = {'x1': [1, 300], 'v1': [1, rv.v1]}
         start_refractor = max(rv.n_refractors, 2)
         rv_weathering = calc_max_refractors_rv(offsets, times, min_refractor_size, min_velocity_step,
-                                start_refractor=start_refractor, init=init, bounds=bounds, weathering=True)
+                                start_refractor=start_refractor, init=init, bounds=bounds, find_weathering=True)
         if rv_weathering is not None and rv_weathering.fit_result.fun < rv.fit_result.fun:
             rv = rv_weathering
     return rv
