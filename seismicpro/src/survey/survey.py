@@ -23,6 +23,7 @@ from ..gather import Gather
 from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
 from ..utils import to_list, maybe_copy, get_cols
+from ..refractor_velocity.utils import calc_mean_velocity
 from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK
 
 
@@ -1247,3 +1248,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
+
+    def plot_mean_velocity(self, min_refractor_size=300, min_velocity_step=300, first_breaks_col=HDR_FIRST_BREAK,
+                           find_weathering=True, **kwargs):
+        """Plot mean near-surface velocity model describing the survey."""
+        calc_mean_velocity(self, min_refractor_size=min_refractor_size, min_velocity_step=min_velocity_step,
+                           first_breaks_col=first_breaks_col, find_weathering=find_weathering).plot(**kwargs)
