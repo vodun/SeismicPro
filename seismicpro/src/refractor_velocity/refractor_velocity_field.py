@@ -151,9 +151,9 @@ class RefractorVelocityField(SpatialField):
         return msg
 
     @classmethod  # pylint: disable-next=too-many-arguments
-    def from_survey(cls, survey, is_geographic=None, init=None, bounds=None, n_refractors=None, max_offset=None,
-                    min_velocity_step=1, min_refractor_size=1, loss='L1', huber_coef=20, tol=1e-5, bar=True,
-                    first_breaks_col=HDR_FIRST_BREAK, **kwargs):
+    def from_survey(cls, survey, is_geographic=None, auto_create_interpolator=True, init=None, bounds=None,
+                    n_refractors=None, max_offset=None, min_velocity_step=1, min_refractor_size=1, loss='L1',
+                    huber_coef=20, tol=1e-5, first_breaks_col=HDR_FIRST_BREAK, bar=True, **kwargs):
         """Create the field by fitting the near-surface velocity model for each gather (or supergather) in the survey.
 
         Offsets, times of first breaks, and coords headers should be preloaded to the survey.
@@ -167,6 +167,9 @@ class RefractorVelocityField(SpatialField):
         is_geographic : bool, optional
             Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
             CROSSLINE_3D)). Inferred automatically on the first update if not given.
+        auto_create_interpolator : bool, optional, defaults to True
+            Whether to automatically create default interpolator (RBF for more than 3 items in the field or IDW
+            otherwise) upon the first call to the field.
         init : dict, optional
             Initial values of all velocity models parameters.
         bounds : dict, optional
@@ -188,10 +191,10 @@ class RefractorVelocityField(SpatialField):
             Coefficient for Huber loss function.
         tol : float, optional, defaults to 1e-5
             Precision goal for the value of loss in the stopping criterion.
-        bar : bool, optional, defualt to True
-            Whether to show field calculating progress bar.
         first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `survey.headers` where times of first break are stored.
+        bar : bool, optional, defualt to True
+            Whether to show field calculating progress bar.
         kwargs : misc, optional
             Additional `SLSQP` options, see https://docs.scipy.org/doc/scipy/reference/optimize.minimize-slsqp.html for
             more details.
@@ -217,9 +220,10 @@ class RefractorVelocityField(SpatialField):
             coords = Coordinates(names=coords_name, coords=gather_headers[0, 2:])
             rv = RefractorVelocity.from_first_breaks(gather_headers[:, 0], gather_headers[:, 1], init, bounds,
                                                      n_refractors, max_offset, min_velocity_step, min_refractor_size,
-                                                     loss, huber_coef, tol, coords=coords, **kwargs)
+                                                     loss, huber_coef, tol, coords, **kwargs)
             rv_list.append(rv)
-        return cls(items=rv_list, survey=survey, is_geographic=is_geographic)
+        return cls(items=rv_list, survey=survey, is_geographic=is_geographic,
+                   auto_create_interpolator=auto_create_interpolator)
 
     @classmethod
     def from_file(cls, path, survey=None, is_geographic=None, auto_create_interpolator=True, encoding="UTF-8"):
