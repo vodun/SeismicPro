@@ -1234,7 +1234,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             map_data = self.headers.groupby(coords_cols, as_index=False).size().rename(columns={"size": "Fold"})
         else:
             data_cols = coords_cols + [attribute]
-            map_data = self.headers[data_cols].copy()
+            map_data = pd.DataFrame(self[data_cols], columns=data_cols)
             if drop_duplicates: # this is for Elevation map
                 map_data.drop_duplicates(inplace=True)
 
@@ -1318,8 +1318,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         attribute = metric_cls.__name__
 
-        data_cols = coords_cols + [attribute]
-        map_data = self.headers[data_cols].copy()
+        coords = self[coords_cols]
+        metric_values = self[attribute].squeeze(1)
 
         metric = PartialMetric(metric_cls, survey=self, name=attribute, **kwargs)
-        return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
+        return metric.map_class(coords, metric_values, coords_cols=coords_cols, metric=metric,
+                                agg=agg, bin_size=bin_size)

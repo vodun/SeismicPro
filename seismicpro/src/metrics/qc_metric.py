@@ -150,7 +150,7 @@ class TracewiseMetric(Metric):
         res = self.calc(gather, tracewise=True, **kwargs)
 
         gather = self.preprocess(gather, **kwargs)
-        plot_worst_trace(ax, gather.data, gather.headers.TraceNumber.values, res, self.is_lower_better)
+        plot_worst_trace(ax, gather.data, gather['TraceNumber'].squeeze(1), res, self.is_lower_better)
         set_title(ax, gather)
 
 
