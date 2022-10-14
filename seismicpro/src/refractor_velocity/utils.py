@@ -84,7 +84,7 @@ def reduce_mean_df(df, x='offset', y=HDR_FIRST_BREAK, step=20):
     return res[x].to_numpy(), res[y].to_numpy()
 
 def calc_optimal_velocity(offsets, times, min_refractor_size, min_velocity_step, start_refractor=1,
-                           max_refractors=10, init=None, bounds=None, find_weathering=False):
+                           max_refractors=10, init=None, bounds=None, find_weathering=False, debug=False):
     """Calculate a velocity model with a number of refractors giving an optimal description of the data.
     """
     #pylint: disable-next=import-outside-toplevel
@@ -99,7 +99,9 @@ def calc_optimal_velocity(offsets, times, min_refractor_size, min_velocity_step,
         rv_last = RefractorVelocity.from_first_breaks(offsets, times, n_refractors=refractor, init=init, bounds=bounds,
                                                       min_velocity_step=min_velocity_step,
                                                       min_refractor_size=min_refractor_size_vec)
-        rv_last.plot(title=rv_last.fit_result.fun)  # debug
+        # TODO: remove debug
+        if debug:
+            rv_last.plot(title=f'{rv_last.fit_result.fun}' + f'\nfind_weathering={find_weathering}')
         n_points, _ = np.histogram(rv_last.offsets, bins=rv_last.piecewise_offsets)
         if not ((n_points > 1).all() and (rv is None or rv_last.fit_result.fun < rv.fit_result.fun)):
             break
@@ -107,7 +109,7 @@ def calc_optimal_velocity(offsets, times, min_refractor_size, min_velocity_step,
     return rv
 
 def calc_mean_velocity(survey, min_refractor_size=300, min_velocity_step=300, first_breaks_col=HDR_FIRST_BREAK,
-                       find_weathering=False):
+                       find_weathering=False, debug=False):
     """Calculate mean near-surface velocity model describing the survey."""
     if survey.n_gathers < 1:  # need if the func calls separately from `RefractorVelocityField.from_survey`
         raise ValueError("Survey is empty.")
@@ -118,7 +120,7 @@ def calc_mean_velocity(survey, min_refractor_size=300, min_velocity_step=300, fi
         init = {'x1': 150, 'v1': rv.v1 / 2}
         bounds = {'x1': [1, 300], 'v1': [1, rv.v1]}
         start_refractor = max(rv.n_refractors, 2)
-        rv_weathering = calc_optimal_velocity(offsets, times, min_refractor_size, min_velocity_step,
+        rv_weathering = calc_optimal_velocity(offsets, times, min_refractor_size, min_velocity_step, debug=debug,
                                 start_refractor=start_refractor, init=init, bounds=bounds, find_weathering=True)
         if rv_weathering is not None and rv_weathering.fit_result.fun < rv.fit_result.fun:
             rv = rv_weathering
