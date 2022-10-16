@@ -296,7 +296,7 @@ class RefractorVelocity:
 
     @classmethod
     def from_file(cls, path, encoding="UTF-8"):
-        """Load a velocity model from a file.
+        """Load a near-surface velocity model from a file.
 
         The file should define a near-surface velocity model at a given location and have the following structure:
          - The first row contains names of the coordinates parameters ("name_x", "name_y", "x", "y") and
@@ -640,7 +640,7 @@ class RefractorVelocity:
         """Dump the near-surface velocity model to a file.
 
         The resulting file will have the following structure:
-        - The first row contains names of the Coordinates parameters ("name_x", "name_y", "x", "y") and
+        - The first row contains names of the сoordinates parameters ("name_x", "name_y", "x", "y") and
         names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
         - The second row contains the corresponding parameters of a RefractorVelocity.
 

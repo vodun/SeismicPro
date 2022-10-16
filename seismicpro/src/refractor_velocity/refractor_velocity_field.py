@@ -26,8 +26,8 @@ class RefractorVelocityField(SpatialField):
 
     A field can be populated with velocity models in 3 main ways:
     - by passing precalculated velocities in the `__init__`,
-    - by creating an empty field and then iteratively updating it with estimated velocities using `update`.
-    - by loading a field from a file with velocity models parameters and coords by using `from_file`.
+    - by creating an empty field and then iteratively updating it with estimated velocities using `update`,
+    - by loading a field from a file with velocity models parameters and coords using `from_file` `claassmethod`.
 
     After all velocities are added, field interpolator should be created to make the field callable. It can be done
     either manually by executing `create_interpolator` method or automatically during the first call to the field if
@@ -50,7 +50,7 @@ class RefractorVelocityField(SpatialField):
     Or created from paramerets and coords loaded from a file:
     >>> field = RefractorVelocityField.from_file(path_to_file)
 
-    Note that in both these cases all velocity models in the field must describe the same number of refractors.
+    Note that in all these cases all velocity models in the field must describe the same number of refractors.
 
     Velocity models of an upper part of the section are usually estimated independently of one another and thus may
     appear inconsistent. `refine` method allows utilizing local information about near-surface conditions to refit
@@ -147,11 +147,11 @@ class RefractorVelocityField(SpatialField):
 
     @classmethod
     def from_file(cls, path, survey=None, is_geographic=None, auto_create_interpolator=True, encoding="UTF-8"):
-        """Load the field with velocity models from a file.
+        """Load field with velocity models from a file.
 
         The file should define a near-surface velocity models at one or more field locations and have the following
         structure:
-        - The first row contains names of the Coordinates parameters ("name_x", "name_y", "x", "y") and
+        - The first row contains names of the сoordinates parameters ("name_x", "name_y", "x", "y") and
         names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
         - Each next row contains the coords names, coords values, and parameters values of one RefractorVelocity.
 
@@ -428,7 +428,7 @@ class RefractorVelocityField(SpatialField):
 
         The output file defines a near-surface velocity model at one or more field locations and has the following
         structure:
-        - The first row contains names of the Coordinates parameters ("name_x", "name_y", "x", "y") and
+        - The first row contains names of the сoordinates parameters ("name_x", "name_y", "x", "y") and
         names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
         - Each next row contains the coords names, coords values, and parameters values corresponding to one
         RefractorVelocity in the RefractorVelocityField.
