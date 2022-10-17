@@ -59,7 +59,7 @@ def get_hodograph(gather_data, hodograph_times, sample_rate, interpolate=True, f
 
 @njit(nogil=True)
 def compute_hodograph_times(offsets, times, velocities):
-    return np.sqrt(times.reshape(-1, 1)**2 + (offsets/velocities.reshape(-1, 1))**2)
+    return np.sqrt(times.reshape(-1, 1)**2 + (offsets/np.asarray(velocities).reshape(-1, 1))**2)
 
 
 @njit(nogil=True, parallel=True)

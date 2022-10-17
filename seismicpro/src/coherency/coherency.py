@@ -1,4 +1,4 @@
-"""Implements Coherency and ResidualCoherency classes"""
+"""Implements Coherency and ResidualCoherency classes."""
 
 # pylint: disable=not-an-iterable
 import numpy as np
@@ -182,9 +182,8 @@ class BaseCoherency:
         t_win_size_min_ix = max(0, t_min_ix - win_size)
         t_win_size_max_ix = min(len(times) - 1, t_max_ix + win_size)
 
-        new_times = times[t_win_size_min_ix: t_win_size_max_ix + 1]
-        # use np.broadcast instead of np.repeat when numba updated(>0.54)
-        corrected_gather = correction.apply_nmo(gather_data, new_times, offsets, np.repeat(velocity, len(new_times)), sample_rate, crossover_mute=False).T
+        corrected_gather = correction.apply_nmo(gather_data, times[t_win_size_min_ix: t_win_size_max_ix + 1], 
+                                                offsets, velocity, sample_rate, crossover_mute=False).T
 
         numerator, denominator = coherency_func(corrected_gather)
         numerator[np.isnan(numerator)] = 0
