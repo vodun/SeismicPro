@@ -167,7 +167,7 @@ class RefractorVelocityField(SpatialField):
             Survey with preloaded offsets, times of first breaks, and coords.
         is_geographic : bool, optional
             Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
-            CROSSLINE_3D)). Inferred automatically on the first update if not given.
+            CROSSLINE_3D)). Inferred automatically by the type of survey gathers if not given.
         auto_create_interpolator : bool, optional, defaults to True
             Whether to automatically create default interpolator (RBF for more than 3 items in the field or IDW
             otherwise) upon the first call to the field.
@@ -206,16 +206,16 @@ class RefractorVelocityField(SpatialField):
         if survey.n_gathers < 1:
             raise ValueError("Survey is empty.")
         rv_list = []
-        coords_name = get_coords_cols(survey.indexed_by)
+        coords_cols = get_coords_cols(survey.indexed_by)
         # get only the needed data from survey headers.
-        survey_headers = survey[['offset', first_breaks_col] + list(coords_name)]
+        survey_headers = survey[('offset', first_breaks_col) + coords_cols]
         max_offset = survey_headers[:, 0].max()
-        for gather_idx in tqdm(survey.indices, desc="Calculate velocity models", disable=not bar):
+        for gather_idx in tqdm(survey.indices, desc="Velocity models estimated", disable=not bar):
             trace_locs = survey.get_traces_locs([gather_idx])
             gather_headers = survey_headers[trace_locs]
             if (gather_headers[:, 2:] != gather_headers[0, 2:]).any():
-                raise ValueError(f"Coordinates non-unique for gather with index {gather_idx}.")
-            coords = Coordinates(names=coords_name, coords=gather_headers[0, 2:])
+                raise ValueError(f"Non-unique coordinates are found for a gather with index {gather_idx}.")
+            coords = Coordinates(coords=gather_headers[0, 2:], names=coords_cols)
             rv = RefractorVelocity.from_first_breaks(gather_headers[:, 0], gather_headers[:, 1], init, bounds,
                                                      n_refractors, max_offset, min_velocity_step, min_refractor_size,
                                                      loss, huber_coef, tol, coords, **kwargs)
