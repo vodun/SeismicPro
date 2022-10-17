@@ -27,7 +27,7 @@ class RefractorVelocityField(SpatialField):
     A field can be populated with velocity models in 3 main ways:
     - by passing precalculated velocities in the `__init__`,
     - by creating an empty field and then iteratively updating it with estimated velocities using `update`,
-    - by loading a field from a file with velocity models parameters and coords using `from_file` `claassmethod`.
+    - by loading a field from a file with velocity models parameters using `from_file` `claassmethod`.
 
     After all velocities are added, field interpolator should be created to make the field callable. It can be done
     either manually by executing `create_interpolator` method or automatically during the first call to the field if

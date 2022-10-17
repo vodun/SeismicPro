@@ -34,7 +34,7 @@ class RefractorVelocity:
     * `from_first_breaks` - to automatically fit a near-surface velocity model by offsets and times of first breaks.
       This methods allows one to specify initial values of some parameters or bounds for their values or simply provide
       the expected number of refractors.
-    * `from_file` - to create a velocity model from parameters and coords loaded from a file.
+    * `from_file` - to create a velocity model from parameters stored in a file.
 
     The resulting object is callable and returns expected arrival times for given offsets. Each model parameter can be
     obtained by accessing the corresponding attribute of the created instance.
