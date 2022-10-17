@@ -18,7 +18,7 @@ from sklearn.linear_model import LinearRegression
 from .headers import load_headers
 from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
-from .utils import ibm_to_ieee, calculate_trace_stats
+from .utils import ibm_to_ieee, calculate_trace_stats, validate_trace_headers
 from ..gather import Gather
 from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
@@ -159,8 +159,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     """
 
     # pylint: disable-next=too-many-arguments, too-many-statements
-    def __init__(self, path, header_index, header_cols=None, name=None, limits=None, endian="big", chunk_size=25000,
-                 n_workers=None, bar=True, use_segyio_trace_loader=False):
+    def __init__(self, path, header_index, header_cols=None, name=None, limits=None, validate=True, endian="big",
+                 chunk_size=25000, n_workers=None, bar=True, use_segyio_trace_loader=False):
         self.path = os.path.abspath(path)
         self.name = os.path.splitext(os.path.basename(self.path))[0] if name is None else name
 
@@ -213,6 +213,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         # Reconstruct TRACE_SEQUENCE_FILE header
         tsf_dtype = np.int32 if len(headers) < np.iinfo(np.int32).max else np.int64
         headers["TRACE_SEQUENCE_FILE"] = np.arange(1, self.segy_handler.tracecount+1, dtype=tsf_dtype)
+
+        # Validate trace headers for the presence of invalid headers
+        if validate:
+            full = False if validate != "full" else True
+            validate_trace_headers(headers, full=full)
 
         # Sort headers by the required index in order to optimize further subsampling and merging. Sorting preserves
         # trace order from the file within each gather.
