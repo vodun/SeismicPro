@@ -50,7 +50,7 @@ def dump_refractor_velocities(refractor_velocities, path, encoding="UTF-8"):
     data = np.empty((len(rv_list), len(columns)), dtype=object)
     for i, rv in enumerate(rv_list):
         data[i] = [*rv.coords.names] + [*rv.coords.coords] + list(rv.params.values())
-    df =  pd.DataFrame(data, columns=columns).convert_dtypes()
+    df = pd.DataFrame(data, columns=columns).convert_dtypes()
     df.to_string(buf=path, float_format=lambda x: f"{x:.2f}", index=False, encoding=encoding)
 
 def load_refractor_velocities(path, encoding="UTF-8"):

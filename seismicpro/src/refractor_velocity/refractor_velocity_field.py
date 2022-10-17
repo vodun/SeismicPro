@@ -29,7 +29,7 @@ class RefractorVelocityField(SpatialField):
     A field can be populated with velocity models in 4 main ways:
     - by passing precalculated velocities in the `__init__`,
     - by creating an empty field and then iteratively updating it with estimated velocities using `update`,
-    - by loading a field from a file with velocity models parameters and coords using `from_file` `claassmethod`,
+    - by loading a field from a file with velocity models parameters and coords using `from_file` `classmethod`,
     - by calculating a field directly from a survey using `from_survey`.
 
     After all velocities are added, field interpolator should be created to make the field callable. It can be done
@@ -168,7 +168,7 @@ class RefractorVelocityField(SpatialField):
             Survey with preloaded offsets, times of first breaks, and coords.
         is_geographic : bool, optional
             Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
-            CROSSLINE_3D)). Inferred automatically on the first update if not given.
+            CROSSLINE_3D)). Inferred automatically by the type of survey gathers if not given.
         auto_create_interpolator : bool, optional, defaults to True
             Whether to automatically create default interpolator (RBF for more than 3 items in the field or IDW
             otherwise) upon the first call to the field.
@@ -209,16 +209,16 @@ class RefractorVelocityField(SpatialField):
         if all(param is None for param in (init, bounds, n_refractors)):
             init = calc_mean_velocity(survey, first_breaks_col=HDR_FIRST_BREAK, find_weathering=True).params
         rv_list = []
-        coords_name = get_coords_cols(survey.indexed_by)
+        coords_cols = get_coords_cols(survey.indexed_by)
         # get only the needed data from survey headers.
-        survey_headers = survey[['offset', first_breaks_col] + list(coords_name)]
+        survey_headers = survey[('offset', first_breaks_col) + coords_cols]
         max_offset = survey_headers[:, 0].max()
-        for gather_idx in tqdm(survey.indices, desc="Calculate velocity models", disable=not bar):
+        for gather_idx in tqdm(survey.indices, desc="Velocity models estimated", disable=not bar):
             trace_locs = survey.get_traces_locs([gather_idx])
             gather_headers = survey_headers[trace_locs]
             if (gather_headers[:, 2:] != gather_headers[0, 2:]).any():
-                raise ValueError(f"Coordinates non-unique for gather with index {gather_idx}.")
-            coords = Coordinates(names=coords_name, coords=gather_headers[0, 2:])
+                raise ValueError(f"Non-unique coordinates are found for a gather with index {gather_idx}.")
+            coords = Coordinates(coords=gather_headers[0, 2:], names=coords_cols)
             rv = RefractorVelocity.from_first_breaks(gather_headers[:, 0], gather_headers[:, 1], init, bounds,
                                                      n_refractors, max_offset, min_velocity_step, min_refractor_size,
                                                      loss, huber_coef, tol, coords, **kwargs)
@@ -230,7 +230,7 @@ class RefractorVelocityField(SpatialField):
     def from_file(cls, path, survey=None, is_geographic=None, auto_create_interpolator=True, encoding="UTF-8"):
         """Load field with velocity models from a file.
 
-        The file should define a near-surface velocity models at one or more field locations and have the following
+        The file should define near-surface velocity models at one or more field locations and have the following
         structure:
         - The first row contains names of the сoordinates parameters ("name_x", "name_y", "x", "y") and
         names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
@@ -245,7 +245,7 @@ class RefractorVelocityField(SpatialField):
         Parameters
         ----------
         path : str
-            path to the file.
+            A path to the file.
         survey : Survey, optional
             A :class:`~survey.Survey` described by the field.
         is_geographic : bool, optional
