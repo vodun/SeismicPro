@@ -23,9 +23,9 @@
 `SeismicPro` is a framework for acceleration of pre-stack seismic data processing with deep learning models.
 
 Main features:
-* Load pre-stack data in `SEG-Y` format at any exploration stage in a highly efficient manner
-* Utilize stacking velocities, times of first breaks, and other types of auxiliary data from multiple geological frameworks
-* Transform seismic data by both general and complex task-specific methods in a massively parallel way
+* Read pre-stack data in `SEG-Y` format at any exploration stage in a highly efficient manner
+* Load and utilize stacking velocities, times of first breaks, and other types of auxiliary data from multiple geological frameworks
+* Transform seismic data with both general and complex task-specific methods in a massively parallel way
 * Combine processing routines into concise and readable pipelines
 * Solve applied tasks with a wide range of neural network architectures from a vanilla `UNet` to sophisticated `EfficientNet`s defined in just a few lines of code
 * Evaluate the obtained results using interactive quality maps
