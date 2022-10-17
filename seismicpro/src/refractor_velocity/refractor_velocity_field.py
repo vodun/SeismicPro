@@ -27,7 +27,7 @@ class RefractorVelocityField(SpatialField):
     A field can be populated with velocity models in 3 main ways:
     - by passing precalculated velocities in the `__init__`,
     - by creating an empty field and then iteratively updating it with estimated velocities using `update`,
-    - by loading a field from a file with velocity models parameters using `from_file` `claassmethod`.
+    - by loading a field from a file with velocity models parameters using `from_file` `classmethod`.
 
     After all velocities are added, field interpolator should be created to make the field callable. It can be done
     either manually by executing `create_interpolator` method or automatically during the first call to the field if
@@ -149,7 +149,7 @@ class RefractorVelocityField(SpatialField):
     def from_file(cls, path, survey=None, is_geographic=None, auto_create_interpolator=True, encoding="UTF-8"):
         """Load field with velocity models from a file.
 
-        The file should define a near-surface velocity models at one or more field locations and have the following
+        The file should define near-surface velocity models at one or more field locations and have the following
         structure:
         - The first row contains names of the сoordinates parameters ("name_x", "name_y", "x", "y") and
         names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
@@ -164,7 +164,7 @@ class RefractorVelocityField(SpatialField):
         Parameters
         ----------
         path : str
-            path to the file.
+            A path to the file.
         survey : Survey, optional
             A :class:`~survey.Survey` described by the field.
         is_geographic : bool, optional
