@@ -406,11 +406,9 @@ class RefractorVelocity:
         if np.any(np.diff(param_values[1:n_refractors], prepend=0, append=max_offset) < min_refractor_size):
             raise ValueError(f"Offset range covered by refractors must be no less than {min_refractor_size} meters")
 
-        # if np.any(np.diff(param_values[n_refractors:]) < min_velocity_step):
         if np.any((np.diff(param_values[n_refractors:]) < min_velocity_step) *
             ~np.isclose(np.diff(param_values[n_refractors:]) - min_velocity_step, 0)):
-            raise ValueError(f"Refractor velocities {param_values[n_refractors:]} must increase by no less than"
-                             f"{min_velocity_step} m/s")
+            raise ValueError(f"Refractor velocities must increase by no less than {min_velocity_step} m/s")
 
     @classmethod
     def _validate_params_bounds(cls, params, bounds):
