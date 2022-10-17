@@ -504,7 +504,7 @@ class RefractorVelocityField(SpatialField):
                           is_geographic=self.is_geographic)
 
     def dump(self, path, encoding="UTF-8"):
-        """Dump the near-surface velocity models stored in the field to a file.
+        """Dump near-surface velocity models stored in the field to a file.
 
         The output file defines a near-surface velocity model at one or more field locations and has the following
         structure:
