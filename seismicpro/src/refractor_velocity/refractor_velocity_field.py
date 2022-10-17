@@ -28,7 +28,7 @@ class RefractorVelocityField(SpatialField):
     A field can be populated with velocity models in 4 main ways:
     - by passing precalculated velocities in the `__init__`,
     - by creating an empty field and then iteratively updating it with estimated velocities using `update`,
-    - by loading a field from a file with velocity models parameters and coords by using `from_file`,
+    - by loading a field from a file with velocity models parameters and coords using `from_file` `claassmethod`,
     - by calculating a field directly from a survey using `from_survey`.
 
     After all velocities are added, field interpolator should be created to make the field callable. It can be done
@@ -227,11 +227,11 @@ class RefractorVelocityField(SpatialField):
 
     @classmethod
     def from_file(cls, path, survey=None, is_geographic=None, auto_create_interpolator=True, encoding="UTF-8"):
-        """Load the field with velocity models from a file.
+        """Load field with velocity models from a file.
 
         The file should define a near-surface velocity models at one or more field locations and have the following
         structure:
-        - The first row contains names of the Coordinates parameters ("name_x", "name_y", "x", "y") and
+        - The first row contains names of the сoordinates parameters ("name_x", "name_y", "x", "y") and
         names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
         - Each next row contains the coords names, coords values, and parameters values of one RefractorVelocity.
 
@@ -508,7 +508,7 @@ class RefractorVelocityField(SpatialField):
 
         The output file defines a near-surface velocity model at one or more field locations and has the following
         structure:
-        - The first row contains names of the Coordinates parameters ("name_x", "name_y", "x", "y") and
+        - The first row contains names of the сoordinates parameters ("name_x", "name_y", "x", "y") and
         names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
         - Each next row contains the coords names, coords values, and parameters values corresponding to one
         RefractorVelocity in the RefractorVelocityField.
