@@ -681,9 +681,9 @@ class Gather(TraceContainer, SamplesContainer):
         min_refractor_size : int, or 1d array-like with shape (n_refractors,), optional, defaults to 1
             Minimum offset range covered by each refractor. Default value ensures that refractors do not degenerate
             into single points.
-        loss : str, defaults to "L1"
+        loss : str, optional, defaults to "L1"
             Loss function to be minimized. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
-        huber_coef : float, default to 20
+        huber_coef : float, optional, default to 20
             Coefficient for Huber loss function.
         tol : float, optional, defaults to 1e-5
             Precision goal for the value of loss in the stopping criterion.
