@@ -2,6 +2,7 @@
 
 from functools import partial
 
+import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
 from ..utils import get_text_formatting_kwargs, align_args, MissingModule, calculate_axis_limits
@@ -127,35 +128,44 @@ class MapBinPlot(MapCoordsPlot):
         self.update_state(self.drop.index)
 
 
-class SliderPlot(InteractivePlot):
-    """Define an interactive plot with a float range slider on top of the canvas.
+class SelectionSliderPlot(InteractivePlot):
+    """Define an interactive plot with a selection range slider on top of the canvas and nice readout.
 
     Parameters
     ----------
-    slider_min : float
-        Minimum slider value.
-    slider_max : float
-        Maximum slider value.
+    options : array of float
+        array of slider values.
     slide_fn : callable
         A function called on slider move.
+    description : str, optional
+        slider description
     kwargs : misc, optional
         Additional keyword arguments to `InteractivePlot.__init__`.
     """
-    def __init__(self, *, slider_min, slider_max, slide_fn, **kwargs):
-        self.slider = widgets.FloatRangeSlider(value=[slider_min, slider_max],
-                                               min=slider_min, max=slider_max, step=(slider_max-slider_min)/100,
-                                               continuous_update=False, description='',
-                                               readout=True, readout_format='.4f',
-                                               layout=widgets.Layout(width="80%")
-                                              )
+    def __init__(self, *, options, slide_fn, description='', **kwargs):
+        self.slider = widgets.SelectionRangeSlider(options=options, index=(0, len(options)-1),
+                                                   continuous_update=False, description='',
+                                                   readout=False, layout=widgets.Layout(width="80%")
+                                                  )
+        self.slider_range = widgets.HTML(value=(f"{options[0]:.4} - {options[-1]:.4}"))
+
+        def update_description(change):
+            _ = change
+            self.slider_range.value = f"{self.slider.value[0]:.4} - {self.slider.value[1]:.4}"
+
         self.slider.observe(handler=slide_fn, names="value")
-        self.slider_box = widgets.HBox([self.slider], layout=widgets.Layout(justify_content='flex-end'))
+        self.slider.observe(handler=update_description, names="value")
+
+        self.slider_box = widgets.HBox([self.slider, self.slider_range],
+                                       layout=widgets.Layout(justify_content='flex-end'))
+
+        self.slider_description = widgets.HTML(value=description, layout=widgets.Layout(justify_content='center'))
         super().__init__(**kwargs)
 
     def construct_header(self):
         """Append the slider below the plot header."""
         header = super().construct_header()
-        return widgets.VBox([header, self.slider_box])
+        return widgets.VBox([self.slider_description, self.slider_box, header])
 
 
 class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-instance-attributes
@@ -230,10 +240,11 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
             return InteractivePlot(**interactive_plot_kwargs)
 
         original_metric = self.original_metric_map.metric_data[self.original_metric_map.metric_name]
-        return SliderPlot(**interactive_plot_kwargs,
-                          slider_min=original_metric.min(), slider_max=original_metric.max(),
-                          slide_fn=self.on_slider_change
-                         )
+
+        return SelectionSliderPlot(**interactive_plot_kwargs, description='Tracewise metric values',
+                                   options=np.quantile(original_metric, q=np.linspace(0, 1, num=101)),
+                                   slide_fn=self.on_slider_change
+                                  )
 
     def click(self, coords):
         """Handle a click on the map plot."""
