@@ -1,6 +1,6 @@
 <div align="center">
 
-![SeismicPro](https://user-images.githubusercontent.com/19351782/125063408-1bcdab80-e0b8-11eb-96c2-719bc640da36.png)
+![SeismicPro](https://user-images.githubusercontent.com/26159964/196196413-d6507fd5-46e5-4107-8701-bb31e2ac7ed9.png)
 
 <p align="center">
   <!-- <a href="">Docs</a> • -->
@@ -93,7 +93,7 @@ Let's take a look at it being sorted by offset:
 gather.sort(by='offset').plot()
 ```
 
-![gather](https://i.imgur.com/qv0SsEE.png)
+![gather](https://user-images.githubusercontent.com/26159964/196198315-00ac9178-2a14-4e01-b493-77eed8eed144.png)
 
 Moreover, processing methods can be combined into compact pipelines like the one below which performs automatic stacking velocity picking and gather stacking:
 
