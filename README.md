@@ -3,7 +3,6 @@
 ![SeismicPro](https://user-images.githubusercontent.com/26159964/196196413-d6507fd5-46e5-4107-8701-bb31e2ac7ed9.png)
 
 <p align="center">
-  <!-- <a href="">Docs</a> • -->
   <a href="#installation">Installation</a> •
   <a href="#getting-started">Getting Started</a> •
   <a href="#tutorials">Tutorials</a> •
@@ -65,7 +64,7 @@ A single `SEG-Y` file can be represented by a `Survey` instance that stores a re
 survey = spr.Survey(path_to_file, header_index='FieldRecord', header_cols='offset')
 ```
 
-`header_index` argument specifies how individual traces are combined into gathers: in this example, we consider common source gathers. Both `header_index` and `header_cols` correspond to names of trace headers in [segyio](https://segyio.readthedocs.io/en/latest/segyio.html#constants).
+`header_index` argument specifies how individual traces are combined into gathers: in this example, we consider common source gathers. Both `header_index` and `header_cols` correspond to names of trace headers in [segyio](https://segyio.readthedocs.io/en/latest/segyio.html#trace-header-keys).
 
 All loaded headers are stored in `headers` attribute as a `pd.DataFrame` indexed by passed `header_index`:
 
@@ -73,13 +72,14 @@ All loaded headers are stored in `headers` attribute as a `pd.DataFrame` indexed
 survey.headers.head()
 ```
 
-| **FieldRecord** | **offset** | **TRACE_SEQUENCE_FILE** |
-|----------------:|-----------:|------------------------:|
-|         **175** |       6455 |                       1 |
-|         **175** |       6567 |                       2 |
-|         **175** |       6683 |                       3 |
-|         **175** |       6805 |                       4 |
-|         **175** |       6932 |                       5 |
+|                 |   offset |   TRACE_SEQUENCE_FILE |
+|----------------:|---------:|----------------------:|
+| **FieldRecord** |          |                       |
+|         **175** |      326 |                     1 |
+|         **175** |      326 |                     2 |
+|         **175** |      333 |                     3 |
+|         **175** |      334 |                     4 |
+|         **175** |      348 |                     5 |
 
 A randomly selected gather can be obtained by calling `sample_gather` method:
 
