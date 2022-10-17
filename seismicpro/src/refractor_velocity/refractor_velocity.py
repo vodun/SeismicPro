@@ -637,7 +637,7 @@ class RefractorVelocity:
         return Muter.from_refractor_velocity(self, delay=delay, velocity_reduction=velocity_reduction)
 
     def dump(self, path, encoding="UTF-8"):
-        """Dump the near-surface velocity model to a file.
+        """Dump a near-surface velocity model to a file.
 
         The resulting file will have the following structure:
         - The first row contains names of the сoordinates parameters ("name_x", "name_y", "x", "y") and
