@@ -1250,7 +1250,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
 
     def plot_mean_velocity(self, min_refractor_size=300, min_velocity_step=300, first_breaks_col=HDR_FIRST_BREAK,
-                           find_weathering=True, **kwargs):
+                           find_weathering=True, debug=False, **kwargs):
         """Plot mean near-surface velocity model describing the survey."""
         calc_mean_velocity(self, min_refractor_size=min_refractor_size, min_velocity_step=min_velocity_step,
-                           first_breaks_col=first_breaks_col, find_weathering=find_weathering).plot(**kwargs)
+                           first_breaks_col=first_breaks_col, find_weathering=find_weathering, debug=debug).plot(**kwargs)

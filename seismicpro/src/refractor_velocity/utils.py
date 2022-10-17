@@ -75,7 +75,7 @@ def load_refractor_velocities(path, encoding="UTF-8"):
     return [RefractorVelocity(**dict(zip(params_names, row[4:])), coords=Coordinates(row[2:4], row[:2]))
             for row in df.itertuples(index=False)]
 
-# calculate number of refractors
+# calculate optimal near-surface velocity model
 
 def reduce_mean_df(df, x='offset', y=HDR_FIRST_BREAK, step=20):
     """Reduce DataFrame columns `x` and `y`."""
@@ -83,9 +83,10 @@ def reduce_mean_df(df, x='offset', y=HDR_FIRST_BREAK, step=20):
     res = df.groupby(by='bins').mean()
     return res[x].to_numpy(), res[y].to_numpy()
 
-def calc_optimal_velocity(offsets, times, min_refractor_size, min_velocity_step, start_refractor=1,
-                           max_refractors=10, init=None, bounds=None, find_weathering=False, debug=False):
-    """Calculate a velocity model with a number of refractors giving an optimal description of the data.
+def calc_optimal_velocity(offsets, times, init=None, bounds=None, loss="L1", huber_coef=20, min_refractor_size=300,
+                          min_velocity_step=300, start_refractor=1, max_refractors=10, find_weathering=False,
+                          debug=False):
+    """Calculate a velocity model with a number of refractors that giving an minimal loss
     """
     #pylint: disable-next=import-outside-toplevel
     from .refractor_velocity import RefractorVelocity
@@ -96,7 +97,8 @@ def calc_optimal_velocity(offsets, times, min_refractor_size, min_velocity_step,
             min_refractor_size_vec[0] = 1
         if offsets.max() < min_refractor_size * refractor:
             break
-        rv_last = RefractorVelocity.from_first_breaks(offsets, times, n_refractors=refractor, init=init, bounds=bounds,
+        rv_last = RefractorVelocity.from_first_breaks(offsets, times, init=init, bounds=bounds, n_refractors=refractor,
+                                                      loss=loss, huber_coef=huber_coef,
                                                       min_velocity_step=min_velocity_step,
                                                       min_refractor_size=min_refractor_size_vec)
         # TODO: remove debug
@@ -108,20 +110,53 @@ def calc_optimal_velocity(offsets, times, min_refractor_size, min_velocity_step,
         rv = rv_last
     return rv
 
-def calc_mean_velocity(survey, min_refractor_size=300, min_velocity_step=300, first_breaks_col=HDR_FIRST_BREAK,
-                       find_weathering=False, debug=False):
-    """Calculate mean near-surface velocity model describing the survey."""
+def calc_mean_velocity(survey, loss="L1", huber_coef=20, min_refractor_size=300, min_velocity_step=300,
+                       first_breaks_col=HDR_FIRST_BREAK, find_weathering=True, debug=False):
+    """Calculate mean near-surface velocity model describing the survey.
+
+    Parameters
+    ----------
+    survey : Survey
+        Survey with preloaded offsets, times of first breaks, and coords.
+    loss : str, optional, defaults to "L1"
+        Loss function to be minimized. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
+    huber_coef : float, optional, default to 20
+        Coefficient for Huber loss function.
+    min_velocity_step : int, or 1d array-like with shape (n_refractors - 1,), optional, defaults to 1
+        Minimum difference between velocities of two adjacent refractors. Default value ensures that velocities are
+        strictly increasing.
+    min_refractor_size : int, or 1d array-like with shape (n_refractors,), optional, defaults to 1
+        Minimum offset range covered by each refractor. Default value ensures that refractors do not degenerate
+        into single points.
+    first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+        Column name from `survey.headers` where times of first break are stored.
+    find_weathering : bool, optional, defaults to True
+        Try to find a weathering layer.
+
+    Returns
+    -------
+    rv : RefractorVelocity
+        Mean near-surface velocity model.
+
+    Raises
+    ------
+    ValueError
+        If survey does not contain any indices.
+
+    """
     if survey.n_gathers < 1:  # need if the func calls separately from `RefractorVelocityField.from_survey`
         raise ValueError("Survey is empty.")
     # reduce points
     offsets, times = reduce_mean_df(survey.headers[['offset', first_breaks_col]])
-    rv = calc_optimal_velocity(offsets, times, min_refractor_size, min_velocity_step)
+    rv = calc_optimal_velocity(offsets, times, min_refractor_size=min_refractor_size,
+                               min_velocity_step=min_velocity_step, debug=debug)
     if find_weathering:  # try to find the weathering layer
         init = {'x1': 150, 'v1': rv.v1 / 2}
         bounds = {'x1': [1, 300], 'v1': [1, rv.v1]}
         start_refractor = max(rv.n_refractors, 2)
-        rv_weathering = calc_optimal_velocity(offsets, times, min_refractor_size, min_velocity_step, debug=debug,
-                                start_refractor=start_refractor, init=init, bounds=bounds, find_weathering=True)
+        rv_weathering = calc_optimal_velocity(offsets, times, init, bounds, loss, huber_coef, min_refractor_size,
+                                              min_velocity_step, start_refractor=start_refractor, find_weathering=True,
+                                              debug=debug)
         if rv_weathering is not None and rv_weathering.fit_result.fun < rv.fit_result.fun:
             rv = rv_weathering
     return rv
