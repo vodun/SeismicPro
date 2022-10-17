@@ -16,7 +16,7 @@ from ..utils import add_colorbar, set_ticks, set_text_formatting
 from ..gather.utils import correction
 
 
-ALL_FM_FLAGS  = {'nnan', 'nninf', 'nsz', 'arcp', 'contract', 'afn', 'reassoc'}
+ALL_FM_FLAGS  = {'nnan', 'ninf', 'nsz', 'arcp', 'contract', 'afn', 'reassoc'}
 COHERENCY_FM_FLAGS = ALL_FM_FLAGS - {'nnan'}
 
 
@@ -183,6 +183,7 @@ class BaseCoherency:
         t_win_size_max_ix = min(len(times) - 1, t_max_ix + win_size)
 
         new_times = times[t_win_size_min_ix: t_win_size_max_ix + 1]
+        # use np.broadcast instead of np.repeat when numba updated(>0.54)
         corrected_gather = correction.apply_nmo(gather_data, new_times, offsets, np.repeat(velocity, len(new_times)), sample_rate, crossover_mute=False).T
 
         numerator, denominator = coherency_func(corrected_gather)
@@ -294,9 +295,11 @@ class Coherency(BaseCoherency):
            temporal window with given `win_size`.
         4. Divide a value from step 2 by the value from step 3 for each time to get semblance values for selected
            velocity.
+
     Notes
     -----
     The gather should be sorted by offset.
+
     Examples
     --------
     Calculate semblance for 200 velocities from 2000 to 6000 m/s and a temporal window size of 8 samples:
@@ -354,7 +357,7 @@ class Coherency(BaseCoherency):
         return time, velocity
 
     @staticmethod
-    @njit(nogil=True, fastmath=True, parallel=True)
+    @njit(nogil=True, fastmath=COHERENCY_FM_FLAGS, parallel=True)
     def _calc_semblance_numba(semblance_func, nmo_func, coherency_func, gather_data, times, offsets, velocities, 
                               sample_rate, win_size):
         """Parallelized and njitted method for vertical velocity semblance calculation.
@@ -620,7 +623,7 @@ class ResidualCoherency(BaseCoherency):
         semblance : 2d np.ndarray
             Array with residual vertical velocity semblance values.
         """
-        semblance = np.zeros((len(gather_data), len(velocities)), dtype=np.float32)
+        semblance = np.zeros((gather_data.shape[1], len(velocities)), dtype=np.float32)
         for i in prange(left_bound_ix.min(), right_bound_ix.max() + 1):  # TODO: use prange when fixed in numba
             t_min_ix = np.where(right_bound_ix == i)[0]
             t_min_ix = 0 if len(t_min_ix) == 0 else t_min_ix[0]
