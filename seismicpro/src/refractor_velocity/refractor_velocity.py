@@ -34,7 +34,7 @@ class RefractorVelocity:
     * `from_first_breaks` - to automatically fit a near-surface velocity model by offsets and times of first breaks.
       This methods allows one to specify initial values of some parameters or bounds for their values or simply provide
       the expected number of refractors.
-    * `from_file` - to create a velocity model from parameters and coords loaded from a file.
+    * `from_file` - to create a velocity model from parameters stored in a file.
 
     The resulting object is callable and returns expected arrival times for given offsets. Each model parameter can be
     obtained by accessing the corresponding attribute of the created instance.
@@ -163,9 +163,9 @@ class RefractorVelocity:
         min_refractor_size : int, or 1d array-like with shape (n_refractors,), optional, defaults to 1
             Minimum offset range covered by each refractor. Default value ensures that refractors do not degenerate
             into single points.
-        loss : str, defaults to "L1"
+        loss : str, optional, defaults to "L1"
             Loss function to be minimized. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
-        huber_coef : float, default to 20
+        huber_coef : float, optional, default to 20
             Coefficient for Huber loss function.
         tol : float, optional, defaults to 1e-5
             Precision goal for the value of loss in the stopping criterion.
@@ -296,7 +296,7 @@ class RefractorVelocity:
 
     @classmethod
     def from_file(cls, path, encoding="UTF-8"):
-        """Load a velocity model from a file.
+        """Load a near-surface velocity model from a file.
 
         The file should define a near-surface velocity model at a given location and have the following structure:
          - The first row contains names of the coordinates parameters ("name_x", "name_y", "x", "y") and
@@ -640,10 +640,10 @@ class RefractorVelocity:
         return Muter.from_refractor_velocity(self, delay=delay, velocity_reduction=velocity_reduction)
 
     def dump(self, path, encoding="UTF-8"):
-        """Dump the near-surface velocity model to a file.
+        """Dump a near-surface velocity model to a file.
 
         The resulting file will have the following structure:
-        - The first row contains names of the Coordinates parameters ("name_x", "name_y", "x", "y") and
+        - The first row contains names of the сoordinates parameters ("name_x", "name_y", "x", "y") and
         names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
         - The second row contains the corresponding parameters of a RefractorVelocity.
 

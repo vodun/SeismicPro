@@ -34,12 +34,12 @@ def postprocess_params(params):
     return params
 
 def dump_refractor_velocities(refractor_velocities, path, encoding="UTF-8"):
-    """Dump the parameters of passed velocity models to a file.
+    """Dump parameters of passed velocity models to a file.
 
     Parameters
     ----------
-    refractor_velocities : RefractorVelocity or iterable of RefractorVelocity.
-        Refractor Velocity instances to dump to the file.
+    refractor_velocities : RefractorVelocity or iterable of RefractorVelocities.
+        RefractorVelocity instances to dump to the file.
     path : str
         Path to the created file.
     encoding : str, optional, defaults to "UTF-8"
@@ -54,7 +54,7 @@ def dump_refractor_velocities(refractor_velocities, path, encoding="UTF-8"):
     df.to_string(buf=path, float_format=lambda x: f"{x:.2f}", index=False, encoding=encoding)
 
 def load_refractor_velocities(path, encoding="UTF-8"):
-    """Load the coordinates and parameters of the velocity models from a file.
+    """Load coordinates and parameters of the velocity models from a file.
 
     Parameters
     ----------
