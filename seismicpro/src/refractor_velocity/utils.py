@@ -77,15 +77,9 @@ def load_refractor_velocities(path, encoding="UTF-8"):
 
 # calculate optimal near-surface velocity model
 
-def reduce_mean_df(df, x='offset', y=HDR_FIRST_BREAK, step=20):
-    """Reduce DataFrame columns `x` and `y`."""
-    df['bins'] = df[x] // step
-    res = df.groupby(by='bins').mean()
-    return res[x].to_numpy(), res[y].to_numpy()
-
-def calc_optimal_velocity(offsets, times, init=None, bounds=None,  min_velocity_step=300, min_refractor_size=300,
+def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_step=300, min_refractor_size=300,
                           loss="L1", huber_coef=20, min_refractors=1, max_refractors=10, find_weathering=False,
-                          debug=False):
+                          debug=False):  # pylint: disable-next=too-many-arguments
     """Calculate a near-surface velocity model with a number of refractors that give minimal loss.
 
     Parameters
@@ -142,7 +136,7 @@ def calc_optimal_velocity(offsets, times, init=None, bounds=None,  min_velocity_
     return rv
 
 def calc_mean_velocity(survey, min_velocity_step=300, min_refractor_size=300, loss="L1", huber_coef=20,
-                       first_breaks_col=HDR_FIRST_BREAK, find_weathering=True, debug=False):
+                       first_breaks_col=HDR_FIRST_BREAK, find_weathering=True, reduce_step=20, debug=False):
     """Calculate mean near-surface velocity model describing the survey.
 
     Parameters
@@ -163,6 +157,8 @@ def calc_mean_velocity(survey, min_velocity_step=300, min_refractor_size=300, lo
         Column name from `survey.headers` where times of first break are stored.
     find_weathering : bool, optional, defaults to True
         Try to find a weathering layer.
+    reduce_step : float, defaults to 20
+        Size of data chunks when splitting data by offset to reduce the data.
 
     Returns
     -------
@@ -174,9 +170,14 @@ def calc_mean_velocity(survey, min_velocity_step=300, min_refractor_size=300, lo
     ValueError
         If survey does not contain any indices.
     """
-    if survey.n_gathers < 1:  # need if the func calls separately from `RefractorVelocityField.from_survey`
+    if survey.n_gathers < 1:  # need if the func calls separately `RefractorVelocityField.from_survey`
         raise ValueError("Survey is empty.")
-    offsets, times = reduce_mean_df(survey.headers[['offset', first_breaks_col]])
+    # reduce data
+    headers = survey.headers[['offset', first_breaks_col]]
+    headers['bins'] = headers['offset'] // reduce_step
+    reduced_headers = headers.groupby(by='bins').mean()
+    offsets = reduced_headers['offset'].to_numpy()
+    times = reduced_headers[first_breaks_col].to_numpy()
     rv = calc_optimal_velocity(offsets, times, min_refractor_size=min_refractor_size,
                                min_velocity_step=min_velocity_step, debug=debug)
     if find_weathering:  # try to find the weathering layer

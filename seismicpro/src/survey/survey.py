@@ -1250,7 +1250,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
 
     def plot_mean_velocity(self, loss="L1", huber_coef=20, min_velocity_step=300, min_refractor_size=300,
-                           first_breaks_col=HDR_FIRST_BREAK, find_weathering=True, debug=False, **kwargs):
+                           first_breaks_col=HDR_FIRST_BREAK, find_weathering=True, reduce_step=20, debug=False,
+                           **kwargs):
         """Plot a mean near-surface velocity model describing the survey.
 
         Parameters
@@ -1269,6 +1270,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             Column name from `survey.headers` where times of first break are stored.
         find_weathering : bool, optional, defaults to True
             Try to find a weathering layer.
+        reduce_step : float, defaults to 20
+            Size of data chunks when splitting data by offset to reduce the data.
         """
         calc_mean_velocity(self, min_velocity_step, min_refractor_size, loss, huber_coef, first_breaks_col,
-                           find_weathering, debug).plot(**kwargs)
+                           find_weathering, reduce_step, debug).plot(**kwargs)
