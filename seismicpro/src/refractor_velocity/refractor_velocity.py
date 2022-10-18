@@ -299,9 +299,9 @@ class RefractorVelocity:
         """Load a near-surface velocity model from a file.
 
         The file should define a near-surface velocity model at a given location and have the following structure:
-         - The first row contains names of the coordinates parameters ("name_x", "name_y", "x", "y") and
-        names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
-         - The second row contains the corresponding values of the velocity model.
+         - The first row contains names of the coordinates parameters ("name_x", "name_y", "x", "y") and names of
+        the parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}") of near-surface velocity model.
+         - The second row contains the corresponding values of the near-surface velocity model.
 
         File example:
          name_x     name_y          x          y        t0        x1        v1        v2
@@ -310,7 +310,7 @@ class RefractorVelocity:
         Parameters
         ----------
         path : str
-            Path to the file with parameters.
+            Path to a file.
         encoding : str, optional, defaults to "UTF-8"
             File encoding.
 
@@ -641,9 +641,9 @@ class RefractorVelocity:
         """Dump a near-surface velocity model to a file.
 
         The resulting file will have the following structure:
-        - The first row contains names of the сoordinates parameters ("name_x", "name_y", "x", "y") and
-        names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
-        - The second row contains the corresponding parameters of a RefractorVelocity.
+         - The first row contains names of the coordinates parameters ("name_x", "name_y", "x", "y") and names of
+        the parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}") of near-surface velocity model.
+        - The second row contains the corresponding values of a near-surface velocity model.
 
         Output file example:
          name_x     name_y          x          y        t0        x1        v1        v2
@@ -656,7 +656,7 @@ class RefractorVelocity:
         Parameters
         ----------
         path : str
-            Path to a file.
+            Path to the created file.
         encoding : str, optional, defaults to "UTF-8"
             File encoding.
 
