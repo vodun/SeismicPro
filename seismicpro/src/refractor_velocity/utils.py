@@ -58,7 +58,7 @@ def load_refractor_velocities(path, encoding="UTF-8"):
     Parameters
     ----------
     path : str
-        Path to the created file.
+        Path to a file.
     encoding : str, optional, defaults to "UTF-8"
         File encoding.
 

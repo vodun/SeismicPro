@@ -151,9 +151,9 @@ class RefractorVelocityField(SpatialField):
 
         The file should define near-surface velocity models at one or more field locations and have the following
         structure:
-        - The first row contains names of the сoordinates parameters ("name_x", "name_y", "x", "y") and names of
-        the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
-        - Each next row contains the corresponding parameters of one near-surface velocity model in the field.
+         - The first row contains names of the coordinates parameters ("name_x", "name_y", "x", "y") and names of
+        the parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}") of near-surface velocity model.
+        - Each next row contains the corresponding values of one near-surface velocity model in the field.
 
         File example:
          name_x     name_y          x          y        t0        x1        v1        v2
@@ -164,7 +164,7 @@ class RefractorVelocityField(SpatialField):
         Parameters
         ----------
         path : str
-            Path to the created file.
+            Path to a file.
         survey : Survey, optional
             :class:`~survey.Survey` described by the field.
         is_geographic : bool, optional
@@ -429,9 +429,9 @@ class RefractorVelocityField(SpatialField):
 
         The output file defines a near-surface velocity model at one or more field locations and has the following
         structure:
-        - The first row contains names of the сoordinates parameters ("name_x", "name_y", "x", "y") and names of
-        the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
-        - Each next row contains the parameters corresponding of one near-surface velocity model in the field.
+         - The first row contains names of the coordinates parameters ("name_x", "name_y", "x", "y") and names of
+        the parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}") of near-surface velocity model.
+        - Each next row contains the corresponding values of one near-surface velocity model in the field.
 
         File example:
          name_x     name_y          x          y        t0        x1        v1        v2
