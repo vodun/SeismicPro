@@ -225,13 +225,13 @@ class RefractorVelocityField(SpatialField):
 
     @classmethod
     def from_file(cls, path, survey=None, is_geographic=None, auto_create_interpolator=True, encoding="UTF-8"):
-        """Load field with velocity models from a file.
+        """Load field with near-surface velocity models from a file.
 
         The file should define near-surface velocity models at one or more field locations and have the following
         structure:
-        - The first row contains names of the сoordinates parameters ("name_x", "name_y", "x", "y") and
-        names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
-        - Each next row contains the coords names, coords values, and parameters values of one RefractorVelocity.
+         - The first row contains names of the coordinates parameters ("name_x", "name_y", "x", "y") and names of
+        the parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}") of near-surface velocity model.
+        - Each next row contains the corresponding values of one near-surface velocity model in the field.
 
         File example:
          name_x     name_y          x          y        t0        x1        v1        v2
@@ -242,12 +242,13 @@ class RefractorVelocityField(SpatialField):
         Parameters
         ----------
         path : str
-            A path to the file.
+            Path to a file.
         survey : Survey, optional
-            A :class:`~survey.Survey` described by the field.
+            :class:`~survey.Survey` described by the field.
         is_geographic : bool, optional
             Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
-            CROSSLINE_3D)). Inferred from coordinates of the first `RefractorVelocity` in the file if not given.
+            CROSSLINE_3D)). Inferred from coordinates of the first near-surface velocity model in the file if not
+            given.
         auto_create_interpolator : bool, optional, defaults to True
             Whether to automatically create default interpolator (RBF for more than 3 items in the field or IDW
             otherwise) upon the first call to the field.
@@ -506,10 +507,9 @@ class RefractorVelocityField(SpatialField):
 
         The output file defines a near-surface velocity model at one or more field locations and has the following
         structure:
-        - The first row contains names of the сoordinates parameters ("name_x", "name_y", "x", "y") and
-        names of the RefractorVelocity parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}").
-        - Each next row contains the coords names, coords values, and parameters values corresponding to one
-        RefractorVelocity in the RefractorVelocityField.
+         - The first row contains names of the coordinates parameters ("name_x", "name_y", "x", "y") and names of
+        the parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}") of near-surface velocity model.
+        - Each next row contains the corresponding values of one near-surface velocity model in the field.
 
         File example:
          name_x     name_y          x          y        t0        x1        v1        v2
@@ -520,7 +520,7 @@ class RefractorVelocityField(SpatialField):
         Parameters
         ----------
         path : str
-            Path to the file.
+            Path to the created file.
         encoding : str, optional, defaults to "UTF-8"
             File encoding.
 
