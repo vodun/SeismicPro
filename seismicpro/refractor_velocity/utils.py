@@ -32,13 +32,15 @@ def postprocess_params(params):
         return params[0]
     return params
 
-def dump_refractor_velocities(refractor_velocities, path, encoding="UTF-8"):
-    """Dump parameters of passed near-surface velocity models to a file.
 
-    The file should defines near-surface velocity models at a given locations and has the following structure:
-    - The first row contains names of the coordinates parameters ("name_x", "name_y", "x", "y") and names of
-      the parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}") of near-surface velocity model.
-    - Each next row contains the corresponding values of one near-surface velocity model in the field.
+def load_refractor_velocities(path, encoding="UTF-8"):
+    """Load near-surface velocity models from a file.
+
+    The file should define near-surface velocity models at given field locations and have the following structure:
+    - The first row contains names of the coordinates parameters ("name_x", "name_y", "x", "y") and names of parameters
+      of near-surface velocity models ("t0", "x1"..."x{n-1}", "v1"..."v{n}"). Each velocity model must describe the
+      same number of refractors.
+    - Each next row contains the corresponding parameters of a single near-surface velocity model.
 
     File example:
      name_x     name_y          x          y        t0        x1        v1        v2
@@ -48,8 +50,35 @@ def dump_refractor_velocities(refractor_velocities, path, encoding="UTF-8"):
 
     Parameters
     ----------
-    refractor_velocities : RefractorVelocity or iterable of RefractorVelocities
-        The near-surface velocity models to dump to the file.
+    path : str
+        Path to a file.
+    encoding : str, optional, defaults to "UTF-8"
+        File encoding.
+
+    Returns
+    -------
+    rv_list : list of RefractorVelocity
+        A list of loaded near-surface velocity models.
+    """
+    #pylint: disable-next=import-outside-toplevel
+    from .refractor_velocity import RefractorVelocity  # import inside to avoid the circular import
+    df = pd.read_csv(path, sep=r'\s+', encoding=encoding).convert_dtypes()
+    params_names = df.columns[4:]
+    return [RefractorVelocity(**dict(zip(params_names, row[4:])), coords=Coordinates(row[2:4], row[:2]))
+            for row in df.itertuples(index=False)]
+
+
+def dump_refractor_velocities(refractor_velocities, path, encoding="UTF-8"):
+    """Dump parameters of passed near-surface velocity models to a file.
+
+    Notes
+    -----
+    See more about the file format in :func:`~load_refractor_velocities`.
+
+    Parameters
+    ----------
+    refractor_velocities : RefractorVelocity or iterable of RefractorVelocity
+        Near-surface velocity models to be dumped to a file.
     path : str
         Path to the created file.
     encoding : str, optional, defaults to "UTF-8"
@@ -62,29 +91,3 @@ def dump_refractor_velocities(refractor_velocities, path, encoding="UTF-8"):
         data[i] = [*rv.coords.names] + [*rv.coords.coords] + list(rv.params.values())
     df = pd.DataFrame(data, columns=columns).convert_dtypes()
     df.to_string(buf=path, float_format=lambda x: f"{x:.2f}", index=False, encoding=encoding)
-
-def load_refractor_velocities(path, encoding="UTF-8"):
-    """Load parameters of the near-surface velocity models from a file.
-
-    Notes
-    -----
-    See more about the format in :func:`~dump_refractor_velocities`.
-
-    Parameters
-    ----------
-    path : str
-        Path to a file.
-    encoding : str, optional, defaults to "UTF-8"
-        File encoding.
-
-    Returns
-    -------
-    rv_list : list of RefractorVelocity
-        List of the near-surface velocity models that are created from the parameters loaded from the file.
-    """
-    #pylint: disable-next=import-outside-toplevel
-    from .refractor_velocity import RefractorVelocity  # import inside to avoid the circular import
-    df = pd.read_csv(path, sep=r'\s+', encoding=encoding).convert_dtypes()
-    params_names = df.columns[4:]
-    return [RefractorVelocity(**dict(zip(params_names, row[4:])), coords=Coordinates(row[2:4], row[:2]))
-            for row in df.itertuples(index=False)]
