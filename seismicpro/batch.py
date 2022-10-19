@@ -6,7 +6,8 @@ from collections import defaultdict
 
 import numpy as np
 import matplotlib.pyplot as plt
-from batchflow import action, inbatch_parallel, save_data_to, Batch, DatasetIndex, NamedExpression
+from batchflow import save_data_to, Batch, DatasetIndex, NamedExpression
+from batchflow.decorators import action, inbatch_parallel
 
 from .index import SeismicIndex
 from .gather import Gather, CroppedGather

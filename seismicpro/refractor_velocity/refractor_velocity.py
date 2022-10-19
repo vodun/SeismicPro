@@ -6,7 +6,7 @@ import numpy as np
 from scipy.optimize import minimize
 from sklearn.linear_model import SGDRegressor
 
-from .utils import get_param_names, postprocess_params
+from .utils import get_param_names, postprocess_params, dump_refractor_velocities, load_refractor_velocities
 from ..muter import Muter
 from ..decorators import batch_method, plotter
 from ..utils import get_first_defined, set_ticks, set_text_formatting
@@ -33,7 +33,8 @@ class RefractorVelocity:
       velocity of the refractor,
     * `from_first_breaks` - to automatically fit a near-surface velocity model by offsets and times of first breaks.
       This methods allows one to specify initial values of some parameters or bounds for their values or simply provide
-      the expected number of refractors.
+      the expected number of refractors,
+    * `from_file` - to create a velocity model from parameters stored in a file.
 
     The resulting object is callable and returns expected arrival times for given offsets. Each model parameter can be
     obtained by accessing the corresponding attribute of the created instance.
@@ -162,9 +163,9 @@ class RefractorVelocity:
         min_refractor_size : int, or 1d array-like with shape (n_refractors,), optional, defaults to 1
             Minimum offset range covered by each refractor. Default value ensures that refractors do not degenerate
             into single points.
-        loss : str, defaults to "L1"
+        loss : str, optional, defaults to "L1"
             Loss function to be minimized. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
-        huber_coef : float, default to 20
+        huber_coef : float, optional, default to 20
             Coefficient for Huber loss function.
         tol : float, optional, defaults to 1e-5
             Precision goal for the value of loss in the stopping criterion.
@@ -292,6 +293,36 @@ class RefractorVelocity:
         self.offsets = offsets
         self.times = times
         return self
+
+    @classmethod
+    def from_file(cls, path, encoding="UTF-8"):
+        """Load a near-surface velocity model from a file.
+
+        Notes
+        -----
+        See more about the file format in :func:`~.utils.load_refractor_velocities`.
+
+        Parameters
+        ----------
+        path : str
+            Path to a file.
+        encoding : str, optional, defaults to "UTF-8"
+            File encoding.
+
+        Returns
+        -------
+        self : RefractorVelocity
+            Loaded velocity model.
+
+        Raises
+        ------
+        ValueError
+            If the file contains more than one set of parameters.
+        """
+        rv_list = load_refractor_velocities(path, encoding)
+        if len(rv_list) != 1:
+            raise ValueError("The file should contain only one set of RefractorVelocity parameters.")
+        return rv_list[0]
 
     @classmethod
     def from_constant_velocity(cls, velocity, coords=None):
@@ -599,6 +630,30 @@ class RefractorVelocity:
             Created muter.
         """
         return Muter.from_refractor_velocity(self, delay=delay, velocity_reduction=velocity_reduction)
+
+    def dump(self, path, encoding="UTF-8"):
+        """Dump a near-surface velocity model to a file.
+
+        Notes
+        -----
+        See more about the file format in :func:`~utils.load_refractor_velocities`.
+        `RefractorVelocity` instance should have well-defined `coords`.
+
+        Parameters
+        ----------
+        path : str
+            Path to the created file.
+        encoding : str, optional, defaults to "UTF-8"
+            File encoding.
+
+        Raises
+        ------
+        ValueError
+            If `coords` are undefined.
+        """
+        if not self.has_coords:
+            raise ValueError("RefractorVelocity must have well-defined coordinates.")
+        dump_refractor_velocities(self, path=path, encoding=encoding)
 
     @plotter(figsize=(10, 5), args_to_unpack="compare_to")
     def plot(self, *, ax=None, max_offset=None, title=None, x_ticker=None, y_ticker=None, show_params=True,
