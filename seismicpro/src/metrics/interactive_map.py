@@ -266,7 +266,7 @@ class ScatterMapPlot(MetricMapPlot):
 
     @MetricMapPlot.current_metric_map.setter
     def current_metric_map(self, value):
-        MetricMapPlot.current_metric_map.__set__(self, value)
+        MetricMapPlot.current_metric_map.fset(self, value)
         self.coords = self.current_metric_map.map_data.index.to_frame().values
         self.coords_neighbors = NearestNeighbors(n_neighbors=1).fit(self.coords)
 
