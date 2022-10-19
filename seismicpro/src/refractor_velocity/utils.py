@@ -35,7 +35,7 @@ def postprocess_params(params):
 def dump_refractor_velocities(refractor_velocities, path, encoding="UTF-8"):
     """Dump parameters of passed near-surface velocity models to a file.
 
-    The file should define a near-surface velocity model at a given location and have the following structure:
+    The file should defines near-surface velocity models at a given locations and has the following structure:
     - The first row contains names of the coordinates parameters ("name_x", "name_y", "x", "y") and names of
       the parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}") of near-surface velocity model.
     - Each next row contains the corresponding values of one near-surface velocity model in the field.

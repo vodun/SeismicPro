@@ -50,7 +50,7 @@ class RefractorVelocityField(SpatialField):
     Or created from paramerets and coords loaded from a file:
     >>> field = RefractorVelocityField.from_file(path_to_file)
 
-    Note that in all these cases all velocity models in the field must describe the same number of refractors.
+    Note that all velocity models in the field must describe the same number of refractors.
 
     Velocity models of an upper part of the section are usually estimated independently of one another and thus may
     appear inconsistent. `refine` method allows utilizing local information about near-surface conditions to refit
