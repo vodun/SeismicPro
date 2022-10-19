@@ -4,9 +4,10 @@ joint processing"""
 from functools import wraps
 from textwrap import dedent
 
+from batchflow import Dataset
+
 from .batch import SeismicBatch
 from .index import SeismicIndex
-from ..batchflow import Dataset
 
 
 def delegate_constructors(*constructors):

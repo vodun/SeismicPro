@@ -7,7 +7,7 @@ from functools import partial
 import pytest
 import numpy as np
 
-from seismicpro.src.utils import IDWInterpolator, DelaunayInterpolator, CloughTocherInterpolator, RBFInterpolator
+from seismicpro.utils import IDWInterpolator, DelaunayInterpolator, CloughTocherInterpolator, RBFInterpolator
 
 
 def assert_arrays_equal(arr1, arr2):

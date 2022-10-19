@@ -1,6 +1,6 @@
 """General indexer assertions"""
 
-from seismicpro.src.utils.indexer import UniqueIndexer, NonUniqueIndexer
+from seismicpro.utils.indexer import UniqueIndexer, NonUniqueIndexer
 
 
 def assert_indexers_equal(left, right):

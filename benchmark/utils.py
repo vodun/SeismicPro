@@ -4,7 +4,7 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, '../..')
+sys.path.insert(0, '..')
 from seismicpro import Survey, make_prestack_segy
 
 
