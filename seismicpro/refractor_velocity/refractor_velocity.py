@@ -298,14 +298,9 @@ class RefractorVelocity:
     def from_file(cls, path, encoding="UTF-8"):
         """Load a near-surface velocity model from a file.
 
-        The file should define a near-surface velocity model at a given location and have the following structure:
-         - The first row contains names of the coordinates parameters ("name_x", "name_y", "x", "y") and names of
-        the parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}") of near-surface velocity model.
-         - The second row contains the corresponding values of the near-surface velocity model.
-
-        File example:
-         name_x     name_y          x          y        t0        x1        v1        v2
-        SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00
+        Notes
+        -----
+        See more about the format in :func:`~.utils.dump_refractor_velocities`.
 
         Parameters
         ----------
@@ -640,17 +635,9 @@ class RefractorVelocity:
     def dump(self, path, encoding="UTF-8"):
         """Dump a near-surface velocity model to a file.
 
-        The resulting file will have the following structure:
-         - The first row contains names of the coordinates parameters ("name_x", "name_y", "x", "y") and names of
-        the parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}") of near-surface velocity model.
-        - The second row contains the corresponding values of a near-surface velocity model.
-
-        Output file example:
-         name_x     name_y          x          y        t0        x1        v1        v2
-        SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00
-
         Notes
         -----
+        See more about the format in :func:`~utils.dump_refractor_velocities`.
         `RefractorVelocity` instance should have well defined `coords`.
 
         Parameters

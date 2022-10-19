@@ -155,7 +155,7 @@ class RefractorVelocityField(SpatialField):
     def from_survey(cls, survey, is_geographic=None, auto_create_interpolator=True, init=None, bounds=None,
                     n_refractors=None, min_velocity_step=1, min_refractor_size=1, loss='L1', huber_coef=20, tol=1e-5,
                     first_breaks_col=HDR_FIRST_BREAK, bar=True, **kwargs):
-        """Create a field by fitting a near-surface velocity model for each gather in the survey.
+        """Create a field by estimating a near-surface velocity model for each gather in the survey.
 
         Survey headers should contain offsets, times of first breaks and coordinates corresponding to the headers
         index.
@@ -213,7 +213,7 @@ class RefractorVelocityField(SpatialField):
         # get only the needed data from survey headers.
         survey_headers = survey[('offset', first_breaks_col) + coords_cols]
         max_offset = survey_headers[:, 0].max()
-        for gather_idx in tqdm(survey.indices, desc="Velocity models estimated", disable=not bar):
+        for gather_idx in tqdm(survey.indices, desc="Near-surface velocity models estimated", disable=not bar):
             trace_locs = survey.get_traces_locs([gather_idx])
             gather_headers = survey_headers[trace_locs]
             if (gather_headers[:, 2:] != gather_headers[0, 2:]).any():
@@ -230,17 +230,9 @@ class RefractorVelocityField(SpatialField):
     def from_file(cls, path, survey=None, is_geographic=None, auto_create_interpolator=True, encoding="UTF-8"):
         """Load field with near-surface velocity models from a file.
 
-        The file should define near-surface velocity models at one or more field locations and have the following
-        structure:
-         - The first row contains names of the coordinates parameters ("name_x", "name_y", "x", "y") and names of
-        the parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}") of near-surface velocity model.
-        - Each next row contains the corresponding values of one near-surface velocity model in the field.
-
-        File example:
-         name_x     name_y          x          y        t0        x1        v1        v2
-        SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00
-        ...
-        SourceX    SourceY    1111200    2222240     60.00   1050.00   1550.00   1950.00
+        Notes
+        -----
+        See more about the format in :func:`~.utils.dump_refractor_velocities`.
 
         Parameters
         ----------
@@ -508,17 +500,9 @@ class RefractorVelocityField(SpatialField):
     def dump(self, path, encoding="UTF-8"):
         """Dump near-surface velocity models stored in the field to a file.
 
-        The output file defines a near-surface velocity model at one or more field locations and has the following
-        structure:
-         - The first row contains names of the coordinates parameters ("name_x", "name_y", "x", "y") and names of
-        the parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}") of near-surface velocity model.
-        - Each next row contains the corresponding values of one near-surface velocity model in the field.
-
-        File example:
-         name_x     name_y          x          y        t0        x1        v1        v2
-        SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00
-        ...
-        SourceX    SourceY    1111200    2222240     60.00   1050.00   1550.00   1950.00
+        Notes
+        -----
+        See more about the format in :func:`~.utils.dump_refractor_velocities`.
 
         Parameters
         ----------

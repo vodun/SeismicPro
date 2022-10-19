@@ -3,9 +3,9 @@
 # pylint: disable=redefined-outer-name
 import pytest
 import numpy as np
+from batchflow import Pipeline, L
 
 from seismicpro import Survey, SeismicDataset
-from seismicpro.batchflow import Pipeline, L
 
 
 @pytest.fixture

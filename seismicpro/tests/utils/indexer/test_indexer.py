@@ -4,7 +4,7 @@ import pytest
 import numpy as np
 import pandas as pd
 
-from seismicpro.src.utils.indexer import create_indexer, UniqueIndexer, NonUniqueIndexer
+from seismicpro.utils.indexer import create_indexer, UniqueIndexer, NonUniqueIndexer
 
 
 @pytest.mark.parametrize("index", [

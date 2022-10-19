@@ -7,10 +7,10 @@ from functools import partial
 from collections import defaultdict
 
 import numpy as np
+from batchflow import Pipeline
 
 from .metrics import define_metric, Metric, PartialMetric
 from ..utils import to_list, get_first_defined
-from ...batchflow import Pipeline
 
 
 def pass_coords(method):

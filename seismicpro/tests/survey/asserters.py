@@ -6,7 +6,7 @@ import pathlib
 import segyio
 import numpy as np
 
-from seismicpro.src.utils.indexer import create_indexer
+from seismicpro.utils.indexer import create_indexer
 
 from ..utils import assert_indexers_equal
 
