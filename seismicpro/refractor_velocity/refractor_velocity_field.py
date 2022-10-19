@@ -12,7 +12,8 @@ from .refractor_velocity import RefractorVelocity
 from .interactive_plot import FitPlot
 from .utils import get_param_names, postprocess_params, dump_refractor_velocities, load_refractor_velocities
 from ..field import SpatialField
-from ..utils import to_list, IDWInterpolator
+from ..utils import to_list, get_coords_cols, Coordinates, IDWInterpolator
+from ..const import HDR_FIRST_BREAK
 
 
 class RefractorVelocityField(SpatialField):
@@ -24,10 +25,11 @@ class RefractorVelocityField(SpatialField):
     interpolation can be performed by `RefractorVelocityField` which provides an interface to obtain a velocity model
     of an upper part of the section at given spatial coordinates via its `__call__` and `interpolate` methods.
 
-    A field can be populated with velocity models in 3 main ways:
+    A field can be populated with velocity models in 4 main ways:
     - by passing precalculated velocities in the `__init__`,
     - by creating an empty field and then iteratively updating it with estimated velocities using `update`,
-    - by loading a field from a file with velocity models parameters using `from_file` `classmethod`.
+    - by loading a field from a file with velocity models parameters and coords using `from_file` `classmethod`,
+    - by calculating a field directly from a survey using `from_survey`.
 
     After all velocities are added, field interpolator should be created to make the field callable. It can be done
     either manually by executing `create_interpolator` method or automatically during the first call to the field if
@@ -47,7 +49,10 @@ class RefractorVelocityField(SpatialField):
     Or created from precalculated instances:
     >>> field = RefractorVelocityField(list_of_rv)
 
-    Or created from paramerets and coords loaded from a file:
+    Or created directly from a survey with preloaded first breaks:
+    >>> field = RefractorVelocityField.from_survey(survey, n_refractors=2)
+
+    Or created from velocity models loaded from a file:
     >>> field = RefractorVelocityField.from_file(path_to_file)
 
     Note that all velocity models in the field must describe the same number of refractors.
@@ -144,6 +149,79 @@ class RefractorVelocityField(SpatialField):
             msg += f"""\nDescriptive statistics of the near-surface velocity model:\n{params_stats_str}"""
 
         return msg
+
+    @classmethod  # pylint: disable-next=too-many-arguments
+    def from_survey(cls, survey, is_geographic=None, auto_create_interpolator=True, init=None, bounds=None,
+                    n_refractors=None, min_velocity_step=1, min_refractor_size=1, loss='L1', huber_coef=20, tol=1e-5,
+                    first_breaks_col=HDR_FIRST_BREAK, bar=True, **kwargs):
+        """Create a field by estimating a near-surface velocity model for each gather in the survey.
+
+        Survey headers should contain offsets, times of first breaks and coordinates corresponding to the headers
+        index.
+        Refer to  :class:~`.refractor_velocity.RefractorVelocity` docs for more information on velocity model
+        calculation.
+
+        Parameters
+        ----------
+        survey : Survey
+            Survey with preloaded offsets, times of first breaks, and coords.
+        is_geographic : bool, optional
+            Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
+            CROSSLINE_3D)). Inferred automatically by the type of survey gathers if not given.
+        auto_create_interpolator : bool, optional, defaults to True
+            Whether to automatically create default interpolator (RBF for more than 3 items in the field or IDW
+            otherwise) upon the first call to the field.
+        init : dict, optional
+            Initial parameters for all velocity models in the field.
+        bounds : dict, optional
+            Lower and upper bounds of parameters for all velocity models in the field.
+        n_refractors : int, optional
+            The number of refractors to be described by velocity models in the field.
+        min_velocity_step : int, or 1d array-like with shape (n_refractors - 1,), optional, defaults to 1
+            Minimum difference between velocities of two adjacent refractors. Default value ensures that velocities are
+            strictly increasing.
+        min_refractor_size : int, or 1d array-like with shape (n_refractors,), optional, defaults to 1
+            Minimum offset range covered by each refractor. Default value ensures that refractors do not degenerate
+            into single points.
+        loss : str, optional, defaults to "L1"
+            Loss function to be minimized. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
+        huber_coef : float, optional, default to 20
+            Coefficient for Huber loss function.
+        tol : float, optional, defaults to 1e-5
+            Precision goal for the value of loss in the stopping criterion.
+        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+            Column name from `survey.headers` where times of first break are stored.
+        bar : bool, optional, defualt to True
+            Whether to show progress bar for field calculation.
+        kwargs : misc, optional
+            Additional `SLSQP` options, see https://docs.scipy.org/doc/scipy/reference/optimize.minimize-slsqp.html for
+            more details.
+
+        Raises
+        ------
+        ValueError
+            If survey does not contain any indices.
+            If any gather has non-unique pair of coords.
+        """
+        if survey.n_gathers < 1:
+            raise ValueError("Survey is empty.")
+        rv_list = []
+        coords_cols = get_coords_cols(survey.indexed_by)
+        # get only the needed data from survey headers.
+        survey_headers = survey[('offset', first_breaks_col) + coords_cols]
+        max_offset = survey_headers[:, 0].max()
+        for gather_idx in tqdm(survey.indices, desc="Near-surface velocity models estimated", disable=not bar):
+            trace_locs = survey.get_traces_locs([gather_idx])
+            gather_headers = survey_headers[trace_locs]
+            if (gather_headers[:, 2:] != gather_headers[0, 2:]).any():
+                raise ValueError(f"Non-unique coordinates are found for a gather with index {gather_idx}.")
+            coords = Coordinates(coords=gather_headers[0, 2:], names=coords_cols)
+            rv = RefractorVelocity.from_first_breaks(gather_headers[:, 0], gather_headers[:, 1], init, bounds,
+                                                     n_refractors, max_offset, min_velocity_step, min_refractor_size,
+                                                     loss, huber_coef, tol, coords, **kwargs)
+            rv_list.append(rv)
+        return cls(items=rv_list, survey=survey, is_geographic=is_geographic,
+                   auto_create_interpolator=auto_create_interpolator)
 
     @classmethod
     def from_file(cls, path, survey=None, is_geographic=None, auto_create_interpolator=True, encoding="UTF-8"):
