@@ -154,7 +154,7 @@ class RefractorVelocityField(SpatialField):
     def from_survey(cls, survey, is_geographic=None, auto_create_interpolator=True, init=None, bounds=None,
                     n_refractors=None, min_velocity_step=1, min_refractor_size=1, loss='L1', huber_coef=20, tol=1e-5,
                     first_breaks_col=HDR_FIRST_BREAK, bar=True, **kwargs):
-        """Create a field by fitting a near-surface velocity model for each gather in the survey.
+        """Create a field by estimating a near-surface velocity model for each gather in the survey.
 
         Survey headers should contain offsets, times of first breaks and coordinates corresponding to the headers
         index.
@@ -210,7 +210,7 @@ class RefractorVelocityField(SpatialField):
         # get only the needed data from survey headers.
         survey_headers = survey[('offset', first_breaks_col) + coords_cols]
         max_offset = survey_headers[:, 0].max()
-        for gather_idx in tqdm(survey.indices, desc="Velocity models estimated", disable=not bar):
+        for gather_idx in tqdm(survey.indices, desc="Near-surface velocity models estimated", disable=not bar):
             trace_locs = survey.get_traces_locs([gather_idx])
             gather_headers = survey_headers[trace_locs]
             if (gather_headers[:, 2:] != gather_headers[0, 2:]).any():
