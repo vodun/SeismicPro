@@ -2,6 +2,7 @@
 
 import os
 import mmap
+import warnings
 from struct import unpack
 from functools import partial
 from concurrent.futures import ProcessPoolExecutor
@@ -12,7 +13,7 @@ import pandas as pd
 from tqdm.auto import tqdm
 
 from ..const import TRACE_HEADER_SIZE, ENDIANNESS
-from ..utils import ForPoolExecutor
+from ..utils import ForPoolExecutor, IDWInterpolator
 
 
 def define_unpacking_format(headers_to_load):
@@ -95,3 +96,95 @@ def load_headers(path, headers_to_load, trace_data_offset, trace_size, n_traces,
                 future.add_done_callback(partial(callback, start_pos=start))
 
     return pd.DataFrame(headers, columns=headers_order)
+
+def validate_headers(headers, full=False):
+    msg_list = []
+    n_traces = headers.shape[0]
+
+    shot_cols = ["SourceX", "SourceY"]
+    rec_cols = ["GroupX", "GroupY"]
+    cdp_cols = ["CDP_X", "CDP_Y"]
+    bin_cols = ["INLINE_3D", "CROSSLINE_3D"]
+
+    loaded_columns = headers.columns.values
+    avalible_columns = set(loaded_columns[headers.any(axis=0)])
+
+    zero_columns = set(loaded_columns) - set(avalible_columns)
+    if zero_columns:
+        msg_list.append("Empty columns: " + ", ".join(zero_columns))
+
+    has_full_duplicates = headers.duplicated().any() if full else False
+    if has_full_duplicates:
+        msg_list.append(f"Duplicate traces")
+
+    if {"FieldRecord", "TraceNumber"} <= avalible_columns:
+        n_unique_ids = (~headers[["FieldRecord", "TraceNumber"]].duplicated()).sum()
+        has_unique_trace_id = n_unique_ids == n_traces
+        if not has_unique_trace_id:
+            msg_list.append("Non-unique traces indentifier (FieldRecord, TraceNumber)")
+
+    if {"FieldRecord", *shot_cols} <= avalible_columns:
+        fr_with_coords = headers[["FieldRecord", *shot_cols]].drop_duplicates()
+        n_unique_fr = fr_with_coords["FieldRecord"].nunique()
+        has_unique_coords = len(fr_with_coords) == n_unique_fr
+        if not has_unique_coords:
+            msg_list.append("Several pairs of coordinates (SourceX, SourceY) for single FieldRecond")
+
+    # Check that Eqlidian distance calculated based on the coords from shot to receiver is close to the one stored
+    # in trace headers
+    if {*shot_cols, *rec_cols, "offset"} <= avalible_columns:
+        calculated_offsets = np.sqrt(np.sum((headers[shot_cols].values - headers[rec_cols].values)**2, axis=1))
+        # Avoiding small offsets since they may leads to false positive estimation.
+        mask = headers["offset"] > 20
+        real_offsets = headers["offset"].values[mask]
+        has_correct_offsets = np.all(np.abs(calculated_offsets[mask] - real_offsets) / real_offsets < 0.1)
+        if not has_correct_offsets:
+            msg_list.append("Mismatch of the distance between shots and receivers posinitons for each"
+                            "\n    trace and offsets in headers")
+
+    if {*cdp_cols, *bin_cols} <= avalible_columns:
+        unique_inline_cdp = headers[[*bin_cols, *cdp_cols]].drop_duplicates()
+        unique_cdp = unique_inline_cdp[cdp_cols].drop_duplicates()
+        has_unique_inline_to_cdp = len(unique_inline_cdp) == len(unique_cdp)
+        if not has_unique_inline_to_cdp:
+            msg_list.append("Non-unique mapping of geographic (CDP_X, CDP_Y) to binary(INLINE_3D/"
+                            "\n    CROSSLINE_3D) coordinates")
+
+    if {*shot_cols, *rec_cols, *cdp_cols} <= avalible_columns:
+        raw_cdp = (headers[shot_cols].values + headers[rec_cols].values) / 2
+        has_consistent_geo_coords = np.all((raw_cdp - headers[cdp_cols].values) / headers[cdp_cols].values < 0.1)
+        if not has_consistent_geo_coords:
+            msg_list.append("Unconsistent range of some geographic coordinates (SourceX, SourceY, GroupX,"
+                            "\n    GroupY, CDP_X, CDP_Y)")
+
+    if {*shot_cols, "SourceSurfaceElevation"} <= avalible_columns:
+        ushot_elev_coords = headers[[*shot_cols, "SourceSurfaceElevation"]].drop_duplicates()
+        ushot_coords = ushot_elev_coords[shot_cols].drop_duplicates()
+        has_shot_uniq_elevs = len(ushot_elev_coords) == len(ushot_coords)
+        if not has_shot_uniq_elevs:
+            msg_list.append("Different surface elevation (SourceSurfaceElevation) for at least one shot")
+
+    if {*rec_cols, "ReceiverGroupElevation"} <= avalible_columns:
+        urec_elev_coords = headers[[*rec_cols, "ReceiverGroupElevation"]].drop_duplicates()
+        urec_coords = urec_elev_coords[rec_cols].drop_duplicates()
+        has_rec_uniq_elevs = len(urec_elev_coords) == len(urec_coords)
+        if not has_rec_uniq_elevs:
+            msg_list.append("Different surface elevation (ReceiverGroupElevation) for at least"
+                            "\n    one receiver")
+
+    if {*shot_cols, *rec_cols, "ReceiverGroupElevation", "SourceSurfaceElevation"} <= avalible_columns:
+        shot_elevations = ushot_elev_coords.values[:, 2]
+        shot_interp = IDWInterpolator(ushot_elev_coords.values[:, :2], shot_elevations, neighbors=3)
+        mask = shot_elevations > 0
+        rec_by_shot = np.abs(shot_interp(ushot_elev_coords.values[:, :2][mask]) - shot_elevations[mask])
+        has_correct_elevations = np.all(rec_by_shot / shot_elevations[mask] < 0.1)
+        if not has_correct_elevations:
+            msg_list.append("Unconsistent values in elevations-related headers (ReceiverGroupElevation,"
+                            "\n    SourceSurfaceElevation)")
+
+    if len(msg_list) > 0:
+        line = "\n\n" + "-"*80
+        msg = line +  f"\n\nThe loaded Survey has the following problems with trace headers:"
+        msg = f"{msg}" + "".join([f"\n\n {i+1}. {msg}" for i, msg in zip(range(len(msg_list)), msg_list)])
+        msg += line
+        warnings.warn(msg, Warning)

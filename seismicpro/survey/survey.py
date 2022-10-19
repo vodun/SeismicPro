@@ -15,10 +15,10 @@ from tqdm.auto import tqdm
 from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
 
-from .headers import load_headers
+from .headers import load_headers, validate_headers
 from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
-from .utils import ibm_to_ieee, calculate_trace_stats, validate_trace_headers
+from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
 from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
@@ -217,7 +217,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         # Validate trace headers for the presence of invalid headers
         if validate:
             full = False if validate != "full" else True
-            validate_trace_headers(headers, full=full)
+            validate_headers(headers, full=full)
 
         # Sort headers by the required index in order to optimize further subsampling and merging. Sorting preserves
         # trace order from the file within each gather.
