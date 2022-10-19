@@ -28,8 +28,8 @@ class RefractorVelocityField(SpatialField):
     A field can be populated with velocity models in 4 main ways:
     - by passing precalculated velocities in the `__init__`,
     - by creating an empty field and then iteratively updating it with estimated velocities using `update`,
-    - by loading a field from a file with velocity models parameters and coords using `from_file` `classmethod`,
-    - by calculating a field directly from a survey using `from_survey`.
+    - by loading a field from a file with parameters of velocity models using `from_file`,
+    - by calculating a field directly from a survey with loaded first breaks using `from_survey`.
 
     After all velocities are added, field interpolator should be created to make the field callable. It can be done
     either manually by executing `create_interpolator` method or automatically during the first call to the field if
@@ -52,7 +52,7 @@ class RefractorVelocityField(SpatialField):
     Or created directly from a survey with preloaded first breaks:
     >>> field = RefractorVelocityField.from_survey(survey, n_refractors=2)
 
-    Or created from velocity models loaded from a file:
+    Or simply loaded from a file with parameters of near-surface velocity models:
     >>> field = RefractorVelocityField.from_file(path_to_file)
 
     Note that all velocity models in the field must describe the same number of refractors.
@@ -156,15 +156,14 @@ class RefractorVelocityField(SpatialField):
                     first_breaks_col=HDR_FIRST_BREAK, bar=True, **kwargs):
         """Create a field by estimating a near-surface velocity model for each gather in the survey.
 
-        Survey headers should contain offsets, times of first breaks and coordinates corresponding to the headers
-        index.
-        Refer to  :class:~`.refractor_velocity.RefractorVelocity` docs for more information on velocity model
+        The survey should contain headers with trace offsets, times of first breaks and coordinates of its gathers.
+        Please refer to :class:~`.refractor_velocity.RefractorVelocity` docs for more information about velocity model
         calculation.
 
         Parameters
         ----------
         survey : Survey
-            Survey with preloaded offsets, times of first breaks, and coords.
+            Survey with preloaded offsets, times of first breaks, and gather coordinates.
         is_geographic : bool, optional
             Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
             CROSSLINE_3D)). Inferred automatically by the type of survey gathers if not given.
@@ -176,7 +175,7 @@ class RefractorVelocityField(SpatialField):
         bounds : dict, optional
             Lower and upper bounds of parameters for all velocity models in the field.
         n_refractors : int, optional
-            The number of refractors to be described by velocity models in the field.
+            The number of refractors to be described by the field.
         min_velocity_step : int, or 1d array-like with shape (n_refractors - 1,), optional, defaults to 1
             Minimum difference between velocities of two adjacent refractors. Default value ensures that velocities are
             strictly increasing.
@@ -191,7 +190,7 @@ class RefractorVelocityField(SpatialField):
             Precision goal for the value of loss in the stopping criterion.
         first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `survey.headers` where times of first break are stored.
-        bar : bool, optional, defualt to True
+        bar : bool, optional, defaults to True
             Whether to show progress bar for field calculation.
         kwargs : misc, optional
             Additional `SLSQP` options, see https://docs.scipy.org/doc/scipy/reference/optimize.minimize-slsqp.html for
@@ -200,14 +199,14 @@ class RefractorVelocityField(SpatialField):
         Raises
         ------
         ValueError
-            If survey does not contain any indices.
-            If any gather has non-unique pair of coords.
+            If the survey is empty.
+            If any gather has non-unique pair of coordinates.
         """
         if survey.n_gathers < 1:
             raise ValueError("Survey is empty.")
         rv_list = []
         coords_cols = get_coords_cols(survey.indexed_by)
-        # get only the needed data from survey headers.
+        # Get only the required data from survey headers
         survey_headers = survey[('offset', first_breaks_col) + coords_cols]
         max_offset = survey_headers[:, 0].max()
         for gather_idx in tqdm(survey.indices, desc="Near-surface velocity models estimated", disable=not bar):
@@ -225,18 +224,18 @@ class RefractorVelocityField(SpatialField):
 
     @classmethod
     def from_file(cls, path, survey=None, is_geographic=None, auto_create_interpolator=True, encoding="UTF-8"):
-        """Load field with near-surface velocity models from a file.
+        """Load a field with near-surface velocity models from a file.
 
         Notes
         -----
-        See more about the format in :func:`~.utils.dump_refractor_velocities`.
+        See more about the file format in :func:`~.utils.load_refractor_velocities`.
 
         Parameters
         ----------
         path : str
             Path to a file.
         survey : Survey, optional
-            :class:`~survey.Survey` described by the field.
+            A survey described by the field.
         is_geographic : bool, optional
             Coordinate system of the field: either geographic (e.g. (CDP_X, CDP_Y)) or line-based (e.g. (INLINE_3D,
             CROSSLINE_3D)). Inferred from coordinates of the first near-surface velocity model in the file if not
@@ -250,7 +249,7 @@ class RefractorVelocityField(SpatialField):
         Returns
         -------
         self : RefractorVelocityField
-            RefractorVelocityField instance created from a file.
+            Constructed field.
         """
         return cls(load_refractor_velocities(path, encoding), survey=survey, is_geographic=is_geographic,
                    auto_create_interpolator=auto_create_interpolator)
@@ -499,7 +498,7 @@ class RefractorVelocityField(SpatialField):
 
         Notes
         -----
-        See more about the format in :func:`~.utils.dump_refractor_velocities`.
+        See more about the file format in :func:`~.utils.load_refractor_velocities`.
 
         Parameters
         ----------
@@ -511,7 +510,7 @@ class RefractorVelocityField(SpatialField):
         Raises
         ------
         ValueError
-            If RefractorVelocityField is empty.
+            If the field is empty.
         """
         if self.is_empty:
             raise ValueError("Empty field can't be dumped.")

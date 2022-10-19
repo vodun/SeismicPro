@@ -33,7 +33,7 @@ class RefractorVelocity:
       velocity of the refractor,
     * `from_first_breaks` - to automatically fit a near-surface velocity model by offsets and times of first breaks.
       This methods allows one to specify initial values of some parameters or bounds for their values or simply provide
-      the expected number of refractors.
+      the expected number of refractors,
     * `from_file` - to create a velocity model from parameters stored in a file.
 
     The resulting object is callable and returns expected arrival times for given offsets. Each model parameter can be
@@ -300,7 +300,7 @@ class RefractorVelocity:
 
         Notes
         -----
-        See more about the format in :func:`~.utils.dump_refractor_velocities`.
+        See more about the file format in :func:`~.utils.load_refractor_velocities`.
 
         Parameters
         ----------
@@ -312,12 +312,12 @@ class RefractorVelocity:
         Returns
         -------
         self : RefractorVelocity
-            RefractorVelocity instance created from a file.
+            Loaded velocity model.
 
         Raises
         ------
         ValueError
-            If file contains more than one set of parameters.
+            If the file contains more than one set of parameters.
         """
         rv_list = load_refractor_velocities(path, encoding)
         if len(rv_list) != 1:
@@ -636,8 +636,8 @@ class RefractorVelocity:
 
         Notes
         -----
-        See more about the format in :func:`~utils.dump_refractor_velocities`.
-        `RefractorVelocity` instance should have well defined `coords`.
+        See more about the file format in :func:`~utils.load_refractor_velocities`.
+        `RefractorVelocity` instance should have well-defined `coords`.
 
         Parameters
         ----------
