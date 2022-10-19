@@ -191,7 +191,7 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
         self.plot_map_kwargs = kwargs
         self.title = metric_map.plot_title if title is None else title
 
-        self._metric_map = None
+        self._current_metric_map = None
         self.original_metric_map = metric_map
         self.current_metric_map = metric_map
 
@@ -203,18 +203,17 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
     @property
     def current_metric_map(self):
         """Current metric map to plot"""
-        return self._metric_map
+        return self._current_metric_map
 
     @current_metric_map.setter
     def current_metric_map(self, value):
-        self._metric_map = value
+        self._current_metric_map = value
 
     def on_slider_change(self, change):
         """ When slider changes create new metric map based on new slider values and redraw the main plot """
         _ = change
         self.current_metric_map = self.original_metric_map.select_by_thresholds(*self.main.slider.value)
         self.main.redraw()
-        # pylint: disable=protected-access
         self.main.click(self.current_metric_map.get_worst_coords(self.is_lower_better))
 
     def construct_main_plot(self):
@@ -259,6 +258,11 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
 
 class ScatterMapPlot(MetricMapPlot):
     """Construct an interactive plot of a non-aggregated metric map."""
+
+    def __init__(self, metric_map, **kwargs):
+        self.coords = None
+        self.coords_neighbors = None
+        super().__init__(metric_map, **kwargs)
 
     @MetricMapPlot.current_metric_map.setter
     def current_metric_map(self, value):

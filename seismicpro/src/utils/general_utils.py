@@ -2,6 +2,7 @@
 
 from functools import partial
 from concurrent.futures import Future, Executor
+
 import numpy as np
 
 
