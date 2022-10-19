@@ -1249,17 +1249,17 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
 
-    def plot_mean_velocity(self, loss="L1", huber_coef=20, min_velocity_step=300, min_refractor_size=300,
+    def plot_mean_velocity(self, loss="L1", huber_coef=20, min_velocity_step=400, min_refractor_size=400,
                            first_breaks_col=HDR_FIRST_BREAK, find_weathering=True, reduce_step=20, debug=False,
                            **kwargs):
         """Plot a mean near-surface velocity model describing the survey.
 
         Parameters
         ----------
-        min_velocity_step : int, optional, defaults to 300
+        min_velocity_step : int, optional, defaults to 400
             Minimum difference between velocities of two adjacent refractors. Default value ensures that velocities are
             strictly increasing.
-        min_refractor_size : int, optional, defaults to 300
+        min_refractor_size : int, optional, defaults to 400
             Minimum offset range covered by each refractor. Default value ensures that refractors do not degenerate
             into single points.
         loss : str, optional, defaults to "L1"

@@ -93,7 +93,7 @@ def load_refractor_velocities(path, encoding="UTF-8"):
 # calculate optimal near-surface velocity model
 
 # pylint: disable-next=too-many-arguments
-def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_step=300, min_refractor_size=300,
+def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_step=400, min_refractor_size=400,
                           loss="L1", huber_coef=20, min_refractors=1, max_refractors=10, find_weathering=False,
                           debug=False):
     """Calculate a near-surface velocity model with a number of refractors that give minimal loss.
@@ -108,9 +108,9 @@ def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_s
         Initial values of model parameters.
     bounds : dict, optional
         Lower and upper bounds of model parameters.
-    min_velocity_step : int, optional, defaults to 300
+    min_velocity_step : int, optional, defaults to 400
         Minimum difference between velocities of two adjacent refractors.
-    min_refractor_size : int, optional, defaults to 300
+    min_refractor_size : int, optional, defaults to 400
         Minimum offset range covered by each refractor.
     loss : str, optional, defaults to "L1"
         Loss function to be minimized. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
@@ -136,8 +136,6 @@ def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_s
         min_refractor_size_vec = np.full(refractor, min_refractor_size)
         if find_weathering:
             min_refractor_size_vec[0] = 1
-        if offsets.max() < min_refractor_size_vec.sum():
-            break
         rv_last = RefractorVelocity.from_first_breaks(offsets, times, init=init, bounds=bounds, n_refractors=refractor,
                                                       loss=loss, huber_coef=huber_coef,
                                                       min_velocity_step=min_velocity_step,
@@ -151,18 +149,18 @@ def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_s
         rv = rv_last
     return rv
 
-def calc_mean_velocity(survey, min_velocity_step=300, min_refractor_size=300, loss="L1", huber_coef=20,
-                       first_breaks_col=HDR_FIRST_BREAK, find_weathering=True, reduce_step=20, debug=False):
+def calc_mean_velocity(survey, min_velocity_step=400, min_refractor_size=400, loss="L1", huber_coef=20,
+                       first_breaks_col=HDR_FIRST_BREAK, find_weathering=False, reduce_step=20, debug=False):
     """Calculate mean near-surface velocity model describing the survey.
 
     Parameters
     ----------
     survey : Survey
         Survey with preloaded offsets, times of first breaks, and coords.
-    min_velocity_step : int, optional, defaults to 300
+    min_velocity_step : int, optional, defaults to 400
         Minimum difference between velocities of two adjacent refractors. Default value ensures that velocities are
         strictly increasing.
-    min_refractor_size : int, optional, defaults to 300
+    min_refractor_size : int, optional, defaults to 400
         Minimum offset range covered by each refractor. Default value ensures that refractors do not degenerate
         into single points.
     loss : str, optional, defaults to "L1"
@@ -186,14 +184,16 @@ def calc_mean_velocity(survey, min_velocity_step=300, min_refractor_size=300, lo
     ValueError
         If survey does not contain any indices.
     """
-    if survey.n_traces < 2:  # need if the func calls separately `RefractorVelocityField.from_survey`
-        raise ValueError("Survey contains less than two traces.")
+    if survey.n_gather < 1:
+        raise ValueError("Survey is empty.")
     # reduce data
     headers = survey.headers[['offset', first_breaks_col]]
     headers['bins'] = headers['offset'] // reduce_step
     reduced_headers = headers.groupby(by='bins').mean()
     offsets = reduced_headers['offset'].to_numpy()
     times = reduced_headers[first_breaks_col].to_numpy()
+    if offsets.shape[0] < 2:
+        raise ValueError("Offset contains less than two points after reducing. Decrease the value of `reduce_step`.")
     rv = calc_optimal_velocity(offsets, times, min_velocity_step=min_velocity_step,
                                min_refractor_size=min_refractor_size, loss=loss, huber_coef=huber_coef, debug=debug)
     if find_weathering:  # try to find the weathering layer
