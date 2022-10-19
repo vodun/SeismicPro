@@ -227,17 +227,9 @@ class RefractorVelocityField(SpatialField):
     def from_file(cls, path, survey=None, is_geographic=None, auto_create_interpolator=True, encoding="UTF-8"):
         """Load field with near-surface velocity models from a file.
 
-        The file should define near-surface velocity models at one or more field locations and have the following
-        structure:
-         - The first row contains names of the coordinates parameters ("name_x", "name_y", "x", "y") and names of
-        the parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}") of near-surface velocity model.
-        - Each next row contains the corresponding values of one near-surface velocity model in the field.
-
-        File example:
-         name_x     name_y          x          y        t0        x1        v1        v2
-        SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00
-        ...
-        SourceX    SourceY    1111200    2222240     60.00   1050.00   1550.00   1950.00
+        Notes
+        -----
+        See more about the format in :func:`~.utils.dump_refractor_velocities`.
 
         Parameters
         ----------
@@ -505,17 +497,9 @@ class RefractorVelocityField(SpatialField):
     def dump(self, path, encoding="UTF-8"):
         """Dump near-surface velocity models stored in the field to a file.
 
-        The output file defines a near-surface velocity model at one or more field locations and has the following
-        structure:
-         - The first row contains names of the coordinates parameters ("name_x", "name_y", "x", "y") and names of
-        the parameters ("t0", "x1"..."x{n-1}", "v1"..."v{n}") of near-surface velocity model.
-        - Each next row contains the corresponding values of one near-surface velocity model in the field.
-
-        File example:
-         name_x     name_y          x          y        t0        x1        v1        v2
-        SourceX    SourceY    1111100    2222220     50.00   1000.00   1500.00   2000.00
-        ...
-        SourceX    SourceY    1111200    2222240     60.00   1050.00   1550.00   1950.00
+        Notes
+        -----
+        See more about the format in :func:`~.utils.dump_refractor_velocities`.
 
         Parameters
         ----------

@@ -2,7 +2,7 @@
 
 import pytest
 
-from seismicpro.src.utils import to_list
+from seismicpro.utils import to_list
 
 
 def func(*args):

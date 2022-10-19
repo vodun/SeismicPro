@@ -5,9 +5,9 @@ from functools import partial, wraps
 from collections import defaultdict
 
 import matplotlib.pyplot as plt
+from batchflow.decorators import action, inbatch_parallel
 
 from .utils import to_list, save_figure, as_dict
-from ..batchflow import action, inbatch_parallel
 
 
 def _update_method_params(method, decorator_name, **decorator_params):
