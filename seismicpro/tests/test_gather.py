@@ -7,8 +7,8 @@ import pytest
 import numpy as np
 
 from seismicpro import Survey, Muter, StackingVelocity
-from seismicpro.src.utils import to_list
-from seismicpro.src.const import HDR_FIRST_BREAK
+from seismicpro.utils import to_list
+from seismicpro.const import HDR_FIRST_BREAK
 
 
 # Constants

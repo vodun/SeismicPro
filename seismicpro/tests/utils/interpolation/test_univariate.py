@@ -4,7 +4,7 @@ import pytest
 import numpy as np
 from scipy.interpolate import interp1d as sp_interp1d
 
-from seismicpro.src.utils import interp1d
+from seismicpro.utils import interp1d
 
 
 @pytest.mark.parametrize("func, coords, eval_coords", [
