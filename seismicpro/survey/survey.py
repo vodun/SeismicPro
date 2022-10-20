@@ -91,6 +91,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     limits : int or tuple or slice, optional
         Default time limits to be used during trace loading and survey statistics calculation. `int` or `tuple` are
         used as arguments to init a `slice` object. If not given, whole traces are used. Measured in samples.
+    validate : bool, optional, defaults to True
+        Whether to perform trace headers validation.
     endian : {"big", "msb", "little", "lsb"}, optional, defaults to "big"
         SEG-Y file endianness.
     chunk_size : int, optional, defaults to 25000
@@ -216,8 +218,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         # Validate trace headers for the presence of invalid headers
         if validate:
-            full = False if validate != "full" else True
-            validate_headers(headers, full=full)
+            validate_headers(headers)
 
         # Sort headers by the required index in order to optimize further subsampling and merging. Sorting preserves
         # trace order from the file within each gather.
