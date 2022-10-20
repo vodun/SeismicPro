@@ -1294,7 +1294,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return self
 
     def construct_qc_map(self, metric_cls, by, agg=None, bin_size=None, **kwargs):
-        """Construct a map of tracevise metric aggregated by gathers.
+        """Construct a map of tracewise metric aggregated by gathers.
 
         Parameters
         ----------
