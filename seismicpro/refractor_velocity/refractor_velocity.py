@@ -6,11 +6,13 @@ import numpy as np
 from scipy.optimize import minimize
 from sklearn.linear_model import SGDRegressor
 
-from .utils import get_param_names, postprocess_params, dump_refractor_velocities, load_refractor_velocities
+from .utils import (get_param_names, postprocess_params, dump_refractor_velocities, load_refractor_velocities,
+                    calc_mean_velocity, reduce_survey_headers)
 from ..muter import Muter
 from ..decorators import batch_method, plotter
 from ..utils import get_first_defined, set_ticks, set_text_formatting
 from ..utils.interpolation import interp1d
+from ..const import HDR_FIRST_BREAK
 
 
 # pylint: disable-next=too-many-instance-attributes
@@ -346,6 +348,19 @@ class RefractorVelocity:
             If passed `velocity` is negative.
         """
         return cls(t0=0, v1=velocity, coords=coords)
+
+    @classmethod  # pylint: disable-next=too-many-arguments, too-many-statements
+    def from_survey(cls, survey, init=None, bounds=None, n_refractors=None, max_offset=None, min_velocity_step=1,
+                    min_refractor_size=1, loss="L1", huber_coef=20, tol=1e-5, first_breaks_col=HDR_FIRST_BREAK,
+                    reduce_step=20, **kwargs):
+        """Fit the one near-surface velocity model by offsets and time of first breaks stored in the survey."""
+        if all(param is None for param in (init, bounds, n_refractors)):
+            return calc_mean_velocity(survey, first_breaks_col=first_breaks_col)
+        max_offset = survey['offset'].max()
+        offsets, times = reduce_survey_headers(survey, x="offset", y=first_breaks_col, reduce_step=reduce_step)
+
+        return cls.from_first_breaks(offsets, times, init, bounds, n_refractors, max_offset, min_velocity_step,
+                                     min_refractor_size, loss, huber_coef, tol, **kwargs)
 
     @property
     def param_names(self):
