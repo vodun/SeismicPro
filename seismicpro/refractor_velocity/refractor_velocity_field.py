@@ -154,10 +154,16 @@ class RefractorVelocityField(SpatialField):
 
     @staticmethod
     def _fit_refractor_velocities(rv_kwargs_list):
+        """Fit a separate near-surface velocity model by offsets and times of first breaks for each set of parameters
+        defined in `rv_kwargs_list`. This is a helper function and is defined as a `staticmethod` only to be picklable
+        so that it can be passed to `ProcessPoolExecutor.submit`."""
         return [RefractorVelocity.from_first_breaks(**rv_kwargs) for rv_kwargs in rv_kwargs_list]
 
     @classmethod
     def _fit_refractor_velocities_parallel(cls, rv_kwargs_list, chunk_size=250, n_workers=None, bar=True, desc=None):
+        """Fit a separate near-surface velocity model by offsets and times of first breaks for each set of parameters
+        defined in `rv_kwargs_list`. Velocity model fitting is performed in parallel processes in chunks of size no
+        more than `chunk_size`."""
         n_velocities = len(rv_kwargs_list)
         n_chunks, mod = divmod(n_velocities, chunk_size)
         if mod:
@@ -217,6 +223,11 @@ class RefractorVelocityField(SpatialField):
             Precision goal for the value of loss in the stopping criterion.
         first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `survey.headers` where times of first break are stored.
+        chunk_size : int, optional, defaults to 250
+            The number of velocity models estimated by each of spawned processes.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned processes to estimate velocity models. Defaults to the number
+            of cpu cores.
         bar : bool, optional, defaults to True
             Whether to show progress bar for field calculation.
         kwargs : misc, optional
@@ -489,6 +500,11 @@ class RefractorVelocityField(SpatialField):
         relative_bounds_size : float, optional, defaults to 0.25
             Size of parameters bound used to refit velocity models relative to their range in the smoothed field. The
             bounds are centered around smoothed parameter values.
+        chunk_size : int, optional, defaults to 250
+            The number of velocity models refined by each of spawned processes.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned processes to refine velocity models. Defaults to the number of
+            cpu cores.
         bar : bool, optional, defaults to True
             Whether to show a refinement progress bar.
 
