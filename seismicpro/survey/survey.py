@@ -216,7 +216,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         tsf_dtype = np.int32 if len(headers) < np.iinfo(np.int32).max else np.int64
         headers["TRACE_SEQUENCE_FILE"] = np.arange(1, self.segy_handler.tracecount+1, dtype=tsf_dtype)
 
-        # Validate trace headers for the presence of invalid headers
+        # Validate trace headers for the presence of invalid headers.
         if validate:
             validate_headers(headers)
 

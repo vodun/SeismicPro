@@ -100,14 +100,14 @@ def load_headers(path, headers_to_load, trace_data_offset, trace_size, n_traces,
 
 def validate_headers(headers, offset_rtol=0.01, offset_atol=10, cdp_atol=50, elev_rtol=0.1, elev_atol=10):
     """Validate trace headers by checking that:
-    - All headers are non empty,
-    - Trace identifier (FieldRecord, TraceNumber) has not duplicates,
-    - Traces with same shot index (FieldRecord) do not have different coordinates (SourceX, SourceY),
+    - All headers are not empty,
+    - Trace identifier (FieldRecord, TraceNumber) has no duplicates,
+    - Traces with the same shot index (FieldRecord) do not have different coordinates (SourceX, SourceY),
     - Offsets in trace headers coincide with offsets calculated based on the distance between shots (SourceX, SourceY)
       and receivers (GroupX, GroupY),
     - There is a mapping from geographic (CDP_X, CDP_Y) to binary (INLINE_3D/CROSSLINE_3D) coordinates,
     - Range of all geographic coordinates (SourceX, SourceY, GroupX, GroupY, CDP_X, CDP_Y) is coincide,
-    - Surface elevation (SourceSurfaceElevation, ReceiverGroupElevation) within same shot(SourceX, SourceY) or
+    - Surface elevation (SourceSurfaceElevation, ReceiverGroupElevation) within the same shot(SourceX, SourceY) or
       receiver(GroupX, GroupY) is coincide,
     - Elevation-related headers (ReceiverGroupElevation, SourceSurfaceElevation) have consistent ranges.
 
@@ -183,7 +183,7 @@ def validate_headers(headers, offset_rtol=0.01, offset_atol=10, cdp_atol=50, ele
 
     if {*shot_cols, *rec_cols, "ReceiverGroupElevation", "SourceSurfaceElevation"} <= available_columns:
         rec_elevations = urec_elev_coords.values[:, 2]
-        shot_interp = IDWInterpolator(ushot_elev_coords.values[:, :2], ushot_elev_coords.values[:, 2], neighbors=3)
+        shot_interp = IDWInterpolator(ushot_elev_coords.values [:, :2], ushot_elev_coords.values[:, 2], neighbors=3)
         rec_by_shot = shot_interp(urec_elev_coords.values[:, :2])
         has_correct_elevations = np.allclose(rec_elevations, rec_by_shot, rtol=elev_rtol, atol=elev_atol)
         if not has_correct_elevations:
