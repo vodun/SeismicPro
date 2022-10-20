@@ -97,7 +97,7 @@ def load_headers(path, headers_to_load, trace_data_offset, trace_size, n_traces,
 
     return pd.DataFrame(headers, columns=headers_order)
 
-
+# pylint: disable=too-many-statements
 def validate_headers(headers, offset_rtol=0.01, offset_atol=10, cdp_atol=50, elev_rtol=0.1, elev_atol=10):
     """Validate trace headers by checking that:
     - All headers are not empty,
@@ -192,7 +192,6 @@ def validate_headers(headers, offset_rtol=0.01, offset_atol=10, cdp_atol=50, ele
 
     if len(msg_list) > 0:
         line = "\n\n" + "-"*80
-        msg = line +  f"\n\nThe loaded Survey has the following problems with trace headers:"
-        msg = f"{msg}" + "".join([f"\n\n {i+1}. {msg}" for i, msg in zip(range(len(msg_list)), msg_list)])
-        msg += line
+        msg = line +  "\n\nThe loaded Survey has the following problems with trace headers:"
+        msg += "".join([f"\n\n {i+1}. {msg}" for i, msg in zip(range(len(msg_list)), msg_list)]) + line
         warnings.warn(msg, Warning)
