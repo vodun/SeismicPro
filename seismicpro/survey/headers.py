@@ -97,6 +97,7 @@ def load_headers(path, headers_to_load, trace_data_offset, trace_size, n_traces,
 
     return pd.DataFrame(headers, columns=headers_order)
 
+
 # pylint: disable=too-many-statements
 def validate_headers(headers, offset_rtol=0.01, offset_atol=10, cdp_atol=50, elev_rtol=0.1, elev_atol=10):
     """Validate trace headers by checking that:
