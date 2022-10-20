@@ -1248,30 +1248,3 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
-
-    def plot_mean_velocity(self, loss="L1", huber_coef=20, min_velocity_step=400, min_refractor_size=400,
-                           first_breaks_col=HDR_FIRST_BREAK, find_weathering=True, reduce_step=20, debug=False,
-                           **kwargs):
-        """Plot a mean near-surface velocity model describing the survey.
-
-        Parameters
-        ----------
-        min_velocity_step : int, optional, defaults to 400
-            Minimum difference between velocities of two adjacent refractors. Default value ensures that velocities are
-            strictly increasing.
-        min_refractor_size : int, optional, defaults to 400
-            Minimum offset range covered by each refractor. Default value ensures that refractors do not degenerate
-            into single points.
-        loss : str, optional, defaults to "L1"
-            Loss function to be minimized. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
-        huber_coef : float, optional, default to 20
-            Coefficient for Huber loss function.
-        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
-            Column name from `survey.headers` where times of first break are stored.
-        find_weathering : bool, optional, defaults to True
-            Try to find a weathering layer.
-        reduce_step : float, defaults to 20
-            Size of data chunks when splitting data by offset to reduce the data.
-        """
-        calc_mean_velocity(self, min_velocity_step, min_refractor_size, loss, huber_coef, first_breaks_col,
-                           find_weathering, reduce_step, debug).plot(**kwargs)
