@@ -94,6 +94,14 @@ def dump_refractor_velocities(refractor_velocities, path, encoding="UTF-8"):
     df.to_string(buf=path, float_format=lambda x: f"{x:.2f}", index=False, encoding=encoding)
 
 
+def reduce_survey_headers(survey, x="offset", y=HDR_FIRST_BREAK, reduce_step=20):
+    """Reduce survey headers."""
+    headers = survey.headers[to_list(x) + to_list(y)]
+    headers['bins'] = headers[x] // reduce_step
+    reduced_headers = headers.groupby(by='bins', sort=False).mean()
+    return reduced_headers[x].to_numpy(), reduced_headers[y].to_numpy()
+
+
 # pylint: disable-next=too-many-arguments
 def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_step=400, min_refractor_size=400,
                           loss="L1", huber_coef=20, min_refractors=1, max_refractors=10, find_weathering=False,
@@ -187,19 +195,14 @@ def calc_mean_velocity(survey, min_velocity_step=400, min_refractor_size=400, lo
     ValueError
         If survey does not contain any indices.
     """
-    if survey.n_gather < 1:
+    if survey.n_gathers < 1:
         raise ValueError("Survey is empty.")
-    # reduce data
-    headers = survey.headers[['offset', first_breaks_col]]
-    headers['bins'] = headers['offset'] // reduce_step
-    reduced_headers = headers.groupby(by='bins').mean()
-    offsets = reduced_headers['offset'].to_numpy()
-    times = reduced_headers[first_breaks_col].to_numpy()
+    offsets, times = reduce_survey_headers(survey, x="offset", y=first_breaks_col, reduce_step=reduce_step)
     if offsets.shape[0] < 2:
         raise ValueError("Offset contains less than two points after reducing. Decrease the value of `reduce_step`.")
     rv = calc_optimal_velocity(offsets, times, min_velocity_step=min_velocity_step,
                                min_refractor_size=min_refractor_size, loss=loss, huber_coef=huber_coef, debug=debug)
-    if find_weathering:  # try to find the weathering layer
+    if find_weathering:
         init = {'x1': 150, 'v1': rv.v1 / 2}
         bounds = {'x1': [1, 300], 'v1': [1, rv.v1]}
         min_refractors = max(rv.n_refractors, 2)
