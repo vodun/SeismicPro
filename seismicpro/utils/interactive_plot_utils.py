@@ -24,7 +24,7 @@ MAX_CLICK_TIME = 0.2
 
 # Default text widgets layout
 TEXT_LAYOUT = {
-    "height": "28px",
+    "height": "30px",
     "display": "flex",
     "width": "100%",
     "justify_content": "center",
@@ -34,9 +34,9 @@ TEXT_LAYOUT = {
 
 # Default button widgets layout
 BUTTON_LAYOUT = {
-    "height": "28px",
-    "width": "35px",
-    "min_width": "35px",
+    "height": "30px",
+    "width": "40px",
+    "min_width": "40px",
 }
 
 
@@ -138,11 +138,13 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
         self.fig.canvas.mpl_connect("key_press_event", self.on_press)
 
         # Define widgets and toolbar buttons
+        # Non-toggle buttons have a one-space description to be aligned with toggle buttons, which append it even if
+        # only icon is defined, keep it as is until https://github.com/jupyter-widgets/ipywidgets/issues/2209 is fixed
         self.title_widget = widgets.HTML(value="", layout=widgets.Layout(**TEXT_LAYOUT))
-        self.view_button = widgets.Button(icon="exchange", tooltip="Switch to the next view",
+        self.view_button = widgets.Button(icon="exchange", tooltip="Switch to the next view", description=" ",
                                           layout=widgets.Layout(**BUTTON_LAYOUT))
         self.view_button.on_click(self.on_view_toggle)
-        self.home_button = widgets.Button(icon="home", tooltip="Reset original view",
+        self.home_button = widgets.Button(icon="home", tooltip="Reset original view", description=" ",
                                           layout=widgets.Layout(**BUTTON_LAYOUT))
         self.home_button.on_click(self.fig.canvas.toolbar.home)
         self.pan_button = widgets.ToggleButton(icon="arrows", tooltip="Move the plot",
@@ -151,7 +153,7 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
         self.zoom_button = widgets.ToggleButton(icon="square-o", tooltip="Zoom to rectangle",
                                                 layout=widgets.Layout(**BUTTON_LAYOUT))
         self.zoom_button.observe(self.on_zoom_toggle, "value")
-        self.save_button = widgets.Button(icon="save", tooltip="Download plot",
+        self.save_button = widgets.Button(icon="save", tooltip="Download plot", description=" ",
                                           layout=widgets.Layout(**BUTTON_LAYOUT))
         self.save_button.on_click(self.fig.canvas.toolbar.save_figure)
 
