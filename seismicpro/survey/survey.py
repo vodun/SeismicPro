@@ -23,7 +23,6 @@ from ..gather import Gather
 from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
 from ..utils import to_list, maybe_copy, get_cols
-from ..refractor_velocity.utils import calc_mean_velocity
 from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK
 
 

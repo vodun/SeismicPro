@@ -158,6 +158,8 @@ class RefractorVelocityField(SpatialField):
         """Create a field by estimating a near-surface velocity model for each gather in the survey.
 
         The survey should contain headers with trace offsets, times of first breaks and coordinates of its gathers.
+        When no initial values, bounds of these values, or number of refractors are passed method used calculated
+        initial values.
         Please refer to :class:~`.refractor_velocity.RefractorVelocity` docs for more information about velocity model
         calculation.
 

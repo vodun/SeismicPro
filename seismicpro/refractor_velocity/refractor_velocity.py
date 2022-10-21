@@ -37,6 +37,9 @@ class RefractorVelocity:
       This methods allows one to specify initial values of some parameters or bounds for their values or simply provide
       the expected number of refractors,
     * `from_file` - to create a velocity model from parameters stored in a file.
+    * `from_survey` - to automatically fit a near-surface velocity model by offsets and times of first breaks stored in
+      the survey. This method can be initialzed with no initial values, bounds, or expected number of refractors and is
+      helpful for exploratory data analysis of a survey.
 
     The resulting object is callable and returns expected arrival times for given offsets. Each model parameter can be
     obtained by accessing the corresponding attribute of the created instance.
@@ -350,15 +353,59 @@ class RefractorVelocity:
         return cls(t0=0, v1=velocity, coords=coords)
 
     @classmethod  # pylint: disable-next=too-many-arguments, too-many-statements
-    def from_survey(cls, survey, init=None, bounds=None, n_refractors=None, max_offset=None, min_velocity_step=1,
-                    min_refractor_size=1, loss="L1", huber_coef=20, tol=1e-5, first_breaks_col=HDR_FIRST_BREAK,
-                    reduce_step=20, **kwargs):
-        """Fit the one near-surface velocity model by offsets and time of first breaks stored in the survey."""
+    def from_survey(cls, survey, init=None, bounds=None, n_refractors=None, min_velocity_step=400,
+                    min_refractor_size=400, loss="L1", huber_coef=20, tol=1e-5, first_breaks_col=HDR_FIRST_BREAK,
+                    find_weathering=True, reduce_step=20, **kwargs):
+        """Fit a near-surface velocity model desribed by the survey.
+
+        The survey should contain headers with trace offsets, times of first breaks. When no initial values, bounds
+        of these values, or number of refractors are passed method calculate try to calculate optimal near-surface
+        velocity model.
+
+        Note
+        ----
+        This method reduces the offsets and times of first breaks for a faster fit the near-surface velocity model.
+
+        Parameters
+        ----------
+        survey : Survey
+            Survey with preloaded offsets, times of first breaks.
+        init : dict, optional
+            Initial values of model parameters.
+        bounds : dict, optional
+            Lower and upper bounds of model parameters.
+        n_refractors : int, optional
+            The number of refractors described by the model.
+        min_velocity_step : int, optional, defaults to 400
+            Minimum difference between velocities of two adjacent refractors. Default value ensures that velocities are
+            strictly increasing.
+        min_refractor_size : int, optional, defaults to 400
+            Minimum offset range covered by each refractor. Default value ensures that refractors do not degenerate
+            into single points.
+        loss : str, optional, defaults to "L1"
+            Loss function to be minimized. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
+        huber_coef : float, optional, default to 20
+            Coefficient for Huber loss function.
+        tol : float, optional, defaults to 1e-5
+            Precision goal for the value of loss in the stopping criterion.
+        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+            Column name from `survey.headers` where times of first break are stored.
+        find_weathering : bool, optional, defaults to True
+            Try to find a weathering layer when calculate are passed.
+        reduce_step : float, defaults to 20
+            Size of data chunks when splitting data by offset to reduce the data.
+
+        Returns
+        -------
+        rv : RefractorVelocity
+            A near-surface velocity model described by the survey.
+        """
         if all(param is None for param in (init, bounds, n_refractors)):
-            return calc_mean_velocity(survey, first_breaks_col=first_breaks_col)
+            return calc_mean_velocity(survey, min_velocity_step, min_refractor_size, loss, huber_coef,
+                                      first_breaks_col, find_weathering, reduce_step)
+
         max_offset = survey['offset'].max()
         offsets, times = reduce_survey_headers(survey, x="offset", y=first_breaks_col, reduce_step=reduce_step)
-
         return cls.from_first_breaks(offsets, times, init, bounds, n_refractors, max_offset, min_velocity_step,
                                      min_refractor_size, loss, huber_coef, tol, **kwargs)
 

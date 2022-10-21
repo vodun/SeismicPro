@@ -96,10 +96,11 @@ def dump_refractor_velocities(refractor_velocities, path, encoding="UTF-8"):
 
 def reduce_survey_headers(survey, x="offset", y=HDR_FIRST_BREAK, reduce_step=20):
     """Reduce survey headers."""
-    headers = survey.headers[to_list(x) + to_list(y)]
-    headers['bins'] = headers[x] // reduce_step
+    x, y = to_list(x), to_list(y)
+    headers = survey.headers[x + y]
+    headers['bins'] = (headers[x].to_numpy() / reduce_step).astype(np.uint16)  # avoid integer division
     reduced_headers = headers.groupby(by='bins', sort=False).mean()
-    return reduced_headers[x].to_numpy(), reduced_headers[y].to_numpy()
+    return reduced_headers[x].to_numpy().ravel(), reduced_headers[y].to_numpy().ravel()
 
 
 # pylint: disable-next=too-many-arguments
@@ -142,14 +143,13 @@ def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_s
     #pylint: disable-next=import-outside-toplevel
     from .refractor_velocity import RefractorVelocity  # avoid circulat import
     rv = None
+    max_offset = offsets.max()
     for refractor in range(min_refractors, max_refractors + 1):
         min_refractor_size_vec = np.full(refractor, min_refractor_size)
         if find_weathering:
             min_refractor_size_vec[0] = 1
-        rv_last = RefractorVelocity.from_first_breaks(offsets, times, init=init, bounds=bounds, n_refractors=refractor,
-                                                      loss=loss, huber_coef=huber_coef,
-                                                      min_velocity_step=min_velocity_step,
-                                                      min_refractor_size=min_refractor_size_vec)
+        rv_last = RefractorVelocity.from_first_breaks(offsets, times, init, bounds, refractor, max_offset,
+                                                      min_velocity_step, min_refractor_size_vec, loss, huber_coef)
         # TODO: remove debug
         if debug:
             rv_last.plot(title=f'{rv_last.fit_result.fun}\nfind_weathering={find_weathering}')
@@ -161,13 +161,13 @@ def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_s
 
 
 def calc_mean_velocity(survey, min_velocity_step=400, min_refractor_size=400, loss="L1", huber_coef=20,
-                       first_breaks_col=HDR_FIRST_BREAK, find_weathering=False, reduce_step=20, debug=False):
+                       first_breaks_col=HDR_FIRST_BREAK, find_weathering=True, reduce_step=20, debug=False):
     """Calculate mean near-surface velocity model describing the survey.
 
     Parameters
     ----------
     survey : Survey
-        Survey with preloaded offsets, times of first breaks, and coords.
+        Survey with preloaded offsets, times of first breaks.
     min_velocity_step : int, optional, defaults to 400
         Minimum difference between velocities of two adjacent refractors. Default value ensures that velocities are
         strictly increasing.
