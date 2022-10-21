@@ -52,8 +52,8 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
     extra button is created in the toolbar to iterate over them. The plot is interactive: it can handle click and slice
     events, while each view may define its own processing logic.
 
-    Plotting must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and
-    `ipympl` and `ipywidgets` libraries installed.
+    Plotting must be performed in a JupyterLab environment with the `%matplotlib widget` magic executed and `ipympl`
+    and `ipywidgets` libraries installed.
 
     Parameters
     ----------
@@ -99,6 +99,10 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
     """
     def __init__(self, *, plot_fn=None, click_fn=None, slice_fn=None, unclick_fn=None, marker_params=None, title="",
                  preserve_clicks_on_view_change=False, toolbar_position="left", figsize=(4.5, 4.5)):
+        if "ipympl" not in plt.get_backend():
+            raise RuntimeError("Plotting must be performed in a JupyterLab environment "
+                               "with the `%matplotlib widget` magic executed")
+
         list_args = align_args(plot_fn, click_fn, slice_fn, unclick_fn, marker_params, title)
         self.plot_fn_list, self.click_fn_list, self.slice_fn_list = list_args[:3]
         self.unclick_fn_list, marker_params_list, self.title_list = list_args[3:]
@@ -436,8 +440,8 @@ class DropdownViewPlot(InteractivePlot):
     using a dropdown list on top of the plot or arrow buttons on its sides. The plot is interactive: it can handle
     click and slice events, while each view may define its own processing logic.
 
-    Plotting must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and
-    `ipympl` and `ipywidgets` libraries installed.
+    Plotting must be performed in a JupyterLab environment with the `%matplotlib widget` magic executed and `ipympl`
+    and `ipywidgets` libraries installed.
 
     Parameters
     ----------
