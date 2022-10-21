@@ -217,11 +217,6 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
             return title()
         return title
 
-    @property
-    def toolbar_action_selected(self):
-        """bool: Whether "Pan" or "Zoom" mode is selected in the figure toolbar."""
-        return self.pan_button.value or self.zoom_button.value
-
     # Box construction
 
     def construct_header(self):
@@ -267,7 +262,7 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
 
     def on_motion(self, event):
         """Handle mouse movement with the pressed left mouse button. Redraw currently selected slice line."""
-        if self.is_sliceable and event.button == 1:
+        if self.is_sliceable and event.button == 1 and not self.pan_button.value and not self.zoom_button.value:
             self._plot_slice(self.start_click_coords, (event.xdata, event.ydata))
 
     def on_release(self, event):
@@ -277,7 +272,8 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
                 self.click((event.xdata, event.ydata))
             elif self.click_coords is not None:  # Restore previous valid click
                 self.click(self.click_coords)
-        elif not self.toolbar_action_selected:  # Process slice only if "Zoom" or "Pad" modes are not selected
+        elif not self.pan_button.value and not self.zoom_button.value:
+            # Process slice only if "Zoom" or "Pad" modes are not selected
             if (event.inaxes == self.ax) and (event.button == 1):
                 self.slice(self.start_click_coords, (event.xdata, event.ydata))
             elif self.slice_coords is not None:  # Restore previous valid slice
@@ -479,9 +475,11 @@ class DropdownViewPlot(InteractivePlot):
     """
     def __init__(self, **kwargs):
         # Define widgets for view selection
-        self.prev = widgets.Button(icon="angle-left", disabled=True, layout=widgets.Layout(**BUTTON_LAYOUT))
-        self.drop = widgets.Dropdown(layout=widgets.Layout(height=WIDGET_HEIGHT))
-        self.next = widgets.Button(icon="angle-right", disabled=True, layout=widgets.Layout(**BUTTON_LAYOUT))
+        self.prev = widgets.Button(icon="angle-left", tooltip="", disabled=True,
+                                   layout=widgets.Layout(**BUTTON_LAYOUT))
+        self.drop = widgets.Dropdown(layout=widgets.Layout(height=WIDGET_HEIGHT, width="inherit"))
+        self.next = widgets.Button(icon="angle-right", tooltip="", disabled=True,
+                                   layout=widgets.Layout(**BUTTON_LAYOUT))
 
         super().__init__(**kwargs)
         self.drop.options = self.title_list

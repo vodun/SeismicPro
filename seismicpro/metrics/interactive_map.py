@@ -51,10 +51,13 @@ class MapBinPlot(MapCoordsPlot):
         self.options = None
         self.curr_option = None
 
-        self.sort = widgets.Button(icon=self.sort_icon, disabled=True, layout=widgets.Layout(**BUTTON_LAYOUT))
-        self.prev = widgets.Button(icon="angle-left", disabled=True, layout=widgets.Layout(**BUTTON_LAYOUT))
-        self.drop = widgets.Dropdown(layout=widgets.Layout(height=WIDGET_HEIGHT))
-        self.next = widgets.Button(icon="angle-right", disabled=True, layout=widgets.Layout(**BUTTON_LAYOUT))
+        self.sort = widgets.Button(icon=self.sort_icon, tooltip="", disabled=True,
+                                   layout=widgets.Layout(**BUTTON_LAYOUT))
+        self.prev = widgets.Button(icon="angle-left", tooltip="", disabled=True,
+                                   layout=widgets.Layout(**BUTTON_LAYOUT))
+        self.drop = widgets.Dropdown(layout=widgets.Layout(height=WIDGET_HEIGHT, width="inherit"))
+        self.next = widgets.Button(icon="angle-right", tooltip="", disabled=True,
+                                   layout=widgets.Layout(**BUTTON_LAYOUT))
 
         # Handler definition
         self.sort.on_click(self.reverse_options)
