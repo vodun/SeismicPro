@@ -292,22 +292,23 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
         _ = event
         self.set_view((self.current_view + 1) % self.n_views)
 
-    def on_pan_toggle(self, change):
+    def on_pan_toggle(self, event):
         """Toggle pan button."""
+        _ = event
         if self.zoom_button.value:
-            self.fig.canvas.toolbar.zoom()
+            self.zoom_button.unobserve_all()  # Avoid recursion during value setting
             self.zoom_button.value = False
+            self.zoom_button.observe(self.on_zoom_toggle, "value")
         self.fig.canvas.toolbar.pan()
-        self.pan_button.value = change["new"]
 
-    def on_zoom_toggle(self, change):
+    def on_zoom_toggle(self, event):
         """Toggle zoom button."""
-        _ = change
+        _ = event
         if self.pan_button.value:
-            self.fig.canvas.toolbar.pan()
+            self.pan_button.unobserve_all()  # Avoid recursion during value setting
             self.pan_button.value = False
+            self.pan_button.observe(self.on_pan_toggle, "value")
         self.fig.canvas.toolbar.zoom()
-        self.zoom_button.value = change["new"]
 
     # General plot API
 
