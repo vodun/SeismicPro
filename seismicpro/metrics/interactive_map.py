@@ -5,7 +5,7 @@ from functools import partial
 from sklearn.neighbors import NearestNeighbors
 
 from ..utils import get_text_formatting_kwargs, align_args, MissingModule
-from ..utils.interactive_plot_utils import InteractivePlot, PairedPlot, TEXT_LAYOUT, BUTTON_LAYOUT
+from ..utils.interactive_plot_utils import InteractivePlot, PairedPlot, WIDGET_HEIGHT, BUTTON_LAYOUT
 
 # Safe import of modules for interactive plotting
 try:
@@ -53,7 +53,7 @@ class MapBinPlot(MapCoordsPlot):
 
         self.sort = widgets.Button(icon=self.sort_icon, disabled=True, layout=widgets.Layout(**BUTTON_LAYOUT))
         self.prev = widgets.Button(icon="angle-left", disabled=True, layout=widgets.Layout(**BUTTON_LAYOUT))
-        self.drop = widgets.Dropdown(layout=widgets.Layout(**TEXT_LAYOUT))
+        self.drop = widgets.Dropdown(layout=widgets.Layout(height=WIDGET_HEIGHT))
         self.next = widgets.Button(icon="angle-right", disabled=True, layout=widgets.Layout(**BUTTON_LAYOUT))
 
         # Handler definition

@@ -22,19 +22,13 @@ except ImportError:
 MAX_CLICK_TIME = 0.2
 
 
-# Default text widgets layout
-TEXT_LAYOUT = {
-    "height": "30px",
-    "display": "flex",
-    "width": "100%",
-    "justify_content": "center",
-    "align_items": "center",
-}
+# Default widget height
+WIDGET_HEIGHT = "30px"
 
 
 # Default button widgets layout
 BUTTON_LAYOUT = {
-    "height": "30px",
+    "height": WIDGET_HEIGHT,
     "width": "40px",
     "min_width": "40px",
 }
@@ -144,7 +138,7 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
         # Define widgets and toolbar buttons
         # Non-toggle buttons have a one-space description to be aligned with toggle buttons, which append it even if
         # only icon is defined, keep it as is until https://github.com/jupyter-widgets/ipywidgets/issues/2209 is fixed
-        self.title_widget = widgets.HTML(value="", layout=widgets.Layout(**TEXT_LAYOUT))
+        self.title_widget = widgets.HTML(value="", layout=widgets.Layout(height=WIDGET_HEIGHT))
         self.view_button = widgets.Button(icon="exchange", tooltip="Switch to the next view", description=" ",
                                           layout=widgets.Layout(**BUTTON_LAYOUT))
         self.view_button.on_click(self.on_view_toggle)
@@ -486,7 +480,7 @@ class DropdownViewPlot(InteractivePlot):
     def __init__(self, **kwargs):
         # Define widgets for view selection
         self.prev = widgets.Button(icon="angle-left", disabled=True, layout=widgets.Layout(**BUTTON_LAYOUT))
-        self.drop = widgets.Dropdown(layout=widgets.Layout(**TEXT_LAYOUT))
+        self.drop = widgets.Dropdown(layout=widgets.Layout(height=WIDGET_HEIGHT))
         self.next = widgets.Button(icon="angle-right", disabled=True, layout=widgets.Layout(**BUTTON_LAYOUT))
 
         super().__init__(**kwargs)
