@@ -359,8 +359,8 @@ class RefractorVelocity:
         """Fit a near-surface velocity model desribed by the survey.
 
         The survey should contain headers with trace offsets, times of first breaks. When no initial values, bounds
-        of these values, or number of refractors are passed method calculate try to calculate optimal near-surface
-        velocity model.
+        of these values, or number of refractors are passed method try to calculate optimal near-surface velocity
+        model.
 
         Note
         ----
