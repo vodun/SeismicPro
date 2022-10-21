@@ -294,11 +294,11 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
 
     def on_pan_toggle(self, change):
         """Toggle pan button."""
-        _ = change
         if self.zoom_button.value:
             self.fig.canvas.toolbar.zoom()
             self.zoom_button.value = False
         self.fig.canvas.toolbar.pan()
+        self.pan_button.value = change["new"]
 
     def on_zoom_toggle(self, change):
         """Toggle zoom button."""
@@ -307,6 +307,7 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
             self.fig.canvas.toolbar.pan()
             self.pan_button.value = False
         self.fig.canvas.toolbar.zoom()
+        self.zoom_button.value = change["new"]
 
     # General plot API
 
