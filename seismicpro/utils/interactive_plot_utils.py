@@ -49,8 +49,8 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
     """Construct an interactive plot with optional click handling.
 
     The plot may contain multiple views: one for each of the passed `plot_fn`. If more than one view is defined, an
-    extra button is created in the header or toolbar to iterate over them. The plot is interactive: it can handle click
-    and slice events, while each view may define its own processing logic.
+    extra button is created in the toolbar to iterate over them. The plot is interactive: it can handle click and slice
+    events, while each view may define its own processing logic.
 
     Plotting must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and
     `ipympl` and `ipywidgets` libraries installed.
@@ -80,7 +80,7 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
     preserve_clicks_on_view_change : bool, optional, defaults to False
         Whether to preserve click/slice markers and trigger the corresponding event on view change.
     toolbar_position : {"top", "bottom", "left", "right"}, optional, defaults to "left"
-        Matplotlib toolbar position relative to the main axes.
+        Toolbar position relative to the main axes.
     figsize : tuple with 2 elements, optional, defaults to (4.5, 4.5)
         Size of the created figure. Measured in inches.
 
@@ -123,15 +123,11 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
         self.slice_marker = None
 
         # Construct a figure
-        self.toolbar_position = toolbar_position
-        if toolbar_position is None:
-            toolbar_position = "left"
         with plt.ioff():
             # Add tight_layout to always correctly show colorbar ticks
             self.fig, self.ax = plt.subplots(figsize=figsize, tight_layout=True)  # pylint: disable=invalid-name
         self.fig.canvas.header_visible = False
         self.fig.canvas.toolbar_visible = False
-        self.fig.canvas.toolbar_position = toolbar_position
 
         # Setup event handlers
         self.fig.interactive_plotter = self  # Always keep reference to self for all plots to remain interactive
@@ -141,11 +137,26 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
         self.fig.canvas.mpl_connect("button_release_event", self.on_release)
         self.fig.canvas.mpl_connect("key_press_event", self.on_press)
 
-        # Build plot box
+        # Define widgets and toolbar buttons
         self.title_widget = widgets.HTML(value="", layout=widgets.Layout(**TEXT_LAYOUT))
         self.view_button = widgets.Button(icon="exchange", tooltip="Switch to the next view",
                                           layout=widgets.Layout(**BUTTON_LAYOUT))
         self.view_button.on_click(self.on_view_toggle)
+        self.home_button = widgets.Button(icon="home", tooltip="Reset original view",
+                                          layout=widgets.Layout(**BUTTON_LAYOUT))
+        self.home_button.on_click(self.fig.canvas.toolbar.home())
+        self.pan_button = widgets.ToggleButton(icon="arrows", tooltip="Move the plot",
+                                               layout=widgets.Layout(**BUTTON_LAYOUT))
+        self.pan_button.observe(self.on_pan_toggle, "value")
+        self.zoom_button = widgets.ToggleButton(icon="square-o", tooltip="Zoom to rectangle",
+                                                layout=widgets.Layout(**BUTTON_LAYOUT))
+        self.zoom_button.observe(self.on_pan_toggle, "value")
+
+        # Build plot box
+        available_positions = {"top", "bottom", "left", "right"}
+        if toolbar_position not in available_positions:
+            raise ValueError(f"Unknown toolbar position, must be one of {', '.join(available_positions)}")
+        self.toolbar_position = toolbar_position
         self.header = self.construct_header()
         self.toolbar = self.construct_toolbar()
         self.box = self.construct_box()
@@ -206,34 +217,28 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
     @property
     def toolbar_action_selected(self):
         """bool: Whether "Pan" or "Zoom" mode is selected in the figure toolbar."""
-        return self.fig.canvas.toolbar.get_state()["_current_action"] != ""
+        return self.pan_button.value or self.zoom_button.value
 
     # Box construction
 
-    def construct_buttons(self):
-        """Return a list of extra buttons to add to a header or a toolbar. Can be overridden in child classes."""
+    def construct_header(self):
+        """Construct a header of the plot containing the view title."""
+        return self.title_widget
+
+    def construct_extra_buttons(self):
+        """Return a list of extra buttons to add to a toolbar. Can be overridden in child classes."""
         if self.n_views == 1:
             return []
         return [self.view_button]
 
-    def construct_header(self):
-        """Construct a header of the plot. Always contains view title, contains constructed buttons only if the
-        toolbar is not visible."""
-        buttons = self.construct_buttons()
-        if self.toolbar_position is not None:
-            buttons = []
-        return widgets.HBox([*buttons, self.title_widget])
-
     def construct_toolbar(self):
         """Construct a plot toolbar which contains the toolbar of the canvas and constructed buttons."""
-        toolbar = self.fig.canvas.toolbar
-        if self.toolbar_position in {"top", "bottom"}:
-            toolbar.orientation = "horizontal"
-            return widgets.HBox([*self.construct_buttons(), toolbar])
-        return widgets.VBox([*self.construct_buttons(), toolbar])
+        toolbar_buttons = self.construct_extra_buttons() + [self.home_button, self.pan_button, self.zoom_button]
+        box_type = widgets.HBox if self.toolbar_position in {"top", "bottom"} else widgets.VBox
+        return box_type(toolbar_buttons)
 
     def construct_box(self):
-        """Construct the box of the whole plot which contains figure canvas, header and, optionally, a toolbar."""
+        """Construct the box of the whole plot which contains figure canvas, header and a toolbar."""
         titled_box = widgets.HBox([widgets.VBox([self.header, self.fig.canvas])])
         if self.toolbar_position == "top":
             return widgets.VBox([self.toolbar, titled_box])
@@ -241,9 +246,7 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
             return widgets.VBox([titled_box, self.toolbar])
         if self.toolbar_position == "left":
             return widgets.HBox([self.toolbar, titled_box])
-        if self.toolbar_position == "right":
-            return widgets.HBox([titled_box, self.toolbar])
-        return titled_box
+        return widgets.HBox([titled_box, self.toolbar])
 
     # Event handlers
 
@@ -288,6 +291,18 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
         """Switch the plot to the next view."""
         _ = event
         self.set_view((self.current_view + 1) % self.n_views)
+
+    def on_pan_toggle(self, change):
+        """Toggle pan button."""
+        self.fig.canvas.toolbar.pan()
+        if change["new"]:
+            self.zoom_button.value = False
+
+    def on_zoom_toggle(self, change):
+        """Toggle zoom button."""
+        self.fig.canvas.toolbar.zoom()
+        if change["new"]:
+            self.pan_button.value = False
 
     # General plot API
 
@@ -436,7 +451,7 @@ class DropdownViewPlot(InteractivePlot):
     preserve_clicks_on_view_change : bool, optional, defaults to False
         Whether to preserve click/slice markers and trigger the corresponding event on view change.
     toolbar_position : {"top", "bottom", "left", "right"}, optional, defaults to "left"
-        Matplotlib toolbar position relative to the main axes.
+        Toolbar position relative to the main axes.
     figsize : tuple with 2 elements, optional, defaults to (4.5, 4.5)
         Size of the created figure. Measured in inches.
 
@@ -461,13 +476,14 @@ class DropdownViewPlot(InteractivePlot):
 
         super().__init__(**kwargs)
         self.drop.options = self.title_list
+        self.drop.index = 0
 
         # Define handlers after options are set, otherwise plotting will be triggered
         self.prev.on_click(self.prev_view)
         self.drop.observe(self.select_view, names="value")
         self.next.on_click(self.next_view)
 
-    def construct_buttons(self):
+    def construct_extra_buttons(self):
         """Don't use a parent button for view switching."""
         return []
 
