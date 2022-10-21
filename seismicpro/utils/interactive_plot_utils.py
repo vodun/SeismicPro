@@ -150,7 +150,7 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
         self.pan_button.observe(self.on_pan_toggle, "value")
         self.zoom_button = widgets.ToggleButton(icon="square-o", tooltip="Zoom to rectangle",
                                                 layout=widgets.Layout(**BUTTON_LAYOUT))
-        self.zoom_button.observe(self.on_pan_toggle, "value")
+        self.zoom_button.observe(self.on_zoom_toggle, "value")
 
         # Build plot box
         available_positions = {"top", "bottom", "left", "right"}
