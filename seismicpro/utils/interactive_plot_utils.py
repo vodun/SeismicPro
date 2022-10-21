@@ -144,7 +144,7 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
         self.view_button.on_click(self.on_view_toggle)
         self.home_button = widgets.Button(icon="home", tooltip="Reset original view",
                                           layout=widgets.Layout(**BUTTON_LAYOUT))
-        self.home_button.on_click(self.fig.canvas.toolbar.home())
+        self.home_button.on_click(self.fig.canvas.toolbar.home)
         self.pan_button = widgets.ToggleButton(icon="arrows", tooltip="Move the plot",
                                                layout=widgets.Layout(**BUTTON_LAYOUT))
         self.pan_button.observe(self.on_pan_toggle, "value")
