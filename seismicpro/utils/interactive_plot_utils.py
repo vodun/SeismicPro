@@ -151,6 +151,9 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
         self.zoom_button = widgets.ToggleButton(icon="square-o", tooltip="Zoom to rectangle",
                                                 layout=widgets.Layout(**BUTTON_LAYOUT))
         self.zoom_button.observe(self.on_zoom_toggle, "value")
+        self.save_button = widgets.Button(icon="save", tooltip="Download plot",
+                                          layout=widgets.Layout(**BUTTON_LAYOUT))
+        self.save_button.on_click(self.fig.canvas.toolbar.save_figure)
 
         # Build plot box
         available_positions = {"top", "bottom", "left", "right"}
@@ -233,9 +236,9 @@ class InteractivePlot:  # pylint: disable=too-many-instance-attributes
 
     def construct_toolbar(self):
         """Construct a plot toolbar which contains the toolbar of the canvas and constructed buttons."""
-        toolbar_buttons = self.construct_extra_buttons() + [self.home_button, self.pan_button, self.zoom_button]
         box_type = widgets.HBox if self.toolbar_position in {"top", "bottom"} else widgets.VBox
-        return box_type(toolbar_buttons)
+        toolbar_buttons = [self.home_button, self.pan_button, self.zoom_button, self.save_button]
+        return box_type(self.construct_extra_buttons() + toolbar_buttons)
 
     def construct_box(self):
         """Construct the box of the whole plot which contains figure canvas, header and a toolbar."""
