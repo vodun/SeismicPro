@@ -272,7 +272,7 @@ class BinarizedMap(BaseMetricMap):
         # Binarize map coordinates
         bin_cols = ["BIN_X", "BIN_Y"]
         min_coords = map_data[self.coords_cols].min(axis=0).values
-        map_data[bin_cols] = (map_data[self.coords_cols] - min_coords) // self.bin_size
+        map_data[bin_cols] = ((map_data[self.coords_cols] - min_coords) // self.bin_size).astype(int)
         x_bin_range = np.arange(map_data["BIN_X"].max() + 1)
         y_bin_range = np.arange(map_data["BIN_Y"].max() + 1)
         self.x_bin_coords = min_coords[0] + self.bin_size[0] * x_bin_range + self.bin_size[0] // 2
