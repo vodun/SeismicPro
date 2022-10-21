@@ -82,7 +82,7 @@ class MapBinPlot(MapCoordsPlot):
     @property
     def drop_options(self):
         """list of str: text representation of bin items."""
-        return [f"{metric:.05f} metric at ({x}, {y})" for (x, y), metric in self.options.iteritems()]
+        return [f"{metric:.05f} metric at ({x}, {y})" for (x, y), metric in self.options.items()]
 
     def update_state(self, option_ix, options=None, redraw=True):
         """Set new plot options and the currently active option."""
