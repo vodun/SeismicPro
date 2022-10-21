@@ -29,10 +29,10 @@ class SlidingVelocityPlot(InteractivePlot):
     def __init__(self, *, slider_min, slider_max, slide_fn=None, **kwargs):
         min_widget = widgets.HTML(value=str(slider_min), layout=widgets.Layout(height=WIDGET_HEIGHT))
         max_widget = widgets.HTML(value=str(slider_max), layout=widgets.Layout(height=WIDGET_HEIGHT))
-        slider = widgets.FloatSlider(min=slider_min, max=slider_max, step=1, readout=False,
-                                     layout=widgets.Layout(flex="1 1 auto", height=WIDGET_HEIGHT))
-        slider.observe(slide_fn, "value")
-        self.slider_box = widgets.HBox([min_widget, slider, max_widget],
+        self.slider = widgets.FloatSlider(min=slider_min, max=slider_max, step=1, readout=False,
+                                          layout=widgets.Layout(flex="1 1 auto", height=WIDGET_HEIGHT))
+        self.slider.observe(slide_fn, "value")
+        self.slider_box = widgets.HBox([min_widget, self.slider, max_widget],
                                        layout=widgets.Layout(width="90%", margin="auto"))
         super().__init__(**kwargs)
 
