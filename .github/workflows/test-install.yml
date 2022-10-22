@@ -34,21 +34,18 @@ jobs:
 
     - name: Checkout SeismicPro
       uses: actions/checkout@v2
-      with:
-        submodules: true
 
     - name: Install requirements
       run: |
         pip install --user -U pip
         pip install --user -U pytest
         pip install --user -r requirements.txt
-        pip install --user -r seismicpro/batchflow/requirements.txt
 
     - name: Import SeismicPro
       run: python -c 'import seismicpro'
 
     - name: Run basic tests
-      run: pytest -m "$PYTEST_FLAGS" --disable-pytest-warnings -v seismicpro/src/tests
+      run: pytest -m "$PYTEST_FLAGS" --disable-pytest-warnings -v seismicpro/tests
       shell: bash
 
 
@@ -84,7 +81,7 @@ jobs:
       run: python -c 'import seismicpro'
 
     - name: Run basic tests
-      run: pytest -m "$PYTEST_FLAGS" --disable-pytest-warnings -v --pyargs seismicpro.src.tests
+      run: pytest -m "$PYTEST_FLAGS" --disable-pytest-warnings -v --pyargs seismicpro.tests
       shell: bash
 
 
@@ -122,5 +119,5 @@ jobs:
       run: pipenv run python -c 'import seismicpro'
 
     - name: Run basic tests
-      run: pipenv run python -m pytest -m "$PYTEST_FLAGS" --disable-pytest-warnings -v --pyargs seismicpro.src.tests
+      run: pipenv run python -m pytest -m "$PYTEST_FLAGS" --disable-pytest-warnings -v --pyargs seismicpro.tests
       shell: bash
