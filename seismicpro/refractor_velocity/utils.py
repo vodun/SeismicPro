@@ -132,7 +132,7 @@ def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_s
     max_refractors : int, optional, defaults to 10
         Maximum number of refractors for the expected velocity model.
     find_weathering : bool, optional, defaults to False.
-        If True set `min_refractor_size` for the first refractor to 1.
+        If True the minimum offset range constraint for the expected weathering layer is removed.
 
     Returns
     -------
@@ -143,11 +143,11 @@ def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_s
     #pylint: disable-next=import-outside-toplevel
     from .refractor_velocity import RefractorVelocity  # avoid circulat import
     rv = None
-    max_offset = offsets.max()
     for refractor in range(min_refractors, max_refractors + 1):
         min_refractor_size_vec = np.full(refractor, min_refractor_size)
         if find_weathering:
             min_refractor_size_vec[0] = 1
+        max_offset = max(offsets.max(), min_refractor_size * refractor)
         rv_last = RefractorVelocity.from_first_breaks(offsets, times, init, bounds, refractor, max_offset,
                                                       min_velocity_step, min_refractor_size_vec, loss, huber_coef)
         # TODO: remove debug
