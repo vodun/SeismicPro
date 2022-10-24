@@ -708,10 +708,8 @@ class Gather(TraceContainer, SamplesContainer):
 
     @batch_method(target="threads", args_to_unpack="muter")
     def mute(self, muter, fill_value=np.nan):
-        """Mute the gather using given `muter`.
-
-        The muting operation is performed by setting gather values above an offset-time boundary defined by `muter` to
-        `fill_value`.
+          """Mute the gather using given `muter` which defines an offset-time boundary above which gather amplitudes will
+        be set to `fill_value`.
 
         Parameters
         ----------
@@ -719,7 +717,7 @@ class Gather(TraceContainer, SamplesContainer):
             A muter to use. `Muter` instance is used directly. If `MuterField` instance is passed, a `Muter`
             corresponding to gather coordinates is fetched from it.
             May be `str` if called in a pipeline: in this case it defines a component with muters to apply.
-        fill_value : float, optional, defaults to 0
+        fill_value : float, optional, defaults to np.nan
             A value to fill the muted part of the gather with.
 
         Returns
@@ -878,6 +876,9 @@ class Gather(TraceContainer, SamplesContainer):
             `StackingVelocityField` instance is passed, a `StackingVelocity` corresponding to gather coordinates is
             fetched from it. If `int` or `float` then constant-velocity correction is performed.
             May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
+        crossover_mute: bool
+            Whether to perform crossover mute after the nmo correction. 
+            This mutes the areas where the time reversal occured after the correction.
 
         Returns
         -------

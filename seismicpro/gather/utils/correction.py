@@ -9,37 +9,32 @@ from ...muter.utils import compute_crossovers_times
 from .general_utils import mute_gather
 
 
-
 @njit(nogil=True, fastmath=True)
-def get_hodograph(gather_data, hodograph_times, sample_rate, interpolate=True, fill_value=0, out=None):
-    r"""Return gather amplitudes for a reflection traveltime curve starting from time `time` with velocity `velocity`,
-    assuming that it follows hyperbolic trajectory as a function of offset given by:
-    :math:`t(l) = \sqrt{t(0)^2 + \frac{l^2}{v^2}}`, where:
-        t(l) - travel time at offset `l`,
-        t(0) - travel time at zero offset,
-        l - seismic trace offset,
-        v - seismic wave velocity.
-
+def get_hodograph(gather_data, hodograph_times, sample_rate, interpolate=True, fill_value=np.nan, out=None):
+    """ Retrieve hodograph amplitudes from the `gather_data`. 
+    Hodograph is defined by `hodograph_times`: the event time for each trace of the gather.
+    
     Parameters
     ----------
     gather_data : 2d np.ndarray
-        Gather data to apply NMO correction to. The data is stored in a transposed form, compared to `Gather.data` due
-        to performance reasons, so that `gather_data.shape` is (trace_length, num_traces).
-    time : float
-        Seismic wave travel time at zero offset. Measured in milliseconds.
-    offsets : 1d np.ndarray
-        The distance between source and receiver for each trace. Measured in meters.
-    velocity : float
-        Seismic velocity value for traveltime calculation. Measured in meters/milliseconds.
+        Gather data retrieve hodograph amplitudes from.
+    hodograph_times : 1d np.array
+        Event time for each trace of the hodograph, e.g `len(hodograph_times) == len(gather_data)`. 
+        Measured in milliseconds.
     sample_rate : float
         Sample rate of seismic traces. Measured in milliseconds.
-    fill_value : float, defaults to 0
-        Fill value to use if the traveltime is outside the gather bounds for some given offsets.
+    interpolate: bool, defaults to True
+        Whether to perform linear interpolation to retrieve the hodograph event from the trace.
+        In case `False`, the nearest trace amplitude obtained. 
+    fill_value : float, defaults to np.nan
+        Fill value to use if the traveltime is outside the gather bounds.
+    out : np.array, optional
+        The buffer to store result in. If not provided, allocate new array.
 
     Returns
     -------
-    hodograph : 1d array
-        Gather amplitudes along a hyperbolic traveltime curve.
+    out : 1d array
+        Gather amplitudes along a hodograph.
     """
     if out is None:
         out = np.empty(len(hodograph_times), dtype=gather_data.dtype)
@@ -59,7 +54,8 @@ def get_hodograph(gather_data, hodograph_times, sample_rate, interpolate=True, f
 
 @njit(nogil=True)
 def compute_hodograph_times(offsets, times, velocities):
-    return np.sqrt(times.reshape(-1, 1)**2 + (offsets/np.asarray(velocities).reshape(-1, 1))**2)
+    """ Calculate the times of hyperbolic hodographs for each time of the gatner with given stacking velocities. """
+    return np.sqrt(times.reshape(-1, 1) ** 2 + (offsets / np.asarray(velocities).reshape(-1, 1)) **2)
 
 
 @njit(nogil=True, parallel=True)
@@ -85,27 +81,31 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate, cro
         Recording time for each trace value. Measured in milliseconds.
     offsets : 1d np.ndarray
         The distance between source and receiver for each trace. Measured in meters.
-    stacking_velocities : 1d np.ndarray
-        Stacking velocities for each time. Matches the length of `times`. Measured in meters/milliseconds.
+    stacking_velocities : 1d np.ndarray or scalar
+        Stacking velocities for each time. In case scalar value, perform nmo with given velocity for each time.
+        Measured in meters/milliseconds.
     sample_rate : float
         Sample rate of seismic traces. Measured in milliseconds.
+    crossover_mute: bool
+        Whether to perform crossover mute after the nmo correction. 
+        This mutes the areas where the time reversal occured after the correction.
 
     Returns
     -------
     corrected_gather : 2d array
-        NMO corrected gather with an ordinary shape of (num_traces, trace_length).
+        NMO corrected gather data with an ordinary shape of (num_traces, trace_length).
     """
-    corrected_gather_data = np.full(gather_data.shape, fill_value=np.float32(np.nan))
+    corrected_gather = np.full(gather_data.shape, fill_value=np.float32(np.nan))
     hodograph_times = compute_hodograph_times(offsets, times, stacking_velocities)
 
     for i in prange(len(times)):    
-        get_hodograph(gather_data, hodograph_times[i], sample_rate, fill_value=np.nan, out=corrected_gather_data[:, i])    
+        get_hodograph(gather_data, hodograph_times[i], sample_rate, fill_value=np.nan, out=corrected_gather[:, i])    
  
     if crossover_mute:
         crossovers_times = compute_crossovers_times(hodograph_times) * sample_rate
-        corrected_gather_data = mute_gather(corrected_gather_data, crossovers_times, times, np.nan)
+        corrected_gather = mute_gather(corrected_gather, crossovers_times, times, np.nan)
 
-    return corrected_gather_data
+    return corrected_gather
 
 
 @njit(nogil=True)
