@@ -99,7 +99,7 @@ def load_headers(path, headers_to_load, trace_data_offset, trace_size, n_traces,
 
 
 # pylint: disable=too-many-statements
-def validate_headers(headers, offset_rtol=0.01, offset_atol=10, cdp_atol=50, elev_rtol=0.1, elev_atol=10):
+def validate_headers(headers, offset_rtol=0.01, offset_atol=100, cdp_atol=50, elev_rtol=0.1, elev_atol=10):
     """Validate trace headers by checking that:
     - All headers are not empty,
     - Trace identifier (FieldRecord, TraceNumber) has no duplicates,
@@ -190,11 +190,13 @@ def validate_headers(headers, offset_rtol=0.01, offset_atol=10, cdp_atol=50, ele
             urec_elev_coords = urec_elev_coords[~urec_elev_coords[rec_cols].duplicated(keep=False)]
 
         if len(ushot_elev_coords) > 0 and len(urec_elev_coords) > 0:
-            rec_elevations = urec_elev_coords.values[:, 2]
-            shot_interp = IDWInterpolator(ushot_elev_coords.values [:, :2], ushot_elev_coords.values[:, 2],
+            shot_elevations = ushot_elev_coords.values[:, 2]
+            # Use receiver-based interpolator to construct more accurate model because usually the number of receivers
+            # exceeds the number of sources
+            rec_interp = IDWInterpolator(urec_elev_coords.values [:, :2], urec_elev_coords.values[:, 2],
                                           neighbors=3)
-            rec_by_shot = shot_interp(urec_elev_coords.values[:, :2])
-            if not np.allclose(rec_elevations, rec_by_shot, rtol=elev_rtol, atol=elev_atol):
+            shot_by_rec = rec_interp(ushot_elev_coords.values[:, :2])
+            if not np.allclose(shot_elevations, shot_by_rec, rtol=elev_rtol, atol=elev_atol):
                 msg_list.append("Inconsistent values in elevation-related headers (ReceiverGroupElevation,"
                                 "\n    SourceSurfaceElevation)")
 
