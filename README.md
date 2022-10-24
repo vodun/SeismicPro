@@ -1,9 +1,8 @@
 <div align="center">
 
-![SeismicPro](https://user-images.githubusercontent.com/19351782/125063408-1bcdab80-e0b8-11eb-96c2-719bc640da36.png)
+![SeismicPro](https://user-images.githubusercontent.com/26159964/196654661-3ff89a60-c17e-47a5-862f-7f6b814a0df9.png)
 
 <p align="center">
-  <!-- <a href="">Docs</a> • -->
   <a href="#installation">Installation</a> •
   <a href="#getting-started">Getting Started</a> •
   <a href="#tutorials">Tutorials</a> •
@@ -20,55 +19,52 @@
 
 ---
 
-`SeismicPro` is a framework for accelerating processing of pre-stack seismic data with deep learning models.
+`SeismicPro` is a framework for acceleration of pre-stack seismic data processing with deep learning models.
 
 Main features:
-
-* Load pre-stack data in `SEG-Y` format at any exploration stage in a highly efficient manner
-* Utilize stacking velocities, times of first breaks, and other types of auxiliary data from multiple geological frameworks
-* Transform seismic data by both general and complex task-specific methods in a massively parallel way
-* Combine processing functions into concise and readable pipelines
-* Define a wide range of neural network architectures from vanilla `UNet` to sophisticated `EfficientNet`s with simple and intuitive configurations in just a few lines of code
+* Read pre-stack data in `SEG-Y` format at any exploration stage in a highly efficient manner
+* Load and utilize stacking velocities, times of first breaks, and other types of auxiliary data from multiple geological frameworks
+* Transform seismic data with both general and complex task-specific methods in a massively parallel way
+* Combine processing routines into concise and readable pipelines
+* Solve applied tasks with a wide range of neural network architectures from a vanilla `UNet` to sophisticated `EfficientNet`s defined in just a few lines of code
+* Evaluate the obtained results using interactive quality maps
 
 ## Installation
 
 > `SeismicPro` module is in the beta stage. Your suggestions and improvements via [issues](https://github.com/gazprom-neft/SeismicPro/issues) are very welcome.
 
-`SeismicPro` is compatible with Python 3.8+ and tested on Ubuntu 20.04 and Windows Server 2019.
+> Note that the [Benchmark](./benchmark/) module may not work on Windows due to dependency issues. Use it with caution.
 
-> Note that the [Benchmark](./seismicpro/benchmark/) module and [Research](./seismicpro/batchflow/batchflow/research/) may not work on Windows due to dependency issues. Use it with caution.
+`SeismicPro` is compatible with Python 3.8+ and is tested on Ubuntu 20.04 and Windows Server 2022.
 
-### Installation as a python package
-
-With [pip](https://pip.pypa.io/en/stable/):
-
+* Installation as a python package using [pip](https://pip.pypa.io/en/stable/):
+    ```bash
     pip3 install git+https://github.com/gazprom-neft/SeismicPro.git
-
-With [pipenv](https://docs.pipenv.org/):
-
+    ```
+* Installation as a python package using [pipenv](https://docs.pipenv.org/):
+    ```bash
     pipenv install git+https://github.com/gazprom-neft/SeismicPro.git#egg=SeismicPro
-
-### Installation as a project repository
-
-When cloning a repo from GitHub use ``--recursive`` flag to make sure that ``batchflow`` submodule is also cloned.
-
-    git clone --recursive https://github.com/gazprom-neft/SeismicPro.git
+    ```
+* Cloning the project repository:
+    ```bash
+    git clone https://github.com/gazprom-neft/SeismicPro.git
+    ```
 
 ## Getting Started
 
 `SeismicPro` provides a simple interface to work with pre-stack data.
 
 ```python
-import seismicpro
+import seismicpro as spr
 ```
 
 A single `SEG-Y` file can be represented by a `Survey` instance that stores a requested subset of trace headers and allows for gather loading:
 
 ```python
-survey = seismicpro.Survey(path_to_file, header_index='FieldRecord', header_cols='offset')
+survey = spr.Survey(path_to_file, header_index='FieldRecord', header_cols='offset')
 ```
 
-`header_index` argument specifies how individual traces are combined into gathers: in this example, we consider common source gathers. Both `header_index` and `header_cols` correspond to names of trace headers in [segyio](https://segyio.readthedocs.io/en/latest/segyio.html#constants).
+`header_index` argument specifies how individual traces are combined into gathers: in this example, we consider common source gathers. Both `header_index` and `header_cols` correspond to names of trace headers in [segyio](https://segyio.readthedocs.io/en/latest/segyio.html#trace-header-keys).
 
 All loaded headers are stored in `headers` attribute as a `pd.DataFrame` indexed by passed `header_index`:
 
@@ -76,13 +72,14 @@ All loaded headers are stored in `headers` attribute as a `pd.DataFrame` indexed
 survey.headers.head()
 ```
 
-| **FieldRecord** | **offset** | **TRACE_SEQUENCE_FILE** |
-|----------------:|-----------:|------------------------:|
-|         **175** |       6455 |                       1 |
-|         **175** |       6567 |                       2 |
-|         **175** |       6683 |                       3 |
-|         **175** |       6805 |                       4 |
-|         **175** |       6932 |                       5 |
+|                 |   offset |   TRACE_SEQUENCE_FILE |
+|----------------:|---------:|----------------------:|
+| **FieldRecord** |          |                       |
+|         **175** |      326 |                     1 |
+|         **175** |      326 |                     2 |
+|         **175** |      333 |                     3 |
+|         **175** |      334 |                     4 |
+|         **175** |      348 |                     5 |
 
 A randomly selected gather can be obtained by calling `sample_gather` method:
 
@@ -96,7 +93,7 @@ Let's take a look at it being sorted by offset:
 gather.sort(by='offset').plot()
 ```
 
-![gather](https://i.imgur.com/qv0SsEE.png)
+![gather](https://user-images.githubusercontent.com/26159964/196198315-00ac9178-2a14-4e01-b493-77eed8eed144.png)
 
 Moreover, processing methods can be combined into compact pipelines like the one below which performs automatic stacking velocity picking and gather stacking:
 

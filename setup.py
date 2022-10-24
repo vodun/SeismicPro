@@ -3,15 +3,16 @@
 import re
 from setuptools import setup, find_packages
 
-with open('seismicpro/__init__.py', 'r') as f:
+
+with open('./seismicpro/__init__.py', 'r', encoding='utf-8') as f:
     version = re.search(r'^__version__\s*=\s*[\'"]([^\'"]*)[\'"]', f.read(), re.MULTILINE).group(1)
 
-with open("README.md", "r", encoding="utf-8") as fh:
-    long_description = fh.read()
+with open('./README.md', 'r', encoding='utf-8') as f:
+    long_description = f.read()
 
 setup(
     name='SeismicPro',
-    packages=find_packages(exclude=['tutorials']),
+    packages=find_packages(exclude=['tutorials', 'benchmark']),
     version=version,
     url='https://github.com/gazprom-neft/SeismicPro',
     license='Apache License 2.0',
@@ -41,7 +42,7 @@ setup(
         'multiprocess>=0.70.11',
         'requests>=2.24',
         'psutil>=5.7.2',
-        'batchflow @ git+https://github.com/analysiscenter/batchflow.git@997f2a7#egg=batchflow',
+        'batchflow>=0.7.5',
     ],
     classifiers=[
         'Development Status :: 4 - Beta',
