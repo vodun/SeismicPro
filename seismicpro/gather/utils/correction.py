@@ -5,7 +5,6 @@ import math
 import numpy as np
 from numba import njit, prange
 
-from ...muter.utils import compute_crossovers_times
 from .general_utils import mute_gather
 
 
@@ -56,6 +55,22 @@ def get_hodograph(gather_data, hodograph_times, sample_rate, interpolate=True, f
 def compute_hodograph_times(offsets, times, velocities):
     """ Calculate the times of hyperbolic hodographs for each time of the gatner with given stacking velocities. """
     return np.sqrt(times.reshape(-1, 1) ** 2 + (offsets / np.asarray(velocities).reshape(-1, 1)) **2)
+
+
+@njit(nogil=True)
+def compute_crossovers_times(hodograph_times):
+    N = len(hodograph_times) - 1
+    crossover_times = np.zeros(hodograph_times.shape[1])
+
+    for i in range(hodograph_times.shape[1]):
+        t0 =  hodograph_times[N, i]
+        for j in range(1, N):
+            t = hodograph_times[N - j, i]
+            if t > t0:
+                crossover_times[i] = N - j
+                break
+            t0 = t
+    return crossover_times
 
 
 @njit(nogil=True, parallel=True)
