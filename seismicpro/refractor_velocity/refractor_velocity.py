@@ -7,7 +7,7 @@ from scipy.optimize import minimize
 from sklearn.linear_model import SGDRegressor
 
 from .utils import (get_param_names, postprocess_params, dump_refractor_velocities, load_refractor_velocities,
-                    calc_mean_velocity, reduce_survey_headers)
+                    calc_mean_velocity, reduce_offsets_and_times)
 from ..muter import Muter
 from ..decorators import batch_method, plotter
 from ..utils import get_first_defined, set_ticks, set_text_formatting

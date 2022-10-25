@@ -94,13 +94,17 @@ def dump_refractor_velocities(refractor_velocities, path, encoding="UTF-8"):
     df.to_string(buf=path, float_format=lambda x: f"{x:.2f}", index=False, encoding=encoding)
 
 
-def reduce_survey_headers(survey, x="offset", y=HDR_FIRST_BREAK, reduce_step=20):
-    """Reduce survey headers."""
-    x, y = to_list(x), to_list(y)
-    headers = survey.headers[x + y]
-    headers['bins'] = (headers[x].to_numpy() / reduce_step).astype(np.int32)  # avoid integer division
+def reduce_offsets_and_times(survey, first_breaks_col=HDR_FIRST_BREAK, reduce_step=20):
+    """Reduce the offsets and times of first breaks stored in the survey headers.
+
+    Method splits the survey headers by bins with the same size define by `reduce_step` using offsets values and
+    calculate the mean separately by bins. The first breaks times uses same bins and also calculate the mean
+    separately by bins.
+    """
+    headers = survey.headers[['offset', first_breaks_col]]
+    headers['bins'] = (headers['offset'].to_numpy() / reduce_step).astype(np.uint16)  # faster than integer division
     reduced_headers = headers.groupby(by='bins', sort=False).mean()
-    return reduced_headers[x].to_numpy().ravel(), reduced_headers[y].to_numpy().ravel()
+    return reduced_headers['offset'].to_numpy(), reduced_headers[first_breaks_col].to_numpy()
 
 
 # pylint: disable-next=too-many-arguments
@@ -162,7 +166,7 @@ def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_s
 
 
 def calc_mean_velocity(survey, min_velocity_step=400, min_refractor_size=400, loss="L1", huber_coef=20,
-                       first_breaks_col=HDR_FIRST_BREAK, find_weathering=True, reduce_step=20, debug=False):
+                       first_breaks_col=HDR_FIRST_BREAK, find_weathering=False, reduce_step=20, debug=False):
     """Calculate mean near-surface velocity model describing the survey.
 
     Parameters
@@ -196,7 +200,8 @@ def calc_mean_velocity(survey, min_velocity_step=400, min_refractor_size=400, lo
     ValueError
         If the reduced survey data contains less than two points.
     """
-    offsets, times = reduce_survey_headers(survey, x="offset", y=first_breaks_col, reduce_step=reduce_step)
+    offsets, times = reduce_offsets_and_times(survey, first_breaks_col, reduce_step)
+    print(offsets, times)
     if offsets.shape[0] < 2:
         raise ValueError("Offsets contains less than two points after reducing. Decrease the value of `reduce_step`.")
     rv = calc_optimal_velocity(offsets, times, min_velocity_step=min_velocity_step,
