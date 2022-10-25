@@ -98,7 +98,7 @@ def reduce_survey_headers(survey, x="offset", y=HDR_FIRST_BREAK, reduce_step=20)
     """Reduce survey headers."""
     x, y = to_list(x), to_list(y)
     headers = survey.headers[x + y]
-    headers['bins'] = (headers[x].to_numpy() / reduce_step).astype(np.uint16)  # avoid integer division
+    headers['bins'] = (headers[x].to_numpy() / reduce_step).astype(np.int32)  # avoid integer division
     reduced_headers = headers.groupby(by='bins', sort=False).mean()
     return reduced_headers[x].to_numpy().ravel(), reduced_headers[y].to_numpy().ravel()
 
@@ -132,7 +132,7 @@ def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_s
     max_refractors : int, optional, defaults to 10
         Maximum number of refractors for the expected velocity model.
     find_weathering : bool, optional, defaults to False.
-        If True the minimum offset range constraint for the expected weathering layer is removed.
+        If True the minimum refractor size contraint for the expected weathering layer is removed.
 
     Returns
     -------
@@ -150,10 +150,11 @@ def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_s
         max_offset = max(offsets.max(), min_refractor_size * refractor)
         rv_last = RefractorVelocity.from_first_breaks(offsets, times, init, bounds, refractor, max_offset,
                                                       min_velocity_step, min_refractor_size_vec, loss, huber_coef)
+        n_points, _ = np.histogram(rv_last.offsets, bins=rv_last.piecewise_offsets)
         # TODO: remove debug
         if debug:
-            rv_last.plot(title=f'{rv_last.fit_result.fun}\nfind_weathering={find_weathering}')
-        n_points, _ = np.histogram(rv_last.offsets, bins=rv_last.piecewise_offsets)
+            rv_last.plot(title=(f'loss: {rv_last.fit_result.fun:.6f}\nfind_weathering={find_weathering}'
+                                f'\nn_points: {n_points}'))
         if not ((n_points > 1).all() and (rv is None or rv_last.fit_result.fun < rv.fit_result.fun)):
             break
         rv = rv_last
@@ -193,13 +194,11 @@ def calc_mean_velocity(survey, min_velocity_step=400, min_refractor_size=400, lo
     Raises
     ------
     ValueError
-        If survey does not contain any indices.
+        If the reduced survey data contains less than two points.
     """
-    if survey.n_gathers < 1:
-        raise ValueError("Survey is empty.")
     offsets, times = reduce_survey_headers(survey, x="offset", y=first_breaks_col, reduce_step=reduce_step)
     if offsets.shape[0] < 2:
-        raise ValueError("Offset contains less than two points after reducing. Decrease the value of `reduce_step`.")
+        raise ValueError("Offsets contains less than two points after reducing. Decrease the value of `reduce_step`.")
     rv = calc_optimal_velocity(offsets, times, min_velocity_step=min_velocity_step,
                                min_refractor_size=min_refractor_size, loss=loss, huber_coef=huber_coef, debug=debug)
     if find_weathering:
