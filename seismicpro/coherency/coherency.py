@@ -8,17 +8,14 @@ from scipy.ndimage import median_filter
 from matplotlib import colors as mcolors
 import matplotlib.pyplot as plt
 
-from .utils import coherency_dict
+
+from  . import coherency_func
 from .interactive_plot import SemblancePlot
 from ..decorators import batch_method, plotter
 from ..gather.utils.correction import get_hodograph
 from ..stacking_velocity import StackingVelocity, calculate_stacking_velocity
 from ..utils import add_colorbar, set_ticks, set_text_formatting
 from ..gather.utils import correction
-
-
-ALL_FM_FLAGS  = {'nnan', 'ninf', 'nsz', 'arcp', 'contract', 'afn', 'reassoc'}
-COHERENCY_FM_FLAGS = ALL_FM_FLAGS - {'nnan'}
 
 
 class BaseCoherency:
@@ -33,7 +30,7 @@ class BaseCoherency:
         Temporal window size used for coherency calculation. The higher the `win_size` is, the smoother the resulting
         coherency will be but to the detriment of small details. Measured in samples.
     mode: str, defaults to `semblance`
-        The coherency measure. See the `coherency_dict` for avaliable options.
+        The coherency measure. See the `utils.coherency_dict` for avaliable options.
     
     Attributes
     ----------
@@ -47,6 +44,18 @@ class BaseCoherency:
     def __init__(self, gather, win_size, mode='semblance'):
         self.gather = gather
         self.win_size = win_size  # samples
+
+        coherency_dict = {
+            "stacked_amplitude": coherency_func.stacked_amplitude,
+            "S": coherency_func.stacked_amplitude,
+            "normalized_stacked_amplitude": coherency_func.normalized_stacked_amplitude,
+            "NS": coherency_func.normalized_stacked_amplitude,
+            "semblance": coherency_func.semblance,
+            "NE": coherency_func.semblance,
+            'crosscorrelation': coherency_func.crosscorrelation,
+            'CC': coherency_func.crosscorrelation,
+            'ENCC': coherency_func.energy_normalized_crosscorrelation
+        }
 
         self.coherency_func = coherency_dict.get(mode)
         if self.coherency_func is None:
@@ -128,7 +137,7 @@ class BaseCoherency:
             t_rel = t - t_win_size_min_ix
             ix_from = max(0, t_rel - win_size)
             ix_to = min(len(corrected_gather) - 1, t_rel + win_size)
-            semblance_slice[t - t_min_ix] = (np.sum(numerator[ix_from : ix_to]) / (np.sum(denominator[ix_from : ix_to]) + 1e-6))
+            semblance_slice[t - t_min_ix] = np.mean(numerator[ix_from : ix_to] / (denominator[ix_from : ix_to] + 1e-6))
         return semblance_slice
 
     @staticmethod
@@ -290,7 +299,7 @@ class Coherency(BaseCoherency):
         return time, velocity
 
     @staticmethod
-    @njit(nogil=True, fastmath=COHERENCY_FM_FLAGS, parallel=True)
+    @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_semblance_numba(semblance_func, nmo_func, coherency_func, gather_data, times, offsets, velocities, 
                               sample_rate, win_size):
         """Parallelized and njitted method for vertical velocity semblance calculation.
@@ -533,7 +542,7 @@ class ResidualCoherency(BaseCoherency):
         return left_bound_ix, right_bound_ix
 
     @staticmethod
-    @njit(nogil=True, fastmath=COHERENCY_FM_FLAGS, parallel=True)
+    @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_res_semblance_numba(semblance_func, nmo_func, coherency_func, gather_data, times, offsets, velocities, left_bound_ix,
                                   right_bound_ix, sample_rate, win_size):
         """Parallelized and njitted method for residual vertical velocity semblance calculation.
@@ -598,7 +607,7 @@ class ResidualCoherency(BaseCoherency):
         center_ind = self.residual_semblance.shape[1] / 2
         delta = (ind - center_ind) / center_ind
         corrected_velocity = self.stacking_velocity(self.times) * (1 + delta * self.relative_margin)
-        if kernel_size is not 1:
+        if kernel_size != 1:
             corrected_velocity = median_filter(corrected_velocity, kernel_size)
         return StackingVelocity(self.times, corrected_velocity, self.coords)
 
