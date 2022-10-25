@@ -3,12 +3,11 @@
 # pylint: disable=not-an-iterable
 import numpy as np
 from numba import njit, prange
-from scipy.ndimage import median_filter
 from matplotlib import colors as mcolors
 import matplotlib.pyplot as plt
 
 
-from .coherency_func import (stacked_amplitude, normalized_stacked_amplitude, semblance, crosscorrelation, 
+from .coherency_func import (stacked_amplitude, normalized_stacked_amplitude, semblance, crosscorrelation,
                              energy_normalized_crosscorrelation)
 from .interactive_plot import SemblancePlot
 from ..decorators import batch_method, plotter
@@ -91,7 +90,7 @@ class BaseCoherency:
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def calc_single_velocity_coherency(nmo_func, coherency_func, gather_data, times, offsets, velocity, sample_rate,
+    def calc_single_velocity_coherency(coherency_func, gather_data, times, offsets, velocity, sample_rate,
                                        win_size, t_min_ix, t_max_ix):  # pylint: disable=too-many-arguments
         """Calculate coherency for given velocity and time range.
 
@@ -278,10 +277,10 @@ class Coherency(BaseCoherency):
         super().__init__(gather, win_size=win_size, mode=mode)
         self.velocities = velocities  # m/s
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
-        self.semblance = self._calc_semblance_numba(semblance_func=self.calc_single_velocity_coherency, 
+        self.semblance = self._calc_semblance_numba(semblance_func=self.calc_single_velocity_coherency,
                                                     coherency_func=self.coherency_func,
-                                                    nmo_func=get_hodograph, gather_data=self.gather.data,
-                                                    times=self.times, offsets=self.offsets, velocities=velocities_ms,
+                                                    gather_data=self.gather.data, times=self.times, 
+                                                    offsets=self.offsets, velocities=velocities_ms,
                                                     sample_rate=self.sample_rate, win_size=self.win_size)
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
@@ -302,7 +301,7 @@ class Coherency(BaseCoherency):
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def _calc_semblance_numba(semblance_func, nmo_func, coherency_func, gather_data, times, offsets, velocities,
+    def _calc_semblance_numba(semblance_func, coherency_func, gather_data, times, offsets, velocities,
                               sample_rate, win_size):
         """Parallelized and njitted method for vertical velocity semblance calculation.
 
@@ -323,7 +322,7 @@ class Coherency(BaseCoherency):
         semblance = np.empty((gather_data.shape[1], len(velocities)), dtype=np.float32)
         # TODO: use prange when fixed in numba
         for j in prange(len(velocities)):  # pylint: disable=consider-using-enumerate
-            semblance[:, j] = semblance_func(nmo_func=nmo_func, coherency_func=coherency_func,
+            semblance[:, j] = semblance_func(coherency_func=coherency_func,
                                              gather_data=gather_data, times=times, offsets=offsets,
                                              velocity=velocities[j], sample_rate=sample_rate, win_size=win_size,
                                              t_min_ix=0, t_max_ix=gather_data.shape[1])
@@ -506,12 +505,11 @@ class ResidualCoherency(BaseCoherency):
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
 
         left_bound_ix, right_bound_ix = self._calc_velocity_bounds()
-        self.residual_semblance = self._calc_res_semblance_numba(semblance_func=self.calc_single_velocity_coherency, 
+        self.residual_semblance = self._calc_res_semblance_numba(semblance_func=self.calc_single_velocity_coherency,
                                                                  coherency_func=self.coherency_func,
-                                                                 nmo_func=get_hodograph, gather_data=self.gather.data,
-                                                                 times=self.times, offsets=self.offsets,
-                                                                 velocities=velocities_ms,
-                                                                 left_bound_ix=left_bound_ix,
+                                                                 gather_data=self.gather.data, times=self.times, 
+                                                                 offsets=self.offsets, velocities=velocities_ms,
+                                                                 left_bound_ix=left_bound_ix, 
                                                                  right_bound_ix=right_bound_ix,
                                                                  sample_rate=self.sample_rate, win_size=self.win_size)
 
@@ -547,7 +545,7 @@ class ResidualCoherency(BaseCoherency):
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def _calc_res_semblance_numba(semblance_func, nmo_func, coherency_func, gather_data, times, offsets, velocities, 
+    def _calc_res_semblance_numba(semblance_func, coherency_func, gather_data, times, offsets, velocities,
                                   left_bound_ix, right_bound_ix, sample_rate, win_size):
         """Parallelized and njitted method for residual vertical velocity semblance calculation.
 
@@ -555,8 +553,8 @@ class ResidualCoherency(BaseCoherency):
         ----------
         semblance_func : njitted callable
             Base function for semblance calculation for single velocity and a time range.
-        nmo_func : njitted callable
-            Base function for gather normal moveout correction for given time and velocity.
+        coherency_func : njitted callable
+            Function for estimating hodograph coherency.
         left_bound_ix : 1d array
             Indices of corresponding velocities of the left bound for each time.
         right_bound_ix : 1d array
@@ -577,7 +575,7 @@ class ResidualCoherency(BaseCoherency):
             t_max_ix = np.where(left_bound_ix == i)[0]
             t_max_ix = len(times) - 1 if len(t_max_ix) == 0 else t_max_ix[-1]
 
-            semblance[t_min_ix : t_max_ix+1, i] = semblance_func(nmo_func=nmo_func, coherency_func=coherency_func, 
+            semblance[t_min_ix : t_max_ix+1, i] = semblance_func(nmo_func=nmo_func, coherency_func=coherency_func,
                                                                  gather_data=gather_data, times=times, offsets=offsets,
                                                                  velocity=velocities[i], sample_rate=sample_rate,
                                                                  win_size=win_size, t_min_ix=t_min_ix,
@@ -640,7 +638,7 @@ class ResidualCoherency(BaseCoherency):
             Whether to share y axis of residual semblance and gather plots.
         gather_plot_kwargs : dict, optional, only for interactive mode
             Additional arguments to pass to `Gather.plot`.
-    
+
         Returns
         -------
         semblance : ResidualSemblance
