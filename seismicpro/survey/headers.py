@@ -11,9 +11,10 @@ import segyio
 import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
+from sklearn.neighbors import RadiusNeighborsRegressor
 
 from ..const import TRACE_HEADER_SIZE, ENDIANNESS
-from ..utils import ForPoolExecutor, IDWInterpolator
+from ..utils import ForPoolExecutor
 
 
 def define_unpacking_format(headers_to_load):
@@ -99,22 +100,8 @@ def load_headers(path, headers_to_load, trace_data_offset, trace_size, n_traces,
 
 
 # pylint: disable=too-many-statements
-def validate_headers(headers, offset_rtol=0.01, offset_atol=100, cdp_atol=50, elev_rtol=0.1, elev_atol=10):
-    """Validate trace headers by checking that:
-    - All headers are not empty,
-    - Trace identifier (FieldRecord, TraceNumber) has no duplicates,
-    - Traces with the same shot index (FieldRecord) do not have different coordinates (SourceX, SourceY),
-    - Offset has no negative values,
-    - Offsets in trace headers coincide with offsets calculated based on the distance between shots (SourceX, SourceY)
-      and receivers (GroupX, GroupY),
-    - There is a mapping from geographic (CDP_X, CDP_Y) to binary (INLINE_3D/CROSSLINE_3D) coordinates,
-    - Range of all geographic coordinates (SourceX, SourceY, GroupX, GroupY, CDP_X, CDP_Y) is coincide,
-    - Surface elevation (SourceSurfaceElevation, ReceiverGroupElevation) within the same shot(SourceX, SourceY) or
-      receiver(GroupX, GroupY) is coincide,
-    - Elevation-related headers (ReceiverGroupElevation, SourceSurfaceElevation) have consistent ranges.
-
-    If any of the checks fail, a warning will be raised.
-    """
+def validate_headers(headers, offset_atol=10, cdp_atol=50, elev_atol=10, elev_radius=50):
+    """Validate trace headers for consistency"""
     msg_list = []
 
     shot_cols = ["SourceX", "SourceY"]
@@ -130,83 +117,67 @@ def validate_headers(headers, offset_rtol=0.01, offset_atol=100, cdp_atol=50, el
         msg_list.append("Empty headers: " + ", ".join(zero_columns))
 
     if {"FieldRecord", "TraceNumber"} <= available_columns:
-        n_unique_ids = (~headers[["FieldRecord", "TraceNumber"]].duplicated()).sum()
-        if n_unique_ids != headers.shape[0]:
+        if headers.duplicated(["FieldRecord", "TraceNumber"]).any():
             msg_list.append("Non-unique traces identifier (FieldRecord, TraceNumber)")
 
     if {"FieldRecord", *shot_cols} <= available_columns:
         fr_with_coords = headers[["FieldRecord", *shot_cols]].drop_duplicates()
-        n_unique_fr = fr_with_coords["FieldRecord"].nunique()
-        if len(fr_with_coords) != n_unique_fr:
+        if fr_with_coords.duplicated(['FieldRecord']).any():
             msg_list.append("Several pairs of coordinates (SourceX, SourceY) for single FieldRecord")
 
-    if {'offset'} <= available_columns:
-        has_negative_offset = np.any(headers['offset'] < 0)
+    if 'offset' in available_columns:
+        has_negative_offset = (headers['offset'] < 0).any()
         if has_negative_offset:
-            msg_list.append("Negative offset")
+            msg_list.append("Signed offsets")
 
     # Check that Euclidean distance calculated based on the coords from shot to receiver is close to the one stored
     # in trace headers
     if {*shot_cols, *rec_cols, "offset"} <= available_columns and not has_negative_offset:
-        real_offsets = headers["offset"].values
         calculated_offsets = np.sqrt(np.sum((headers[shot_cols].values - headers[rec_cols].values)**2, axis=1))
-        has_mismatched_offsets = not np.allclose(real_offsets, calculated_offsets, rtol=offset_rtol, atol=offset_atol)
-        if has_mismatched_offsets:
+        if not np.allclose(calculated_offsets, headers["offset"].values, rtol=0, atol=offset_atol):
             msg_list.append("Mismatch of offsets in headers to the distance between shots (SourceX, "
                             "\n    SourceY) and receivers (GroupX, GroupY) positions for each trace")
 
     if {*cdp_cols, *bin_cols} <= available_columns:
-        unique_inline_cdp = headers[[*bin_cols, *cdp_cols]].drop_duplicates()
-        unique_cdp = unique_inline_cdp[cdp_cols].drop_duplicates()
-        if len(unique_inline_cdp) != len(unique_cdp):
+        unique_bins_cdp = headers[[*bin_cols, *cdp_cols]].drop_duplicates()
+        if unique_bins_cdp.duplicated(cdp_cols).any() or unique_bins_cdp.duplicated(bin_cols).any():
             msg_list.append("Non-unique mapping of geographic (CDP_X, CDP_Y) to line-based (INLINE_3D/"
                             "\n    CROSSLINE_3D) coordinates")
 
     if {*shot_cols, *rec_cols, *cdp_cols} <= available_columns:
         raw_cdp = (headers[shot_cols].values + headers[rec_cols].values) / 2
         if not np.allclose(raw_cdp, headers[cdp_cols].values, rtol=0, atol=cdp_atol):
-            if has_mismatched_offsets:
-                msg = "Inconsistent range of some geographic coordinates (SourceX, SourceY, GroupX,"\
-                      "\n    GroupY, CDP_X, CDP_Y)"
-            else:
-                msg = "Inconsistent range of CDP_X and CDP_Y coordinates compare to SourceX, "\
-                      "\n    SourceY, GroupX, GroupY"
-            msg_list.append(msg)
+            msg_list.append("Inconsistent range of CDP_X and CDP_Y coordinates compared to SourceX, "\
+                            "\n    SourceY, GroupX, GroupY")
 
     if {*shot_cols, "SourceSurfaceElevation"} <= available_columns:
-        ushot_elev_coords = headers[[*shot_cols, "SourceSurfaceElevation"]].drop_duplicates()
-        ushot_coords = ushot_elev_coords[shot_cols].drop_duplicates()
-        has_nonuniq_shot_elevs = len(ushot_elev_coords) != len(ushot_coords)
-        if has_nonuniq_shot_elevs:
+        unique_shot_elevs = headers[[*shot_cols, "SourceSurfaceElevation"]].drop_duplicates()
+        has_nonunique_shot_elevs = unique_shot_elevs.duplicated(shot_cols).any()
+        if has_nonunique_shot_elevs:
             msg_list.append("Non-unique surface elevation (SourceSurfaceElevation) for at least one shot")
 
     if {*rec_cols, "ReceiverGroupElevation"} <= available_columns:
-        urec_elev_coords = headers[[*rec_cols, "ReceiverGroupElevation"]].drop_duplicates()
-        urec_coords = urec_elev_coords[rec_cols].drop_duplicates()
-        has_nonuniq_rec_elevs = len(urec_elev_coords) != len(urec_coords)
-        if has_nonuniq_rec_elevs:
+        unique_rec_elevs = headers[[*rec_cols, "ReceiverGroupElevation"]].drop_duplicates()
+        has_nonunique_rec_elevs = unique_rec_elevs.duplicated(rec_cols).any()
+        if has_nonunique_rec_elevs:
             msg_list.append("Non-unique surface elevation (ReceiverGroupElevation) for at least one"
                             "\n    receiver")
 
     if {*shot_cols, *rec_cols, "ReceiverGroupElevation", "SourceSurfaceElevation"} <= available_columns:
-        if has_nonuniq_shot_elevs:
-            ushot_elev_coords = ushot_elev_coords[~ushot_elev_coords[shot_cols].duplicated(keep=False)]
-        if has_nonuniq_rec_elevs:
-            urec_elev_coords = urec_elev_coords[~urec_elev_coords[rec_cols].duplicated(keep=False)]
+        if has_nonunique_shot_elevs:
+            unique_shot_elevs = unique_shot_elevs[~unique_shot_elevs[shot_cols].duplicated(keep=False)]
+        if has_nonunique_rec_elevs:
+            unique_rec_elevs = unique_rec_elevs[~unique_rec_elevs[rec_cols].duplicated(keep=False)]
 
-        if len(ushot_elev_coords) > 0 and len(urec_elev_coords) > 0:
-            shot_elevations = ushot_elev_coords.values[:, 2]
-            # Use receiver-based interpolator to construct more accurate model because usually the number of receivers
-            # exceeds the number of sources
-            rec_interp = IDWInterpolator(urec_elev_coords.values [:, :2], urec_elev_coords.values[:, 2],
-                                          neighbors=3)
-            shot_by_rec = rec_interp(ushot_elev_coords.values[:, :2])
-            if not np.allclose(shot_elevations, shot_by_rec, rtol=elev_rtol, atol=elev_atol):
+        if len(unique_shot_elevs) > 0 and len(unique_rec_elevs) > 0:
+            data = np.concatenate((unique_shot_elevs.to_numpy(), unique_rec_elevs.to_numpy()))
+            rnr = RadiusNeighborsRegressor(radius=elev_radius).fit(data[:, :2], data[:, 2])
+            if not np.allclose(rnr.predict(data[:, :2]), data[:, 2], rtol=0, atol=elev_atol):
                 msg_list.append("Inconsistent values in elevation-related headers (ReceiverGroupElevation,"
                                 "\n    SourceSurfaceElevation)")
 
-    if len(msg_list) > 0:
+    if msg_list:
         line = "\n\n" + "-"*80
-        msg = line +  "\n\nThe loaded Survey has the following problems with trace headers:"
-        msg += "".join([f"\n\n {i+1}. {msg}" for i, msg in zip(range(len(msg_list)), msg_list)]) + line
+        msg = line + "\n\nThe loaded Survey has the following problems with trace headers:"
+        msg += "".join([f"\n\n {i+1}. {msg}" for i, msg in enumerate(msg_list)]) + line
         warnings.warn(msg)
