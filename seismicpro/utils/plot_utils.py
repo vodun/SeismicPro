@@ -70,14 +70,15 @@ def add_colorbar(ax, artist, colorbar, divider=None, y_ticker=None):
     cax = divider.append_axes("right", size="5%", pad=0.05)
     ax.figure.colorbar(artist, cax=cax, **colorbar)
     if y_ticker is not None:
-        format_subplot_yticklabels(cax, **y_ticker)
+        format_subplot_ticklabels(cax, axis='y', **y_ticker)
 
 
-def format_subplot_yticklabels(ax, fontsize=None, fontfamily=None, fontweight=None, **kwargs):
+def format_subplot_ticklabels(ax, *, axis, fontsize=None, fontfamily=None, fontweight=None, **kwargs):
     """Set text formatting of y ticks of `ax` axes. This method is mainly used to format ticks on subplots such as a
     colorbar. It updates only font size, family and weight and does not support tick rotation."""
     _ = kwargs
-    for tick in ax.get_yticklabels():
+    ticklabels = ax.get_xticklabels() if axis == 'x' else ax.get_yticklabels()
+    for tick in ticklabels:
         tick.set_fontsize(fontsize)
         tick.set_fontfamily(fontfamily)
         tick.set_fontweight(fontweight)

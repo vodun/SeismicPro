@@ -127,45 +127,51 @@ class MapBinPlot(MapCoordsPlot):
         _ = change
         self.update_state(self.drop.index)
 
-
-class SelectionSliderPlot(InteractivePlot):
-    """Define an interactive plot with a selection range slider on top of the canvas and nice readout.
+class SliderPlot(InteractivePlot):
+    """Define an interactive plot with a range slider on top of the canvas.
 
     Parameters
     ----------
-    options : array of float
-        array of slider values.
+    initial_values : array
+        values .
     slide_fn : callable
         A function called on slider move.
-    description : str, optional
-        slider description
+    norm : str
+        'linear' or 'quantile'
     kwargs : misc, optional
         Additional keyword arguments to `InteractivePlot.__init__`.
     """
-    def __init__(self, *, options, slide_fn, description='', **kwargs):
-        self.slider = widgets.SelectionRangeSlider(options=options, index=(0, len(options)-1),
-                                                   continuous_update=False, description='',
-                                                   readout=False, layout=widgets.Layout(width="80%")
-                                                  )
-        self.slider_range = widgets.HTML(value=(f"{options[0]:.4} - {options[-1]:.4}"))
+    def __init__(self, *, initial_values, slide_fn, norm, **kwargs):
 
+        slider_min, slider_max = initial_values.min(), initial_values.max()
+        rng_template = "{0:.4} - {1:.4}"
+        self.slider_range = widgets.HTML(value=rng_template.format(float(slider_min), float(slider_max)))
+
+        if norm == 'linear':
+            self.slider = widgets.FloatRangeSlider(value=[slider_min, slider_max],
+                                                   min=slider_min, max=slider_max, step=(slider_max-slider_min)/100,
+                                                   continuous_update=False, description='', readout=False,
+                                                   layout=widgets.Layout(width="70%"))
+        else:
+            options=np.quantile(initial_values, q=np.linspace(0, 1, num=101))
+            self.slider = widgets.SelectionRangeSlider(options=options, index=(0, len(options)-1),
+                                                       continuous_update=False, description='', readout=False,
+                                                       layout=widgets.Layout(width="70%"))
         def update_description(change):
             _ = change
-            self.slider_range.value = f"{self.slider.value[0]:.4} - {self.slider.value[1]:.4}"
+            self.slider_range.value = rng_template.format(*self.slider.value)
 
-        self.slider.observe(handler=slide_fn, names="value")
         self.slider.observe(handler=update_description, names="value")
+        self.slider.observe(handler=slide_fn, names="value")
 
         self.slider_box = widgets.HBox([self.slider, self.slider_range],
-                                       layout=widgets.Layout(justify_content='flex-end'))
-
-        self.slider_description = widgets.HTML(value=description, layout=widgets.Layout(justify_content='center'))
+                                        layout=widgets.Layout(justify_content='flex-end'))
         super().__init__(**kwargs)
 
     def construct_header(self):
         """Append the slider below the plot header."""
         header = super().construct_header()
-        return widgets.VBox([self.slider_description, self.slider_box, header])
+        return widgets.VBox([header, self.slider_box])
 
 
 class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-instance-attributes
@@ -176,7 +182,7 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
     * `click` - handle a click on the map plot.
     """
     def __init__(self, metric_map, plot_on_click=None, plot_on_click_kwargs=None, title=None, is_lower_better=None,
-                 figsize=(4.5, 4.5), fontsize=8, orientation="horizontal", show_slider=True, **kwargs):
+                 figsize=(4.5, 4.5), fontsize=8, orientation="horizontal", show_slider=True, norm='linear', **kwargs):
         kwargs = {"fontsize": fontsize, **kwargs}
         text_kwargs = get_text_formatting_kwargs(**kwargs)
         plot_on_click, plot_on_click_kwargs = align_args(plot_on_click, plot_on_click_kwargs)
@@ -186,6 +192,7 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
         self.figsize = figsize
         self.orientation = orientation
         self.show_slider = show_slider
+        self.norm = norm
 
         self.is_lower_better = is_lower_better
         self.plot_map_kwargs = kwargs
@@ -218,16 +225,10 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
 
     def construct_main_plot(self):
         """Construct the metric map plot."""
-
-        original_map_data = self.original_metric_map.map_data
-        coords_x, coords_y = original_map_data.index.to_frame().values.T
-        vmin, vmax = original_map_data.min(), original_map_data.max()
-        xlim, ylim = calculate_axis_limits(coords_x), calculate_axis_limits(coords_y)
+        default_kwargs = self._make_metric_map_plot_default_kwargs()
 
         def plot_map(*args, **kwargs):
-            kwargs = {'title': '', 'is_lower_better': self.is_lower_better,
-                      'vmin': vmin, 'vmax': vmax,
-                      'xlim': xlim, 'ylim': ylim,
+            kwargs = {**default_kwargs,
                       **self.plot_map_kwargs,
                       **kwargs}
             self.current_metric_map.plot(*args, **kwargs)
@@ -240,10 +241,29 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
 
         original_metric = self.original_metric_map.metric_data[self.original_metric_map.metric_name]
 
-        return SelectionSliderPlot(**interactive_plot_kwargs, description='Tracewise metric values',
-                                   options=np.quantile(original_metric, q=np.linspace(0, 1, num=101)),
-                                   slide_fn=self.on_slider_change
+        return SliderPlot(**interactive_plot_kwargs,
+                          initial_values=original_metric, slide_fn=self.on_slider_change,
+                          norm=self.norm
                                   )
+
+    def _make_metric_map_plot_default_kwargs(self):
+        initial_values = self.original_metric_map.map_data
+
+        coords_x, coords_y = initial_values.index.to_frame().values.T
+
+        xlim, ylim = calculate_axis_limits(coords_x), calculate_axis_limits(coords_y)
+
+        kwargs = {
+            'title': '', 'is_lower_better': self.is_lower_better,
+            'xlim': xlim, 'ylim': ylim,
+
+        }
+        if self.norm == 'linear':
+            kwargs.update(vmin=initial_values.min(), vmax=initial_values.max())
+        else:
+            kwargs.update(boundaries=np.quantile(initial_values, q=np.linspace(0, 1, num=101)))
+
+        return kwargs
 
     def click(self, coords):
         """Handle a click on the map plot."""

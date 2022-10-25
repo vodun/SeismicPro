@@ -17,7 +17,7 @@ from .cropped_gather import CroppedGather
 from .plot_corrections import NMOCorrectionPlot, LMOCorrectionPlot
 from .utils import correction, normalization, gain
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
-from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_yticklabels, set_text_formatting,
+from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_ticklabels, set_text_formatting,
                      add_colorbar, piecewise_polynomial, Coordinates)
 from ..containers import TraceContainer, SamplesContainer
 from ..semblance import Semblance, ResidualSemblance
@@ -1540,7 +1540,7 @@ class Gather(TraceContainer, SamplesContainer):
         top_ax.xaxis.set_visible(False)
         top_ax.yaxis.tick_right()
         top_ax.invert_yaxis()
-        format_subplot_yticklabels(top_ax, **y_ticker)
+        format_subplot_ticklabels(top_ax, axis='y', **y_ticker)
         return top_ax
 
     def _get_x_ticks(self, axis_label):

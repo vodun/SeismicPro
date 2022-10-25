@@ -3,11 +3,12 @@
 import numpy as np
 import pandas as pd
 from matplotlib import colors as mcolors
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .interactive_map import ScatterMapPlot, BinarizedMapPlot
 from .utils import parse_coords, parse_metric_values
 from ..decorators import plotter
-from ..utils import to_list, get_first_defined, add_colorbar, calculate_axis_limits, set_ticks, set_text_formatting
+from ..utils import to_list, get_first_defined, add_colorbar, calculate_axis_limits, set_ticks, set_text_formatting, format_subplot_ticklabels
 
 
 class BaseMetricMap:
@@ -107,18 +108,74 @@ class BaseMetricMap:
         return mcolors.CenteredNorm(global_mean, clip_threshold)
 
     @plotter(figsize=(10, 7))
-    def _plot(self, *, title=None, x_ticker=None, y_ticker=None, is_lower_better=None, vmin=None, vmax=None, cmap=None,
+    def _plot(self, *, title=None, x_ticker=None, y_ticker=None, is_lower_better=None, vmin=None, vmax=None, boundaries=None, histogram=False,
+              cmap=None,
               colorbar=True, center_colorbar=True, clip_threshold_quantile=0.95, keep_aspect=False, ax=None, **kwargs):
         """Plot the metric map."""
-        is_lower_better = self.is_lower_better if is_lower_better is None else is_lower_better
-        vmin_vmax_passed = (vmin is not None) or (vmax is not None)
-        vmin = get_first_defined(vmin, self.vmin, self.min_value)
-        vmax = get_first_defined(vmax, self.vmax, self.max_value)
 
-        if (not vmin_vmax_passed) and (is_lower_better is None) and center_colorbar:
-            norm = self.get_centered_norm(clip_threshold_quantile)
-        else:
-            norm = mcolors.Normalize(vmin, vmax)
+        norm = self._make_norm(is_lower_better, vmin, vmax, boundaries, center_colorbar, clip_threshold_quantile)
+
+        cmap = self._make_cmap(is_lower_better, cmap)
+
+        colorbar = self._make_colorbar(colorbar, boundaries)
+
+        (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
+        map_obj = self._plot_map(ax, is_lower_better=is_lower_better, cmap=cmap, norm=norm, **kwargs)
+        ax.set_title(**{"label": self.plot_title, **title})
+        ax.ticklabel_format(style="plain", useOffset=False)
+        if keep_aspect:
+            ax.set_aspect("equal", adjustable="box")
+
+        divider = make_axes_locatable(ax)
+
+        self.add_histogram(ax, map_obj, histogram, boundaries, divider, x_ticker=x_ticker, y_ticker=y_ticker)
+        add_colorbar(ax, map_obj, colorbar, divider, y_ticker=y_ticker)
+
+        set_ticks(ax, "x", self.coords_cols[0], self.x_tick_labels, **x_ticker)
+        set_ticks(ax, "y", self.coords_cols[1], self.y_tick_labels, **y_ticker)
+
+    def add_histogram(self, ax, artist, histogram, boundaries, divider=None, x_ticker=None, y_ticker=None):
+        if histogram is not False:
+            histogram = {} if histogram is True else histogram
+
+            cmap = artist.get_cmap()
+            norm = artist.norm
+
+            if boundaries is None:
+                boundaries = 100
+
+            counts, bins = np.histogram(self.metric_data[self.metric_name], bins=boundaries)
+
+            if divider is None:
+                divider = make_axes_locatable(ax)
+
+            hax = divider.append_axes("top", size="15%", pad=0.2)
+
+            midpoints = (bins[:-1] + bins[1:])/2
+            widths =  (bins[1:] - bins[:-1])
+
+            hax.bar(x=midpoints, height=counts, width=widths, color=cmap(norm(midpoints)))
+            hax.set_yscale(histogram.get('hscale', 'linear'))
+            hax.set_title('Metric values', **x_ticker)
+            # hax.xaxis.tick_top()
+
+
+            if y_ticker is not None:
+                format_subplot_ticklabels(hax, axis='y', **y_ticker)
+
+            if x_ticker is not None:
+                format_subplot_ticklabels(hax, axis='x', **x_ticker)
+
+    def _make_colorbar(self, colorbar, boundaries):
+        if colorbar is not False:
+            colorbar = {} if colorbar is True else colorbar
+            if boundaries is not None:
+                colorbar.update(ticks=boundaries[np.linspace(0, len(boundaries)-1, 11).astype(int)])
+
+        return colorbar
+
+    def _make_cmap(self, is_lower_better, cmap):
+        is_lower_better = get_first_defined(is_lower_better, self.is_lower_better)
 
         if cmap is None:
             if is_lower_better is None:
@@ -128,16 +185,24 @@ class BaseMetricMap:
                 if not is_lower_better:
                     colors = colors[::-1]
                 cmap = mcolors.LinearSegmentedColormap.from_list("cmap", colors)
+        return cmap
 
-        (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
-        map_obj = self._plot_map(ax, is_lower_better=is_lower_better, cmap=cmap, norm=norm, **kwargs)
-        ax.set_title(**{"label": self.plot_title, **title})
-        ax.ticklabel_format(style="plain", useOffset=False)
-        if keep_aspect:
-            ax.set_aspect("equal", adjustable="box")
-        add_colorbar(ax, map_obj, colorbar, y_ticker=y_ticker)
-        set_ticks(ax, "x", self.coords_cols[0], self.x_tick_labels, **x_ticker)
-        set_ticks(ax, "y", self.coords_cols[1], self.y_tick_labels, **y_ticker)
+    def _make_norm(self, is_lower_better, vmin, vmax, boundaries, center_colorbar, clip_threshold_quantile):
+
+        is_lower_better = get_first_defined(is_lower_better, self.is_lower_better)
+
+        vmin_vmax_passed = (vmin is not None) or (vmax is not None)
+
+        if (not vmin_vmax_passed) and (is_lower_better is None) and (boundaries is None) and center_colorbar:
+            norm = self.get_centered_norm(clip_threshold_quantile)
+        elif boundaries is not None:
+            norm = mcolors.BoundaryNorm(boundaries=boundaries, ncolors=256)
+        else:
+            vmin = get_first_defined(vmin, self.vmin, self.min_value)
+            vmax = get_first_defined(vmax, self.vmax, self.max_value)
+            norm = mcolors.Normalize(vmin, vmax)
+
+        return norm
 
     def plot(self, *, interactive=False, plot_on_click=None, **kwargs):
         """Plot the metric map.
@@ -256,6 +321,8 @@ class ScatterMap(BaseMetricMap):
 
     def _plot_map(self, ax, is_lower_better, xlim=None, ylim=None, **kwargs):
         """Display map data as a scatter plot."""
+        is_lower_better = get_first_defined(is_lower_better, self.is_lower_better)
+
         sort_key = None
         if is_lower_better is None:
             is_lower_better = True
