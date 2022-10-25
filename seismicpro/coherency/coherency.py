@@ -8,6 +8,7 @@ from scipy.ndimage import median_filter
 from matplotlib import colors as mcolors
 import matplotlib.pyplot as plt
 
+from .utils import coherency_dict
 from .interactive_plot import SemblancePlot
 from ..decorators import batch_method, plotter
 from ..gather.utils.correction import get_hodograph
@@ -21,46 +22,31 @@ COHERENCY_FM_FLAGS = ALL_FM_FLAGS - {'nnan'}
 
 
 class BaseCoherency:
-    """Base class for vertical velocity semblance calculation.
+    """Base class for vertical velocity coherency calculation.
     Implements general computation logic and visualization method.
 
     Parameters
     ----------
     gather : Gather
-        Seismic gather to calculate semblance for.
+        Seismic gather to calculate coherency for.
     win_size : int
-        Temporal window size used for semblance calculation. The higher the `win_size` is, the smoother the resulting
-        semblance will be but to the detriment of small details. Measured in samples.
-    mode: str
+        Temporal window size used for coherency calculation. The higher the `win_size` is, the smoother the resulting
+        coherency will be but to the detriment of small details. Measured in samples.
+    mode: str, defaults to `semblance`
         The coherency measure. See the `coherency_dict` for avaliable options.
     
     Attributes
     ----------
     gather : Gather
-        Seismic gather for which semblance calculation was called.
-    gather_data : 2d np.ndarray
-        Gather data for semblance calculation. The data is stored in a transposed form, compared to `Gather.data` due
-        to performance reasons, so that `gather_data.shape` is (trace_length, num_traces).
+        Seismic gather for which coherency calculation was called.
     win_size : int
-        Temporal window size for smoothing the semblance. Measured in samples.
+        Temporal window size for smoothing the coherency. Measured in samples.
     coherency_func : callable
-        The function that estimates the coherency meassure for given hodograph.
+        The function that estimates the coherency measure for given hodograph.
     """
-    def __init__(self, gather, win_size, mode):
+    def __init__(self, gather, win_size, mode='semblance'):
         self.gather = gather
         self.win_size = win_size  # samples
-
-        coherency_dict = {
-            "stacked_amplitude": self.stacked_amplitude,
-            "S": self.stacked_amplitude,
-            "normalized_stacked_amplitude": self.normalized_stacked_amplitude,
-            "NS": self.normalized_stacked_amplitude,
-            "semblance": self.semblance,
-            "NE": self.semblance,
-            'crosscorrelation': self.crosscorrelation,
-            'CC': self.crosscorrelation,
-            'ENCC': self.energy_normalized_crosscorrelation
-        }
 
         self.coherency_func = coherency_dict.get(mode)
         if self.coherency_func is None:
@@ -83,74 +69,22 @@ class BaseCoherency:
 
     @property
     def coords(self):
-        """Coordinates or None: Spatial coordinates of the semblance. Determined by the underlying gather. `None` if
+        """Coordinates or None: Spatial coordinates of the coherency. Determined by the underlying gather. `None` if
         the gather is indexed by unsupported headers or required coords headers were not loaded or coordinates are
         non-unique for traces of the gather."""
         return self.gather.coords
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
-        semblance."""
+        coherency."""
         _ = time_ix, velocity_ix
         raise NotImplementedError
 
     @staticmethod
-    @njit(nogil=True, fastmath=COHERENCY_FM_FLAGS, parallel=True)
-    def stacked_amplitude(corrected_gather):
-        numerator = np.zeros(corrected_gather.shape[0])
-        denominator = np.ones(corrected_gather.shape[0])
-        for i in prange(corrected_gather.shape[0]):
-            numerator[i] = np.nanmean(corrected_gather[i, :])
-        return numerator, denominator
-
-    @staticmethod
-    @njit(nogil=True, fastmath=COHERENCY_FM_FLAGS, parallel=True)
-    def normalized_stacked_amplitude(corrected_gather):
-        numerator = np.zeros(corrected_gather.shape[0])
-        denominator = np.zeros(corrected_gather.shape[0])
-        for i in prange(corrected_gather.shape[0]):
-            numerator[i] = np.abs(np.nansum(corrected_gather[i, :]))
-            denominator[i] = np.nansum(np.abs(corrected_gather[i, :]))
-        return numerator, denominator
-
-    @staticmethod
-    @njit(nogil=True, fastmath=COHERENCY_FM_FLAGS, parallel=True)
-    def semblance(corrected_gather):
-        numerator = np.zeros(corrected_gather.shape[0])
-        denominator = np.zeros(corrected_gather.shape[0])
-        for i in prange(corrected_gather.shape[0]):
-            numerator[i] = (np.nansum(corrected_gather[i, :]) ** 2) 
-            denominator[i] = np.nansum(corrected_gather[i, :] ** 2) * sum(~np.isnan(corrected_gather[i, :]))
-        return numerator, denominator
-
-    @staticmethod
-    @njit(nogil=True, fastmath=COHERENCY_FM_FLAGS, parallel=True)
-    def crosscorrelation(corrected_gather):
-        numerator = np.zeros(corrected_gather.shape[0])
-        denominator = np.full(corrected_gather.shape[0], 2)
-        for i in prange(corrected_gather.shape[0]):
-            numerator[i] = (np.nansum(corrected_gather[i, :]) ** 2) - np.nansum(corrected_gather[i, :] ** 2)
-        return numerator, denominator
-
-
-    @staticmethod
-    @njit(nogil=True, fastmath=COHERENCY_FM_FLAGS, parallel=True)
-    def energy_normalized_crosscorrelation(corrected_gather):
-        numerator = np.zeros(corrected_gather.shape[0])
-        denominator = np.zeros(corrected_gather.shape[0])
-        for i in prange(corrected_gather.shape[0]):
-            input_enerty =  np.nansum(corrected_gather[i, :] ** 2)
-            output_energy = np.nansum(corrected_gather[i, :]) ** 2
-            numerator[i] = output_energy - input_enerty
-            denominator[i] = input_enerty * sum(~np.isnan(corrected_gather[i, :])) / 2
-        return numerator, denominator
-
-
-    @staticmethod
-    @njit(nogil=True, fastmath=COHERENCY_FM_FLAGS, parallel=True)
-    def calc_single_velocity_semblance(nmo_func, coherency_func, gather_data, times, offsets, velocity, sample_rate, win_size,
-                                       t_min_ix, t_max_ix):  # pylint: disable=too-many-arguments
-        """Calculate semblance for given velocity and time range.
+    @njit(nogil=True, fastmath=True, parallel=True)
+    def calc_single_velocity_coherency(nmo_func, coherency_func, gather_data, times, offsets, velocity, sample_rate,
+                                       win_size, t_min_ix, t_max_ix):  # pylint: disable=too-many-arguments
+        """Calculate coherency for given velocity and time range.
 
         Parameters
         ----------
@@ -158,26 +92,26 @@ class BaseCoherency:
             A callable that calculates normal moveout corrected gather for given time and velocity values and a range
             of offsets.
         gather_data : 2d np.ndarray
-            Gather data for semblance calculation with (trace_length, num_traces) layout.
+            Gather data for coherency calculation.
         times : 1d np.ndarray
             Recording time for each trace value. Measured in milliseconds.
         offsets : array-like
             The distance between source and receiver for each trace. Measured in meters.
         velocity : array-like
-            Seismic wave velocity for semblance computation. Measured in meters/milliseconds.
+            Seismic wave velocity for coherency computation. Measured in meters/milliseconds.
         sample_rate : float
             Sample rate of seismic traces. Measured in milliseconds.
         win_size : int
-            Temporal window size for smoothing the semblance. Measured in samples.
+            Temporal window size for smoothing the coherency. Measured in samples.
         t_min_ix : int
-            Time index in `times` array to start calculating semblance from. Measured in samples.
+            Time index in `times` array to start calculating coherency from. Measured in samples.
         t_max_ix : int
-            Time index in `times` array to stop calculating semblance at. Measured in samples.
+            Time index in `times` array to stop calculating coherency at. Measured in samples.
 
         Returns
         -------
-        semblance_slice : 1d np.ndarray
-            Calculated semblance values for a specified `velocity` in time range from `t_min_ix` to `t_max_ix`.
+        coherency_slice : 1d np.ndarray
+            Calculated coherency values for a specified `velocity` in time range from `t_min_ix` to `t_max_ix`.
         """
         t_win_size_min_ix = max(0, t_min_ix - win_size)
         t_win_size_max_ix = min(len(times) - 1, t_max_ix + win_size)
@@ -334,7 +268,7 @@ class Coherency(BaseCoherency):
         super().__init__(gather, win_size=win_size, mode=mode)
         self.velocities = velocities  # m/s
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
-        self.semblance = self._calc_semblance_numba(semblance_func=self.calc_single_velocity_semblance, coherency_func=self.coherency_func,
+        self.semblance = self._calc_semblance_numba(semblance_func=self.calc_single_velocity_coherency, coherency_func=self.coherency_func,
                                                     nmo_func=get_hodograph, gather_data=self.gather.data,
                                                     times=self.times, offsets=self.offsets, velocities=velocities_ms,
                                                     sample_rate=self.sample_rate, win_size=self.win_size)
@@ -560,7 +494,7 @@ class ResidualCoherency(BaseCoherency):
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
 
         left_bound_ix, right_bound_ix = self._calc_velocity_bounds()
-        self.residual_semblance = self._calc_res_semblance_numba(semblance_func=self.calc_single_velocity_semblance, coherency_func=self.coherency_func,
+        self.residual_semblance = self._calc_res_semblance_numba(semblance_func=self.calc_single_velocity_coherency, coherency_func=self.coherency_func,
                                                                  nmo_func=get_hodograph, gather_data=self.gather.data,
                                                                  times=self.times, offsets=self.offsets,
                                                                  velocities=velocities_ms,
@@ -630,7 +564,7 @@ class ResidualCoherency(BaseCoherency):
             t_max_ix = np.where(left_bound_ix == i)[0]
             t_max_ix = len(times) - 1 if len(t_max_ix) == 0 else t_max_ix[-1]
 
-            semblance[:, i][t_min_ix : t_max_ix+1] = semblance_func(nmo_func=nmo_func, coherency_func=coherency_func, gather_data=gather_data,
+            semblance[t_min_ix : t_max_ix+1, i] = semblance_func(nmo_func=nmo_func, coherency_func=coherency_func, gather_data=gather_data,
                                                                     times=times, offsets=offsets,
                                                                     velocity=velocities[i], sample_rate=sample_rate,
                                                                     win_size=win_size, t_min_ix=t_min_ix,
@@ -640,7 +574,7 @@ class ResidualCoherency(BaseCoherency):
         semblance_len = (right_bound_ix - left_bound_ix).max()
         residual_semblance = np.empty((len(times), semblance_len), dtype=np.float32)
         for i in prange(len(semblance)):
-            cropped_semblance = semblance[i][left_bound_ix[i] : right_bound_ix[i] + 1]
+            cropped_semblance = semblance[i, left_bound_ix[i] : right_bound_ix[i] + 1]
             residual_semblance[i] = np.interp(np.linspace(0, len(cropped_semblance) - 1, semblance_len),
                                               np.arange(len(cropped_semblance)),
                                               cropped_semblance)
@@ -666,8 +600,7 @@ class ResidualCoherency(BaseCoherency):
         corrected_velocity = self.stacking_velocity(self.times) * (1 + delta * self.relative_margin)
         if kernel_size is not 1:
             corrected_velocity = median_filter(corrected_velocity, kernel_size)
-        return StackingVelocity.from_points(self.times, corrected_velocity,
-                                            self.stacking_velocity.inline, self.stacking_velocity.crossline)
+        return StackingVelocity(self.times, corrected_velocity, self.coords)
 
     def _plot(self, *, title="Residual semblance", x_ticker=None, y_ticker=None, grid=False, colorbar=True, ax=None,
               **kwargs):

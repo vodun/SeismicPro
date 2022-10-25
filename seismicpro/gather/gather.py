@@ -708,7 +708,7 @@ class Gather(TraceContainer, SamplesContainer):
 
     @batch_method(target="threads", args_to_unpack="muter")
     def mute(self, muter, fill_value=np.nan):
-          """Mute the gather using given `muter` which defines an offset-time boundary above which gather amplitudes will
+        """Mute the gather using given `muter` which defines an offset-time boundary above which gather amplitudes will
         be set to `fill_value`.
 
         Parameters
@@ -770,7 +770,7 @@ class Gather(TraceContainer, SamplesContainer):
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
     def calculate_residual_coherency(self, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2,
-                                     mode="semblance", split=False):
+                                     mode="semblance"):
         """Calculate residual vertical velocity semblance for the gather and a chosen stacking velocity.
 
         Notes
