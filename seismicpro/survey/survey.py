@@ -216,10 +216,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         tsf_dtype = np.int32 if len(headers) < np.iinfo(np.int32).max else np.int64
         headers["TRACE_SEQUENCE_FILE"] = np.arange(1, self.segy_handler.tracecount+1, dtype=tsf_dtype)
 
-        # Validate trace headers for the presence of invalid headers.
+        # Validate trace headers for consistency
         if validate:
-            validate_headers(headers)
-
+            self.validate_headers(headers)
         # Sort headers by the required index in order to optimize further subsampling and merging. Sorting preserves
         # trace order from the file within each gather.
         headers.set_index(header_index, inplace=True)
@@ -382,6 +381,41 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """Print survey metadata including information about the source file, field geometry if it was inferred and
         trace statistics if they were calculated."""
         print(self)
+
+    def validate_headers(self, headers, offset_atol=10, cdp_atol=50, elev_atol=10, elev_radius=50):
+        """Validate trace headers by checking that:
+        - All headers are not empty,
+        - Trace identifier (FieldRecord, TraceNumber) has no duplicates,
+        - Traces with the same shot index (FieldRecord) do not have different coordinates (SourceX, SourceY),
+        - Traces do not have signed offsets,
+        - Offsets in trace headers coincide with offsets calculated based on the distance between shots (SourceX,
+        SourceY) and receivers (GroupX, GroupY),
+        - There is a unique mapping from geographic (CDP_X, CDP_Y) to binary (INLINE_3D/CROSSLINE_3D) coordinates,
+        - Range of all geographic coordinates (SourceX, SourceY, GroupX, GroupY, CDP_X, CDP_Y) is the same,
+        - Surface elevation (SourceSurfaceElevation, ReceiverGroupElevation) within the single shot(SourceX, SourceY)
+        or receiver(GroupX, GroupY) is the same,
+        - Elevation-related headers (ReceiverGroupElevation, SourceSurfaceElevation) have consistent ranges.
+
+        If any of the checks fail, a warning is displayed.
+
+        Parameters
+        ----------
+        headers : pd.DataFrame
+            Headers of traces to validate.
+        offset_atol : int
+            Maximum difference at which offsets in `headers` and calculated from Source and Group coordinates are
+            considered the same.
+        cdp_atol : int
+            Maximum difference at which CDP coordinates in headers and calculated from Source and Group coordinates are
+            considered the same.
+        elev_atol : int
+            Maximum difference at which source and receiver elevations are considered consistent.
+        elev_radius : int
+            Radius of the neighborhood to select elevations from for each Source and Group coordinates.
+        """
+        _ = self
+        validate_headers(headers, offset_atol=offset_atol, cdp_atol=cdp_atol, elev_atol=elev_atol,
+                         elev_radius=elev_radius)
 
     #------------------------------------------------------------------------#
     #                        Geometry-related methods                        #
