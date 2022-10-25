@@ -766,7 +766,6 @@ class Gather(TraceContainer, SamplesContainer):
         """
         gather = self.copy().sort(by="offset")
         return Coherency(gather=gather, velocities=velocities, win_size=win_size, mode=mode)
-        
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
     def calculate_residual_coherency(self, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2,
@@ -810,7 +809,7 @@ class Gather(TraceContainer, SamplesContainer):
         gather = self.copy().sort(by="offset")
         return ResidualCoherency(gather=gather, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
                                  win_size=win_size, relative_margin=relative_margin, mode=mode)
-        
+
 
     #------------------------------------------------------------------------#
     #                           Gather corrections                           #
@@ -877,7 +876,7 @@ class Gather(TraceContainer, SamplesContainer):
             fetched from it. If `int` or `float` then constant-velocity correction is performed.
             May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
         crossover_mute: bool
-            Whether to perform crossover mute after the nmo correction. 
+            Whether to perform crossover mute after the nmo correction.
             This mutes the areas where the time reversal occured after the correction.
 
         Returns
@@ -898,7 +897,8 @@ class Gather(TraceContainer, SamplesContainer):
             raise ValueError("stacking_velocity must be of int, float, StackingVelocity or StackingVelocityField type")
 
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
-        self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms, self.sample_rate, crossover_mute)
+        self.data = correction.apply_nmo(self.data, self.times, self.offsets,
+                                         velocities_ms, self.sample_rate, crossover_mute)
         return self
 
     #------------------------------------------------------------------------#

@@ -133,8 +133,8 @@ class MuterField(ValuesAgnosticField, VFUNCFieldMixin):
 
     @classmethod
     def from_stacking_velocity_field(cls, field, stretch_factor=0.65):
-        """Create a muter field to attenuate the effect of waveform stretching after the nmo correction by constructing a
-        muter for each stacking velocity in a `field` in the following way:
+        """Create a muter field to attenuate the effect of waveform stretching after the nmo correction
+        by constructing a muter for each stacking velocity in a `field`.
 
 
         Parameters

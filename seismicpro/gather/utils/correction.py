@@ -10,21 +10,21 @@ from .general_utils import mute_gather
 
 @njit(nogil=True, fastmath=True)
 def get_hodograph(gather_data, hodograph_times, sample_rate, interpolate=True, fill_value=np.nan, out=None):
-    """ Retrieve hodograph amplitudes from the `gather_data`. 
+    """ Retrieve hodograph amplitudes from the `gather_data`.
     Hodograph is defined by `hodograph_times`: the event time for each trace of the gather.
-    
+
     Parameters
     ----------
     gather_data : 2d np.ndarray
         Gather data retrieve hodograph amplitudes from.
     hodograph_times : 1d np.array
-        Event time for each trace of the hodograph, e.g `len(hodograph_times) == len(gather_data)`. 
+        Event time for each trace of the hodograph, e.g `len(hodograph_times) == len(gather_data)`.
         Measured in milliseconds.
     sample_rate : float
         Sample rate of seismic traces. Measured in milliseconds.
     interpolate: bool, defaults to True
         Whether to perform linear interpolation to retrieve the hodograph event from the trace.
-        In case `False`, the nearest trace amplitude obtained. 
+        In case `False`, the nearest trace amplitude obtained.
     fill_value : float, defaults to np.nan
         Fill value to use if the traveltime is outside the gather bounds.
     out : np.array, optional
@@ -59,15 +59,17 @@ def compute_hodograph_times(offsets, times, velocities):
 
 @njit(nogil=True)
 def compute_crossovers_times(hodograph_times):
-    N = len(hodograph_times) - 1
+    """ Given times for gather NMO correction, find for each trace the lattest time when crossover event occurs.
+    Used to mute the trace above this event. """
+    n = len(hodograph_times) - 1
     crossover_times = np.zeros(hodograph_times.shape[1])
 
     for i in range(hodograph_times.shape[1]):
-        t0 =  hodograph_times[N, i]
-        for j in range(1, N):
-            t = hodograph_times[N - j, i]
+        t0 =  hodograph_times[n, i]
+        for j in range(1, n):
+            t = hodograph_times[n - j, i]
             if t > t0:
-                crossover_times[i] = N - j
+                crossover_times[i] = n - j
                 break
             t0 = t
     return crossover_times
@@ -102,7 +104,7 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate, cro
     sample_rate : float
         Sample rate of seismic traces. Measured in milliseconds.
     crossover_mute: bool
-        Whether to perform crossover mute after the nmo correction. 
+        Whether to perform crossover mute after the nmo correction.
         This mutes the areas where the time reversal occured after the correction.
 
     Returns
@@ -113,9 +115,9 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate, cro
     corrected_gather = np.full(gather_data.shape, fill_value=np.float32(np.nan))
     hodograph_times = compute_hodograph_times(offsets, times, stacking_velocities)
 
-    for i in prange(len(times)):    
-        get_hodograph(gather_data, hodograph_times[i], sample_rate, fill_value=np.nan, out=corrected_gather[:, i])    
- 
+    for i in prange(len(times)):
+        get_hodograph(gather_data, hodograph_times[i], sample_rate, fill_value=np.nan, out=corrected_gather[:, i])
+
     if crossover_mute:
         crossovers_times = compute_crossovers_times(hodograph_times) * sample_rate
         corrected_gather = mute_gather(corrected_gather, crossovers_times, times, np.nan)

@@ -2,8 +2,9 @@
 
 import numpy as np
 
+from .muter import Muter
 from ..decorators import batch_method
-from ..utils import to_list, VFUNC
+from ..utils import VFUNC
 
 
 class StackingVelocity(VFUNC):
@@ -127,6 +128,19 @@ class StackingVelocity(VFUNC):
 
     @batch_method(target="for", copy_src=False)
     def create_muter(self, stretch_factor=0.65):
+       """ Create a muter from a stacking velocity.
+        This muter is supposed to attenuate the effect of waveform stretching after the nmo correction.
+
+        Parameters
+        ----------
+        stretch_factor : float, defaults to 0.65
+            Maximum allowed stretch factor.
+
+        Returns
+        -------
+        self : Muter
+            Created muter.
+        """
         return Muter.from_stacking_velocity(self, stretch_factor=stretch_factor)
 
     def __call__(self, times):

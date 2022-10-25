@@ -3,13 +3,13 @@
 # pylint: disable=not-an-iterable
 import numpy as np
 from numba import njit, prange
-from numba.typed import List
 from scipy.ndimage import median_filter
 from matplotlib import colors as mcolors
 import matplotlib.pyplot as plt
 
 
-from  . import coherency_func
+from .coherency_func import (stacked_amplitude, normalized_stacked_amplitude, semblance, crosscorrelation, 
+                             energy_normalized_crosscorrelation)
 from .interactive_plot import SemblancePlot
 from ..decorators import batch_method, plotter
 from ..gather.utils.correction import get_hodograph
@@ -31,7 +31,7 @@ class BaseCoherency:
         coherency will be but to the detriment of small details. Measured in samples.
     mode: str, defaults to `semblance`
         The coherency measure. See the `utils.coherency_dict` for avaliable options.
-    
+
     Attributes
     ----------
     gather : Gather
@@ -46,15 +46,15 @@ class BaseCoherency:
         self.win_size = win_size  # samples
 
         coherency_dict = {
-            "stacked_amplitude": coherency_func.stacked_amplitude,
-            "S": coherency_func.stacked_amplitude,
-            "normalized_stacked_amplitude": coherency_func.normalized_stacked_amplitude,
-            "NS": coherency_func.normalized_stacked_amplitude,
-            "semblance": coherency_func.semblance,
-            "NE": coherency_func.semblance,
-            'crosscorrelation': coherency_func.crosscorrelation,
-            'CC': coherency_func.crosscorrelation,
-            'ENCC': coherency_func.energy_normalized_crosscorrelation
+            "stacked_amplitude": stacked_amplitude,
+            "S": stacked_amplitude,
+            "normalized_stacked_amplitude": normalized_stacked_amplitude,
+            "NS": normalized_stacked_amplitude,
+            "semblance": semblance,
+            "NE": semblance,
+            'crosscorrelation': crosscorrelation,
+            'CC': crosscorrelation,
+            'ENCC': energy_normalized_crosscorrelation
         }
 
         self.coherency_func = coherency_dict.get(mode)
@@ -125,7 +125,7 @@ class BaseCoherency:
         t_win_size_min_ix = max(0, t_min_ix - win_size)
         t_win_size_max_ix = min(len(times) - 1, t_max_ix + win_size)
 
-        corrected_gather = correction.apply_nmo(gather_data, times[t_win_size_min_ix: t_win_size_max_ix + 1], 
+        corrected_gather = correction.apply_nmo(gather_data, times[t_win_size_min_ix: t_win_size_max_ix + 1],
                                                 offsets, velocity, sample_rate, crossover_mute=False).T
 
         numerator, denominator = coherency_func(corrected_gather)
@@ -184,7 +184,8 @@ class BaseCoherency:
         (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
 
         cmap = plt.get_cmap('seismic')
-        norm = mcolors.BoundaryNorm(np.linspace(0, np.quantile(semblance, clip_threshold_quantile), n_levels), cmap.N, clip=True)
+        norm = mcolors.BoundaryNorm(np.linspace(0, np.quantile(semblance, clip_threshold_quantile), n_levels),
+                                    cmap.N, clip=True)
         img = ax.imshow(semblance, norm=norm, aspect='auto', cmap=cmap)
         add_colorbar(ax, img, colorbar, y_ticker=y_ticker)
         ax.set_title(**{"label": None, **title})
@@ -277,7 +278,8 @@ class Coherency(BaseCoherency):
         super().__init__(gather, win_size=win_size, mode=mode)
         self.velocities = velocities  # m/s
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
-        self.semblance = self._calc_semblance_numba(semblance_func=self.calc_single_velocity_coherency, coherency_func=self.coherency_func,
+        self.semblance = self._calc_semblance_numba(semblance_func=self.calc_single_velocity_coherency, 
+                                                    coherency_func=self.coherency_func,
                                                     nmo_func=get_hodograph, gather_data=self.gather.data,
                                                     times=self.times, offsets=self.offsets, velocities=velocities_ms,
                                                     sample_rate=self.sample_rate, win_size=self.win_size)
@@ -300,7 +302,7 @@ class Coherency(BaseCoherency):
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def _calc_semblance_numba(semblance_func, nmo_func, coherency_func, gather_data, times, offsets, velocities, 
+    def _calc_semblance_numba(semblance_func, nmo_func, coherency_func, gather_data, times, offsets, velocities,
                               sample_rate, win_size):
         """Parallelized and njitted method for vertical velocity semblance calculation.
 
@@ -321,7 +323,8 @@ class Coherency(BaseCoherency):
         semblance = np.empty((gather_data.shape[1], len(velocities)), dtype=np.float32)
         # TODO: use prange when fixed in numba
         for j in prange(len(velocities)):  # pylint: disable=consider-using-enumerate
-            semblance[:, j] = semblance_func(nmo_func=nmo_func, coherency_func=coherency_func, gather_data=gather_data, times=times, offsets=offsets,
+            semblance[:, j] = semblance_func(nmo_func=nmo_func, coherency_func=coherency_func,
+                                             gather_data=gather_data, times=times, offsets=offsets,
                                              velocity=velocities[j], sample_rate=sample_rate, win_size=win_size,
                                              t_min_ix=0, t_max_ix=gather_data.shape[1])
         return semblance
@@ -415,7 +418,7 @@ class Coherency(BaseCoherency):
         -------
         stacking_velocity : StackingVelocity
             Calculated stacking velocity.
-    
+
         Raises
         ------
         ValueError
@@ -503,7 +506,8 @@ class ResidualCoherency(BaseCoherency):
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
 
         left_bound_ix, right_bound_ix = self._calc_velocity_bounds()
-        self.residual_semblance = self._calc_res_semblance_numba(semblance_func=self.calc_single_velocity_coherency, coherency_func=self.coherency_func,
+        self.residual_semblance = self._calc_res_semblance_numba(semblance_func=self.calc_single_velocity_coherency, 
+                                                                 coherency_func=self.coherency_func,
                                                                  nmo_func=get_hodograph, gather_data=self.gather.data,
                                                                  times=self.times, offsets=self.offsets,
                                                                  velocities=velocities_ms,
@@ -543,8 +547,8 @@ class ResidualCoherency(BaseCoherency):
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def _calc_res_semblance_numba(semblance_func, nmo_func, coherency_func, gather_data, times, offsets, velocities, left_bound_ix,
-                                  right_bound_ix, sample_rate, win_size):
+    def _calc_res_semblance_numba(semblance_func, nmo_func, coherency_func, gather_data, times, offsets, velocities, 
+                                  left_bound_ix, right_bound_ix, sample_rate, win_size):
         """Parallelized and njitted method for residual vertical velocity semblance calculation.
 
         Parameters
@@ -573,11 +577,11 @@ class ResidualCoherency(BaseCoherency):
             t_max_ix = np.where(left_bound_ix == i)[0]
             t_max_ix = len(times) - 1 if len(t_max_ix) == 0 else t_max_ix[-1]
 
-            semblance[t_min_ix : t_max_ix+1, i] = semblance_func(nmo_func=nmo_func, coherency_func=coherency_func, gather_data=gather_data,
-                                                                    times=times, offsets=offsets,
-                                                                    velocity=velocities[i], sample_rate=sample_rate,
-                                                                    win_size=win_size, t_min_ix=t_min_ix,
-                                                                    t_max_ix=t_max_ix+1)
+            semblance[t_min_ix : t_max_ix+1, i] = semblance_func(nmo_func=nmo_func, coherency_func=coherency_func, 
+                                                                 gather_data=gather_data, times=times, offsets=offsets,
+                                                                 velocity=velocities[i], sample_rate=sample_rate,
+                                                                 win_size=win_size, t_min_ix=t_min_ix,
+                                                                 t_max_ix=t_max_ix+1)
 
         # Interpolate semblance to get a rectangular image
         semblance_len = (right_bound_ix - left_bound_ix).max()
@@ -588,28 +592,6 @@ class ResidualCoherency(BaseCoherency):
                                               np.arange(len(cropped_semblance)),
                                               cropped_semblance)
         return residual_semblance
-
-    @batch_method(target="for", copy_src=False)
-    def correct_stacking_velocity(self, kernel_size=1):
-        """ Correct stacking velocity the way it follows the maximum coherency path.
-
-        Parameters
-        ----------
-        kernel_size : int
-            Median filter kernel size. Must be positive odd interger.
-
-        Returns
-        -------
-            : StackingVelocity
-            Corrected stacking velocity.
-        """
-        ind = np.argmax(self.residual_semblance, 1)
-        center_ind = self.residual_semblance.shape[1] / 2
-        delta = (ind - center_ind) / center_ind
-        corrected_velocity = self.stacking_velocity(self.times) * (1 + delta * self.relative_margin)
-        if kernel_size != 1:
-            corrected_velocity = median_filter(corrected_velocity, kernel_size)
-        return StackingVelocity(self.times, corrected_velocity, self.coords)
 
     def _plot(self, *, title="Residual semblance", x_ticker=None, y_ticker=None, grid=False, colorbar=True, ax=None,
               **kwargs):
@@ -630,7 +612,7 @@ class ResidualCoherency(BaseCoherency):
     def plot(self, *, title="Residual semblance", interactive=False, **kwargs):
         """Plot residual vertical velocity semblance. The plot always has a vertical line in the middle, representing
         the stacking velocity it was calculated for.
-    
+
         Parameters
         ----------
         title : str, optional, defaults to "Residual semblance"
