@@ -353,9 +353,8 @@ class RefractorVelocity:
         return cls(t0=0, v1=velocity, coords=coords)
 
     @classmethod  # pylint: disable-next=too-many-arguments, too-many-statements
-    def from_survey(cls, survey, init=None, bounds=None, n_refractors=None, min_velocity_step=400,
-                    min_refractor_size=400, loss="L1", huber_coef=20, tol=1e-5, first_breaks_col=HDR_FIRST_BREAK,
-                    find_weathering=True, reduce_step=20, **kwargs):
+    def from_survey(cls, survey, init=None, bounds=None, n_refractors=None, min_velocity_step=1, min_refractor_size=1,
+                    loss="L1", huber_coef=20, tol=1e-5, first_breaks_col=HDR_FIRST_BREAK, reduce_step=20, **kwargs):
         """Fit a near-surface velocity model desribed by the survey.
 
         The survey should contain headers with trace offsets, times of first breaks. When no initial values, bounds
@@ -376,10 +375,10 @@ class RefractorVelocity:
             Lower and upper bounds of model parameters.
         n_refractors : int, optional
             The number of refractors described by the model.
-        min_velocity_step : int, optional, defaults to 400
+        min_velocity_step : int, optional, defaults to 1
             Minimum difference between velocities of two adjacent refractors. Default value ensures that velocities are
             strictly increasing.
-        min_refractor_size : int, optional, defaults to 400
+        min_refractor_size : int, optional, defaults to 1
             Minimum offset range covered by each refractor. Default value ensures that refractors do not degenerate
             into single points.
         loss : str, optional, defaults to "L1"
@@ -390,8 +389,6 @@ class RefractorVelocity:
             Precision goal for the value of loss in the stopping criterion.
         first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `survey.headers` where times of first break are stored.
-        find_weathering : bool, optional, defaults to True
-            Try to find a weathering layer when calculate are passed.
         reduce_step : float, defaults to 20
             Size of data chunks when splitting data by offset to reduce the data.
 
@@ -401,8 +398,8 @@ class RefractorVelocity:
             A near-surface velocity model described by the survey.
         """
         if all(param is None for param in (init, bounds, n_refractors)):
-            return calc_mean_velocity(survey, min_velocity_step, min_refractor_size, loss, huber_coef,
-                                      first_breaks_col, find_weathering, reduce_step)
+            return calc_mean_velocity(survey, loss=loss, huber_coef=huber_coef, first_breaks_col=first_breaks_col,
+                                      reduce_step=reduce_step)
 
         max_offset = survey['offset'].max()
         offsets, times = reduce_offsets_and_times(survey, first_breaks_col, reduce_step=reduce_step)

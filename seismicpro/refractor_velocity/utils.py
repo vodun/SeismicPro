@@ -101,15 +101,15 @@ def reduce_offsets_and_times(survey, first_breaks_col=HDR_FIRST_BREAK, reduce_st
     calculate the mean separately by bins. The first breaks times uses same bins and also calculate the mean
     separately by bins.
     """
-    headers = survey.headers[['offset', first_breaks_col]]
-    headers['bins'] = (headers['offset'].to_numpy() / reduce_step).astype(np.uint16)  # faster than integer division
+    headers = survey.headers[['offset', first_breaks_col]].copy()
+    headers['bins'] = headers['offset'] // reduce_step
     reduced_headers = headers.groupby(by='bins', sort=False).mean()
     return reduced_headers['offset'].to_numpy(), reduced_headers[first_breaks_col].to_numpy()
 
 
 # pylint: disable-next=too-many-arguments
 def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_step=400, min_refractor_size=400,
-                          loss="L1", huber_coef=20, min_refractors=1, max_refractors=10, find_weathering=False):
+                          loss="MSE", huber_coef=20, min_refractors=1, max_refractors=10):
     """Calculate a near-surface velocity model with a number of refractors that give minimal loss.
 
     Parameters
@@ -134,8 +134,6 @@ def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_s
         Minimum number of refractors for the expected velocity model.
     max_refractors : int, optional, defaults to 10
         Maximum number of refractors for the expected velocity model.
-    find_weathering : bool, optional, defaults to False.
-        If True the minimum refractor size contraint for the expected weathering layer is removed.
 
     Returns
     -------
@@ -144,24 +142,22 @@ def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_s
         for the given parameters.
     """
     #pylint: disable-next=import-outside-toplevel
-    from .refractor_velocity import RefractorVelocity  # avoid circulat import
-    rv = None
-    for refractor in range(min_refractors, max_refractors + 1):
-        min_refractor_size_vec = np.full(refractor, min_refractor_size)
-        if find_weathering:
-            min_refractor_size_vec[0] = 1
+    from .refractor_velocity import RefractorVelocity  # avoid circular import
+    rv_base = RefractorVelocity.from_first_breaks(offsets, times, n_refractors=min_refractors, loss=loss,
+                                                  huber_coef=huber_coef)
+    for refractor in range(min_refractors + 1, max_refractors + 1):
         max_offset = max(offsets.max(), min_refractor_size * refractor)
         rv_last = RefractorVelocity.from_first_breaks(offsets, times, init, bounds, refractor, max_offset,
-                                                      min_velocity_step, min_refractor_size_vec, loss, huber_coef)
+                                                      min_velocity_step, min_refractor_size, loss, huber_coef)
         n_points, _ = np.histogram(rv_last.offsets, bins=rv_last.piecewise_offsets)
-        if not ((n_points > 1).all() and (rv is None or rv_last.fit_result.fun < rv.fit_result.fun)):
+        if (n_points < 1).any() or (rv_last.fit_result.fun > rv_base.fit_result.fun):
             break
-        rv = rv_last
-    return rv
+        rv_base = rv_last
+    return rv_base
 
 
 def calc_mean_velocity(survey, min_velocity_step=400, min_refractor_size=400, loss="L1", huber_coef=20,
-                       first_breaks_col=HDR_FIRST_BREAK, find_weathering=False, reduce_step=20):
+                       first_breaks_col=HDR_FIRST_BREAK, reduce_step=20):
     """Calculate mean near-surface velocity model describing the survey.
 
     Parameters
@@ -180,8 +176,6 @@ def calc_mean_velocity(survey, min_velocity_step=400, min_refractor_size=400, lo
         Coefficient for Huber loss function.
     first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
         Column name from `survey.headers` where times of first break are stored.
-    find_weathering : bool, optional, defaults to True
-        Try to find a weathering layer.
     reduce_step : float, defaults to 20
         Size of data chunks when splitting data by offset to reduce the data.
 
@@ -200,12 +194,4 @@ def calc_mean_velocity(survey, min_velocity_step=400, min_refractor_size=400, lo
         raise ValueError("Offsets contains less than two points after reducing. Decrease the value of `reduce_step`.")
     rv = calc_optimal_velocity(offsets, times, min_velocity_step=min_velocity_step,
                                min_refractor_size=min_refractor_size, loss=loss, huber_coef=huber_coef)
-    if find_weathering:
-        init = {'x1': 150, 'v1': rv.v1 / 2}
-        bounds = {'x1': [1, 300], 'v1': [1, rv.v1]}
-        min_refractors = max(rv.n_refractors, 2)
-        rv_weathering = calc_optimal_velocity(offsets, times, init, bounds, min_velocity_step, min_refractor_size,
-                                              loss, huber_coef, min_refractors, find_weathering=True)
-        if rv_weathering is not None and rv_weathering.fit_result.fun < rv.fit_result.fun:
-            rv = rv_weathering
     return rv
