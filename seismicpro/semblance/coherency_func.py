@@ -1,3 +1,6 @@
+""" Functions for estimating hodograph coherency. """
+
+# pylint: disable=not-an-iterable, missing-function-docstring
 import numpy as np
 from numba import njit, prange
 

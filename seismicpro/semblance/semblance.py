@@ -7,11 +7,9 @@ from matplotlib import colors as mcolors
 import matplotlib.pyplot as plt
 
 
-from .coherency_func import (stacked_amplitude, normalized_stacked_amplitude, semblance, crosscorrelation,
-                             energy_normalized_crosscorrelation)
+import coherency_func
 from .interactive_plot import SemblancePlot
 from ..decorators import batch_method, plotter
-from ..gather.utils.correction import get_hodograph
 from ..stacking_velocity import StackingVelocity, calculate_stacking_velocity
 from ..utils import add_colorbar, set_ticks, set_text_formatting
 from ..gather.utils import correction
@@ -24,19 +22,19 @@ class BaseSemblance:
     Parameters
     ----------
     gather : Gather
-        Seismic gather to calculate coherency for.
+        Seismic gather to calculate semblance for.
     win_size : int
-        Temporal window size used for coherency calculation. The higher the `win_size` is, the smoother the resulting
-        coherency will be but to the detriment of small details. Measured in samples.
+        Temporal window size used for semblance calculation. The higher the `win_size` is, the smoother the resulting
+        semblance will be but to the detriment of small details. Measured in samples.
     mode: str, defaults to `semblance`
-        The coherency measure. See the `utils.coherency_dict` for avaliable options.
+        The coherency measure. See the `coherency_dict` for avaliable options.
 
     Attributes
     ----------
     gather : Gather
-        Seismic gather for which coherency calculation was called.
+        Seismic gather for which semblance calculation was called.
     win_size : int
-        Temporal window size for smoothing the coherency. Measured in samples.
+        Temporal window size for smoothing the semblance. Measured in samples.
     coherency_func : callable
         The function that estimates the coherency measure for given hodograph.
     """
@@ -45,15 +43,15 @@ class BaseSemblance:
         self.win_size = win_size  # samples
 
         coherency_dict = {
-            "stacked_amplitude": stacked_amplitude,
-            "S": stacked_amplitude,
-            "normalized_stacked_amplitude": normalized_stacked_amplitude,
-            "NS": normalized_stacked_amplitude,
-            "semblance": semblance,
-            "NE": semblance,
-            'crosscorrelation': crosscorrelation,
-            'CC': crosscorrelation,
-            'ENCC': energy_normalized_crosscorrelation
+            "stacked_amplitude": coherency_func.stacked_amplitude,
+            "S": coherency_func.stacked_amplitude,
+            "normalized_stacked_amplitude": coherency_func.normalized_stacked_amplitude,
+            "NS": coherency_func.normalized_stacked_amplitude,
+            "semblance": coherency_func.semblance,
+            "NE": coherency_func.semblance,
+            'crosscorrelation': coherency_func.crosscorrelation,
+            'CC': coherency_func.crosscorrelation,
+            'ENCC': coherency_func.energy_normalized_crosscorrelation
         }
 
         self.coherency_func = coherency_dict.get(mode)
@@ -77,14 +75,14 @@ class BaseSemblance:
 
     @property
     def coords(self):
-        """Coordinates or None: Spatial coordinates of the coherency. Determined by the underlying gather. `None` if
+        """Coordinates or None: Spatial coordinates of the semblance. Determined by the underlying gather. `None` if
         the gather is indexed by unsupported headers or required coords headers were not loaded or coordinates are
         non-unique for traces of the gather."""
         return self.gather.coords
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
-        coherency."""
+        semblance."""
         _ = time_ix, velocity_ix
         raise NotImplementedError
 
@@ -92,34 +90,31 @@ class BaseSemblance:
     @njit(nogil=True, fastmath=True, parallel=True)
     def calc_single_velocity_semblance(coherency_func, gather_data, times, offsets, velocity, sample_rate,
                                        win_size, t_min_ix, t_max_ix):  # pylint: disable=too-many-arguments
-        """Calculate coherency for given velocity and time range.
+        """Calculate semblance for given velocity and time range.
 
         Parameters
         ----------
-        nmo_func : njitted callable
-            A callable that calculates normal moveout corrected gather for given time and velocity values and a range
-            of offsets.
         gather_data : 2d np.ndarray
-            Gather data for coherency calculation.
+            Gather data for semblance calculation.
         times : 1d np.ndarray
             Recording time for each trace value. Measured in milliseconds.
         offsets : array-like
             The distance between source and receiver for each trace. Measured in meters.
         velocity : array-like
-            Seismic wave velocity for coherency computation. Measured in meters/milliseconds.
+            Seismic wave velocity for semblance computation. Measured in meters/milliseconds.
         sample_rate : float
             Sample rate of seismic traces. Measured in milliseconds.
         win_size : int
-            Temporal window size for smoothing the coherency. Measured in samples.
+            Temporal window size for smoothing the semblance. Measured in samples.
         t_min_ix : int
-            Time index in `times` array to start calculating coherency from. Measured in samples.
+            Time index in `times` array to start calculating semblance from. Measured in samples.
         t_max_ix : int
-            Time index in `times` array to stop calculating coherency at. Measured in samples.
+            Time index in `times` array to stop calculating semblance at. Measured in samples.
 
         Returns
         -------
-        coherency_slice : 1d np.ndarray
-            Calculated coherency values for a specified `velocity` in time range from `t_min_ix` to `t_max_ix`.
+        semblance_slice : 1d np.ndarray
+            Calculated semblance values for a specified `velocity` in time range from `t_min_ix` to `t_max_ix`.
         """
         t_win_size_min_ix = max(0, t_min_ix - win_size)
         t_win_size_max_ix = min(len(times) - 1, t_max_ix + win_size)
@@ -209,25 +204,32 @@ class BaseSemblance:
 
 class Semblance(BaseSemblance):
     r"""A class for vertical velocity semblance calculation and processing.
+
     Semblance is a normalized output-input energy ratio for a CDP gather. The higher the values of semblance are, the
     more coherent the signal is along a hyperbolic trajectory over the entire spread length of the gather.
+
     Semblance instance can be created either directly by passing source gather, velocity range and window size to its
     init or by calling :func:`~Gather.calculate_semblance` method (recommended way).
+
     The semblance is computed by:
     :math:`S(k, v) = \frac{\sum^{k+N/2}_{i=k-N/2}(\sum^{M-1}_{j=0} f_{j}(i, v))^2}
                           {M \sum^{k+N/2}_{i=k-N/2}\sum^{M-1}_{j=0} f_{j}(i, v)^2}`,
     where:
+
     S - semblance value for starting time index `k` and velocity `v`,
     M - number of traces in the gather,
     N - temporal window size,
     f_{j}(i, v) - the amplitude value on the `j`-th trace being NMO-corrected for time index `i` and velocity `v`. Thus
     the amplitude is taken for the time defined by :math:`t(i, v) = \sqrt{t_0^2 + \frac{l_j^2}{v^2}}`,
     where:
+
     :math:`t_0` - start time of the hyperbola associated with time index `i`,
     :math:`l_j` - offset of the `j`-th trace,
     :math:`v` - velocity value.
+
     The resulting matrix :math:`S(k, v)` has shape (trace_length, n_velocities) and contains vertical velocity
     semblance values based on hyperbolas with each combination of the starting point :math:`k` and velocity :math:`v`.
+
     The algorithm for semblance calculation looks as follows:
     For each velocity from given velocity range:
         1. Calculate NMO-corrected gather.
@@ -279,7 +281,7 @@ class Semblance(BaseSemblance):
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
         self.semblance = self._calc_semblance_numba(semblance_func=self.calc_single_velocity_semblance,
                                                     coherency_func=self.coherency_func,
-                                                    gather_data=self.gather.data, times=self.times, 
+                                                    gather_data=self.gather.data, times=self.times,
                                                     offsets=self.offsets, velocities=velocities_ms,
                                                     sample_rate=self.sample_rate, win_size=self.win_size)
 
@@ -309,8 +311,6 @@ class Semblance(BaseSemblance):
         ----------
         semblance_func : njitted callable
             Base function for semblance calculation for single velocity and a time range.
-        nmo_func : njitted callable
-            Base function for gather normal moveout correction for given time and velocity.
         other parameters : misc
             Passed directly from class attributes (except for velocities which are converted from m/s to m/ms)
 
@@ -431,17 +431,22 @@ class Semblance(BaseSemblance):
 
 class ResidualSemblance(BaseSemblance):
     """A class for residual vertical velocity semblance calculation and processing.
+
     Residual semblance is a normalized output-input energy ratio for a CDP gather along picked stacking velocity. The
     method of its computation for given time and velocity completely coincides with the calculation of
     :class:`~Semblance`, however, residual semblance is computed in a small area around given stacking velocity, thus
     allowing for additional optimizations.
+
     The boundaries in which calculation is performed depend on time `t` and are given by:
     `stacking_velocity(t)` * (1 +- `relative_margin`).
+
     Since the length of this velocity range varies for different timestamps, the residual semblance values are
     interpolated to obtain a rectangular matrix of size (trace_length, max(right_boundary - left_boundary)), where
     `left_boundary` and `right_boundary` are arrays of left and right boundaries for all timestamps respectively.
+
     Thus the residual semblance is a function of time and relative velocity margin. Zero margin line corresponds to
     the given stacking velocity and generally should pass through local semblance maxima.
+
     Residual semblance instance can be created either directly by passing source gather, stacking velocity and other
     arguments to its init or by calling :func:`~Gather.calculate_residual_semblance` method (recommended way).
 
@@ -454,9 +459,11 @@ class ResidualSemblance(BaseSemblance):
     First let's sample a CDP gather and sort it by offset:
     >>> survey = Survey(path, header_index=["INLINE_3D", "CROSSLINE_3D"], header_cols="offset")
     >>> gather = survey.sample_gather().sort(by="offset")
+
     Now let's automatically calculate stacking velocity by gather semblance:
     >>> semblance = gather.calculate_semblance(velocities=np.linspace(1400, 5000, 200), win_size=8)
     >>> velocity = semblance.calculate_stacking_velocity()
+
     Residual semblance for the gather and calculated stacking velocity can be obtained as follows:
     >>> residual = gather.calculate_residual_semblance(velocity, n_velocities=100, win_size=8)
 
@@ -507,9 +514,9 @@ class ResidualSemblance(BaseSemblance):
         left_bound_ix, right_bound_ix = self._calc_velocity_bounds()
         self.residual_semblance = self._calc_res_semblance_numba(semblance_func=self.calc_single_velocity_semblance,
                                                                  coherency_func=self.coherency_func,
-                                                                 gather_data=self.gather.data, times=self.times, 
+                                                                 gather_data=self.gather.data, times=self.times,
                                                                  offsets=self.offsets, velocities=velocities_ms,
-                                                                 left_bound_ix=left_bound_ix, 
+                                                                 left_bound_ix=left_bound_ix,
                                                                  right_bound_ix=right_bound_ix,
                                                                  sample_rate=self.sample_rate, win_size=self.win_size)
 
@@ -575,7 +582,7 @@ class ResidualSemblance(BaseSemblance):
             t_max_ix = np.where(left_bound_ix == i)[0]
             t_max_ix = len(times) - 1 if len(t_max_ix) == 0 else t_max_ix[-1]
 
-            semblance[t_min_ix : t_max_ix+1, i] = semblance_func(nmo_func=nmo_func, coherency_func=coherency_func,
+            semblance[t_min_ix : t_max_ix+1, i] = semblance_func(coherency_func=coherency_func,
                                                                  gather_data=gather_data, times=times, offsets=offsets,
                                                                  velocity=velocities[i], sample_rate=sample_rate,
                                                                  win_size=win_size, t_min_ix=t_min_ix,

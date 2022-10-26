@@ -115,7 +115,7 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate, cro
     corrected_gather = np.full(gather_data.shape, fill_value=np.float32(np.nan))
     hodograph_times = compute_hodograph_times(offsets, times, stacking_velocities)
 
-    for i in prange(times.shape[0]):
+    for i in prange(times.shape[0]): # pylint: disable=not-an-iterable
         get_hodograph(gather_data, hodograph_times[i], sample_rate, fill_value=np.nan, out=corrected_gather[:, i])
 
     if crossover_mute:
