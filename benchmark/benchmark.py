@@ -170,7 +170,7 @@ class Benchmark:
         """
         results = self.results.drop(columns='CPUMonitor') if not cpu_util else self.results
         batch_sizes = np.unique(results.reset_index()['batch_size'])
-        for col_name, col_series in results.iteritems():
+        for col_name, col_series in results.items():
             sub_df = col_series.explode().reset_index()
 
             plt.figure(figsize=figsize)
