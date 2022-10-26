@@ -405,7 +405,7 @@ class RefractorVelocity:
                                       first_breaks_col, find_weathering, reduce_step)
 
         max_offset = survey['offset'].max()
-        offsets, times = reduce_survey_headers(survey, x="offset", y=first_breaks_col, reduce_step=reduce_step)
+        offsets, times = reduce_offsets_and_times(survey, first_breaks_col, reduce_step=reduce_step)
         return cls.from_first_breaks(offsets, times, init, bounds, n_refractors, max_offset, min_velocity_step,
                                      min_refractor_size, loss, huber_coef, tol, **kwargs)
 
