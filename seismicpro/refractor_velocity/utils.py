@@ -109,8 +109,7 @@ def reduce_offsets_and_times(survey, first_breaks_col=HDR_FIRST_BREAK, reduce_st
 
 # pylint: disable-next=too-many-arguments
 def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_step=400, min_refractor_size=400,
-                          loss="L1", huber_coef=20, min_refractors=1, max_refractors=10, find_weathering=False,
-                          debug=False):
+                          loss="L1", huber_coef=20, min_refractors=1, max_refractors=10, find_weathering=False):
     """Calculate a near-surface velocity model with a number of refractors that give minimal loss.
 
     Parameters
@@ -155,10 +154,6 @@ def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_s
         rv_last = RefractorVelocity.from_first_breaks(offsets, times, init, bounds, refractor, max_offset,
                                                       min_velocity_step, min_refractor_size_vec, loss, huber_coef)
         n_points, _ = np.histogram(rv_last.offsets, bins=rv_last.piecewise_offsets)
-        # TODO: remove debug
-        if debug:
-            rv_last.plot(title=(f'loss: {rv_last.fit_result.fun:.6f}\nfind_weathering={find_weathering}'
-                                f'\nn_points: {n_points}'))
         if not ((n_points > 1).all() and (rv is None or rv_last.fit_result.fun < rv.fit_result.fun)):
             break
         rv = rv_last
@@ -166,7 +161,7 @@ def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_s
 
 
 def calc_mean_velocity(survey, min_velocity_step=400, min_refractor_size=400, loss="L1", huber_coef=20,
-                       first_breaks_col=HDR_FIRST_BREAK, find_weathering=False, reduce_step=20, debug=False):
+                       first_breaks_col=HDR_FIRST_BREAK, find_weathering=False, reduce_step=20):
     """Calculate mean near-surface velocity model describing the survey.
 
     Parameters
@@ -201,17 +196,16 @@ def calc_mean_velocity(survey, min_velocity_step=400, min_refractor_size=400, lo
         If the reduced survey data contains less than two points.
     """
     offsets, times = reduce_offsets_and_times(survey, first_breaks_col, reduce_step)
-    print(offsets, times)
     if offsets.shape[0] < 2:
         raise ValueError("Offsets contains less than two points after reducing. Decrease the value of `reduce_step`.")
     rv = calc_optimal_velocity(offsets, times, min_velocity_step=min_velocity_step,
-                               min_refractor_size=min_refractor_size, loss=loss, huber_coef=huber_coef, debug=debug)
+                               min_refractor_size=min_refractor_size, loss=loss, huber_coef=huber_coef)
     if find_weathering:
         init = {'x1': 150, 'v1': rv.v1 / 2}
         bounds = {'x1': [1, 300], 'v1': [1, rv.v1]}
         min_refractors = max(rv.n_refractors, 2)
         rv_weathering = calc_optimal_velocity(offsets, times, init, bounds, min_velocity_step, min_refractor_size,
-                                              loss, huber_coef, min_refractors, find_weathering=True, debug=debug)
+                                              loss, huber_coef, min_refractors, find_weathering=True)
         if rv_weathering is not None and rv_weathering.fit_result.fun < rv.fit_result.fun:
             rv = rv_weathering
     return rv
