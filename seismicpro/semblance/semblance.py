@@ -1,4 +1,4 @@
-"""Implements Coherency and ResidualCoherency classes."""
+"""Implements Semblance and ResidualSemblance classes."""
 
 # pylint: disable=not-an-iterable
 import numpy as np
@@ -17,8 +17,8 @@ from ..utils import add_colorbar, set_ticks, set_text_formatting
 from ..gather.utils import correction
 
 
-class BaseCoherency:
-    """Base class for vertical velocity coherency calculation.
+class BaseSemblance:
+    """Base class for vertical velocity semblance calculation.
     Implements general computation logic and visualization method.
 
     Parameters
@@ -90,7 +90,7 @@ class BaseCoherency:
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def calc_single_velocity_coherency(coherency_func, gather_data, times, offsets, velocity, sample_rate,
+    def calc_single_velocity_semblance(coherency_func, gather_data, times, offsets, velocity, sample_rate,
                                        win_size, t_min_ix, t_max_ix):  # pylint: disable=too-many-arguments
         """Calculate coherency for given velocity and time range.
 
@@ -136,7 +136,7 @@ class BaseCoherency:
             t_rel = t - t_win_size_min_ix
             ix_from = max(0, t_rel - win_size)
             ix_to = min(len(corrected_gather) - 1, t_rel + win_size)
-            semblance_slice[t - t_min_ix] = np.mean(numerator[ix_from : ix_to] / (denominator[ix_from : ix_to] + 1e-6))
+            semblance_slice[t - t_min_ix] = np.mean(numerator[ix_from : ix_to] / (denominator[ix_from : ix_to] + 1e-8))
         return semblance_slice
 
     @staticmethod
@@ -207,7 +207,7 @@ class BaseCoherency:
         return SemblancePlot(self, *args, **kwargs).plot()
 
 
-class Coherency(BaseCoherency):
+class Semblance(BaseSemblance):
     r"""A class for vertical velocity semblance calculation and processing.
     Semblance is a normalized output-input energy ratio for a CDP gather. The higher the values of semblance are, the
     more coherent the signal is along a hyperbolic trajectory over the entire spread length of the gather.
@@ -277,7 +277,7 @@ class Coherency(BaseCoherency):
         super().__init__(gather, win_size=win_size, mode=mode)
         self.velocities = velocities  # m/s
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
-        self.semblance = self._calc_semblance_numba(semblance_func=self.calc_single_velocity_coherency,
+        self.semblance = self._calc_semblance_numba(semblance_func=self.calc_single_velocity_semblance,
                                                     coherency_func=self.coherency_func,
                                                     gather_data=self.gather.data, times=self.times, 
                                                     offsets=self.offsets, velocities=velocities_ms,
@@ -429,7 +429,7 @@ class Coherency(BaseCoherency):
         return StackingVelocity(times, velocities, coords=self.coords)
 
 
-class ResidualCoherency(BaseCoherency):
+class ResidualSemblance(BaseSemblance):
     """A class for residual vertical velocity semblance calculation and processing.
     Residual semblance is a normalized output-input energy ratio for a CDP gather along picked stacking velocity. The
     method of its computation for given time and velocity completely coincides with the calculation of
@@ -505,7 +505,7 @@ class ResidualCoherency(BaseCoherency):
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
 
         left_bound_ix, right_bound_ix = self._calc_velocity_bounds()
-        self.residual_semblance = self._calc_res_semblance_numba(semblance_func=self.calc_single_velocity_coherency,
+        self.residual_semblance = self._calc_res_semblance_numba(semblance_func=self.calc_single_velocity_semblance,
                                                                  coherency_func=self.coherency_func,
                                                                  gather_data=self.gather.data, times=self.times, 
                                                                  offsets=self.offsets, velocities=velocities_ms,
