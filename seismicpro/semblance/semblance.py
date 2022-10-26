@@ -7,7 +7,7 @@ from matplotlib import colors as mcolors
 import matplotlib.pyplot as plt
 
 
-import coherency_func
+from .utils import coherency_funcs
 from .interactive_plot import SemblancePlot
 from ..decorators import batch_method, plotter
 from ..stacking_velocity import StackingVelocity, calculate_stacking_velocity
@@ -43,15 +43,15 @@ class BaseSemblance:
         self.win_size = win_size  # samples
 
         coherency_dict = {
-            "stacked_amplitude": coherency_func.stacked_amplitude,
-            "S": coherency_func.stacked_amplitude,
-            "normalized_stacked_amplitude": coherency_func.normalized_stacked_amplitude,
-            "NS": coherency_func.normalized_stacked_amplitude,
-            "semblance": coherency_func.semblance,
-            "NE": coherency_func.semblance,
-            'crosscorrelation': coherency_func.crosscorrelation,
-            'CC': coherency_func.crosscorrelation,
-            'ENCC': coherency_func.energy_normalized_crosscorrelation
+            "stacked_amplitude": coherency_funcs.stacked_amplitude,
+            "S": coherency_funcs.stacked_amplitude,
+            "normalized_stacked_amplitude": coherency_funcs.normalized_stacked_amplitude,
+            "NS": coherency_funcs.normalized_stacked_amplitude,
+            "semblance": coherency_funcs.semblance,
+            "NE": coherency_funcs.semblance,
+            'crosscorrelation': coherency_funcs.crosscorrelation,
+            'CC': coherency_funcs.crosscorrelation,
+            'ENCC': coherency_funcs.energy_normalized_crosscorrelation
         }
 
         self.coherency_func = coherency_dict.get(mode)
