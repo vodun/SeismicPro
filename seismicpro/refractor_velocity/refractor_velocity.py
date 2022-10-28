@@ -214,7 +214,7 @@ class RefractorVelocity:
         min_refractor_size = np.ceil(min_refractor_size)
 
         if all(param is None for param in (init, bounds, n_refractors)):
-            init = calc_optimal_velocity(offsets, times, loss=loss, huber_coef=huber_coef, max_refractors=10).params
+            init = calc_optimal_velocity(offsets, times, loss=loss, huber_coef=huber_coef).params
         init = {} if init is None else init
         bounds = {} if bounds is None else bounds
 
@@ -419,7 +419,9 @@ class RefractorVelocity:
 
     def __getattr__(self, key):
         """Get requested parameter of the velocity model by its name."""
-        return self.params[key]
+        if key.startswith("__"):  # Guarantee proper pickling/unpickling
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{key}'")
+        return getattr(self.params, key)
 
     def __call__(self, offsets):
         """Return the expected times of first breaks for the given offsets."""
