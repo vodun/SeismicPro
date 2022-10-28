@@ -107,9 +107,8 @@ def reduce_offsets_and_times(survey, first_breaks_col=HDR_FIRST_BREAK, reduce_st
     return reduced_headers['offset'].to_numpy(), reduced_headers[first_breaks_col].to_numpy()
 
 
-# pylint: disable-next=too-many-arguments
-def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_step=400, min_refractor_size=400,
-                          loss="MSE", huber_coef=20, min_refractors=1, max_refractors=10):
+def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_step=400, min_refractor_size=600,
+                          loss="L1", huber_coef=20, min_refractors=1, max_refractors=10):
     """Calculate a near-surface velocity model with a number of refractors that give minimal loss.
 
     Parameters
@@ -124,7 +123,7 @@ def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_s
         Lower and upper bounds of model parameters.
     min_velocity_step : int, optional, defaults to 400
         Minimum difference between velocities of two adjacent refractors.
-    min_refractor_size : int, optional, defaults to 400
+    min_refractor_size : int, optional, defaults to 600
         Minimum offset range covered by each refractor.
     loss : str, optional, defaults to "L1"
         Loss function to be minimized. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
@@ -154,44 +153,3 @@ def calc_optimal_velocity(offsets, times, init=None, bounds=None, min_velocity_s
             break
         rv_base = rv_last
     return rv_base
-
-
-def calc_mean_velocity(survey, min_velocity_step=400, min_refractor_size=400, loss="L1", huber_coef=20,
-                       first_breaks_col=HDR_FIRST_BREAK, reduce_step=20):
-    """Calculate mean near-surface velocity model describing the survey.
-
-    Parameters
-    ----------
-    survey : Survey
-        Survey with preloaded offsets, times of first breaks.
-    min_velocity_step : int, optional, defaults to 400
-        Minimum difference between velocities of two adjacent refractors. Default value ensures that velocities are
-        strictly increasing.
-    min_refractor_size : int, optional, defaults to 400
-        Minimum offset range covered by each refractor. Default value ensures that refractors do not degenerate
-        into single points.
-    loss : str, optional, defaults to "L1"
-        Loss function to be minimized. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
-    huber_coef : float, optional, default to 20
-        Coefficient for Huber loss function.
-    first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
-        Column name from `survey.headers` where times of first break are stored.
-    reduce_step : float, defaults to 20
-        Size of data chunks when splitting data by offset to reduce the data.
-
-    Returns
-    -------
-    rv : RefractorVelocity
-        Mean near-surface velocity model.
-
-    Raises
-    ------
-    ValueError
-        If the reduced survey data contains less than two points.
-    """
-    offsets, times = reduce_offsets_and_times(survey, first_breaks_col, reduce_step)
-    if offsets.shape[0] < 2:
-        raise ValueError("Offsets contains less than two points after reducing. Decrease the value of `reduce_step`.")
-    rv = calc_optimal_velocity(offsets, times, min_velocity_step=min_velocity_step,
-                               min_refractor_size=min_refractor_size, loss=loss, huber_coef=huber_coef)
-    return rv

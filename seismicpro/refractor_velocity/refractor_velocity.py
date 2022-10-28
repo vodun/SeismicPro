@@ -7,7 +7,7 @@ from scipy.optimize import minimize
 from sklearn.linear_model import SGDRegressor
 
 from .utils import (get_param_names, postprocess_params, dump_refractor_velocities, load_refractor_velocities,
-                    calc_mean_velocity, reduce_offsets_and_times)
+                    calc_optimal_velocity, reduce_offsets_and_times)
 from ..muter import Muter
 from ..decorators import batch_method, plotter
 from ..utils import get_first_defined, set_ticks, set_text_formatting
@@ -214,7 +214,7 @@ class RefractorVelocity:
         min_refractor_size = np.ceil(min_refractor_size)
 
         if all(param is None for param in (init, bounds, n_refractors)):
-            raise ValueError("At least one of `init`, `bounds` or `n_refractors` must be defined")
+            init = calc_optimal_velocity(offsets, times, loss=loss, huber_coef=huber_coef, max_refractors=10).params
         init = {} if init is None else init
         bounds = {} if bounds is None else bounds
 
@@ -397,10 +397,6 @@ class RefractorVelocity:
         rv : RefractorVelocity
             A near-surface velocity model described by the survey.
         """
-        if all(param is None for param in (init, bounds, n_refractors)):
-            return calc_mean_velocity(survey, loss=loss, huber_coef=huber_coef, first_breaks_col=first_breaks_col,
-                                      reduce_step=reduce_step)
-
         max_offset = survey['offset'].max()
         offsets, times = reduce_offsets_and_times(survey, first_breaks_col, reduce_step=reduce_step)
         return cls.from_first_breaks(offsets, times, init, bounds, n_refractors, max_offset, min_velocity_step,

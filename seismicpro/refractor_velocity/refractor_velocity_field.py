@@ -11,7 +11,7 @@ from tqdm.auto import tqdm
 from .refractor_velocity import RefractorVelocity
 from .interactive_plot import FitPlot
 from .utils import (get_param_names, postprocess_params, dump_refractor_velocities, load_refractor_velocities,
-                    calc_mean_velocity)
+                    reduce_offsets_and_times)
 from ..field import SpatialField
 from ..utils import to_list, get_coords_cols, Coordinates, IDWInterpolator
 from ..const import HDR_FIRST_BREAK
@@ -208,7 +208,8 @@ class RefractorVelocityField(SpatialField):
         if survey.n_gathers < 1:
             raise ValueError("Survey is empty.")
         if all(param is None for param in (init, bounds, n_refractors)):
-            init = calc_mean_velocity(survey, first_breaks_col=first_breaks_col).params
+            offsets, times = reduce_offsets_and_times(survey, first_breaks_col)
+            init = RefractorVelocity.from_first_breaks(offsets, times).params
         rv_list = []
         coords_cols = get_coords_cols(survey.indexed_by)
         # Get only the required data from survey headers
