@@ -100,7 +100,7 @@ def load_headers(path, headers_to_load, trace_data_offset, trace_size, n_traces,
 
 
 # pylint: disable=too-many-statements
-def validate_headers(headers, offset_atol=10, cdp_atol=50, elev_atol=10, elev_radius=50):
+def validate_headers(headers, offset_atol=10, cdp_atol=50, elev_atol=5, elev_radius=50):
     """Validate trace headers for consistency"""
     msg_list = []
 
@@ -112,7 +112,7 @@ def validate_headers(headers, offset_atol=10, cdp_atol=50, elev_atol=10, elev_ra
     loaded_columns = headers.columns.values
     available_columns = set(loaded_columns[headers.any(axis=0)])
 
-    zero_columns = set(loaded_columns) - set(available_columns)
+    zero_columns = set(loaded_columns) - available_columns
     if zero_columns:
         msg_list.append("Empty headers: " + ", ".join(zero_columns))
 
@@ -136,12 +136,12 @@ def validate_headers(headers, offset_atol=10, cdp_atol=50, elev_atol=10, elev_ra
         calculated_offsets = np.sqrt(np.sum((headers[shot_cols].values - headers[rec_cols].values)**2, axis=1))
         if not np.allclose(calculated_offsets, headers["offset"].values, rtol=0, atol=offset_atol):
             msg_list.append("Mismatch of offsets in headers to the distance between shots (SourceX, "
-                            "\n    SourceY) and receivers (GroupX, GroupY) positions for each trace")
+                            "\n    SourceY) and receivers (GroupX, GroupY) positions for some traces")
 
     if {*cdp_cols, *bin_cols} <= available_columns:
         unique_bins_cdp = headers[[*bin_cols, *cdp_cols]].drop_duplicates()
         if unique_bins_cdp.duplicated(cdp_cols).any() or unique_bins_cdp.duplicated(bin_cols).any():
-            msg_list.append("Non-unique mapping of geographic (CDP_X, CDP_Y) to line-based (INLINE_3D/"
+            msg_list.append("Non-unique mapping of midpoint (CDP_X, CDP_Y) to line-based (INLINE_3D/"
                             "\n    CROSSLINE_3D) coordinates")
 
     if {*shot_cols, *rec_cols, *cdp_cols} <= available_columns:
