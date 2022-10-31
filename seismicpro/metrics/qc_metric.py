@@ -577,3 +577,19 @@ class TraceSinalToNoiseRMSRatioAdaptive(TracewiseMetric):
         ax.plot(np.arange(gather.n_traces), s_begs+win_size, color='lime')
 
         set_title(top_ax, gather)
+
+
+class DeadTrace(TracewiseMetric):
+    """Visualising constant traces. Use `Survey.mark_dead_traces` to mark dead traces after loading a survey"""
+    name = "dead_trace"
+    min_value = 0
+    max_value = 1
+    is_lower_better = True
+    threshold = 0.5
+
+    @classmethod
+    def get_res(cls, gather, **kwargs):
+        """Return QC indicator."""
+        gather = cls.preprocess(gather, **kwargs)
+        res = (np.max(gather.data, axis=1) - np.min(gather.data, axis=1) < EPS).astype(float)
+        return res
