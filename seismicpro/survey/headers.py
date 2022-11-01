@@ -109,6 +109,10 @@ def validate_headers(headers, offset_atol=10, cdp_atol=50, elev_atol=5, elev_rad
     cdp_cols = ["CDP_X", "CDP_Y"]
     bin_cols = ["INLINE_3D", "CROSSLINE_3D"]
 
+    index_columns = headers.index.names if headers.index.names[0] is not None else None
+    if index_columns is not None:
+        headers[index_columns] = headers.index.to_frame().to_numpy()
+
     loaded_columns = headers.columns.values
     available_columns = set(loaded_columns[headers.any(axis=0)])
 
@@ -122,19 +126,18 @@ def validate_headers(headers, offset_atol=10, cdp_atol=50, elev_atol=5, elev_rad
 
     if {"FieldRecord", *shot_cols} <= available_columns:
         fr_with_coords = headers[["FieldRecord", *shot_cols]].drop_duplicates()
-        if fr_with_coords.duplicated(['FieldRecord']).any():
+        if fr_with_coords.duplicated('FieldRecord').any() or fr_with_coords.duplicated(shot_cols).any():
             msg_list.append("Several pairs of coordinates (SourceX, SourceY) for single FieldRecord")
 
     if 'offset' in available_columns:
-        has_negative_offset = (headers['offset'] < 0).any()
-        if has_negative_offset:
+        if (headers['offset'] < 0).any():
             msg_list.append("Signed offsets")
 
     # Check that Euclidean distance calculated based on the coords from shot to receiver is close to the one stored
     # in trace headers
-    if {*shot_cols, *rec_cols, "offset"} <= available_columns and not has_negative_offset:
+    if {*shot_cols, *rec_cols, "offset"} <= available_columns:
         calculated_offsets = np.sqrt(np.sum((headers[shot_cols].values - headers[rec_cols].values)**2, axis=1))
-        if not np.allclose(calculated_offsets, headers["offset"].values, rtol=0, atol=offset_atol):
+        if not np.allclose(calculated_offsets, headers["offset"].abs(), rtol=0, atol=offset_atol):
             msg_list.append("Mismatch of offsets in headers to the distance between shots (SourceX, "
                             "\n    SourceY) and receivers (GroupX, GroupY) positions for some traces")
 
@@ -146,7 +149,7 @@ def validate_headers(headers, offset_atol=10, cdp_atol=50, elev_atol=5, elev_rad
 
     if {*shot_cols, *rec_cols, *cdp_cols} <= available_columns:
         raw_cdp = (headers[shot_cols].values + headers[rec_cols].values) / 2
-        if not np.allclose(raw_cdp, headers[cdp_cols].values, rtol=0, atol=cdp_atol):
+        if not np.allclose(raw_cdp, headers[cdp_cols], rtol=0, atol=cdp_atol):
             msg_list.append("Inconsistent range of CDP_X and CDP_Y coordinates compared to SourceX, "\
                             "\n    SourceY, GroupX, GroupY")
 
@@ -181,3 +184,6 @@ def validate_headers(headers, offset_atol=10, cdp_atol=50, elev_atol=5, elev_rad
         msg = line + "\n\nThe loaded Survey has the following problems with trace headers:"
         msg += "".join([f"\n\n {i+1}. {msg}" for i, msg in enumerate(msg_list)]) + line
         warnings.warn(msg)
+
+    if index_columns is not None:
+        headers.drop(columns=index_columns, inplace=True)

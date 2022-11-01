@@ -216,10 +216,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         tsf_dtype = np.int32 if len(headers) < np.iinfo(np.int32).max else np.int64
         headers["TRACE_SEQUENCE_FILE"] = np.arange(1, self.segy_handler.tracecount+1, dtype=tsf_dtype)
 
-        # Validate trace headers for consistency
-        if validate:
-            self.validate_headers(headers)
-
         # Sort headers by the required index in order to optimize further subsampling and merging. Sorting preserves
         # trace order from the file within each gather.
         headers.set_index(header_index, inplace=True)
@@ -229,6 +225,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self._headers = None
         self._indexer = None
         self.headers = headers
+
+        # Validate trace headers for consistency
+        if validate:
+            self.validate_headers()
 
         # Data format code defined by bytes 3225–3226 of the binary header that can be conveniently loaded using numpy
         # memmap. Currently only 3-byte integers (codes 7 and 15) and 4-byte fixed-point floats (code 4) are not
@@ -383,7 +383,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         trace statistics if they were calculated."""
         print(self)
 
-    def validate_headers(self, headers, offset_atol=10, cdp_atol=50, elev_atol=5, elev_radius=50):
+    def validate_headers(self, offset_atol=10, cdp_atol=50, elev_atol=5, elev_radius=50):
         """Validate trace headers by checking that:
         - All headers are not empty,
         - Trace identifier (FieldRecord, TraceNumber) has no duplicates,
@@ -402,8 +402,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Parameters
         ----------
-        headers : pd.DataFrame
-            Headers of traces to validate.
         offset_atol : int, optional, defaults to 10
             Maximum difference at which offsets in `headers` and calculated from Source and Group coordinates are
             considered the same.
@@ -415,8 +413,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         elev_radius : int, optional, defaults to 50
             Radius of the neighborhood to select elevations from for each Source and Group coordinates.
         """
-        _ = self
-        validate_headers(headers, offset_atol=offset_atol, cdp_atol=cdp_atol, elev_atol=elev_atol,
+        validate_headers(self.headers, offset_atol=offset_atol, cdp_atol=cdp_atol, elev_atol=elev_atol,
                          elev_radius=elev_radius)
 
     #------------------------------------------------------------------------#
