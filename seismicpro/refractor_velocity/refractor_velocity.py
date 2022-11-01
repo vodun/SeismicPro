@@ -6,8 +6,7 @@ import numpy as np
 from scipy.optimize import minimize
 from sklearn.linear_model import SGDRegressor
 
-from .utils import (get_param_names, postprocess_params, dump_refractor_velocities, load_refractor_velocities,
-                    calc_optimal_velocity, reduce_offsets_and_times)
+from .utils import get_param_names, postprocess_params, dump_refractor_velocities, load_refractor_velocities
 from ..muter import Muter
 from ..decorators import batch_method, plotter
 from ..utils import get_first_defined, set_ticks, set_text_formatting
@@ -214,7 +213,7 @@ class RefractorVelocity:
         min_refractor_size = np.ceil(min_refractor_size)
 
         if all(param is None for param in (init, bounds, n_refractors)):
-            init = calc_optimal_velocity(offsets, times, loss=loss, huber_coef=huber_coef).params
+            init = cls.calc_optimal_velocity(offsets, times, loss=loss, huber_coef=huber_coef).params
         init = {} if init is None else init
         bounds = {} if bounds is None else bounds
 
@@ -397,8 +396,10 @@ class RefractorVelocity:
         rv : RefractorVelocity
             A near-surface velocity model described by the survey.
         """
+        headers = survey.headers[['offset', first_breaks_col]].copy()
+        reduced_headers = headers.groupby(by=headers['offset'] // reduce_step, sort=False).mean()
+        offsets, times = reduced_headers.to_numpy().T
         max_offset = survey['offset'].max()
-        offsets, times = reduce_offsets_and_times(survey, first_breaks_col, reduce_step=reduce_step)
         return cls.from_first_breaks(offsets, times, init, bounds, n_refractors, max_offset, min_velocity_step,
                                      min_refractor_size, loss, huber_coef, tol, **kwargs)
 
@@ -662,6 +663,50 @@ class RefractorVelocity:
         if loss == 'cauchy':
             return np.log(abs_diff + 1).mean()
         raise ValueError("Unknown loss function")
+
+    @classmethod
+    def calc_optimal_velocity(cls, offsets, times, init=None, bounds=None, min_velocity_step=400,
+                              min_refractor_size=650, loss="L1", huber_coef=20, min_refractors=1, max_refractors=10):
+        """Calculate a near-surface velocity model with a number of refractors that give minimal loss.
+
+        Parameters
+        ----------
+        offsets : 1d ndarray
+            Offsets of traces. Measured in meters.
+        times : 1d ndarray
+            Time of first break for each trace. Measured in milliseconds.
+        init : dict, optional
+            Initial values of model parameters.
+        bounds : dict, optional
+            Lower and upper bounds of model parameters.
+        min_velocity_step : int, optional, defaults to 400
+            Minimum difference between velocities of two adjacent refractors.
+        min_refractor_size : int, optional, defaults to 650
+            Minimum offset range covered by each refractor.
+        loss : str, optional, defaults to "L1"
+            Loss function to be minimized. Should be one of "MSE", "huber", "L1", "soft_L1", or "cauchy".
+        huber_coef : float, optional, default to 20
+            Coefficient for Huber loss function.
+        min_refractors : int, optional, defaults to 1
+            Minimum number of refractors for the expected velocity model.
+        max_refractors : int, optional, defaults to 10
+            Maximum number of refractors for the expected velocity model.
+
+        Returns
+        -------
+        rv : RefractorVelocity
+            A near-surface velocity model with optimal number of refractors.
+        """
+        rv_base = cls.from_first_breaks(offsets, times, n_refractors=min_refractors, loss=loss, huber_coef=huber_coef)
+        for refractor in range(min_refractors + 1, max_refractors + 1):
+            max_offset = max(offsets.max(), min_refractor_size * refractor)
+            rv_last = cls.from_first_breaks(offsets, times, init, bounds, refractor, max_offset,
+                                                        min_velocity_step, min_refractor_size, loss, huber_coef)
+            n_points, _ = np.histogram(rv_last.offsets, bins=rv_last.piecewise_offsets)
+            if (n_points < 1).any() or (rv_last.fit_result.fun > rv_base.fit_result.fun):
+                break
+            rv_base = rv_last
+        return rv_base
 
     # General processing methods
 
