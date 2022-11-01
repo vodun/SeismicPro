@@ -109,9 +109,8 @@ def validate_headers(headers, offset_atol=10, cdp_atol=50, elev_atol=5, elev_rad
     cdp_cols = ["CDP_X", "CDP_Y"]
     bin_cols = ["INLINE_3D", "CROSSLINE_3D"]
 
-    index_columns = headers.index.names if headers.index.names[0] is not None else None
-    if index_columns is not None:
-        headers[index_columns] = headers.index.to_frame().to_numpy()
+    index_columns = headers.index.names
+    headers.reset_index(inplace=True)
 
     loaded_columns = headers.columns.values
     available_columns = set(loaded_columns[headers.any(axis=0)])
@@ -185,5 +184,4 @@ def validate_headers(headers, offset_atol=10, cdp_atol=50, elev_atol=5, elev_rad
         msg += "".join([f"\n\n {i+1}. {msg}" for i, msg in enumerate(msg_list)]) + line
         warnings.warn(msg)
 
-    if index_columns is not None:
-        headers.drop(columns=index_columns, inplace=True)
+    headers.set_index(index_columns, inplace=True)
