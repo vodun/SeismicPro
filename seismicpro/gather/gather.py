@@ -758,6 +758,9 @@ class Gather(TraceContainer, SamplesContainer):
         win_size : int, optional, defaults to 25
             Temporal window size used for semblance calculation. The higher the `win_size` is, the smoother the
             resulting semblance will be but to the detriment of small details. Measured in samples.
+        mode: str, optional, defaults to 'semblance'
+            The measure for estimating hodograph coherency.
+            See func:`~semblance.coherency_dict.keys()` for avaliable modes.
 
         Returns
         -------
@@ -798,6 +801,9 @@ class Gather(TraceContainer, SamplesContainer):
         relative_margin : float, optional, defaults to 0.2
             Relative velocity margin, that determines the velocity range for semblance calculation for each time `t` as
             `stacking_velocity(t)` * (1 +- `relative_margin`).
+        mode: str, optional, defaults to 'semblance'
+            The measure for estimating hodograph coherency.
+            See func:`~semblance.coherency_dict.keys()` for avaliable modes.
 
         Returns
         -------

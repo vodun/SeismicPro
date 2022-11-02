@@ -60,7 +60,7 @@ class CorrectionPlot:
     * `get_title` - the title of the corrected view,
     * `corrected_gather` - a property returning a corrected gather.
     """
-    def __init__(self, gather, min_vel, max_vel, figsize, step=1, show_grid=True, **kwargs):
+    def __init__(self, gather, min_vel, max_vel, figsize, show_grid=True, **kwargs):
         kwargs = {"fontsize": 8, **kwargs}
         event_headers = kwargs.pop("event_headers", None)
         self.event_headers = None
@@ -72,7 +72,7 @@ class CorrectionPlot:
                                                             event_headers=event_headers, **kwargs),
                                                     partial(self.gather.plot, **kwargs)],
                                            slide_fn=self.on_velocity_change, slider_min=min_vel, slider_max=max_vel,
-                                           title=[self.get_title, "Source gather"], step=step, figsize=figsize)
+                                           title=[self.get_title, "Source gather"], figsize=figsize)
 
     def get_title(self):
         """Get title of the corrected view."""

@@ -15,6 +15,19 @@ from ..utils import add_colorbar, set_ticks, set_text_formatting
 from ..gather.utils import correction
 
 
+coherency_dict = {
+    "stacked_amplitude": coherency_funcs.stacked_amplitude,
+    "S": coherency_funcs.stacked_amplitude,
+    "normalized_stacked_amplitude": coherency_funcs.normalized_stacked_amplitude,
+    "NS": coherency_funcs.normalized_stacked_amplitude,
+    "semblance": coherency_funcs.semblance,
+    "NE": coherency_funcs.semblance,
+    'crosscorrelation': coherency_funcs.crosscorrelation,
+    'CC': coherency_funcs.crosscorrelation,
+    'ENCC': coherency_funcs.energy_normalized_crosscorrelation
+}
+
+
 class BaseSemblance:
     """Base class for vertical velocity semblance calculation.
     Implements general computation logic and visualization method.
@@ -38,22 +51,10 @@ class BaseSemblance:
     coherency_func : callable
         The function that estimates the coherency measure for given hodograph.
     """
+
     def __init__(self, gather, win_size, mode='semblance'):
         self.gather = gather
         self.win_size = win_size  # samples
-
-        coherency_dict = {
-            "stacked_amplitude": coherency_funcs.stacked_amplitude,
-            "S": coherency_funcs.stacked_amplitude,
-            "normalized_stacked_amplitude": coherency_funcs.normalized_stacked_amplitude,
-            "NS": coherency_funcs.normalized_stacked_amplitude,
-            "semblance": coherency_funcs.semblance,
-            "NE": coherency_funcs.semblance,
-            'crosscorrelation': coherency_funcs.crosscorrelation,
-            'CC': coherency_funcs.crosscorrelation,
-            'ENCC': coherency_funcs.energy_normalized_crosscorrelation
-        }
-
         self.coherency_func = coherency_dict.get(mode)
         if self.coherency_func is None:
             raise ValueError(f"Unknown mode {mode}")
