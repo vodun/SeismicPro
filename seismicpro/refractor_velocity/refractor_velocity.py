@@ -34,7 +34,7 @@ class RefractorVelocity:
       velocity of the refractor,
     * `from_survey` - esentially the same as `from_first_breaks` except that near-surface velocity model is fitted for
       the whole survey(represented by one large supergather). Helpful for exploratory data analysis of a survey,
-      e.g. before running `RVF.from_survey()`. 
+      e.g. before running `RVF.from_survey()`.
     * `from_file` - to create a velocity model from parameters stored in a file.
     * `from_survey` - to automatically fit a near-surface velocity model by offsets and times of first breaks stored in
       the survey. This method can be initialzed with no initial values, bounds, or expected number of refractors and is
