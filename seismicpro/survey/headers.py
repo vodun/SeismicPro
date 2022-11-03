@@ -3,6 +3,7 @@
 import os
 import mmap
 import warnings
+from textwrap import wrap
 from struct import unpack
 from functools import partial
 from concurrent.futures import ProcessPoolExecutor
@@ -100,8 +101,11 @@ def load_headers(path, headers_to_load, trace_data_offset, trace_size, n_traces,
 
 
 # pylint: disable=too-many-statements
-def validate_headers(headers, offset_atol=10, cdp_atol=50, elev_atol=5, elev_radius=50):
+def validate_headers(headers, offset_atol=10, cdp_atol=10, elev_atol=5, elev_radius=50):
     """Validate trace headers for consistency"""
+    def _align_msg_by_width(msg):
+        return "\n    ".join(wrap(msg, width=76))
+
     msg_list = []
 
     shot_cols = ["SourceX", "SourceY"]
@@ -126,31 +130,31 @@ def validate_headers(headers, offset_atol=10, cdp_atol=50, elev_atol=5, elev_rad
     if {"FieldRecord", *shot_cols} <= available_columns:
         fr_with_coords = headers[["FieldRecord", *shot_cols]].drop_duplicates()
         if fr_with_coords.duplicated('FieldRecord').any() or fr_with_coords.duplicated(shot_cols).any():
-            msg_list.append("Several pairs of coordinates (SourceX, SourceY) for single FieldRecord")
+            msg_list.append("Non-unique mapping of source coordinates (SourceX, SourceY) and source ID (FieldRecord)")
 
     if 'offset' in available_columns:
         if (headers['offset'] < 0).any():
             msg_list.append("Signed offsets")
 
-    # Check that Euclidean distance calculated based on the coords from shot to receiver is close to the one stored
-    # in trace headers
     if {*shot_cols, *rec_cols, "offset"} <= available_columns:
         calculated_offsets = np.sqrt(np.sum((headers[shot_cols].values - headers[rec_cols].values)**2, axis=1))
         if not np.allclose(calculated_offsets, headers["offset"].abs(), rtol=0, atol=offset_atol):
-            msg_list.append("Mismatch of offsets in headers to the distance between shots (SourceX, "
-                            "\n    SourceY) and receivers (GroupX, GroupY) positions for some traces")
+            msg_list.append("Offsets in headers and calculated distance between shots (SourceX, SourceY) and receivers"
+                            " (GroupX, GroupY) do not match for some traces within margin of error equal to "
+                            f"{offset_atol} meters")
 
     if {*cdp_cols, *bin_cols} <= available_columns:
         unique_bins_cdp = headers[[*bin_cols, *cdp_cols]].drop_duplicates()
         if unique_bins_cdp.duplicated(cdp_cols).any() or unique_bins_cdp.duplicated(bin_cols).any():
-            msg_list.append("Non-unique mapping of midpoint (CDP_X, CDP_Y) to line-based (INLINE_3D/"
-                            "\n    CROSSLINE_3D) coordinates")
+            msg_list.append("Non-unique mapping of midpoint (CDP_X, CDP_Y) to line-based (INLINE_3D/ CROSSLINE_3D) "
+                            "coordinates")
 
     if {*shot_cols, *rec_cols, *cdp_cols} <= available_columns:
-        raw_cdp = (headers[shot_cols].values + headers[rec_cols].values) / 2
-        if not np.allclose(raw_cdp, headers[cdp_cols], rtol=0, atol=cdp_atol):
-            msg_list.append("Inconsistent range of CDP_X and CDP_Y coordinates compared to SourceX, "\
-                            "\n    SourceY, GroupX, GroupY")
+        calculated_cdp = (headers[shot_cols].values + headers[rec_cols].values) / 2
+        if not np.allclose(calculated_cdp, headers[cdp_cols], rtol=0, atol=cdp_atol):
+            msg_list.append("CDP_X and CDP_Y coordinates in headers and those calculated as midpoint between shots "
+                            "(SourceX, SourceY) and receivers (GroupX, GroupY) do not match for some traces within "
+                            f"margin of error equal to {cdp_atol} meters")
 
     if {*shot_cols, "SourceSurfaceElevation"} <= available_columns:
         unique_shot_elevs = headers[[*shot_cols, "SourceSurfaceElevation"]].drop_duplicates()
@@ -162,8 +166,7 @@ def validate_headers(headers, offset_atol=10, cdp_atol=50, elev_atol=5, elev_rad
         unique_rec_elevs = headers[[*rec_cols, "ReceiverGroupElevation"]].drop_duplicates()
         has_nonunique_rec_elevs = unique_rec_elevs.duplicated(rec_cols).any()
         if has_nonunique_rec_elevs:
-            msg_list.append("Non-unique surface elevation (ReceiverGroupElevation) for at least one"
-                            "\n    receiver")
+            msg_list.append("Non-unique surface elevation (ReceiverGroupElevation) for at least one receiver")
 
     if {*shot_cols, *rec_cols, "ReceiverGroupElevation", "SourceSurfaceElevation"} <= available_columns:
         if has_nonunique_shot_elevs:
@@ -175,13 +178,13 @@ def validate_headers(headers, offset_atol=10, cdp_atol=50, elev_atol=5, elev_rad
             data = np.concatenate((unique_shot_elevs.to_numpy(), unique_rec_elevs.to_numpy()))
             rnr = RadiusNeighborsRegressor(radius=elev_radius).fit(data[:, :2], data[:, 2])
             if not np.allclose(rnr.predict(data[:, :2]), data[:, 2], rtol=0, atol=elev_atol):
-                msg_list.append("Inconsistent values in elevation-related headers (ReceiverGroupElevation,"
-                                "\n    SourceSurfaceElevation)")
+                msg_list.append("Elevations of shot (SourceSurfaceElevation) and receiver (ReceiverGroupElevation) "
+                                f"differ by more than {elev_atol} meters within radius of {elev_radius} meters")
 
     if msg_list:
         line = "\n\n" + "-"*80
         msg = line + "\n\nThe loaded Survey has the following problems with trace headers:"
-        msg += "".join([f"\n\n {i+1}. {msg}" for i, msg in enumerate(msg_list)]) + line
+        msg += "".join([f"\n\n {i+1}. {_align_msg_by_width(msg)}" for i, msg in enumerate(msg_list)]) + line
         warnings.warn(msg)
 
     headers.set_index(index_columns, inplace=True)

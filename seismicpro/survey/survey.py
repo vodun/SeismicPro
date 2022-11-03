@@ -383,7 +383,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         trace statistics if they were calculated."""
         print(self)
 
-    def validate_headers(self, offset_atol=10, cdp_atol=50, elev_atol=5, elev_radius=50):
+    def validate_headers(self, offset_atol=10, cdp_atol=10, elev_atol=5, elev_radius=50):
         """Validate trace headers by checking that:
         - All headers are not empty,
         - Trace identifier (FieldRecord, TraceNumber) has no duplicates,
@@ -391,7 +391,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         - Traces do not have signed offsets,
         - Offsets in trace headers coincide with offsets calculated based on the distance between shots (SourceX,
         SourceY) and receivers (GroupX, GroupY),
-        - A mapping from geographic (CDP_X, CDP_Y) to binary (INLINE_3D/CROSSLINE_3D) coordinates and back is unique,
+        - Mapping from geographic (CDP_X, CDP_Y) to line-based (INLINE_3D/CROSSLINE_3D) coordinates and back is unique,
         - Coordinates of a midpoint (CDP_X, CDP_Y) matches those of the corresponding shot (SourceX, SourceY) and
         receiver (GroupX, GroupY),
         - Surface elevation of a shot (SourceSurfaceElevation) or receiver (ReceiverGroupElevation) is the same for all
@@ -405,7 +405,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         offset_atol : int, optional, defaults to 10
             Maximum difference at which offsets in `headers` and calculated from Source and Group coordinates are
             considered the same.
-        cdp_atol : int, optional, defaults to 50
+        cdp_atol : int, optional, defaults to 10
             Maximum difference at which CDP coordinates in headers and calculated from Source and Group coordinates are
             considered the same.
         elev_atol : int, optional, defaults to 5
