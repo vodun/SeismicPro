@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 
 from ..utils import Coordinates, to_list
-from ..const import HDR_FIRST_BREAK
 
 
 def get_param_names(n_refractors):
