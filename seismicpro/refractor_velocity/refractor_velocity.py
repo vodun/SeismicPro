@@ -32,13 +32,13 @@ class RefractorVelocity:
     one of the following `classmethod`s:
     * `from_constant_velocity` - to create a single-layer `RefractorVelocity` with zero intercept time and given
       velocity of the refractor,
+    * `from_first_breaks` - to automatically fit a near-surface velocity model by offsets and times of first breaks.
+      This methods allows one to specify initial values of some parameters or bounds for their values or simply provide
+      the expected number of refractors,
     * `from_survey` - esentially the same as `from_first_breaks` except that near-surface velocity model is fitted for
       the whole survey(represented by one large supergather). Helpful for exploratory data analysis of a survey,
-      e.g. before running `RVF.from_survey()`.
+      e.g. before running `RefractorVelocityField.from_survey()`,
     * `from_file` - to create a velocity model from parameters stored in a file.
-    * `from_survey` - to automatically fit a near-surface velocity model by offsets and times of first breaks stored in
-      the survey. This method can be initialzed with no initial values, bounds, or expected number of refractors and is
-      helpful for exploratory data analysis of a survey.
 
     The resulting object is callable and returns expected arrival times for given offsets. Each model parameter can be
     obtained by accessing the corresponding attribute of the created instance.
@@ -351,7 +351,7 @@ class RefractorVelocity:
         """
         return cls(t0=0, v1=velocity, coords=coords)
 
-    @classmethod  # pylint: disable-next=too-many-arguments, too-many-statements
+    @classmethod  # pylint: disable-next=too-many-arguments
     def from_survey(cls, survey, init=None, bounds=None, n_refractors=None, min_velocity_step=1, min_refractor_size=1,
                     loss="L1", huber_coef=20, tol=1e-5, first_breaks_col=HDR_FIRST_BREAK, reduce_step=20, **kwargs):
         """Fit a near-surface velocity model desribed by the survey.
@@ -697,7 +697,7 @@ class RefractorVelocity:
         rv : RefractorVelocity
             A near-surface velocity model with optimal number of refractors.
         """
-        rv_base = cls.from_first_breaks(offsets, times, n_refractors=min_refractors, huber_coef=huber_coef)
+        rv_base = cls.from_first_breaks(offsets, times, n_refractors=min_refractors, loss=loss, huber_coef=huber_coef)
         for refractor in range(min_refractors + 1, max_refractors + 1):
             max_offset = max(offsets.max(), min_refractor_size * refractor)
             rv_last = cls.from_first_breaks(offsets, times, init, bounds, refractor, max_offset, min_velocity_step,
