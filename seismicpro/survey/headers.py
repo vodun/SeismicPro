@@ -136,8 +136,8 @@ def validate_headers(headers, offset_atol=10, cdp_atol=10, elev_atol=5, elev_rad
     if {*shot_cols, *rec_cols, "offset"} <= available_columns:
         calculated_offsets = np.sqrt(np.sum((headers[shot_cols].values - headers[rec_cols].values)**2, axis=1))
         if not np.allclose(calculated_offsets, headers["offset"].abs(), rtol=0, atol=offset_atol):
-            msg_list.append("Offsets in headers and calculated distance between shots (SourceX, SourceY) and receivers"
-                            " (GroupX, GroupY) do not match for some traces within margin of error equal to "
+            msg_list.append("Offsets in headers and calculated distances between shots (SourceX, SourceY) and "
+                            "receivers (GroupX, GroupY) do not match for some traces within margin of error equal to "
                             f"{offset_atol} meters")
 
     if {*cdp_cols, *bin_cols} <= available_columns:

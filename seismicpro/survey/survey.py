@@ -389,8 +389,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         - Trace identifier (FieldRecord, TraceNumber) has no duplicates,
         - Traces with the same shot index (FieldRecord) do not have different coordinates (SourceX, SourceY),
         - Traces do not have signed offsets,
-        - Offsets in trace headers coincide with offsets calculated based on the distance between shots (SourceX,
-        SourceY) and receivers (GroupX, GroupY),
+        - Offsets in trace headers coincide with distances between shots (SourceX, SourceY) and receivers (GroupX,
+        GroupY),
         - Mapping from geographic (CDP_X, CDP_Y) to line-based (INLINE_3D/CROSSLINE_3D) coordinates and back is unique,
         - Coordinates of a midpoint (CDP_X, CDP_Y) matches those of the corresponding shot (SourceX, SourceY) and
         receiver (GroupX, GroupY),
@@ -403,15 +403,15 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Parameters
         ----------
         offset_atol : int, optional, defaults to 10
-            Maximum difference at which offsets in `headers` and calculated from Source and Group coordinates are
-            considered the same.
+            Maximum allowed difference between a trace offset and the distance between its shot and receiver.
         cdp_atol : int, optional, defaults to 10
-            Maximum difference at which CDP coordinates in headers and calculated from Source and Group coordinates are
-            considered the same.
+            Maximum allowed difference between coordinates of a trace CDP and the midpoint between its shot and
+            receiver.
         elev_atol : int, optional, defaults to 5
-            Maximum difference at which source and receiver elevations are considered consistent.
+            Maximum allowed difference between surface elevation at a given shot/receiver location and mean elevation
+            of all shots and receivers within a radius defined by `elev_radius`.
         elev_radius : int, optional, defaults to 50
-            Radius of the neighborhood to select elevations from for each Source and Group coordinates.
+            Radius of the neighborhood to estimate mean surface elevation.
         """
         validate_headers(self.headers, offset_atol=offset_atol, cdp_atol=cdp_atol, elev_atol=elev_atol,
                          elev_radius=elev_radius)
