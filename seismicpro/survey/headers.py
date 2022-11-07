@@ -103,9 +103,6 @@ def load_headers(path, headers_to_load, trace_data_offset, trace_size, n_traces,
 # pylint: disable=too-many-statements
 def validate_headers(headers, offset_atol=10, cdp_atol=10, elev_atol=5, elev_radius=50):
     """Validate trace headers for consistency"""
-    def _align_msg_by_width(msg):
-        return "\n    ".join(wrap(msg, width=76))
-
     msg_list = []
 
     shot_cols = ["SourceX", "SourceY"]
@@ -113,7 +110,7 @@ def validate_headers(headers, offset_atol=10, cdp_atol=10, elev_atol=5, elev_rad
     cdp_cols = ["CDP_X", "CDP_Y"]
     bin_cols = ["INLINE_3D", "CROSSLINE_3D"]
 
-    index_columns = headers.index.names
+    headers = headers.copy(deep=False)
     headers.reset_index(inplace=True)
 
     loaded_columns = headers.columns.values
@@ -182,9 +179,8 @@ def validate_headers(headers, offset_atol=10, cdp_atol=10, elev_atol=5, elev_rad
                                 f"differ by more than {elev_atol} meters within radius of {elev_radius} meters")
 
     if msg_list:
-        line = "\n\n" + "-"*80
-        msg = line + "\n\nThe loaded Survey has the following problems with trace headers:"
-        msg += "".join([f"\n\n {i+1}. {_align_msg_by_width(msg)}" for i, msg in enumerate(msg_list)]) + line
-        warnings.warn(msg)
-
-    headers.set_index(index_columns, inplace=True)
+        line_sep = "\n\n" + "-"*80
+        msg_list = ["\n    ".join(wrap(msg, width=76)) for msg in msg_list]
+        warning_msg = line_sep + "\n\nThe loaded Survey has the following problems with trace headers:"
+        warning_msg += "".join([f"\n\n {i+1}. {msg}" for i, msg in enumerate(msg_list)]) + line_sep
+        warnings.warn(warning_msg)
