@@ -1154,7 +1154,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         * Receiver view: displays receiver locations. Highlights all shots that activated the receiver on click and
           displays the corresponding common receiver gather.
 
-        Plotting must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and
+        Plotting must be performed in a JupyterLab environment with the `%matplotlib widget` magic executed and
         `ipympl` and `ipywidgets` libraries installed.
 
         Parameters

@@ -1,8 +1,10 @@
 """Implements a RefractorVelocityField class which stores near-surface velocity models calculated at different field
 location and allows for their spatial interpolation"""
 
+import os
 from textwrap import dedent
 from functools import partial, cached_property
+from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 import pandas as pd
@@ -12,7 +14,7 @@ from .refractor_velocity import RefractorVelocity
 from .interactive_plot import FitPlot
 from .utils import get_param_names, postprocess_params, dump_refractor_velocities, load_refractor_velocities
 from ..field import SpatialField
-from ..utils import to_list, get_coords_cols, Coordinates, IDWInterpolator
+from ..utils import to_list, get_coords_cols, Coordinates, IDWInterpolator, ForPoolExecutor
 from ..const import HDR_FIRST_BREAK
 
 
@@ -150,10 +152,41 @@ class RefractorVelocityField(SpatialField):
 
         return msg
 
+    @staticmethod
+    def _fit_refractor_velocities(rv_kwargs_list):
+        """Fit a separate near-surface velocity model by offsets and times of first breaks for each set of parameters
+        defined in `rv_kwargs_list`. This is a helper function and is defined as a `staticmethod` only to be picklable
+        so that it can be passed to `ProcessPoolExecutor.submit`."""
+        return [RefractorVelocity.from_first_breaks(**rv_kwargs) for rv_kwargs in rv_kwargs_list]
+
+    @classmethod
+    def _fit_refractor_velocities_parallel(cls, rv_kwargs_list, chunk_size=250, n_workers=None, bar=True, desc=None):
+        """Fit a separate near-surface velocity model by offsets and times of first breaks for each set of parameters
+        defined in `rv_kwargs_list`. Velocity model fitting is performed in parallel processes in chunks of size no
+        more than `chunk_size`."""
+        n_velocities = len(rv_kwargs_list)
+        n_chunks, mod = divmod(n_velocities, chunk_size)
+        if mod:
+            n_chunks += 1
+        if n_workers is None:
+            n_workers = os.cpu_count()
+        n_workers = min(n_chunks, n_workers)
+        executor_class = ForPoolExecutor if n_workers == 1 else ProcessPoolExecutor
+
+        futures = []
+        with tqdm(total=n_velocities, desc=desc, disable=not bar) as pbar:
+            with executor_class(max_workers=n_workers) as pool:
+                for i in range(n_chunks):
+                    chunk_kwargs = rv_kwargs_list[i * chunk_size : (i + 1) * chunk_size]
+                    future = pool.submit(cls._fit_refractor_velocities, chunk_kwargs)
+                    future.add_done_callback(lambda fut: pbar.update(len(fut.result())))
+                    futures.append(future)
+        return sum([future.result() for future in futures], [])
+
     @classmethod  # pylint: disable-next=too-many-arguments
     def from_survey(cls, survey, is_geographic=None, auto_create_interpolator=True, init=None, bounds=None,
                     n_refractors=None, min_velocity_step=1, min_refractor_size=1, loss='L1', huber_coef=20, tol=1e-5,
-                    first_breaks_col=HDR_FIRST_BREAK, bar=True, **kwargs):
+                    first_breaks_col=HDR_FIRST_BREAK, chunk_size=250, n_workers=None, bar=True, **kwargs):
         """Create a field by estimating a near-surface velocity model for each gather in the survey.
 
         The survey should contain headers with trace offsets, times of first breaks and coordinates of its gathers.
@@ -190,6 +223,11 @@ class RefractorVelocityField(SpatialField):
             Precision goal for the value of loss in the stopping criterion.
         first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `survey.headers` where times of first break are stored.
+        chunk_size : int, optional, defaults to 250
+            The number of velocity models estimated by each of spawned processes.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned processes to estimate velocity models. Defaults to the number
+            of cpu cores.
         bar : bool, optional, defaults to True
             Whether to show progress bar for field calculation.
         kwargs : misc, optional
@@ -203,22 +241,28 @@ class RefractorVelocityField(SpatialField):
             If any gather has non-unique pair of coordinates.
         """
         if survey.n_gathers < 1:
-            raise ValueError("Survey is empty.")
-        rv_list = []
+            raise ValueError("Survey is empty")
         coords_cols = get_coords_cols(survey.indexed_by)
-        # Get only the required data from survey headers
-        survey_headers = survey[('offset', first_breaks_col) + coords_cols]
+        survey_headers = survey[("offset", first_breaks_col) + coords_cols]
         max_offset = survey_headers[:, 0].max()
-        for gather_idx in tqdm(survey.indices, desc="Near-surface velocity models estimated", disable=not bar):
-            trace_locs = survey.get_traces_locs([gather_idx])
-            gather_headers = survey_headers[trace_locs]
+        common_kwargs = {"init": init, "bounds": bounds, "n_refractors": n_refractors, "max_offset": max_offset,
+                         "min_velocity_step": min_velocity_step, "min_refractor_size": min_refractor_size,
+                         "loss": loss, "huber_coef": huber_coef, "tol": tol, **kwargs}
+
+        # Construct a dict of fit parameters for each gather in the survey
+        rv_kwargs_list = []
+        for gather_idx in survey.indices:
+            traces_locs = survey.get_traces_locs([gather_idx])
+            gather_headers = survey_headers[traces_locs]
             if (gather_headers[:, 2:] != gather_headers[0, 2:]).any():
-                raise ValueError(f"Non-unique coordinates are found for a gather with index {gather_idx}.")
-            coords = Coordinates(coords=gather_headers[0, 2:], names=coords_cols)
-            rv = RefractorVelocity.from_first_breaks(gather_headers[:, 0], gather_headers[:, 1], init, bounds,
-                                                     n_refractors, max_offset, min_velocity_step, min_refractor_size,
-                                                     loss, huber_coef, tol, coords, **kwargs)
-            rv_list.append(rv)
+                raise ValueError(f"Non-unique coordinates are found for a gather with index {gather_idx}")
+            rv_kwargs = {"offsets": gather_headers[:, 0], "times": gather_headers[:, 1],
+                         "coords": Coordinates(coords=gather_headers[0, 2:], names=coords_cols), **common_kwargs}
+            rv_kwargs_list.append(rv_kwargs)
+
+        # Run parallel fit of velocity models
+        rv_list = cls._fit_refractor_velocities_parallel(rv_kwargs_list, chunk_size, n_workers, bar,
+                                                         desc="Velocity models estimated")
         return cls(items=rv_list, survey=survey, is_geographic=is_geographic,
                    auto_create_interpolator=auto_create_interpolator)
 
@@ -433,10 +477,10 @@ class RefractorVelocityField(SpatialField):
                                                     min_refractor_points_quantile)
         smoothed_items = [self.construct_item(val, rv.coords) for rv, val in zip(self.items, smoothed_values)]
         return type(self)(smoothed_items, n_refractors=self.n_refractors, survey=self.survey,
-                          is_geographic=self.is_geographic)
+                          is_geographic=self.is_geographic, auto_create_interpolator=self.auto_create_interpolator)
 
     def refine(self, radius=None, neighbors=4, min_refractor_points=0, min_refractor_points_quantile=0,
-               relative_bounds_size=0.25, bar=True):
+               relative_bounds_size=0.25, chunk_size=250, n_workers=None, bar=True):
         """Refine the field by first smoothing it and then refitting each velocity model within narrow parameter bounds
         around smoothed values. Only fields that were constructed directly from offset-traveltime data can be refined.
 
@@ -456,6 +500,11 @@ class RefractorVelocityField(SpatialField):
         relative_bounds_size : float, optional, defaults to 0.25
             Size of parameters bound used to refit velocity models relative to their range in the smoothed field. The
             bounds are centered around smoothed parameter values.
+        chunk_size : int, optional, defaults to 250
+            The number of velocity models refined by each of spawned processes.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned processes to refine velocity models. Defaults to the number of
+            cpu cores.
         bar : bool, optional, defaults to True
             Whether to show a refinement progress bar.
 
@@ -469,6 +518,7 @@ class RefractorVelocityField(SpatialField):
         if not self.is_fit:
             raise ValueError("Only fields that were constructed directly from offset-traveltime data can be refined")
 
+        # Smooth parameters of near-surface velocity models in the field and define bounds for their optimization
         params_init = self._get_smoothed_values(radius, neighbors, min_refractor_points, min_refractor_points_quantile)
         bounds_size = params_init.ptp(axis=0) * relative_bounds_size / 2
 
@@ -481,17 +531,19 @@ class RefractorVelocityField(SpatialField):
         np.minimum(params_bounds[:, 1:self.n_refractors], max_offsets[:, None, None],
                    out=params_bounds[:, 1:self.n_refractors])
 
-        refined_items = []
-        for rv, init, bounds in tqdm(zip(self.items, params_init, params_bounds), total=self.n_items,
-                                     desc="Velocity models refined", disable=not bar):
-            init = dict(zip(self.param_names, init))
-            bounds = dict(zip(self.param_names, bounds))
-            rv = RefractorVelocity.from_first_breaks(rv.offsets, rv.times, init=init, bounds=bounds,
-                                                     max_offset=rv.max_offset, min_velocity_step=0,
-                                                     min_refractor_size=0, coords=rv.coords)
-            refined_items.append(rv)
+        # Construct a dict of refinement parameters for each velocity model
+        rv_kwargs_list = []
+        for rv, init, bounds in zip(self.items, params_init, params_bounds):
+            rv_kwargs = {"offsets": rv.offsets, "times": rv.times, "init": dict(zip(self.param_names, init)),
+                         "bounds": dict(zip(self.param_names, bounds)), "max_offset": rv.max_offset,
+                         "min_velocity_step": 0, "min_refractor_size": 0, "coords": rv.coords}
+            rv_kwargs_list.append(rv_kwargs)
+
+        # Run parallel refinement of velocity models
+        refined_items = self._fit_refractor_velocities_parallel(rv_kwargs_list, chunk_size, n_workers, bar,
+                                                                desc="Velocity models refined")
         return type(self)(refined_items, n_refractors=self.n_refractors, survey=self.survey,
-                          is_geographic=self.is_geographic)
+                          is_geographic=self.is_geographic, auto_create_interpolator=self.auto_create_interpolator)
 
     def dump(self, path, encoding="UTF-8"):
         """Dump near-surface velocity models stored in the field to a file.
@@ -521,7 +573,7 @@ class RefractorVelocityField(SpatialField):
         curve with data used to fit the model upon clicking on a map. Can be called only for fields constructed
         directly from first break data.
 
-        Plotting must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and
+        Plotting must be performed in a JupyterLab environment with the `%matplotlib widget` magic executed and
         `ipympl` and `ipywidgets` libraries installed.
 
         Parameters

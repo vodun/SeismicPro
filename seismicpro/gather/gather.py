@@ -1540,7 +1540,7 @@ class Gather(TraceContainer, SamplesContainer):
           on top of the plot.
         * Source gather. This view disables the velocity slider.
 
-        Plotting must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and
+        Plotting must be performed in a JupyterLab environment with the `%matplotlib widget` magic executed and
         `ipympl` and `ipywidgets` libraries installed.
 
         Parameters
@@ -1567,7 +1567,7 @@ class Gather(TraceContainer, SamplesContainer):
         on top of the plot.
         * Source gather. This view disables the velocity slider.
 
-        Plotting must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and
+        Plotting must be performed in a JupyterLab environment with the `%matplotlib widget` magic executed and
         `ipympl` and `ipywidgets` libraries installed.
 
         Parameters
