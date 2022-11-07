@@ -1411,7 +1411,7 @@ class Gather(TraceContainer, SamplesContainer):
         codes[end_ix + shift + 3] = Path.CLOSEPOLY
 
         patch = PathPatch(Path(verts, codes), color=color, alpha=alpha)
-        ax.add_patch(patch)
+        ax.add_artist(patch)
         ax.update_datalim([(0, 0), traces.shape])
         if not ax.yaxis_inverted():
             ax.invert_yaxis()
