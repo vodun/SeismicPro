@@ -573,7 +573,7 @@ class RefractorVelocityField(SpatialField):
         curve with data used to fit the model upon clicking on a map. Can be called only for fields constructed
         directly from first break data.
 
-        Plotting must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and
+        Plotting must be performed in a JupyterLab environment with the `%matplotlib widget` magic executed and
         `ipympl` and `ipywidgets` libraries installed.
 
         Parameters

@@ -2,7 +2,7 @@
 
 from functools import partial
 
-from ..utils.interactive_plot_utils import InteractivePlot
+from ..utils.interactive_plot_utils import WIDGET_HEIGHT, InteractivePlot
 from ..utils import MissingModule, as_dict
 
 # Safe import of modules for interactive plotting
@@ -27,17 +27,18 @@ class SlidingVelocityPlot(InteractivePlot):
         Additional keyword arguments to `InteractivePlot.__init__`.
     """
     def __init__(self, *, slider_min, slider_max, slide_fn=None, **kwargs):
+        min_widget = widgets.HTML(value=str(slider_min), layout=widgets.Layout(height=WIDGET_HEIGHT))
+        max_widget = widgets.HTML(value=str(slider_max), layout=widgets.Layout(height=WIDGET_HEIGHT))
         self.slider = widgets.FloatSlider(min=slider_min, max=slider_max, step=1, readout=False,
-                                          layout=widgets.Layout(width="80%"))
+                                          layout=widgets.Layout(flex="1 1 auto", height=WIDGET_HEIGHT))
         self.slider.observe(slide_fn, "value")
-        slider_box = [widgets.HTML(value=str(slider_min)), self.slider, widgets.HTML(value=str(slider_max))]
-        self.slider_box = widgets.HBox(slider_box, layout=widgets.Layout(justify_content="center"))
+        self.slider_box = widgets.HBox([min_widget, self.slider, max_widget],
+                                       layout=widgets.Layout(width="90%", margin="auto"))
         super().__init__(**kwargs)
 
     def construct_header(self):
         """Append the slider below the plot header."""
-        header = super().construct_header()
-        return widgets.VBox([header, self.slider_box])
+        return widgets.VBox([super().construct_header(), self.slider_box], layout=widgets.Layout(overflow="hidden"))
 
     def on_view_toggle(self, event):
         """Hide the slider on the last view."""

@@ -134,7 +134,7 @@ class TraceContainer:
             The result of applying `func` to `df`.
         """
         if axis is None:
-            args = (col_val for _, col_val in df.iteritems()) if unpack_args else (df,)
+            args = (col_val for _, col_val in df.items()) if unpack_args else (df,)
             res = func(*args, **kwargs)
         else:
             # FIXME: Workaround for a pandas bug https://github.com/pandas-dev/pandas/issues/34822

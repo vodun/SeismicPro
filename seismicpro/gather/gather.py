@@ -1411,7 +1411,7 @@ class Gather(TraceContainer, SamplesContainer):
         codes[end_ix + shift + 3] = Path.CLOSEPOLY
 
         patch = PathPatch(Path(verts, codes), color=color, alpha=alpha)
-        ax.add_patch(patch)
+        ax.add_artist(patch)
         ax.update_datalim([(0, 0), traces.shape])
         if not ax.yaxis_inverted():
             ax.invert_yaxis()
@@ -1540,7 +1540,7 @@ class Gather(TraceContainer, SamplesContainer):
           on top of the plot.
         * Source gather. This view disables the velocity slider.
 
-        Plotting must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and
+        Plotting must be performed in a JupyterLab environment with the `%matplotlib widget` magic executed and
         `ipympl` and `ipywidgets` libraries installed.
 
         Parameters
@@ -1567,7 +1567,7 @@ class Gather(TraceContainer, SamplesContainer):
         on top of the plot.
         * Source gather. This view disables the velocity slider.
 
-        Plotting must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and
+        Plotting must be performed in a JupyterLab environment with the `%matplotlib widget` magic executed and
         `ipympl` and `ipywidgets` libraries installed.
 
         Parameters

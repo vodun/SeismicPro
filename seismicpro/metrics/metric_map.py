@@ -180,7 +180,7 @@ class BaseMetricMap:
             Whether to plot metric map in interactive mode. Clicking on the map will result in displaying the `views`
             defined by the map metric. If no views are implemented, `plot_on_click` argument must be specified. Note
             that if `Metric.get_views` expects any arguments, they must be passed to `kwargs`, see docs of the metric
-            used for more details. Interactive plotting must be performed in a JupyterLab environment with the the
+            used for more details. Interactive plotting must be performed in a JupyterLab environment with the
             `%matplotlib widget` magic executed and `ipympl` and `ipywidgets` libraries installed.
         plot_on_click : callable or list of callable, optional, only for interactive mode
             Views called on each click to display some data representation at the click location. Each of them must
@@ -272,7 +272,7 @@ class BinarizedMap(BaseMetricMap):
         # Binarize map coordinates
         bin_cols = ["BIN_X", "BIN_Y"]
         min_coords = map_data[self.coords_cols].min(axis=0).values
-        map_data[bin_cols] = (map_data[self.coords_cols] - min_coords) // self.bin_size
+        map_data[bin_cols] = ((map_data[self.coords_cols] - min_coords) // self.bin_size).astype(int)
         x_bin_range = np.arange(map_data["BIN_X"].max() + 1)
         y_bin_range = np.arange(map_data["BIN_Y"].max() + 1)
         self.x_bin_coords = min_coords[0] + self.bin_size[0] * x_bin_range + self.bin_size[0] // 2
