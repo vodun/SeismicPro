@@ -89,11 +89,10 @@ def test_gather_getitem_headers(gather, key):
     """test_gather_getitem_headers"""
     result_getitem = gather[key]
     result_get_item = gather.get_item(key)
+    expected = gather.headers.reset_index()[key].values
 
-    expected = gather.headers[key].values
     assert np.allclose(result_getitem, result_get_item)
-    assert result_getitem.shape == (gather.shape[0], len(to_list(key)))
-    assert np.allclose(result_getitem.reshape(-1), expected.reshape(-1))
+    assert np.allclose(result_getitem, expected)
     assert result_getitem.dtype == expected.dtype
 
 
