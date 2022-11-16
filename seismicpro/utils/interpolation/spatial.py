@@ -25,8 +25,8 @@ time-consuming, especially in case of high-dimensional values.
 import cv2
 import numpy as np
 from scipy import interpolate
-from scipy.spatial.qhull import Delaunay, QhullError  #pylint: disable=no-name-in-module
-from sklearn.neighbors import NearestNeighbors
+from scipy.spatial import KDTree
+from scipy.spatial.qhull import Delaunay, QhullError
 
 
 def parse_inputs(coords, values=None):
@@ -194,7 +194,7 @@ class IDWInterpolator(ValuesAgnosticInterpolator):
 
     Attributes
     ----------
-    nearest_neighbors : NearestNeighbors
+    nearest_neighbors : KDTree
         An estimator of the closest known points to the passed spatial coordinates.
     use_radius : bool
         Whether a neighborhood of coordinates is defined by `radius` or the number of `neighbors`.
@@ -211,9 +211,10 @@ class IDWInterpolator(ValuesAgnosticInterpolator):
         super().__init__(coords, values)
         if neighbors is None:
             neighbors = len(self.coords)
-        neighbors = min(neighbors, len(self.coords))
-        self.nearest_neighbors = NearestNeighbors(n_neighbors=neighbors, radius=radius).fit(self.coords)
+        self.neighbors = np.arange(min(neighbors, len(self.coords))) + 1  # Indices of neighbors to get
+        self.radius = radius
         self.use_radius = radius is not None
+        self.nearest_neighbors = KDTree(self.coords)
         self.dist_transform = dist_transform
         self.smoothing = smoothing
         self.min_relative_weight = min_relative_weight
@@ -245,10 +246,13 @@ class IDWInterpolator(ValuesAgnosticInterpolator):
             return weights[0]
         return weights
 
+    def _aggregate_values(self, indices, weights):
+        return (self.values[indices] * weights[:, :, None]).sum(axis=1).astype(self.values.dtype)
+
     def _get_reference_indices_neighbors(self, coords):
         """Get indices of reference data points and their weights for each item in `coords` if the neighborhood is
         defined by the number of `neighbors`."""
-        dist, indices = self.nearest_neighbors.kneighbors(coords, return_distance=True)
+        dist, indices = self.nearest_neighbors.query(coords, k=self.neighbors, workers=-1)
         return indices, self._distances_to_weights(dist)
 
     def _interpolate_neighbors(self, coords):
@@ -256,8 +260,7 @@ class IDWInterpolator(ValuesAgnosticInterpolator):
         if len(coords) == 0:
             return np.empty((0, self.values.shape[1]), dtype=self.values.dtype)
         base_indices, base_weights = self._get_reference_indices_neighbors(coords)
-        base_values = self.values[base_indices]
-        return (base_values * base_weights[:, :, None]).sum(axis=1).astype(self.values.dtype)
+        return self._aggregate_values(base_indices, base_weights)
 
     def _get_weights_neighbors(self, coords):
         """Get coordinates of reference objects and their weights for each of the passed `coords` if the neighborhood
@@ -274,14 +277,17 @@ class IDWInterpolator(ValuesAgnosticInterpolator):
     def _get_reference_indices_radius(self, coords):
         """Get indices of reference data points and their weights for each item in `coords` with non-empty neighborhood
         defined by `radius`. Also returns a mask of items in `coords` with empty neighborhood."""
-        dist, indices = self.nearest_neighbors.radius_neighbors(coords, return_distance=True)
-        empty_radius_mask = np.array([len(ix) == 0 for ix in indices])
-        indices = indices[~empty_radius_mask]
-        dist = dist[~empty_radius_mask]
-        weights = np.empty_like(dist, dtype=object)
-        for i, dist_item in enumerate(dist):  # dist is an array of arrays thus direct iteration is required
-            weights[i] = self._distances_to_weights(dist_item)
-        return indices, weights, empty_radius_mask
+        n_radius_points = self.nearest_neighbors.query_ball_point(coords, r=self.radius, return_length=True,
+                                                                  workers=-1)
+        empty_radius_mask = (n_radius_points == 0)
+        if empty_radius_mask.all():
+            return np.empty((0, 0)), np.empty((0, 0)), empty_radius_mask
+
+        neighbors = np.arange(n_radius_points.max()) + 1
+        dist, indices = self.nearest_neighbors.query(coords[~empty_radius_mask], k=neighbors,
+                                                     distance_upper_bound=self.radius, workers=-1)
+        indices[np.isinf(dist)] = 0  # Set padded indices to 0 for further advanced indexing to properly work
+        return indices, self._distances_to_weights(dist), empty_radius_mask
 
     def _interpolate_radius(self, coords):
         """Perform interpolation at given `coords` if the neighborhood is defined by `radius`. Falls back to
@@ -290,8 +296,7 @@ class IDWInterpolator(ValuesAgnosticInterpolator):
         values = np.empty((len(coords), self.values.shape[1]), dtype=self.values.dtype)
         values[empty_radius_mask] = self._interpolate_neighbors(coords[empty_radius_mask])
         if len(base_indices):
-            values[~empty_radius_mask] = [(self.values[indices] * weights[:, None]).sum(axis=0)
-                                           for indices, weights in zip(base_indices, base_weights)]
+            values[~empty_radius_mask] = self._aggregate_values(base_indices, base_weights)
         return values
 
     def _get_weights_radius(self, coords):
@@ -302,10 +307,10 @@ class IDWInterpolator(ValuesAgnosticInterpolator):
         values[empty_radius_mask] = self._get_weights_neighbors(coords[empty_radius_mask])
 
         weighted_coords = np.empty(len(base_indices), dtype=object)
-        for i, (indices, weights) in enumerate(zip(base_indices, base_weights)):
-            non_zero_mask = ~np.isclose(weights, 0)
-            coords = self.coords[indices[non_zero_mask]]
-            weights = weights[non_zero_mask]
+        non_zero_mask = ~np.isclose(base_weights, 0)
+        for i, (indices, weights, mask) in enumerate(zip(base_indices, base_weights, non_zero_mask)):
+            coords = self.coords[indices[mask]]
+            weights = weights[mask]
             weighted_coords[i] = {tuple(coord): weight for coord, weight in zip(coords, weights)}
         values[~empty_radius_mask] = weighted_coords
         return values
