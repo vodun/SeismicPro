@@ -1242,7 +1242,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
 
 
-    def qc_tracewise(self, metrics, chunk_size=1000, inplace=False):
+    def qc_tracewise(self, metrics, chunk_size=1000):
         """Calculate tracewise QC metrics.
 
         Parameters
@@ -1251,8 +1251,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             list of metrics, that use raw traces.
         chunk_size : int, optional, defaults to 1000
             number of traces loaded on each iteration
-        inplace : bool, optional, defaults to False
-            Whether to transform the survey inplace or process its copy
 
         Returns
         -------
@@ -1274,8 +1272,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         for metric_cls in metrics:
             if not issubclass(metric_cls, TracewiseMetric):
                 raise TypeError(f"all metrics must be `TracewiseMetric` subtypes, but {metric_cls.__name__} is not")
-
-        self = self.reindex('TRACE_SEQUENCE_FILE', inplace=inplace)  # pylint: disable=self-cls-assignment
 
         n_traces = len(self.headers)
         buf = {metric_cls.__name__: [] for metric_cls in metrics}
