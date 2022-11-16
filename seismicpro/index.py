@@ -29,7 +29,7 @@ class IndexPart(GatherContainer):
     surveys_dict : dict
         A mapping from survey names from the first level of `headers.columns` to the surveys themselves.
     indexer : BaseIndexer, optional
-        And indexer of `headers`. Created automatically if not given.
+        An indexer of `headers`. Created automatically if not given.
     copy_headers : bool, optional, defaults to False
         Whether to copy `headers` while constructing the part.
     """
