@@ -16,12 +16,11 @@ from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
 
 from .headers import load_headers
-from .metrics import SurveyAttribute
+from .metrics import SurveyAttribute, TracewiseMetric
 from .plot_geometry import SurveyGeometryPlot
 from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
 from ..metrics import PartialMetric
-from ..metrics.qc_metric import TracewiseMetric
 from ..containers import GatherContainer, SamplesContainer
 from ..utils import to_list, maybe_copy, get_cols, get_coord_cols_by_alias
 from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK
