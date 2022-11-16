@@ -52,7 +52,7 @@ class RefractorVelocity:
 
     Now an instance of `RefractorVelocity` can be created using a `from_first_breaks` method:
     >>> offsets = gather.offsets
-    >>> fb_times = gather['FirstBreak'].ravel()
+    >>> fb_times = gather['FirstBreak']
     >>> rv = RefractorVelocity.from_first_breaks(offsets, fb_times, n_refractors=2)
 
     The same can be done by calling a `calculate_refractor_velocity` method of the gather:

@@ -678,7 +678,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         n_quantile_traces = min(n_traces, n_quantile_traces)
 
         # Sort traces by TRACE_SEQUENCE_FILE: sequential access to trace amplitudes is much faster than random
-        traces_pos = np.sort(get_cols(headers, "TRACE_SEQUENCE_FILE").ravel() - 1)
+        traces_pos = np.sort(get_cols(headers, "TRACE_SEQUENCE_FILE") - 1)
         quantile_traces_mask = np.zeros(n_traces, dtype=np.bool_)
         quantile_traces_mask[np.random.choice(n_traces, size=n_quantile_traces, replace=False)] = True
 
@@ -786,7 +786,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         limits = self.limits if limits is None else self._process_limits(limits)
 
-        traces_pos = self["TRACE_SEQUENCE_FILE"].ravel() - 1
+        traces_pos = self["TRACE_SEQUENCE_FILE"] - 1
         n_samples = len(self.file_samples[limits])
 
         trace = np.empty(n_samples, dtype=self.trace_dtype)
@@ -894,7 +894,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         if copy_headers:
             headers = headers.copy()
-        traces_pos = get_cols(headers, "TRACE_SEQUENCE_FILE").ravel() - 1
+        traces_pos = get_cols(headers, "TRACE_SEQUENCE_FILE") - 1
         limits = self.limits if limits is None else self._process_limits(limits)
         samples = self.file_samples[limits]
         data = self.load_traces(traces_pos, limits=limits)
