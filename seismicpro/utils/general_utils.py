@@ -77,8 +77,7 @@ def get_cols(df, cols):
             raise KeyError(f"Unknown header {col}")
         res.append(col_values.to_numpy())
 
-    # Single index may return multiple columns in MultiIndex case thus extra dimensionality check is required
-    if is_single_col and res[0].ndim == 1:
+    if is_single_col:
         return res[0]
     return np.column_stack(res)
 
