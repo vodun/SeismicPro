@@ -153,14 +153,15 @@ class RefractorVelocityField(SpatialField):
         return msg
 
     @staticmethod
-    def _fit_refractor_velocities(rv_kwargs_list):
+    def _fit_refractor_velocities(rv_kwargs_list, common_kwargs):
         """Fit a separate near-surface velocity model by offsets and times of first breaks for each set of parameters
         defined in `rv_kwargs_list`. This is a helper function and is defined as a `staticmethod` only to be picklable
         so that it can be passed to `ProcessPoolExecutor.submit`."""
-        return [RefractorVelocity.from_first_breaks(**rv_kwargs) for rv_kwargs in rv_kwargs_list]
+        return [RefractorVelocity.from_first_breaks(**rv_kwargs, **common_kwargs) for rv_kwargs in rv_kwargs_list]
 
     @classmethod
-    def _fit_refractor_velocities_parallel(cls, rv_kwargs_list, chunk_size=250, n_workers=None, bar=True, desc=None):
+    def _fit_refractor_velocities_parallel(cls, rv_kwargs_list, common_kwargs, chunk_size=250, n_workers=None,
+                                           bar=True, desc=None):
         """Fit a separate near-surface velocity model by offsets and times of first breaks for each set of parameters
         defined in `rv_kwargs_list`. Velocity model fitting is performed in parallel processes in chunks of size no
         more than `chunk_size`."""
@@ -178,7 +179,7 @@ class RefractorVelocityField(SpatialField):
             with executor_class(max_workers=n_workers) as pool:
                 for i in range(n_chunks):
                     chunk_kwargs = rv_kwargs_list[i * chunk_size : (i + 1) * chunk_size]
-                    future = pool.submit(cls._fit_refractor_velocities, chunk_kwargs)
+                    future = pool.submit(cls._fit_refractor_velocities, chunk_kwargs, common_kwargs)
                     future.add_done_callback(lambda fut: pbar.update(len(fut.result())))
                     futures.append(future)
         return sum([future.result() for future in futures], [])
@@ -240,28 +241,33 @@ class RefractorVelocityField(SpatialField):
             If the survey is empty.
             If any gather has non-unique pair of coordinates.
         """
-        if survey.n_gathers < 1:
+        if survey.is_empty:
             raise ValueError("Survey is empty")
+        if survey.headers.index.is_unique:
+            raise ValueError("Survey must be indexed by gathers, not individual traces")
+
+        # Extract required headers for each gather in the survey
         coords_cols = get_coords_cols(survey.indexed_by)
         survey_headers = survey[("offset", first_breaks_col) + coords_cols]
+        gather_headers_list = np.split(survey_headers, np.where(~survey.headers.index.duplicated())[0][1:])
+
+        # Construct a dict of fit parameters for each gather in the survey
+        rv_kwargs_list = []
+        for i, gather_headers in enumerate(gather_headers_list):
+            if (gather_headers[:, 2:] != gather_headers[0, 2:]).any():
+                raise ValueError(f"Non-unique coordinates are found for a gather with index {survey.indices[i]}")
+            rv_kwargs = {"offsets": gather_headers[:, 0], "times": gather_headers[:, 1],
+                         "coords": Coordinates(coords=gather_headers[0, 2:], names=coords_cols)}
+            rv_kwargs_list.append(rv_kwargs)
+
+        # Construct a dict of common kwargs
         max_offset = survey_headers[:, 0].max()
         common_kwargs = {"init": init, "bounds": bounds, "n_refractors": n_refractors, "max_offset": max_offset,
                          "min_velocity_step": min_velocity_step, "min_refractor_size": min_refractor_size,
                          "loss": loss, "huber_coef": huber_coef, "tol": tol, **kwargs}
 
-        # Construct a dict of fit parameters for each gather in the survey
-        rv_kwargs_list = []
-        for gather_idx in survey.indices:
-            traces_locs = survey.get_traces_locs([gather_idx])
-            gather_headers = survey_headers[traces_locs]
-            if (gather_headers[:, 2:] != gather_headers[0, 2:]).any():
-                raise ValueError(f"Non-unique coordinates are found for a gather with index {gather_idx}")
-            rv_kwargs = {"offsets": gather_headers[:, 0], "times": gather_headers[:, 1],
-                         "coords": Coordinates(coords=gather_headers[0, 2:], names=coords_cols), **common_kwargs}
-            rv_kwargs_list.append(rv_kwargs)
-
         # Run parallel fit of velocity models
-        rv_list = cls._fit_refractor_velocities_parallel(rv_kwargs_list, chunk_size, n_workers, bar,
+        rv_list = cls._fit_refractor_velocities_parallel(rv_kwargs_list, common_kwargs, chunk_size, n_workers, bar,
                                                          desc="Velocity models estimated")
         return cls(items=rv_list, survey=survey, is_geographic=is_geographic,
                    auto_create_interpolator=auto_create_interpolator)
