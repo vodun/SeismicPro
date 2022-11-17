@@ -269,7 +269,8 @@ class Gather(TraceContainer, SamplesContainer):
             if column not in self.survey.headers.columns:
                 self.survey[column] = np.nan
             columns_pos.append(self.survey.headers.columns.get_loc(column))
-        self.survey.headers.iloc[self["TRACES_POS"], columns_pos] = self[columns]
+        current_pos = self.survey._trace_indexer.get_indexer(self["TRACES_POS"])
+        self.survey.headers.iloc[current_pos, columns_pos] = self[columns]
         return self
 
     #------------------------------------------------------------------------#

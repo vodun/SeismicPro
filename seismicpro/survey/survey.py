@@ -224,6 +224,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         # Set loaded survey headers and construct its fast indexer
         self._headers = None
         self._indexer = None
+        self._trace_indexer = None
         self.headers = headers
 
         # Validate trace headers for consistency
@@ -320,6 +321,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     def headers(self, headers):
         super(Survey, self.__class__).headers.fset(self, headers)
         self._headers["TRACES_POS"] = np.arange(self.n_traces)
+        self._trace_indexer = pd.Index(self["TRACES_POS"])
 
     def __del__(self):
         """Close SEG-Y file handler on survey destruction."""
