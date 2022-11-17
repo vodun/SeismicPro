@@ -26,7 +26,7 @@ import cv2
 import numpy as np
 from scipy import interpolate
 from scipy.spatial import KDTree
-from scipy.spatial.qhull import Delaunay, QhullError
+from scipy.spatial.qhull import Delaunay, QhullError  # pylint: disable=no-name-in-module
 
 
 def parse_inputs(coords, values=None):
