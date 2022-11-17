@@ -57,7 +57,6 @@ class IndexPart(GatherContainer):
             raise ValueError("survey must be an instance of Survey")
 
         headers = survey.headers.copy(copy_headers)
-        headers["GLOBAL_TRACE_POS"] = np.arange(survey.n_traces)
         common_headers = set(headers.columns)
         headers.columns = pd.MultiIndex.from_product([[survey.name], headers.columns])
 
@@ -88,7 +87,7 @@ class IndexPart(GatherContainer):
 
         possibly_common_headers = self.common_headers & other.common_headers
         if on is None:
-            on = possibly_common_headers - {"TRACE_SEQUENCE_FILE", "GLOBAL_TRACE_POS"}
+            on = possibly_common_headers - {"TRACE_SEQUENCE_FILE"}
             left_df = self.headers
             right_df = other.headers
         else:
@@ -771,10 +770,9 @@ class SeismicIndex(DatasetIndex):
         index_headers = index_part.get_headers_by_indices((index,))
         empty_headers = index_headers[[]]  # Handle the case when no headers were loaded for a survey
         gather_headers = [index_headers.get(name, empty_headers) for name in survey_names]
-        traces_pos = [headers["GLOBAL_TRACE_POS"].to_numpy() for headers in gather_headers]
 
-        gathers = [survey.load_gather(pos=pos, headers=headers, limits=limits, copy_headers=copy_headers)
-                   for survey, headers, pos in zip(surveys, gather_headers, traces_pos)]
+        gathers = [survey.load_gather(headers=headers, limits=limits, copy_headers=copy_headers)
+                   for survey, headers in zip(surveys, gather_headers)]
         if is_single_survey:
             return gathers[0]
         return gathers

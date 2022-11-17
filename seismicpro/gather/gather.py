@@ -76,12 +76,11 @@ class Gather(TraceContainer, SamplesContainer):
     sort_by : None or str
         Headers column that was used for gather sorting. If `None`, no sorting was performed.
     """
-    def __init__(self, headers, data, samples, survey, pos):
+    def __init__(self, headers, data, samples, survey):
         self.headers = headers
         self.data = data
         self.samples = samples
         self.survey = survey
-        self.pos = pos
         self.sort_by = None
 
     @property
@@ -268,7 +267,7 @@ class Gather(TraceContainer, SamplesContainer):
             if column not in self.survey.headers.columns:
                 self.survey[column] = np.nan
             columns_pos.append(self.survey.headers.columns.get_loc(column))
-        self.survey.headers.iloc[self.pos, columns_pos] = self[columns]
+        self.survey.headers.iloc[self["TRACES_POS"], columns_pos] = self[columns]
         return self
 
     #------------------------------------------------------------------------#
