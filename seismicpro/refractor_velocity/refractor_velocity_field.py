@@ -249,16 +249,18 @@ class RefractorVelocityField(SpatialField):
         # Extract required headers for each gather in the survey
         coords_cols = get_coords_cols(survey.indexed_by)
         survey_headers = survey[("offset", first_breaks_col) + coords_cols]
-        gather_headers_list = np.split(survey_headers, np.where(~survey.headers.index.duplicated())[0][1:])
+        gather_change_ix = np.where(~survey.headers.index.duplicated())[0][1:]
+        gather_headers_list = np.split(survey_headers, gather_change_ix)
+
+        # Check if coordinates are unique within each gather
+        coords_change_ix = np.where(~np.isclose(np.diff(survey_headers[:, 2:], axis=0), 0).all(axis=1))[0] + 1
+        if not np.isin(coords_change_ix, gather_change_ix).all():
+            raise ValueError("Non-unique coordinates are found for some gathers in the survey")
 
         # Construct a dict of fit parameters for each gather in the survey
-        rv_kwargs_list = []
-        for i, gather_headers in enumerate(gather_headers_list):
-            if (gather_headers[:, 2:] != gather_headers[0, 2:]).any():
-                raise ValueError(f"Non-unique coordinates are found for a gather with index {survey.indices[i]}")
-            rv_kwargs = {"offsets": gather_headers[:, 0], "times": gather_headers[:, 1],
-                         "coords": Coordinates(coords=gather_headers[0, 2:], names=coords_cols)}
-            rv_kwargs_list.append(rv_kwargs)
+        rv_kwargs_list = [{"offsets": gather_headers[:, 0], "times": gather_headers[:, 1],
+                           "coords": Coordinates(coords=gather_headers[0, 2:], names=coords_cols)}
+                          for gather_headers in gather_headers_list]
 
         # Construct a dict of common kwargs
         max_offset = survey_headers[:, 0].max()
