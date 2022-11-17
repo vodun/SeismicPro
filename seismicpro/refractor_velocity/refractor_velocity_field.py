@@ -160,11 +160,13 @@ class RefractorVelocityField(SpatialField):
         return [RefractorVelocity.from_first_breaks(**rv_kwargs, **common_kwargs) for rv_kwargs in rv_kwargs_list]
 
     @classmethod
-    def _fit_refractor_velocities_parallel(cls, rv_kwargs_list, common_kwargs, chunk_size=250, n_workers=None,
+    def _fit_refractor_velocities_parallel(cls, rv_kwargs_list, common_kwargs=None, chunk_size=250, n_workers=None,
                                            bar=True, desc=None):
         """Fit a separate near-surface velocity model by offsets and times of first breaks for each set of parameters
         defined in `rv_kwargs_list`. Velocity model fitting is performed in parallel processes in chunks of size no
         more than `chunk_size`."""
+        if common_kwargs is None:
+            common_kwargs = {}
         n_velocities = len(rv_kwargs_list)
         n_chunks, mod = divmod(n_velocities, chunk_size)
         if mod:
@@ -380,7 +382,7 @@ class RefractorVelocityField(SpatialField):
         """
         coords = self.coords
         values = self.values
-        refined_values = np.empty_like(values)
+        refined_values = values.copy()
 
         # Calculate the number of point in each refractor for velocity models that were fit
         n_refractor_points = np.full((self.n_items, self.n_refractors), fill_value=np.nan)
@@ -397,17 +399,24 @@ class RefractorVelocityField(SpatialField):
         ignore_mask[:, ignore_mask.all(axis=0)] = False  # Use a refractor anyway if it is ignored for all items
 
         # Refine t0 using only items with well-fit first refractor
-        refined_values[:, 0] = interpolator_class(coords[~ignore_mask[:, 0]], values[~ignore_mask[:, 0], 0])(coords)
+        ignored_t0 = ignore_mask[:, 0]
+        if ignored_t0.any():
+            interpolator = interpolator_class(coords[~ignored_t0], values[~ignored_t0, 0])
+            refined_values[ignored_t0, 0] = interpolator(coords[ignored_t0])
 
         # Refine crossover offsets using only items with well-fit neighboring refractors
         for i in range(1, self.n_refractors):
-            proper_items_mask = ~(ignore_mask[:, i - 1] | ignore_mask[:, i])
-            refined_values[:, i] = interpolator_class(coords[proper_items_mask], values[proper_items_mask, i])(coords)
+            ignored_xi = ignore_mask[:, i - 1] | ignore_mask[:, i]
+            if ignored_xi.any():
+                interpolator = interpolator_class(coords[~ignored_xi], values[~ignored_xi, i])
+                refined_values[ignored_xi, i] = interpolator(coords[ignored_xi])
 
         # Refine velocities using only items with well-fit corresponding refractor
         for i in range(self.n_refractors, 2 * self.n_refractors):
-            proper_items_mask = ~ignore_mask[:, i - self.n_refractors]
-            refined_values[:, i] = interpolator_class(coords[proper_items_mask], values[proper_items_mask, i])(coords)
+            ignored_vi = ignore_mask[:, i - self.n_refractors]
+            if ignored_vi.any():
+                interpolator = interpolator_class(coords[~ignored_vi], values[~ignored_vi, i])
+                refined_values[ignored_vi, i] = interpolator(coords[ignored_vi])
 
         # Postprocess refined values
         return postprocess_params(refined_values)
@@ -422,8 +431,9 @@ class RefractorVelocityField(SpatialField):
         """
         if radius is None:
             radius = self.default_neighborhood_radius
-        smoother = partial(IDWInterpolator, radius=radius, neighbors=neighbors, dist_transform=0)
-        return self._get_refined_values(smoother, min_refractor_points, min_refractor_points_quantile)
+        interpolator = partial(IDWInterpolator, radius=radius, neighbors=neighbors)
+        refined_values = self._get_refined_values(interpolator, min_refractor_points, min_refractor_points_quantile)
+        return interpolator(self.coords, refined_values, dist_transform=0)(self.coords)
 
     def create_interpolator(self, interpolator, min_refractor_points=0, min_refractor_points_quantile=0, **kwargs):
         """Create a field interpolator whose name is defined by `interpolator`.
@@ -451,9 +461,9 @@ class RefractorVelocityField(SpatialField):
         field : Field
             A field with created interpolator. Sets `is_dirty_interpolator` flag to `False`.
         """
-        interpolator_class = self._get_interpolator_class(interpolator)
+        interpolator_class = partial(self._get_interpolator_class(interpolator), **kwargs)
         values = self._get_refined_values(interpolator_class, min_refractor_points, min_refractor_points_quantile)
-        self.interpolator = interpolator_class(self.coords, values, **kwargs)
+        self.interpolator = interpolator_class(self.coords, values)
         self.is_dirty_interpolator = False
         return self
 
@@ -540,16 +550,15 @@ class RefractorVelocityField(SpatialField):
                    out=params_bounds[:, 1:self.n_refractors])
 
         # Construct a dict of refinement parameters for each velocity model
-        rv_kwargs_list = []
-        for rv, init, bounds in zip(self.items, params_init, params_bounds):
-            rv_kwargs = {"offsets": rv.offsets, "times": rv.times, "init": dict(zip(self.param_names, init)),
-                         "bounds": dict(zip(self.param_names, bounds)), "max_offset": rv.max_offset,
-                         "min_velocity_step": 0, "min_refractor_size": 0, "coords": rv.coords}
-            rv_kwargs_list.append(rv_kwargs)
+        rv_kwargs_list = [{"offsets": rv.offsets, "times": rv.times, "init": dict(zip(self.param_names, init)),
+                           "bounds": dict(zip(self.param_names, bounds)), "max_offset": rv.max_offset,
+                           "coords": rv.coords}
+                          for rv, init, bounds in zip(self.items, params_init, params_bounds)]
+        common_kwargs = {"min_velocity_step": 0, "min_refractor_size": 0}
 
         # Run parallel refinement of velocity models
-        refined_items = self._fit_refractor_velocities_parallel(rv_kwargs_list, chunk_size, n_workers, bar,
-                                                                desc="Velocity models refined")
+        refined_items = self._fit_refractor_velocities_parallel(rv_kwargs_list, common_kwargs, chunk_size, n_workers,
+                                                                bar, desc="Velocity models refined")
         return type(self)(refined_items, n_refractors=self.n_refractors, survey=self.survey,
                           is_geographic=self.is_geographic, auto_create_interpolator=self.auto_create_interpolator)
 
