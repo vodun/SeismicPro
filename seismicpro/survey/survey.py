@@ -1246,7 +1246,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Parameters
         ----------
-        metrics : TracewiseMetric, or list of :class:`~metrics.qc_metric.TracewiseMetric`, or dict
+        metrics : :class:`~metrics.TracewiseMetric`, or list of :class:`~metrics.TracewiseMetric`, or dict
             list of metrics, that use raw traces.
         chunk_size : int, optional, defaults to 1000
             number of traces loaded on each iteration
@@ -1259,7 +1259,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Raises
         ------
         TypeError
-            If provided metrics are not  :class:`~metrics.qc_metric import TracewiseMetric` subclasses
+            If provided metrics are not  :class:`~metrics.TracewiseMetric` subclasses
         """
         if not self.dead_traces_marked or self.n_dead_traces:
             warnings.warn("The survey was not checked for dead traces or they were not removed. "
@@ -1293,7 +1293,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Parameters
         ----------
-        metric_cls : :class:`~metrics.qc_metric import TracewiseMetric` subclass
+        metric_cls : :class:`~metrics.TracewiseMetric` subclass
             metric for metric map
         by : tuple with 2 elements or {"shot", "receiver", "midpoint", "bin"}
             If `tuple`, survey headers names to get coordinates from.

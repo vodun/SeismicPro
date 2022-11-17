@@ -182,8 +182,8 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
     * `click` - handle a click on the map plot.
     """
     def __init__(self, metric_map, plot_on_click=None, plot_on_click_kwargs=None, title=None, is_lower_better=None,
-                 figsize=(4.5, 4.5), fontsize=8, orientation="horizontal", show_slider=True, norm='linear', **kwargs):
-        kwargs = {"fontsize": fontsize, **kwargs}
+                 figsize=(4.5, 4.5), orientation="horizontal", show_slider=True, norm='linear', **kwargs):
+        kwargs.setdefault("fontsize", 8)
         text_kwargs = get_text_formatting_kwargs(**kwargs)
         plot_on_click, plot_on_click_kwargs = align_args(plot_on_click, plot_on_click_kwargs)
         plot_on_click_kwargs = [{} if plot_kwargs is None else plot_kwargs for plot_kwargs in plot_on_click_kwargs]
@@ -250,14 +250,9 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
         initial_values = self.original_metric_map.map_data
 
         coords_x, coords_y = initial_values.index.to_frame().values.T
-
         xlim, ylim = calculate_axis_limits(coords_x), calculate_axis_limits(coords_y)
+        kwargs = dict(title='', is_lower_better=self.is_lower_better, xlim=xlim, ylim=ylim)
 
-        kwargs = {
-            'title': '', 'is_lower_better': self.is_lower_better,
-            'xlim': xlim, 'ylim': ylim,
-
-        }
         if self.norm == 'linear':
             kwargs.update(vmin=initial_values.min(), vmax=initial_values.max())
         else:

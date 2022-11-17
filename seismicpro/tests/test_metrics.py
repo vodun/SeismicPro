@@ -3,7 +3,7 @@
 import pytest
 import numpy as np
 
-from seismicpro.metrics.qc_metric import MaxClipsLenMetric, ConstLenMetric
+from seismicpro.survey.metrics import MaxClipsLenMetric, ConstLenMetric
 
 
 class DummyGather:

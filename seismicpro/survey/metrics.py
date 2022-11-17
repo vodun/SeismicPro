@@ -600,7 +600,7 @@ class TraceSinalToNoiseRMSRatioAdaptive(TracewiseMetric):
         set_title(top_ax, gather)
 
 
-class DeadTrace(TracewiseMetric):
+class DeadTrace(TracewiseMetric): # pylint: disable=abstract-method
     """Visualising constant traces. Use `Survey.mark_dead_traces` to mark dead traces after loading a survey"""
     name = "dead_trace"
     min_value = 0

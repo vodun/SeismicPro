@@ -65,4 +65,3 @@ def parse_metric_values(metric_values, metric_name=None, metric_type=None):
 
     metric_name = get_first_defined(metric_name, data_metric_name, getattr(metric_type, "name"), "metric")
     return metric_values, metric_name
-

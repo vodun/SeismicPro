@@ -1,12 +1,7 @@
 """General survey processing utils"""
 
-import warnings
-
 import numpy as np
 from numba import njit, prange
-
-from matplotlib import pyplot as plt
-from matplotlib import colors, cm
 
 from ..const import EPS, HDR_FIRST_BREAK
 
@@ -73,6 +68,7 @@ def fill_leading_nulls(arr):
             if j < n_samples:
                 arr[i, :j] = arr[i, j]
 
+
 @njit(nogil=True)
 def get_val_subseq(traces, cmpval):
     """Indicator of constant subsequences equal to given value."""
@@ -96,6 +92,7 @@ def get_val_subseq(traces, cmpval):
             indicators[t, -counter:] = counter
 
     return indicators.reshape(*old_shape)
+
 
 @njit(nogil=True)
 def get_const_subseq(traces):
@@ -134,4 +131,3 @@ def rms_2_windows_ratio(data, n_begs, s_begs, win_size):
             res[i] = np.sqrt(np.mean(signal**2)) / (np.sqrt(np.mean(noise**2)) + EPS)
 
     return res
-

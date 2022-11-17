@@ -8,7 +8,8 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from .interactive_map import ScatterMapPlot, BinarizedMapPlot
 from .utils import parse_coords, parse_metric_values
 from ..decorators import plotter
-from ..utils import to_list, get_first_defined, add_colorbar, calculate_axis_limits, set_ticks, set_text_formatting, format_subplot_ticklabels
+from ..utils import to_list, get_first_defined, add_colorbar, calculate_axis_limits, \
+                    set_ticks, set_text_formatting, format_subplot_ticklabels
 
 
 class BaseMetricMap:
@@ -108,8 +109,8 @@ class BaseMetricMap:
         return mcolors.CenteredNorm(global_mean, clip_threshold)
 
     @plotter(figsize=(10, 7))
-    def _plot(self, *, title=None, x_ticker=None, y_ticker=None, is_lower_better=None, vmin=None, vmax=None, boundaries=None, histogram=False,
-              cmap=None,
+    def _plot(self, *, title=None, x_ticker=None, y_ticker=None, is_lower_better=None,
+              vmin=None, vmax=None, boundaries=None, histogram=False, cmap=None,
               colorbar=True, center_colorbar=True, clip_threshold_quantile=0.95, keep_aspect=False, ax=None, **kwargs):
         """Plot the metric map."""
 
@@ -128,13 +129,13 @@ class BaseMetricMap:
 
         divider = make_axes_locatable(ax)
 
-        self.add_histogram(ax, map_obj, histogram, boundaries, divider, x_ticker=x_ticker, y_ticker=y_ticker)
+        self._add_histogram(ax, map_obj, histogram, boundaries, divider, x_ticker=x_ticker, y_ticker=y_ticker)
         add_colorbar(ax, map_obj, colorbar, divider, y_ticker=y_ticker)
 
         set_ticks(ax, "x", self.coords_cols[0], self.x_tick_labels, **x_ticker)
         set_ticks(ax, "y", self.coords_cols[1], self.y_tick_labels, **y_ticker)
 
-    def add_histogram(self, ax, artist, histogram, boundaries, divider=None, x_ticker=None, y_ticker=None):
+    def _add_histogram(self, ax, artist, histogram, boundaries, divider=None, x_ticker=None, y_ticker=None):
         if histogram is not False:
             histogram = {} if histogram is True else histogram
 
@@ -157,8 +158,6 @@ class BaseMetricMap:
             hax.bar(x=midpoints, height=counts, width=widths, color=cmap(norm(midpoints)))
             hax.set_yscale(histogram.get('hscale', 'linear'))
             hax.set_title('Metric values', **x_ticker)
-            # hax.xaxis.tick_top()
-
 
             if y_ticker is not None:
                 format_subplot_ticklabels(hax, axis='y', **y_ticker)
