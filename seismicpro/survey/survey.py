@@ -892,7 +892,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         gather : Gather
             Loaded gather instance.
         """
-        headers =  self.headers.iloc[pos] if headers is None else headers
+        headers = self.headers.iloc[pos] if headers is None else headers
         if copy_headers:
             headers = headers.copy()
         traces_pos = get_cols(headers, "TRACE_SEQUENCE_FILE").ravel() - 1
