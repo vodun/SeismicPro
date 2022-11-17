@@ -104,7 +104,7 @@ class Gather(TraceContainer, SamplesContainer):
     @property
     def offsets(self):
         """1d np.ndarray of floats: The distance between source and receiver for each trace. Measured in meters."""
-        return self["offset"].ravel()
+        return self["offset"]
 
     @property
     def shape(self):
@@ -132,20 +132,22 @@ class Gather(TraceContainer, SamplesContainer):
         Notes
         -----
         1. If the data after `__getitem__` is no longer sorted, `sort_by` attribute in the resulting `Gather` will be
-        set to `None`.
-        2. If headers selection is performed, a 2d array is always returned even for a single header.
+           set to `None`.
+        2. If headers selection is performed, the returned array will be 1d if a single header is selected and 2d
+           otherwise.
 
         Parameters
         ----------
         key : str, list of str, int, list, tuple, slice
-            If str or list of str, gather headers to get as a 2d np.ndarray.
+            If str or list of str, gather headers to get as an `np.ndarray`. The returned array is 1d if a single
+            header is selected and 2d otherwise.
             Otherwise, indices of traces and samples to get. In this case, __getitem__ behavior almost coincides with
-            np.ndarray indexing and slicing except for cases, when resulting ndim is not preserved or joint indexation
-            of gather attributes becomes ambiguous (e.g. gather[[0, 1], [0, 1]]).
+            `np.ndarray` indexing and slicing except for cases, when resulting ndim is not preserved or joint
+            indexation of gather attributes becomes ambiguous (e.g. gather[[0, 1], [0, 1]]).
 
         Returns
         -------
-        result : 2d np.ndarray or Gather
+        result : np.ndarray or Gather
             Headers values or Gather with a specified subset of traces and samples.
 
         Raises
@@ -329,7 +331,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         sample_rate = np.int32(self.sample_rate * 1000) # Convert to microseconds
         # Remember ordinal numbers of traces in the parent SEG-Y file to further copy their headers
-        trace_ids = self["TRACE_SEQUENCE_FILE"].ravel() - 1
+        trace_ids = self["TRACE_SEQUENCE_FILE"] - 1
 
         # Keep only headers, defined by SEG-Y standard.
         used_header_names = (set(to_list(self.indexed_by)) | set(self.headers.columns)) & set(segyio.tracefield.keys)
@@ -580,7 +582,7 @@ class Gather(TraceContainer, SamplesContainer):
         gather : Gather
             A new `Gather` with calculated first breaks mask in its `data` attribute.
         """
-        mask = convert_times_to_mask(times=self[first_breaks_col].ravel(), samples=self.samples).astype(np.int32)
+        mask = convert_times_to_mask(times=self[first_breaks_col], samples=self.samples).astype(np.int32)
         gather = self.copy(ignore='data')
         gather.data = mask
         return gather
@@ -708,9 +710,9 @@ class Gather(TraceContainer, SamplesContainer):
         rv : RefractorVelocity
             Constructed near-surface velocity model.
         """
-        return RefractorVelocity.from_first_breaks(self.offsets, self[first_breaks_col].ravel(), init, bounds,
-                                                   n_refractors, max_offset, min_velocity_step, min_refractor_size,
-                                                   loss, huber_coef, tol, coords=self.coords, **kwargs)
+        return RefractorVelocity.from_first_breaks(self.offsets, self[first_breaks_col], init, bounds, n_refractors,
+                                                   max_offset, min_velocity_step, min_refractor_size, loss, huber_coef,
+                                                   tol, coords=self.coords, **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #
@@ -863,9 +865,8 @@ class Gather(TraceContainer, SamplesContainer):
         trace_delays = delay - refractor_velocity(self.offsets)
         trace_delays_samples = times_to_indices(trace_delays, self.samples, round=True).astype(int)
         self.data = correction.apply_lmo(self.data, trace_delays_samples, fill_value)
-        event_headers = [] if event_headers is None else to_list(event_headers)
-        for header in event_headers:
-            self[header] += trace_delays.reshape(-1, 1)
+        if event_headers is not None:
+            self[to_list(event_headers)] += trace_delays.reshape(-1, 1)
         return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
@@ -934,7 +935,7 @@ class Gather(TraceContainer, SamplesContainer):
             raise TypeError(f'`by` should be str, not {type(by)}')
         if self.sort_by == by:
             return self
-        order = np.argsort(self[by].ravel(), kind='stable')
+        order = np.argsort(self[by], kind='stable')
         self.sort_by = by
         self.data = self.data[order]
         self.headers = self.headers.iloc[order]
@@ -953,8 +954,8 @@ class Gather(TraceContainer, SamplesContainer):
         self : Gather
             `self` with only traces from the central CDP gather kept. Updates `self.headers` and `self.data` inplace.
         """
-        mask = np.all(self["INLINE_3D", "CROSSLINE_3D"] == self["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"],
-                      axis=1)
+        line_cols = self["INLINE_3D", "CROSSLINE_3D", "SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
+        mask = (line_cols[:, :2] == line_cols[:, 2:]).all(axis=1)
         self.headers = self.headers.loc[mask]
         self.data = self.data[mask]
         return self
@@ -1341,8 +1342,8 @@ class Gather(TraceContainer, SamplesContainer):
     def _plot_histogram(self, ax, title, x_ticker, y_ticker, x_tick_src="amplitude", bins=None,
                         log=False, grid=True, **kwargs):
         """Plot histogram of the data specified by x_tick_src."""
-        data = self.data if x_tick_src == "amplitude" else self[x_tick_src]
-        _ = ax.hist(data.ravel(), bins=bins, **kwargs)
+        data = self.data.ravel() if x_tick_src == "amplitude" else self[x_tick_src]
+        _ = ax.hist(data, bins=bins, **kwargs)
         set_ticks(ax, "x", tick_labels=None, **{"label": x_tick_src, 'round_to': None, **x_ticker})
         set_ticks(ax, "y", tick_labels=None, **{"label": "counts", **y_ticker})
 
@@ -1437,8 +1438,7 @@ class Gather(TraceContainer, SamplesContainer):
         # Add a top subplot for given header if needed and set plot title
         top_ax = ax
         if top_header is not None:
-            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_header].ravel(),
-                                            y_ticker=y_ticker)
+            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_header], y_ticker=y_ticker)
 
         # Set axis ticks
         x_tick_src = x_tick_src or self.sort_by or "index"
@@ -1493,7 +1493,7 @@ class Gather(TraceContainer, SamplesContainer):
             header = kwargs.pop("headers")
             label = kwargs.pop("label", header)
             process_outliers = kwargs.pop("process_outliers", "none")
-            y_coords = times_to_indices(self[header].ravel(), self.samples, round=False)
+            y_coords = times_to_indices(self[header], self.samples, round=False)
             if process_outliers == "clip":
                 y_coords = np.clip(y_coords, 0, self.n_samples - 1)
             elif process_outliers == "discard":
@@ -1517,11 +1517,9 @@ class Gather(TraceContainer, SamplesContainer):
 
     def _get_x_ticks(self, axis_label):
         """Get tick labels for x-axis: either any gather header or ordinal numbers of traces in the gather."""
-        if axis_label in self.headers.columns:
-            return self[axis_label].reshape(-1)
         if axis_label == "index":
             return np.arange(self.n_traces)
-        raise ValueError(f"Unknown label for x axis {axis_label}")
+        return self[axis_label]
 
     def _get_y_ticks(self, axis_label):
         """Get tick labels for y-axis: either time samples or ordinal numbers of samples in the gather."""

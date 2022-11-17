@@ -4,6 +4,7 @@ from functools import partial
 from concurrent.futures import Future, Executor
 
 import numpy as np
+import pandas as pd
 
 
 def to_list(obj):
@@ -48,23 +49,44 @@ def get_first_defined(*args):
     return next((arg for arg in args if arg is not None), None)
 
 
-def validate_cols_exist(df, cols):
-    """Check if each column from `cols` is present either in the `df` DataFrame columns or index."""
-    df_cols = set(df.columns) | set(df.index.names)
-    missing_cols = set(to_list(cols)) - df_cols
-    if missing_cols:
-        raise KeyError(f"The following headers must be preloaded: {', '.join(missing_cols)}")
+def _process_cols(df, cols):
+    """Convert one or more column names in `df` to a list of columns depending on the column index type. Also return
+    whether a single column was passed."""
+    if df.columns.nlevels == 1:  # Flat column index
+        is_single_col = isinstance(cols, str)
+        cols = to_list(cols)
+    else:  # MultiIndex case: avoid to_list here since tuples must be preserved as is to be used for column selection
+        is_single_col = not isinstance(cols, list)
+        if is_single_col:
+            cols = [cols]
+    return cols, is_single_col
 
 
 def get_cols(df, cols):
-    """Extract columns from `cols` from the `df` DataFrame columns or index as a 2d `np.ndarray`."""
-    validate_cols_exist(df, cols)
+    """Extract columns from `cols` from the `df` DataFrame columns or index as an `np.ndarray`."""
+    cols, is_single_col = _process_cols(df, cols)
+
     # Avoid using direct pandas indexing to speed up selection of multiple columns from small DataFrames
     res = []
-    for col in to_list(cols):
-        col_values = df[col] if col in df.columns else df.index.get_level_values(col)
-        res.append(col_values.values)
+    for col in cols:
+        if col in df.columns:
+            col_values = df[col]
+        elif col in df.index.names:
+            col_values = df.index.get_level_values(col)
+        else:
+            raise KeyError(f"Unknown header {col}")
+        res.append(col_values.to_numpy())
+
+    if is_single_col:
+        return res[0]
     return np.column_stack(res)
+
+
+def set_cols(df, cols, values):
+    """Set given `values` to selected columns of the `df` DataFrame."""
+    cols, _ = _process_cols(df, cols)
+    values = pd.DataFrame(values).to_numpy()
+    df[cols] = values
 
 
 class MissingModule:
