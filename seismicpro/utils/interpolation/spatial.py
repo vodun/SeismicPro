@@ -211,7 +211,7 @@ class IDWInterpolator(ValuesAgnosticInterpolator):
         super().__init__(coords, values)
         if neighbors is None:
             neighbors = len(self.coords)
-        self.neighbors = np.arange(min(neighbors, len(self.coords))) + 1  # Indices of neighbors to get
+        self.neighbors = np.arange(min(neighbors, len(self.coords))) + 1  # One-based indices of neighbors to get
         self.radius = radius
         self.use_radius = radius is not None
         self.nearest_neighbors = KDTree(self.coords)
@@ -247,6 +247,8 @@ class IDWInterpolator(ValuesAgnosticInterpolator):
         return weights
 
     def _aggregate_values(self, indices, weights):
+        """Average values with given `indices` with corresponding `weights`. Both `indices` and `weights` are 2d
+        `np.ndarray`s with shape (n_items, n_indices)."""
         return (self.values[indices] * weights[:, :, None]).sum(axis=1).astype(self.values.dtype)
 
     def _get_reference_indices_neighbors(self, coords):
