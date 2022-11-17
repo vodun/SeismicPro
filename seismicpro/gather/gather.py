@@ -76,11 +76,12 @@ class Gather(TraceContainer, SamplesContainer):
     sort_by : None or str
         Headers column that was used for gather sorting. If `None`, no sorting was performed.
     """
-    def __init__(self, headers, data, samples, survey):
+    def __init__(self, headers, data, samples, survey, pos):
         self.headers = headers
         self.data = data
         self.samples = samples
         self.survey = survey
+        self.pos = pos
         self.sort_by = None
 
     @property
@@ -259,6 +260,16 @@ class Gather(TraceContainer, SamplesContainer):
     def _post_filter(self, mask):
         """Remove traces from gather data that correspond to filtered headers after `Gather.filter`."""
         self.data = self.data[mask]
+
+    @batch_method(target='for')
+    def store_to_survey(self, columns):
+        columns_pos = []
+        for column in to_list(columns):
+            if column not in self.survey.headers.columns:
+                self.survey[column] = np.nan
+            columns_pos.append(self.survey.headers.columns.get_loc(column))
+        self.survey.headers.iloc[self.pos, columns_pos] = self[columns]
+        return self
 
     #------------------------------------------------------------------------#
     #                              Dump methods                              #

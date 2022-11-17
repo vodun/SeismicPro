@@ -874,7 +874,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         # Cast the result to a C-contiguous float32 array regardless of the dtype in the source file
         return np.require(traces, dtype=np.float32, requirements="C")
 
-    def load_gather(self, headers, limits=None, copy_headers=False):
+    def load_gather(self, pos, headers=None, limits=None, copy_headers=False):
         """Load a gather with given `headers`.
 
         Parameters
@@ -892,13 +892,14 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         gather : Gather
             Loaded gather instance.
         """
+        headers =  self.headers.iloc[pos] if headers is None else headers
         if copy_headers:
             headers = headers.copy()
         traces_pos = get_cols(headers, "TRACE_SEQUENCE_FILE").ravel() - 1
         limits = self.limits if limits is None else self._process_limits(limits)
         samples = self.file_samples[limits]
         data = self.load_traces(traces_pos, limits=limits)
-        return Gather(headers=headers, data=data, samples=samples, survey=self)
+        return Gather(headers=headers, data=data, samples=samples, survey=self, pos=pos)
 
     def get_gather(self, index, limits=None, copy_headers=False):
         """Load a gather with given `index`.
@@ -918,7 +919,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         gather : Gather
             Loaded gather instance.
         """
-        return self.load_gather(self.get_headers_by_indices((index,)), limits=limits, copy_headers=copy_headers)
+        return self.load_gather(pos=self.get_traces_locs((index,)), limits=limits, copy_headers=copy_headers)
 
     def sample_gather(self, limits=None, copy_headers=False):
         """Load a gather with random index.
