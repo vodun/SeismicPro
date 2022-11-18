@@ -275,7 +275,7 @@ class Gather(TraceContainer, SamplesContainer):
         Parameters
         ----------
         columns : str or list of str
-            Columns of `self.headers` to be add to `self.survey` headers.
+            Column names in `self.headers` that will be added to `self.survey` headers.
 
         Returns
         -------
