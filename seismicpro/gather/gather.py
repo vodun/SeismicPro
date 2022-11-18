@@ -25,7 +25,7 @@ from ..muter import Muter, MuterField
 from ..stacking_velocity import StackingVelocity, StackingVelocityField
 from ..refractor_velocity import RefractorVelocity, RefractorVelocityField
 from ..decorators import batch_method, plotter
-from ..const import HDR_FIRST_BREAK, HDR_TRACES_POS, DEFAULT_SDC_VELOCITY
+from ..const import HDR_FIRST_BREAK, HDR_TRACE_POS, DEFAULT_SDC_VELOCITY
 
 
 class Gather(TraceContainer, SamplesContainer):
@@ -264,12 +264,31 @@ class Gather(TraceContainer, SamplesContainer):
 
     @batch_method(target='for')
     def store_headers_to_survey(self, columns):
+        """Save given `columns` from `self.headers` to `self.survey.headers` in the positions corresponding to traces
+        in the Gather.
+
+        Note
+        ----
+        The correct result is guaranteed only if the `self.survey` hasn't changed between gather creation and calling
+        the method.
+
+        Parameters
+        ----------
+        columns : str or list of str
+            Columns of `self.headers` to be add to `self.survey` headers.
+
+        Returns
+        -------
+        self : Gather
+            Gather unchanged.
+        """
         columns_pos = []
         for column in to_list(columns):
             if column not in self.survey.headers:
                 self.survey.headers[column] = np.nan
             columns_pos.append(self.survey.headers.columns.get_loc(column))
-        self.survey.headers.iloc[self[HDR_TRACES_POS], columns_pos] = self[columns]
+        columns_pos = columns_pos[0] if len(columns_pos) == 1 else columns_pos
+        self.survey.headers.iloc[self[HDR_TRACE_POS], columns_pos] = self[columns]
         return self
 
     #------------------------------------------------------------------------#

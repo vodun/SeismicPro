@@ -196,10 +196,10 @@ def test_gather_copy(gather, ignore):
 
     compare_gathers(copy_gather, gather, check_types=True)
 
-
-def test_gather_store_headers_to_survey(gather):
+@pytest.mark.parametrize('columns', ['offset', ['offset'], ['offset', 'FieldRecord']])
+def test_gather_store_headers_to_survey(gather, columns):
     """test_gather_store_headers_to_survey"""
-    gather.store_headers_to_survey("offset")
+    gather.store_headers_to_survey(columns)
 
 def test_gather_store_headers_to_survey_new_header(gather):
     """test_gather_store_headers_to_survey_new_header"""

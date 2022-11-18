@@ -23,7 +23,7 @@ from ..gather import Gather
 from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
 from ..utils import to_list, maybe_copy, get_cols
-from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK, HDR_TRACES_POS
+from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK, HDR_TRACE_POS
 
 
 class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-instance-attributes
@@ -313,8 +313,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     @GatherContainer.headers.setter
     def headers(self, headers):
+        """Reconstruct trace positions on each headers assignment."""
         GatherContainer.headers.fset(self, headers)
-        self.headers[HDR_TRACES_POS] = np.arange(self.n_traces, dtype=np.int32)
+        htp_dtype = np.int32 if len(headers) < np.iinfo(np.int32).max else np.int64
+        self.headers[HDR_TRACE_POS] = np.arange(self.n_traces, dtype=htp_dtype)
 
     def __del__(self):
         """Close SEG-Y file handler on survey destruction."""
