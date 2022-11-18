@@ -8,18 +8,18 @@ from ..utils import get_text_formatting_kwargs
 from ..utils.interactive_plot_utils import InteractivePlot, DropdownViewPlot, PairedPlot
 
 
-class FitPlot(PairedPlot):  # pylint: disable=too-many-instance-attributes
+class FieldPlot(PairedPlot):  # pylint: disable=too-many-instance-attributes
     """Plot an interactive map of each parameter of a near-surface velocity model and display an offset-traveltime
-    curve with data used to fit the model upon clicking on a map. Can be created only for fields constructed
-    directly from first break data."""
+    curve upon clicking on a map. If some velocity models in the field were constructed directly from first break data,
+    a scatter plot of offsets and times of first breaks is also displayed."""
 
     def __init__(self, field, refractor_velocity_plot_kwargs=None, figsize=(4.5, 4.5), fontsize=8,
                  orientation="horizontal", **kwargs):
         if field.is_empty:
             raise ValueError("Empty fields do not support interactive plotting")
-        if not field.is_fit:
-            raise ValueError("Only fields constructed from offset-traveltime data can be plotted")
-        max_offset = max(rv.max_offset for rv in field.items)
+
+        max_offset = max(rv.max_offset if rv.is_fit else rv.piecewise_offsets[-1] for rv in field.items)
+        max_time = max(rv.piecewise_times[-1] for rv in field.items)
 
         kwargs = {"fontsize": fontsize, **kwargs}
         text_kwargs = get_text_formatting_kwargs(**kwargs)
@@ -34,7 +34,7 @@ class FitPlot(PairedPlot):  # pylint: disable=too-many-instance-attributes
         self.coords_neighbors = NearestNeighbors(n_neighbors=1).fit(self.coords)
 
         self.x_lim = [0, max_offset * 1.05]
-        self.y_lim = [0, max(rv.piecewise_times[-1] for rv in field.items) * 1.05]
+        self.y_lim = [0, max_time * 1.05]
         self.titles = (
             ["t0 - Intercept time"] +
             [f"x{i} - Crossover offset {i}" for i in range(1, field.n_refractors)] +
