@@ -23,7 +23,7 @@ from ..gather import Gather
 from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
 from ..utils import to_list, maybe_copy, get_cols
-from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK
+from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK, HDR_TRACES_POS
 
 
 class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-instance-attributes
@@ -312,16 +312,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """bool: `mark_dead_traces` called."""
         return self.n_dead_traces is not None
 
-    @property
-    def headers(self):
-        """pd.DataFrame: loaded trace headers."""
-        return super().headers
-
-    @headers.setter
+    @GatherContainer.headers.setter
     def headers(self, headers):
         super(Survey, self.__class__).headers.fset(self, headers)
-        self._headers["TRACES_POS"] = np.arange(self.n_traces)
-        self._trace_indexer = pd.Index(self["TRACES_POS"])
+        self._headers[HDR_TRACES_POS] = np.arange(self.n_traces)
 
     def __del__(self):
         """Close SEG-Y file handler on survey destruction."""

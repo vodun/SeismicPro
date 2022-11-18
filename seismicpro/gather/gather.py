@@ -25,7 +25,7 @@ from ..muter import Muter, MuterField
 from ..stacking_velocity import StackingVelocity, StackingVelocityField
 from ..refractor_velocity import RefractorVelocity, RefractorVelocityField
 from ..decorators import batch_method, plotter
-from ..const import HDR_FIRST_BREAK, DEFAULT_SDC_VELOCITY
+from ..const import HDR_FIRST_BREAK, HDR_TRACES_POS, DEFAULT_SDC_VELOCITY
 
 
 class Gather(TraceContainer, SamplesContainer):
@@ -269,8 +269,7 @@ class Gather(TraceContainer, SamplesContainer):
             if column not in self.survey.headers.columns:
                 self.survey[column] = np.nan
             columns_pos.append(self.survey.headers.columns.get_loc(column))
-        current_pos = self.survey._trace_indexer.get_indexer(self["TRACES_POS"])
-        self.survey.headers.iloc[current_pos, columns_pos] = self[columns]
+        self.survey.headers.iloc[self[HDR_TRACES_POS], columns_pos] = self[columns]
         return self
 
     #------------------------------------------------------------------------#
