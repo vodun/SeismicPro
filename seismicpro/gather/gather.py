@@ -262,13 +262,14 @@ class Gather(TraceContainer, SamplesContainer):
         """Remove traces from gather data that correspond to filtered headers after `Gather.filter`."""
         self.data = self.data[mask]
 
-    @batch_method(target='for')
+    # Target set to `for` to avoid race condition when the same trace appears in two gathers (ex. supergathers)
+    @batch_method(target='for', use_lock=True)
     def store_headers_to_survey(self, columns):
         """Save given `columns` from `self.headers` to `self.survey.headers` in the positions corresponding to traces
         in the Gather.
 
-        Note
-        ----
+        Notes
+        -----
         The correct result is guaranteed only if the `self.survey` hasn't changed between gather creation and calling
         the method.
 
@@ -281,14 +282,25 @@ class Gather(TraceContainer, SamplesContainer):
         -------
         self : Gather
             Gather unchanged.
+
+        Raises
+        ------
+        ValueError
+            If given `columns` are missing in `self.headers`.
         """
+        headers = self.survey._headers
         columns = to_list(columns)
-        columns_pos = []
+        pos = self[HDR_TRACE_POS]
+        _ = headers.iloc[pos]  # iloc warmup for further setting to work much faster
+
+        unknown_headers = set(columns) - set(self.headers)
+        if unknown_headers:
+            raise ValueError(f"Unknown headers: {', '.join(unknown_headers)}")
+
         for column in columns:
-            if column not in self.survey.headers:
-                self.survey.headers[column] = np.nan
-            columns_pos.append(self.survey.headers.columns.get_loc(column))
-        self.survey.headers.iloc[self[HDR_TRACE_POS], columns_pos] = self[columns]
+            if column not in headers:
+                headers[column] = np.nan
+        headers.iloc[pos, headers.columns.get_indexer(columns)] = self[columns]
         return self
 
     #------------------------------------------------------------------------#
