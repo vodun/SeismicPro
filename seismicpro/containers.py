@@ -371,6 +371,7 @@ class GatherContainer(TraceContainer):
         self : same type as self
             Reindexed self.
         """
+        new_index = to_list(new_index)
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         headers = self.headers
         headers.reset_index(inplace=True)
