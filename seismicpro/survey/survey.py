@@ -943,12 +943,12 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                           delimiter='\s+', decimal=None, encoding="UTF-8", inplace=False, **kwargs):
         """Load times of first breaks from a file and save them to a new column in headers.
 
-        Each line of the file stores the first break time for a trace in the last column.
-        The combination of all but the last columns should act as a unique trace identifier and is used to match
-        the trace from the file with the corresponding trace in `self.headers`.
+        Each line of the file stores the first break time for a trace in the last column. The combination of all but
+        the last columns should act as a unique trace identifier and is used to match the trace from the file with the
+        corresponding trace in `self.headers`.
 
-        The file can have any format that can be read by `pd.read_csv`, by default, it's expected
-        to have whitespace-separated values.
+        The file can have any format that can be read by `pd.read_csv`, by default, it's expected to have
+        whitespace-separated values.
 
         Parameters
         ----------
@@ -973,33 +973,29 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Returns
         -------
         self : Survey
-            A survey with loaded first break times. Changes `self.headers` inplace.
+            A survey with loaded times of first breaks.
 
         Raises
         ------
         ValueError
             If there is not a single match of rows from the file with those in `self.headers`.
         """
-        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        self = maybe_copy(self, inplace, ignore="headers")  # pylint: disable=self-cls-assignment
 
-        # if decimal is not provided, try to infer it from the first line
+        # If decimal is not provided, try inferring it from the first line
         if decimal is None:
             with open(path, 'r', encoding=encoding) as f:
                 row = f.readline()
             decimal = '.' if '.' in row else ','
 
-        file_columns = to_list(trace_id_cols) + [first_breaks_col]
-        first_breaks_df = pd.read_csv(path, delimiter=delimiter, names=file_columns,
+        trace_id_cols = to_list(trace_id_cols)
+        file_columns = trace_id_cols + [first_breaks_col]
+        first_breaks_df = pd.read_csv(path, delimiter=delimiter, names=file_columns, index_col=trace_id_cols,
                                       decimal=decimal, encoding=encoding, **kwargs)
 
-        headers = self.headers
-        headers_index = self.indexed_by
-        headers.reset_index(inplace=True)
-        headers = headers.merge(first_breaks_df, on=trace_id_cols)
+        headers = self.headers.join(first_breaks_df, on=trace_id_cols, rsuffix="_loaded")
         if headers.empty:
             raise ValueError('Empty headers after first breaks loading.')
-        headers.set_index(headers_index, inplace=True)
-        headers.sort_index(kind="stable", inplace=True)
         self.headers = headers
         return self
 
