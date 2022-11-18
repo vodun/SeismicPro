@@ -144,28 +144,29 @@ class SliderPlot(InteractivePlot):
     def __init__(self, *, initial_values, slide_fn, norm, **kwargs):
 
         slider_min, slider_max = initial_values.min(), initial_values.max()
-        rng_template = "{0:.4} - {1:.4}"
-        self.slider_range = widgets.HTML(value=rng_template.format(float(slider_min), float(slider_max)))
+        self.slider_range_min = widgets.HTML(value=f"{float(slider_min):.5}")
+        self.slider_range_max = widgets.HTML(value=f"{float(slider_max):.5}")
+
+        slider_kwargs = dict(continuous_update=False, description='', readout=False,
+                             layout=widgets.Layout(width="80%"))
 
         if norm == 'linear':
-            self.slider = widgets.FloatRangeSlider(value=[slider_min, slider_max],
-                                                   min=slider_min, max=slider_max, step=(slider_max-slider_min)/100,
-                                                   continuous_update=False, description='', readout=False,
-                                                   layout=widgets.Layout(width="70%"))
+            self.slider = widgets.FloatRangeSlider(value=[slider_min, slider_max], min=slider_min, max=slider_max,
+                                                   step=(slider_max-slider_min)/100, **slider_kwargs)
         else:
             options=np.quantile(initial_values, q=np.linspace(0, 1, num=101))
-            self.slider = widgets.SelectionRangeSlider(options=options, index=(0, len(options)-1),
-                                                       continuous_update=False, description='', readout=False,
-                                                       layout=widgets.Layout(width="70%"))
+            self.slider = widgets.SelectionRangeSlider(options=options, index=(0, len(options)-1), **slider_kwargs)
+
         def update_description(change):
             _ = change
-            self.slider_range.value = rng_template.format(*self.slider.value)
+            self.slider_range_min.value = f"{self.slider.value[0]:.5}"
+            self.slider_range_max.value = f"{self.slider.value[1]:.5}"
 
         self.slider.observe(handler=update_description, names="value")
         self.slider.observe(handler=slide_fn, names="value")
 
-        self.slider_box = widgets.HBox([self.slider, self.slider_range],
-                                        layout=widgets.Layout(justify_content='flex-end'))
+        self.slider_box = widgets.HBox([self.slider_range_min, self.slider, self.slider_range_max],
+                                        layout=widgets.Layout(justify_content='center'))
         super().__init__(**kwargs)
 
     def construct_header(self):
