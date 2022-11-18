@@ -282,12 +282,12 @@ class Gather(TraceContainer, SamplesContainer):
         self : Gather
             Gather unchanged.
         """
+        columns = to_list(columns)
         columns_pos = []
-        for column in to_list(columns):
+        for column in columns:
             if column not in self.survey.headers:
                 self.survey.headers[column] = np.nan
             columns_pos.append(self.survey.headers.columns.get_loc(column))
-        columns_pos = columns_pos[0] if len(columns_pos) == 1 else columns_pos
         self.survey.headers.iloc[self[HDR_TRACE_POS], columns_pos] = self[columns]
         return self
 
