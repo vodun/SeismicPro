@@ -19,7 +19,7 @@ ENDIANNESS = {
 # Custom headers optionally added by SeismicPro to those from SEG-Y file
 HDR_DEAD_TRACE = 'DeadTrace'
 HDR_FIRST_BREAK = 'FirstBreak'
-HDR_TRACES_POS = 'TRACES_POS'
+HDR_TRACES_POS = 'TRACE_POS_IN_SURVEY'
 
 
 # Default velocity for spherical divergence correction as provided in Paradigm.

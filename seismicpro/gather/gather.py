@@ -263,11 +263,11 @@ class Gather(TraceContainer, SamplesContainer):
         self.data = self.data[mask]
 
     @batch_method(target='for')
-    def store_to_survey(self, columns):
+    def store_headers_to_survey(self, columns):
         columns_pos = []
         for column in to_list(columns):
-            if column not in self.survey.headers.columns:
-                self.survey[column] = np.nan
+            if column not in self.survey.headers:
+                self.survey.headers[column] = np.nan
             columns_pos.append(self.survey.headers.columns.get_loc(column))
         self.survey.headers.iloc[self[HDR_TRACES_POS], columns_pos] = self[columns]
         return self

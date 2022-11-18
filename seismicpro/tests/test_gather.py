@@ -197,6 +197,15 @@ def test_gather_copy(gather, ignore):
     compare_gathers(copy_gather, gather, check_types=True)
 
 
+def test_gather_store_headers_to_survey(gather):
+    """test_gather_store_headers_to_survey"""
+    gather.store_headers_to_survey("offset")
+
+def test_gather_store_headers_to_survey_new_header(gather):
+    """test_gather_store_headers_to_survey_new_header"""
+    gather["new_header"] = 18
+    gather.store_headers_to_survey("new_header")
+
 @pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
 @pytest.mark.parametrize('q', [0.1, [0.1, 0.2], (0.1, 0.2), np.array([0.1, 0.2])])
 def test_gather_get_quantile(gather, tracewise, use_global, q):
