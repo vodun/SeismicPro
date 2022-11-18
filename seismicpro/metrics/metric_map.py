@@ -304,7 +304,8 @@ class BaseMetricMap:
 
         bin_size = getattr(self, "bin_size", None)
         new_metric_map = self.map_class(new_metric_data[self.coords_cols], new_metric_data[self.metric_name],
-                                        metric=self.metric, agg=self.agg, bin_size=bin_size)
+                                        metric=self.metric, agg=self.agg, xlim=self.xlim, ylim=self.ylim,
+                                        bin_size=bin_size)
 
         return new_metric_map
 
@@ -313,12 +314,16 @@ class ScatterMap(BaseMetricMap):
     ignored.
 
     Should not be instantiated directly, use `MetricMap` or its subclasses instead."""
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, xlim=None, ylim=None, **kwargs):
         super().__init__(*args, **kwargs)
         exploded = self.metric_data.explode(self.metric_name)
         self.map_data = exploded.groupby(self.coords_cols).agg(self.agg)[self.metric_name]
 
-    def _plot_map(self, ax, is_lower_better, xlim=None, ylim=None, **kwargs):
+        coords_x, coords_y = self.map_data.index.to_frame().values.T
+        self.xlim = get_first_defined(xlim, calculate_axis_limits(coords_x))
+        self.ylim = get_first_defined(ylim, calculate_axis_limits(coords_y))
+
+    def _plot_map(self, ax, is_lower_better, **kwargs):
         """Display map data as a scatter plot."""
         is_lower_better = get_first_defined(is_lower_better, self.is_lower_better)
 
@@ -330,8 +335,8 @@ class ScatterMap(BaseMetricMap):
         # Guarantee that extreme values are always displayed on top of the others
         map_data = self.map_data.sort_values(ascending=is_lower_better, key=sort_key)
         coords_x, coords_y = map_data.index.to_frame().values.T
-        ax.set_xlim(*get_first_defined(xlim, calculate_axis_limits(coords_x)))
-        ax.set_ylim(*get_first_defined(ylim, calculate_axis_limits(coords_y)))
+        ax.set_xlim(*self.xlim)
+        ax.set_ylim(*self.ylim)
         return ax.scatter(coords_x, coords_y, c=map_data, **kwargs)
 
 
@@ -345,7 +350,7 @@ class BinarizedMap(BaseMetricMap):
 
     Should not be instantiated directly, use `MetricMap` or its subclasses instead.
     """
-    def __init__(self, *args, bin_size, **kwargs):
+    def __init__(self, *args, bin_size, xlim=None, ylim=None, **kwargs):
         super().__init__(*args, **kwargs)
 
         if bin_size is not None:
@@ -359,12 +364,17 @@ class BinarizedMap(BaseMetricMap):
 
         # Binarize map coordinates
         bin_cols = ["BIN_X", "BIN_Y"]
-        min_coords = map_data[self.coords_cols].min(axis=0).values
+
+        if xlim is None or ylim is None:
+            min_coords = map_data[self.coords_cols].min(axis=0).to_numpy()
+        else:
+            min_coords = xlim[0], ylim[0]
+
         map_data[bin_cols] = (map_data[self.coords_cols] - min_coords) // self.bin_size
-        x_bin_range = np.arange(map_data["BIN_X"].max() + 1)
-        y_bin_range = np.arange(map_data["BIN_Y"].max() + 1)
-        self.x_bin_coords = min_coords[0] + self.bin_size[0] * x_bin_range + self.bin_size[0] // 2
-        self.y_bin_coords = min_coords[1] + self.bin_size[1] * y_bin_range + self.bin_size[1] // 2
+
+        self.xlim = get_first_defined(xlim, (min_coords[0], min_coords[0] + self.bin_size[0] * map_data["BIN_X"].max()))
+        self.ylim = get_first_defined(ylim, (min_coords[1], min_coords[1] + self.bin_size[1] * map_data["BIN_Y"].max()))
+
         map_data = map_data.set_index(bin_cols + self.coords_cols)[self.metric_name].explode().sort_index()
 
         # Construct a mapping from a bin to its contents and a binarized map
@@ -380,21 +390,24 @@ class BinarizedMap(BaseMetricMap):
     @property
     def x_tick_labels(self):
         """array-like: labels of x axis ticks."""
-        return self.x_bin_coords
+        return np.arange(self.xlim[0], self.xlim[1] + 1, self.bin_size[0]) + self.bin_size[0] // 2
 
     @property
     def y_tick_labels(self):
         """array-like: labels of y axis ticks."""
-        return self.y_bin_coords
+        return np.arange(self.ylim[0], self.ylim[1] + 1, self.bin_size[1]) + self.bin_size[1] // 2
 
-    def _plot_map(self, ax, is_lower_better, xlim=None, ylim=None, **kwargs):
+    def _plot_map(self, ax, is_lower_better, **kwargs):
         """Display map data as an image."""
-        _ = is_lower_better, xlim, ylim
+        _ = is_lower_better
 
         # Construct an image of the map
         x = self.map_data.index.get_level_values(0)
         y = self.map_data.index.get_level_values(1)
-        map_image = np.full((len(self.x_bin_coords), len(self.y_bin_coords)), fill_value=np.nan)
+
+        map_image = np.full((((self.xlim[1] - self.xlim[0]) // self.bin_size[0]).astype(int) + 1,
+                             ((self.ylim[1] - self.ylim[0]) // self.bin_size[1]).astype(int) + 1), fill_value=np.nan)
+
         map_image[x, y] = self.map_data
 
         kwargs = {"interpolation": "none", "origin": "lower", "aspect": "auto", **kwargs}

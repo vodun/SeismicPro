@@ -249,10 +249,7 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method, too-many-in
 
     def _make_metric_map_plot_default_kwargs(self):
         initial_values = self.original_metric_map.map_data
-
-        coords_x, coords_y = initial_values.index.to_frame().values.T
-        xlim, ylim = calculate_axis_limits(coords_x), calculate_axis_limits(coords_y)
-        kwargs = dict(title='', is_lower_better=self.is_lower_better, xlim=xlim, ylim=ylim)
+        kwargs = dict(title='', is_lower_better=self.is_lower_better)
 
         if self.norm == 'linear':
             kwargs.update(vmin=initial_values.min(), vmax=initial_values.max())
