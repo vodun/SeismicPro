@@ -293,7 +293,7 @@ class Gather(TraceContainer, SamplesContainer):
         if unknown_headers:
             raise ValueError(f"Unknown headers: {', '.join(unknown_headers)}")
 
-        headers = self.survey._headers
+        headers = self.survey._headers  # pylint: disable=protected-access
         for column in columns:
             if column not in headers:
                 headers[column] = np.nan
