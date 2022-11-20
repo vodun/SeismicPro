@@ -288,19 +288,16 @@ class Gather(TraceContainer, SamplesContainer):
         ValueError
             If given `columns` are missing in `self.headers`.
         """
-        headers = self.survey._headers
         columns = to_list(columns)
-        pos = self[HDR_TRACE_POS]
-        _ = headers.iloc[pos]  # iloc warmup for further setting to work much faster
-
         unknown_headers = set(columns) - set(self.headers)
         if unknown_headers:
             raise ValueError(f"Unknown headers: {', '.join(unknown_headers)}")
 
+        headers = self.survey._headers
         for column in columns:
             if column not in headers:
                 headers[column] = np.nan
-        headers.iloc[pos, headers.columns.get_indexer(columns)] = self[columns]
+            headers[column].array[self[HDR_TRACE_POS]] = self[column]
         return self
 
     #------------------------------------------------------------------------#
