@@ -1,10 +1,10 @@
 """Implements Survey class describing a single SEG-Y file"""
 
 import os
+import math
 import warnings
 from copy import copy
 from textwrap import dedent
-import math
 
 import cv2
 import segyio
@@ -992,11 +992,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         file_columns = trace_id_cols + [first_breaks_col]
         first_breaks_df = pd.read_csv(path, delimiter=delimiter, names=file_columns, index_col=trace_id_cols,
                                       decimal=decimal, encoding=encoding, **kwargs)
-
-        headers = self.headers.join(first_breaks_df, on=trace_id_cols, rsuffix="_loaded")
-        if headers.empty:
-            raise ValueError('Empty headers after first breaks loading.')
-        self.headers = headers
+        self.headers = self.headers.join(first_breaks_df, on=trace_id_cols, rsuffix="_loaded")
+        if self.is_empty:
+            warnings.warn("Empty headers after first breaks loading", RuntimeWarning)
         return self
 
     #------------------------------------------------------------------------#
