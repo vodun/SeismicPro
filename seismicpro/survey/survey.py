@@ -1124,13 +1124,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         KeyError
             If `INLINE_3D` and `CROSSLINE_3D` headers were not loaded.
         """
+        self = maybe_copy(self, inplace, ignore="headers")  # pylint: disable=self-cls-assignment
         size = np.broadcast_to(size, 2)
         step = np.broadcast_to(step, 2)
-
-        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]
         super_line_cols = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
-        index_cols = super_line_cols if reindex else self.indexed_by
 
         if centers is None:
             # Construct a field mask and erode it according to border_indent and strict flag
@@ -1153,7 +1151,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             grid_i = np.arange(origin_i, field_mask.shape[0], step[0])
             grid_x = np.arange(origin_x, field_mask.shape[1], step[1])
             centers = np.stack(np.meshgrid(grid_i, grid_x), -1).reshape(-1, 2)
-            is_valid = field_mask[centers[:, 0], centers[:, 1]].astype(np.bool)
+            is_valid = field_mask[centers[:, 0], centers[:, 1]].astype(bool)
             centers = centers[is_valid] + field_mask_origin
 
         centers = np.array(centers)
@@ -1165,12 +1163,13 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         shifts = np.stack(shifts_grid, axis=-1).reshape(-1, 2)
         bridge = np.column_stack([centers.repeat(size.prod(), axis=0), (centers[:, None] + shifts).reshape(-1, 2)])
         bridge = pd.DataFrame(bridge, columns=super_line_cols+line_cols)
+        bridge.set_index(line_cols, inplace=True)
 
-        headers = self.headers
-        headers.reset_index(inplace=True)
-        headers = pd.merge(bridge, headers, on=line_cols)
-        headers.set_index(index_cols, inplace=True)
-        headers.sort_index(kind="stable", inplace=True)
+        headers = self.headers.join(bridge, on=line_cols, how="inner")
+        if reindex:
+            headers.reset_index(inplace=True)
+            headers.set_index(super_line_cols, inplace=True)
+            headers.sort_index(kind="stable", inplace=True)
         self.headers = headers
         return self
 
