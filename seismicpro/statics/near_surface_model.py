@@ -6,8 +6,10 @@ from tqdm.auto import tqdm
 from scipy.spatial import KDTree
 
 from .data_loader import TensorDataLoader
+from .metrics import TRAVELTIME_QC_METRICS
 from .interactive_plot import ProfilePlot
 from ..const import HDR_FIRST_BREAK
+from ..metrics import PartialMetric
 from ..utils import to_list, IDWInterpolator
 
 
@@ -22,8 +24,9 @@ class NearSurfaceModel:
         if any(rvf_list[0].n_refractors != rvf.n_refractors for rvf in rvf_list):
             raise ValueError
 
-        survey_data = [self._get_survey_data(sur, rvf, first_breaks_col=first_breaks_col, is_uphole=is_uphole)
-                       for sur, rvf in zip(survey_list, rvf_list)]
+        self.is_uphole = is_uphole
+        self.first_breaks_col = first_breaks_col
+        survey_data = [self._get_survey_data(sur, rvf) for sur, rvf in zip(survey_list, rvf_list)]
         shots_coords_list, receivers_coords_list, traveltimes_list, field_params_list = zip(*survey_data)
         shots_coords = np.concatenate(shots_coords_list)
         receivers_coords = np.concatenate(receivers_coords_list)
@@ -76,7 +79,9 @@ class NearSurfaceModel:
 
         # Convert dataset arrays to torch tensors but don't move them to the device
         self.intermediate_indices = torch.tensor(intermediate_indices)
+        self.shots_coords = torch.tensor(shots_coords[:, :2], dtype=torch.float32)
         self.shots_depths = torch.tensor(shots_coords[:, -1], dtype=torch.float32)
+        self.receivers_coords = torch.tensor(receivers_coords[:, :2], dtype=torch.float32)
         self.offsets = torch.tensor(offsets, dtype=torch.float32)
         self.traveltimes = torch.tensor(traveltimes, dtype=torch.float32)
 
@@ -96,8 +101,8 @@ class NearSurfaceModel:
         self.weathering_slowness_reg_hist = []
         self.slownesses_reg_hist = []
 
-    @staticmethod
-    def _get_survey_data(survey, refractor_velocity_field, first_breaks_col=HDR_FIRST_BREAK, is_uphole=None):
+    def _get_survey_data(self, survey, refractor_velocity_field):
+        is_uphole = self.is_uphole
         if is_uphole is None:
             loaded_headers = set(survey.headers.columns) | set(survey.headers.index.names)
             is_uphole = "SourceDepth" in loaded_headers
@@ -106,7 +111,7 @@ class NearSurfaceModel:
         shots_depths = survey["SourceDepth"] if is_uphole else np.zeros(len(shots_coords))
         shots_coords = np.column_stack([shots_coords, shots_depths])
         receivers_coords = survey[["GroupX", "GroupY", "ReceiverGroupElevation"]]
-        traveltimes = survey[first_breaks_col]
+        traveltimes = survey[self.first_breaks_col]
 
         shots_elevations = pd.DataFrame(shots_coords[:, :3], columns=["X", "Y", "Elevation"])
         shots_elevations = shots_elevations.groupby(by=["X", "Y"], as_index=False, sort=False).mean()
@@ -158,6 +163,14 @@ class NearSurfaceModel:
         traveltimes = torch.where(valid_mask, traveltimes, traveltimes.max() + 1)
         return traveltimes.min(axis=1)
 
+    def _estimate_train_traveltimes(self, batch_size=32768, bar=True):
+        loader = TensorDataLoader(self.intermediate_indices, self.shots_depths, self.offsets, batch_size=batch_size,
+                                  shuffle=False, drop_last=False, device=self.device)
+        with torch.no_grad():
+            tt = [self._estimate_traveltimes_by_indices(indices, depths, offsets)[0].detach().cpu().numpy()
+                  for indices, depths, offsets in tqdm(loader, desc="Traveltime estimation", disable=not bar)]
+        return np.concatenate(tt)
+
     def estimate_traveltimes(self, shots, receivers, shots_depths=0, return_refractors_indices=False):
         shots = np.array(shots)
         is_1d = (shots.ndim == 1)
@@ -186,13 +199,8 @@ class NearSurfaceModel:
         return traveltimes
 
     def estimate_loss(self, batch_size=32768, bar=True):
-        loader = TensorDataLoader(self.intermediate_indices, self.shots_depths, self.offsets, self.traveltimes,
-                                  batch_size=batch_size, shuffle=False, drop_last=False, device=self.device)
-        batch_sizes = [batch_size] * (len(loader) - 1) + [loader.n_items - batch_size * (len(loader) - 1)]
-        with torch.no_grad():
-            losses = [(self._estimate_traveltimes_by_indices(indices, depths, offsets)[0] - times).abs().mean().item()
-                      for indices, depths, offsets, times in tqdm(loader, desc="Loss estimation", disable=not bar)]
-        return np.average(losses, weights=batch_sizes)
+        pred_traveltimes = self._estimate_train_traveltimes(batch_size=batch_size, bar=bar)
+        return np.abs(pred_traveltimes - self.traveltimes.numpy()).mean()
 
     def fit(self, batch_size=32768, n_epochs=1, thicknesses_reg_coef=0, slownesses_reg_coef=0, bar=True):
         thicknesses_reg_coef = torch.tensor(thicknesses_reg_coef, dtype=torch.float32, device=self.device)
@@ -268,6 +276,32 @@ class NearSurfaceModel:
         self.weathering_slowness_tensor.requires_grad = False
         self.slownesses_tensor.requires_grad = False
         self.thicknesses_tensor.requires_grad = False
+
+    def qc(self, metrics=None, by="shot"):
+        if metrics is None:
+            metrics = TRAVELTIME_QC_METRICS
+
+        coords_cols = {"shot": ["SourceX", "SourceY"], "receiver": ["GroupX", "GroupY"]}[by]
+        qc_df = pd.DataFrame(np.column_stack([self.shots_coords.numpy(), self.receivers_coords.numpy()]),
+                             columns=["SourceX", "SourceY", "GroupX", "GroupY"])
+        qc_df["True"] = self.traveltimes.numpy()
+        qc_df["Pred"] = self._estimate_train_traveltimes()
+        qc_df = qc_df.groupby(coords_cols)
+
+        def calc_metrics(group):
+            shots_coords = group.iloc[:, :2].to_numpy()
+            receivers_coords = group.iloc[:, 2:4].to_numpy()
+            true_traveltimes = group.iloc[:, 4].to_numpy()
+            pred_traveltimes = group.iloc[:, 5].to_numpy()
+            return pd.Series([metric.calc(shots_coords, receivers_coords, true_traveltimes, pred_traveltimes)
+                              for metric in metrics])
+
+        qc_res = qc_df.apply(calc_metrics)
+        metrics = [PartialMetric(metric, nsm=self, survey_list=self.survey_list, coords_cols=coords_cols)
+                   for metric in metrics]
+        metrics_maps = [metric.map_class(qc_res.index, metric_values.to_numpy(), metric=metric)
+                        for metric, (_, metric_values) in zip(metrics, qc_res.items())]
+        return metrics_maps
 
     def plot_profile(self, **kwargs):
         return ProfilePlot(self, **kwargs).plot()
