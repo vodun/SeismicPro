@@ -15,7 +15,7 @@ from tqdm.auto import tqdm
 from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
 
-from .headers import load_headers
+from .headers import load_headers, validate_headers
 from .metrics import SurveyAttribute, TracewiseMetric
 from .plot_geometry import SurveyGeometryPlot
 from .utils import ibm_to_ieee, calculate_trace_stats
@@ -91,6 +91,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     limits : int or tuple or slice, optional
         Default time limits to be used during trace loading and survey statistics calculation. `int` or `tuple` are
         used as arguments to init a `slice` object. If not given, whole traces are used. Measured in samples.
+    validate : bool, optional, defaults to True
+        Whether to perform trace headers validation.
     endian : {"big", "msb", "little", "lsb"}, optional, defaults to "big"
         SEG-Y file endianness.
     chunk_size : int, optional, defaults to 25000
@@ -159,8 +161,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     """
 
     # pylint: disable-next=too-many-arguments, too-many-statements
-    def __init__(self, path, header_index, header_cols=None, name=None, limits=None, endian="big", chunk_size=25000,
-                 n_workers=None, bar=True, use_segyio_trace_loader=False):
+    def __init__(self, path, header_index, header_cols=None, name=None, limits=None, validate=True, endian="big",
+                 chunk_size=25000, n_workers=None, bar=True, use_segyio_trace_loader=False):
         self.path = os.path.abspath(path)
         self.name = os.path.splitext(os.path.basename(self.path))[0] if name is None else name
 
@@ -223,6 +225,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self._headers = None
         self._indexer = None
         self.headers = headers
+
+        # Validate trace headers for consistency
+        if validate:
+            self.validate_headers()
 
         # Data format code defined by bytes 3225–3226 of the binary header that can be conveniently loaded using numpy
         # memmap. Currently only 3-byte integers (codes 7 and 15) and 4-byte fixed-point floats (code 4) are not
@@ -376,6 +382,39 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """Print survey metadata including information about the source file, field geometry if it was inferred and
         trace statistics if they were calculated."""
         print(self)
+
+    def validate_headers(self, offset_atol=10, cdp_atol=10, elev_atol=5, elev_radius=50):
+        """Validate trace headers by checking that:
+        - All headers are not empty,
+        - Trace identifier (FieldRecord, TraceNumber) has no duplicates,
+        - Traces with the same shot index (FieldRecord) do not have different coordinates (SourceX, SourceY),
+        - Traces do not have signed offsets,
+        - Offsets in trace headers coincide with distances between shots (SourceX, SourceY) and receivers (GroupX,
+        GroupY),
+        - Mapping from geographic (CDP_X, CDP_Y) to line-based (INLINE_3D/CROSSLINE_3D) coordinates and back is unique,
+        - Coordinates of a midpoint (CDP_X, CDP_Y) matches those of the corresponding shot (SourceX, SourceY) and
+        receiver (GroupX, GroupY),
+        - Surface elevation of a shot (SourceSurfaceElevation) or receiver (ReceiverGroupElevation) is the same for all
+        its traces,
+        - Elevation-related headers (ReceiverGroupElevation, SourceSurfaceElevation) have consistent ranges.
+
+        If any of the checks fail, a warning is displayed.
+
+        Parameters
+        ----------
+        offset_atol : int, optional, defaults to 10
+            Maximum allowed difference between a trace offset and the distance between its shot and receiver.
+        cdp_atol : int, optional, defaults to 10
+            Maximum allowed difference between coordinates of a trace CDP and the midpoint between its shot and
+            receiver.
+        elev_atol : int, optional, defaults to 5
+            Maximum allowed difference between surface elevation at a given shot/receiver location and mean elevation
+            of all shots and receivers within a radius defined by `elev_radius`.
+        elev_radius : int, optional, defaults to 50
+            Radius of the neighborhood to estimate mean surface elevation.
+        """
+        validate_headers(self.headers, offset_atol=offset_atol, cdp_atol=cdp_atol, elev_atol=elev_atol,
+                         elev_radius=elev_radius)
 
     #------------------------------------------------------------------------#
     #                        Geometry-related methods                        #
@@ -1158,7 +1197,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         * Receiver view: displays receiver locations. Highlights all shots that activated the receiver on click and
           displays the corresponding common receiver gather.
 
-        Plotting must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and
+        Plotting must be performed in a JupyterLab environment with the `%matplotlib widget` magic executed and
         `ipympl` and `ipywidgets` libraries installed.
 
         Parameters

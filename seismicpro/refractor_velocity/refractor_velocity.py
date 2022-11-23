@@ -364,7 +364,9 @@ class RefractorVelocity:
 
     def __getattr__(self, key):
         """Get requested parameter of the velocity model by its name."""
-        return self.params[key]
+        if key.startswith("__"):  # Guarantee proper pickling/unpickling
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{key}'")
+        return getattr(self.params, key)
 
     def __call__(self, offsets):
         """Return the expected times of first breaks for the given offsets."""

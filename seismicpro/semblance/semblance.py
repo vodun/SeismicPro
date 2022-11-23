@@ -364,7 +364,7 @@ class Semblance(BaseSemblance):
             Whether to plot semblance in interactive mode. This mode also plots the gather used to calculate the
             semblance. Clicking on semblance highlights the corresponding hodograph on the gather plot and allows
             performing NMO correction of the gather with the selected velocity. Interactive plotting must be performed
-            in a JupyterLab environment with the the `%matplotlib widget` magic executed and `ipympl` and `ipywidgets`
+            in a JupyterLab environment with the `%matplotlib widget` magic executed and `ipympl` and `ipywidgets`
             libraries installed.
         sharey : bool, optional, defaults to True, only for interactive mode
             Whether to share y axis of semblance and gather plots.
@@ -628,8 +628,8 @@ class ResidualSemblance(BaseSemblance):
             Whether to plot residual semblance in interactive mode. This mode also plots the gather used to calculate
             the residual semblance. Clicking on residual semblance highlights the corresponding hodograph on the gather
             plot and allows performing NMO correction of the gather with the selected velocity. Interactive plotting
-            must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and `ipympl`
-            and `ipywidgets` libraries installed.
+            must be performed in a JupyterLab environment with the `%matplotlib widget` magic executed and `ipympl` and
+            `ipywidgets` libraries installed.
         sharey : bool, optional, defaults to True, only for interactive mode
             Whether to share y axis of residual semblance and gather plots.
         gather_plot_kwargs : dict, optional, only for interactive mode

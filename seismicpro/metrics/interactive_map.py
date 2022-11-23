@@ -5,8 +5,8 @@ from functools import partial
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
-from ..utils import get_text_formatting_kwargs, align_args, MissingModule, calculate_axis_limits
-from ..utils.interactive_plot_utils import InteractivePlot, PairedPlot, TEXT_LAYOUT, BUTTON_LAYOUT
+from ..utils import get_text_formatting_kwargs, align_args, MissingModule
+from ..utils.interactive_plot_utils import InteractivePlot, PairedPlot, WIDGET_HEIGHT, BUTTON_LAYOUT
 
 # Safe import of modules for interactive plotting
 try:
@@ -52,10 +52,13 @@ class MapBinPlot(MapCoordsPlot):
         self.options = None
         self.curr_option = None
 
-        self.sort = widgets.Button(icon=self.sort_icon, disabled=True, layout=widgets.Layout(**BUTTON_LAYOUT))
-        self.prev = widgets.Button(icon="angle-left", disabled=True, layout=widgets.Layout(**BUTTON_LAYOUT))
-        self.drop = widgets.Dropdown(layout=widgets.Layout(**TEXT_LAYOUT))
-        self.next = widgets.Button(icon="angle-right", disabled=True, layout=widgets.Layout(**BUTTON_LAYOUT))
+        self.sort = widgets.Button(icon=self.sort_icon, tooltip="", disabled=True,
+                                   layout=widgets.Layout(**BUTTON_LAYOUT))
+        self.prev = widgets.Button(icon="angle-left", tooltip="", disabled=True,
+                                   layout=widgets.Layout(**BUTTON_LAYOUT))
+        self.drop = widgets.Dropdown(layout=widgets.Layout(height=WIDGET_HEIGHT, width="inherit"))
+        self.next = widgets.Button(icon="angle-right", tooltip="", disabled=True,
+                                   layout=widgets.Layout(**BUTTON_LAYOUT))
 
         # Handler definition
         self.sort.on_click(self.reverse_options)
@@ -80,7 +83,7 @@ class MapBinPlot(MapCoordsPlot):
     @property
     def drop_options(self):
         """list of str: text representation of bin items."""
-        return [f"{metric:.05f} metric at ({x}, {y})" for (x, y), metric in self.options.iteritems()]
+        return [f"{metric:.05f} metric at ({x}, {y})" for (x, y), metric in self.options.items()]
 
     def update_state(self, option_ix, options=None, redraw=True):
         """Set new plot options and the currently active option."""
