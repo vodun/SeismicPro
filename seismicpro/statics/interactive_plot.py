@@ -15,7 +15,7 @@ class ProfilePlot(PairedPlot):
         surface_elevations = model.field_params["Elevation"].to_numpy()
 
         layer_thicknesses = model.thicknesses_tensor.detach().cpu().numpy()
-        layer_elevations = surface_elevations - np.cumsum(layer_thicknesses, axis=1)
+        layer_elevations = surface_elevations.reshape(-1, 1) - np.cumsum(layer_thicknesses, axis=1)
         elevations = np.column_stack([surface_elevations, layer_elevations])
         self.min_elevation = elevations.min()
         self.max_elevation = elevations.max()
@@ -60,7 +60,7 @@ class ProfilePlot(PairedPlot):
         x_start, y_start = start_coords
         x_stop, y_stop = stop_coords
         offset = np.sqrt((x_start - x_stop)**2 + (y_start - y_stop)**2)
-        n_points = max(offset // self.sampling_interval, 2)
+        n_points = max(int(offset // self.sampling_interval), 2)
         x_linspace = np.linspace(x_start, x_stop, n_points)
         y_linspace = np.linspace(y_start, y_stop, n_points)
         data = self.interpolator(np.column_stack([x_linspace, y_linspace])).T

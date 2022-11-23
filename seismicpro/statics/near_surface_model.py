@@ -31,7 +31,7 @@ class NearSurfaceModel:
         traveltimes = np.concatenate(traveltimes_list)
         field_params = pd.concat(field_params_list, ignore_index=True)
         field_params = field_params.groupby(by=["X", "Y"], as_index=False, sort=False).mean()
-        unique_coords = field_params["X", "Y"].to_numpy()
+        unique_coords = field_params[["X", "Y"]].to_numpy()
 
         self.survey_list = survey_list
         self.field_params = field_params
@@ -104,7 +104,7 @@ class NearSurfaceModel:
 
         shots_coords = survey[["SourceX", "SourceY", "SourceSurfaceElevation"]]
         shots_depths = survey["SourceDepth"] if is_uphole else np.zeros(len(shots_coords))
-        shots_coords = np.column_stack([shots_coords[:, :2], shots_depths])
+        shots_coords = np.column_stack([shots_coords, shots_depths])
         receivers_coords = survey[["GroupX", "GroupY", "ReceiverGroupElevation"]]
         traveltimes = survey[first_breaks_col]
 
@@ -114,7 +114,7 @@ class NearSurfaceModel:
         receivers_elevations = receivers_elevations.groupby(by=["X", "Y"], as_index=False, sort=False).mean()
         field_params = pd.concat([shots_elevations, receivers_elevations], ignore_index=True)
         field_params = field_params.groupby(by=["X", "Y"], as_index=False, sort=False).mean()
-        rvf_params = refractor_velocity_field.interpolate(field_params["X", "Y"].to_numpy(), is_geographic=True)
+        rvf_params = refractor_velocity_field.interpolate(field_params[["X", "Y"]].to_numpy(), is_geographic=True)
         field_params[refractor_velocity_field.param_names] = rvf_params
         return shots_coords, receivers_coords, traveltimes, field_params
 
