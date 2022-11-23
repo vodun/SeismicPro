@@ -215,22 +215,22 @@ class NearSurfaceModel:
 
                     # Calc thicknesses regularization
                     sensors_indices = torch.unique(torch.cat([intermediate_indices[:, 0], intermediate_indices[:, -1]]), sorted=False)
-                    thicknesses = self.thicknesses_tensor[self.coords_neighbors[sensors_indices]]
+                    thicknesses = self.thicknesses_tensor[self.neighbors_indices[sensors_indices]]
                     thicknesses_cv = torch.std(thicknesses, axis=1) / torch.mean(thicknesses, axis=1)
                     thicknesses_reg = (thicknesses_cv * thicknesses_reg_coef).mean()
 
-                    weathering_slowness = self.weathering_slowness_tensor[self.coords_neighbors[sensors_indices]]
+                    weathering_slowness = self.weathering_slowness_tensor[self.neighbors_indices[sensors_indices]]
                     weathering_slowness_cv = torch.std(weathering_slowness, axis=1) / torch.mean(weathering_slowness, axis=1)
                     weathering_slowness_reg = (weathering_slowness_cv * slownesses_reg_coef[0]).mean()
 
                     # Calc slownesses regularization
                     # slownesses = torch.column_stack([self.weathering_slowness_tensor, self.slownesses_tensor])
-                    # slownesses = slownesses[self.coords_neighbors[intermediate_indices]] * slownesses_reg_coef
+                    # slownesses = slownesses[self.neighbors_indices[intermediate_indices]] * slownesses_reg_coef
                     # slownesses = torch.take_along_dim(slownesses, refractor_indices.reshape(-1, 1, 1, 1), axis=-1)
                     # slownesses_reg = torch.abs(slownesses[:, :, 0] -  slownesses.mean(axis=2)).mean()
 
                     slownesses = torch.column_stack([self.weathering_slowness_tensor, self.slownesses_tensor])
-                    slownesses = slownesses[self.coords_neighbors[intermediate_indices]]
+                    slownesses = slownesses[self.neighbors_indices[intermediate_indices]]
                     slownesses_cv = torch.std(slownesses, axis=2) / torch.mean(slownesses, axis=2)
                     slownesses_reg = torch.take_along_dim(slownesses_cv * slownesses_reg_coef, refractor_indices.reshape(-1, 1, 1), axis=-1).mean()
 
