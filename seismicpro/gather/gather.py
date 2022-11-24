@@ -815,6 +815,15 @@ class Gather(TraceContainer, SamplesContainer):
     #                           Gather corrections                           #
     #------------------------------------------------------------------------#
 
+    @batch_method(target="threads")
+    def apply_statics(self, statics_col, fill_value=0, event_headers=None):
+        trace_delays = -self[statics_col]
+        trace_delays_samples = times_to_indices(trace_delays, self.samples, round=True).astype(int)
+        self.data = correction.apply_lmo(self.data, trace_delays_samples, fill_value)
+        if event_headers is not None:
+            self[to_list(event_headers)] += trace_delays.reshape(-1, 1)
+        return self
+
     @batch_method(target="threads", args_to_unpack="refractor_velocity")
     def apply_lmo(self, refractor_velocity, delay=100, fill_value=np.nan, event_headers=None):
         """Perform gather linear moveout correction using the given near-surface velocity model.
