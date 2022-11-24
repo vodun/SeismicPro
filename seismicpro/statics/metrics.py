@@ -26,7 +26,7 @@ class TravelTimeMetric(Metric):
         fb_pred = self.nsm.estimate_traveltimes(gather[["SourceX", "SourceY"]], gather[["GroupX", "GroupY"]],
                                                 shots_depths=shots_depths)
         gather["PredictedFirstBreaks"] = fb_pred
-        gather.plot(ax=ax, event_headers=[self.nsm.first_breaks_col, "EstimatedFirstBreaks"], **kwargs)
+        gather.plot(ax=ax, event_headers=[self.nsm.first_breaks_col, "PredictedFirstBreaks"], **kwargs)
 
     def get_views(self, sort_by=None, **kwargs):
         return [partial(self.plot_on_click, sort_by=sort_by)], kwargs
