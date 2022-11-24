@@ -15,7 +15,7 @@ class TravelTimeMetric(Metric):
 
     def plot_on_click(self, coords, ax, sort_by=None, **kwargs):
         survey = [survey for survey in self.survey_list if coords in survey.indices][0]
-        gather = survey.get_gather(coords)
+        gather = survey.get_gather(coords, copy_headers=True)
         if sort_by is not None:
             gather = gather.sort(by=sort_by)
         is_uphole = self.nsm.is_uphole
