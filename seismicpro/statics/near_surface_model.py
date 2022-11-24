@@ -202,6 +202,31 @@ class NearSurfaceModel:
         pred_traveltimes = self._estimate_train_traveltimes(batch_size=batch_size, bar=bar)
         return np.abs(pred_traveltimes - self.traveltimes.numpy()).mean()
 
+    def estimate_delays(self, coords, depths=0, datum=0):
+        coords = np.array(coords)
+        is_1d = (coords.ndim == 1)
+        coords = np.atleast_2d(coords)
+        if coords.ndim > 2 or coords.shape[1] != 2:
+            raise ValueError
+
+        elevations = self.elevation_interpolator(coords)
+        indices = self.tree.query(coords, workers=-1)[1]
+        slownesses = np.column_stack([self.weathering_slowness_tensor[indices].detach().cpu().numpy(),
+                                      self.slownesses_tensor[indices].detach().cpu().numpy()])
+        thicknesses = self.thicknesses_tensor[indices].detach().cpu().numpy()
+
+        datum_depths = elevations - datum
+        passes = thicknesses.copy()
+        passes[np.cumsum(thicknesses, axis=1) >= datum_depths.reshape(-1, 1)] = 0
+        passes = np.column_stack([passes, np.zeros(len(passes))])
+        passes[np.arange(len(passes)), np.argmax(passes==0, axis=1)] = datum_depths - passes.sum(axis=1)
+        passes[:, 0] -= depths  # TODO: FIXME
+        delays = (passes * slownesses).sum(axis=1)
+
+        if is_1d:
+            return delays[0]
+        return delays
+
     def fit(self, batch_size=32768, n_epochs=1, thicknesses_reg_coef=0, slownesses_reg_coef=0, bar=True):
         thicknesses_reg_coef = torch.tensor(thicknesses_reg_coef, dtype=torch.float32, device=self.device)
         thicknesses_reg_coef = torch.broadcast_to(thicknesses_reg_coef, (self.n_refractors,))
