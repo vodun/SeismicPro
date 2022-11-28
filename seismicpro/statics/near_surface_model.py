@@ -7,7 +7,7 @@ from scipy.spatial import KDTree
 
 from .data_loader import TensorDataLoader
 from .metrics import TRAVELTIME_QC_METRICS
-from .interactive_plot import ProfilePlot
+from .interactive_plot import ProfilePlot, StaticsCorrectionPlot
 from ..const import HDR_FIRST_BREAK
 from ..metrics import PartialMetric
 from ..utils import to_list, IDWInterpolator
