@@ -7,6 +7,7 @@ import segyio
 import numpy as np
 
 from seismicpro.utils.indexer import create_indexer
+from seismicpro.const import HDR_TRACE_POS
 
 from ..utils import assert_indexers_equal
 
@@ -14,6 +15,9 @@ from ..utils import assert_indexers_equal
 # Define default tolerances to check if two float values are close
 RTOL = 1e-5
 ATOL = 1e-7
+
+# Define external headers that are not involved in testing process
+EXTERNAL_HEADERS = {HDR_TRACE_POS}
 
 
 def assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers, rtol=RTOL, atol=ATOL):
@@ -39,7 +43,7 @@ def assert_survey_loaded(survey, segy_path, expected_name, expected_index, expec
     assert survey.n_traces == n_traces
     assert len(survey.headers) == n_traces
     assert set(survey.headers.index.names) == expected_index
-    assert set(survey.headers.index.names) | set(survey.headers.columns) == expected_headers
+    assert (set(survey.headers.index.names) | set(survey.headers.columns)) - EXTERNAL_HEADERS == expected_headers
     assert survey.headers.index.is_monotonic_increasing
 
     # Restore the order of the traces from the source file
@@ -47,7 +51,7 @@ def assert_survey_loaded(survey, segy_path, expected_name, expected_index, expec
 
     # Check loaded trace headers values
     assert np.array_equal(loaded_headers["TRACE_SEQUENCE_FILE"].values, np.arange(1, n_traces + 1))
-    for header in set(loaded_headers.columns) - {"TRACE_SEQUENCE_FILE"}:
+    for header in set(loaded_headers.columns) - {"TRACE_SEQUENCE_FILE", *EXTERNAL_HEADERS}:
         assert np.array_equal(loaded_headers[header].values,
                               survey.segy_handler.attributes(segyio.tracefield.keys[header])[:])
 

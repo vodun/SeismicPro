@@ -4,6 +4,7 @@ import pytest
 import pandas as pd
 
 from . import assert_surveys_equal, assert_survey_processed_inplace
+from .asserters import EXTERNAL_HEADERS
 
 
 class TestReindex:
@@ -42,8 +43,11 @@ class TestReindex:
         4. Values of trace headers has not changed, only their order in `survey.headers`.
         """
         survey_copy = survey.copy()
-        survey_headers = set(survey.headers.index.names) | set(survey.headers.columns)
+        survey_headers = (set(survey.headers.index.names) | set(survey.headers.columns)) - EXTERNAL_HEADERS
         survey_reindexed = survey.reindex(new_index, inplace=inplace)
+
+        for header in EXTERNAL_HEADERS:
+            survey_reindexed.headers.drop(columns=header, errors="ignore", inplace=True)
 
         if isinstance(new_index, str):
             new_index = [new_index]

@@ -9,6 +9,7 @@ import numpy as np
 from seismicpro import Survey, Muter, StackingVelocity
 from seismicpro.utils import to_list
 from seismicpro.const import HDR_FIRST_BREAK
+from .survey.asserters import EXTERNAL_HEADERS
 
 
 # Constants
@@ -43,9 +44,10 @@ def compare_gathers(first, second, drop_cols=None, check_types=False, same_surve
 
     first_headers = first.headers.reset_index()
     second_headers = second.headers.reset_index()
-    if drop_cols:
-        first_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
-        second_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
+
+    drop_cols = to_list(drop_cols) + to_list(EXTERNAL_HEADERS) if drop_cols is not None else EXTERNAL_HEADERS
+    first_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
+    second_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
 
     assert len(first_headers) == len(second_headers)
     if len(first_headers) > 0:

@@ -10,6 +10,7 @@ import numpy as np
 
 from seismicpro import Survey, aggregate_segys
 from .test_gather import compare_gathers
+from .survey.asserters import EXTERNAL_HEADERS
 
 
 @pytest.mark.parametrize('name', ['some_name', None])
@@ -43,8 +44,9 @@ def test_dump_single_gather(segy_path, tmp_path, name, retain_parent_segy_header
         sample_rates = full_dump_headers['TRACE_SAMPLE_INTERVAL']
         assert np.unique(sample_rates) > 1
         assert np.allclose(sample_rates[0] / 1000, expected_survey.sample_rate)
-        full_exp_headers.drop(columns=["TRACE_SEQUENCE_FILE", "TRACE_SAMPLE_INTERVAL"], inplace=True)
-        full_dump_headers.drop(columns=["TRACE_SEQUENCE_FILE", "TRACE_SAMPLE_INTERVAL"], inplace=True)
+        drop_cols = ["TRACE_SEQUENCE_FILE", "TRACE_SAMPLE_INTERVAL", *list(EXTERNAL_HEADERS)]
+        full_exp_headers.drop(columns=drop_cols, inplace=True)
+        full_dump_headers.drop(columns=drop_cols, inplace=True)
         assert full_exp_headers.equals(full_dump_headers)
 
 
@@ -81,7 +83,8 @@ def test_aggregate_segys(segy_path, tmp_path, mode, indices):
 
     #TODO: optimize
     drop_columns = ["TRACE_SEQUENCE_FILE"] + list({"TRACE_SAMPLE_INTERVAL"}
-                                                  & set(tuple(expected_survey.headers.columns)))
+                                                  & set(tuple(expected_survey.headers.columns))
+                                                  | EXTERNAL_HEADERS)
     expected_survey_headers = (expected_survey.headers.loc[indices].reset_index()
                                                                    .sort_values(['FieldRecord', 'TraceNumber'])
                                                                    .drop(columns=drop_columns)
