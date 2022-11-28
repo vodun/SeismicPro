@@ -88,14 +88,16 @@ class ProfilePlot(PairedPlot):
 
 
 class StaticsCorrectionPlot(PairedPlot):
-    def __init__(self, model, survey_list, datum=0, sort_by=None, figsize=(4.5, 4.5), orientation="horizontal", **kwargs):
-        coords_cols = {get_coords_cols(survey.indexed_by for survey in survey_list)}
+    def __init__(self, model, survey_list, datum=0, center=True, sort_by=None, figsize=(4.5, 4.5),
+                 orientation="horizontal", **kwargs):
+        coords_cols = {get_coords_cols(survey.indexed_by) for survey in survey_list}
         if len(coords_cols) > 1:
             raise ValueError
         coords_cols = to_list(coords_cols.pop())
         self.survey_list = [survey.reindex(coords_cols) for survey in survey_list]
         self.nsm = model
         self.datum = datum
+        self.center = center
         self.sort_by = sort_by
 
         unique_coords = pd.concat([survey.indices.to_frame() for survey in survey_list], ignore_index=True)
@@ -113,29 +115,34 @@ class StaticsCorrectionPlot(PairedPlot):
 
     def construct_aux_plot(self):
         toolbar_position = "right" if self.orientation == "horizontal" else "left"
-        return InteractivePlot(plot_fn=[self.plot_gather, partial(self.plot_gather, corrected=True)],
-                               title=self.get_gather_title, figsize=self.figsize, toolbar_position=toolbar_position)
+        return InteractivePlot(plot_fn=[self.plot_gather, self.plot_corrected_gather],
+                               title=["Gather", "Gather with statics correction applied"], figsize=self.figsize,
+                               toolbar_position=toolbar_position)
 
-    def plot_gather(self, ax, corrected=False):
+    def plot_gather(self, ax):
         """Plot the gather and a hodograph if click has been performed."""
-        gather = self.gather
-        if corrected:
-            gather = self.gather.copy(ignore=["data", "samples"])
-            is_uphole = self.nsm.is_uphole
-            if is_uphole is None:
-                loaded_headers = set(gather.headers.columns) | set(gather.headers.index.names)
-                is_uphole = "SourceDepth" in loaded_headers
-            shot_depths = gather["SourceDepth"] if is_uphole else 0
-            shot_delays = self.nsm.estimate_delays(gather["SourceX", "SourceY"], depths=shot_depths, datum=self.datum)
-            rec_delays = self.nsm.estimate_delays(gather["GroupX", "GroupY"], datum=self.datum)
-            gather["DT"] = shot_delays + rec_delays
-            gather = gather.apply_statics("DT")
-        gather.plot(ax=ax)
+        if self.gather is None:
+            return
+        self.gather.plot(ax=ax)
 
-    def get_gather_title(self):
-        if self.aux.current_view == 0:
-            return "Gather"
-        return "Gather with statics correction applied"
+    def plot_corrected_gather(self, ax):
+        """Plot the gather and a hodograph if click has been performed."""
+        if self.gather is None:
+            return
+        gather = self.gather.copy(ignore=["data", "samples"])
+        is_uphole = self.nsm.is_uphole
+        if is_uphole is None:
+            loaded_headers = set(gather.headers.columns) | set(gather.headers.index.names)
+            is_uphole = "SourceDepth" in loaded_headers
+        shot_depths = gather["SourceDepth"] if is_uphole else 0
+        shot_delays = self.nsm.estimate_delays(gather["SourceX", "SourceY"], depths=shot_depths, datum=self.datum)
+        rec_delays = self.nsm.estimate_delays(gather["GroupX", "GroupY"], datum=self.datum)
+        delays = shot_delays + rec_delays
+        if self.center:
+            delays -= delays.mean()
+        gather["DT"] = delays
+        gather = gather.apply_statics("DT")
+        gather.plot(ax=ax)
 
     def click(self, coords):
         closest_ix = self.coords_neighbors.kneighbors([coords], return_distance=False).item()
