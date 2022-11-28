@@ -203,7 +203,7 @@ def test_gather_store_headers_to_survey(gather, columns):
 
 def test_gather_store_headers_to_survey_new_header(gather):
     """test_gather_store_headers_to_survey_new_header"""
-    gather["new_header"] = 18
+    gather.headers["new_header"] = 18
     gather.store_headers_to_survey("new_header")
 
 @pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
