@@ -35,6 +35,15 @@ def gather(survey):
     return survey.get_gather((0, 0))
 
 
+@pytest.fixture(scope='function')
+def gather_with_cols(survey):
+    """gather_with_cols"""
+    gather = survey.get_gather((0, 0))
+    gather.headers["col_1"] = np.arange(gather.n_traces, dtype=np.int32)
+    gather.headers["col_2"] = 100 * np.random.random(gather.n_traces)
+    return gather
+
+
 def compare_gathers(first, second, drop_cols=None, check_types=False, same_survey=True):
     """compare_gathers"""
     first_attrs = first.__dict__
@@ -45,7 +54,7 @@ def compare_gathers(first, second, drop_cols=None, check_types=False, same_surve
     first_headers = first.headers.reset_index()
     second_headers = second.headers.reset_index()
 
-    drop_cols = to_list(drop_cols) + to_list(EXTERNAL_HEADERS) if drop_cols is not None else EXTERNAL_HEADERS
+    drop_cols = (to_list(drop_cols) + to_list(EXTERNAL_HEADERS)) if drop_cols is not None else EXTERNAL_HEADERS
     first_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
     second_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
 
@@ -198,15 +207,16 @@ def test_gather_copy(gather, ignore):
 
     compare_gathers(copy_gather, gather, check_types=True)
 
-@pytest.mark.parametrize('columns', ['offset', ['offset'], ['offset', 'FieldRecord']])
-def test_gather_store_headers_to_survey(gather, columns):
-    """test_gather_store_headers_to_survey"""
-    gather.store_headers_to_survey(columns)
 
-def test_gather_store_headers_to_survey_new_header(gather):
-    """test_gather_store_headers_to_survey_new_header"""
-    gather.headers["new_header"] = 18
-    gather.store_headers_to_survey("new_header")
+@pytest.mark.parametrize('columns', ['offset', 'col_1', ['col_1'], ['col_1', 'col_2']])
+def test_gather_store_headers_to_survey(gather_with_cols, columns):
+    """test_gather_store_headers_to_survey"""
+    gather_with_cols.store_headers_to_survey(columns)
+    survey = gather_with_cols.survey
+    headers_from_survey = survey.headers.loc[gather_with_cols.index].sort_values(by="offset")
+    headers_from_gather = gather_with_cols.headers.sort_values(by="offset")
+    assert np.allclose(headers_from_survey[columns], headers_from_gather[columns])
+
 
 @pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
 @pytest.mark.parametrize('q', [0.1, [0.1, 0.2], (0.1, 0.2), np.array([0.1, 0.2])])
