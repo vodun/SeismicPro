@@ -265,13 +265,11 @@ class Gather(TraceContainer, SamplesContainer):
     # Target set to `for` to avoid race condition when the same trace appears in two gathers (ex. supergathers)
     @batch_method(target='for', use_lock=True)
     def store_headers_to_survey(self, columns):
-        """Save given `columns` from `self.headers` to `self.survey.headers` in the positions corresponding to traces
-        in the Gather.
+        """Save given headers from `self` to `self.survey`.
 
         Notes
         -----
-        The correct result is guaranteed only if the `self.survey` hasn't changed between gather creation and calling
-        the method.
+        The correct result is guaranteed only if the `self.survey` has not been modified after `self` creation.
 
         Parameters
         ----------
@@ -289,16 +287,21 @@ class Gather(TraceContainer, SamplesContainer):
             If given `columns` are missing in `self.headers`.
         """
         columns = to_list(columns)
-        unknown_headers = set(columns) - set(self.headers)
-        if unknown_headers:
-            raise ValueError(f"Unknown headers: {', '.join(unknown_headers)}")
+        _ = self[columns] # Make sure that columns are in headers
 
         headers = self.survey.headers
         pos = self[HDR_TRACE_POS]
         for column in columns:
             if column not in headers:
                 headers[column] = np.nan
-            headers[column].array[pos] = self[column]
+
+            column_data = self[column]
+            if np.issubdtype(headers[column].dtype, np.integer) and np.issubdtype(column_data.dtype, np.floating):
+                headers.astype({column: column_data.dtype})
+
+            # FIXME: Workaround for a pandas bug https://github.com/pandas-dev/pandas/issues/48998
+            # iloc may call unnecessary copy of the whole column before setitem
+            headers[column].array[pos] = column_data
         return self
 
     #------------------------------------------------------------------------#
