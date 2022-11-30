@@ -297,7 +297,7 @@ class Gather(TraceContainer, SamplesContainer):
 
             column_data = self[column]
             if np.issubdtype(headers[column].dtype, np.integer) and np.issubdtype(column_data.dtype, np.floating):
-                headers.astype({column: column_data.dtype})
+                headers[column] = headers[column].astype(column_data.dtype)
 
             # FIXME: Workaround for a pandas bug https://github.com/pandas-dev/pandas/issues/48998
             # iloc may call unnecessary copy of the whole column before setitem
