@@ -41,6 +41,7 @@ def gather_with_cols(survey):
     gather = survey.get_gather((0, 0))
     gather.headers["col_1"] = np.arange(gather.n_traces, dtype=np.int32)
     gather.headers["col_2"] = 100 * np.random.random(gather.n_traces)
+    gather.headers["offset"] = gather["offset"] * 0.1
     return gather
 
 
@@ -208,7 +209,7 @@ def test_gather_copy(gather, ignore):
     compare_gathers(copy_gather, gather, check_types=True)
 
 
-@pytest.mark.parametrize('columns', ['offset', 'col_1', ['col_1'], ['col_1', 'col_2']])
+@pytest.mark.parametrize('columns', ['offset', 'FieldRecord', 'col_1', ['col_1'], ['col_1', 'col_2']])
 def test_gather_store_headers_to_survey(gather_with_cols, columns):
     """test_gather_store_headers_to_survey"""
     gather_with_cols.store_headers_to_survey(columns)
