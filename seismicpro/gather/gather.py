@@ -280,11 +280,6 @@ class Gather(TraceContainer, SamplesContainer):
         -------
         self : Gather
             Gather unchanged.
-
-        Raises
-        ------
-        ValueError
-            If given `columns` are missing in `self.headers`.
         """
         columns = to_list(columns)
         _ = self[columns] # Make sure that columns are in headers
