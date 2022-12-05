@@ -9,7 +9,6 @@ import numpy as np
 from seismicpro import Survey, Muter, StackingVelocity
 from seismicpro.utils import to_list
 from seismicpro.const import HDR_FIRST_BREAK
-from .survey.asserters import EXTERNAL_HEADERS
 
 
 # Constants
@@ -22,7 +21,7 @@ NUMPY_ATTRS = ['data', 'samples']
 def survey(segy_path):
     """Create gather"""
     survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'],
-                    header_cols=['offset', 'FieldRecord'])
+                    header_cols=['offset', 'FieldRecord'], validate=False)
     survey.remove_dead_traces(bar=False)
     survey.collect_stats(bar=False)
     survey.headers[HDR_FIRST_BREAK] = np.random.randint(0, 1000, len(survey.headers))
@@ -55,9 +54,9 @@ def compare_gathers(first, second, drop_cols=None, check_types=False, same_surve
     first_headers = first.headers.reset_index()
     second_headers = second.headers.reset_index()
 
-    drop_cols = (to_list(drop_cols) + to_list(EXTERNAL_HEADERS)) if drop_cols is not None else EXTERNAL_HEADERS
-    first_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
-    second_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
+    if drop_cols is not None:
+        first_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
+        second_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
 
     assert len(first_headers) == len(second_headers)
     if len(first_headers) > 0:
@@ -275,7 +274,8 @@ def test_gather_stacking_velocity(gather):
 
 def test_gather_get_central_gather(segy_path):
     """test_gather_get_central_gather"""
-    survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'], header_cols=['offset', 'FieldRecord'])
+    survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'], header_cols=['offset', 'FieldRecord'],
+                    validate=False)
     survey = survey.generate_supergathers()
     gather = survey.sample_gather()
     gather.get_central_gather()

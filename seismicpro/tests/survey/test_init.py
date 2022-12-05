@@ -59,22 +59,24 @@ LIMITS = [  # passed samples limits and expected limits with positive start and 
 
 
 WORKERS = [  # headers chunk size, number of workers and prograss bar display flag
-    [1, 1, True],  # Tracewise loading, single worker, bar enabled
-    [10, 2, True],  # Small chunk size, 2 workers, bar enabled
-    [10, None, False],  # Small chunk size, os.cpu_count() workers, bar disabled
-    [10000000, None, False],  # Chunk size larger than the number of traces, os.cpu_count() workers, bar disabled
+    [1, 1, True, True],  # Tracewise loading, single worker, bar enabled, survey validated
+    [10, 2, True, False],  # Small chunk size, 2 workers, bar enabled, survey wasn't validated
+    [10, None, False, True],  # Small chunk size, os.cpu_count() workers, bar disabled, survey validated
+    [10000000, None, False, False],  # Chunk size larger than the number of traces, os.cpu_count() workers,
+                                     # bar disabled, survey wasn't validated
 ]
 
 
 class TestInit:
     """Test `Survey` instantiation."""
 
-    @pytest.mark.parametrize("chunk_size, n_workers, bar", WORKERS)
+    @pytest.mark.parametrize("chunk_size, n_workers, bar, validate", WORKERS)
     @pytest.mark.parametrize("use_segyio_trace_loader", [True, False])
-    def test_headers_loading(self, segy_path, chunk_size, n_workers, bar, use_segyio_trace_loader):
+    def test_headers_loading(self, segy_path, chunk_size, n_workers, bar, use_segyio_trace_loader, validate):
         """Test sequential and parallel loading of survey trace headers."""
         survey = Survey(segy_path, header_index="FieldRecord", header_cols="all", name="raw", chunk_size=chunk_size,
-                        n_workers=n_workers, bar=bar, use_segyio_trace_loader=use_segyio_trace_loader)
+                        n_workers=n_workers, bar=bar, use_segyio_trace_loader=use_segyio_trace_loader,
+                        validate=validate)
         assert_survey_loaded(survey, segy_path, "raw", {"FieldRecord"}, ALL_HEADERS)
 
     @pytest.mark.parametrize("header_index, expected_index", HEADER_INDEX)
@@ -83,7 +85,7 @@ class TestInit:
     def test_no_limits(self, segy_path, header_index, expected_index, header_cols, expected_cols, name, expected_name):
         """Test survey loading when limits are not passed."""
         survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name, n_workers=1,
-                        bar=False)
+                        bar=False, validate=False)
 
         expected_headers = expected_index | expected_cols | {"TRACE_SEQUENCE_FILE"}
         assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers)
@@ -104,7 +106,7 @@ class TestInit:
                     limits, slice_limits):
         """Test survey loading with limits set."""
         survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name, limits=limits,
-                        n_workers=1, bar=False)
+                        n_workers=1, bar=False, validate=False)
 
         expected_headers = expected_index | expected_cols | {"TRACE_SEQUENCE_FILE"}
         assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers)
@@ -117,6 +119,6 @@ class TestInit:
         assert survey.dead_traces_marked is False
 
         # Check that passing limits to init is identical to running set_limits method
-        other = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name)
+        other = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name, validate=False)
         other.set_limits(limits)
         assert_surveys_equal(survey, other)
