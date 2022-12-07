@@ -15,7 +15,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .cropped_gather import CroppedGather
 from .plot_corrections import NMOCorrectionPlot, LMOCorrectionPlot
-from .utils import correction, normalization, gain
+from .utils import correction, normalization, gain, stats
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
 from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_yticklabels, set_text_formatting,
                      add_colorbar, piecewise_polynomial, Coordinates)
@@ -1226,6 +1226,38 @@ class Gather(TraceContainer, SamplesContainer):
         if not isinstance(velocity, StackingVelocity):
             raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
         self.data = gain.undo_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
+        return self
+
+    @batch_method(target="for")
+    def calculate_avo(self, window=None, horizon_header=None, horizon_window=None, mode='rms', avo_col="avo_stats"):
+        data = self.data.copy()
+        data[data == 0] = np.nan
+        limits = [0, self.n_samples]
+
+        if horizon_header is not None:
+            centers = self[horizon_header]
+            if len(set(centers)) > 1:
+                raise ValueError("Horizon should have unique value per gather")
+
+            if horizon_window is None:
+                raise ValueError("`horizon_window` must be specified if `horizon_header` was given")
+            if len(horizon_window) != 2:
+                raise ValueError("`horizon_window` must have exact two elements")
+            limits = [centers[0] + horizon_window[0], centers[0] - horizon_window[1]]
+
+        if window is not None:
+            limits = np.round(np.asarray(window) / self.sample_rate).astype(np.int32)
+
+        func_dict = {
+            'rms': stats.numba_rms,
+            'abs': stats.numba_abs
+        }
+
+        method = func_dict.get(mode, None)
+        if method is None:
+            raise ValueError(f"mode should be either 'abs' or 'rms', but {mode} was given")
+
+        self[avo_col] = method(data[:, limits[0]: limits[1]])
         return self
 
     #------------------------------------------------------------------------#
