@@ -902,30 +902,26 @@ class Gather(TraceContainer, SamplesContainer):
 
     @batch_method(target="for")
     def sort(self, by):
-        """Sort gather `headers` and traces by specified header column.
+        """Sort gather `headers` and traces by specified headers.
 
         Parameters
         ----------
-        by : str
-            `headers` column name to sort the gather by.
+        by : str or iterable of str
+            `headers` column names to sort the gather by.
 
         Returns
         -------
         self : Gather
-            Gather sorted by `by` column. Sets `sort_by` attribute to `by`.
+            Gather sorted by `by` headers. Sets `sort_by` attribute to `by`.
 
         Raises
         ------
-        TypeError
-            If `by` is not str.
         ValueError
-            If `by` column was not loaded in `headers`.
+            If `by` header was not loaded.
         """
-        if not isinstance(by, str):
-            raise TypeError(f'`by` should be str, not {type(by)}')
         if self.sort_by == by:
             return self
-        order = np.argsort(self[by], kind='stable')
+        order = np.lexsort(np.transpose(self[to_list(by)])[::-1])
         self.sort_by = by
         self.data = self.data[order]
         self.headers = self.headers.iloc[order]
@@ -1528,7 +1524,7 @@ class Gather(TraceContainer, SamplesContainer):
             tick_labels = self._get_y_ticks(tick_src)
         else:
             raise ValueError(f"Unknown axis {axis}")
-        set_ticks(ax, axis, tick_labels=tick_labels, **{"label": tick_src, **ticker})
+        set_ticks(ax, axis, tick_labels=tick_labels, **{"labels": tick_src, **ticker})
 
     def plot_nmo_correction(self, min_vel=1500, max_vel=6000, figsize=(6, 4.5), show_grid=True, **kwargs):
         """Perform interactive NMO correction of the gather with selected constant velocity.
