@@ -12,6 +12,7 @@ from tqdm.auto import tqdm
 
 from .refractor_velocity import RefractorVelocity
 from .interactive_plot import FitPlot
+from .metrics import REFRACTOR_VELOCITY_QC_METRICS, RefractorVelocityMetric
 from .utils import get_param_names, postprocess_params, dump_refractor_velocities, load_refractor_velocities
 from ..field import SpatialField
 from ..utils import to_list, get_coords_cols, Coordinates, IDWInterpolator, ForPoolExecutor
@@ -586,3 +587,37 @@ class RefractorVelocityField(SpatialField):
             Additional keyword arguments to be passed to `MetricMap.plot`.
         """
         FitPlot(self, **kwargs).plot()
+        
+    def qc(self, survey=None, metrics=None, first_breaks_col=HDR_FIRST_BREAK, **kwargs):    
+        if survey is None:
+            if not self.has_survey:
+                raise ValueError("survey must be passed if the field is not linked with a survey")
+            survey = self.survey
+
+        is_single_metric = isinstance(metrics, type) and issubclass(metrics, RefractorVelocityMetric)
+        if metrics is None:
+            metrics = REFRACTOR_VELOCITY_QC_METRICS
+        metrics = to_list(metrics)
+        if not metrics:
+            raise ValueError("At least one metric should be passed")
+        if not all(isinstance(metric, type) and issubclass(metric, RefractorVelocityMetric) for metric in metrics):
+            raise ValueError("All passed metrics must be subclasses of RefractorVelocityMetric")
+
+        coords_cols = to_list(self.coords_cols)
+        if not survey.indexed_by == coords_cols:
+            survey = survey.reindex(coords_cols, inplace=False)
+
+        coords = np.unique(survey.headers.index)
+        times = [survey.headers.loc[gather_coords][first_breaks_col] for gather_coords in coords]
+        offsets = [survey.headers.loc[gather_coords]["offset"] for gather_coords in coords]
+        refractor_velocities = self(list(coords))
+
+        metrics = [metric(survey=survey, refractor_velocities=refractor_velocities, first_breaks_col=first_breaks_col,
+                          **kwargs) for metric in metrics]
+        results = [metric.calc_metric(times, offsets, refractor_velocities, **kwargs)
+                   for metric in metrics]
+        metrics_maps = [metric.map_class(coords, metric_values, coords_cols=self.coords_cols, metric=metric)
+                        for metric, metric_values in zip(metrics, results)]
+        if is_single_metric:
+            return metrics_maps[0]
+        return metrics_maps
