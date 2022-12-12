@@ -82,13 +82,6 @@ def get_cols(df, cols):
     return np.column_stack(res)
 
 
-def set_cols(df, cols, values):
-    """Set given `values` to selected columns of the `df` DataFrame."""
-    cols, _ = _process_cols(df, cols)
-    values = pd.DataFrame(values).to_numpy()
-    df[cols] = values
-
-
 class MissingModule:
     """Postpone raising missing module error for `module_name` until it is being actually accessed in code."""
     def __init__(self, module_name):
