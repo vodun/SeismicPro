@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 from .decorators import batch_method
-from .utils import to_list, get_cols, set_cols, create_indexer, maybe_copy
+from .utils import to_list, get_cols, create_indexer, maybe_copy
 
 
 class SamplesContainer:
@@ -63,7 +63,7 @@ class TraceContainer:
 
         Returns
         -------
-        result : 2d np.ndarray
+        result : np.ndarray
             Headers values.
         """
         return get_cols(self.headers, key)
@@ -78,7 +78,7 @@ class TraceContainer:
         value : np.ndarray
             Headers values to set.
         """
-        return set_cols(self.headers, key, value)
+        self.headers[key] = value
 
     def copy(self, ignore=None):
         """Perform a deepcopy of all attributes of `self` except for those specified in `ignore`, which are kept
