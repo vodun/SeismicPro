@@ -241,6 +241,7 @@ class RefractorVelocityField(SpatialField):
         ------
         ValueError
             If the survey is empty.
+            If the survey is indexed by individual traces, not gathers.
             If any gather has non-unique pair of coordinates.
         """
         if survey.is_empty:
@@ -251,7 +252,7 @@ class RefractorVelocityField(SpatialField):
         # Extract required headers for each gather in the survey
         coords_cols = get_coords_cols(survey.indexed_by)
         survey_headers = survey[("offset", first_breaks_col) + coords_cols]
-        gather_change_ix = np.where(~survey.headers.index.duplicated())[0][1:]
+        gather_change_ix = np.where(~survey.headers.index.duplicated(keep="first"))[0][1:]
         gather_headers_list = np.split(survey_headers, gather_change_ix)
 
         # Check if coordinates are unique within each gather
