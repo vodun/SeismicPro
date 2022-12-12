@@ -19,7 +19,9 @@ class FieldPlot(PairedPlot):  # pylint: disable=too-many-instance-attributes
             raise ValueError("Empty fields do not support interactive plotting")
 
         max_offset = max(rv.max_offset if rv.is_fit else rv.piecewise_offsets[-1] for rv in field.items)
-        max_time = max(rv.piecewise_times[-1] for rv in field.items)
+        max_offset_times = [rv(max_offset) for rv in field.items]
+        max_fit_times = [rv.times.max() for rv in field.items if rv.is_fit]
+        max_time = max(max_offset_times + max_fit_times)
 
         kwargs = {"fontsize": fontsize, **kwargs}
         text_kwargs = get_text_formatting_kwargs(**kwargs)
