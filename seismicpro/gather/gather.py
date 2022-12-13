@@ -191,7 +191,7 @@ class Gather(TraceContainer, SamplesContainer):
         new_self.samples = self.samples[indices[1]]
 
         # Check that `sort_by` still represents the actual trace sorting as it might be changed during getitem.
-        if new_self.sort_by is not None: 
+        if new_self.sort_by is not None:
             if (np.lexsort(new_self.headers[to_list(new_self.sort_by)].values.T[::-1]) != np.arange(len(data))).any():
                 new_self.sort_by = None
         return new_self
@@ -903,22 +903,17 @@ class Gather(TraceContainer, SamplesContainer):
 
     @batch_method(target="for")
     def sort(self, by):
-        """Sort gather `headers` and traces by specified headers.
+        """Sort gather by specified headers.
 
         Parameters
         ----------
         by : str or iterable of str
-            `headers` column names to sort the gather by.
+            Headers names to sort the gather by.
 
         Returns
         -------
         self : Gather
-            Gather sorted by `by` headers. Sets `sort_by` attribute to `by`.
-
-        Raises
-        ------
-        ValueError
-            If `by` header was not loaded.
+            Gather sorted by given headers. Sets `sort_by` attribute to `by`.
         """
         if self.sort_by == by:
             return self
