@@ -130,9 +130,10 @@ def set_ticks(ax, axis, label='', tick_labels=None, num=None, step_ticks=None, s
     label = to_list(label)
     axis_label = '\n'.join([ix_label[0].upper() + ix_label[1:] + UNITS.get(ix_label, '') for ix_label in label])
 
+    major_labels, minor_labels = None, None
     if len(label) > 1:
         major_labels, minor_labels = tick_labels[:, 0], tick_labels[:, 1]
-    else:
+    elif tick_labels is not None:
         major_labels, minor_labels = tick_labels.ravel(), None
 
     locator, formatter = _process_ticks(labels=major_labels, num=num, step_ticks=step_ticks,
