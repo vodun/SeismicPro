@@ -51,6 +51,4 @@ def energy_normalized_crosscorrelation(corrected_gather):
 
 
 ALL_FASTMATH_FLAGS  = {'nnan', 'ninf', 'nsz', 'arcp', 'contract', 'afn', 'reassoc'}
-ALLOWED_FASTMATH_FLAGS = ALL_FM_FLAGS - {'nnan'}
-
-jit_module(nopython=True, nogil=True, parallel=True, fastmath=ALLOWED_FASTMATH_FLAGS)
+jit_module(nopython=True, nogil=True, parallel=True, fastmath=ALL_FASTMATH_FLAGS - {'nnan'})
