@@ -85,7 +85,7 @@ def format_subplot_yticklabels(ax, fontsize=None, fontfamily=None, fontweight=No
         tick.set_fontweight(fontweight)
 
 
-def set_ticks(ax, axis, labels='', tick_labels=None, num=None, step_ticks=None, step_labels=None, round_to=0, **kwargs):
+def set_ticks(ax, axis, label='', tick_labels=None, num=None, step_ticks=None, step_labels=None, round_to=0, **kwargs):
     """Set ticks and labels for `x` or `y` axis depending on the `axis`.
 
     Parameters
@@ -127,18 +127,19 @@ def set_ticks(ax, axis, labels='', tick_labels=None, num=None, step_ticks=None, 
         "Offset": " (m)",
     }
 
-    label = '\n'.join([label[0].upper() + label[1:] + UNITS.get(label, '') for label in to_list(labels)])
+    label = to_list(label)
+    axis_label = '\n'.join([ix_label[0].upper() + ix_label[1:] + UNITS.get(ix_label, '') for ix_label in label])
 
-    if tick_labels is not None and tick_labels.ndim == 2:
-        major_labels, minor_labels = tick_labels.T[0], tick_labels.T[1]
+    if len(label) > 1:
+        major_labels, minor_labels = tick_labels[:, 0], tick_labels[:, 1]
     else:
-        major_labels, minor_labels = tick_labels, None
+        major_labels, minor_labels = tick_labels.ravel(), None
 
     locator, formatter = _process_ticks(labels=major_labels, num=num, step_ticks=step_ticks,
                                         step_labels=step_labels, round_to=round_to)
     rotation_kwargs = _pop_rotation_kwargs(kwargs)
     ax_obj = getattr(ax, f"{axis}axis")
-    ax_obj.set_label_text(label, **kwargs)
+    ax_obj.set_label_text(axis_label, **kwargs)
     ax_obj.set_ticklabels([], **kwargs, **rotation_kwargs)
     ax_obj.set_major_locator(locator)
     ax_obj.set_major_formatter(formatter)

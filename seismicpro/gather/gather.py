@@ -1520,7 +1520,7 @@ class Gather(TraceContainer, SamplesContainer):
             tick_labels = self._get_y_ticks(tick_src)
         else:
             raise ValueError(f"Unknown axis {axis}")
-        set_ticks(ax, axis, tick_labels=tick_labels, **{"labels": tick_src, **ticker})
+        set_ticks(ax, axis, tick_labels=tick_labels, **{"label": tick_src, **ticker})
 
     def plot_nmo_correction(self, min_vel=1500, max_vel=6000, figsize=(6, 4.5), show_grid=True, **kwargs):
         """Perform interactive NMO correction of the gather with selected constant velocity.
