@@ -26,8 +26,8 @@ class SlidingVelocityPlot(InteractivePlot):
     kwargs : misc, optional
         Additional keyword arguments to `InteractivePlot.__init__`.
     """
-    def __init__(self, *, slider_min, slider_max, step=1, slide_fn=None, **kwargs):
-        self.slider = widgets.FloatSlider(min=slider_min, max=slider_max, step=step, readout=False,
+    def __init__(self, *, slider_min, slider_max, slide_fn=None, **kwargs):
+        self.slider = widgets.FloatSlider(min=slider_min, max=slider_max, readout=False,
                                           layout=widgets.Layout(width="80%"))
         self.slider.observe(slide_fn, "value")
         slider_box = [widgets.HTML(value=str(slider_min)), self.slider, widgets.HTML(value=str(slider_max))]

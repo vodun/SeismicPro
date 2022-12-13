@@ -46,14 +46,16 @@ def get_hodograph(gather_data, hodograph_times, sample_rate, interpolate=True, f
                 weight = time_next - hodograph_time
                 amplitude = gather_data[i, time_prev] * weight + gather_data[i, time_next] * (1 - weight)
             else:
-                amplitude = gather_data[i, int(hodograph_time)]
+                amplitude = gather_data[i, round(hodograph_time)]
         out[i] = amplitude
     return out
 
 
 @njit(nogil=True)
 def compute_hodograph_times(offsets, times, velocities):
-    """ Calculate the times of hyperbolic hodographs for each time of the gatner with given stacking velocities. """
+    """ Calculate the times of hyperbolic hodographs for each time of the gatner with given stacking velocities. 
+    Offsets, times and velocities are 1d np.arrays. 
+    The result is 2d np.array with shape `(len(offsets), len(times))`."""
     return np.sqrt(times.reshape(-1, 1) ** 2 + (offsets / np.asarray(velocities).reshape(-1, 1)) **2)
 
 
@@ -109,20 +111,20 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate, cro
 
     Returns
     -------
-    corrected_gather : 2d array
+    corrected_gather_data : 2d array
         NMO corrected gather data with an ordinary shape of (num_traces, trace_length).
     """
-    corrected_gather = np.full(gather_data.shape, fill_value=np.float32(np.nan))
+    corrected_gather_data = np.full_like(gather_data, fill_value=np.nan)
     hodograph_times = compute_hodograph_times(offsets, times, stacking_velocities)
 
     for i in prange(times.shape[0]): # pylint: disable=not-an-iterable
-        get_hodograph(gather_data, hodograph_times[i], sample_rate, fill_value=np.nan, out=corrected_gather[:, i])
+        get_hodograph(gather_data, hodograph_times[i], sample_rate, fill_value=np.nan, out=corrected_gather_data[:, i])
 
     if crossover_mute:
         crossovers_times = compute_crossovers_times(hodograph_times) * sample_rate
-        corrected_gather = mute_gather(corrected_gather, crossovers_times, times, np.nan)
+        corrected_gather_data = mute_gather(corrected_gather_data, crossovers_times, times, np.nan)
 
-    return corrected_gather
+    return corrected_gather_data
 
 
 @njit(nogil=True)

@@ -15,7 +15,7 @@ from ..utils import add_colorbar, set_ticks, set_text_formatting
 from ..gather.utils import correction
 
 
-coherency_dict = {
+coherency_funcs = {
     "stacked_amplitude": coherency_funcs.stacked_amplitude,
     "S": coherency_funcs.stacked_amplitude,
     "normalized_stacked_amplitude": coherency_funcs.normalized_stacked_amplitude,
@@ -24,7 +24,8 @@ coherency_dict = {
     "NE": coherency_funcs.semblance,
     'crosscorrelation': coherency_funcs.crosscorrelation,
     'CC': coherency_funcs.crosscorrelation,
-    'ENCC': coherency_funcs.energy_normalized_crosscorrelation
+    'ENCC': coherency_funcs.energy_normalized_crosscorrelation,
+    'energy_normalized_crosscorrelation': coherency_funcs.energy_normalized_crosscorrelation
 }
 
 
@@ -40,7 +41,7 @@ class BaseSemblance:
         Temporal window size used for semblance calculation. The higher the `win_size` is, the smoother the resulting
         semblance will be but to the detriment of small details. Measured in samples.
     mode: str, defaults to `semblance`
-        The coherency measure. See the `coherency_dict` for avaliable options.
+        The coherency measure. See the `coherency_funcs` for avaliable options.
 
     Attributes
     ----------
@@ -55,9 +56,9 @@ class BaseSemblance:
     def __init__(self, gather, win_size, mode='semblance'):
         self.gather = gather
         self.win_size = win_size  # samples
-        self.coherency_func = coherency_dict.get(mode)
+        self.coherency_func = coherency_funcs.get(mode)
         if self.coherency_func is None:
-            raise ValueError(f"Unknown mode {mode}")
+            raise ValueError(f"Unknown mode {mode}, avaliable modes are {coherency_funcs.keys()}")
 
     @property
     def times(self):
@@ -95,6 +96,8 @@ class BaseSemblance:
 
         Parameters
         ----------
+        coherency_func: njitted callable
+            The function that estimates hodograph coherency.
         gather_data : 2d np.ndarray
             Gather data for semblance calculation.
         times : 1d np.ndarray
@@ -120,10 +123,10 @@ class BaseSemblance:
         t_win_size_min_ix = max(0, t_min_ix - win_size)
         t_win_size_max_ix = min(len(times) - 1, t_max_ix + win_size)
 
-        corrected_gather = correction.apply_nmo(gather_data, times[t_win_size_min_ix: t_win_size_max_ix + 1],
+        corrected_gather_data = correction.apply_nmo(gather_data, times[t_win_size_min_ix: t_win_size_max_ix + 1],
                                                 offsets, velocity, sample_rate, crossover_mute=False).T
 
-        numerator, denominator = coherency_func(corrected_gather)
+        numerator, denominator = coherency_func(corrected_gather_data)
         numerator[np.isnan(numerator)] = 0
         denominator[np.isnan(denominator)] = 0
 
@@ -131,14 +134,15 @@ class BaseSemblance:
         for t in prange(t_min_ix, t_max_ix):
             t_rel = t - t_win_size_min_ix
             ix_from = max(0, t_rel - win_size)
-            ix_to = min(len(corrected_gather) - 1, t_rel + win_size)
+            ix_to = min(len(corrected_gather_data) - 1, t_rel + win_size)
             semblance_slice[t - t_min_ix] = np.mean(numerator[ix_from : ix_to] / (denominator[ix_from : ix_to] + 1e-8))
         return semblance_slice
 
     @staticmethod
     def _plot(semblance, title=None, x_label=None, x_ticklabels=None,  # pylint: disable=too-many-arguments
               x_ticker=None, y_ticklabels=None, y_ticker=None, grid=False, stacking_times_ix=None,
-              stacking_velocities_ix=None, colorbar=True, clip_threshold_quantile=0.99, n_levels=10, ax=None, **kwargs):
+              stacking_velocities_ix=No
+              ar=True, clip_threshold_quantile=0.99, n_levels=10, ax=None, **kwargs):
         """Plot vertical velocity semblance and, optionally, stacking velocity.
 
         Parameters
@@ -261,6 +265,14 @@ class Semblance(BaseSemblance):
     win_size : int, optional, defaults to 25
         Temporal window size used for semblance calculation. The higher the `win_size` is, the smoother the resulting
         semblance will be but to the detriment of small details. Measured in samples.
+    mode: str, optional, defaults to 'semblance'
+        The measure for estimating hodograph coherency. 
+        The available options are: 
+            `semblance`, 
+            `stacked_amplitude`,
+            `normalized_stacked_amplitude`,
+            `crosscorrelation`
+            `energy_normalized_crosscorrelation`
 
     Attributes
     ----------
@@ -368,6 +380,10 @@ class Semblance(BaseSemblance):
         colorbar : bool or dict, optional, defaults to True
             Whether to add a colorbar to the right of the semblance plot. If `dict`, defines extra keyword arguments
             for `matplotlib.figure.Figure.colorbar`.
+        clip_threshold_quantile : float, optional, defaults to 0.99
+            Clip the semblance value.
+        n_levels: int, optional, defaluts to 10
+            The number of levels in the colorbar.
         ax : matplotlib.axes.Axes, optional, defaults to None
             Axes of the figure to plot on.
         kwargs : misc, optional
@@ -482,6 +498,14 @@ class ResidualSemblance(BaseSemblance):
     relative_margin : float, optional, defaults to 0.2
         Relative velocity margin, that determines the velocity range for semblance calculation for each time `t` as
         `stacking_velocity(t)` * (1 +- `relative_margin`).
+    mode: str, optional, defaults to 'semblance'
+        The measure for estimating hodograph coherency. 
+        The available options are: 
+            `semblance`, 
+            `stacked_amplitude`,
+            `normalized_stacked_amplitude`,
+            `crosscorrelation`
+            `energy_normalized_crosscorrelation`
 
     Attributes
     ----------
@@ -632,6 +656,10 @@ class ResidualSemblance(BaseSemblance):
         colorbar : bool or dict, optional, defaults to True
             Whether to add a colorbar to the right of the residual semblance plot. If `dict`, defines extra keyword
             arguments for `matplotlib.figure.Figure.colorbar`.
+        clip_threshold_quantile : float, optional, defaults to 0.99
+            Clip the semblance value.
+        n_levels: int, optional, defaluts to 10
+            The number of levels in the colorbar.
         ax : matplotlib.axes.Axes, optional, defaults to None
             Axes of the figure to plot on.
         kwargs : misc, optional
