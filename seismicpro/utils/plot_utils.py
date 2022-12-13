@@ -133,7 +133,7 @@ def set_ticks(ax, axis, labels='', tick_labels=None, num=None, step_ticks=None, 
         major_labels, minor_labels = tick_labels.T[0], tick_labels.T[1]
     else:
         major_labels, minor_labels = tick_labels, None
-    
+
     locator, formatter = _process_ticks(labels=major_labels, num=num, step_ticks=step_ticks,
                                         step_labels=step_labels, round_to=round_to)
     rotation_kwargs = _pop_rotation_kwargs(kwargs)

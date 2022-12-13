@@ -191,8 +191,9 @@ class Gather(TraceContainer, SamplesContainer):
         new_self.samples = self.samples[indices[1]]
 
         # Check that `sort_by` still represents the actual trace sorting as it might be changed during getitem.
-        if new_self.sort_by is not None and not new_self.headers[new_self.sort_by].is_monotonic_increasing:
-            new_self.sort_by = None
+        if new_self.sort_by is not None: 
+            if (np.lexsort(new_self.headers[to_list(new_self.sort_by)].values.T[::-1]) != np.arange(len(data))).any():
+                new_self.sort_by = None
         return new_self
 
     def __str__(self):
@@ -921,7 +922,7 @@ class Gather(TraceContainer, SamplesContainer):
         """
         if self.sort_by == by:
             return self
-        order = np.lexsort(np.transpose(self[to_list(by)])[::-1])
+        order = np.lexsort(self[to_list(by)].T[::-1])
         self.sort_by = by
         self.data = self.data[order]
         self.headers = self.headers.iloc[order]
