@@ -2,14 +2,9 @@
 
 # pylint: disable=not-an-iterable, missing-function-docstring
 import numpy as np
-from numba import njit, prange
+from numba import njit, prange, jit_module
 
 
-ALL_FM_FLAGS  = {'nnan', 'ninf', 'nsz', 'arcp', 'contract', 'afn', 'reassoc'}
-COHERENCY_FM_FLAGS = ALL_FM_FLAGS - {'nnan'}
-
-
-@njit(nogil=True, fastmath=COHERENCY_FM_FLAGS, parallel=True)
 def stacked_amplitude(corrected_gather):
     numerator = np.zeros(corrected_gather.shape[0])
     denominator = np.ones(corrected_gather.shape[0])
@@ -18,7 +13,6 @@ def stacked_amplitude(corrected_gather):
     return numerator, denominator
 
 
-@njit(nogil=True, fastmath=COHERENCY_FM_FLAGS, parallel=True)
 def normalized_stacked_amplitude(corrected_gather):
     numerator = np.zeros(corrected_gather.shape[0])
     denominator = np.zeros(corrected_gather.shape[0])
@@ -28,7 +22,6 @@ def normalized_stacked_amplitude(corrected_gather):
     return numerator, denominator
 
 
-@njit(nogil=True, fastmath=COHERENCY_FM_FLAGS, parallel=True)
 def semblance(corrected_gather):
     numerator = np.zeros(corrected_gather.shape[0])
     denominator = np.zeros(corrected_gather.shape[0])
@@ -38,7 +31,6 @@ def semblance(corrected_gather):
     return numerator, denominator
 
 
-@njit(nogil=True, fastmath=COHERENCY_FM_FLAGS, parallel=True)
 def crosscorrelation(corrected_gather):
     numerator = np.zeros(corrected_gather.shape[0])
     denominator = np.full(corrected_gather.shape[0], 2)
@@ -47,7 +39,6 @@ def crosscorrelation(corrected_gather):
     return numerator, denominator
 
 
-@njit(nogil=True, fastmath=COHERENCY_FM_FLAGS, parallel=True)
 def energy_normalized_crosscorrelation(corrected_gather):
     numerator = np.zeros(corrected_gather.shape[0])
     denominator = np.zeros(corrected_gather.shape[0])
@@ -57,3 +48,9 @@ def energy_normalized_crosscorrelation(corrected_gather):
         numerator[i] = output_energy - input_enerty
         denominator[i] = input_enerty * sum(~np.isnan(corrected_gather[i, :])) / 2
     return numerator, denominator
+
+
+ALL_FASTMATH_FLAGS  = {'nnan', 'ninf', 'nsz', 'arcp', 'contract', 'afn', 'reassoc'}
+ALLOWED_FASTMATH_FLAGS = ALL_FM_FLAGS - {'nnan'}
+
+jit_module(nopython=True, nogil=True, parallel=True, fastmath=ALLOWED_FASTMATH_FLAGS)
