@@ -15,11 +15,8 @@ class ProfilePlot(PairedPlot):
         self.sampling_interval = sampling_interval
 
         unique_coords = model.field_params[["X", "Y"]].to_numpy()
-        surface_elevations = model.field_params["Elevation"].to_numpy()
-
-        layer_thicknesses = model.thicknesses_tensor.detach().cpu().numpy()
-        layer_elevations = surface_elevations.reshape(-1, 1) - np.cumsum(layer_thicknesses, axis=1)
-        elevations = np.column_stack([surface_elevations, layer_elevations])
+        elevations = np.column_stack([model.surface_elevation_tensor.detach().cpu().numpy(),
+                                      model.elevations_tensor.detach().cpu().numpy()])
         self.min_elevation = elevations.min()
         self.max_elevation = elevations.max()
 
@@ -40,7 +37,7 @@ class ProfilePlot(PairedPlot):
         )
 
         param_maps = [MetricMap(unique_coords, data_val, coords_cols=["X", "Y"])
-                      for data_val in np.column_stack([elevations, layer_thicknesses, velocities]).T]
+                      for data_val in np.column_stack([elevations, -np.diff(elevations, axis=1), velocities]).T]
         self.plot_fn = [partial(param_map._plot, title="", **kwargs) for param_map in param_maps]
         self.init_click_coords = param_maps[0].get_worst_coords()
 
@@ -88,7 +85,8 @@ class ProfilePlot(PairedPlot):
 
 
 class StaticsCorrectionPlot(PairedPlot):
-    def __init__(self, model, survey_list, datum=0, center=True, sort_by=None, figsize=(4.5, 4.5),
+    def __init__(self, model, survey_list, intermediate_datum=None, intermediate_datum_refractor=None,
+                 final_datum=None, replacement_velocity=None, center=True, sort_by=None, figsize=(4.5, 4.5),
                  orientation="horizontal", **kwargs):
         coords_cols = {get_coords_cols(survey.indexed_by) for survey in survey_list}
         if len(coords_cols) > 1:
@@ -96,7 +94,12 @@ class StaticsCorrectionPlot(PairedPlot):
         coords_cols = to_list(coords_cols.pop())
         self.survey_list = [survey.reindex(coords_cols) for survey in survey_list]
         self.nsm = model
-        self.datum = datum
+        self.estimate_delays_kwargs = {
+            "intermediate_datum": intermediate_datum,
+            "intermediate_datum_refractor": intermediate_datum_refractor,
+            "final_datum": final_datum,
+            "replacement_velocity": replacement_velocity,
+        }
         self.center = center
         self.sort_by = sort_by
 
@@ -135,8 +138,10 @@ class StaticsCorrectionPlot(PairedPlot):
             loaded_headers = set(gather.headers.columns) | set(gather.headers.index.names)
             is_uphole = "SourceDepth" in loaded_headers
         shot_depths = gather["SourceDepth"] if is_uphole else 0
-        shot_delays = self.nsm.estimate_delays(gather["SourceX", "SourceY"], depths=shot_depths, datum=self.datum)
-        rec_delays = self.nsm.estimate_delays(gather["GroupX", "GroupY"], datum=self.datum)
+        shot_coords = gather["SourceX", "SourceY", "SourceSurfaceElevation"]
+        shot_coords[:, -1] -= shot_depths
+        shot_delays = self.nsm.estimate_delays(shot_coords, **self.estimate_delays_kwargs)
+        rec_delays = self.nsm.estimate_delays(gather["GroupX", "GroupY", "ReceiverGroupElevation"], **self.estimate_delays_kwargs)
         delays = shot_delays + rec_delays
         if self.center:
             delays -= delays.mean()
