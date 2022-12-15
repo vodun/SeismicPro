@@ -55,13 +55,13 @@ class GeometryError(TravelTimeMetric):
         return amp * np.sin(x + phase)
 
     @classmethod
-    def loss(cls, params, x, y):
-        return np.abs(y - cls.sin(x, *params)).mean()
+    def loss(cls, params, x, y, reg):
+        return np.abs(y - cls.sin(x, *params)).mean() + reg * params[0]**2
 
     @classmethod
-    def fit(cls, azimuth, diff):
-        fit_result = minimize(cls.loss, x0=[0, 0], args=(azimuth, diff - diff.mean()), bounds=((None, None), (-np.pi, np.pi)),
-                              method="Nelder-Mead", tol=1e-5)
+    def fit(cls, azimuth, diff, reg=0.05):
+        fit_result = minimize(cls.loss, x0=[0, 0], args=(azimuth, diff - diff.mean(), reg),
+                              bounds=((None, None), (-np.pi, np.pi)), method="Nelder-Mead", tol=1e-5)
         return fit_result.x
 
     @classmethod
@@ -90,7 +90,6 @@ class GeometryError(TravelTimeMetric):
 
         params = self.fit(azimuth, diff)
         ax.scatter(azimuth, diff)
-        ax.set_title(params)
         azimuth = np.linspace(-np.pi, np.pi, 100)
         ax.plot(azimuth, diff.mean() + self.sin(azimuth, *params))
 
