@@ -1,3 +1,6 @@
+import os
+from concurrent.futures import ProcessPoolExecutor
+
 import torch
 import numpy as np
 import pandas as pd
@@ -7,11 +10,11 @@ from tqdm.auto import tqdm
 from scipy.spatial import KDTree
 
 from .data_loader import TensorDataLoader
-from .metrics import TRAVELTIME_QC_METRICS
+from .metrics import TravelTimeMetric, TRAVELTIME_QC_METRICS
 from .interactive_plot import ProfilePlot, StaticsCorrectionPlot
 from ..const import HDR_FIRST_BREAK
 from ..metrics import PartialMetric
-from ..utils import to_list, IDWInterpolator
+from ..utils import to_list, IDWInterpolator, ForPoolExecutor
 
 
 class NearSurfaceModel:
@@ -330,9 +333,28 @@ class NearSurfaceModel:
                     self.elevations_reg_hist.append(elevations_reg.item())
                     pbar.update(1)
 
-    def qc(self, metrics=None, by="shot", bar=True):
+    @staticmethod
+    def _calc_metrics(metrics, gather_data_list):
+        res = []
+        for gather_data in gather_data_list:
+            shots_coords = gather_data[:, :2]
+            receivers_coords = gather_data[:, 2:4]
+            true_traveltimes = gather_data[:, 4]
+            pred_traveltimes = gather_data[:, 5]
+            metric_values = [metric.calc(shots_coords, receivers_coords, true_traveltimes, pred_traveltimes)
+                             for metric in metrics]
+            res.append(metric_values)
+        return res
+
+    def qc(self, metrics=None, by="shot", chunk_size=250, n_workers=None, bar=True):
+        is_single_metric = isinstance(metrics, type) and issubclass(metrics, TravelTimeMetric)
         if metrics is None:
             metrics = TRAVELTIME_QC_METRICS
+        metrics = to_list(metrics)
+        if not metrics:
+            raise ValueError("At least one metric should be passed")
+        if not all(isinstance(metric, type) and issubclass(metric, TravelTimeMetric) for metric in metrics):
+            raise ValueError("All passed metrics must be subclasses of TravelTimeMetric")
 
         coords_cols = {"shot": ["SourceX", "SourceY"], "receiver": ["GroupX", "GroupY"]}[by]
         qc_df = pd.DataFrame(np.column_stack([self.shots_coords[:, :2].numpy(), self.receivers_coords[:, :2].numpy()]),
@@ -341,20 +363,33 @@ class NearSurfaceModel:
         qc_df["Pred"] = self._estimate_train_traveltimes(bar=bar).numpy()
         coords_to_indices = qc_df.groupby(coords_cols).indices
         coords = np.stack(list(coords_to_indices.keys()))
+        gather_data_list = [qc_df.iloc[gather_indices].to_numpy() for gather_indices in coords_to_indices.values()]
 
-        def calc_metrics(group_indices):
-            group = qc_df.iloc[group_indices].to_numpy()
-            shots_coords = group[:, :2]
-            receivers_coords = group[:, 2:4]
-            true_traveltimes = group[:, 4]
-            pred_traveltimes = group[:, 5]
-            return [metric.calc(shots_coords, receivers_coords, true_traveltimes, pred_traveltimes) for metric in metrics]
+        n_gathers = len(gather_data_list)
+        n_chunks, mod = divmod(n_gathers, chunk_size)
+        if mod:
+            n_chunks += 1
+        if n_workers is None:
+            n_workers = os.cpu_count()
+        n_workers = min(n_chunks, n_workers)
+        executor_class = ForPoolExecutor if n_workers == 1 else ProcessPoolExecutor
 
+        futures = []
+        with tqdm(total=n_gathers, desc="Gathers processed", disable=not bar) as pbar:
+            with executor_class(max_workers=n_workers) as pool:
+                for i in range(n_chunks):
+                    gather_data_chunk = gather_data_list[i * chunk_size : (i + 1) * chunk_size]
+                    future = pool.submit(self._calc_metrics, metrics, gather_data_chunk)
+                    future.add_done_callback(lambda fut: pbar.update(len(fut.result())))
+                    futures.append(future)
+
+        results = sum([future.result() for future in futures], [])
         metrics = [PartialMetric(metric, nsm=self, survey_list=self.survey_list, coords_cols=coords_cols)
                    for metric in metrics]
-        results = [calc_metrics(indices) for indices in tqdm(coords_to_indices.values(), desc="Coordinates processed", disable=not bar)]
         metrics_maps = [metric.map_class(coords, metric_values, coords_cols=coords_cols, metric=metric)
                         for metric, metric_values in zip(metrics, zip(*results))]
+        if is_single_metric:
+            return metrics_maps[0]
         return metrics_maps
 
     def plot_loss(self):
