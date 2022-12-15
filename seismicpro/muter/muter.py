@@ -140,6 +140,6 @@ class Muter(VFUNC):
         self : Muter
             Created muter.
         """
-        stretch_offsets = (stacking_velocity.velocities / 1000) * stacking_velocity.times * \
-                           np.sqrt((1 + max_stretch_factor) ** 2 - 1)
+        velocities_ms = (stacking_velocity.velocities / 1000) # from m/s to m/ms
+        stretch_offsets = velocities_ms * stacking_velocity.times * np.sqrt((1 + max_stretch_factor) ** 2 - 1)
         return cls(stretch_offsets, stacking_velocity.times, coords=stacking_velocity.coords)

@@ -141,8 +141,7 @@ class BaseSemblance:
     @staticmethod
     def _plot(semblance, title=None, x_label=None, x_ticklabels=None,  # pylint: disable=too-many-arguments
               x_ticker=None, y_ticklabels=None, y_ticker=None, grid=False, stacking_times_ix=None,
-              stacking_velocities_ix=No
-              ar=True, clip_threshold_quantile=0.99, n_levels=10, ax=None, **kwargs):
+              stacking_velocities_ix=None, colorbar=True, clip_threshold_quantile=0.99, n_levels=10, ax=None, **kwargs):
         """Plot vertical velocity semblance and, optionally, stacking velocity.
 
         Parameters

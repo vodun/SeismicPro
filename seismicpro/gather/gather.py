@@ -803,7 +803,7 @@ class Gather(TraceContainer, SamplesContainer):
             `stacking_velocity(t)` * (1 +- `relative_margin`).
         mode: str, optional, defaults to 'semblance'
             The measure for estimating hodograph coherency. 
-            See func:`~semblance.Semblance` for avaliable modes.
+            See func:`~semblance.ResidualSemblance` for avaliable modes.
 
         Returns
         -------
