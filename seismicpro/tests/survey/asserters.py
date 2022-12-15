@@ -16,9 +16,6 @@ from ..utils import assert_indexers_equal
 RTOL = 1e-5
 ATOL = 1e-7
 
-# Define external headers that are not involved in testing process
-EXTERNAL_HEADERS = {HDR_TRACE_POS}
-
 
 def assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers, rtol=RTOL, atol=ATOL):
     """Check if a SEG-Y file was properly loaded into a `Survey` instance."""
@@ -43,15 +40,15 @@ def assert_survey_loaded(survey, segy_path, expected_name, expected_index, expec
     assert survey.n_traces == n_traces
     assert len(survey.headers) == n_traces
     assert set(survey.headers.index.names) == expected_index
-    assert (set(survey.headers.index.names) | set(survey.headers.columns)) - EXTERNAL_HEADERS == expected_headers
+    assert set(survey.headers.index.names) | set(survey.headers.columns) == expected_headers
     assert survey.headers.index.is_monotonic_increasing
-
+    assert np.array_equal(survey.headers[HDR_TRACE_POS].values, np.arange(n_traces))
     # Restore the order of the traces from the source file
     loaded_headers = survey.headers.reset_index().sort_values(by="TRACE_SEQUENCE_FILE")
 
     # Check loaded trace headers values
     assert np.array_equal(loaded_headers["TRACE_SEQUENCE_FILE"].values, np.arange(1, n_traces + 1))
-    for header in set(loaded_headers.columns) - {"TRACE_SEQUENCE_FILE", *EXTERNAL_HEADERS}:
+    for header in set(loaded_headers.columns) - {"TRACE_SEQUENCE_FILE", HDR_TRACE_POS}:
         assert np.array_equal(loaded_headers[header].values,
                               survey.segy_handler.attributes(segyio.tracefield.keys[header])[:])
 

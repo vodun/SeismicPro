@@ -9,8 +9,9 @@ import pytest
 import numpy as np
 
 from seismicpro import Survey, aggregate_segys
+from seismicpro.const import HDR_TRACE_POS
 from .test_gather import compare_gathers
-from .survey.asserters import EXTERNAL_HEADERS
+
 
 
 @pytest.mark.parametrize('name', ['some_name', None])
@@ -30,7 +31,7 @@ def test_dump_single_gather(segy_path, tmp_path, name, retain_parent_segy_header
     dumped_survey = Survey(files[0], header_index=header_index, header_cols=header_cols, validate=False)
     ix = 1 if header_index == 'TRACE_SEQUENCE_FILE' else dump_index
     dumped_gather = dumped_survey.get_gather(index=ix)
-    drop_columns = ["TRACE_SEQUENCE_FILE", *EXTERNAL_HEADERS]
+    drop_columns = ["TRACE_SEQUENCE_FILE", HDR_TRACE_POS]
     drop_columns += ["TRACE_SAMPLE_INTERVAL"] if "TRACE_SAMPLE_INTERVAL" in expected_gather.headers.columns else []
 
     compare_gathers(expected_gather, dumped_gather, drop_cols=drop_columns, check_types=True,
@@ -45,7 +46,7 @@ def test_dump_single_gather(segy_path, tmp_path, name, retain_parent_segy_header
         sample_rates = full_dump_headers['TRACE_SAMPLE_INTERVAL']
         assert np.unique(sample_rates) > 1
         assert np.allclose(sample_rates[0] / 1000, expected_survey.sample_rate)
-        drop_cols = ["TRACE_SEQUENCE_FILE", "TRACE_SAMPLE_INTERVAL", *list(EXTERNAL_HEADERS)]
+        drop_cols = ["TRACE_SEQUENCE_FILE", "TRACE_SAMPLE_INTERVAL", HDR_TRACE_POS]
         full_exp_headers.drop(columns=drop_cols, inplace=True)
         full_dump_headers.drop(columns=drop_cols, inplace=True)
         assert full_exp_headers.equals(full_dump_headers)
@@ -84,7 +85,7 @@ def test_aggregate_segys(segy_path, tmp_path, mode, indices):
     assert np.allclose(expected_survey.n_samples, dumped_survey.n_samples), "length of samples doesn't match"
 
     #TODO: optimize
-    drop_columns = ["TRACE_SEQUENCE_FILE", *EXTERNAL_HEADERS]
+    drop_columns = ["TRACE_SEQUENCE_FILE", HDR_TRACE_POS]
     drop_columns += ["TRACE_SAMPLE_INTERVAL"] if "TRACE_SAMPLE_INTERVAL" in expected_survey.headers.columns else []
 
     expected_survey_headers = (expected_survey.headers.loc[indices].reset_index()

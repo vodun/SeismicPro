@@ -4,6 +4,7 @@ import pytest
 import segyio
 
 from seismicpro import Survey
+from seismicpro.const import HDR_TRACE_POS
 
 from . import assert_survey_loaded, assert_surveys_equal, assert_survey_limits_set
 from ..conftest import FILE_NAME, N_SAMPLES
@@ -58,26 +59,26 @@ LIMITS = [  # passed samples limits and expected limits with positive start and 
 ]
 
 
-WORKERS = [  # headers chunk size, number of workers and prograss bar display flag
-    [1, 1, True, True],  # Tracewise loading, single worker, bar enabled, survey validated
-    [10, 2, True, False],  # Small chunk size, 2 workers, bar enabled, survey wasn't validated
-    [10, None, False, True],  # Small chunk size, os.cpu_count() workers, bar disabled, survey validated
-    [10000000, None, False, False],  # Chunk size larger than the number of traces, os.cpu_count() workers,
-                                     # bar disabled, survey wasn't validated
+WORKERS = [  # headers chunk size, number of workers and progress bar display flag
+    [1, 1, True],  # Tracewise loading, single worker, bar enabled
+    [10, 2, True],  # Small chunk size, 2 workers, bar enabled
+    [10, None, False],  # Small chunk size, os.cpu_count() workers, bar disabled
+    [10000000, None, False],  # Chunk size larger than the number of traces, os.cpu_count() workers, bar disabled
 ]
 
 
 class TestInit:
     """Test `Survey` instantiation."""
 
-    @pytest.mark.parametrize("chunk_size, n_workers, bar, validate", WORKERS)
+    @pytest.mark.parametrize("chunk_size, n_workers, bar", WORKERS)
     @pytest.mark.parametrize("use_segyio_trace_loader", [True, False])
+    @pytest.mark.parametrize("validate", [True, False])
     def test_headers_loading(self, segy_path, chunk_size, n_workers, bar, use_segyio_trace_loader, validate):
         """Test sequential and parallel loading of survey trace headers."""
         survey = Survey(segy_path, header_index="FieldRecord", header_cols="all", name="raw", chunk_size=chunk_size,
                         n_workers=n_workers, bar=bar, use_segyio_trace_loader=use_segyio_trace_loader,
                         validate=validate)
-        assert_survey_loaded(survey, segy_path, "raw", {"FieldRecord"}, ALL_HEADERS)
+        assert_survey_loaded(survey, segy_path, "raw", {"FieldRecord"}, ALL_HEADERS | {HDR_TRACE_POS})
 
     @pytest.mark.parametrize("header_index, expected_index", HEADER_INDEX)
     @pytest.mark.parametrize("header_cols, expected_cols", HEADER_COLS)
@@ -87,7 +88,7 @@ class TestInit:
         survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name, n_workers=1,
                         bar=False, validate=False)
 
-        expected_headers = expected_index | expected_cols | {"TRACE_SEQUENCE_FILE"}
+        expected_headers = expected_index | expected_cols | {"TRACE_SEQUENCE_FILE", HDR_TRACE_POS}
         assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers)
 
         # Assert that whole traces are loaded
@@ -108,7 +109,7 @@ class TestInit:
         survey = Survey(segy_path, header_index=header_index, header_cols=header_cols, name=name, limits=limits,
                         n_workers=1, bar=False, validate=False)
 
-        expected_headers = expected_index | expected_cols | {"TRACE_SEQUENCE_FILE"}
+        expected_headers = expected_index | expected_cols | {"TRACE_SEQUENCE_FILE", HDR_TRACE_POS}
         assert_survey_loaded(survey, segy_path, expected_name, expected_index, expected_headers)
 
         # Assert that correct limits were set
