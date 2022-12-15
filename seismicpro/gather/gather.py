@@ -189,11 +189,13 @@ class Gather(TraceContainer, SamplesContainer):
         # The two-element `indices` tuple describes indices of traces and samples to be obtained respectively
         new_self.headers = self.headers.iloc[indices[0]]
         new_self.samples = self.samples[indices[1]]
-
-        # Check that `sort_by` still represents the actual trace sorting as it might be changed during getitem.
-        if new_self.sort_by is not None:
-            if (np.lexsort(new_self.headers[to_list(new_self.sort_by)].values.T[::-1]) != np.arange(len(data))).any():
+        
+        # Check that `sort_by` does not represent the actual trace sorting as it might be changed during getitem.
+        if isinstance(indices[0], slice):
+            if indices[0].step is not None and indices[0].step < 0: # Slice with negative step breaks sorting
                 new_self.sort_by = None
+        elif (np.diff(indices[0]) < 0).any(): # Decreasing sequence of indices breaks sorting
+            new_self.sort_by = None
         return new_self
 
     def __str__(self):
@@ -915,10 +917,13 @@ class Gather(TraceContainer, SamplesContainer):
         self : Gather
             Gather sorted by given headers. Sets `sort_by` attribute to `by`.
         """
-        if self.sort_by == by:
+        by = to_list(by)
+        sort_by = to_list(self.sort_by)
+        if len(sort_by) >= len(by) and all(i == j for i, j in zip(sort_by, by)):
             return self
-        order = np.lexsort(self[to_list(by)].T[::-1])
-        self.sort_by = by
+
+        order = np.lexsort(self[by[::-1]].T)
+        self.sort_by = by[0] if len(by) == 1 else by
         self.data = self.data[order]
         self.headers = self.headers.iloc[order]
         return self
@@ -1422,8 +1427,9 @@ class Gather(TraceContainer, SamplesContainer):
         if top_header is not None:
             top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_header], y_ticker=y_ticker)
 
-        # Set axis ticks
+        # Set axis ticks. X axis can be represented by more than 2 headers, we plot ticks for no more than 2
         x_tick_src = x_tick_src or self.sort_by or "index"
+        x_tick_src = to_list(x_tick_src)[:2]
         self._set_ticks(ax, axis="x", tick_src=x_tick_src, ticker=x_ticker)
         self._set_ticks(ax, axis="y", tick_src=y_tick_src, ticker=y_ticker)
 
@@ -1499,9 +1505,12 @@ class Gather(TraceContainer, SamplesContainer):
 
     def _get_x_ticks(self, axis_label):
         """Get tick labels for x-axis: either any gather header or ordinal numbers of traces in the gather."""
-        if axis_label == "index":
-            return np.arange(self.n_traces)
-        return self[axis_label]
+        if axis_label[0] == "index":
+            return np.arange(self.n_traces), None
+        elif len(axis_label) == 1:
+            return self[axis_label[0]], None
+        else:
+            return self[axis_label].T
 
     def _get_y_ticks(self, axis_label):
         """Get tick labels for y-axis: either time samples or ordinal numbers of samples in the gather."""
@@ -1515,12 +1524,12 @@ class Gather(TraceContainer, SamplesContainer):
         """Set ticks, their labels and an axis label for a given axis."""
         # Get tick_labels depending on axis and its label
         if axis == "x":
-            tick_labels = self._get_x_ticks(tick_src)
+            major_labels, minor_labels = self._get_x_ticks(tick_src)
         elif axis == "y":
-            tick_labels = self._get_y_ticks(tick_src)
+            major_labels, minor_labels = self._get_y_ticks(tick_src), None
         else:
             raise ValueError(f"Unknown axis {axis}")
-        set_ticks(ax, axis, tick_labels=tick_labels, **{"label": tick_src, **ticker})
+        set_ticks(ax, axis, major_labels=major_labels, minor_labels=minor_labels, **{"label": tick_src, **ticker})
 
     def plot_nmo_correction(self, min_vel=1500, max_vel=6000, figsize=(6, 4.5), show_grid=True, **kwargs):
         """Perform interactive NMO correction of the gather with selected constant velocity.

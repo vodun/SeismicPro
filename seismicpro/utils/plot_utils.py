@@ -4,6 +4,7 @@
 from functools import partial
 
 import numpy as np
+import matplotlib.pyplot as plt
 from matplotlib import ticker
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
@@ -85,7 +86,8 @@ def format_subplot_yticklabels(ax, fontsize=None, fontfamily=None, fontweight=No
         tick.set_fontweight(fontweight)
 
 
-def set_ticks(ax, axis, label='', tick_labels=None, num=None, step_ticks=None, step_labels=None, round_to=0, **kwargs):
+def set_ticks(ax, axis, label='', major_labels=None, minor_labels=None, num=None, 
+              step_ticks=None, step_labels=None, round_to=0, **kwargs):
     """Set ticks and labels for `x` or `y` axis depending on the `axis`.
 
     Parameters
@@ -96,8 +98,10 @@ def set_ticks(ax, axis, label='', tick_labels=None, num=None, step_ticks=None, s
         Whether to set ticks for "x" or "y" axis of `ax`.
     label : str, optional, defaults to ''
         The label to set for `axis` axis.
-    tick_labels : array-like, optional, defaults to None
-        An array of labels for axis ticks.
+    major_labels : array-like, optional, defaults to None
+        An array of major labels for axis ticks.
+    minor_labels : array-like, optional, defaults to None
+        An array of minor labels for axis ticks.
     num : int, optional, defaults to None
         The number of evenly spaced ticks on the axis.
     step_ticks : int, optional, defaults to None
@@ -127,15 +131,8 @@ def set_ticks(ax, axis, label='', tick_labels=None, num=None, step_ticks=None, s
         "Offset": " (m)",
     }
 
-    label = to_list(label)
-    axis_label = '\n'.join([ix_label[0].upper() + ix_label[1:] + UNITS.get(ix_label, '') for ix_label in label])
-
-    major_labels, minor_labels = None, None
-    if len(label) > 1:
-        major_labels, minor_labels = tick_labels[:, 0], tick_labels[:, 1]
-    elif tick_labels is not None:
-        major_labels, minor_labels = tick_labels.ravel(), None
-
+    axis_label = '\n'.join([ix_label.title() + UNITS.get(ix_label, '') for ix_label in to_list(label)])
+ 
     locator, formatter = _process_ticks(labels=major_labels, num=num, step_ticks=step_ticks,
                                         step_labels=step_labels, round_to=round_to)
     rotation_kwargs = _pop_rotation_kwargs(kwargs)
@@ -149,7 +146,7 @@ def set_ticks(ax, axis, label='', tick_labels=None, num=None, step_ticks=None, s
         _, formatter = _process_ticks(labels=minor_labels, round_to=round_to)
         ax_obj.set_minor_locator(ticker.AutoMinorLocator(n=4))
         ax_obj.set_minor_formatter(formatter)
-        ax_obj.set_tick_params(which='minor', labelsize='small')
+        ax_obj.set_tick_params(which='minor', labelsize=kwargs.get("fontsize", plt.rcParams['font.size']) * 0.8)
 
 
 def _process_ticks(labels, num=None, step_ticks=None, step_labels=None, round_to=0):
