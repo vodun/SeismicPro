@@ -265,7 +265,7 @@ class Gather(TraceContainer, SamplesContainer):
     # Target set to `for` to avoid race condition when the same trace appears in two gathers (ex. supergathers)
     @batch_method(target='for', use_lock=True)
     def store_headers_to_survey(self, columns):
-        """Save given headers from `self` to `self.survey`.
+        """Save given headers from the gather to its survey.
 
         Notes
         -----
@@ -291,7 +291,7 @@ class Gather(TraceContainer, SamplesContainer):
                 headers[column] = np.nan
 
             column_data = self[column]
-            if np.issubdtype(headers[column].dtype, np.integer) and np.issubdtype(column_data.dtype, np.floating):
+            if not np.can_cast(column_data, headers.dtypes[column]):
                 headers[column] = headers[column].astype(column_data.dtype)
 
             # FIXME: Workaround for a pandas bug https://github.com/pandas-dev/pandas/issues/48998
