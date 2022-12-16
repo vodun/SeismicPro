@@ -57,7 +57,6 @@ def compare_gathers(first, second, drop_cols=None, check_types=False, same_surve
 
     first_headers = first.headers.reset_index()
     second_headers = second.headers.reset_index()
-
     if drop_cols is not None:
         first_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
         second_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
@@ -220,7 +219,6 @@ def test_gather_store_headers_to_survey(gather_with_cols, columns):
     headers_from_survey = survey.headers.loc[gather_with_cols.index].sort_values(by="offset")
     headers_from_gather = gather_with_cols.headers.sort_values(by="offset")
     assert np.allclose(headers_from_survey[columns], headers_from_gather[columns])
-
 
 @pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
 @pytest.mark.parametrize('q', [0.1, [0.1, 0.2], (0.1, 0.2), np.array([0.1, 0.2])])

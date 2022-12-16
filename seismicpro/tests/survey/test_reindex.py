@@ -45,7 +45,6 @@ class TestReindex:
         survey_copy = survey.copy()
         survey_headers = (set(survey.headers.index.names) | set(survey.headers.columns)) - {HDR_TRACE_POS}
         survey_reindexed = survey.reindex(new_index, inplace=inplace)
-
         survey_reindexed.headers.drop(columns=HDR_TRACE_POS, errors="ignore", inplace=True)
 
         if isinstance(new_index, str):

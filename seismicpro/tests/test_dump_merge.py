@@ -13,7 +13,6 @@ from seismicpro.const import HDR_TRACE_POS
 from .test_gather import compare_gathers
 
 
-
 @pytest.mark.parametrize('name', ['some_name', None])
 @pytest.mark.parametrize('retain_parent_segy_headers', [False, True])
 @pytest.mark.parametrize('header_index', ['FieldRecord', 'TRACE_SEQUENCE_FILE'])
@@ -87,7 +86,6 @@ def test_aggregate_segys(segy_path, tmp_path, mode, indices):
     #TODO: optimize
     drop_columns = ["TRACE_SEQUENCE_FILE", HDR_TRACE_POS]
     drop_columns += ["TRACE_SAMPLE_INTERVAL"] if "TRACE_SAMPLE_INTERVAL" in expected_survey.headers.columns else []
-
     expected_survey_headers = (expected_survey.headers.loc[indices].reset_index()
                                                                    .sort_values(['FieldRecord', 'TraceNumber'])
                                                                    .drop(columns=drop_columns)
