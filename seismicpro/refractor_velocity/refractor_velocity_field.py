@@ -11,7 +11,7 @@ import pandas as pd
 from tqdm.auto import tqdm
 
 from .refractor_velocity import RefractorVelocity
-from .interactive_plot import FitPlot
+from .interactive_plot import FieldPlot
 from .utils import get_param_names, postprocess_params, dump_refractor_velocities, load_refractor_velocities
 from ..field import SpatialField
 from ..utils import to_list, get_coords_cols, Coordinates, IDWInterpolator, ForPoolExecutor
@@ -586,10 +586,10 @@ class RefractorVelocityField(SpatialField):
             raise ValueError("Empty field can't be dumped.")
         dump_refractor_velocities(self.items, path=path, encoding=encoding)
 
-    def plot_fit(self, **kwargs):
+    def plot(self, **kwargs):
         """Plot an interactive map of each parameter of a near-surface velocity model and display an offset-traveltime
-        curve with data used to fit the model upon clicking on a map. Can be called only for fields constructed
-        directly from first break data.
+        curve upon clicking on a map. If some velocity models in the field were constructed directly from first break
+        data, a scatter plot of offsets and times of first breaks is also displayed.
 
         Plotting must be performed in a JupyterLab environment with the `%matplotlib widget` magic executed and
         `ipympl` and `ipywidgets` libraries installed.
@@ -603,4 +603,4 @@ class RefractorVelocityField(SpatialField):
         kwargs : misc, optional
             Additional keyword arguments to be passed to `MetricMap.plot`.
         """
-        FitPlot(self, **kwargs).plot()
+        FieldPlot(self, **kwargs).plot()
