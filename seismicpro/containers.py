@@ -288,6 +288,11 @@ class GatherContainer(TraceContainer):
         """int: The number of gathers."""
         return len(self.indices)
 
+    @property
+    def is_empty(self):
+        """bool: Whether no gathers are stored in the container."""
+        return self.n_gathers == 0
+
     def get_traces_locs(self, indices):
         """Get positions of traces in `headers` by `indices` of their gathers.
 
