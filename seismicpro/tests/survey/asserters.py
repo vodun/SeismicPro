@@ -42,6 +42,8 @@ def assert_survey_loaded(survey, segy_path, expected_name, expected_index, expec
     assert set(survey.headers.index.names) == expected_index
     assert set(survey.headers.index.names) | set(survey.headers.columns) == expected_headers
     assert survey.headers.index.is_monotonic_increasing
+    # Check that HDR_TRACE_POS reflects traces positions in the headers. We are checking `survey.headers` instead of
+    # `loaded_headers`, because `loaded_headers` are sorted differently, and HEAT_TRACE_POS has lost all meaning there.
     assert np.array_equal(survey.headers[HDR_TRACE_POS].values, np.arange(n_traces))
     # Restore the order of the traces from the source file
     loaded_headers = survey.headers.reset_index().sort_values(by="TRACE_SEQUENCE_FILE")

@@ -35,8 +35,12 @@ def gather(survey):
 
 
 @pytest.fixture(scope='function')
-def gather_with_cols(survey):
-    """gather_with_cols"""
+def gather_with_cols(segy_path):
+    """Fixture uses only for methods that affect created survey, thus we recreating survey every function call."""
+    survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'],
+                    header_cols=['offset', 'FieldRecord'], validate=False)
+    survey.remove_dead_traces(bar=False)
+
     gather = survey.get_gather((0, 0))
     gather.headers["col_1"] = np.arange(gather.n_traces, dtype=np.int32)
     gather.headers["col_2"] = 100 * np.random.random(gather.n_traces)
