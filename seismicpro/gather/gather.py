@@ -282,15 +282,14 @@ class Gather(TraceContainer, SamplesContainer):
             Gather unchanged.
         """
         columns = to_list(columns)
-        _ = self[columns] # Make sure that columns are in headers
 
         headers = self.survey.headers
         pos = self[HDR_TRACE_POS]
         for column in columns:
+            column_data = self[column] # Here we also check that column is in self.headers
             if column not in headers:
                 headers[column] = np.nan
 
-            column_data = self[column]
             if not np.can_cast(column_data, headers.dtypes[column]):
                 headers[column] = headers[column].astype(column_data.dtype)
 
