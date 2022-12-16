@@ -111,7 +111,7 @@ class TestLoad:
 
         # load_limits take priority over init_limits
         limits = init_limits if load_limits is None else load_limits
-        traces_pos = gather["TRACE_SEQUENCE_FILE"].ravel() - 1
+        traces_pos = gather["TRACE_SEQUENCE_FILE"] - 1
         gather_data = trace_data[traces_pos, limits]
 
         assert np.allclose(gather.data, gather_data)
@@ -130,7 +130,7 @@ class TestLoad:
 
         # load_limits take priority over init_limits
         limits = init_limits if load_limits is None else load_limits
-        traces_pos = gather["TRACE_SEQUENCE_FILE"].ravel() - 1
+        traces_pos = gather["TRACE_SEQUENCE_FILE"] - 1
         gather_data = trace_data[traces_pos, limits]
 
         assert np.allclose(gather.data, gather_data)

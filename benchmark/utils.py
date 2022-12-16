@@ -20,7 +20,7 @@ def make_benchmark_data(path):
     # Load headers and add synthetic FirstBreak times
     sur = Survey(path, header_index=['INLINE_3D', 'CROSSLINE_3D'],
                  header_cols='offset', name='raw')
-    sur['FirstBreak'] = np.abs(sur['offset'].ravel() / 1.5 + np.random.normal(0, 30, size=sur.n_traces))
+    sur['FirstBreak'] = np.abs(sur['offset'] / 1.5 + np.random.normal(0, 30, size=sur.n_traces))
 
     def edge_lines_filter(line, num_lines):
         return (line >= line.min() + num_lines) & (line <= line.max() - num_lines)

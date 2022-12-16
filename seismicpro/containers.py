@@ -53,11 +53,8 @@ class TraceContainer:
         return len(self.headers)
 
     def __getitem__(self, key):
-        """Select values of headers by their names.
-
-        Notes
-        -----
-        A 2d array is always returned even for a single header.
+        """Select values of trace headers by their names. Unlike `pandas` indexing allows for selection of headers the
+        container is indexed by. The returned array will be 1d if a single header is selected and 2d otherwise.
 
         Parameters
         ----------
@@ -66,10 +63,10 @@ class TraceContainer:
 
         Returns
         -------
-        result : 2d np.ndarray
+        result : np.ndarray
             Headers values.
         """
-        return get_cols(self.headers, to_list(key))
+        return get_cols(self.headers, key)
 
     def __setitem__(self, key, value):
         """Set given values to selected headers.
@@ -81,9 +78,7 @@ class TraceContainer:
         value : np.ndarray
             Headers values to set.
         """
-        key = to_list(key)
-        val = pd.DataFrame(value, columns=key, index=self.headers.index)
-        self.headers[key] = val
+        self.headers[key] = value
 
     def copy(self, ignore=None):
         """Perform a deepcopy of all attributes of `self` except for those specified in `ignore`, which are kept
@@ -126,7 +121,7 @@ class TraceContainer:
             passed as a single arg. If `axis` is `None` and `unpack_args` is `True`, columns of the `df` are passed to
             the `func` as individual arguments.
         kwargs : misc, optional
-            Additional keyword arguments to pass to `func` or `pd.DataFrame.apply`.
+            Additional keyword arguments to be passed to `func` or `pd.DataFrame.apply`.
 
         Returns
         -------
@@ -138,15 +133,14 @@ class TraceContainer:
             res = func(*args, **kwargs)
         else:
             # FIXME: Workaround for a pandas bug https://github.com/pandas-dev/pandas/issues/34822
-            # raw=True causes incorrect apply behavior when axis=1 and several values are returned from `func`
+            # raw=True causes incorrect apply behavior when axis=1 and multiple values are returned from `func`
             raw = (axis != 1)
 
             apply_func = (lambda args, **kwargs: func(*args, **kwargs)) if unpack_args else func
             res = df.apply(apply_func, axis=axis, raw=raw, result_type="expand", **kwargs)
 
-        if isinstance(res, pd.Series):
-            res = res.to_frame()
-        return res.values
+        # Convert np.ndarray/pd.Series/pd.DataFrame outputs from `func` to a 2d array
+        return pd.DataFrame(res).to_numpy()
 
     def _post_filter(self, mask):
         """Implement extra filtering logic of concrete subclass attributes if some of them should also be filtered
@@ -183,7 +177,7 @@ class TraceContainer:
         inplace : bool, optional, defaults to False
             Whether to perform filtering inplace or process a copy.
         kwargs : misc, optional
-            Additional keyword arguments to pass to `cond` or `pd.DataFrame.apply`.
+            Additional keyword arguments to be passed to `cond` or `pd.DataFrame.apply`.
 
         Returns
         -------
@@ -242,7 +236,7 @@ class TraceContainer:
         inplace : bool, optional, defaults to False
             Whether to apply the function inplace or to a copy.
         kwargs : misc, optional
-            Additional keyword arguments to pass to `func` or `pd.DataFrame.apply`.
+            Additional keyword arguments to be passed to `func` or `pd.DataFrame.apply`.
 
         Returns
         -------
