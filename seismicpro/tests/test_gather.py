@@ -34,20 +34,6 @@ def gather(survey):
     return survey.get_gather((0, 0))
 
 
-@pytest.fixture(scope='function')
-def gather_with_cols(segy_path):
-    """Fixture uses only for methods that affect created survey, thus we recreating survey every function call."""
-    survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'],
-                    header_cols=['offset', 'FieldRecord'], validate=False)
-    survey.remove_dead_traces(bar=False)
-
-    gather = survey.get_gather((0, 0))
-    gather.headers["col_1"] = np.arange(gather.n_traces, dtype=np.int32)
-    gather.headers["col_2"] = 100 * np.random.random(gather.n_traces)
-    gather.headers["offset"] = gather["offset"] * 0.1
-    return gather
-
-
 def compare_gathers(first, second, drop_cols=None, check_types=False, same_survey=True):
     """compare_gathers"""
     first_attrs = first.__dict__
@@ -183,15 +169,10 @@ def test_gather_getitem_sample_rate_changes(gather, key, sample_rate):
     """test_gather_getitem_sample_rate_changes"""
     result_getitem = gather[slice(None), key]
     if sample_rate is not None:
-        assert result_getitem.sample_rate == sample_rate  # pylint: disable=protected-access
-    else:
-        with pytest.raises(ValueError):
-            _ = result_getitem.sample_rate
-    if sample_rate is not None:
         assert result_getitem.sample_rate == sample_rate
     else:
         with pytest.raises(ValueError):
-            sample_rate = result_getitem.sample_rate
+            _ = result_getitem.sample_rate
 
 
 ignore =  [None] + COPY_IGNORE_ATTRS + sum([list(combinations(COPY_IGNORE_ATTRS, r=i)) for i in range(1, 4)], [])
@@ -212,12 +193,20 @@ def test_gather_copy(gather, ignore):
 
 
 @pytest.mark.parametrize('columns', ['offset', 'FieldRecord', 'col_1', ['col_1'], ['col_1', 'col_2']])
-def test_gather_store_headers_to_survey(gather_with_cols, columns):
+def test_gather_store_headers_to_survey(segy_path, columns):
     """test_gather_store_headers_to_survey"""
-    gather_with_cols.store_headers_to_survey(columns)
-    survey = gather_with_cols.survey
-    headers_from_survey = survey.headers.loc[gather_with_cols.index].sort_values(by="offset")
-    headers_from_gather = gather_with_cols.headers.sort_values(by="offset")
+    # Creating survey every time since this method affects survey and we cannot use global gather fixture here
+    survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'],
+                    header_cols=['offset', 'FieldRecord'], validate=False)
+
+    gather = survey.get_gather((0, 0))
+    gather.headers["col_1"] = np.arange(gather.n_traces, dtype=np.int32)
+    gather.headers["col_2"] = 100 * np.random.random(gather.n_traces)
+    gather.headers["offset"] = gather["offset"] * 0.1
+
+    gather.store_headers_to_survey(columns)
+    headers_from_survey = survey.headers.loc[gather.index].sort_values(by="offset")
+    headers_from_gather = gather.headers.sort_values(by="offset")
     assert np.allclose(headers_from_survey[columns], headers_from_gather[columns])
 
 @pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])

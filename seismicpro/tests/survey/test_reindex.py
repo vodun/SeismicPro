@@ -43,9 +43,8 @@ class TestReindex:
         4. Values of trace headers has not changed, only their order in `survey.headers`.
         """
         survey_copy = survey.copy()
-        survey_headers = (set(survey.headers.index.names) | set(survey.headers.columns)) - {HDR_TRACE_POS}
+        survey_headers = set(survey.headers.index.names) | set(survey.headers.columns)
         survey_reindexed = survey.reindex(new_index, inplace=inplace)
-        survey_reindexed.headers.drop(columns=HDR_TRACE_POS, errors="ignore", inplace=True)
 
         if isinstance(new_index, str):
             new_index = [new_index]
@@ -55,7 +54,7 @@ class TestReindex:
 
         # Check that only order of rows in headers has changed
         merged_headers = pd.merge(survey_copy.headers.reset_index(), survey_reindexed.headers.reset_index(),
-                                  on=list(survey_headers))
+                                  on=list(survey_headers - {HDR_TRACE_POS}))
         assert len(merged_headers) == len(survey_copy.headers)
 
         # Check that all other attributes has not changed
