@@ -19,7 +19,7 @@ NUMPY_ATTRS = ['data', 'samples']
 
 @pytest.fixture(scope='module')
 def survey(segy_path):
-    """Create gather"""
+    """Create survey"""
     survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'],
                     header_cols=['offset', 'FieldRecord'])
     survey.remove_dead_traces(bar=False)

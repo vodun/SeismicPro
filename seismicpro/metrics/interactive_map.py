@@ -136,11 +136,16 @@ class SliderPlot(InteractivePlot):
     Parameters
     ----------
     initial_values : array
-        values .
+        Depending on the `norm` parameter min, max and percentiles
+        will be calculated from this array to build the slider.
     slide_fn : callable
         A function called on slider move.
-    norm : str
-        'linear' or 'quantile'
+    norm : {'linear', 'quantile'}
+        The normalization method used to scale `initial_values` to build the slider.
+        If 'linear', `ipywidgets.widgets.FloatRangeSlider` is used.
+        The slider limits will be min and max of `initial_values` and slider step will be (min - max) / 100.
+        If 'quantile', `ipywidgets.widgets.SelectionRangeSlider` is used.
+        The slider ticks will be `initial_values` percentiles {0, 1%, ... 99%, 100%}.
     kwargs : misc, optional
         Additional keyword arguments to `InteractivePlot.__init__`.
     """

@@ -122,48 +122,54 @@ class BaseMetricMap:
 
         (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
         map_obj = self._plot_map(ax, is_lower_better=is_lower_better, cmap=cmap, norm=norm, **kwargs)
-        ax.set_title(**{"label": self.plot_title, **title})
+
         ax.ticklabel_format(style="plain", useOffset=False)
         if keep_aspect:
             ax.set_aspect("equal", adjustable="box")
 
         divider = make_axes_locatable(ax)
 
-        self._add_histogram(ax, map_obj, histogram, boundaries, divider, x_ticker=x_ticker, y_ticker=y_ticker)
+        topax = self._add_histogram(ax, map_obj, histogram, boundaries, divider, x_ticker=x_ticker, y_ticker=y_ticker)
         add_colorbar(ax, map_obj, colorbar, divider, y_ticker=y_ticker)
 
         set_ticks(ax, "x", self.coords_cols[0], self.x_tick_labels, **x_ticker)
         set_ticks(ax, "y", self.coords_cols[1], self.y_tick_labels, **y_ticker)
 
+        topax.set_title(**{"label": self.plot_title, **title})
+
     def _add_histogram(self, ax, artist, histogram, boundaries, divider=None, x_ticker=None, y_ticker=None):
-        if histogram is not False:
-            histogram = {} if histogram is True else histogram
+        if histogram is False:
+            return ax
 
-            cmap = artist.get_cmap()
-            norm = artist.norm
+        histogram = {} if histogram is True else histogram
 
-            if boundaries is None:
-                boundaries = 100
+        cmap = artist.get_cmap()
+        norm = artist.norm
 
-            counts, bins = np.histogram(self.metric_data[self.metric_name], bins=boundaries)
+        if boundaries is None:
+            boundaries = 100
 
-            if divider is None:
-                divider = make_axes_locatable(ax)
+        counts, bins = np.histogram(self.metric_data[self.metric_name], bins=boundaries)
 
-            hax = divider.append_axes("top", size="15%", pad=0.2)
+        if divider is None:
+            divider = make_axes_locatable(ax)
 
-            midpoints = (bins[:-1] + bins[1:])/2
-            widths =  (bins[1:] - bins[:-1])
+        hax = divider.append_axes("top", size="15%", pad=0.2)
 
-            hax.bar(x=midpoints, height=counts, width=widths, color=cmap(norm(midpoints)))
-            hax.set_yscale(histogram.get('hscale', 'linear'))
-            hax.set_title('Metric values', **x_ticker)
+        midpoints = (bins[:-1] + bins[1:])/2
+        widths =  (bins[1:] - bins[:-1])
 
-            if y_ticker is not None:
-                format_subplot_ticklabels(hax, axis='y', **y_ticker)
+        hax.bar(x=midpoints, height=counts, width=widths, color=cmap(norm(midpoints)))
+        hax.set_yscale(histogram.get('hscale', 'linear'))
+        hax.set_ylabel('Metric values', **y_ticker)
 
-            if x_ticker is not None:
-                format_subplot_ticklabels(hax, axis='x', **x_ticker)
+        if y_ticker is not None:
+            format_subplot_ticklabels(hax, axis='y', **y_ticker)
+
+        if x_ticker is not None:
+            format_subplot_ticklabels(hax, axis='x', **x_ticker)
+
+        return hax
 
     def _make_colorbar(self, colorbar, boundaries):
         if colorbar is not False:
@@ -222,6 +228,14 @@ class BaseMetricMap:
             Minimum colorbar value. Taken from `metric` if not given.
         vmax : float or None, optional
             Maximum colorbar value. Taken from `metric` if not given.
+        boundaries : array-like, optional
+            Monotonically increasing sequence of at least 2 bin edges, as used in `matplotlib.colors.BoundaryNorm`.
+            If not None, it is used to construct a color norm and a colorbar,
+            and a histogram if requested by `histogram` parameter.
+        histogram : dict or bool, optional, defaults to False
+            If True, a histogram of tracewise metric values is added on top of a metric map.
+            If dict, a histogram is added and its `yscale` is controlled by 'hscale' key of the dict.
+            The default yscale is 'linear'.
         cmap : str or matplotlib.colors.Colormap, optional
             Map colormap. If not given defined by `is_lower_better`: if it is `bool`, a green-red colormap is used,
             if `None` - "coolwarm".
@@ -365,10 +379,11 @@ class BinarizedMap(BaseMetricMap):
         # Binarize map coordinates
         bin_cols = ["BIN_X", "BIN_Y"]
 
-        if xlim is None or ylim is None:
-            min_coords = map_data[self.coords_cols].min(axis=0).to_numpy()
-        else:
-            min_coords = xlim[0], ylim[0]
+        min_coords = map_data[self.coords_cols].min(axis=0).to_numpy()
+        if xlim is not None:
+            min_coords[0] = xlim[0]
+        if ylim is not None:
+            min_coords[1] = ylim[0]
 
         map_data[bin_cols] = ((map_data[self.coords_cols] - min_coords) // self.bin_size).astype(int)
 
@@ -390,12 +405,16 @@ class BinarizedMap(BaseMetricMap):
     @property
     def x_tick_labels(self):
         """array-like: labels of x axis ticks."""
-        return np.arange(self.xlim[0], self.xlim[1] + 1, self.bin_size[0]) + self.bin_size[0] // 2
+        diff = self.xlim[1] - self.xlim[0]
+        n_ticks = diff // self.bin_size[0] + int(diff % self.bin_size[0] == 0)
+        return np.linspace(self.xlim[0], self.xlim[1], n_ticks) + self.bin_size[0] // 2
 
     @property
     def y_tick_labels(self):
         """array-like: labels of y axis ticks."""
-        return np.arange(self.ylim[0], self.ylim[1] + 1, self.bin_size[1]) + self.bin_size[1] // 2
+        diff = self.ylim[1] - self.ylim[0]
+        n_ticks = diff // self.bin_size[1] + int(diff % self.bin_size[1] == 0)
+        return np.linspace(self.ylim[0], self.ylim[1], n_ticks) + self.bin_size[1] // 2
 
     def _plot_map(self, ax, is_lower_better, **kwargs):
         """Display map data as an image."""
