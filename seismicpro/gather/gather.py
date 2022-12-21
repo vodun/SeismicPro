@@ -918,8 +918,7 @@ class Gather(TraceContainer, SamplesContainer):
             Gather sorted by given headers. Sets `sort_by` attribute to `by`.
         """
         by = to_list(by)
-        sort_by = to_list(self.sort_by)
-        if len(sort_by) >= len(by) and all(i == j for i, j in zip(sort_by, by)):
+        if by == to_list(self.sort_by)[:len(by)]:
             return self
 
         order = np.lexsort(self[by[::-1]].T)
