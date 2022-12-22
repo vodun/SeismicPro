@@ -3,6 +3,8 @@
 from functools import partial
 import warnings
 
+from numba import njit
+
 import numpy as np
 from scipy import signal
 
@@ -12,7 +14,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from ..metrics import Metric
 from ..const import HDR_DEAD_TRACE, EPS, HDR_FIRST_BREAK
 from ..gather.utils import times_to_indices
-from .utils import fill_leading_nulls, get_val_subseq, get_const_subseq, rms_2_windows_ratio, mute_and_norm
+from .utils import rms_2_windows_ratio, mute_and_norm
 
 
 class SurveyAttribute(Metric):
@@ -53,8 +55,8 @@ class TracewiseMetric(Metric):
         super().__init__(**kwargs)
         self.survey = survey.reindex(coords_cols)
 
-    @staticmethod
-    def _get_res(gather, **kwargs):
+    @classmethod
+    def _get_res(cls, gather, **kwargs):
         """QC indicator implementation.
         Takes a gather as an argument and returns either a samplewise qc indicator with shape
         (`gather.n_traces`, `gather.n_samples - d`), where `d >= 0`,
@@ -64,8 +66,8 @@ class TracewiseMetric(Metric):
         """
         raise NotImplementedError
 
-    @staticmethod
-    def preprocess(gather, **kwargs):
+    @classmethod
+    def preprocess(cls, gather, **kwargs):
         """Preprocess gather for calculating metric. Identity by default."""
         _ = kwargs
         return gather
@@ -83,8 +85,7 @@ class TracewiseMetric(Metric):
             res[gather.headers[HDR_DEAD_TRACE]] = np.nan
 
         if res.ndim == 2 and res.shape[1] != 1:
-            leading_zeros = np.zeros((gather.n_traces, gather.n_samples - res.shape[1]), dtype=res.dtype)
-            res = np.concatenate((leading_zeros, res), axis=1)
+            res = np.pad(res, pad_width=((0, 0), (gather.n_samples - res.shape[1], 0)))
 
         return res
 
@@ -135,7 +136,7 @@ class TracewiseMetric(Metric):
         top_ax.xaxis.set_visible(False)
         top_ax.set_yscale(self.top_ax_y_scale)
 
-        set_title(top_ax, gather)
+        self.set_title(top_ax, gather)
 
     def _plot_filter(self, mode, coords, ax, **kwargs):
         """Gather plot with filter"""
@@ -155,7 +156,7 @@ class TracewiseMetric(Metric):
         else:
             image_filter(gather.data, res, ax)
 
-        set_title(ax, gather)
+        self.set_title(ax, gather)
 
     def plot_wiggle(self, coords, ax, **kwargs):
         """"Gather wiggle plot where samples with indicator above/blow `cls.threshold` are in red."""
@@ -172,18 +173,18 @@ class TracewiseMetric(Metric):
 
         gather = self.preprocess(gather, **kwargs)
         plot_worst_trace(ax, gather.data, gather['TraceNumber'].squeeze(1), res, self.is_lower_better)
-        set_title(ax, gather)
+        self.set_title(ax, gather)
 
+    @staticmethod
+    def set_title(ax, gather):
+        """Set gather index as the axis title"""
+        idx = np.unique(gather.headers.index.values)
+        if len(idx) == 1:
+            ttl = str(idx[0])
+        else:
+            ttl = f"[{idx[0]}...{idx[-1]}]"
 
-def set_title(ax, gather):
-    """Set gather index as the axis title"""
-    idx = np.unique(gather.headers.index.values)
-    if len(idx) == 1:
-        ttl = str(idx[0])
-    else:
-        ttl = f"[{idx[0]}...{idx[-1]}]"
-
-    ax.set_title(ttl)
+        ax.set_title(ttl)
 
 def wiggle_plot_with_filter(traces, mask, ax, std=0.1, **kwargs):
     """Wiggle plot with samples highlighted according to provided mask
@@ -207,7 +208,7 @@ def wiggle_plot_with_filter(traces, mask, ax, std=0.1, **kwargs):
             mask = mask.squeeze(axis=1)
         mask = np.stack([mask]*traces.shape[1], axis=1)
 
-    blurred = blure_mask(mask)
+    blurred = blur_mask(mask)
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning)
@@ -220,7 +221,7 @@ def wiggle_plot_with_filter(traces, mask, ax, std=0.1, **kwargs):
         ax.fill_betweenx(y_coords, i, i + trace, where=(mask[i] > 0), color='red', alpha=1, **kwargs)
     ax.invert_yaxis()
 
-def blure_mask(flt, eps=EPS):
+def blur_mask(flt, eps=EPS):
     """Blure filter values"""
     if np.any(flt == 1):
         win_size = np.floor(min((np.prod(flt.shape) / np.sum(flt == 1)), np.min(flt.shape) / 10)).astype(int)
@@ -253,7 +254,7 @@ def image_filter(traces, mask, ax, **kwargs):
             mask = mask.squeeze(axis=1)
         mask = np.stack([mask]*traces.shape[1], axis=1)
 
-    mask = blure_mask(mask)
+    mask = blur_mask(mask)
 
     vmin, vmax = np.nanquantile(traces, q=[0.05, 0.95])
     kwargs = {"cmap": "gray", "aspect": "auto", "vmin": vmin, "vmax": vmax, **kwargs}
@@ -317,22 +318,36 @@ class SpikesMetric(TracewiseMetric):
     is_lower_better = True
     threshold = 2
 
-    @staticmethod
-    def preprocess(gather, muter_col=HDR_FIRST_BREAK, rv_params=None, **kwargs):
+    @classmethod
+    def preprocess(cls, gather, muter_col=HDR_FIRST_BREAK, rv_params=None, **kwargs):
         _ = kwargs
         return mute_and_norm(gather, muter_col, rv_params=rv_params)
 
-    @staticmethod
-    def _get_res(gather, **kwargs):
+    @classmethod
+    def _get_res(cls, gather, **kwargs):
         """QC indicator implementation."""
         _ = kwargs
         traces = gather.data
-        fill_leading_nulls(traces)
+        cls.fill_leading_nulls(traces)
 
         running_mean = (traces[:, 1:-1] + traces[:, 2:] + traces[:, :-2])/3
         res = np.abs(traces[:, 1:-1] - running_mean)
 
         return np.pad(res, ((0, 0), (1, 1)))
+
+    @staticmethod
+    @njit
+    def fill_leading_nulls(arr):
+        """"Fill leading null values of array's row with the first non null value in a row."""
+
+        n_samples = arr.shape[1]
+
+        for i in range(arr.shape[0]):
+            nan_indices = np.nonzero(np.isnan(arr[i]))[0]
+            if len(nan_indices) > 0:
+                j = nan_indices[-1] + 1
+                if j < n_samples:
+                    arr[i, :j] = arr[i, j]
 
 
 class AutocorrMetric(TracewiseMetric):
@@ -341,42 +356,41 @@ class AutocorrMetric(TracewiseMetric):
     is_lower_better = False
     threshold = 0.9
 
-    @staticmethod
-    def preprocess(gather, muter_col=HDR_FIRST_BREAK, rv_params=None, **kwargs):
+    @classmethod
+    def preprocess(cls, gather, muter_col=HDR_FIRST_BREAK, rv_params=None, **kwargs):
         _ = kwargs
         return mute_and_norm(gather, muter_col, rv_params=rv_params)
 
-    @staticmethod
-    def _get_res(gather, **kwargs):
+    @classmethod
+    def _get_res(cls, gather, **kwargs):
         """QC indicator implementation."""
         _ = kwargs
-        return (np.nansum(gather.data[...,1:] * gather.data[..., :-1], axis=1) /
-                (gather.n_samples - np.isnan(gather.data).sum(axis=1) + EPS))
+        return np.nanmean(gather.data[...,1:] * gather.data[..., :-1], axis=1)
 
 
 class TraceAbsMean(TracewiseMetric):
-    """Absolute value of the traces mean."""
+    """Absolute value of the trace's mean scaled by trace's std."""
     name = "trace_absmean"
     is_lower_better = True
     threshold = 0.1
     top_ax_y_scale = 'log'
 
-    @staticmethod
-    def _get_res(gather, **kwargs):
+    @classmethod
+    def _get_res(cls, gather, **kwargs):
         """QC indicator implementation."""
         _ = kwargs
         return np.abs(gather.data.mean(axis=1) / (gather.data.std(axis=1) + EPS))
 
 
 class TraceMaxAbs(TracewiseMetric):
-    """Maximun absolute amplitude value."""
+    """Maximun absolute amplitude value scaled by trace's std."""
     name = "trace_maxabs"
     is_lower_better = True
     threshold = None
     top_ax_y_scale = 'log'
 
-    @staticmethod
-    def _get_res(gather, **kwargs):
+    @classmethod
+    def _get_res(cls, gather, **kwargs):
         """QC indicator implementation."""
         _ = kwargs
         return np.max(np.abs(gather.data), axis=1) / (gather.data.std(axis=1) + EPS)
@@ -390,8 +404,8 @@ class MaxClipsLenMetric(TracewiseMetric):
     is_lower_better = True
     threshold = 3
 
-    @staticmethod
-    def _get_res(gather, **kwargs):
+    @classmethod
+    def _get_res(cls, gather, **kwargs):
         """QC indicator implementation."""
         _ = kwargs
         traces = gather.data
@@ -399,10 +413,36 @@ class MaxClipsLenMetric(TracewiseMetric):
         maxes = traces.max(axis=-1, keepdims=True)
         mins = traces.min(axis=-1, keepdims=True)
 
-        res_plus = get_val_subseq(traces, maxes)
-        res_minus = get_val_subseq(traces, mins)
+        res_plus = cls.get_val_subseq(traces, maxes)
+        res_minus = cls.get_val_subseq(traces, mins)
 
         return (res_plus + res_minus).astype(np.float32)
+
+
+    @staticmethod
+    @njit(nogil=True)
+    def get_val_subseq(traces, cmpval):
+        """Indicator of constant subsequences equal to given value."""
+
+        old_shape = traces.shape
+        traces = np.atleast_2d(traces)
+
+        indicators = (traces == cmpval).astype(np.int16)
+
+        for t, indicator in enumerate(indicators):
+            counter = 0
+            for i, sample in enumerate(indicator):
+                if sample == 1:
+                    counter += 1
+                else:
+                    if counter > 1:
+                        indicators[t, i - counter: i] = counter
+                    counter = 0
+
+            if counter > 1:
+                indicators[t, -counter:] = counter
+
+        return indicators.reshape(*old_shape)
 
 
 class ConstLenMetric(TracewiseMetric):
@@ -411,12 +451,37 @@ class ConstLenMetric(TracewiseMetric):
     is_lower_better = True
     threshold = 4
 
-    @staticmethod
-    def _get_res(gather, **kwargs):
+    @classmethod
+    def _get_res(cls, gather, **kwargs):
         """QC indicator implementation."""
         _ = kwargs
-        res = get_const_subseq(gather.data)
+        res = cls.get_const_subseq(gather.data)
         return res.astype(np.float32)
+
+    @staticmethod
+    @njit(nogil=True)
+    def get_const_subseq(traces):
+        """Indicator of constant subsequences."""
+
+        old_shape = traces.shape
+        traces = np.atleast_2d(traces)
+
+        indicators = np.zeros_like(traces, dtype=np.int16)
+        indicators[:, 1:] = (traces[:, 1:] == traces[:, :-1]).astype(np.int16)
+        for t, indicator in enumerate(indicators):
+            counter = 0
+            for i, sample in enumerate(indicator):
+                if sample == 1:
+                    counter += 1
+                else:
+                    if counter > 0:
+                        indicators[t, i - counter - 1:i] = counter + 1
+                    counter = 0
+
+            if counter > 0:
+                indicators[t, -counter - 1:] = counter + 1
+
+        return indicators.reshape(*old_shape)
 
 
 class StdFraqMetricGlob(TracewiseMetric):
@@ -427,8 +492,8 @@ class StdFraqMetricGlob(TracewiseMetric):
     is_lower_better = False
     threshold = -2
 
-    @staticmethod
-    def _get_res(gather, **kwargs):
+    @classmethod
+    def _get_res(cls, gather, **kwargs):
         """QC indicator implementation."""
         _ = kwargs
 
@@ -469,15 +534,14 @@ class TraceSinalToNoiseRMSRatio(TracewiseMetric):
 
         return n_begs, s_begs, win_size
 
-    @staticmethod
-    def _get_res(gather, offsets, win_size, n_start, s_start, first_breaks_col=None, **kwargs):
+    @classmethod
+    def _get_res(cls, gather, offsets, win_size, n_start, s_start, first_breaks_col=None, **kwargs):
         """QC indicator implementation."""
         _ = kwargs
 
         mask = ((gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1]))
 
-        n_begs, s_begs, win_size = TraceSinalToNoiseRMSRatio._get_indices(gather, win_size, n_start, s_start,
-                                                                          mask, first_breaks_col)
+        n_begs, s_begs, win_size = cls._get_indices(gather, win_size, n_start, s_start, mask, first_breaks_col)
 
         s_begs[~mask] = -1
         n_begs[~mask] = -1
@@ -517,7 +581,7 @@ class TraceSinalToNoiseRMSRatio(TracewiseMetric):
         s_rec = (offs_ind[0], s_begs[0]), len(offs_ind), win_size
         ax.add_patch(patches.Rectangle(*s_rec, linewidth=1, edgecolor='lime',facecolor='none'))
 
-        set_title(top_ax, gather)
+        self.set_title(top_ax, gather)
 
 
 class TraceSinalToNoiseRMSRatioAdaptive(TracewiseMetric):
@@ -547,13 +611,12 @@ class TraceSinalToNoiseRMSRatioAdaptive(TracewiseMetric):
 
         return n_begs, s_begs
 
-    @staticmethod
-    def _get_res(gather, win_size, shift_up, shift_down, first_breaks_col=HDR_FIRST_BREAK, **kwargs):
+    @classmethod
+    def _get_res(cls, gather, win_size, shift_up, shift_down, first_breaks_col=HDR_FIRST_BREAK, **kwargs):
         """QC indicator implementation."""
         _ = kwargs
 
-        n_begs, s_begs = TraceSinalToNoiseRMSRatioAdaptive._get_indices(gather, win_size,
-                                                                        shift_up, shift_down, first_breaks_col)
+        n_begs, s_begs = cls._get_indices(gather, win_size, shift_up, shift_down, first_breaks_col)
 
         s_begs[np.isnan(s_begs)] = -1
         n_begs[np.isnan(n_begs)] = -1
@@ -597,7 +660,7 @@ class TraceSinalToNoiseRMSRatioAdaptive(TracewiseMetric):
         ax.plot(np.arange(gather.n_traces), s_begs, color='lime')
         ax.plot(np.arange(gather.n_traces), s_begs+win_size, color='lime')
 
-        set_title(top_ax, gather)
+        self.set_title(top_ax, gather)
 
 
 class DeadTrace(TracewiseMetric): # pylint: disable=abstract-method
