@@ -131,7 +131,7 @@ def set_ticks(ax, axis, label='', major_labels=None, minor_labels=None, num=None
         "Offset": " (m)",
     }
 
-    axis_label = '\n'.join([ix_label.title() + UNITS.get(ix_label, '') for ix_label in to_list(label)])
+    axis_label = '\n'.join([UNITS.get(ix_label, '') for ix_label in to_list(label)])
  
     locator, formatter = _process_ticks(labels=major_labels, num=num, step_ticks=step_ticks,
                                         step_labels=step_labels, round_to=round_to)
