@@ -1516,8 +1516,8 @@ class Gather(TraceContainer, SamplesContainer):
         if tick_src == "time":
             major_labels =  self.samples
         if tick_src == "samples":
-            major_labels = np.arange(self.n_samples
-)
+            major_labels = np.arange(self.n_samples)
+
         set_ticks(ax, 'y', major_labels=major_labels, **{"label": tick_src, **ticker})
 
     def plot_nmo_correction(self, min_vel=1500, max_vel=6000, figsize=(6, 4.5), show_grid=True, **kwargs):
