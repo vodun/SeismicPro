@@ -505,7 +505,13 @@ class StdFraqMetricGlob(TracewiseMetric):
 
 
 class TraceSinalToNoiseRMSRatio(TracewiseMetric):
-    """ Signal to Noise RMS ratio computed using provided windows """
+    """Signal to Noise RMS ratio computed using provided windows.
+    The Metric parameters are: window size that is used for both signal and noise windows,
+    start times for the noise and signal windows, and the range of offsets to use for both windows.
+    If first break times are loaded and either window intersects with them in a gather,
+    window length is adjusted for both windows in ths gather
+    so that the noise window is strictly above fiest breaks and the signal window is strictly below them.
+    """
     name = "trace_RMS_Ratio"
     is_lower_better = False
     threshold = None
@@ -514,7 +520,7 @@ class TraceSinalToNoiseRMSRatio(TracewiseMetric):
 
     @staticmethod
     def _get_indices(gather, win_size, n_start, s_start, mask, first_breaks_col):
-        """Convert times to use for noise and signal windows into indices"""
+        """Convert times to use for noise and signal windows into indices."""
         if first_breaks_col is not None and first_breaks_col in gather.headers:
             fb_high = gather.headers[first_breaks_col][mask].min()
             fb_low = gather.headers[first_breaks_col][mask].max()
@@ -536,7 +542,7 @@ class TraceSinalToNoiseRMSRatio(TracewiseMetric):
 
     @classmethod
     def _get_res(cls, gather, offsets, win_size, n_start, s_start, first_breaks_col=None, **kwargs):
-        """QC indicator implementation."""
+        """QC indicator implementation. See `plot` docstring for parameters descriptions."""
         _ = kwargs
 
         mask = ((gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1]))
@@ -551,7 +557,26 @@ class TraceSinalToNoiseRMSRatio(TracewiseMetric):
         return res
 
     def plot(self, coords, ax, offsets, win_size, n_start, s_start, first_breaks_col=None, **kwargs):
-        """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
+        """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows
+
+        Parameters
+        ----------
+        coords : int or 1d array-like
+            an index of the gather to load. It is filled by a BaseMetricMap.
+        ax : matplotlib.axes.Axes
+            an axis to use, filled by a BaseMetricMap.
+        offsets : tuple of 2 int
+            minimum and maximum offsets to use for the noise and signal windows.
+        win_size : int
+            the length of the noise and signal windows measured in ms.
+        n_start : int
+            the start of noise window measured in ms.
+        s_start : int
+            the start of signal window measured in ms.
+        first_breaks_col : str, optional
+            header with first breaks,
+            if not provided, the signal and noise windows are not checked for intersection with first break times.
+        """
         gather = self.survey.get_gather(coords)
 
         res = self.calc(gather, tracewise=True, offsets=offsets, win_size=win_size,
@@ -585,7 +610,14 @@ class TraceSinalToNoiseRMSRatio(TracewiseMetric):
 
 
 class TraceSinalToNoiseRMSRatioAdaptive(TracewiseMetric):
-    """ Signal to Noise RMS ratio computed using provided windows """
+    """Signal to Noise RMS ratio computed in sliding windows along first breaks.
+    The Metric parameters are: window size that is used for both signal and noise windows,
+    and the shifts of the windows from from the first breaks picking.
+    Noise window beginnings are computed as fbp_time - shift_up - window_size,
+    Signal windows beginnings are computed as fbp_time + shift_down.
+    Only traces that contain noise and signal windows of the provided `window_size` are considered,
+    the metric is Null for other traces."""
+
     name = "trace_RMS_Ratio_Adaptive"
     is_lower_better = False
     threshold = None
@@ -613,7 +645,7 @@ class TraceSinalToNoiseRMSRatioAdaptive(TracewiseMetric):
 
     @classmethod
     def _get_res(cls, gather, win_size, shift_up, shift_down, first_breaks_col=HDR_FIRST_BREAK, **kwargs):
-        """QC indicator implementation."""
+        """QC indicator implementation. See `plot` docstring for parameters descriptions."""
         _ = kwargs
 
         n_begs, s_begs = cls._get_indices(gather, win_size, shift_up, shift_down, first_breaks_col)
@@ -628,7 +660,23 @@ class TraceSinalToNoiseRMSRatioAdaptive(TracewiseMetric):
         return res
 
     def plot(self, coords, ax,  win_size, shift_up, shift_down, first_breaks_col=HDR_FIRST_BREAK, **kwargs):
-        """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
+        """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows.
+
+        Parameters
+        ----------
+        coords : int or 1d array-like
+            an index of the gather to load. It is filled by a BaseMetricMap.
+        ax : matplotlib.axes.Axes
+            an axis to use, filled by a BaseMetricMap.
+        win_size : int
+            length of the windows for computing signam and noise RMS amplitudes measured in ms.
+        shift_up : int
+            the delta between noise window end and first breaks, measured in ms.
+        shift_down : int
+            the delta between signal window beginning and first breaks, measured in ms.
+        first_breaks_col : str, optional
+            header with first breaks, by default HDR_FIRST_BREAK
+        """
         gather = self.survey.get_gather(coords)
 
         res = self.calc(gather, tracewise=True, win_size=win_size,
