@@ -644,38 +644,7 @@ class Gather(TraceContainer, SamplesContainer):
         self : Gather
             Gather unchanged
         """
-        return self.dump_header(path, header_col=first_breaks_col, trace_id_cols=trace_id_cols,
-                                col_space=col_space, encoding=encoding)
-
-    @batch_method(target='for', use_lock=True)
-    def dump_header(self, path, header_col, trace_id_cols=('FieldRecord', 'TraceNumber'),
-                    col_space=8, encoding="UTF-8"):
-        """ Save values from a headers column to a file.
-
-        Each line in the resulting file corresponds to one trace, where all columns but
-        the last one store values from `trace_id_cols` headers and identify the trace
-        while the last column stores the desired header.
-
-        Parameters
-        ----------
-        path : str
-            Path to the file.
-        header_col : str
-            Column name from `self.headers` to dump.
-        trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
-            Columns names from `self.headers` that act as trace id. These would be present in the file.
-        col_space : int, defaults to 8
-            The minimum width of each column.
-        encoding : str, optional, defaults to "UTF-8"
-            File encoding.
-
-        Returns
-        -------
-        self : Gather
-            Gather unchanged
-        """
-
-        rows = self[to_list(trace_id_cols) + [header_col]]
+        rows = self[to_list(trace_id_cols) + [first_breaks_col]]
 
         # SEG-Y specification states that all headers values are integers, but first break values can be float
         row_fmt = '{:{col_space}.0f}' * (rows.shape[1] - 1) + '{:{col_space}.2f}\n'
