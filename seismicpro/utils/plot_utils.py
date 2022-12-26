@@ -127,9 +127,10 @@ def set_ticks(ax, axis, label='', major_labels=None, minor_labels=None, num=None
     """
     # Format axis label
     UNITS = {  # pylint: disable=invalid-name
-        "Time": " (ms)",
         "offset": " (m)",
+        "Time": " (ms)",
         "Velocity": " (m/s)",
+        "Stacking velocity": " (m/s)",
         "Relative velocity margin": " (%)"
     }
 
