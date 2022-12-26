@@ -128,7 +128,9 @@ def set_ticks(ax, axis, label='', major_labels=None, minor_labels=None, num=None
     # Format axis label
     UNITS = {  # pylint: disable=invalid-name
         "Time": " (ms)",
-        "Offset": " (m)",
+        "offset": " (m)",
+        "Velocity": " (m/s)",
+        "Relative velocity margin": " (%)"
     }
 
     axis_label = '\n'.join([ix_label + UNITS.get(ix_label, '') for ix_label in to_list(label)])
