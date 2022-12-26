@@ -189,7 +189,7 @@ class Gather(TraceContainer, SamplesContainer):
         # The two-element `indices` tuple describes indices of traces and samples to be obtained respectively
         new_self.headers = self.headers.iloc[indices[0]]
         new_self.samples = self.samples[indices[1]]
-        
+
         # If the gather was sorted, verify that getitem does not break sorting
         if new_self.sort_by is not None:
             if isinstance(indices[0], slice):
@@ -1518,7 +1518,7 @@ class Gather(TraceContainer, SamplesContainer):
             major_labels =  self.samples
         if tick_src == "Samples":
             major_labels = np.arange(self.n_samples)
-    
+
         set_ticks(ax, 'y', major_labels=major_labels, **{"label": tick_src, **ticker})
 
     def plot_nmo_correction(self, min_vel=1500, max_vel=6000, figsize=(6, 4.5), show_grid=True, **kwargs):

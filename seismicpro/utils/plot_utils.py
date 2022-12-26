@@ -86,7 +86,7 @@ def format_subplot_yticklabels(ax, fontsize=None, fontfamily=None, fontweight=No
         tick.set_fontweight(fontweight)
 
 
-def set_ticks(ax, axis, label='', major_labels=None, minor_labels=None, num=None, 
+def set_ticks(ax, axis, label='', major_labels=None, minor_labels=None, num=None,
               step_ticks=None, step_labels=None, round_to=0, **kwargs):
     """Set ticks and labels for `x` or `y` axis depending on the `axis`.
 
@@ -135,7 +135,7 @@ def set_ticks(ax, axis, label='', major_labels=None, minor_labels=None, num=None
     }
 
     axis_label = '\n'.join([ix_label + UNITS.get(ix_label, '') for ix_label in to_list(label)])
- 
+
     locator, formatter = _process_ticks(labels=major_labels, num=num, step_ticks=step_ticks,
                                         step_labels=step_labels, round_to=round_to)
     rotation_kwargs = _pop_rotation_kwargs(kwargs)
