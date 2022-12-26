@@ -1308,7 +1308,6 @@ class Gather(TraceContainer, SamplesContainer):
         ValueError
             If given `mode` is unknown.
             If `colorbar` is not `bool` or `dict`.
-            If length of `color` doesn't match the number of traces in gather.
             If `event_headers` argument has the wrong format or given outlier processing mode is unknown.
             If `x_ticker` or `y_ticker` has the wrong format.
         """
@@ -1502,22 +1501,22 @@ class Gather(TraceContainer, SamplesContainer):
         return top_ax
 
     def _set_x_ticks(self, ax, tick_src, ticker):
-        tick_src = to_list(tick_src or self.sort_by or 'index')[:2]
+        """Infer and set ticks for x axis. """
+        tick_src = to_list(tick_src or self.sort_by or 'Index')[:2]
         if tick_src[0] == "index":
             major_labels, minor_labels = np.arange(self.n_traces), None
         elif len(tick_src) == 1:
             major_labels, minor_labels =  self[tick_src[0]], None
         else:
             major_labels, minor_labels = self[tick_src].T
-
         set_ticks(ax, 'x', major_labels=major_labels, minor_labels=minor_labels, **{"label": tick_src, **ticker})
 
     def _set_y_ticks(self, ax, tick_src, ticker):
+        """Infer and set ticks for y axis. """
         if tick_src == "time":
             major_labels =  self.samples
         if tick_src == "samples":
             major_labels = np.arange(self.n_samples)
-
         set_ticks(ax, 'y', major_labels=major_labels, **{"label": tick_src, **ticker})
 
     def plot_nmo_correction(self, min_vel=1500, max_vel=6000, figsize=(6, 4.5), show_grid=True, **kwargs):
