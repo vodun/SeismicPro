@@ -36,7 +36,7 @@ from inspect import getmembers
 from functools import cached_property
 
 import numpy as np
-from sklearn.neighbors import NearestNeighbors
+from scipy.spatial import KDTree
 
 from .utils import to_list, read_vfunc, dump_vfunc, Coordinates
 from .utils.interpolation import IDWInterpolator, DelaunayInterpolator, CloughTocherInterpolator, RBFInterpolator
@@ -118,7 +118,7 @@ class Field:
         items."""
         if self.n_items < 2:
             return 0
-        return NearestNeighbors(n_neighbors=2, n_jobs=-1).fit(self.coords).kneighbors()[0][:, 1].mean()
+        return KDTree(self.coords).query(self.coords, k=[2], workers=-1)[0].mean()
 
     @property
     def default_neighborhood_radius(self):
