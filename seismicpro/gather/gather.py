@@ -1265,13 +1265,13 @@ class Gather(TraceContainer, SamplesContainer):
         ax : matplotlib.axes.Axes, optional, defaults to None
             An axis of the figure to plot on. If not given, it will be created automatically.
         x_tick_src : str, optional
-            Source of the tick labels to be plotted on x axis. For "seismogram" and "wiggle" can be either "index"
+            Source of the tick labels to be plotted on x axis. For "seismogram" and "wiggle" can be either "Index"
             (default if gather is not sorted) or any header; for "hist" it also defines the data source and can be
-            either "amplitude" (default) or any header.
+            either "Amplitude" (default) or any header.
             Also serves as a default for axis label.
         y_tick_src : str, optional
-            Source of the tick labels to be plotted on y axis. For "seismogram" and "wiggle" can be either "time"
-            (default) or "samples"; has no effect in "hist" mode. Also serves as a default for axis label.
+            Source of the tick labels to be plotted on y axis. For "seismogram" and "wiggle" can be either "Time"
+            (default) or "Samples"; has no effect in "hist" mode. Also serves as a default for axis label.
         event_headers : str, array-like or dict, optional, defaults to None
             Valid only for "seismogram" and "wiggle" modes.
             Headers, whose values will be displayed over the gather plot. Must be measured in milliseconds.
@@ -1325,13 +1325,13 @@ class Gather(TraceContainer, SamplesContainer):
         plotters_dict[mode](ax, title=title, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
         return self
 
-    def _plot_histogram(self, ax, title, x_ticker, y_ticker, x_tick_src="amplitude", bins=None,
+    def _plot_histogram(self, ax, title, x_ticker, y_ticker, x_tick_src="Amplitude", bins=None,
                         log=False, grid=True, **kwargs):
         """Plot histogram of the data specified by x_tick_src."""
-        data = self.data.ravel() if x_tick_src == "amplitude" else self[x_tick_src]
+        data = self.data.ravel() if x_tick_src == "Amplitude" else self[x_tick_src]
         _ = ax.hist(data, bins=bins, **kwargs)
-        set_ticks(ax, "x", major_labels=None, **{"label": x_tick_src, 'round_to': None, **x_ticker})
-        set_ticks(ax, "y", major_labels=None, **{"label": "counts", **y_ticker})
+        set_ticks(ax, "x", **{"label": x_tick_src, 'round_to': None, **x_ticker})
+        set_ticks(ax, "y", **{"label": "Counts", **y_ticker})
 
         ax.grid(grid)
         if log:
@@ -1339,7 +1339,7 @@ class Gather(TraceContainer, SamplesContainer):
         ax.set_title(**{'label': None, **title})
 
     # pylint: disable=too-many-arguments
-    def _plot_seismogram(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src='time', colorbar=False,
+    def _plot_seismogram(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src='Time', colorbar=False,
                          q_vmin=0.1, q_vmax=0.9, event_headers=None, top_header=None, **kwargs):
         """Plot the gather as a 2d grayscale image of seismic traces."""
         # Make the axis divisible to further plot colorbar and header subplot
@@ -1503,20 +1503,22 @@ class Gather(TraceContainer, SamplesContainer):
     def _set_x_ticks(self, ax, tick_src, ticker):
         """Infer and set ticks for x axis. """
         tick_src = to_list(tick_src or self.sort_by or 'Index')[:2]
-        if tick_src[0] == "index":
+        if tick_src[0] == "Index":
             major_labels, minor_labels = np.arange(self.n_traces), None
         elif len(tick_src) == 1:
             major_labels, minor_labels =  self[tick_src[0]], None
         else:
-            major_labels, minor_labels = self[tick_src].T
+            major_labels, minor_labels = self[tick_src[0]], self[tick_src[1]]
+
         set_ticks(ax, 'x', major_labels=major_labels, minor_labels=minor_labels, **{"label": tick_src, **ticker})
 
     def _set_y_ticks(self, ax, tick_src, ticker):
         """Infer and set ticks for y axis. """
-        if tick_src == "time":
+        if tick_src == "Time":
             major_labels =  self.samples
-        if tick_src == "samples":
+        if tick_src == "Samples":
             major_labels = np.arange(self.n_samples)
+    
         set_ticks(ax, 'y', major_labels=major_labels, **{"label": tick_src, **ticker})
 
     def plot_nmo_correction(self, min_vel=1500, max_vel=6000, figsize=(6, 4.5), show_grid=True, **kwargs):
