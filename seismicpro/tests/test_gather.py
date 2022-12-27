@@ -224,9 +224,10 @@ def test_gather_mask_to_pick_and_pick_to_mask(gather):
     mask = gather.pick_to_mask(first_breaks_col=HDR_FIRST_BREAK)
     mask.mask_to_pick(first_breaks_col=HDR_FIRST_BREAK, save_to=gather)
 
-def test_gather_sort(gather):
+@pytest.mark.parametrize('by', ('offset', ['FieldRecord', 'offset']))
+def test_gather_sort(gather, by):
     """test_gather_sort"""
-    gather.sort(by='offset')
+    gather.sort(by=by)
 
 def test_gather_muting(gather):
     """test_gather_muting"""
