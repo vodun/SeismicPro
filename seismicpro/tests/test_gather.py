@@ -198,6 +198,7 @@ def test_gather_store_headers_to_survey(segy_path, columns):
     # Creating survey every time since this method affects survey and we cannot use global gather fixture here
     survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'],
                     header_cols=['offset', 'FieldRecord'], validate=False)
+    copy_survey = survey.copy()
 
     gather = survey.get_gather((0, 0))
     gather.headers["col_1"] = np.arange(gather.n_traces, dtype=np.int32)
@@ -208,6 +209,15 @@ def test_gather_store_headers_to_survey(segy_path, columns):
     headers_from_survey = survey.headers.loc[gather.index].sort_values(by="offset")
     headers_from_gather = gather.headers.sort_values(by="offset")
     assert np.allclose(headers_from_survey[columns], headers_from_gather[columns])
+
+    other_indices = list(set(survey.indices) ^ {gather.index})
+    expected_survey = copy_survey.headers.loc[other_indices]
+    changed_survey = survey.headers.loc[other_indices]
+    for column in to_list(columns):
+        if column in ["col_1", "col_2"]:
+            assert changed_survey[column].isnull().sum() == len(changed_survey)
+        else:
+            assert np.allclose(expected_survey[column], changed_survey[column])
 
 @pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
 @pytest.mark.parametrize('q', [0.1, [0.1, 0.2], (0.1, 0.2), np.array([0.1, 0.2])])
