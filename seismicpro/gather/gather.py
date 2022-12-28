@@ -25,7 +25,7 @@ from ..muter import Muter, MuterField
 from ..stacking_velocity import StackingVelocity, StackingVelocityField
 from ..refractor_velocity import RefractorVelocity, RefractorVelocityField
 from ..decorators import batch_method, plotter
-from ..const import HDR_FIRST_BREAK, DEFAULT_SDC_VELOCITY
+from ..const import HDR_FIRST_BREAK, HDR_TRACE_POS, DEFAULT_SDC_VELOCITY
 
 
 class Gather(TraceContainer, SamplesContainer):
@@ -261,6 +261,42 @@ class Gather(TraceContainer, SamplesContainer):
     def _post_filter(self, mask):
         """Remove traces from gather data that correspond to filtered headers after `Gather.filter`."""
         self.data = self.data[mask]
+
+    # Target set to `for` to avoid race condition when the same trace appears in two gathers (ex. supergathers)
+    @batch_method(target='for', use_lock=True)
+    def store_headers_to_survey(self, columns):
+        """Save given headers from the gather to its survey.
+
+        Notes
+        -----
+        The correct result is guaranteed only if the `self.survey` has not been modified after `self` creation.
+
+        Parameters
+        ----------
+        columns : str or list of str
+            Column names from `self.headers` that will be stored to `self.survey` headers.
+
+        Returns
+        -------
+        self : Gather
+            Gather unchanged.
+        """
+        columns = to_list(columns)
+
+        headers = self.survey.headers
+        pos = self[HDR_TRACE_POS]
+        for column in columns:
+            column_data = self[column] # Here we also check that column is in self.headers
+            if column not in headers:
+                headers[column] = np.nan
+
+            if not np.can_cast(column_data, headers.dtypes[column]):
+                headers[column] = headers[column].astype(column_data.dtype)
+
+            # FIXME: Workaround for a pandas bug https://github.com/pandas-dev/pandas/issues/48998
+            # iloc may call unnecessary copy of the whole column before setitem
+            headers[column].array[pos] = column_data
+        return self
 
     #------------------------------------------------------------------------#
     #                              Dump methods                              #
