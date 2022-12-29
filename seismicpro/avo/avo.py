@@ -4,12 +4,11 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-
 from .utils import aggregate_by_bins_numba
 from .. import SeismicDataset
 from ..utils import to_list
 
-# """TODO: Save values, split them by offset based on given bins. be able to regroup them by any given index (coords)"""
+
 class AmplitudeOffsetDistribution:
     def __init__(self, survey, avo_column, bin_size, indexed_by=None, name=None):
         self.headers = survey.headers.reset_index().copy(deep=False)
@@ -26,7 +25,7 @@ class AmplitudeOffsetDistribution:
         self.name = name
         self.bin_bounds = None
         self.agg_stats = None
-        self.combine_to_gathers(bin_size=bin_size)
+        self.regroup(bin_size=bin_size)
 
     @property
     def indexed_by(self):
@@ -43,7 +42,7 @@ class AmplitudeOffsetDistribution:
         self.gather_bounds = np.array(tuple(zip(gathers_bounds[:-1], gathers_bounds[1:]-1)))
         self._indexed_by = columns
 
-    def combine_to_gathers(self, bin_size=None, indexed_by=None):
+    def regroup(self, bin_size=None, indexed_by=None):
         if isinstance(bin_size, (int, np.integer)):
             self.bin_bounds = np.arange(0, self.max_offset+bin_size, bin_size)
         elif hasattr(bin_size, "__iter__"):
@@ -52,7 +51,7 @@ class AmplitudeOffsetDistribution:
         if indexed_by is not None and set(to_list(indexed_by)) != set(self.indexed_by):
             self.indexed_by = indexed_by
 
-        avo_stats, offsets = self.headers[[self.avo_column, "offset"]].to_numpy().T
+        avo_stats, offsets = self.data.T
         agg_stats = aggregate_by_bins_numba(avo_stats, offsets, self.bin_bounds, self.gather_bounds)
         agg_stats[agg_stats == 0] = np.nan
         self.agg_stats = agg_stats
@@ -72,6 +71,7 @@ class AmplitudeOffsetDistribution:
 
         if save_to is not None:
             save_figure(fig, save_to, dpi=dpi)
+        sns.set_style("ticks")
         plt.show()
 
     def plot_std(self, *args, title=None, figsize=(12, 7), save_to=None):
@@ -90,7 +90,7 @@ class AmplitudeOffsetDistribution:
                 if np.any(self.indexed_by != other.indexed_by):
                     raise ValueError("All AVOs must be indexed by the same header")
 
-                other_data =other.agg_stats.ravel()
+                other_data = other.agg_stats.ravel()
                 data = np.append(data, other_data)
                 indices = np.append(indices, indices)
                 names += [other.name] * len(other_data)
@@ -104,8 +104,6 @@ class AmplitudeOffsetDistribution:
         if save_to is not None:
             save_figure(fig, save_to, dpi=dpi)
         plt.show()
-
-
 
 
     # @classmethod
