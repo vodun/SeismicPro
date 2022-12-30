@@ -2,3 +2,4 @@
 
 from .refractor_velocity import RefractorVelocity
 from .refractor_velocity_field import RefractorVelocityField
+from .metrics import FirstBreaksOutliers, DivergencePoint

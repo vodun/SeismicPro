@@ -588,36 +588,38 @@ class RefractorVelocityField(SpatialField):
         """
         FitPlot(self, **kwargs).plot()
         
-    def qc(self, survey=None, metrics=None, first_breaks_col=HDR_FIRST_BREAK, **kwargs):    
+    def qc(self, survey=None, metrics=None, first_breaks_col=HDR_FIRST_BREAK):    
         if survey is None:
             if not self.has_survey:
-                raise ValueError("survey must be passed if the field is not linked with a survey")
+                raise ValueError("Survey must be passed if the field is not linked with a survey.")
             survey = self.survey
 
-        is_single_metric = isinstance(metrics, type) and issubclass(metrics, RefractorVelocityMetric)
-        if metrics is None:
-            metrics = REFRACTOR_VELOCITY_QC_METRICS
-        metrics = to_list(metrics)
+        metrics = REFRACTOR_VELOCITY_QC_METRICS if metrics is None else metrics
+        if not isinstance(metrics, dict):
+            metrics = {metric_cls: {} for metric_cls in to_list(metrics)}
+
         if not metrics:
-            raise ValueError("At least one metric should be passed")
-        if not all(isinstance(metric, type) and issubclass(metric, RefractorVelocityMetric) for metric in metrics):
-            raise ValueError("All passed metrics must be subclasses of RefractorVelocityMetric")
+            raise ValueError("At least one metric should be passed.")
+        if not all(isinstance(metric_cls, type) and issubclass(metric_cls, RefractorVelocityMetric)
+                   for metric_cls in metrics):
+            raise ValueError("All passed metrics must be subclasses of RefractorVelocityMetric.")
 
-        coords_cols = to_list(self.coords_cols)
+        coords_cols = get_coords_cols(survey.indexed_by)
         if not survey.indexed_by == coords_cols:
-            survey = survey.reindex(coords_cols, inplace=False)
+            survey = survey.reindex(to_list(coords_cols), inplace=False)
+        coords = survey.indices
 
-        coords = np.unique(survey.headers.index)
-        times = [survey.headers.loc[gather_coords][first_breaks_col] for gather_coords in coords]
-        offsets = [survey.headers.loc[gather_coords]["offset"] for gather_coords in coords]
         refractor_velocities = self(list(coords))
+        gathers = [survey.get_gather(gather_coords) for gather_coords in coords]
 
-        metrics = [metric(survey=survey, refractor_velocities=refractor_velocities, first_breaks_col=first_breaks_col,
-                          **kwargs) for metric in metrics]
-        results = [metric.calc_metric(times, offsets, refractor_velocities, **kwargs)
-                   for metric in metrics]
-        metrics_maps = [metric.map_class(coords, metric_values, coords_cols=self.coords_cols, metric=metric)
-                        for metric, metric_values in zip(metrics, results)]
-        if is_single_metric:
-            return metrics_maps[0]
+        metrics = {metric(survey=survey, field=self, first_breaks_col=first_breaks_col,
+                          **kwargs): kwargs for metric, kwargs in metrics.items()}
+
+        results = {metric.name: [] for metric in metrics}
+        for gather, gather_rv in tqdm(zip(gathers, refractor_velocities)):
+            for metric, kwargs in metrics.items():
+                results[metric.name].append(metric.calc([gather], [gather_rv], **kwargs)[0])
+
+        metrics_maps = {metric.name: metric.map_class(coords, metric_values, coords_cols=self.coords_cols, metric=metric)
+                        for metric, metric_values in zip(metrics, results.values())}
         return metrics_maps
