@@ -7,6 +7,7 @@ import segyio
 import numpy as np
 
 from seismicpro.utils.indexer import create_indexer
+from seismicpro.const import HDR_TRACE_POS
 
 from ..utils import assert_indexers_equal
 
@@ -41,13 +42,15 @@ def assert_survey_loaded(survey, segy_path, expected_name, expected_index, expec
     assert set(survey.headers.index.names) == expected_index
     assert set(survey.headers.index.names) | set(survey.headers.columns) == expected_headers
     assert survey.headers.index.is_monotonic_increasing
-
+    # Check that HDR_TRACE_POS reflects traces positions in the headers. We are checking `survey.headers` instead of
+    # `loaded_headers`, because `loaded_headers` are sorted differently, and HEAT_TRACE_POS has lost all meaning there.
+    assert np.array_equal(survey.headers[HDR_TRACE_POS].values, np.arange(n_traces))
     # Restore the order of the traces from the source file
     loaded_headers = survey.headers.reset_index().sort_values(by="TRACE_SEQUENCE_FILE")
 
     # Check loaded trace headers values
     assert np.array_equal(loaded_headers["TRACE_SEQUENCE_FILE"].values, np.arange(1, n_traces + 1))
-    for header in set(loaded_headers.columns) - {"TRACE_SEQUENCE_FILE"}:
+    for header in set(loaded_headers.columns) - {"TRACE_SEQUENCE_FILE", HDR_TRACE_POS}:
         assert np.array_equal(loaded_headers[header].values,
                               survey.segy_handler.attributes(segyio.tracefield.keys[header])[:])
 

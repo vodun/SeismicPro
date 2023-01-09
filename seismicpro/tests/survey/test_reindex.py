@@ -3,6 +3,7 @@
 import pytest
 import pandas as pd
 
+from seismicpro.const import HDR_TRACE_POS
 from . import assert_surveys_equal, assert_survey_processed_inplace
 
 
@@ -53,7 +54,7 @@ class TestReindex:
 
         # Check that only order of rows in headers has changed
         merged_headers = pd.merge(survey_copy.headers.reset_index(), survey_reindexed.headers.reset_index(),
-                                  on=list(survey_headers))
+                                  on=list(survey_headers - {HDR_TRACE_POS}))
         assert len(merged_headers) == len(survey_copy.headers)
 
         # Check that all other attributes has not changed

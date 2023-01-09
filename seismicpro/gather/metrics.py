@@ -28,8 +28,10 @@ class FirstBreaksOutliers(PipelineMetric):
 
         Parameters
         ----------
+        gather : Gather
+            A seismic gather to get offsets and first break times from.
         refractor_velocity : RefractorVelocity
-            RefractorVelocity used to estimate the expected first break times.
+            RefractorVelocity used to estimate the expected first break times at `gather` offsets.
         first_breaks_col : str, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `gather.headers` where first break times are stored.
         threshold_times: float, defaults to 50
@@ -41,7 +43,7 @@ class FirstBreaksOutliers(PipelineMetric):
             Fraction of traces in the gather whose first break times differ from estimated by velocity model for more
             than `threshold_times`.
         """
-        metric = np.abs(refractor_velocity(gather.offsets) - gather[first_breaks_col].ravel()) > threshold_times
+        metric = np.abs(refractor_velocity(gather.offsets) - gather[first_breaks_col]) > threshold_times
         return np.mean(metric)
 
     @pass_calc_args
