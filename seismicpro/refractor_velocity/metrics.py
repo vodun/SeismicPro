@@ -1,6 +1,7 @@
 import numpy as np
 from numba import njit
 from matplotlib import patches
+from scipy.signal import hilbert
 
 from ..metrics import Metric, ScatterMapPlot, MetricMap
 from ..const import HDR_FIRST_BREAK
@@ -67,6 +68,27 @@ class FirstBreaksOutliers(RefractorVelocityMetric):
     def plot_refractor_velocity(self, coords, ax, **kwargs):
         _ = kwargs.pop('map_data')
         super().plot_refractor_velocity(coords, ax, **kwargs)
+
+
+class FirstBreaksAmplitudes(RefractorVelocityMetric):
+    name = "firs_break_amplitudes"
+    vmin = 0
+    vmax = 3
+    is_lower_better = True # ?
+    
+    @classmethod
+    def calc(cls, gathers, refractor_velocities, first_breaks_col=HDR_FIRST_BREAK):
+        _ = refractor_velocities
+        metric = []
+        for gather in gathers:
+            ix = np.round(gather[first_breaks_col] / gather.sample_rate).astype(int)
+            gather.headers['amps'] = gather.data[np.arange(gather.shape[0]), ix]
+            metric.append(gather['amps'].mean())
+        return metric
+    
+#     def plot_gather(self, coords, ax, **kwargs):
+#         kwargs['top_header'] = 'amps'
+#         super().plot_gather(coords, ax, **kwargs)
         
 
 class DivergencePoint(RefractorVelocityMetric):
@@ -129,5 +151,5 @@ class DivergencePoint(RefractorVelocityMetric):
         ax.axvline(x=x_coord, color='k', linestyle='--')
         super().plot_refractor_velocity(coords, ax, **kwargs)
         
-REFRACTOR_VELOCITY_QC_METRICS = [FirstBreaksOutliers, DivergencePoint]
+REFRACTOR_VELOCITY_QC_METRICS = [FirstBreaksOutliers, DivergencePoint, FirstBreaksAmplitudes]
         
