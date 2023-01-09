@@ -1,10 +1,10 @@
 """Implements Survey class describing a single SEG-Y file"""
 
 import os
+import math
 import warnings
 from copy import copy
 from textwrap import dedent
-import math
 
 import cv2
 import segyio
@@ -23,7 +23,7 @@ from ..gather import Gather
 from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
 from ..utils import to_list, maybe_copy, get_cols
-from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK
+from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK, HDR_TRACE_POS
 
 
 class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-instance-attributes
@@ -310,6 +310,13 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     def dead_traces_marked(self):
         """bool: `mark_dead_traces` called."""
         return self.n_dead_traces is not None
+
+    @GatherContainer.headers.setter
+    def headers(self, headers):
+        """Reconstruct trace positions on each headers assignment."""
+        GatherContainer.headers.fset(self, headers)
+        htp_dtype = np.int32 if len(headers) < np.iinfo(np.int32).max else np.int64
+        self.headers[HDR_TRACE_POS] = np.arange(self.n_traces, dtype=htp_dtype)
 
     def __del__(self):
         """Close SEG-Y file handler on survey destruction."""
@@ -943,12 +950,12 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                           delimiter='\s+', decimal=None, encoding="UTF-8", inplace=False, **kwargs):
         """Load times of first breaks from a file and save them to a new column in headers.
 
-        Each line of the file stores the first break time for a trace in the last column.
-        The combination of all but the last columns should act as a unique trace identifier and is used to match
-        the trace from the file with the corresponding trace in `self.headers`.
+        Each line of the file stores the first break time for a trace in the last column. The combination of all but
+        the last columns should act as a unique trace identifier and is used to match the trace from the file with the
+        corresponding trace in `self.headers`.
 
-        The file can have any format that can be read by `pd.read_csv`, by default, it's expected
-        to have whitespace-separated values.
+        The file can have any format that can be read by `pd.read_csv`, by default, it's expected to have
+        whitespace-separated values.
 
         Parameters
         ----------
@@ -973,34 +980,28 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Returns
         -------
         self : Survey
-            A survey with loaded first break times. Changes `self.headers` inplace.
+            A survey with loaded times of first breaks.
 
         Raises
         ------
         ValueError
             If there is not a single match of rows from the file with those in `self.headers`.
         """
-        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        self = maybe_copy(self, inplace, ignore="headers")  # pylint: disable=self-cls-assignment
 
-        # if decimal is not provided, try to infer it from the first line
+        # If decimal is not provided, try inferring it from the first line
         if decimal is None:
             with open(path, 'r', encoding=encoding) as f:
                 row = f.readline()
             decimal = '.' if '.' in row else ','
 
-        file_columns = to_list(trace_id_cols) + [first_breaks_col]
-        first_breaks_df = pd.read_csv(path, delimiter=delimiter, names=file_columns,
+        trace_id_cols = to_list(trace_id_cols)
+        file_columns = trace_id_cols + [first_breaks_col]
+        first_breaks_df = pd.read_csv(path, delimiter=delimiter, names=file_columns, index_col=trace_id_cols,
                                       decimal=decimal, encoding=encoding, **kwargs)
-
-        headers = self.headers
-        headers_index = self.indexed_by
-        headers.reset_index(inplace=True)
-        headers = headers.merge(first_breaks_df, on=trace_id_cols)
-        if headers.empty:
-            raise ValueError('Empty headers after first breaks loading.')
-        headers.set_index(headers_index, inplace=True)
-        headers.sort_index(kind="stable", inplace=True)
-        self.headers = headers
+        self.headers = self.headers.join(first_breaks_df, on=trace_id_cols, how="inner", rsuffix="_loaded")
+        if self.is_empty:
+            warnings.warn("Empty headers after first breaks loading", RuntimeWarning)
         return self
 
     #------------------------------------------------------------------------#
@@ -1130,13 +1131,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         KeyError
             If `INLINE_3D` and `CROSSLINE_3D` headers were not loaded.
         """
+        self = maybe_copy(self, inplace, ignore="headers")  # pylint: disable=self-cls-assignment
         size = np.broadcast_to(size, 2)
         step = np.broadcast_to(step, 2)
-
-        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]
         super_line_cols = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
-        index_cols = super_line_cols if reindex else self.indexed_by
 
         if centers is None:
             # Construct a field mask and erode it according to border_indent and strict flag
@@ -1159,7 +1158,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             grid_i = np.arange(origin_i, field_mask.shape[0], step[0])
             grid_x = np.arange(origin_x, field_mask.shape[1], step[1])
             centers = np.stack(np.meshgrid(grid_i, grid_x), -1).reshape(-1, 2)
-            is_valid = field_mask[centers[:, 0], centers[:, 1]].astype(np.bool)
+            is_valid = field_mask[centers[:, 0], centers[:, 1]].astype(bool)
             centers = centers[is_valid] + field_mask_origin
 
         centers = np.array(centers)
@@ -1171,12 +1170,13 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         shifts = np.stack(shifts_grid, axis=-1).reshape(-1, 2)
         bridge = np.column_stack([centers.repeat(size.prod(), axis=0), (centers[:, None] + shifts).reshape(-1, 2)])
         bridge = pd.DataFrame(bridge, columns=super_line_cols+line_cols)
+        bridge.set_index(line_cols, inplace=True)
 
-        headers = self.headers
-        headers.reset_index(inplace=True)
-        headers = pd.merge(bridge, headers, on=line_cols)
-        headers.set_index(index_cols, inplace=True)
-        headers.sort_index(kind="stable", inplace=True)
+        headers = self.headers.join(bridge, on=line_cols, how="inner")
+        if reindex:
+            headers.reset_index(inplace=True)
+            headers.set_index(super_line_cols, inplace=True)
+            headers.sort_index(kind="stable", inplace=True)
         self.headers = headers
         return self
 

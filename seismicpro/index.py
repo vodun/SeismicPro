@@ -12,6 +12,7 @@ from batchflow import DatasetIndex
 from .survey import Survey
 from .containers import GatherContainer
 from .utils import to_list, maybe_copy
+from .const import HDR_TRACE_POS
 
 
 class IndexPart(GatherContainer):
@@ -82,7 +83,7 @@ class IndexPart(GatherContainer):
 
         possibly_common_headers = self.common_headers & other.common_headers
         if on is None:
-            on = possibly_common_headers - {"TRACE_SEQUENCE_FILE"}
+            on = possibly_common_headers - {"TRACE_SEQUENCE_FILE", HDR_TRACE_POS}
             left_df = self.headers
             right_df = other.headers
         else:
