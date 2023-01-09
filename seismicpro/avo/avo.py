@@ -17,52 +17,57 @@ class AmplitudeOffsetDistribution:
         self.max_offset = self.headers["offset"].max()
         self.avo_column = avo_column
 
-        self._indexed_by = None
-        self.gather_bounds = None
         self.data = self.headers[[self.avo_column, "offset"]].to_numpy()
-        self.indexed_by = indexed_by or survey.indexed_by
+        self.indexed_by = None
+        if indexed_by is None:
+            # Use index from survey by default and avoid further data reindex
+            gather_bounds = np.where(~survey.headers.index.duplicated())[0]
+            self.gather_bounds = np.array(tuple(zip(gather_bounds[:-1], gather_bounds[1:]-1)))
+            self.indexed_by = survey.indexed_by
 
-        self.name = name
+        self.name = name if name is not None else survey.name
         self.bin_bounds = None
         self.agg_stats = None
-        self.regroup(bin_size=bin_size)
-
-    @property
-    def indexed_by(self):
-        return self._indexed_by
-
-    @indexed_by.setter
-    def indexed_by(self, columns):
-        columns = to_list(columns)
-        headers_grouper = self.headers.groupby(columns).grouper
-        groups_ix = headers_grouper.result_ilocs()
-        gathers_bounds = np.cumsum([0, *headers_grouper.size().to_numpy()])
-
-        self.data = self.data[groups_ix]
-        self.gather_bounds = np.array(tuple(zip(gathers_bounds[:-1], gathers_bounds[1:]-1)))
-        self._indexed_by = columns
+        self.regroup(bin_size=bin_size, indexed_by=indexed_by or self.indexed_by)
 
     def regroup(self, bin_size=None, indexed_by=None):
-        if isinstance(bin_size, (int, np.integer)):
-            self.bin_bounds = np.arange(0, self.max_offset+bin_size, bin_size)
-        elif hasattr(bin_size, "__iter__"):
-            self.bin_bounds = np.cumsum([0, *bin_size])
+        if bin_size is not None:
+            if isinstance(bin_size, (int, np.integer)):
+                self.bin_bounds = np.arange(0, self.max_offset+bin_size, bin_size)
+            else:
+                self.bin_bounds = np.cumsum([0, *bin_size])
+
+        if self.bin_bounds is None:
+            raise ValueError("`bin_size` is missed.")
 
         if indexed_by is not None and set(to_list(indexed_by)) != set(self.indexed_by):
-            self.indexed_by = indexed_by
+            self.reindex(new_index=indexed_by)
 
         avo_stats, offsets = self.data.T
         agg_stats = aggregate_by_bins_numba(avo_stats, offsets, self.bin_bounds, self.gather_bounds)
         agg_stats[agg_stats == 0] = np.nan
         self.agg_stats = agg_stats
 
-    def plot(self, title=None, figsize=(12, 7), dot_size=3, avg_size=8, dpi=100, save_to=None):
-        indices = np.tile(self.bin_bounds, self.agg_stats.shape[0])
+    def reindex(self, new_index):
+        new_index = to_list(new_index)
+        headers_grouper = self.headers.groupby(new_index).grouper
+        groups_ix = headers_grouper.result_ilocs()
+        gathers_bounds = np.cumsum([0, *headers_grouper.size().to_numpy()])
+
+        self.data = self.data[groups_ix]
+        self.gather_bounds = np.array(tuple(zip(gathers_bounds[:-1], gathers_bounds[1:]-1)))
+        self.indexed_by = new_index
+
+    def qc(self, mode):
+        return self
+
+    def plot(self, title=None, figsize=(12, 7), dot_size=2, avg_size=8, dpi=100, save_to=None):
+        indices = np.tile(self.bin_bounds[:-1], self.agg_stats.shape[0])
 
         bins_mean = np.nanmean(self.agg_stats, axis=0)
         fig = plt.figure(figsize=figsize)
         plt.plot(indices, self.agg_stats.ravel(), 'o', markersize=dot_size)
-        plt.plot(self.bin_bounds, bins_mean, 'v', color='r', markersize=avg_size)
+        plt.plot(self.bin_bounds[:-1], bins_mean, 'v', color='r', markersize=avg_size)
 
         plt.grid()
         plt.xlabel('Offset')
@@ -71,15 +76,14 @@ class AmplitudeOffsetDistribution:
 
         if save_to is not None:
             save_figure(fig, save_to, dpi=dpi)
-        sns.set_style("ticks")
         plt.show()
 
-    def plot_std(self, *args, title=None, figsize=(12, 7), save_to=None):
+    def plot_std(self, *args, align=False, title=None, figsize=(12, 7), save_to=None):
         if self.name is None:
             raise ValueError("self.name must be specified")
 
         data = self.agg_stats.ravel()
-        indices = np.tile(self.bin_bounds, self.agg_stats.shape[0])
+        indices = np.tile(self.bin_bounds[:-1], self.agg_stats.shape[0])
         names = [self.name] * len(indices)
         if args:
             for ix, other in enumerate(args):
@@ -92,8 +96,15 @@ class AmplitudeOffsetDistribution:
 
                 other_data = other.agg_stats.ravel()
                 data = np.append(data, other_data)
-                indices = np.append(indices, indices)
+                indices = np.append(indices, np.tile(self.bin_bounds[:-1], other.agg_stats.shape[0]))
                 names += [other.name] * len(other_data)
+
+        if align:
+            # Align all avo stats to the same mean
+            global_mean = np.nanmean(data)
+            ixs = np.append([0], np.where(np.diff(indices) < 0))
+            for start, end in zip(ixs[:-1], ixs[1:]):
+                data[start: end] += global_mean - np.nanmean(data[start: end])
 
         sns.set_style("darkgrid")
         fig = plt.figure(figsize=figsize)
@@ -104,6 +115,7 @@ class AmplitudeOffsetDistribution:
         if save_to is not None:
             save_figure(fig, save_to, dpi=dpi)
         plt.show()
+        sns.set_style("ticks")
 
 
     # @classmethod
