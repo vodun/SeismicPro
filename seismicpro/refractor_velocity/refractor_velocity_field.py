@@ -11,12 +11,8 @@ import pandas as pd
 from tqdm.auto import tqdm
 
 from .refractor_velocity import RefractorVelocity
-<<<<<<< HEAD
-from .interactive_plot import FitPlot
 from .metrics import REFRACTOR_VELOCITY_QC_METRICS, RefractorVelocityMetric
-=======
 from .interactive_plot import FieldPlot
->>>>>>> master
 from .utils import get_param_names, postprocess_params, dump_refractor_velocities, load_refractor_velocities
 from ..field import SpatialField
 from ..utils import to_list, get_coords_cols, Coordinates, IDWInterpolator, ForPoolExecutor
@@ -633,7 +629,7 @@ class RefractorVelocityField(SpatialField):
         coords = survey.indices
 
         refractor_velocities = self(list(coords))
-        gathers = [survey.get_gather(gather_coords) for gather_coords in coords]
+        gathers = [survey.get_gather(gather_coords).scale_standard() for gather_coords in coords]
 
         metrics = {metric(survey=survey, field=self, first_breaks_col=first_breaks_col,
                           **kwargs): kwargs for metric, kwargs in metrics.items()}
