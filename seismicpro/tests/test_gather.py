@@ -33,6 +33,16 @@ def gather(survey):
     """gather"""
     return survey.get_gather((0, 0))
 
+@pytest.fixture(scope='function', params=[[False, None], [True, np.nan], [True, 0]])
+def maybe_muted_gather(request, survey):
+    """gather or muted gather"""
+    gather = survey.get_gather((0, 0))
+    use_muter, fill_value = request.param
+    if use_muter:
+        muter = gather.calculate_refractor_velocity(n_refractors=1).create_muter()
+        gather = gather.mute(muter, fill_value=fill_value)
+    return gather
+
 
 def compare_gathers(first, second, drop_cols=None, check_types=False, same_survey=True):
     """compare_gathers"""
@@ -228,15 +238,11 @@ def test_gather_get_quantile(gather, tracewise, use_global, q):
 
 
 @pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
-@pytest.mark.parametrize('use_muter, fill_value', [[False, None], [True, np.nan], [True, 0]])
-def test_gather_scale_standard(gather, tracewise, use_global, use_muter, fill_value):
+def test_gather_scale_standard(maybe_muted_gather, tracewise, use_global):
     """test_gather_scale_standard"""
-    if use_muter:
-        muter = gather.calculate_refractor_velocity(n_refractors=1).create_muter()
-        gather = gather.mute(muter, fill_value=fill_value)
 
-    gather2 = gather.copy()
-    gather.scale_standard(tracewise=tracewise, use_global=use_global)
+    gather2 = maybe_muted_gather.copy()
+    maybe_muted_gather.scale_standard(tracewise=tracewise, use_global=use_global)
 
     if use_global:
         gather2.data = (gather2.data - gather2.survey.mean)/(gather2.survey.std + EPS)
@@ -244,18 +250,13 @@ def test_gather_scale_standard(gather, tracewise, use_global, use_muter, fill_va
         kwargs = dict(axis=(1 if tracewise else None), keepdims=True)
         gather2.data = (gather2.data - np.nanmean(gather2.data, **kwargs))/(np.nanstd(gather2.data, **kwargs) + EPS)
 
-    compare_gathers(gather, gather2)
+    compare_gathers(maybe_muted_gather, gather2)
 
 @pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
-@pytest.mark.parametrize('use_muter, fill_value', [[False, None], [True, np.nan], [True, 0]])
-def test_gather_scale_minmax(gather, tracewise, use_global, use_muter, fill_value):
+def test_gather_scale_minmax(maybe_muted_gather, tracewise, use_global):
     """test_gather_scale_minmax"""
-    if use_muter:
-        muter = gather.calculate_refractor_velocity(n_refractors=1).create_muter()
-        gather = gather.mute(muter, fill_value=fill_value)
-
-    gather2 = gather.copy()
-    gather.scale_minmax(tracewise=tracewise, use_global=use_global)
+    gather2 = maybe_muted_gather.copy()
+    maybe_muted_gather.scale_minmax(tracewise=tracewise, use_global=use_global)
 
     if use_global:
         vmin, vmax = gather2.survey.min, gather2.survey.max
@@ -265,19 +266,15 @@ def test_gather_scale_minmax(gather, tracewise, use_global, use_muter, fill_valu
 
     gather2.data = (gather2.data - vmin) / (vmax - vmin + EPS)
 
-    compare_gathers(gather, gather2)
+    compare_gathers(maybe_muted_gather, gather2)
 
 
 @pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
-@pytest.mark.parametrize('use_muter, fill_value', [[False, None], [True, np.nan], [True, 0]])
-def test_gather_scale_maxabs(gather, tracewise, use_global, use_muter, fill_value):
-    """test_gather_scale_minmax"""
-    if use_muter:
-        muter = gather.calculate_refractor_velocity(n_refractors=1).create_muter()
-        gather = gather.mute(muter, fill_value=fill_value)
+def test_gather_scale_maxabs(maybe_muted_gather, tracewise, use_global):
+    """test_gather_scale_maxabs"""
 
-    gather2 = gather.copy()
-    gather.scale_maxabs(tracewise=tracewise, use_global=use_global)
+    gather2 = maybe_muted_gather.copy()
+    maybe_muted_gather.scale_maxabs(tracewise=tracewise, use_global=use_global)
 
     if use_global:
         scale = max(abs(gather2.survey.min), abs(gather2.survey.max)) + EPS
@@ -286,7 +283,7 @@ def test_gather_scale_maxabs(gather, tracewise, use_global, use_muter, fill_valu
         scale = np.maximum(np.abs(np.nanmin(gather2.data, **kwargs)), np.abs(np.nanmax(gather2.data, **kwargs)))
     gather2.data /= (scale + EPS)
 
-    compare_gathers(gather, gather2)
+    compare_gathers(maybe_muted_gather, gather2)
 
 def test_gather_mask_to_pick_and_pick_to_mask(gather):
     """test_gather_mask_to_pick"""
