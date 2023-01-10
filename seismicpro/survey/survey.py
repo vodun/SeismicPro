@@ -1354,7 +1354,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         attribute = metric_cls.__name__
 
         coords = self[coords_cols]
-        metric_values = self[attribute].squeeze(1)
+        metric_values = self[attribute]
 
         metric = PartialMetric(metric_cls, survey=self, name=attribute, **kwargs)
         return metric.map_class(coords, metric_values, coords_cols=coords_cols, metric=metric,
