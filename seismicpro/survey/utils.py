@@ -41,29 +41,3 @@ def ibm_to_ieee(hh, hl, lh, ll):
             exp16 = (np.int8(hh[i, j]) & np.int8(0x7f)) - 70
             res[i, j] = mant * 16.0**exp16
     return res
-
-
-def mute_and_norm(gather, muter_col=HDR_FIRST_BREAK, rv_params=None):
-    """Mute direct wave using `first_breaks_col` and normalise"""
-    if muter_col not in gather.headers:
-        raise RuntimeError(f"{muter_col} not in headers")
-
-    if rv_params is None:
-        rv_params = dict(n_refractors=1)
-
-    muter = gather.calculate_refractor_velocity(first_breaks_col=muter_col, **rv_params).create_muter()
-    return gather.copy().mute(muter=muter, fill_value=np.nan).scale_standard()
-
-
-@njit
-def rms_2_windows_ratio(data, n_begs, s_begs, win_size):
-    """Compute RMS ratio for 2 windows defined by their starting samples and window size."""
-    res = np.full(data.shape[0], fill_value=np.nan)
-
-    for i, (trace, n_beg, s_beg) in enumerate(zip(data, n_begs, s_begs)):
-        if n_beg > 0 and s_beg > 0:
-            signal = trace[s_beg:s_beg + win_size]
-            noise = trace[n_beg:n_beg + win_size]
-            res[i] = np.sqrt(np.mean(signal**2)) / (np.sqrt(np.mean(noise**2)) + EPS)
-
-    return res
