@@ -305,18 +305,6 @@ def plot_worst_trace(ax, traces, trace_numbers, indicators, max_is_worse, std=0.
     ax.invert_yaxis()
 
 
-def mute_and_norm(gather, muter_col=HDR_FIRST_BREAK, rv_params=None):
-    """Mute direct wave using `first_breaks_col` and normalise"""
-    if muter_col not in gather.headers:
-        raise RuntimeError(f"{muter_col} not in headers")
-
-    if rv_params is None:
-        rv_params = dict(n_refractors=1)
-
-    muter = gather.calculate_refractor_velocity(first_breaks_col=muter_col, **rv_params).create_muter()
-    return gather.copy().mute(muter=muter, fill_value=np.nan).scale_standard()
-
-
 @njit
 def rms_2_windows_ratio(data, n_begs, s_begs, win_size):
     """Compute RMS ratio for 2 windows defined by their starting samples and window size."""
@@ -340,9 +328,9 @@ class SpikesMetric(TracewiseMetric):
     threshold = 2
 
     @classmethod
-    def preprocess(cls, gather, muter_col=HDR_FIRST_BREAK, rv_params=None, **kwargs):
+    def preprocess(cls, gather, muter, **kwargs):
         _ = kwargs
-        return mute_and_norm(gather, muter_col, rv_params=rv_params)
+        return gather.copy().mute(muter=muter, fill_value=np.nan).scale_standard()
 
     @classmethod
     def _get_res(cls, gather, **kwargs):
@@ -378,9 +366,9 @@ class AutocorrMetric(TracewiseMetric):
     threshold = 0.9
 
     @classmethod
-    def preprocess(cls, gather, muter_col=HDR_FIRST_BREAK, rv_params=None, **kwargs):
+    def preprocess(cls, gather, muter, **kwargs):
         _ = kwargs
-        return mute_and_norm(gather, muter_col, rv_params=rv_params)
+        return gather.copy().mute(muter=muter, fill_value=np.nan).scale_standard()
 
     @classmethod
     def _get_res(cls, gather, **kwargs):
@@ -510,8 +498,9 @@ class StdFraqMetricGlob(TracewiseMetric):
     name = "std_fraq_glob"
     min_value = None
     max_value = None
-    is_lower_better = False
-    threshold = -2
+    is_lower_better = None
+    threshold = None
+    views = "plot_res"
 
     @classmethod
     def _get_res(cls, gather, **kwargs):
@@ -532,6 +521,9 @@ class TraceSinalToNoiseRMSRatio(TracewiseMetric):
     If first break times are loaded and either window intersects with them in a gather,
     window length is adjusted for both windows in ths gather
     so that the noise window is strictly above fiest breaks and the signal window is strictly below them.
+
+    TODO make separate noise and signal windows
+
     """
     name = "trace_RMS_Ratio"
     is_lower_better = False
@@ -637,7 +629,11 @@ class TraceSinalToNoiseRMSRatioAdaptive(TracewiseMetric):
     Noise window beginnings are computed as fbp_time - shift_up - window_size,
     Signal windows beginnings are computed as fbp_time + shift_down.
     Only traces that contain noise and signal windows of the provided `window_size` are considered,
-    the metric is Null for other traces."""
+    the metric is Null for other traces.
+
+    TODO use refractor velocity
+
+    """
 
     name = "trace_RMS_Ratio_Adaptive"
     is_lower_better = False
