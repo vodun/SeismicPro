@@ -5,7 +5,6 @@ import pytest
 import numpy as np
 
 from seismicpro import Survey, make_prestack_segy
-from seismicpro.const import HDR_DEAD_TRACE
 
 from . import assert_surveys_equal, assert_survey_processed_inplace
 
@@ -64,7 +63,6 @@ class TestStats:
         path, trace_data = stat_segy
         survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset", limits=init_limits,
                         use_segyio_trace_loader=use_segyio_trace_loader, bar=False)
-        survey.mark_dead_traces(bar=False)
 
         if remove_dead:
             survey.remove_dead_traces(inplace=True)
@@ -106,7 +104,6 @@ class TestStats:
         """Run `get_quantile` and check the returned value and its type."""
         path, _ = stat_segy
         survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset")
-        survey.mark_dead_traces()
         survey.collect_stats()
         quantile_val = survey.get_quantile(quantile)
         assert np.isscalar(quantile) is is_scalar
@@ -124,9 +121,8 @@ class TestStats:
 class TestDeadTraces:
     """Test dead traces processing"""
     @pytest.mark.parametrize("inplace", [True, False])
-    @pytest.mark.parametrize("pre_mark_dead", [True, False])
-    def test_remove(self, stat_segy, header_index, inplace, pre_mark_dead):
-        """Check that `remove_dead_traces` properly updates survey `headers` and sets `n_dead_traces` counter to 0."""
+    def test_remove(self, stat_segy, header_index, inplace):
+        """Check that `remove_dead_traces` properly updates survey `headers`."""
 
         path, trace_data = stat_segy
         survey = Survey(path, header_index=header_index, header_cols="offset")
@@ -136,41 +132,14 @@ class TestDeadTraces:
 
         survey_copy = survey.copy()
 
-        if pre_mark_dead:
-            survey.mark_dead_traces()
-
         survey_filtered = survey.remove_dead_traces(inplace=inplace)
 
         is_dead = np.isclose(trace_data.min(axis=1), trace_data.max(axis=1))
         survey_copy.headers = survey_copy.headers.loc[~is_dead]
-        survey_copy.n_dead_traces = 0
-        survey_copy.headers[HDR_DEAD_TRACE] = False
+        survey_copy.headers['DeadTrace'] = 0.0
 
         # Validate that dead traces are not present
         assert survey_filtered.n_dead_traces == 0
         assert survey_filtered.headers.index.is_monotonic_increasing
         assert_surveys_equal(survey_filtered, survey_copy)
         assert_survey_processed_inplace(survey, survey_filtered, inplace)
-
-    @pytest.mark.parametrize("detection_limits", [None, slice(5), slice(2, 8)])
-    def test_mark(self, stat_segy, header_index, detection_limits):
-        """Check that `mark_dead_traces` properly updates survey `headers` and sets `n_dead_traces` counter."""
-
-        path, trace_data = stat_segy
-        survey = Survey(path, header_index=header_index, header_cols="offset")
-
-        traces_pos = survey.headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
-        trace_data = trace_data[np.argsort(traces_pos)]
-
-        survey_copy = survey.copy()
-
-        survey.mark_dead_traces(limits=detection_limits, bar=False)
-
-        if detection_limits:
-            trace_data = trace_data[:, detection_limits]
-
-        is_dead = np.isclose(trace_data.min(axis=1), trace_data.max(axis=1))
-        survey_copy.headers[HDR_DEAD_TRACE] = is_dead
-        survey_copy.n_dead_traces = np.sum(is_dead)
-
-        assert_surveys_equal(survey, survey_copy)

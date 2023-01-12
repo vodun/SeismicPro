@@ -12,7 +12,7 @@ from matplotlib import patches
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from ..metrics import Metric
-from ..const import HDR_DEAD_TRACE, EPS, HDR_FIRST_BREAK
+from ..const import EPS, HDR_FIRST_BREAK
 from ..gather.utils import times_to_indices
 
 class SurveyAttribute(Metric):
@@ -78,9 +78,6 @@ class TracewiseMetric(Metric):
         gather = cls.preprocess(gather, **kwargs)
 
         res = cls._get_res(gather, **kwargs)
-
-        if HDR_DEAD_TRACE in gather.headers:
-            res[gather.headers[HDR_DEAD_TRACE]] = np.nan
 
         if res.ndim == 2 and res.shape[1] != 1:
             res = np.pad(res, pad_width=((0, 0), (gather.n_samples - res.shape[1], 0)))
@@ -736,7 +733,7 @@ class TraceSinalToNoiseRMSRatioAdaptive(TracewiseMetric):
 
 
 class DeadTrace(TracewiseMetric): # pylint: disable=abstract-method
-    """Visualising constant traces. Use `Survey.mark_dead_traces` to mark dead traces after loading a survey"""
+    """Detects constant traces."""
     name = "dead_trace"
     min_value = 0
     max_value = 1
@@ -744,8 +741,7 @@ class DeadTrace(TracewiseMetric): # pylint: disable=abstract-method
     threshold = 0.5
 
     @classmethod
-    def get_res(cls, gather, **kwargs):
+    def _get_res(cls, gather, **kwargs):
         """Return QC indicator."""
-        gather = cls.preprocess(gather, **kwargs)
-        res = (np.max(gather.data, axis=1) - np.min(gather.data, axis=1) < EPS).astype(float)
-        return res
+        _ = kwargs
+        return (np.max(gather.data, axis=1) - np.min(gather.data, axis=1) < EPS).astype(float)

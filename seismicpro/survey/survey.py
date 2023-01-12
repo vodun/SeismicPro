@@ -16,14 +16,14 @@ from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
 
 from .headers import load_headers, validate_headers
-from .metrics import SurveyAttribute, TracewiseMetric
+from .metrics import SurveyAttribute, TracewiseMetric, DeadTrace
 from .plot_geometry import SurveyGeometryPlot
 from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
 from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
 from ..utils import to_list, maybe_copy, get_cols, get_coord_cols_by_alias
-from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK, HDR_TRACE_POS
+from ..const import ENDIANNESS, HDR_FIRST_BREAK, HDR_TRACE_POS
 
 
 class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-instance-attributes
@@ -133,7 +133,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     quantile_interpolator : scipy.interpolate.interp1d or None
         Interpolator of trace values quantiles. `None` until trace statistics are calculated.
     n_dead_traces : int or None
-        The number of traces with constant value (dead traces). `None` until `mark_dead_traces` method is called.
+        The number of traces with constant value (dead traces).
+        `None` until :class:`~survey.metrics.DeadTrace` is calculated.
     has_inferred_geometry : bool
         Whether the survey has inferred geometry. `True` if `INLINE_3D`, `CROSSLINE_3D`, `CDP_X` and `CDP_Y` trace
         headers are loaded on survey instantiation or `infer_geometry` method is explicitly called.
@@ -261,7 +262,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.mean = None
         self.std = None
         self.quantile_interpolator = None
-        self.n_dead_traces = None
 
         # Define all geometry-related attributes and automatically infer field geometry if required headers are loaded
         self.has_inferred_geometry = False
@@ -307,9 +307,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return len(self.file_samples)
 
     @property
-    def dead_traces_marked(self):
-        """bool: `mark_dead_traces` called."""
-        return self.n_dead_traces is not None
+    def n_dead_traces(self):
+        return sum(self.headers['DeadTrace']) if 'DeadTrace' in self.headers else None
 
     @GatherContainer.headers.setter
     def headers(self, headers):
@@ -379,7 +378,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
          q01 | q99:                {self.get_quantile(0.01):>10.2f} | {self.get_quantile(0.99):<10.2f}
         """
 
-        if self.dead_traces_marked:
+        if self.n_dead_traces is not None:
             msg += f"""
         Number of dead traces:     {self.n_dead_traces}
         """
@@ -669,7 +668,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         survey : Survey
             The survey with collected stats. Sets `has_stats` flag to `True` and updates statistics attributes inplace.
         """
-        if not self.dead_traces_marked or self.n_dead_traces:
+        if self.n_dead_traces != 0:
             warnings.warn("The survey was not checked for dead traces or they were not removed. "
                           "Run `remove_dead_traces` first.", RuntimeWarning)
 
@@ -772,46 +771,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         quantiles = self.quantile_interpolator(q).astype(np.float32)
         # return the same type as q: either single float or array-like
         return quantiles.item() if quantiles.ndim == 0 else quantiles
-
-    def mark_dead_traces(self, limits=None, bar=True):
-        """Mark dead traces (those having constant amplitudes) by setting a value of a new `DeadTrace`
-        header to `True` and store the overall number of dead traces in the `n_dead_traces` attribute.
-
-        Parameters
-        ----------
-        limits : int or tuple or slice, optional
-            Time limits to be used to detect dead traces. `int` or `tuple` are used as arguments to init a `slice`
-            object. If not given, `limits` passed to `__init__` are used. Measured in samples.
-        bar : bool, optional, defaults to True
-            Whether to show a progress bar.
-
-        Returns
-        -------
-        survey : Survey
-            The same survey with a new `DeadTrace` header created.
-        """
-
-        limits = self.limits if limits is None else self._process_limits(limits)
-
-        traces_pos = self["TRACE_SEQUENCE_FILE"] - 1
-        n_samples = len(self.file_samples[limits])
-
-        trace = np.empty(n_samples, dtype=self.trace_dtype)
-
-        dead_indices = []
-        for tr_index, pos in tqdm(enumerate(traces_pos), desc=f"Detecting dead traces for survey {self.name}",
-                                  total=len(self.headers), disable=not bar):
-            self.load_trace_segyio(buf=trace, index=pos, limits=limits, trace_length=n_samples)
-            trace_min, trace_max, *_ = calculate_trace_stats(trace)
-
-            if math.isclose(trace_min, trace_max):
-                dead_indices.append(tr_index)
-
-        self.n_dead_traces = len(dead_indices)
-        self.headers[HDR_DEAD_TRACE] = False
-        self.headers.iloc[dead_indices, self.headers.columns.get_loc(HDR_DEAD_TRACE)] = True
-
-        return self
 
     #------------------------------------------------------------------------#
     #                            Loading methods                             #
@@ -1045,9 +1004,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             raise ValueError('Empty traces after setting limits.')
         return slice(*limits)
 
-    def remove_dead_traces(self, limits=None, inplace=False, bar=True):
+    def remove_dead_traces(self, inplace=False, chunk_size=1000, bar=True):
         """ Remove dead (constant) traces from the survey.
-        Calls `mark_dead_traces` if it was not called before.
+        Calculates :class:`~survey.metrics.DeadTrace` if it was not calculated before.
 
         Parameters
         ----------
@@ -1056,6 +1015,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             `slice` object. If not given, `limits` passed to `__init__` are used. Measured in samples.
         inplace : bool, optional, defaults to False
             Whether to remove traces inplace or return a new survey instance.
+        chunk_size : int, optional, defaults to 1000
+            number of traces loaded on each iteration.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
 
@@ -1065,11 +1026,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             Survey with no dead traces.
         """
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
-        if not self.dead_traces_marked:
-            self.mark_dead_traces(limits=limits, bar=bar)
+        if self.n_dead_traces is None:
+            self.qc_tracewise(DeadTrace, chunk_size=chunk_size, bar=bar)
 
-        self.filter(lambda dt: ~dt, cols=HDR_DEAD_TRACE, inplace=True)
-        self.n_dead_traces = 0
+        self.filter(lambda dt: dt == 0, cols="DeadTrace", inplace=True)
         return self
 
     #------------------------------------------------------------------------#
@@ -1281,7 +1241,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
 
 
-    def qc_tracewise(self, metrics, chunk_size=1000):
+    def qc_tracewise(self, metrics, chunk_size=1000, bar=True):
         """Calculate tracewise QC metrics.
 
         Parameters
@@ -1290,6 +1250,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             list of metrics, that use raw traces.
         chunk_size : int, optional, defaults to 1000
             number of traces loaded on each iteration
+        bar : bool, optional, defaults to True
+            Whether to show a progress bar.
 
         Returns
         -------
@@ -1301,10 +1263,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         TypeError
             If provided metrics are not  :class:`~metrics.TracewiseMetric` subclasses
         """
-        if not self.dead_traces_marked or self.n_dead_traces:
-            warnings.warn("The survey was not checked for dead traces or they were not removed. "
-                          "Run `remove_dead_traces` first.", RuntimeWarning)
-
         if not isinstance(metrics, dict):
             metrics = {metric_cls: {} for metric_cls in to_list(metrics)}
 
@@ -1356,6 +1314,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         coords = self[coords_cols]
         metric_values = self[attribute]
 
-        metric = PartialMetric(metric_cls, survey=self, name=attribute, **kwargs)
+        metric = PartialMetric(metric_cls, survey=self, name=attribute)
         return metric.map_class(coords, metric_values, coords_cols=coords_cols, metric=metric,
                                 agg=agg, bin_size=bin_size)
