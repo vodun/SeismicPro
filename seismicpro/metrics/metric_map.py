@@ -159,8 +159,7 @@ class BaseMetricMap:
         midpoints = (bins[:-1] + bins[1:])/2
         widths =  (bins[1:] - bins[:-1])
 
-        hax.bar(x=midpoints, height=counts, width=widths, color=cmap(norm(midpoints)))
-        hax.set_yscale(histogram.get('hscale', 'linear'))
+        hax.bar(x=midpoints, height=counts, width=widths, color=cmap(norm(midpoints)), log=histogram.get('log', False))
         hax.set_ylabel('Metric values', **y_ticker)
 
         if y_ticker is not None:

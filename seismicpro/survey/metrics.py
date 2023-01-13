@@ -189,7 +189,7 @@ def wiggle_plot_with_filter(traces, mask, ax, std=0.1, **kwargs):
     traces : np.array
         array of traces
     mask : np.array of shape `arr.shape` or `(arr.shape[0], )`
-        samples/traces with `mak > 0` will be highlited
+        samples/traces with `mask > 0` will be highlited
     ax : matplotlib.axes.Axes
         An axis of the figure to plot on.
     std : float, optional

@@ -152,8 +152,8 @@ class SliderPlot(InteractivePlot):
     def __init__(self, *, initial_values, slide_fn, norm, **kwargs):
 
         slider_min, slider_max = initial_values.min(), initial_values.max()
-        self.slider_range_min = widgets.HTML(value=f"{float(slider_min):.5}")
-        self.slider_range_max = widgets.HTML(value=f"{float(slider_max):.5}")
+        self.slider_range_min = widgets.HTML(value=f"{slider_min:.5f}")
+        self.slider_range_max = widgets.HTML(value=f"{slider_max:.5f}")
 
         slider_kwargs = dict(continuous_update=False, description='', readout=False,
                              layout=widgets.Layout(width="80%"))
