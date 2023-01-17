@@ -3,8 +3,6 @@
 import numpy as np
 from numba import njit, prange
 
-from ..const import EPS, HDR_FIRST_BREAK
-
 
 @njit(nogil=True)
 def calculate_trace_stats(trace):

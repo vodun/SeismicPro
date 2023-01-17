@@ -1,7 +1,6 @@
 """Implements Survey class describing a single SEG-Y file"""
 
 import os
-import math
 import warnings
 from copy import copy
 from textwrap import dedent
@@ -308,6 +307,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     @property
     def n_dead_traces(self):
+        """int: Number of constant traces."""
         return sum(self.headers['DeadTrace']) if 'DeadTrace' in self.headers else None
 
     @GatherContainer.headers.setter
@@ -1286,7 +1286,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         return self
 
-    def construct_qc_map(self, metric_cls, by, agg=None, bin_size=None, **kwargs):
+    def construct_qc_map(self, metric_cls, by, agg=None, bin_size=None):
         """Construct a map of tracewise metric aggregated by gathers.
 
         Parameters

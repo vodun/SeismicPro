@@ -312,9 +312,9 @@ def rms_2_windows_ratio(data, n_begs, s_begs, win_size):
 
     for i, (trace, n_beg, s_beg) in enumerate(zip(data, n_begs, s_begs)):
         if n_beg > 0 and s_beg > 0:
-            signal = trace[s_beg:s_beg + win_size]
+            sig = trace[s_beg:s_beg + win_size]
             noise = trace[n_beg:n_beg + win_size]
-            res[i] = np.sqrt(np.mean(signal**2)) / (np.sqrt(np.mean(noise**2)) + EPS)
+            res[i] = np.sqrt(np.mean(sig**2)) / (np.sqrt(np.mean(noise**2)) + EPS)
 
     return res
 
