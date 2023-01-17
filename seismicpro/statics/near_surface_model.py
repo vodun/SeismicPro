@@ -19,7 +19,8 @@ from ..utils import to_list, IDWInterpolator, ForPoolExecutor
 
 class NearSurfaceModel:
     def __init__(self, survey, refractor_velocity_field, first_breaks_col=HDR_FIRST_BREAK, is_uphole=None,
-                 init_weathering_velocity=None, n_intermediate_points=5, n_smoothing_neighbors=32, device="cpu"):
+                 init_weathering_velocity=None, filter_azimuths=True, n_intermediate_points=5,
+                 n_smoothing_neighbors=32, device="cpu"):
         survey_list = to_list(survey)
         rvf_list = to_list(refractor_velocity_field)
         if len(survey_list) != len(rvf_list):
@@ -29,7 +30,7 @@ class NearSurfaceModel:
 
         self.is_uphole = is_uphole
         self.first_breaks_col = first_breaks_col
-        survey_data = [self._get_survey_data(sur, rvf) for sur, rvf in zip(survey_list, rvf_list)]
+        survey_data = [self._get_survey_data(sur, rvf, filter_azimuths) for sur, rvf in zip(survey_list, rvf_list)]
         shots_coords_list, receivers_coords_list, traveltimes_list, field_params_list = zip(*survey_data)
         shots_coords = np.concatenate(shots_coords_list)
         receivers_coords = np.concatenate(receivers_coords_list)
@@ -71,8 +72,16 @@ class NearSurfaceModel:
         # Fit nearest neighbors
         self.tree = KDTree(unique_coords)
         self.n_intermediate_points = n_intermediate_points
-        neighbors_indices = self.tree.query(unique_coords, k=np.arange(1, n_smoothing_neighbors + 2), workers=-1)[1]
         intermediate_indices = self._get_intermediate_indices(shots_coords[:, :2], receivers_coords[:, :2])
+        # TODO: handle n_smoothing_neighbors == 0
+        neighbors_dists, neighbors_indices = self.tree.query(unique_coords, k=np.arange(2, n_smoothing_neighbors + 2), workers=-1)
+        neighbors_dists **= 2
+        zero_mask = np.isclose(neighbors_dists, 0)
+        neighbors_dists[zero_mask] = 1  # suppress division by zero warning
+        neighbors_weights = 1 / neighbors_dists
+        neighbors_weights[zero_mask.any(axis=1)] = 0
+        neighbors_weights[zero_mask] = 1
+        neighbors_weights /= neighbors_weights.sum(axis=1, keepdims=True)
 
         # Convert model parameters to torch tensors
         self.device = device
@@ -81,6 +90,7 @@ class NearSurfaceModel:
         self.elevations_tensor = torch.tensor(elevations, dtype=torch.float32, requires_grad=True, device=device)
         self.surface_elevation_tensor = torch.tensor(surface_elevation, dtype=torch.float32, device=device)
         self.neighbors_indices = torch.tensor(neighbors_indices, device=device)
+        self.neighbors_weights = torch.tensor(neighbors_weights, dtype=torch.float32, device=device)
 
         # Convert dataset arrays to torch tensors but don't move them to the device as they can be large
         self.shots_coords = torch.tensor(shots_coords[:, [0, 1, 3]], dtype=torch.float32)
@@ -98,10 +108,11 @@ class NearSurfaceModel:
 
         # Define history-related attributes
         self.loss_hist = []
-        self.slownesses_reg_hist = []
+        self.velocities_reg_hist = []
         self.elevations_reg_hist = []
+        self.thicknesses_reg_hist = []
 
-    def _get_survey_data(self, survey, refractor_velocity_field):
+    def _get_survey_data(self, survey, refractor_velocity_field, filter_azimuths=True):
         is_uphole = self.is_uphole
         if is_uphole is None:
             loaded_headers = set(survey.headers.columns) | set(survey.headers.index.names)
@@ -119,6 +130,23 @@ class NearSurfaceModel:
         receivers_elevations = receivers_elevations.groupby(by=["X", "Y"], as_index=False, sort=False).mean()
         field_params = pd.concat([shots_elevations, receivers_elevations], ignore_index=True)
         field_params = field_params.groupby(by=["X", "Y"], as_index=False, sort=False).mean()
+
+        if filter_azimuths:
+            rx, ry = (receivers_coords[:, :2] - shots_coords[:, :2]).T
+            azimuth = np.arctan2(ry, rx) / np.pi + 1  # [0, 1]
+            n_sectors = 8
+            sector_size = 2 / n_sectors
+            sector = np.clip((azimuth // sector_size).astype(np.int32), 0, n_sectors - 1)
+            sector_df = pd.DataFrame(np.column_stack([shots_coords[:, :2], receivers_coords[:, :2], sector]),
+                                    columns=["SourceX", "SourceY", "GroupX", "GroupY", "Sector"])
+            shot_sectors = sector_df.groupby(["SourceX", "SourceY"])["Sector"].nunique().rename("Shot_n_sectors")
+            rec_sectors = sector_df.groupby(["GroupX", "GroupY"])["Sector"].nunique().rename("Rec_n_sectors")
+
+            field_params = field_params.merge(shot_sectors, how="left", left_on=["X", "Y"], right_on=["SourceX", "SourceY"])
+            field_params = field_params.merge(rec_sectors, how="left", left_on=["X", "Y"], right_on=["GroupX", "GroupY"])
+            valid_mask = field_params[["Shot_n_sectors", "Rec_n_sectors"]].max(axis=1) >= 0.75 * n_sectors
+            field_params = field_params[valid_mask].drop(columns=["Shot_n_sectors", "Rec_n_sectors"])
+
         rvf_params = refractor_velocity_field.interpolate(field_params[["X", "Y"]].to_numpy(), is_geographic=True)
         field_params[refractor_velocity_field.param_names] = rvf_params
         return shots_coords, receivers_coords, traveltimes, field_params
@@ -189,7 +217,6 @@ class NearSurfaceModel:
 
     def _estimate_traveltimes(self, shots_coords, shots_slownesses, shots_elevations, receivers_coords,
                               receivers_slownesses, receivers_elevations, mean_slownesses):
-        batch_size = len(shots_coords)
         n_refractors = shots_slownesses.shape[-1] - 1
 
         offsets = torch.sqrt(torch.sum((shots_coords[:, :2] - receivers_coords[:, :2])**2, axis=1))
@@ -293,11 +320,14 @@ class NearSurfaceModel:
         pred_traveltimes = self._estimate_train_traveltimes(batch_size=batch_size, bar=bar)
         return torch.abs(pred_traveltimes - self.traveltimes).mean().item()
 
-    def fit(self, batch_size=250000, n_epochs=5, elevations_reg_coef=0.1, slownesses_reg_coef=1, bar=True):
+    def fit(self, batch_size=250000, n_epochs=5, elevations_reg_coef=0.5, thicknesses_reg_coef=0.5,
+            velocities_reg_coef=1, bar=True):
         elevations_reg_coef = torch.tensor(elevations_reg_coef, dtype=torch.float32, device=self.device)
         elevations_reg_coef = torch.broadcast_to(elevations_reg_coef, (self.n_refractors,))
-        slownesses_reg_coef = torch.tensor(slownesses_reg_coef, dtype=torch.float32, device=self.device)
-        slownesses_reg_coef = torch.broadcast_to(slownesses_reg_coef, (self.n_refractors + 1,))
+        thicknesses_reg_coef = torch.tensor(thicknesses_reg_coef, dtype=torch.float32, device=self.device)
+        thicknesses_reg_coef = torch.broadcast_to(thicknesses_reg_coef, (self.n_refractors,))
+        velocities_reg_coef = torch.tensor(velocities_reg_coef, dtype=torch.float32, device=self.device)
+        velocities_reg_coef = torch.broadcast_to(velocities_reg_coef, (self.n_refractors + 1,))
 
         loader = TensorDataLoader(self.shots_coords, self.receivers_coords, self.intermediate_indices, self.traveltimes,
                                   batch_size=batch_size, shuffle=True, drop_last=True, device=self.device)
@@ -308,13 +338,28 @@ class NearSurfaceModel:
                     loss = torch.abs(pred_traveltimes - traveltimes).mean()
 
                     # Calc regularization
-                    neighbors_indices = self.neighbors_indices[torch.unique(intermediate_indices[:, [0, -1]].ravel(), sorted=False)]
-                    slownesses = torch.column_stack([self.weathering_slowness_tensor, self.slownesses_tensor])[neighbors_indices]
-                    slownesses_reg = (torch.std(slownesses, axis=1) / torch.mean(slownesses, axis=1) * slownesses_reg_coef).mean()
-                    elevations = self.elevations_tensor[neighbors_indices]
-                    elevations_reg = (torch.std(elevations, axis=1) * elevations_reg_coef).mean()
+                    unique_batch_indices = torch.unique(intermediate_indices[:, [0, -1]].ravel(), sorted=False)
+                    neighbors_indices = self.neighbors_indices[unique_batch_indices]
+                    neighbors_weights = self.neighbors_weights[unique_batch_indices][..., None]
 
-                    total_loss = loss + slownesses_reg + elevations_reg
+                    velocities = 1000 / torch.column_stack([self.weathering_slowness_tensor, self.slownesses_tensor])
+                    batch_velocities = velocities[unique_batch_indices]
+                    interp_velocities = (neighbors_weights * velocities[neighbors_indices]).sum(axis=1)
+                    velocities_err = torch.abs(batch_velocities - interp_velocities) / velocities.mean(axis=0)
+                    velocities_reg = (velocities_err * velocities_reg_coef).mean()
+
+                    batch_elevations = self.elevations_tensor[unique_batch_indices]
+                    interp_elevations = (neighbors_weights * self.elevations_tensor[neighbors_indices]).sum(axis=1)
+                    elevations_err = torch.abs(batch_elevations - interp_elevations)
+                    elevations_reg = (elevations_err * elevations_reg_coef).mean()
+
+                    thicknesses = -torch.diff(torch.column_stack([self.surface_elevation_tensor, self.elevations_tensor]), axis=1)
+                    batch_thicknesses = thicknesses[unique_batch_indices]
+                    interp_thicknesses = (neighbors_weights * thicknesses[neighbors_indices]).sum(axis=1)
+                    thicknesses_err = torch.abs(batch_thicknesses - interp_thicknesses)
+                    thicknesses_reg = (thicknesses_err * thicknesses_reg_coef).mean()
+
+                    total_loss = loss + velocities_reg + elevations_reg + thicknesses_reg
                     self.optimizer.zero_grad()
                     total_loss.backward()
                     self.optimizer.step()
@@ -329,8 +374,9 @@ class NearSurfaceModel:
                         self.weathering_slowness_tensor.clamp_(min=self.slownesses_tensor[:, 0])
 
                     self.loss_hist.append(loss.item())
-                    self.slownesses_reg_hist.append(slownesses_reg.item())
+                    self.velocities_reg_hist.append(velocities_reg.item())
                     self.elevations_reg_hist.append(elevations_reg.item())
+                    self.thicknesses_reg_hist.append(thicknesses_reg.item())
                     pbar.update(1)
 
     @staticmethod
@@ -393,13 +439,15 @@ class NearSurfaceModel:
         return metrics_maps
 
     def plot_loss(self):
-        _, (ax1, ax2, ax3) = plt.subplots(ncols=3, figsize=(12, 4), tight_layout=True)
+        _, ((ax1, ax2), (ax3, ax4)) = plt.subplots(ncols=2, nrows=2, figsize=(12, 8), tight_layout=True)
         ax1.plot(self.loss_hist)
-        ax1.set_title("Total loss")
-        ax2.plot(self.elevations_reg_hist)
-        ax2.set_title("Elevations reg")
-        ax3.plot(self.slownesses_reg_hist)
-        ax3.set_title("Slowness reg")
+        ax1.set_title("Traveltime MAE")
+        ax2.plot(self.velocities_reg_hist)
+        ax2.set_title("Weighted velocities interpolation MAPE")
+        ax3.plot(self.elevations_reg_hist)
+        ax3.set_title("Weighted elevations interpolation MAE")
+        ax4.plot(self.thicknesses_reg_hist)
+        ax4.set_title("Weighted thicknesses interpolation MAE")
 
     def plot_profile(self, **kwargs):
         return ProfilePlot(self, **kwargs).plot()
