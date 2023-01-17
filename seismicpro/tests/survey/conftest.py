@@ -9,7 +9,7 @@ from seismicpro import Survey
 @pytest.fixture(params=["TRACE_SEQUENCE_FILE", ("FieldRecord",), ["INLINE_3D", "CROSSLINE_3D"]])
 def survey_no_stats(segy_path, request):
     """Return surveys with no stats collected."""
-    return Survey(segy_path, header_index=request.param, header_cols="all", n_workers=1, bar=False)
+    return Survey(segy_path, header_index=request.param, header_cols="all", n_workers=1, bar=False, validate=False)
 
 
 @pytest.fixture

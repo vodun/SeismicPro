@@ -11,7 +11,7 @@ from seismicpro import Survey, SeismicDataset
 @pytest.fixture
 def dataset(segy_path):
     """dataset"""
-    survey = Survey(segy_path, header_index='FieldRecord', name='raw')
+    survey = Survey(segy_path, header_index='FieldRecord', name='raw', validate=False)
     return SeismicDataset(survey)
 
 def test_batch_load(dataset):
@@ -21,7 +21,7 @@ def test_batch_load(dataset):
 
 def test_batch_load_combined(segy_path):
     """test_batch_load_combined"""
-    survey = Survey(segy_path, header_index='TRACE_SEQUENCE_FILE', name='raw')
+    survey = Survey(segy_path, header_index='TRACE_SEQUENCE_FILE', name='raw', validate=False)
     dataset = SeismicDataset(survey)
     batch = dataset.next_batch(200)
     batch = batch.load(src='raw', combined=True)

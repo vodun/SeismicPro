@@ -21,7 +21,7 @@ NUMPY_ATTRS = ['data', 'samples']
 def survey(segy_path):
     """Create gather"""
     survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'],
-                    header_cols=['offset', 'FieldRecord'])
+                    header_cols=['offset', 'FieldRecord'], validate=False)
     survey.remove_dead_traces(bar=False)
     survey.collect_stats(bar=False)
     survey.headers[HDR_FIRST_BREAK] = np.random.randint(0, 1000, len(survey.headers))
@@ -43,7 +43,7 @@ def compare_gathers(first, second, drop_cols=None, check_types=False, same_surve
 
     first_headers = first.headers.reset_index()
     second_headers = second.headers.reset_index()
-    if drop_cols:
+    if drop_cols is not None:
         first_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
         second_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
 
@@ -169,15 +169,10 @@ def test_gather_getitem_sample_rate_changes(gather, key, sample_rate):
     """test_gather_getitem_sample_rate_changes"""
     result_getitem = gather[slice(None), key]
     if sample_rate is not None:
-        assert result_getitem.sample_rate == sample_rate  # pylint: disable=protected-access
-    else:
-        with pytest.raises(ValueError):
-            _ = result_getitem.sample_rate
-    if sample_rate is not None:
         assert result_getitem.sample_rate == sample_rate
     else:
         with pytest.raises(ValueError):
-            sample_rate = result_getitem.sample_rate
+            _ = result_getitem.sample_rate
 
 
 ignore =  [None] + COPY_IGNORE_ATTRS + sum([list(combinations(COPY_IGNORE_ATTRS, r=i)) for i in range(1, 4)], [])
@@ -196,6 +191,33 @@ def test_gather_copy(gather, ignore):
 
     compare_gathers(copy_gather, gather, check_types=True)
 
+
+@pytest.mark.parametrize('columns', ['offset', 'FieldRecord', 'col_1', ['col_1'], ['col_1', 'col_2']])
+def test_gather_store_headers_to_survey(segy_path, columns):
+    """test_gather_store_headers_to_survey"""
+    # Creating survey every time since this method affects survey and we cannot use global gather fixture here
+    survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'],
+                    header_cols=['offset', 'FieldRecord'], validate=False)
+    copy_survey = survey.copy()
+
+    gather = survey.get_gather((0, 0))
+    gather.headers["col_1"] = np.arange(gather.n_traces, dtype=np.int32)
+    gather.headers["col_2"] = 100 * np.random.random(gather.n_traces)
+    gather.headers["offset"] = gather["offset"] * 0.1
+
+    gather.store_headers_to_survey(columns)
+    headers_from_survey = survey.headers.loc[gather.index].sort_values(by="offset")
+    headers_from_gather = gather.headers.sort_values(by="offset")
+    assert np.allclose(headers_from_survey[columns], headers_from_gather[columns])
+
+    other_indices = list(set(survey.indices) ^ {gather.index})
+    expected_survey = copy_survey.headers.loc[other_indices]
+    changed_survey = survey.headers.loc[other_indices]
+    for column in to_list(columns):
+        if column in ["col_1", "col_2"]:
+            assert changed_survey[column].isnull().sum() == len(changed_survey)
+        else:
+            assert np.allclose(expected_survey[column], changed_survey[column])
 
 @pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
 @pytest.mark.parametrize('q', [0.1, [0.1, 0.2], (0.1, 0.2), np.array([0.1, 0.2])])
@@ -253,7 +275,8 @@ def test_gather_stacking_velocity(gather):
 
 def test_gather_get_central_gather(segy_path):
     """test_gather_get_central_gather"""
-    survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'], header_cols=['offset', 'FieldRecord'])
+    survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'], header_cols=['offset', 'FieldRecord'],
+                    validate=False)
     survey = survey.generate_supergathers()
     gather = survey.sample_gather()
     gather.get_central_gather()
