@@ -400,10 +400,14 @@ class RefractorVelocity:
         if negative_params:
             raise ValueError(f"The following parameters contain negative values: {negative_params}")
 
-        if np.any(np.diff(param_values[1:n_refractors], prepend=0, append=max_offset) < min_refractor_size):
+        refractor_sizes = np.diff(param_values[1:n_refractors], prepend=0, append=max_offset)
+        valid_sizes = (refractor_sizes >= min_refractor_size) | np.isclose(refractor_sizes, min_refractor_size)
+        if not valid_sizes.all():
             raise ValueError(f"Offset range covered by refractors must be no less than {min_refractor_size} meters")
 
-        if np.any(np.diff(param_values[n_refractors:]) < min_velocity_step):
+        velocity_steps = np.diff(param_values[n_refractors:])
+        valid_steps = (velocity_steps >= min_velocity_step) | np.isclose(velocity_steps, min_velocity_step)
+        if not valid_steps.all():
             raise ValueError(f"Refractor velocities must increase by no less than {min_velocity_step} m/s")
 
     @classmethod
