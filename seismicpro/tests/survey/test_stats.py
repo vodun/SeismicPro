@@ -5,9 +5,19 @@ import pytest
 import numpy as np
 
 from seismicpro import Survey, make_prestack_segy
+from seismicpro.survey.metrics import TracewiseMetric
 
 from . import assert_surveys_equal, assert_survey_processed_inplace
 
+class DummyMetric(TracewiseMetric):
+    """Dummy"""
+    name = "dummy"
+
+    @classmethod
+    def _get_res(cls, gather, **kwargs):
+        """QC indicator implementation."""
+        _ = kwargs
+        return gather['TRACE_SEQUENCE_FILE']
 
 def gen_random_traces(n_traces, n_samples):
     """Generate `n_traces` random traces."""
@@ -146,3 +156,20 @@ class TestDeadTraces:
         assert survey_filtered.headers.index.is_monotonic_increasing
         assert_surveys_equal(survey_filtered, survey_copy)
         assert_survey_processed_inplace(survey, survey_filtered, inplace)
+
+
+@pytest.mark.parametrize("header_index", ["TRACE_SEQUENCE_FILE",
+                                          "CDP",
+                                          ["CDP", "FieldRecord"],
+                                          ["CDP", "TRACE_SEQUENCE_FILE"]])
+class TestMetrics:
+    """Test dead traces processing"""
+    def test_metrics_consistency(self, stat_segy, header_index):
+        """Check that `remove_dead_traces` properly updates survey `headers`."""
+
+        path, _ = stat_segy
+        survey = Survey(path, header_index=header_index, header_cols="offset")
+
+        survey.qc_tracewise(metrics=DummyMetric)
+
+        assert np.allclose(survey['DummyMetric'], survey['TRACE_SEQUENCE_FILE'])

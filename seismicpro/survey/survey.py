@@ -1280,11 +1280,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         n_traces = len(self.headers)
         n_chunks = n_traces // chunk_size + (1 if n_traces % chunk_size else 0)
 
-        if 'TRACE_SEQUENCE_FILE' in self.headers:
-            idx_sort = self.headers['TRACE_SEQUENCE_FILE'].argsort(kind='stable').values
-        else:
-            idx_sort = self.headers.index.get_level_values('TRACE_SEQUENCE_FILE').argsort(kind='stable')
-
+        idx_sort = self['TRACE_SEQUENCE_FILE'].argsort(kind='stable')
         orig_idx = idx_sort.argsort(kind='stable')
 
         metric_classes = list(metrics.keys()) # explicitly fix metrics list order
