@@ -72,8 +72,11 @@ class MuterField(ValuesAgnosticField, VFUNCFieldMixin):
         Whether coordinate system of the field is geographic. `None` for an empty field if was not specified during
         instantiation.
     coords_cols : tuple with 2 elements or None
-        Names of SEG-Y trace headers representing coordinates of items in the field. `None` if names of coordinates are
-        mixed or the field is empty.
+        Names of SEG-Y trace headers representing coordinates of items in the field if names are the same among all the
+        items and match the geographic system of the field. ("X", "Y") for a field in geographic coordinate system if
+        names of coordinates of its items are either mixed or line-based. ("INLINE_3D", "CROSSLINE_3D") for a field in
+        line-based coordinate system if names of coordinates of its items are either mixed or geographic. `None` for an
+        empty field.
     interpolator : SpatialInterpolator or None
         Field data interpolator.
     is_dirty_interpolator : bool

@@ -75,8 +75,11 @@ class Field:
         Whether coordinate system of the field is geographic. `None` for an empty field if was not specified during
         instantiation.
     coords_cols : tuple with 2 elements or None
-        Names of SEG-Y trace headers representing coordinates of items in the field. `None` if names of coordinates are
-        mixed.
+        Names of SEG-Y trace headers representing coordinates of items in the field if names are the same among all the
+        items and match the geographic system of the field. ("X", "Y") for a field in geographic coordinate system if
+        names of coordinates of its items are either mixed or line-based. ("INLINE_3D", "CROSSLINE_3D") for a field in
+        line-based coordinate system if names of coordinates of its items are either mixed or geographic. `None` for an
+        empty field.
     interpolator : SpatialInterpolator or None
         Field data interpolator.
     is_dirty_interpolator : bool
@@ -179,11 +182,10 @@ class Field:
             min_coords = self.coords.min(axis=0)
             max_coords = self.coords.max(axis=0)
             coords_range = (f"[{min_coords[0]}, {max_coords[0]}]", f"[{min_coords[1]}, {max_coords[1]}]")
-            coords_cols = ["Undefined", "Undefined"] if self.coords_cols is None else self.coords_cols
 
             msg += f"""
-        X coordinate header:       {coords_cols[0]}
-        Y coordinate header:       {coords_cols[1]}
+        X coordinate header:       {self.coords_cols[0]}
+        Y coordinate header:       {self.coords_cols[1]}
         X coordinate range:        {coords_range[0]}
         Y coordinate range:        {coords_range[1]}
         Mean distance to neighbor: {self.mean_distance_to_neighbor:.2f}
@@ -272,15 +274,15 @@ class Field:
         Parameters
         ----------
         items : self.item_class or list of self.item_class
-            Items to add to the field.
+            Items to be added to the field.
 
         Returns
         -------
         self : Field
             `self` with new items added. Changes `item_container` inplace and sets the `is_dirty_interpolator` flag to
             `True` if the `items` list is not empty. Sets `is_geographic` flag during the first update if it was not
-            defined during field creation. Resets `coords_cols` attribute if headers, defining coordinates of any item
-            being added, differ from those of the field.
+            defined during field creation. Updates `coords_cols` attribute if names of coordinates of any item being
+            added does not match those of the field.
 
         Raises
         ------
@@ -299,10 +301,14 @@ class Field:
         if self.is_geographic is None:
             is_geographic = items[0].coords.is_geographic
 
+        items_match_is_geographic = all(item.coords.is_geographic is is_geographic for item in items)
         coords_cols_set = {item.coords.names for item in items}
-        coords_cols = coords_cols_set.pop() if len(coords_cols_set) == 1 else None
-        if not self.is_empty and coords_cols != self.coords_cols:
-            coords_cols = None
+        if not self.is_empty:
+            coords_cols_set.add(self.coords_cols)
+        if len(coords_cols_set) == 1 and items_match_is_geographic:
+            coords_cols = coords_cols_set.pop()
+        else:
+            coords_cols = ("X", "Y") if is_geographic else ("INLINE_3D", "CROSSLINE_3D")
 
         # Update the field
         field_coords, _, _ = self.transform_coords([item.coords for item in items], to_geographic=is_geographic)
@@ -350,8 +356,6 @@ class Field:
         """
         self.validate_interpolator()
         field_coords, items_coords, is_1d_coords = self.transform_coords(coords, is_geographic=is_geographic)
-        if self.coords_cols is None and not all(isinstance(coords, Coordinates) for coords in items_coords):
-            raise ValueError("Names of field coordinates are undefined, so only Coordinates instances are allowed")
         items_coords = [coords if isinstance(coords, Coordinates) else Coordinates(coords, names=self.coords_cols)
                         for coords in items_coords]
         items = self.construct_items(field_coords, items_coords)
