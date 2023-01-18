@@ -1279,7 +1279,13 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         n_traces = len(self.headers)
         n_chunks = n_traces // chunk_size + (1 if n_traces % chunk_size else 0)
-        idx_sort = self.headers['TRACE_SEQUENCE_FILE'].argsort(kind='stable').values
+
+        if 'TRACE_SEQUENCE_FILE' in self.headers:
+            idx_sort = self.headers['TRACE_SEQUENCE_FILE'].argsort(kind='stable').values
+        else:
+            idx_sort = self.headers.index.get_level_values('TRACE_SEQUENCE_FILE').argsort(kind='stable')
+
+        orig_idx = idx_sort.argsort(kind='stable')
 
         metric_classes = list(metrics.keys()) # explicitly fix metrics list order
         def calc_metrics(i):
@@ -1291,7 +1297,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         results = thread_map(calc_metrics, range(n_chunks), max_workers=n_workers, disable=not bar,
                              desc="Traces processed", unit_scale=chunk_size, unit_divisor=chunk_size, unit='traces')
 
-        orig_idx = idx_sort.argsort(kind='stable')
         for metric_cls, metric_vals in zip(metric_classes, zip(*results)):
             self.headers[metric_cls.__name__] = np.concatenate(metric_vals)[orig_idx]
 

@@ -117,7 +117,10 @@ class TestStats:
             survey.get_quantile(0.5)
 
 
-@pytest.mark.parametrize("header_index", ["TRACE_SEQUENCE_FILE", "CDP", ["CDP", "FieldRecord"]])
+@pytest.mark.parametrize("header_index", ["TRACE_SEQUENCE_FILE",
+                                          "CDP",
+                                          ["CDP", "FieldRecord"],
+                                          ["CDP", "TRACE_SEQUENCE_FILE"]])
 class TestDeadTraces:
     """Test dead traces processing"""
     @pytest.mark.parametrize("inplace", [True, False])
