@@ -11,6 +11,7 @@ import numpy as np
 import scipy as sp
 import pandas as pd
 from tqdm.auto import tqdm
+from tqdm.contrib.concurrent import thread_map
 from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
 
@@ -1241,15 +1242,18 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
 
 
-    def qc_tracewise(self, metrics, chunk_size=1000, bar=True):
+    def qc_tracewise(self, metrics, chunk_size=1000, n_workers=None, bar=True):
         """Calculate tracewise QC metrics.
 
         Parameters
         ----------
         metrics : :class:`~metrics.TracewiseMetric`, or list of :class:`~metrics.TracewiseMetric`, or dict
-            list of metrics, that use raw traces.
+            list of metrics, that use raw traces,
+            if dict, keas are :class:`~metrics.TracewiseMetric` and values are the kwargs to initialize them
         chunk_size : int, optional, defaults to 1000
             number of traces loaded on each iteration
+        n_workers : int, optional
+            The number of threads to be spawned to calculate metrics. Defaults to the number of cpu cores.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
 
@@ -1270,19 +1274,26 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             if not issubclass(metric_cls, TracewiseMetric):
                 raise TypeError(f"all metrics must be `TracewiseMetric` subtypes, but {metric_cls.__name__} is not")
 
+        if n_workers is None:
+            n_workers = os.cpu_count()
+
         n_traces = len(self.headers)
-        buf = {metric_cls.__name__: [] for metric_cls in metrics}
         n_chunks = n_traces // chunk_size + (1 if n_traces % chunk_size else 0)
-        for i in tqdm(range(n_chunks)):
-            headers = self.headers.iloc[i*chunk_size:(i+1)*chunk_size]
+        idx_sort = self.headers['TRACE_SEQUENCE_FILE'].argsort(kind='stable').values
+
+        metric_classes = list(metrics.keys()) # explicitly fix metrics list order
+        def calc_metrics(i):
+            headers = self.headers.iloc[idx_sort[i*chunk_size:(i+1)*chunk_size]]
             raw_gather = self.load_gather(headers)
+            return [metric_cls.calc(raw_gather, tracewise=True, **metrics[metric_cls]) for metric_cls in metric_classes]
 
-            for metric_cls, kwargs in metrics.items():
-                metric_val = metric_cls.calc(raw_gather, tracewise=True, **kwargs)
-                buf[metric_cls.__name__].append(metric_val)
+        # known issue with tqdm.notebook bar update when using `unit_scale` https://github.com/tqdm/tqdm/issues/1399
+        results = thread_map(calc_metrics, range(n_chunks), max_workers=n_workers, disable=not bar,
+                             desc="Traces processed", unit_scale=chunk_size, unit_divisor=chunk_size, unit='traces')
 
-        for name in buf:
-            self.headers[name] = np.concatenate(buf[name])
+        orig_idx = idx_sort.argsort(kind='stable')
+        for metric_cls, metric_vals in zip(metric_classes, zip(*results)):
+            self.headers[metric_cls.__name__] = np.concatenate(metric_vals)[orig_idx]
 
         return self
 
