@@ -1464,7 +1464,11 @@ class Gather(TraceContainer, SamplesContainer):
         # Add a top subplot for given header if needed and set plot title
         top_ax = ax
         if top_header is not None:
-            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_header], y_ticker=y_ticker)
+            if isinstance(top_header, np.ndarray) and top_header.shape == (self.n_traces, ):
+                header_values = top_header
+            else:
+                header_values=self[top_header]
+            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=header_values, y_ticker=y_ticker)
 
         # Set axis ticks
         x_tick_src = x_tick_src or self.sort_by or "index"

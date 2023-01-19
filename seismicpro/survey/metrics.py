@@ -44,7 +44,7 @@ class TracewiseMetric(Metric):
     max_value = None
     is_lower_better = True
 
-    views = ("plot_res", "plot_image_filter", "plot_worst_trace", "plot_wiggle")
+    views = ("plot_image", "plot_wiggle")
 
     threshold = None
     top_ax_y_scale='linear'
@@ -114,61 +114,81 @@ class TracewiseMetric(Metric):
         res = cls.get_res(gather, **kwargs)
         return cls.aggregate(res, tracewise=tracewise)
 
-    def plot_res(self, coords, ax, **kwargs):
-        """Gather plot with tracewise indicator on a separate axis"""
-        gather = self.survey.get_gather(coords)
-
-        res = self.calc(gather, tracewise=True, **kwargs)
-
-        gather = self.preprocess(gather, **kwargs)
-        gather.plot(ax=ax)
-        divider = make_axes_locatable(ax)
-
-        top_ax = divider.append_axes("top", sharex=ax, size="12%", pad=0.05)
-        top_ax.plot(res, '.--')
-        if self.threshold is not None:
-            top_ax.axhline(self.threshold, alpha=0.5)
-        top_ax.xaxis.set_visible(False)
-        top_ax.set_yscale(self.top_ax_y_scale)
-
-        self.set_title(top_ax, gather)
-
-    def _plot_filter(self, mode, coords, ax, **kwargs):
-        """Gather plot with filter"""
-        gather = self.survey.get_gather(coords)
-
-        fn = np.greater_equal if self.is_lower_better else np.less_equal
-
-        if self.threshold is not None:
-            res = fn(self.get_res(gather, **kwargs), self.threshold)
-        else:
-            res = np.zeros_like(gather.data)
-
-        gather = self.preprocess(gather, **kwargs)
-
-        if mode == 'wiggle':
-            wiggle_plot_with_filter(gather.data, res, ax, std=0.5)
-        else:
-            image_filter(gather.data, res, ax)
-
-        self.set_title(ax, gather)
+    def plot_image(self, coords, ax, **kwargs):
+        """Gather plot where samples with indicator above/below `cls.threshold` are highlited."""
+        self._plot('seismogram', coords, ax, **kwargs)
 
     def plot_wiggle(self, coords, ax, **kwargs):
-        """"Gather wiggle plot where samples with indicator above/blow `cls.threshold` are in red."""
-        self._plot_filter('wiggle', coords, ax, **kwargs)
+        """"Gather wiggle plot where samples with indicator above/below `cls.threshold` are highlited."""
+        self._plot('wiggle', coords, ax, **kwargs)
 
-    def plot_image_filter(self, coords, ax, **kwargs):
-        """Gather plot where samples with indicator above/blow `cls.threshold` are highlited."""
-        self._plot_filter('image', coords, ax, **kwargs)
+    def _plot(self, mode, coords, ax, **kwargs):
+        """Gather plot with filter"""
+        kwargs, metric_kwargs = self._parse_kwargs(kwargs)
 
-    def plot_worst_trace(self, coords, ax, **kwargs):
-        """Wiggle plot of the trace with the worst indicator value and 2 its neighboring traces."""
         gather = self.survey.get_gather(coords)
-        res = self.calc(gather, tracewise=True, **kwargs)
 
-        gather = self.preprocess(gather, **kwargs)
-        plot_worst_trace(ax, gather.data, gather['TRACE_SEQUENCE_FILE'], res, self.is_lower_better)
-        self.set_title(ax, gather)
+        metric_vals = self.get_res(gather, **metric_kwargs)
+        top_header = self.aggregate(metric_vals, tracewise=True)
+
+        gather = self.preprocess(gather, **metric_kwargs)
+        gather.plot(ax=ax, mode=mode, top_header=top_header, title=self._get_title(gather), **kwargs)
+
+        top_ax = ax.figure.axes[1]
+        top_ax.set_yscale(self.top_ax_y_scale)
+
+        if self.threshold is None or self.is_lower_better is None:
+            return
+
+        top_ax.axhline(self.threshold, alpha=0.5)
+
+        mask = self.get_res(gather, **metric_kwargs)
+        fn = np.greater_equal if self.is_lower_better else np.less_equal
+        mask = fn(mask, self.threshold)
+
+        if np.any(mask):
+            self._plot_mask(mode, gather, mask, ax, **kwargs)
+
+    def _plot_mask(self, mode, gather, mask, ax, **kwargs):
+        """Highlight metric values above/below `cls.threshold` """
+
+        # tracewise metric
+        if mask.ndim == 1 or mask.ndim == 2 and mask.shape[1] == 1:
+            mask.squeeze()
+
+            if mode == 'wiggle':
+                yrange = np.arange(gather.n_samples)
+
+                beg = 0 if mask[0] else None
+
+                for i, val in enumerate(mask):
+                    if val:
+                        if beg is None:
+                            beg = i
+                    else:
+                        if beg is not None:
+                            ax.fill_betweenx(yrange, beg - 0.5, i - 1 + 0.5, color='red', alpha=0.1)
+                            beg = None
+
+                if beg is not None:
+                    ax.fill_betweenx(yrange, beg - 0.5, i - 1 + 0.5, color='red', alpha=0.1)
+            else:
+                blurred = signal.fftconvolve(mask.astype(np.int16), np.ones(5), mode='same')
+                gather.data[blurred <= 0] = np.nan
+                gather.plot(ax=ax, mode='seismogram', cmap='Reds', title=self._get_title(gather), **kwargs)
+
+            return
+
+        # samplewise metric
+        if mode == 'wiggle':
+            mask[:, 1:-1] = (mask[:, 1:-1] | mask[:, 2:] | mask[:, :-2])
+            gather.data = mask.astype(np.float32)
+            gather.data[~(mask.any(axis=1))] = np.nan
+            gather.plot(ax=ax, mode='wiggle', alpha=0.1, color='red', title=self._get_title(gather), **kwargs)
+        else:
+            blurred = self._blur_mask(mask.astype(np.int16))
+            gather.data = blurred
+            gather.plot(ax=ax, mode='seismogram', alpha=0.2, cmap='Reds', title=self._get_title(gather), **kwargs)
 
     @staticmethod
     def set_title(ax, gather):
@@ -181,128 +201,33 @@ class TracewiseMetric(Metric):
 
         ax.set_title(ttl)
 
-def wiggle_plot_with_filter(traces, mask, ax, std=0.1, **kwargs):
-    """Wiggle plot with samples highlighted according to provided mask
+    @staticmethod
+    def _get_title(gather):
+        """Set gather index as the axis title"""
+        idx = np.unique(gather.headers.index.values)
+        return str(idx[0]) if len(idx) == 1 else f"[{idx[0]}...{idx[-1]}]"
 
-    Parameters
-    ----------
-    traces : np.array
-        array of traces
-    mask : np.array of shape `arr.shape` or `(arr.shape[0], )`
-        samples/traces with `mask > 0` will be highlited
-    ax : matplotlib.axes.Axes
-        An axis of the figure to plot on.
-    std : float, optional
-        scaling coefficient for traces amplitudes, by default 0.1
-    """
+    @staticmethod
+    def _parse_kwargs(kwargs):
+        if 'metric_kwargs' in kwargs:
+            metric_kwargs = kwargs.pop('metric_kwargs')
+        else:
+            metric_kwargs, kwargs = kwargs, {}
+        return kwargs, metric_kwargs
 
-    y_coords = np.arange(traces.shape[-1])
+    @staticmethod
+    def _blur_mask(flt, eps=EPS):
+        """Blure filter values"""
+        if np.any(flt == 1):
+            win_size = np.floor(min((np.prod(flt.shape) / np.sum(flt == 1)), np.min(flt.shape) / 10)).astype(int)
 
-    if mask.ndim == 1 or mask.ndim == 2 and mask.shape[1] == 1:
-        if mask.ndim == 2:
-            mask = mask.squeeze(axis=1)
-        mask = np.stack([mask]*traces.shape[1], axis=1)
+            if win_size > 4:
+                kernel_1d = signal.windows.gaussian(win_size, win_size//2)
+                kernel = np.outer(kernel_1d, kernel_1d)
+                flt = signal.fftconvolve(flt, kernel, mode='same')
+                flt[flt < eps] = 0
 
-    blurred = blur_mask(mask)
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=RuntimeWarning)
-        traces = std * ((traces - np.nanmean(traces, axis=1, keepdims=True)) /
-                        (np.nanstd(traces, axis=1, keepdims=True) + EPS))
-    for i, trace in enumerate(traces):
-        ax.plot(i + trace, y_coords, color='black', alpha=0.1, **kwargs)
-        ax.fill_betweenx(y_coords, i, i + trace, where=(trace > 0), color='black', alpha=0.1, **kwargs)
-        ax.fill_betweenx(y_coords, i - 1, i + 1, where=(blurred[i] > 0), color='red', alpha=0.1, **kwargs)
-        ax.fill_betweenx(y_coords, i, i + trace, where=(mask[i] > 0), color='red', alpha=1, **kwargs)
-    ax.invert_yaxis()
-
-def blur_mask(flt, eps=EPS):
-    """Blure filter values"""
-    if np.any(flt == 1):
-        win_size = np.floor(min((np.prod(flt.shape) / np.sum(flt == 1)), np.min(flt.shape) / 10)).astype(int)
-
-        if win_size > 4:
-            kernel_1d = signal.windows.gaussian(win_size, win_size//2)
-            kernel = np.outer(kernel_1d, kernel_1d)
-            flt = signal.fftconvolve(flt, kernel, mode='same')
-            flt[flt < eps] = 0
-
-    return flt
-
-def image_filter(traces, mask, ax, **kwargs):
-    """Traves plot with samples highlighted according to provided mask.
-
-    Parameters
-    ----------
-    traces : np.array
-        array of traces
-    mask : np.array of shape `traces.shape` or `(traces.shape[0], )`
-        samples/traces with `mak > 0` will be highlited
-    ax : matplotlib.axes.Axes
-        An axis of the figure to plot on.
-    kwargs : misc, optional
-        additional `imshow` kwargs
-    """
-
-    if mask.ndim == 1 or mask.ndim == 2 and mask.shape[1] == 1:
-        if mask.ndim == 2:
-            mask = mask.squeeze(axis=1)
-        mask = np.stack([mask]*traces.shape[1], axis=1)
-
-    mask = blur_mask(mask)
-
-    vmin, vmax = np.nanquantile(traces, q=[0.05, 0.95])
-    kwargs = {"cmap": "gray", "aspect": "auto", "vmin": vmin, "vmax": vmax, **kwargs}
-    ax.imshow(traces.T, **kwargs)
-    ax.imshow(mask.T, alpha=0.5, cmap='Reds', aspect='auto')
-
-def plot_worst_trace(ax, traces, trace_numbers, indicators, max_is_worse, std=0.5, **kwargs):
-    """Wiggle plot of the trace with the worst indicator value
-    and 2 its neighboring traces (with respect to TraceNumbers).
-
-    Parameters
-    ----------
-    ax : matplotlib.axes.Axes
-        An axis of the figure to plot on.
-    traces : np.array
-        Array of traces.
-    trace_numbers : np.array
-        TraceNumbers of provided traces.
-    indicators : np.array of shape `traces.shape` or `(traces.shape[0], )`
-        Indicators to select the worst trace.
-    max_is_worse : bool
-        Specifies what type of extemum corresponds to the worst trace.
-    std : float, optional
-        Scaling coefficient for traces amplitudes, by default 0.5
-    """
-
-    _, n_samples = traces.shape
-
-    fn = np.nanargmax if max_is_worse else np.nanargmin
-    worst_tr_idx = fn(indicators)
-
-    if worst_tr_idx == 0:
-        indices, colors = (0, 1, 2), ('red', 'black', 'black')
-    elif worst_tr_idx == n_samples - 1:
-        indices, colors = (n_samples - 3, n_samples - 2, n_samples - 1), ('black', 'black', 'red')
-    else:
-        indices, colors = (worst_tr_idx - 1, worst_tr_idx, worst_tr_idx + 1), ('black', 'red', 'black')
-
-    traces = traces[indices,]
-    tns = trace_numbers[indices,]
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=RuntimeWarning)
-        traces = std * ((traces - np.nanmean(traces, axis=None, keepdims=True)) /
-                        (np.nanstd(traces, axis=None, keepdims=True) + 1e-10))
-
-    y_coords = np.arange(n_samples)
-    for i, (trace, col) in enumerate(zip(traces, colors)):
-        ax.plot(i + trace, y_coords, color=col, **kwargs)
-        ax.fill_betweenx(y_coords, i, i + trace, where=(trace > 0), color=col, **kwargs)
-        ax.text(i, 0, f"{tns[i]}", color=col)
-
-    ax.invert_yaxis()
+        return flt
 
 
 @njit
@@ -500,7 +425,7 @@ class StdFraqMetricGlob(TracewiseMetric):
     max_value = None
     is_lower_better = None
     threshold = None
-    views = "plot_res"
+    # views = "plot_res"
 
     @classmethod
     def _get_res(cls, gather, **kwargs):
