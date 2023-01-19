@@ -125,16 +125,7 @@ def set_ticks(ax, axis, label='', major_labels=None, minor_labels=None, num=None
     ValueError
         If `step_labels` is provided when tick_labels are None or not monotonically increasing.
     """
-    # Format axis label
-    UNITS = {  # pylint: disable=invalid-name
-        "offset": " (m)",
-        "Time": " (ms)",
-        "Velocity": " (m/s)",
-        "Stacking velocity": " (m/s)",
-        "Relative velocity margin": " (%)"
-    }
-
-    axis_label = '\n'.join([ix_label + UNITS.get(ix_label, '') for ix_label in to_list(label)])
+    axis_label = '\n'.join(to_list(label))
 
     locator, formatter = _process_ticks(labels=major_labels, num=num, step_ticks=step_ticks,
                                         step_labels=step_labels, round_to=round_to)

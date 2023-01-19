@@ -1271,7 +1271,7 @@ class Gather(TraceContainer, SamplesContainer):
             Also serves as a default for axis label.
         y_tick_src : str, optional
             Source of the tick labels to be plotted on y axis. For "seismogram" and "wiggle" can be either "time"
-            (default) or "Samples"; has no effect in "hist" mode. Also serves as a default for axis label.
+            (default) or "samples"; has no effect in "hist" mode. Also serves as a default for axis label.
         event_headers : str, array-like or dict, optional, defaults to None
             Valid only for "seismogram" and "wiggle" modes.
             Headers, whose values will be displayed over the gather plot. Must be measured in milliseconds.
