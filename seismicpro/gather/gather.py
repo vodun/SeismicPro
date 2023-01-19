@@ -1325,10 +1325,15 @@ class Gather(TraceContainer, SamplesContainer):
         plotters_dict[mode](ax, title=title, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
         return self
 
-    def _plot_histogram(self, ax, title, x_ticker, y_ticker, x_tick_src="Amplitude", bins=None,
+    def _plot_histogram(self, ax, title, x_ticker, y_ticker, x_tick_src="amplitude", bins=None,
                         log=False, grid=True, **kwargs):
         """Plot histogram of the data specified by x_tick_src."""
-        data = self.data.ravel() if x_tick_src == "Amplitude" else self[x_tick_src]
+        if x_tick_src.title() == 'Amplitude':
+            x_tick_src = 'Amplitude'
+            data = self.data.ravel()
+        else:
+            data = self[x_tick_src]
+
         _ = ax.hist(data, bins=bins, **kwargs)
         set_ticks(ax, "x", **{"label": x_tick_src, 'round_to': None, **x_ticker})
         set_ticks(ax, "y", **{"label": "Counts", **y_ticker})
@@ -1339,7 +1344,7 @@ class Gather(TraceContainer, SamplesContainer):
         ax.set_title(**{'label': None, **title})
 
     # pylint: disable=too-many-arguments
-    def _plot_seismogram(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src='Time', colorbar=False,
+    def _plot_seismogram(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src='time', colorbar=False,
                          q_vmin=0.1, q_vmax=0.9, event_headers=None, top_header=None, **kwargs):
         """Plot the gather as a 2d grayscale image of seismic traces."""
         # Make the axis divisible to further plot colorbar and header subplot
@@ -1351,7 +1356,7 @@ class Gather(TraceContainer, SamplesContainer):
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
     #pylint: disable=invalid-name
-    def _plot_wiggle(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src="Time", norm_tracewise=True,
+    def _plot_wiggle(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src="time", norm_tracewise=True,
                      std=0.5, event_headers=None, top_header=None, lw=None, alpha=None, color="black", **kwargs):
         """Plot the gather as an amplitude vs time plot for each trace."""
         # Make the axis divisible to further plot colorbar and header subplot
@@ -1502,8 +1507,9 @@ class Gather(TraceContainer, SamplesContainer):
 
     def _set_x_ticks(self, ax, tick_src, ticker):
         """Infer and set ticks for x axis. """
-        tick_src = to_list(tick_src or self.sort_by or 'Index')[:2]
-        if tick_src[0] == "Index":
+        tick_src = to_list(tick_src or self.sort_by or 'index')[:2]
+        if tick_src[0].title() == "Index":
+            tick_src[0] = "Index"
             major_labels, minor_labels = np.arange(self.n_traces), None
         elif len(tick_src) == 1:
             major_labels, minor_labels =  self[tick_src[0]], None
@@ -1514,6 +1520,7 @@ class Gather(TraceContainer, SamplesContainer):
 
     def _set_y_ticks(self, ax, tick_src, ticker):
         """Infer and set ticks for y axis. """
+        tick_src = tick_src.title()
         if tick_src == "Time":
             major_labels =  self.samples
         if tick_src == "Samples":
