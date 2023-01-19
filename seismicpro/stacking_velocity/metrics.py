@@ -88,7 +88,7 @@ class StackingVelocityMetric(Metric):
         for vel in window:
             ax.plot(vel, self.times, color="tab:blue")
         ax.invert_yaxis()
-        set_ticks(ax, "x", "Stacking velocity", **x_ticker)
+        set_ticks(ax, "x", "Stacking velocity, m/s", **x_ticker)
         set_ticks(ax, "y", "Time", **y_ticker)
         ax.set_xlim(*self.velocity_limits)
 
