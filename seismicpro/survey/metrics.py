@@ -42,7 +42,7 @@ class TracewiseMetric(Metric):
 
     min_value = None
     max_value = None
-    is_lower_better = True
+    is_lower_better = None
 
     views = ("plot_image", "plot_wiggle")
 
@@ -84,6 +84,11 @@ class TracewiseMetric(Metric):
 
         return res
 
+    @staticmethod
+    def get_extremum(res, axis=None):
+        """Get the value that deviates the most from the mean"""
+        return np.nanmax((res - np.nanmean(res, axis=axis)).abs(), axis=axis)
+
     @classmethod
     def aggregate(cls, res, tracewise=False):
         """Aggregate input depending on `cls.is_lower_better`
@@ -100,13 +105,15 @@ class TracewiseMetric(Metric):
         np.array or float
             aggregated result for the whole gather, or an array of values for each trace
         """
-        fn = np.nanmax if cls.is_lower_better else np.nanmin
-
-        tw_res = res if res.ndim == 1 else fn(res, axis=1)
+        if cls.is_lower_better is None:
+            fn = cls.get_extremum
+        else:
+            fn = np.nanmax if cls.is_lower_better else np.nanmin
 
         if tracewise:
-            return tw_res
-        return fn(tw_res)
+            return res if res.ndim == 1 else fn(res, axis=1)
+
+        return fn(res)
 
     @classmethod
     def calc(cls, gather, tracewise=False, **kwargs): # pylint: disable=arguments-renamed
