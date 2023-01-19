@@ -1520,7 +1520,7 @@ class Gather(TraceContainer, SamplesContainer):
         UNITS = {  # pylint: disable=invalid-name
             "offset": ", m",
         }
-        
+
         tick_src = [ix_tick_src + UNITS.get(ix_tick_src, '') for ix_tick_src in tick_src]
 
         set_ticks(ax, 'x', major_labels=major_labels, minor_labels=minor_labels, **{"label": tick_src, **ticker})
