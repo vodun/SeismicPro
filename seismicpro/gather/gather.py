@@ -1265,12 +1265,12 @@ class Gather(TraceContainer, SamplesContainer):
         ax : matplotlib.axes.Axes, optional, defaults to None
             An axis of the figure to plot on. If not given, it will be created automatically.
         x_tick_src : str, optional
-            Source of the tick labels to be plotted on x axis. For "seismogram" and "wiggle" can be either "Index"
+            Source of the tick labels to be plotted on x axis. For "seismogram" and "wiggle" can be either "index"
             (default if gather is not sorted) or any header; for "hist" it also defines the data source and can be
-            either "Amplitude" (default) or any header.
+            either "amplitude" (default) or any header.
             Also serves as a default for axis label.
         y_tick_src : str, optional
-            Source of the tick labels to be plotted on y axis. For "seismogram" and "wiggle" can be either "Time"
+            Source of the tick labels to be plotted on y axis. For "seismogram" and "wiggle" can be either "time"
             (default) or "Samples"; has no effect in "hist" mode. Also serves as a default for axis label.
         event_headers : str, array-like or dict, optional, defaults to None
             Valid only for "seismogram" and "wiggle" modes.
@@ -1516,12 +1516,19 @@ class Gather(TraceContainer, SamplesContainer):
         else:
             major_labels, minor_labels = self[tick_src[0]], self[tick_src[1]]
 
+        # Format axis label
+        UNITS = {  # pylint: disable=invalid-name
+            "offset": ", m",
+        }
+        
+        tick_src = [ix_tick_src + UNITS.get(ix_tick_src, '') for ix_tick_src in tick_src]
+
         set_ticks(ax, 'x', major_labels=major_labels, minor_labels=minor_labels, **{"label": tick_src, **ticker})
 
     def _set_y_ticks(self, ax, tick_src, ticker):
         """Infer and set ticks for y axis. """
         tick_src = tick_src.title()
-        if tick_src == "Time":
+        if tick_src == "Time, ms":
             major_labels =  self.samples
         if tick_src == "Samples":
             major_labels = np.arange(self.n_samples)
