@@ -181,8 +181,8 @@ class GeometryError(RefractorVelocityMetric):
     def calc(gather_data, gather_headers, headers_names, rv_times, sample_rate, kwargs):
         reg = kwargs['reg'] if 'reg' in kwargs else 0.01 # int-float err
         times = gather_headers[:, 0]
-        shot_coords = np.stack([gather_headers[:, headers_names.index('SourceX')], gather_headers[:, headers_names.index('SourceY')]]).T
-        receiver_coords = np.stack([gather_headers[:, headers_names.index('GroupX')], gather_headers[:, headers_names.index('GroupY')]]).T
+        shot_coords = np.stack((gather_headers[:, headers_names.index('SourceX')], gather_headers[:, headers_names.index('SourceY')])).T
+        receiver_coords = np.stack((gather_headers[:, headers_names.index('GroupX')], gather_headers[:, headers_names.index('GroupY')])).T
         diff = times - rv_times
         x, y = np.ascontiguousarray((receiver_coords - shot_coords).T)
         azimuth = np.arctan2(y, x)
@@ -273,7 +273,7 @@ class DivergencePoint(RefractorVelocityMetric):
         calc_kwargs['offset_step'] = offset_step
         calc_kwargs['threshold_times'] = threshold_times
         divergence_offset = self.calc(gather_data=gather.data, rv_times=rv(gather['offset']), gather_headers=gather[[self.first_breaks_col, 'offset']],
-                                      headers_names=(self.firstBreaks_col, 'offset'),
+                                      headers_names=(self.first_breaks_col, 'offset'),
                                      sample_rate=None,  kwargs=calc_kwargs)
         ax.axvline(x=divergence_offset, color='k', linestyle='--')
         super().plot_refractor_velocity(coords, ax=ax, **kwargs)
