@@ -159,7 +159,7 @@ class BaseMetricMap:
         midpoints = (bins[:-1] + bins[1:])/2
         widths =  (bins[1:] - bins[:-1])
 
-        hax.bar(x=midpoints, height=counts, width=widths, color=cmap(norm(midpoints)), log=histogram.get('log', False))
+        hax.bar(x=midpoints, height=counts, width=widths, **{'color': cmap(norm(midpoints)), **histogram})
         hax.set_ylabel('Metric values', **y_ticker)
 
         if y_ticker is not None:
@@ -232,9 +232,8 @@ class BaseMetricMap:
             If not None, it is used to construct a color norm and a colorbar,
             and a histogram if requested by `histogram` parameter.
         histogram : dict or bool, optional, defaults to False
-            If True, a histogram of tracewise metric values is added on top of a metric map.
-            If dict, a histogram is added and its `yscale` is controlled by 'hscale' key of the dict.
-            The default yscale is 'linear'.
+            Whether to add a histogram of tracewise metric values is added on top of a metric map.
+            If `dict`, defines extra keyword arguments for `matplotlib.pyplot.bar`.
         cmap : str or matplotlib.colors.Colormap, optional
             Map colormap. If not given defined by `is_lower_better`: if it is `bool`, a green-red colormap is used,
             if `None` - "coolwarm".
@@ -298,7 +297,7 @@ class BaseMetricMap:
         return self.map_class(self.metric_data[self.coords_cols], self.metric_data[self.metric_name],
                               metric=self.metric, agg=agg, bin_size=bin_size)
 
-    def select_by_thresholds(self, lower_thr, upper_thr):
+    def select_by_thresholds(self, lower_thr=-np.inf, upper_thr=np.inf):
         """Create a new metric map with `map_data` that contains
         only the points with metric value within provided thesholds.
 
