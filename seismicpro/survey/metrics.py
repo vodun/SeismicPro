@@ -2,7 +2,7 @@
 
 from functools import partial
 
-from numba import njit
+from numba import njit, prange
 import numpy as np
 from scipy import signal
 from matplotlib import patches
@@ -206,7 +206,7 @@ class TracewiseMetric(Metric):
     def _blur_mask(flt, eps=EPS):
         """Blure filter values"""
         if np.any(flt == 1):
-            win_size = np.floor(min((np.prod(flt.shape) / np.sum(flt == 1)), np.min(flt.shape) / 10)).astype(int)
+            win_size = np.floor(min((np.prod(flt.shape) / np.sum(flt == 1)), np.min(flt.shape) / 10)).astype(np.int16)
 
             if win_size > 4:
                 kernel_1d = signal.windows.gaussian(win_size, win_size//2)
@@ -418,7 +418,7 @@ class DeadTrace(TracewiseMetric):  # pylint: disable=abstract-method
     def _get_res(cls, gather, **kwargs):
         """Return QC indicator."""
         _ = kwargs
-        return (np.max(gather.data, axis=1) - np.min(gather.data, axis=1) < EPS).astype(float)
+        return (np.max(gather.data, axis=1) - np.min(gather.data, axis=1) < EPS).astype(np.float32)
 
 
 class WindowRMS(TracewiseMetric):
@@ -444,8 +444,8 @@ class WindowRMS(TracewiseMetric):
         _ = kwargs
 
         w_beg, w_end = cls._get_indices(gather, times)
-        w_begs = np.full(gather.n_traces, fill_value=w_beg, dtype=int)
-        w_ends = np.full(gather.n_traces, fill_value=w_end, dtype=int)
+        w_begs = np.full(gather.n_traces, fill_value=w_beg, dtype=np.int16)
+        w_ends = np.full(gather.n_traces, fill_value=w_end, dtype=np.int16)
 
         mask = ((gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1]))
         w_begs[~mask] = -1
@@ -454,7 +454,7 @@ class WindowRMS(TracewiseMetric):
         return cls.rms_win(gather.data, w_begs, w_ends)
 
     @staticmethod
-    @njit
+    @njit(nogil=True)
     def rms_win(data, w_begs, w_ends):
         """Compute RMS for a window defined by its starting and end sample indices."""
         res = np.full(data.shape[0], fill_value=np.nan)
@@ -550,22 +550,22 @@ class SinalToNoiseRMSAdaptive(TracewiseMetric):
         s_begs[np.isnan(s_begs)] = -1
         n_begs[np.isnan(n_begs)] = -1
 
-        win_size = np.rint(win_size/gather.sample_rate).astype(int)
+        win_size = np.rint(win_size/gather.sample_rate).astype(np.int16)
 
-        return cls.rms_2_windows_ratio(gather.data, n_begs.astype(int), s_begs.astype(int), win_size)
+        return cls.rms_2_windows_ratio(gather.data, n_begs.astype(np.int16), s_begs.astype(np.int16), win_size)
 
     @staticmethod
-    @njit
+    @njit(nogil=True)
     def rms_2_windows_ratio(data, n_begs, s_begs, win_size):
         """Compute RMS ratio for 2 windows defined by their starting samples and window size."""
-        res = np.full(data.shape[0], fill_value=np.nan)
+        res = np.full(data.shape[0], fill_value=np.nan, dtype=np.float32)
 
-        for i, (trace, n_beg, s_beg) in enumerate(zip(data, n_begs, s_begs)):
+        for i in prange(len(res)):
+            trace, n_beg, s_beg = data[i], n_begs[i], s_begs[i]
             if n_beg > 0 and s_beg > 0:
                 sig = trace[s_beg:s_beg + win_size]
                 noise = trace[n_beg:n_beg + win_size]
-                res[i] = np.sqrt(np.mean(sig**2)) / \
-                    (np.sqrt(np.mean(noise**2)) + EPS)
+                res[i] = np.sqrt(np.mean(sig**2)) / (np.sqrt(np.mean(noise**2)) + EPS)
         return res
 
     def _plot(self, mode, coords, ax, **kwargs):
