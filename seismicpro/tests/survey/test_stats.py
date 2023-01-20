@@ -149,7 +149,7 @@ class TestDeadTraces:
 
         is_dead = np.isclose(trace_data.min(axis=1), trace_data.max(axis=1))
         survey_copy.headers = survey_copy.headers.loc[~is_dead]
-        survey_copy.headers['DeadTrace'] = 0.0
+        survey_copy.headers['DeadTrace'] = np.float32(0)
 
         # Validate that dead traces are not present
         assert survey_filtered.n_dead_traces == 0
