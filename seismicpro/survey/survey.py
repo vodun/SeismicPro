@@ -1298,7 +1298,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         return self
 
-    def construct_qc_map(self, metric_cls, by, agg=None, bin_size=None):
+    def construct_qc_map(self, metric_cls, by, agg=None, bin_size=None, **kwargs):
         """Construct a map of tracewise metric aggregated by gathers.
 
         Parameters
@@ -1326,6 +1326,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         coords = self[coords_cols]
         metric_values = self[attribute]
 
-        metric = PartialMetric(metric_cls, survey=self, name=attribute)
+        metric = PartialMetric(metric_cls, survey=self, name=attribute, **kwargs)
         return metric.map_class(coords, metric_values, coords_cols=coords_cols, metric=metric,
                                 agg=agg, bin_size=bin_size)
