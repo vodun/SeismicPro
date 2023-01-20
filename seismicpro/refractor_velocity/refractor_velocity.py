@@ -703,8 +703,8 @@ class RefractorVelocity:
                                                                                **kwargs)
         if kwargs:
             raise ValueError(f"kwargs contains unknown keys {kwargs.keys()}")
-        set_ticks(ax, "x", tick_labels=None, label="offset, m", **x_ticker)
-        set_ticks(ax, "y", tick_labels=None, label="time, ms", **y_ticker)
+        set_ticks(ax, "x", "offset, m", **x_ticker)
+        set_ticks(ax, "y", "Time, ms", **y_ticker)
 
         max_offset = get_first_defined(max_offset, self.max_offset, self.piecewise_offsets[-1])
         ax.scatter(self.offsets, self.times, s=1, color="black", label="first breaks")
