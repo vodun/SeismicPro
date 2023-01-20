@@ -73,8 +73,8 @@ class Gather(TraceContainer, SamplesContainer):
         Sample rate of seismic traces. Measured in milliseconds.
     survey : Survey
         A survey that generated the gather.
-    sort_by : None or str
-        Headers column that was used for gather sorting. If `None`, no sorting was performed.
+    sort_by : None or str or list of str
+        Headers that were used for gather sorting. If `None`, no sorting was performed.
     """
     def __init__(self, headers, data, samples, survey):
         self.headers = headers
@@ -190,9 +190,13 @@ class Gather(TraceContainer, SamplesContainer):
         new_self.headers = self.headers.iloc[indices[0]]
         new_self.samples = self.samples[indices[1]]
 
-        # Check that `sort_by` still represents the actual trace sorting as it might be changed during getitem.
-        if new_self.sort_by is not None and not new_self.headers[new_self.sort_by].is_monotonic_increasing:
-            new_self.sort_by = None
+        # If the gather was sorted, verify that getitem does not break sorting
+        if new_self.sort_by is not None:
+            if isinstance(indices[0], slice):
+                if indices[0].step is not None and indices[0].step < 0: # Slice with negative step breaks sorting
+                    new_self.sort_by = None
+            elif (np.diff(indices[0]) < 0).any(): # Decreasing sequence of indices breaks sorting
+                new_self.sort_by = None
         return new_self
 
     def __str__(self):
@@ -938,31 +942,24 @@ class Gather(TraceContainer, SamplesContainer):
 
     @batch_method(target="for")
     def sort(self, by):
-        """Sort gather `headers` and traces by specified header column.
+        """Sort gather by specified headers.
 
         Parameters
         ----------
-        by : str
-            `headers` column name to sort the gather by.
+        by : str or iterable of str
+            Headers names to sort the gather by.
 
         Returns
         -------
         self : Gather
-            Gather sorted by `by` column. Sets `sort_by` attribute to `by`.
-
-        Raises
-        ------
-        TypeError
-            If `by` is not str.
-        ValueError
-            If `by` column was not loaded in `headers`.
+            Gather sorted by given headers. Sets `sort_by` attribute to `by`.
         """
-        if not isinstance(by, str):
-            raise TypeError(f'`by` should be str, not {type(by)}')
-        if self.sort_by == by:
+        by = to_list(by)
+        if by == to_list(self.sort_by)[:len(by)]:
             return self
-        order = np.argsort(self[by], kind='stable')
-        self.sort_by = by
+
+        order = np.lexsort(self[by[::-1]].T)
+        self.sort_by = by[0] if len(by) == 1 else by
         self.data = self.data[order]
         self.headers = self.headers.iloc[order]
         return self
@@ -1347,7 +1344,6 @@ class Gather(TraceContainer, SamplesContainer):
         ValueError
             If given `mode` is unknown.
             If `colorbar` is not `bool` or `dict`.
-            If length of `color` doesn't match the number of traces in gather.
             If `event_headers` argument has the wrong format or given outlier processing mode is unknown.
             If `x_ticker` or `y_ticker` has the wrong format.
         """
@@ -1368,10 +1364,15 @@ class Gather(TraceContainer, SamplesContainer):
     def _plot_histogram(self, ax, title, x_ticker, y_ticker, x_tick_src="amplitude", bins=None,
                         log=False, grid=True, **kwargs):
         """Plot histogram of the data specified by x_tick_src."""
-        data = self.data.ravel() if x_tick_src == "amplitude" else self[x_tick_src]
+        if x_tick_src.title() == 'Amplitude':
+            x_tick_src = 'Amplitude'
+            data = self.data.ravel()
+        else:
+            data = self[x_tick_src]
+
         _ = ax.hist(data, bins=bins, **kwargs)
-        set_ticks(ax, "x", tick_labels=None, **{"label": x_tick_src, 'round_to': None, **x_ticker})
-        set_ticks(ax, "y", tick_labels=None, **{"label": "counts", **y_ticker})
+        set_ticks(ax, "x", **{"label": x_tick_src, 'round_to': None, **x_ticker})
+        set_ticks(ax, "y", **{"label": "Counts", **y_ticker})
 
         ax.grid(grid)
         if log:
@@ -1470,10 +1471,9 @@ class Gather(TraceContainer, SamplesContainer):
                 header_values=self[top_header]
             top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=header_values, y_ticker=y_ticker)
 
-        # Set axis ticks
-        x_tick_src = x_tick_src or self.sort_by or "index"
-        self._set_ticks(ax, axis="x", tick_src=x_tick_src, ticker=x_ticker)
-        self._set_ticks(ax, axis="y", tick_src=y_tick_src, ticker=y_ticker)
+        # Set axis ticks.
+        self._set_x_ticks(ax, tick_src=x_tick_src, ticker=x_ticker)
+        self._set_y_ticks(ax, tick_src=y_tick_src, ticker=y_ticker)
 
         top_ax.set_title(**{'label': None, **title})
 
@@ -1545,30 +1545,37 @@ class Gather(TraceContainer, SamplesContainer):
         format_subplot_ticklabels(top_ax, axis='y', **y_ticker)
         return top_ax
 
-    def _get_x_ticks(self, axis_label):
-        """Get tick labels for x-axis: either any gather header or ordinal numbers of traces in the gather."""
-        if axis_label == "index":
-            return np.arange(self.n_traces)
-        return self[axis_label]
-
-    def _get_y_ticks(self, axis_label):
-        """Get tick labels for y-axis: either time samples or ordinal numbers of samples in the gather."""
-        if axis_label == "time":
-            return self.samples
-        if axis_label == "samples":
-            return np.arange(self.n_samples)
-        raise ValueError(f"y axis label must be either `time` or `samples`, not {axis_label}")
-
-    def _set_ticks(self, ax, axis, tick_src, ticker):
-        """Set ticks, their labels and an axis label for a given axis."""
-        # Get tick_labels depending on axis and its label
-        if axis == "x":
-            tick_labels = self._get_x_ticks(tick_src)
-        elif axis == "y":
-            tick_labels = self._get_y_ticks(tick_src)
+    def _set_x_ticks(self, ax, tick_src, ticker):
+        """Infer and set ticks for x axis. """
+        tick_src = to_list(tick_src or self.sort_by or 'index')[:2]
+        if tick_src[0].title() == "Index":
+            tick_src[0] = "Index"
+            major_labels, minor_labels = np.arange(self.n_traces), None
+        elif len(tick_src) == 1:
+            major_labels, minor_labels =  self[tick_src[0]], None
         else:
-            raise ValueError(f"Unknown axis {axis}")
-        set_ticks(ax, axis, tick_labels=tick_labels, **{"label": tick_src, **ticker})
+            major_labels, minor_labels = self[tick_src[0]], self[tick_src[1]]
+
+        # Format axis label
+        UNITS = {  # pylint: disable=invalid-name
+            "offset": ", m",
+        }
+
+        tick_src = [ix_tick_src + UNITS.get(ix_tick_src, '') for ix_tick_src in tick_src]
+        axis_label = '\n'.join(tick_src)
+
+        set_ticks(ax, 'x', major_labels=major_labels, minor_labels=minor_labels, **{"label": axis_label, **ticker})
+
+    def _set_y_ticks(self, ax, tick_src, ticker):
+        """Infer and set ticks for y axis. """
+        tick_src = tick_src.title()
+        if tick_src == "Time":
+            tick_src = "Time, ms"
+            major_labels =  self.samples
+        if tick_src == "Samples":
+            major_labels = np.arange(self.n_samples)
+
+        set_ticks(ax, 'y', major_labels=major_labels, **{"label": tick_src, **ticker})
 
     def plot_nmo_correction(self, min_vel=1500, max_vel=6000, figsize=(6, 4.5), show_grid=True, **kwargs):
         """Perform interactive NMO correction of the gather with selected constant velocity.
