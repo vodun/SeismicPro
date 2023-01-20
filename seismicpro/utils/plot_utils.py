@@ -8,8 +8,6 @@ import matplotlib.pyplot as plt
 from matplotlib import ticker
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-from .general_utils import to_list
-
 
 def as_dict(val, key):
     """Construct a dict with a {`key`: `val`} structure if given `val` is not a `dict`, or copy `val` otherwise."""
