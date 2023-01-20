@@ -48,10 +48,15 @@ class TracewiseMetric(Metric):
     threshold = None
     top_ax_y_scale = 'linear'
 
+    params = []
+
     def __init__(self, survey, coords_cols, **kwargs):
         super().__init__(**kwargs)
         self.survey = survey.reindex(coords_cols)
-        self.kwargs = kwargs
+
+    @property
+    def kwargs(self):
+        return {name: getattr(self, name) for name in self.params}
 
     @classmethod
     def _get_res(cls, gather, **kwargs):
@@ -130,17 +135,10 @@ class TracewiseMetric(Metric):
         self._plot('wiggle', coords, ax, **kwargs)
 
     def _plot(self, mode, coords, ax, **kwargs):
-        """Gather plot with filter"""
+        """Gather plot, mode-dependent"""
         gather = self.survey.get_gather(coords)
 
-        metric_vals = self.get_res(gather, **self.kwargs)
-        top_header = self.aggregate(metric_vals, tracewise=True)
-
-        gather = self.preprocess(gather, **self.kwargs)
-        gather.plot(ax=ax, mode=mode, top_header=top_header, **kwargs)
-
-        top_ax = ax.figure.axes[1]
-        top_ax.set_yscale(self.top_ax_y_scale)
+        top_ax = self._plot_gather_metric(mode, gather, ax, **kwargs)
 
         if self.threshold is None or self.is_lower_better is None:
             return
@@ -153,6 +151,18 @@ class TracewiseMetric(Metric):
 
         if np.any(mask):
             self._plot_mask(mode, gather, mask, ax, **kwargs)
+
+    def _plot_gather_metric(self, mode, gather, ax, **kwargs):
+        """Plot gather and metric values on a top plot"""
+
+        metric_vals = self.calc(gather, tracewise=True, **self.kwargs)
+
+        gather = self.preprocess(gather, **self.kwargs)
+        gather.plot(ax=ax, mode=mode, top_header=metric_vals, **kwargs)
+
+        top_ax = ax.figure.axes[1]
+        top_ax.set_yscale(self.top_ax_y_scale)
+        return top_ax
 
     def _plot_mask(self, mode, gather, mask, ax, **kwargs):
         """Highlight metric values above/below `cls.threshold` """
@@ -218,6 +228,8 @@ class Spikes(TracewiseMetric):
     is_lower_better = True
     threshold = 2
     top_ax_y_scale = 'log'
+
+    params = ['muter']
 
     @classmethod
     def preprocess(cls, gather, muter, **kwargs):
@@ -413,19 +425,28 @@ class DeadTrace(TracewiseMetric):  # pylint: disable=abstract-method
 
 
 class WindowRMS(TracewiseMetric):
-    """ RMS computed for provided windows """
+    """ RMS computed for provided windows
+
+    Parameters
+    ----------
+    offsets : tuple of 2 ints
+        offset range to use for calcualtion.
+    times : tuple of 2 ints
+        time range to use for calcualtion, measured in ms.
+    """
     name = "window_RMS"
     is_lower_better = False
     threshold = None
     top_ax_y_scale = 'log'
-    views = 'plot'
+
+    params = ['offsets', 'times']
 
     @classmethod
-    def _get_res(cls, gather, offsets, win_start, win_end, **kwargs):
+    def _get_res(cls, gather, offsets, times, **kwargs):
         """QC indicator implementation."""
         _ = kwargs
 
-        w_beg, w_end = cls._get_indices(gather, win_start, win_end)
+        w_beg, w_end = cls._get_indices(gather, times)
         w_begs = np.full(gather.n_traces, fill_value=w_beg, dtype=int)
         w_ends = np.full(gather.n_traces, fill_value=w_end, dtype=int)
 
@@ -447,25 +468,19 @@ class WindowRMS(TracewiseMetric):
         return res
 
     @staticmethod
-    def _get_indices(gather, win_start, win_end):
-        return times_to_indices(np.asarray([max(gather.samples[0], win_start), min(win_end, gather.samples[-1])]),
+    def _get_indices(gather, times):
+        return times_to_indices(np.asarray([max(gather.samples[0], times[0]), min(times[-1], gather.samples[-1])]),
                                 gather.samples).astype(np.int16)
 
-    def plot(self, coords, ax, **kwargs):
+    def _plot(self, mode, coords, ax, **kwargs):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
-
         gather = self.survey.get_gather(coords).sort(by='offset')
 
-        metric_vals = self.calc(gather, tracewise=True, **self.kwargs)
-
-        gather.plot(ax=ax, mode='seismogram', top_header=metric_vals, **kwargs)
-
-        top_ax = ax.figure.axes[1]
-        top_ax.set_yscale(self.top_ax_y_scale)
+        self._plot_gather_metric(mode, gather, ax, **kwargs)
 
         mask = (gather.offsets >= self.offsets[0]) & (gather.offsets <= self.offsets[1])
         offs_ind = np.nonzero(mask)[0]
-        w_beg, w_end = self._get_indices(gather, self.win_start, self.win_end)
+        w_beg, w_end = self._get_indices(gather, self.times)
 
         n_rec = (offs_ind[0], w_beg), len(offs_ind), (w_end - w_beg)
         ax.add_patch(patches.Rectangle(*n_rec, linewidth=1, edgecolor='magenta', facecolor='none'))
@@ -489,13 +504,24 @@ class SinalToNoiseRMSAdaptive(TracewiseMetric):
 
     TODO use refractor velocity
 
+    Parameters
+    ----------
+    win_size : int
+        length of the windows for computing signam and noise RMS amplitudes measured in ms.
+    shift_up : int
+        the delta between noise window end and first breaks, measured in ms.
+    shift_down : int
+        the delta between signal window beginning and first breaks, measured in ms.
+    first_breaks_col : str, optional
+        header with first breaks, by default HDR_FIRST_BREAK
     """
 
     name = "RMS_Ratio_Adaptive"
     is_lower_better = False
     threshold = None
     top_ax_y_scale = 'log'
-    views = 'plot'
+
+    params = ['win_size', 'shift_up', 'shift_down', 'first_breaks_col']
 
     @staticmethod
     def _get_indices(gather,  win_size, shift_up, shift_down, first_breaks_col=HDR_FIRST_BREAK, **kwargs):
@@ -546,32 +572,11 @@ class SinalToNoiseRMSAdaptive(TracewiseMetric):
                     (np.sqrt(np.mean(noise**2)) + EPS)
         return res
 
-    def plot(self, coords, ax, **kwargs):
-        """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows.
-
-        Parameters
-        ----------
-        coords : int or 1d array-like
-            an index of the gather to load. It is filled by a BaseMetricMap.
-        ax : matplotlib.axes.Axes
-            an axis to use, filled by a BaseMetricMap.
-        win_size : int
-            length of the windows for computing signam and noise RMS amplitudes measured in ms.
-        shift_up : int
-            the delta between noise window end and first breaks, measured in ms.
-        shift_down : int
-            the delta between signal window beginning and first breaks, measured in ms.
-        first_breaks_col : str, optional
-            header with first breaks, by default HDR_FIRST_BREAK
-        """
+    def _plot(self, mode, coords, ax, **kwargs):
+        """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows."""
         gather = self.survey.get_gather(coords).sort(by='offset')
 
-        metric_vals = self.calc(gather, tracewise=True, **self.kwargs)
-
-        gather.plot(ax=ax, mode='seismogram', top_header=metric_vals, **kwargs)
-
-        top_ax = ax.figure.axes[1]
-        top_ax.set_yscale(self.top_ax_y_scale)
+        self._plot_gather_metric(mode, gather, ax, **kwargs)
 
         n_begs, s_begs = self._get_indices(gather, **self.kwargs)
         n_begs[np.isnan(s_begs)] = np.nan
