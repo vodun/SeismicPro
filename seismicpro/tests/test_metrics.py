@@ -3,7 +3,7 @@
 import pytest
 import numpy as np
 
-from seismicpro.survey.metrics import MaxClipsLenMetric, ConstLenMetric
+from seismicpro.survey.metrics import MaxClipsLen, MaxConstLen
 
 
 class DummyGather:
@@ -24,7 +24,7 @@ CLIPS_PARAMS = [
 @pytest.mark.parametrize("arr,expected", CLIPS_PARAMS)
 def test_clips(arr, expected):
     """Test MaxClipsLenMetric"""
-    assert np.allclose(MaxClipsLenMetric.get_res(DummyGather(arr)).astype(int), np.asarray(expected))
+    assert np.allclose(MaxClipsLen.get_res(DummyGather(arr)).astype(int), np.asarray(expected))
 
 
 CLIPLEN_IND_PARAMS = [
@@ -37,4 +37,4 @@ CLIPLEN_IND_PARAMS = [
 @pytest.mark.parametrize("arr,expected", CLIPLEN_IND_PARAMS)
 def test_const_subseq(arr, expected):
     """Test ConstLenMetric"""
-    assert np.allclose(ConstLenMetric.get_res(DummyGather(arr)).astype(int), np.asarray(expected))
+    assert np.allclose(MaxConstLen.get_res(DummyGather(arr)).astype(int), np.asarray(expected))

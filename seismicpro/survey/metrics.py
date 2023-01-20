@@ -1,18 +1,14 @@
 """Implements survey metrics"""
 
 from functools import partial
-import warnings
 
 from numba import njit
-
 import numpy as np
 from scipy import signal
-
 from matplotlib import patches
-from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from ..metrics import Metric
-from ..const import EPS, HDR_FIRST_BREAK
+from ..const import EPS
 from ..gather.utils import times_to_indices
 
 class SurveyAttribute(Metric):
@@ -56,6 +52,7 @@ class TracewiseMetric(Metric):
 
     @property
     def kwargs(self):
+        """returns metric kwargs"""
         return {name: getattr(self, name) for name in self.params}
 
     @classmethod
@@ -186,7 +183,7 @@ class TracewiseMetric(Metric):
                             beg = None
 
                 if beg is not None:
-                    ax.fill_betweenx(yrange, beg - 0.5, i - 1 + 0.5, color='red', alpha=0.1)
+                    ax.fill_betweenx(yrange, beg - 0.5, len(mask) - 1 + 0.5, color='red', alpha=0.1)
             else:
                 blurred = signal.fftconvolve(mask.astype(np.int16), np.ones(5), mode='same')
                 gather.data[blurred <= 0] = np.nan
@@ -486,10 +483,12 @@ class WindowRMS(TracewiseMetric):
         ax.add_patch(patches.Rectangle(*n_rec, linewidth=1, edgecolor='magenta', facecolor='none'))
 
 class SignalWindowRMS(WindowRMS):
+    """Convenience class for signal window"""
     pass
 
 
 class NoiseWindowRMS(WindowRMS):
+    """Convenience class for noise window"""
     pass
 
 
@@ -585,4 +584,3 @@ class SinalToNoiseRMSAdaptive(TracewiseMetric):
         ax.plot(np.arange(gather.n_traces), n_begs + win_size, color='magenta')
         ax.plot(np.arange(gather.n_traces), s_begs, color='lime')
         ax.plot(np.arange(gather.n_traces), s_begs + win_size, color='lime')
-
