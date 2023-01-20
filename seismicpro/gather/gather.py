@@ -1522,8 +1522,9 @@ class Gather(TraceContainer, SamplesContainer):
         }
 
         tick_src = [ix_tick_src + UNITS.get(ix_tick_src, '') for ix_tick_src in tick_src]
+        axis_label = '\n'.join(tick_src)
 
-        set_ticks(ax, 'x', major_labels=major_labels, minor_labels=minor_labels, **{"label": tick_src, **ticker})
+        set_ticks(ax, 'x', major_labels=major_labels, minor_labels=minor_labels, **{"label": axis_label, **ticker})
 
     def _set_y_ticks(self, ax, tick_src, ticker):
         """Infer and set ticks for y axis. """

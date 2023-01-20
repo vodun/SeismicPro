@@ -125,13 +125,11 @@ def set_ticks(ax, axis, label='', major_labels=None, minor_labels=None, num=None
     ValueError
         If `step_labels` is provided when tick_labels are None or not monotonically increasing.
     """
-    axis_label = '\n'.join(to_list(label))
-
     locator, formatter = _process_ticks(labels=major_labels, num=num, step_ticks=step_ticks,
                                         step_labels=step_labels, round_to=round_to)
     rotation_kwargs = _pop_rotation_kwargs(kwargs)
     ax_obj = getattr(ax, f"{axis}axis")
-    ax_obj.set_label_text(axis_label, **kwargs)
+    ax_obj.set_label_text(label, **kwargs)
     ax_obj.set_ticklabels([], **kwargs, **rotation_kwargs)
     ax_obj.set_major_locator(locator)
     ax_obj.set_major_formatter(formatter)
