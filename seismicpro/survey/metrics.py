@@ -224,13 +224,14 @@ def rms_2_windows_ratio(data, n_begs, s_begs, win_size):
     return res
 
 
-class SpikesMetric(TracewiseMetric):
+class Spikes(TracewiseMetric):
     """Spikes detection."""
     name = "spikes"
     min_value = 0
     max_value = None
     is_lower_better = True
     threshold = 2
+    top_ax_y_scale = 'log'
 
     @classmethod
     def preprocess(cls, gather, muter, **kwargs):
@@ -264,11 +265,12 @@ class SpikesMetric(TracewiseMetric):
                     arr[i, :j] = arr[i, j]
 
 
-class AutocorrMetric(TracewiseMetric):
+class Autocorr(TracewiseMetric):
     """Autocorrelation with shift 1"""
     name = "autocorr"
     is_lower_better = False
     threshold = 0.9
+    top_ax_y_scale = 'log'
 
     @classmethod
     def preprocess(cls, gather, muter, **kwargs):
@@ -310,7 +312,7 @@ class TraceMaxAbs(TracewiseMetric):
         return np.max(np.abs(gather.data), axis=1) / (gather.data.std(axis=1) + EPS)
 
 
-class MaxClipsLenMetric(TracewiseMetric):
+class MaxClipsLen(TracewiseMetric):
     """Detecting minimum/maximun clips"""
     name = "max_clips_len"
     min_value = 1
@@ -358,7 +360,7 @@ class MaxClipsLenMetric(TracewiseMetric):
         return indicators.reshape(*old_shape)
 
 
-class ConstLenMetric(TracewiseMetric):
+class MaxConstLen(TracewiseMetric):
     """Detecting constant subsequences"""
     name = "const_len"
     is_lower_better = True
@@ -397,26 +399,31 @@ class ConstLenMetric(TracewiseMetric):
         return indicators.reshape(*old_shape)
 
 
-class StdFraqMetricGlob(TracewiseMetric):
-    """Traces std relative to survey's std, log10 scale"""
-    name = "std_fraq_glob"
-    min_value = None
-    max_value = None
-    is_lower_better = None
-    threshold = None
-    # views = "plot_res"
+class Std(TracewiseMetric):
+    """Tracewise std"""
+    name = "std"
+    top_ax_y_scale = 'log'
 
     @classmethod
     def _get_res(cls, gather, **kwargs):
         """QC indicator implementation."""
         _ = kwargs
+        return gather.data.std(axis=1)
 
-        if not gather.survey.has_stats:
-            raise RuntimeError('Global statistics were not calculated, call `Survey.collect_stats` first.')
 
-        res = np.log10(gather.data.std(axis=1) / gather.survey.std)
-        return res
+class DeadTrace(TracewiseMetric):  # pylint: disable=abstract-method
+    """Detects constant traces."""
+    name = "dead_trace"
+    min_value = 0
+    max_value = 1
+    is_lower_better = True
+    threshold = 0.5
 
+    @classmethod
+    def _get_res(cls, gather, **kwargs):
+        """Return QC indicator."""
+        _ = kwargs
+        return (np.max(gather.data, axis=1) - np.min(gather.data, axis=1) < EPS).astype(float)
 
 class TraceSinalToNoiseRMSRatio(TracewiseMetric):
     """Signal to Noise RMS ratio computed using provided windows.
@@ -632,16 +639,3 @@ class TraceSinalToNoiseRMSRatioAdaptive(TracewiseMetric):
         self.set_title(top_ax, gather)
 
 
-class DeadTrace(TracewiseMetric): # pylint: disable=abstract-method
-    """Detects constant traces."""
-    name = "dead_trace"
-    min_value = 0
-    max_value = 1
-    is_lower_better = True
-    threshold = 0.5
-
-    @classmethod
-    def _get_res(cls, gather, **kwargs):
-        """Return QC indicator."""
-        _ = kwargs
-        return (np.max(gather.data, axis=1) - np.min(gather.data, axis=1) < EPS).astype(float)
