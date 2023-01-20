@@ -521,17 +521,14 @@ class SinalToNoiseRMSAdaptive(TracewiseMetric):
     threshold = None
     top_ax_y_scale = 'log'
 
-    params = ['win_size', 'shift_up', 'shift_down', 'first_breaks_col']
+    params = ['win_size', 'shift_up', 'shift_down', 'refractor_velocity']
 
     @staticmethod
-    def _get_indices(gather,  win_size, shift_up, shift_down, first_breaks_col=HDR_FIRST_BREAK, **kwargs):
+    def _get_indices(gather, win_size, shift_up, shift_down, refractor_velocity, **kwargs):
         """Convert times to use for noise and signal windows into indices"""
         _ = kwargs
 
-        if first_breaks_col not in gather.headers:
-            raise RuntimeError(f"{first_breaks_col} not in headers")
-
-        fbp = gather.headers[first_breaks_col].values
+        fbp = refractor_velocity(gather.offsets)
 
         noise_beg = fbp - shift_up - win_size
         noise_beg[noise_beg < 0] = np.nan
@@ -545,11 +542,11 @@ class SinalToNoiseRMSAdaptive(TracewiseMetric):
         return n_begs, s_begs
 
     @classmethod
-    def _get_res(cls, gather, win_size, shift_up, shift_down, first_breaks_col=HDR_FIRST_BREAK, **kwargs):
+    def _get_res(cls, gather, win_size, shift_up, shift_down, refractor_velocity, **kwargs):
         """QC indicator implementation. See `plot` docstring for parameters descriptions."""
         _ = kwargs
 
-        n_begs, s_begs = cls._get_indices(gather, win_size, shift_up, shift_down, first_breaks_col)
+        n_begs, s_begs = cls._get_indices(gather, win_size, shift_up, shift_down, refractor_velocity)
 
         s_begs[np.isnan(s_begs)] = -1
         n_begs[np.isnan(n_begs)] = -1
