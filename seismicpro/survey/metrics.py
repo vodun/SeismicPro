@@ -34,7 +34,6 @@ class SurveyAttribute(Metric):
         return [partial(self.plot, sort_by=sort_by)], kwargs
 
 
-
 class TracewiseMetric(Metric):
     """Base class for tracewise metrics with addidional plotters and aggregations
     Child classes should redefine `_get_res` method, and optionnaly `preprocess`.
@@ -47,11 +46,12 @@ class TracewiseMetric(Metric):
     views = ("plot_image", "plot_wiggle")
 
     threshold = None
-    top_ax_y_scale='linear'
+    top_ax_y_scale = 'linear'
 
     def __init__(self, survey, coords_cols, **kwargs):
         super().__init__(**kwargs)
         self.survey = survey.reindex(coords_cols)
+        self.kwargs = kwargs
 
     @classmethod
     def _get_res(cls, gather, **kwargs):
@@ -116,7 +116,7 @@ class TracewiseMetric(Metric):
         return fn(res)
 
     @classmethod
-    def calc(cls, gather, tracewise=False, **kwargs): # pylint: disable=arguments-renamed
+    def calc(cls, gather, tracewise=False, **kwargs):  # pylint: disable=arguments-renamed
         """Return an already calculated metric."""
         res = cls.get_res(gather, **kwargs)
         return cls.aggregate(res, tracewise=tracewise)
@@ -131,15 +131,13 @@ class TracewiseMetric(Metric):
 
     def _plot(self, mode, coords, ax, **kwargs):
         """Gather plot with filter"""
-        kwargs, metric_kwargs = self._parse_kwargs(kwargs)
-
         gather = self.survey.get_gather(coords)
 
-        metric_vals = self.get_res(gather, **metric_kwargs)
+        metric_vals = self.get_res(gather, **self.kwargs)
         top_header = self.aggregate(metric_vals, tracewise=True)
 
-        gather = self.preprocess(gather, **metric_kwargs)
-        gather.plot(ax=ax, mode=mode, top_header=top_header, title=self._get_title(gather), **kwargs)
+        gather = self.preprocess(gather, **self.kwargs)
+        gather.plot(ax=ax, mode=mode, top_header=top_header, **kwargs)
 
         top_ax = ax.figure.axes[1]
         top_ax.set_yscale(self.top_ax_y_scale)
@@ -149,7 +147,7 @@ class TracewiseMetric(Metric):
 
         top_ax.axhline(self.threshold, alpha=0.5)
 
-        mask = self.get_res(gather, **metric_kwargs)
+        mask = self.get_res(gather, **self.kwargs)
         fn = np.greater_equal if self.is_lower_better else np.less_equal
         mask = fn(mask, self.threshold)
 
@@ -182,7 +180,7 @@ class TracewiseMetric(Metric):
             else:
                 blurred = signal.fftconvolve(mask.astype(np.int16), np.ones(5), mode='same')
                 gather.data[blurred <= 0] = np.nan
-                gather.plot(ax=ax, mode='seismogram', cmap='Reds', title=self._get_title(gather), **kwargs)
+                gather.plot(ax=ax, mode='seismogram', cmap='Reds', **kwargs)
 
             return
 
@@ -191,36 +189,11 @@ class TracewiseMetric(Metric):
             mask[:, 1:-1] = (mask[:, 1:-1] | mask[:, 2:] | mask[:, :-2])
             gather.data = mask.astype(np.float32)
             gather.data[~(mask.any(axis=1))] = np.nan
-            gather.plot(ax=ax, mode='wiggle', alpha=0.1, color='red', title=self._get_title(gather), **kwargs)
+            gather.plot(ax=ax, mode='wiggle', alpha=0.1, color='red', **kwargs)
         else:
             blurred = self._blur_mask(mask.astype(np.int16))
             gather.data = blurred
-            gather.plot(ax=ax, mode='seismogram', alpha=0.2, cmap='Reds', title=self._get_title(gather), **kwargs)
-
-    @staticmethod
-    def set_title(ax, gather):
-        """Set gather index as the axis title"""
-        idx = np.unique(gather.headers.index.values)
-        if len(idx) == 1:
-            ttl = str(idx[0])
-        else:
-            ttl = f"[{idx[0]}...{idx[-1]}]"
-
-        ax.set_title(ttl)
-
-    @staticmethod
-    def _get_title(gather):
-        """Set gather index as the axis title"""
-        idx = np.unique(gather.headers.index.values)
-        return str(idx[0]) if len(idx) == 1 else f"[{idx[0]}...{idx[-1]}]"
-
-    @staticmethod
-    def _parse_kwargs(kwargs):
-        if 'metric_kwargs' in kwargs:
-            metric_kwargs = kwargs.pop('metric_kwargs')
-        else:
-            metric_kwargs, kwargs = kwargs, {}
-        return kwargs, metric_kwargs
+            gather.plot(ax=ax, mode='seismogram', alpha=0.2, cmap='Reds', **kwargs)
 
     @staticmethod
     def _blur_mask(flt, eps=EPS):
@@ -306,7 +279,7 @@ class AutocorrMetric(TracewiseMetric):
     def _get_res(cls, gather, **kwargs):
         """QC indicator implementation."""
         _ = kwargs
-        return np.nanmean(gather.data[...,1:] * gather.data[..., :-1], axis=1)
+        return np.nanmean(gather.data[..., 1:] * gather.data[..., :-1], axis=1)
 
 
 class TraceAbsMean(TracewiseMetric):
@@ -358,7 +331,6 @@ class MaxClipsLenMetric(TracewiseMetric):
         res_minus = cls.get_val_subseq(traces, mins)
 
         return (res_plus + res_minus).astype(np.float32)
-
 
     @staticmethod
     @njit(nogil=True)
