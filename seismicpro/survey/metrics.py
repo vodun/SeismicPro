@@ -560,7 +560,7 @@ class SinalToNoiseRMSAdaptive(TracewiseMetric):
         """Compute RMS ratio for 2 windows defined by their starting samples and window size."""
         res = np.full(data.shape[0], fill_value=np.nan, dtype=np.float32)
 
-        for i in prange(len(res)):
+        for i in prange(len(res)):  # pylint: disable=not-an-iterable
             trace, n_beg, s_beg = data[i], n_begs[i], s_begs[i]
             if n_beg > 0 and s_beg > 0:
                 sig = trace[s_beg:s_beg + win_size]
