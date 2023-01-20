@@ -1528,7 +1528,8 @@ class Gather(TraceContainer, SamplesContainer):
     def _set_y_ticks(self, ax, tick_src, ticker):
         """Infer and set ticks for y axis. """
         tick_src = tick_src.title()
-        if tick_src == "Time, ms":
+        if tick_src == "Time":
+            tick_src = "Time, ms"
             major_labels =  self.samples
         if tick_src == "Samples":
             major_labels = np.arange(self.n_samples)
