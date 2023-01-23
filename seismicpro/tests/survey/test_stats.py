@@ -9,9 +9,9 @@ from seismicpro.survey.metrics import TracewiseMetric
 
 from . import assert_surveys_equal, assert_survey_processed_inplace
 
-class DummyMetric(TracewiseMetric):
+class Dummy(TracewiseMetric):
     """Dummy"""
-    name = "dummy"
+    name = "Dummy"
 
     @classmethod
     def _get_res(cls, gather, **kwargs):
@@ -170,6 +170,6 @@ class TestMetrics:
         path, _ = stat_segy
         survey = Survey(path, header_index=header_index, header_cols="offset")
 
-        survey.qc_tracewise(metrics=DummyMetric)
+        survey.qc_tracewise(metrics=Dummy())
 
-        assert np.allclose(survey['DummyMetric'], survey['TRACE_SEQUENCE_FILE'])
+        assert np.allclose(survey['Dummy'], survey['TRACE_SEQUENCE_FILE'])

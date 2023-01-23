@@ -412,7 +412,7 @@ class Std(TracewiseMetric):
 
 class DeadTrace(TracewiseMetric):  # pylint: disable=abstract-method
     """Detects constant traces."""
-    name = "dead_trace"
+    name = "DeadTrace"
     min_value = 0
     max_value = 1
     is_lower_better = True
