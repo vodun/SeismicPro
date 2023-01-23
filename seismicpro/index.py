@@ -12,29 +12,38 @@ from batchflow import DatasetIndex
 from .survey import Survey
 from .containers import GatherContainer
 from .utils import to_list, maybe_copy
+from .const import HDR_TRACE_POS
 
 
 class IndexPart(GatherContainer):
     """A class that represents a part of `SeismicIndex` which contains trace headers of several surveys being merged
-    together."""
+    together.
 
-    def __init__(self):
-        self._headers = None
-        self._indexer = None
-        self.common_headers = set()
-        self.surveys_dict = {}
+    Parameters
+    ----------
+    headers : pd.DataFrame
+        Trace headers of surveys in the index part. Must have `MultiIndex` columns with two levels: the first one with
+        names of surveys in the part and the second with trace headers of a particular survey.
+    common_headers : set of str
+        Trace headers with common values among all the surveys in the part (e.g. keys used to merge the surveys). Used
+        to speed up merge/apply/filter operations.
+    surveys_dict : dict
+        A mapping from survey names from the first level of `headers.columns` to the surveys themselves.
+    indexer : BaseIndexer, optional
+        An indexer of `headers`. Created automatically if not given.
+    copy_headers : bool, optional, defaults to False
+        Whether to copy `headers` while constructing the part.
+    """
 
-    def __getitem__(self, key):
-        """Select values of headers by their names."""
-        if isinstance(key, tuple):
-            key = [key]
-        return super().__getitem__(key)
-
-    def __setitem__(self, key, value):
-        """Set given values to selected headers."""
-        if isinstance(key, tuple):
-            key = [key]
-        return super().__setitem__(key, value)
+    def __init__(self, headers, common_headers, surveys_dict, indexer=None, copy_headers=False):
+        headers = headers.copy(copy_headers)
+        if indexer is None:  # Force indexer creation on headers setting
+            self.headers = headers
+        else:  # Use existing indexer to speed up part creation
+            self._headers = headers
+            self._indexer = indexer
+        self.common_headers = common_headers
+        self.surveys_dict = surveys_dict
 
     @property
     def survey_names(self):
@@ -42,30 +51,17 @@ class IndexPart(GatherContainer):
         return sorted(self.surveys_dict.keys())
 
     @classmethod
-    def from_attributes(cls, headers, surveys_dict, common_headers, copy_headers=False):
-        """Create a new index part from its attributes."""
-        part = cls()
-        part.headers = headers.copy(copy_headers)
-        part.common_headers = common_headers
-        part.surveys_dict = surveys_dict
-        return part
-
-    @classmethod
     def from_survey(cls, survey, copy_headers=False):
         """Construct an index part from a single survey."""
         if not isinstance(survey, Survey):
             raise ValueError("survey must be an instance of Survey")
 
-        headers = survey.headers.copy(copy_headers)
+        headers = survey.headers.copy(deep=False)
         common_headers = set(headers.columns)
         headers.columns = pd.MultiIndex.from_product([[survey.name], headers.columns])
 
-        part = cls()
-        part._headers = headers  # Avoid calling headers setter since the indexer is already calculated
-        part._indexer = survey._indexer  # pylint: disable=protected-access
-        part.common_headers = common_headers
-        part.surveys_dict = {survey.name: survey}
-        return part
+        # pylint: disable-next=protected-access
+        return cls(headers, common_headers, {survey.name: survey}, indexer=survey._indexer, copy_headers=copy_headers)
 
     @staticmethod
     def _filter_equal(headers, header_cols):
@@ -87,7 +83,7 @@ class IndexPart(GatherContainer):
 
         possibly_common_headers = self.common_headers & other.common_headers
         if on is None:
-            on = possibly_common_headers - {"TRACE_SEQUENCE_FILE"}
+            on = possibly_common_headers - {"TRACE_SEQUENCE_FILE", HDR_TRACE_POS}
             left_df = self.headers
             right_df = other.headers
         else:
@@ -110,12 +106,12 @@ class IndexPart(GatherContainer):
         # Recalculate common headers in the merged DataFrame
         common_headers = on | {header for header in headers_to_check
                                       if headers[left_survey_name, header].equals(headers[right_survey_name, header])}
-        return self.from_attributes(headers, {**self.surveys_dict, **other.surveys_dict}, common_headers)
+        return type(self)(headers, common_headers, {**self.surveys_dict, **other.surveys_dict})
 
     def create_subset(self, indices):
         """Return a new `IndexPart` based on a subset of its indices given."""
         subset_headers = self.get_headers_by_indices(indices)
-        return self.from_attributes(subset_headers, self.surveys_dict, self.common_headers)
+        return type(self)(subset_headers, self.common_headers, self.surveys_dict)
 
     def copy(self, ignore=None):
         """Perform a deepcopy of all part attributes except for `surveys_dict`, `_indexer` and those specified in

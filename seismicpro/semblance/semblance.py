@@ -352,7 +352,7 @@ class Semblance(BaseSemblance):
             stacking_velocities_ix = ((stacking_velocities - self.velocities[0]) /
                                       (self.velocities[-1] - self.velocities[0]) * self.semblance.shape[1])
 
-        super()._plot(self.semblance, title=title, x_label="Velocity (m/s)", x_ticklabels=self.velocities,
+        super()._plot(self.semblance, title=title, x_label="Velocity, m/s", x_ticklabels=self.velocities,
                       x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax, grid=grid,
                       stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
                       colorbar=colorbar, **kwargs)
@@ -391,7 +391,7 @@ class Semblance(BaseSemblance):
             Whether to plot semblance in interactive mode. This mode also plots the gather used to calculate the
             semblance. Clicking on semblance highlights the corresponding hodograph on the gather plot and allows
             performing NMO correction of the gather with the selected velocity. Interactive plotting must be performed
-            in a JupyterLab environment with the the `%matplotlib widget` magic executed and `ipympl` and `ipywidgets`
+            in a JupyterLab environment with the `%matplotlib widget` magic executed and `ipympl` and `ipywidgets`
             libraries installed.
         sharey : bool, optional, defaults to True, only for interactive mode
             Whether to share y axis of semblance and gather plots.
@@ -631,7 +631,7 @@ class ResidualSemblance(BaseSemblance):
         stacking_times_ix = stacking_times / self.sample_rate
         stacking_velocities_ix = np.full_like(stacking_times_ix, self.residual_semblance.shape[1] / 2)
 
-        super()._plot(self.residual_semblance, title=title, x_label="Relative velocity margin (%)",
+        super()._plot(self.residual_semblance, title=title, x_label="Relative velocity margin, %",
                       x_ticklabels=x_ticklabels, x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax,
                       grid=grid, stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
                       colorbar=colorbar, **kwargs)
@@ -667,8 +667,8 @@ class ResidualSemblance(BaseSemblance):
             Whether to plot residual semblance in interactive mode. This mode also plots the gather used to calculate
             the residual semblance. Clicking on residual semblance highlights the corresponding hodograph on the gather
             plot and allows performing NMO correction of the gather with the selected velocity. Interactive plotting
-            must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and `ipympl`
-            and `ipywidgets` libraries installed.
+            must be performed in a JupyterLab environment with the `%matplotlib widget` magic executed and `ipympl` and
+            `ipywidgets` libraries installed.
         sharey : bool, optional, defaults to True, only for interactive mode
             Whether to share y axis of residual semblance and gather plots.
         gather_plot_kwargs : dict, optional, only for interactive mode

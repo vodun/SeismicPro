@@ -52,7 +52,7 @@ class RefractorVelocity:
 
     Now an instance of `RefractorVelocity` can be created using a `from_first_breaks` method:
     >>> offsets = gather.offsets
-    >>> fb_times = gather['FirstBreak'].ravel()
+    >>> fb_times = gather['FirstBreak']
     >>> rv = RefractorVelocity.from_first_breaks(offsets, fb_times, n_refractors=2)
 
     The same can be done by calling a `calculate_refractor_velocity` method of the gather:
@@ -364,7 +364,9 @@ class RefractorVelocity:
 
     def __getattr__(self, key):
         """Get requested parameter of the velocity model by its name."""
-        return self.params[key]
+        if key.startswith("__"):  # Guarantee proper pickling/unpickling
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{key}'")
+        return getattr(self.params, key)
 
     def __call__(self, offsets):
         """Return the expected times of first breaks for the given offsets."""
@@ -701,8 +703,8 @@ class RefractorVelocity:
                                                                                **kwargs)
         if kwargs:
             raise ValueError(f"kwargs contains unknown keys {kwargs.keys()}")
-        set_ticks(ax, "x", tick_labels=None, label="offset, m", **x_ticker)
-        set_ticks(ax, "y", tick_labels=None, label="time, ms", **y_ticker)
+        set_ticks(ax, "x", "offset, m", **x_ticker)
+        set_ticks(ax, "y", "Time, ms", **y_ticker)
 
         max_offset = get_first_defined(max_offset, self.max_offset, self.piecewise_offsets[-1])
         ax.scatter(self.offsets, self.times, s=1, color="black", label="first breaks")

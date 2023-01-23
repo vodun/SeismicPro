@@ -25,7 +25,7 @@ from ..semblance import Semblance, ResidualSemblance
 from ..stacking_velocity import StackingVelocity, StackingVelocityField
 from ..refractor_velocity import RefractorVelocity, RefractorVelocityField
 from ..decorators import batch_method, plotter
-from ..const import HDR_FIRST_BREAK, DEFAULT_SDC_VELOCITY
+from ..const import HDR_FIRST_BREAK, HDR_TRACE_POS, DEFAULT_SDC_VELOCITY
 
 
 class Gather(TraceContainer, SamplesContainer):
@@ -73,8 +73,8 @@ class Gather(TraceContainer, SamplesContainer):
         Sample rate of seismic traces. Measured in milliseconds.
     survey : Survey
         A survey that generated the gather.
-    sort_by : None or str
-        Headers column that was used for gather sorting. If `None`, no sorting was performed.
+    sort_by : None or str or list of str
+        Headers that were used for gather sorting. If `None`, no sorting was performed.
     """
     def __init__(self, headers, data, samples, survey):
         self.headers = headers
@@ -104,7 +104,7 @@ class Gather(TraceContainer, SamplesContainer):
     @property
     def offsets(self):
         """1d np.ndarray of floats: The distance between source and receiver for each trace. Measured in meters."""
-        return self["offset"].ravel()
+        return self["offset"]
 
     @property
     def shape(self):
@@ -132,20 +132,22 @@ class Gather(TraceContainer, SamplesContainer):
         Notes
         -----
         1. If the data after `__getitem__` is no longer sorted, `sort_by` attribute in the resulting `Gather` will be
-        set to `None`.
-        2. If headers selection is performed, a 2d array is always returned even for a single header.
+           set to `None`.
+        2. If headers selection is performed, the returned array will be 1d if a single header is selected and 2d
+           otherwise.
 
         Parameters
         ----------
         key : str, list of str, int, list, tuple, slice
-            If str or list of str, gather headers to get as a 2d np.ndarray.
+            If str or list of str, gather headers to get as an `np.ndarray`. The returned array is 1d if a single
+            header is selected and 2d otherwise.
             Otherwise, indices of traces and samples to get. In this case, __getitem__ behavior almost coincides with
-            np.ndarray indexing and slicing except for cases, when resulting ndim is not preserved or joint indexation
-            of gather attributes becomes ambiguous (e.g. gather[[0, 1], [0, 1]]).
+            `np.ndarray` indexing and slicing except for cases, when resulting ndim is not preserved or joint
+            indexation of gather attributes becomes ambiguous (e.g. gather[[0, 1], [0, 1]]).
 
         Returns
         -------
-        result : 2d np.ndarray or Gather
+        result : np.ndarray or Gather
             Headers values or Gather with a specified subset of traces and samples.
 
         Raises
@@ -188,9 +190,13 @@ class Gather(TraceContainer, SamplesContainer):
         new_self.headers = self.headers.iloc[indices[0]]
         new_self.samples = self.samples[indices[1]]
 
-        # Check that `sort_by` still represents the actual trace sorting as it might be changed during getitem.
-        if new_self.sort_by is not None and not new_self.headers[new_self.sort_by].is_monotonic_increasing:
-            new_self.sort_by = None
+        # If the gather was sorted, verify that getitem does not break sorting
+        if new_self.sort_by is not None:
+            if isinstance(indices[0], slice):
+                if indices[0].step is not None and indices[0].step < 0: # Slice with negative step breaks sorting
+                    new_self.sort_by = None
+            elif (np.diff(indices[0]) < 0).any(): # Decreasing sequence of indices breaks sorting
+                new_self.sort_by = None
         return new_self
 
     def __str__(self):
@@ -260,6 +266,42 @@ class Gather(TraceContainer, SamplesContainer):
         """Remove traces from gather data that correspond to filtered headers after `Gather.filter`."""
         self.data = self.data[mask]
 
+    # Target set to `for` to avoid race condition when the same trace appears in two gathers (ex. supergathers)
+    @batch_method(target='for', use_lock=True)
+    def store_headers_to_survey(self, columns):
+        """Save given headers from the gather to its survey.
+
+        Notes
+        -----
+        The correct result is guaranteed only if the `self.survey` has not been modified after `self` creation.
+
+        Parameters
+        ----------
+        columns : str or list of str
+            Column names from `self.headers` that will be stored to `self.survey` headers.
+
+        Returns
+        -------
+        self : Gather
+            Gather unchanged.
+        """
+        columns = to_list(columns)
+
+        headers = self.survey.headers
+        pos = self[HDR_TRACE_POS]
+        for column in columns:
+            column_data = self[column] # Here we also check that column is in self.headers
+            if column not in headers:
+                headers[column] = np.nan
+
+            if not np.can_cast(column_data, headers.dtypes[column]):
+                headers[column] = headers[column].astype(column_data.dtype)
+
+            # FIXME: Workaround for a pandas bug https://github.com/pandas-dev/pandas/issues/48998
+            # iloc may call unnecessary copy of the whole column before setitem
+            headers[column].array[pos] = column_data
+        return self
+
     #------------------------------------------------------------------------#
     #                              Dump methods                              #
     #------------------------------------------------------------------------#
@@ -319,7 +361,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         sample_rate = np.int32(self.sample_rate * 1000) # Convert to microseconds
         # Remember ordinal numbers of traces in the parent SEG-Y file to further copy their headers
-        trace_ids = self["TRACE_SEQUENCE_FILE"].ravel() - 1
+        trace_ids = self["TRACE_SEQUENCE_FILE"] - 1
 
         # Keep only headers, defined by SEG-Y standard.
         used_header_names = (set(to_list(self.indexed_by)) | set(self.headers.columns)) & set(segyio.tracefield.keys)
@@ -570,7 +612,7 @@ class Gather(TraceContainer, SamplesContainer):
         gather : Gather
             A new `Gather` with calculated first breaks mask in its `data` attribute.
         """
-        mask = convert_times_to_mask(times=self[first_breaks_col].ravel(), samples=self.samples).astype(np.int32)
+        mask = convert_times_to_mask(times=self[first_breaks_col], samples=self.samples).astype(np.int32)
         gather = self.copy(ignore='data')
         gather.data = mask
         return gather
@@ -698,9 +740,9 @@ class Gather(TraceContainer, SamplesContainer):
         rv : RefractorVelocity
             Constructed near-surface velocity model.
         """
-        return RefractorVelocity.from_first_breaks(self.offsets, self[first_breaks_col].ravel(), init, bounds,
-                                                   n_refractors, max_offset, min_velocity_step, min_refractor_size,
-                                                   loss, huber_coef, tol, coords=self.coords, **kwargs)
+        return RefractorVelocity.from_first_breaks(self.offsets, self[first_breaks_col], init, bounds, n_refractors,
+                                                   max_offset, min_velocity_step, min_refractor_size, loss, huber_coef,
+                                                   tol, coords=self.coords, **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #
@@ -860,9 +902,8 @@ class Gather(TraceContainer, SamplesContainer):
         trace_delays = delay - refractor_velocity(self.offsets)
         trace_delays_samples = times_to_indices(trace_delays, self.samples, round=True).astype(int)
         self.data = correction.apply_lmo(self.data, trace_delays_samples, fill_value)
-        event_headers = [] if event_headers is None else to_list(event_headers)
-        for header in event_headers:
-            self[header] += trace_delays.reshape(-1, 1)
+        if event_headers is not None:
+            self[to_list(event_headers)] += trace_delays.reshape(-1, 1)
         return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
@@ -912,31 +953,24 @@ class Gather(TraceContainer, SamplesContainer):
 
     @batch_method(target="for")
     def sort(self, by):
-        """Sort gather `headers` and traces by specified header column.
+        """Sort gather by specified headers.
 
         Parameters
         ----------
-        by : str
-            `headers` column name to sort the gather by.
+        by : str or iterable of str
+            Headers names to sort the gather by.
 
         Returns
         -------
         self : Gather
-            Gather sorted by `by` column. Sets `sort_by` attribute to `by`.
-
-        Raises
-        ------
-        TypeError
-            If `by` is not str.
-        ValueError
-            If `by` column was not loaded in `headers`.
+            Gather sorted by given headers. Sets `sort_by` attribute to `by`.
         """
-        if not isinstance(by, str):
-            raise TypeError(f'`by` should be str, not {type(by)}')
-        if self.sort_by == by:
+        by = to_list(by)
+        if by == to_list(self.sort_by)[:len(by)]:
             return self
-        order = np.argsort(self[by].ravel(), kind='stable')
-        self.sort_by = by
+
+        order = np.lexsort(self[by[::-1]].T)
+        self.sort_by = by[0] if len(by) == 1 else by
         self.data = self.data[order]
         self.headers = self.headers.iloc[order]
         return self
@@ -954,8 +988,8 @@ class Gather(TraceContainer, SamplesContainer):
         self : Gather
             `self` with only traces from the central CDP gather kept. Updates `self.headers` and `self.data` inplace.
         """
-        mask = np.all(self["INLINE_3D", "CROSSLINE_3D"] == self["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"],
-                      axis=1)
+        line_cols = self["INLINE_3D", "CROSSLINE_3D", "SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
+        mask = (line_cols[:, :2] == line_cols[:, 2:]).all(axis=1)
         self.headers = self.headers.loc[mask]
         self.data = self.data[mask]
         return self
@@ -1321,7 +1355,6 @@ class Gather(TraceContainer, SamplesContainer):
         ValueError
             If given `mode` is unknown.
             If `colorbar` is not `bool` or `dict`.
-            If length of `color` doesn't match the number of traces in gather.
             If `event_headers` argument has the wrong format or given outlier processing mode is unknown.
             If `x_ticker` or `y_ticker` has the wrong format.
         """
@@ -1342,10 +1375,15 @@ class Gather(TraceContainer, SamplesContainer):
     def _plot_histogram(self, ax, title, x_ticker, y_ticker, x_tick_src="amplitude", bins=None,
                         log=False, grid=True, **kwargs):
         """Plot histogram of the data specified by x_tick_src."""
-        data = self.data if x_tick_src == "amplitude" else self[x_tick_src]
-        _ = ax.hist(data.ravel(), bins=bins, **kwargs)
-        set_ticks(ax, "x", tick_labels=None, **{"label": x_tick_src, 'round_to': None, **x_ticker})
-        set_ticks(ax, "y", tick_labels=None, **{"label": "counts", **y_ticker})
+        if x_tick_src.title() == 'Amplitude':
+            x_tick_src = 'Amplitude'
+            data = self.data.ravel()
+        else:
+            data = self[x_tick_src]
+
+        _ = ax.hist(data, bins=bins, **kwargs)
+        set_ticks(ax, "x", **{"label": x_tick_src, 'round_to': None, **x_ticker})
+        set_ticks(ax, "y", **{"label": "Counts", **y_ticker})
 
         ax.grid(grid)
         if log:
@@ -1422,7 +1460,7 @@ class Gather(TraceContainer, SamplesContainer):
         codes[end_ix + shift + 3] = Path.CLOSEPOLY
 
         patch = PathPatch(Path(verts, codes), color=color, alpha=alpha)
-        ax.add_patch(patch)
+        ax.add_artist(patch)
         ax.update_datalim([(0, 0), traces.shape])
         if not ax.yaxis_inverted():
             ax.invert_yaxis()
@@ -1438,13 +1476,11 @@ class Gather(TraceContainer, SamplesContainer):
         # Add a top subplot for given header if needed and set plot title
         top_ax = ax
         if top_header is not None:
-            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_header].ravel(),
-                                            y_ticker=y_ticker)
+            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_header], y_ticker=y_ticker)
 
-        # Set axis ticks
-        x_tick_src = x_tick_src or self.sort_by or "index"
-        self._set_ticks(ax, axis="x", tick_src=x_tick_src, ticker=x_ticker)
-        self._set_ticks(ax, axis="y", tick_src=y_tick_src, ticker=y_ticker)
+        # Set axis ticks.
+        self._set_x_ticks(ax, tick_src=x_tick_src, ticker=x_ticker)
+        self._set_y_ticks(ax, tick_src=y_tick_src, ticker=y_ticker)
 
         top_ax.set_title(**{'label': None, **title})
 
@@ -1494,7 +1530,7 @@ class Gather(TraceContainer, SamplesContainer):
             header = kwargs.pop("headers")
             label = kwargs.pop("label", header)
             process_outliers = kwargs.pop("process_outliers", "none")
-            y_coords = times_to_indices(self[header].ravel(), self.samples, round=False)
+            y_coords = times_to_indices(self[header], self.samples, round=False)
             if process_outliers == "clip":
                 y_coords = np.clip(y_coords, 0, self.n_samples - 1)
             elif process_outliers == "discard":
@@ -1516,32 +1552,37 @@ class Gather(TraceContainer, SamplesContainer):
         format_subplot_yticklabels(top_ax, **y_ticker)
         return top_ax
 
-    def _get_x_ticks(self, axis_label):
-        """Get tick labels for x-axis: either any gather header or ordinal numbers of traces in the gather."""
-        if axis_label in self.headers.columns:
-            return self[axis_label].reshape(-1)
-        if axis_label == "index":
-            return np.arange(self.n_traces)
-        raise ValueError(f"Unknown label for x axis {axis_label}")
-
-    def _get_y_ticks(self, axis_label):
-        """Get tick labels for y-axis: either time samples or ordinal numbers of samples in the gather."""
-        if axis_label == "time":
-            return self.samples
-        if axis_label == "samples":
-            return np.arange(self.n_samples)
-        raise ValueError(f"y axis label must be either `time` or `samples`, not {axis_label}")
-
-    def _set_ticks(self, ax, axis, tick_src, ticker):
-        """Set ticks, their labels and an axis label for a given axis."""
-        # Get tick_labels depending on axis and its label
-        if axis == "x":
-            tick_labels = self._get_x_ticks(tick_src)
-        elif axis == "y":
-            tick_labels = self._get_y_ticks(tick_src)
+    def _set_x_ticks(self, ax, tick_src, ticker):
+        """Infer and set ticks for x axis. """
+        tick_src = to_list(tick_src or self.sort_by or 'index')[:2]
+        if tick_src[0].title() == "Index":
+            tick_src[0] = "Index"
+            major_labels, minor_labels = np.arange(self.n_traces), None
+        elif len(tick_src) == 1:
+            major_labels, minor_labels =  self[tick_src[0]], None
         else:
-            raise ValueError(f"Unknown axis {axis}")
-        set_ticks(ax, axis, tick_labels=tick_labels, **{"label": tick_src, **ticker})
+            major_labels, minor_labels = self[tick_src[0]], self[tick_src[1]]
+
+        # Format axis label
+        UNITS = {  # pylint: disable=invalid-name
+            "offset": ", m",
+        }
+
+        tick_src = [ix_tick_src + UNITS.get(ix_tick_src, '') for ix_tick_src in tick_src]
+        axis_label = '\n'.join(tick_src)
+
+        set_ticks(ax, 'x', major_labels=major_labels, minor_labels=minor_labels, **{"label": axis_label, **ticker})
+
+    def _set_y_ticks(self, ax, tick_src, ticker):
+        """Infer and set ticks for y axis. """
+        tick_src = tick_src.title()
+        if tick_src == "Time":
+            tick_src = "Time, ms"
+            major_labels =  self.samples
+        if tick_src == "Samples":
+            major_labels = np.arange(self.n_samples)
+
+        set_ticks(ax, 'y', major_labels=major_labels, **{"label": tick_src, **ticker})
 
     def plot_nmo_correction(self, min_vel=1500, max_vel=6000, figsize=(6, 4.5), show_grid=True, **kwargs):
         """Perform interactive NMO correction of the gather with selected constant velocity.
@@ -1551,7 +1592,7 @@ class Gather(TraceContainer, SamplesContainer):
           on top of the plot.
         * Source gather. This view disables the velocity slider.
 
-        Plotting must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and
+        Plotting must be performed in a JupyterLab environment with the `%matplotlib widget` magic executed and
         `ipympl` and `ipywidgets` libraries installed.
 
         Parameters
@@ -1578,7 +1619,7 @@ class Gather(TraceContainer, SamplesContainer):
         on top of the plot.
         * Source gather. This view disables the velocity slider.
 
-        Plotting must be performed in a JupyterLab environment with the the `%matplotlib widget` magic executed and
+        Plotting must be performed in a JupyterLab environment with the `%matplotlib widget` magic executed and
         `ipympl` and `ipywidgets` libraries installed.
 
         Parameters
