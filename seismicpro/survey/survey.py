@@ -16,7 +16,7 @@ from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
 
 from .headers import load_headers, validate_headers
-from .metrics import SurveyAttribute, TracewiseMetric, DeadTrace
+from .metrics import SurveyAttribute, QCMetric, DeadTrace, TraceAbsMean, Std, TraceMaxAbs, MaxClipsLen, MaxConstLen, WindowRMS
 from .plot_geometry import SurveyGeometryPlot
 from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
@@ -262,6 +262,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.mean = None
         self.std = None
         self.quantile_interpolator = None
+
+        # calculated QC metrics
+        self.qc_metrics = None
 
         # Define all geometry-related attributes and automatically infer field geometry if required headers are loaded
         self.has_inferred_geometry = False
@@ -1241,15 +1244,14 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
         return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
 
-
-    def qc_tracewise(self, metrics, chunk_size=1000, n_workers=None, bar=True):
+    def qc_tracewise(self, metrics=None, chunk_size=1000, n_workers=None, bar=True):
         """Calculate tracewise QC metrics.
 
         Parameters
         ----------
-        metrics : :class:`~metrics.TracewiseMetric`, or list of :class:`~metrics.TracewiseMetric`, or dict
-            list of metrics, that use raw traces,
-            if dict, keas are :class:`~metrics.TracewiseMetric` and values are the kwargs to initialize them
+        metrics : :class:`~metrics.QCMetric` object, or list of :class:`~metrics.QCMetric` object, optional
+            metric objects that define metrics to calculate.
+            If None, all metrics that can be initialized with reasonable default parameters are calculated
         chunk_size : int, optional, defaults to 1000
             number of traces loaded on each iteration
         n_workers : int, optional
@@ -1267,12 +1269,15 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         TypeError
             If provided metrics are not  :class:`~metrics.TracewiseMetric` subclasses
         """
-        if not isinstance(metrics, dict):
-            metrics = {metric_cls: {} for metric_cls in to_list(metrics)}
 
-        for metric_cls in metrics:
-            if not issubclass(metric_cls, TracewiseMetric):
-                raise TypeError(f"all metrics must be `TracewiseMetric` subtypes, but {metric_cls.__name__} is not")
+        if metrics is None:
+            metrics = [DeadTrace(), TraceAbsMean(), Std(), TraceMaxAbs(), MaxClipsLen(), MaxConstLen(), WindowRMS()]
+
+        metrics = to_list(metrics)
+
+        for metric in metrics:
+            if not isinstance(metric, QCMetric):
+                raise TypeError(f"all metrics must be `QCMetric` instances, but {metric.__classs__.__name__} is not")
 
         if n_workers is None:
             n_workers = os.cpu_count()
@@ -1283,31 +1288,38 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         idx_sort = self['TRACE_SEQUENCE_FILE'].argsort(kind='stable')
         orig_idx = idx_sort.argsort(kind='stable')
 
-        metric_classes = list(metrics.keys()) # explicitly fix metrics list order
         def calc_metrics(i):
             headers = self.headers.iloc[idx_sort[i*chunk_size:(i+1)*chunk_size]]
             raw_gather = self.load_gather(headers)
-            return [metric_cls.calc(raw_gather, tracewise=True, **metrics[metric_cls]) for metric_cls in metric_classes]
+            return [metric.calc(raw_gather, tracewise=True, **metric.kwargs) for metric in metrics]
 
         # known issue with tqdm.notebook bar update when using `unit_scale` https://github.com/tqdm/tqdm/issues/1399
         results = thread_map(calc_metrics, range(n_chunks), max_workers=n_workers, disable=not bar,
                              desc="Traces processed", unit_scale=chunk_size, unit_divisor=chunk_size, unit='traces')
 
-        for metric_cls, metric_vals in zip(metric_classes, zip(*results)):
-            self.headers[metric_cls.__name__] = np.concatenate(metric_vals)[orig_idx]
+        if self.qc_metrics is None:
+            self.qc_metrics = {}
+
+        for metric, metric_vals in zip(metrics, zip(*results)):
+            self.headers[metric.name] = np.concatenate(metric_vals)[orig_idx]
+
+            if metric.name in self.qc_metrics:
+                warnings.warn(f'{metric.name} already calculated. Rewriting.')
+            self.qc_metrics[metric.name] = metric
 
         return self
 
-    def construct_qc_map(self, metric_cls, by, agg=None, bin_size=None, **kwargs):
+    def construct_qc_maps(self, by, metrics=None, agg=None, bin_size=None, **kwargs):
         """Construct a map of tracewise metric aggregated by gathers.
 
         Parameters
         ----------
-        metric_cls : :class:`~metrics.TracewiseMetric` subclass
-            metric for metric map
         by : tuple with 2 elements or {"shot", "receiver", "midpoint", "bin"}
             If `tuple`, survey headers names to get coordinates from.
             If `str`, gather type to aggregate header values over.
+        metric : str or list of str, optional
+            name(s) of metrics to buis metrics maps.
+            If None, maps for all metrica that were calculated for this survey are built.
         agg : str or callable, optional, defaults to "mean"
             An aggregation function. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
         bin_size : int, float or array-like with length 2, optional
@@ -1321,11 +1333,26 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         coords_cols = get_coord_cols_by_alias(by)
 
-        attribute = metric_cls.__name__
+        if metrics is None:
+            metrics = list(self.qc_metrics.keys())
 
-        coords = self[coords_cols]
-        metric_values = self[attribute]
+        metrics = to_list(metrics)
 
-        metric = PartialMetric(metric_cls, survey=self, name=attribute, **kwargs)
-        return metric.map_class(coords, metric_values, coords_cols=coords_cols, metric=metric,
-                                agg=agg, bin_size=bin_size)
+        mmaps = []
+
+        for metric_name in metrics:
+
+            if metric_name not in self.qc_metrics:
+                warnings.warn(f"{metric_name} not calculated yet!")
+                continue
+
+            metric = self.qc_metrics[metric_name]
+            coords = self[coords_cols]
+            metric_values = self[metric_name]
+
+            pmetric = PartialMetric(metric.__class__, survey=self, name=metric_name, **{**metric.kwargs, **kwargs})
+            mmaps.append(pmetric.map_class(coords, metric_values, coords_cols=coords_cols, metric=pmetric,
+                                    agg=agg, bin_size=bin_size))
+
+        return mmaps[0] if len(mmaps) == 1 else mmaps
+

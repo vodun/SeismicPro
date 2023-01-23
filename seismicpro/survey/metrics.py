@@ -30,7 +30,16 @@ class SurveyAttribute(Metric):
         return [partial(self.plot, sort_by=sort_by)], kwargs
 
 
-class TracewiseMetric(Metric):
+class QCMetric(Metric):
+    params = []
+
+    @property
+    def kwargs(self):
+        """returns metric kwargs"""
+        return {name: getattr(self, name) for name in self.params}
+
+
+class TracewiseMetric(QCMetric):
     """Base class for tracewise metrics with addidional plotters and aggregations
     Child classes should redefine `_get_res` method, and optionnaly `preprocess`.
     """
@@ -44,16 +53,10 @@ class TracewiseMetric(Metric):
     threshold = None
     top_ax_y_scale = 'linear'
 
-    params = []
-
-    def __init__(self, survey, coords_cols, **kwargs):
+    def __init__(self, survey=None, coords_cols=None, **kwargs):
         super().__init__(**kwargs)
-        self.survey = survey.reindex(coords_cols)
-
-    @property
-    def kwargs(self):
-        """returns metric kwargs"""
-        return {name: getattr(self, name) for name in self.params}
+        if survey is not None and coords_cols is not None:
+            self.survey = survey.reindex(coords_cols)
 
     @classmethod
     def _get_res(cls, gather, **kwargs):
