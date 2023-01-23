@@ -220,7 +220,7 @@ class NearSurfaceModel:
         n_refractors = shots_slownesses.shape[-1] - 1
 
         offsets = torch.sqrt(torch.sum((shots_coords[:, :2] - receivers_coords[:, :2])**2, axis=1))
-        dips_tan = (receivers_elevations - shots_elevations) / offsets.reshape(-1, 1)
+        dips_tan = (receivers_elevations - shots_elevations) / torch.clamp(offsets, min=0.01).reshape(-1, 1)
         dips_cos = torch.sqrt(1 / (1 + dips_tan**2))
         dips_sin = dips_cos * dips_tan
         dips_cos_diff = torch.column_stack([dips_cos[:, 0], dips_cos[:, 1:] * dips_cos[:, :-1] + dips_sin[:, 1:] * dips_sin[:, :-1]])
