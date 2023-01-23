@@ -434,17 +434,23 @@ class WindowRMS(TracewiseMetric):
     times : tuple of 2 ints
         time range to use for calcualtion, measured in ms.
     """
-    name = "window_RMS"
+    name = "RMS"
     is_lower_better = False
     threshold = None
     top_ax_y_scale = 'log'
 
     params = ['offsets', 'times']
 
+    def __init__(self, survey=None, coords_cols=None, offsets=None, times=None, **kwargs):
+        super().__init__(survey, coords_cols, offsets=offsets, times=times, **kwargs)
+
     @classmethod
     def _get_res(cls, gather, offsets, times, **kwargs):
         """QC indicator implementation."""
         _ = kwargs
+
+        times = cls.get_times(gather, times)
+        offsets = cls.get_offsets(gather, offsets)
 
         w_beg, w_end = cls._get_indices(gather, times)
         w_begs = np.full(gather.n_traces, fill_value=w_beg, dtype=np.int16)
@@ -457,13 +463,21 @@ class WindowRMS(TracewiseMetric):
         return cls.rms_win(gather.data, w_begs, w_ends)
 
     @staticmethod
+    def get_times(gather, times):
+        return times if times is not None else (min(gather.samples), max(gather.samples))
+
+    @staticmethod
+    def get_offsets(gather, offsets):
+        return offsets if offsets is not None else (min(gather.offsets), max(gather.offsets))
+
+    @staticmethod
     @njit(nogil=True)
     def rms_win(data, w_begs, w_ends):
         """Compute RMS for a window defined by its starting and end sample indices."""
         res = np.full(data.shape[0], fill_value=np.nan)
 
         for i, (trace, w_beg, w_end) in enumerate(zip(data, w_begs, w_ends)):
-            if w_beg > 0 and w_end > 0:
+            if w_beg >= 0 and w_end > 0:
                 res[i] = np.sqrt(np.mean(trace[w_beg:w_end]**2))
         return res
 
@@ -476,23 +490,17 @@ class WindowRMS(TracewiseMetric):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
         gather = self.survey.get_gather(coords).sort(by='offset')
 
+        times = self.get_times(gather, self.times)
+        offsets = self.get_offsets(gather, self.offsets)
+
         self._plot_gather_metric(mode, gather, ax, **kwargs)
 
-        mask = (gather.offsets >= self.offsets[0]) & (gather.offsets <= self.offsets[1])
+        mask = (gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1])
         offs_ind = np.nonzero(mask)[0]
-        w_beg, w_end = self._get_indices(gather, self.times)
+        w_beg, w_end = self._get_indices(gather, times)
 
         n_rec = (offs_ind[0], w_beg), len(offs_ind), (w_end - w_beg)
         ax.add_patch(patches.Rectangle(*n_rec, linewidth=1, edgecolor='magenta', facecolor='none'))
-
-class SignalWindowRMS(WindowRMS):
-    """Convenience class for signal window"""
-    pass
-
-
-class NoiseWindowRMS(WindowRMS):
-    """Convenience class for noise window"""
-    pass
 
 
 class SinalToNoiseRMSAdaptive(TracewiseMetric):
@@ -565,7 +573,7 @@ class SinalToNoiseRMSAdaptive(TracewiseMetric):
 
         for i in prange(len(res)):  # pylint: disable=not-an-iterable
             trace, n_beg, s_beg = data[i], n_begs[i], s_begs[i]
-            if n_beg > 0 and s_beg > 0:
+            if n_beg >= 0 and s_beg >= 0:
                 sig = trace[s_beg:s_beg + win_size]
                 noise = trace[n_beg:n_beg + win_size]
                 res[i] = np.sqrt(np.mean(sig**2)) / (np.sqrt(np.mean(noise**2)) + EPS)
