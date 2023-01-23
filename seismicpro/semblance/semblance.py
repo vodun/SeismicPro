@@ -29,7 +29,7 @@ coherency_funcs = {
 }
 
 
-class BaseSemblance:
+class BaseVelocitySpectrum:
     """Base class for vertical velocity semblance calculation.
     Implements general computation logic and visualization method.
 
@@ -37,9 +37,9 @@ class BaseSemblance:
     ----------
     gather : Gather
         Seismic gather to calculate semblance for.
-    win_size : int
+    win_size : float
         Temporal window size used for semblance calculation. The higher the `win_size` is, the smoother the resulting
-        semblance will be but to the detriment of small details. Measured in samples.
+        semblance will be but to the detriment of small details. Measured in milisecods.
     mode: str, defaults to `semblance`
         The coherency measure. See the `coherency_funcs` for avaliable options.
 
@@ -47,7 +47,7 @@ class BaseSemblance:
     ----------
     gather : Gather
         Seismic gather for which semblance calculation was called.
-    win_size : int
+    win_size_samples : int
         Temporal window size for smoothing the semblance. Measured in samples.
     coherency_func : callable
         The function that estimates the coherency measure for given hodograph.
@@ -55,7 +55,7 @@ class BaseSemblance:
 
     def __init__(self, gather, win_size, mode='semblance'):
         self.gather = gather
-        self.win_size = win_size  # samples
+        self.win_size_samples = int(win_size // gather.sample_rate) + 1
         self.coherency_func = coherency_funcs.get(mode)
         if self.coherency_func is None:
             raise ValueError(f"Unknown mode {mode}, avaliable modes are {coherency_funcs.keys()}")
@@ -91,7 +91,7 @@ class BaseSemblance:
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def calc_single_velocity_semblance(coherency_func, gather_data, times, offsets, velocity, sample_rate,
-                                       win_size, t_min_ix, t_max_ix):  # pylint: disable=too-many-arguments
+                                       win_size_samples, t_min_ix, t_max_ix):  # pylint: disable=too-many-arguments
         """Calculate semblance for given velocity and time range.
 
         Parameters
@@ -108,7 +108,7 @@ class BaseSemblance:
             Seismic wave velocity for semblance computation. Measured in meters/milliseconds.
         sample_rate : float
             Sample rate of seismic traces. Measured in milliseconds.
-        win_size : int
+        win_size_samples : int
             Temporal window size for smoothing the semblance. Measured in samples.
         t_min_ix : int
             Time index in `times` array to start calculating semblance from. Measured in samples.
@@ -120,8 +120,8 @@ class BaseSemblance:
         semblance_slice : 1d np.ndarray
             Calculated semblance values for a specified `velocity` in time range from `t_min_ix` to `t_max_ix`.
         """
-        t_win_size_min_ix = max(0, t_min_ix - win_size)
-        t_win_size_max_ix = min(len(times) - 1, t_max_ix + win_size)
+        t_win_size_min_ix = max(0, t_min_ix - win_size_samples)
+        t_win_size_max_ix = min(len(times) - 1, t_max_ix + win_size_samples)
 
         corrected_gather_data = correction.apply_nmo(gather_data, times[t_win_size_min_ix: t_win_size_max_ix + 1],
                                                 offsets, velocity, sample_rate, crossover_mute=False).T
@@ -133,8 +133,8 @@ class BaseSemblance:
         semblance_slice = np.zeros(t_max_ix - t_min_ix, dtype=np.float32)
         for t in prange(t_min_ix, t_max_ix):
             t_rel = t - t_win_size_min_ix
-            ix_from = max(0, t_rel - win_size)
-            ix_to = min(len(corrected_gather_data) - 1, t_rel + win_size)
+            ix_from = max(0, t_rel - win_size_samples)
+            ix_to = min(len(corrected_gather_data) - 1, t_rel + win_size_samples)
             semblance_slice[t - t_min_ix] = np.mean(numerator[ix_from : ix_to] / (denominator[ix_from : ix_to] + 1e-8))
         return semblance_slice
 
@@ -206,7 +206,7 @@ class BaseSemblance:
         return SemblancePlot(self, *args, **kwargs).plot()
 
 
-class Semblance(BaseSemblance):
+class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     r"""A class for vertical velocity semblance calculation and processing.
 
     Semblance is a normalized output-input energy ratio for a CDP gather. The higher the values of semblance are, the
@@ -250,10 +250,10 @@ class Semblance(BaseSemblance):
 
     Examples
     --------
-    Calculate semblance for 200 velocities from 2000 to 6000 m/s and a temporal window size of 8 samples:
+    Calculate semblance for 200 velocities from 2000 to 6000 m/s and a temporal window size of 16 ms:
     >>> survey = Survey(path, header_index=["INLINE_3D", "CROSSLINE_3D"], header_cols="offset")
     >>> gather = survey.sample_gather().sort(by="offset")
-    >>> semblance = gather.calculate_semblance(velocities=np.linspace(2000, 6000, 200), win_size=8)
+    >>> semblance = gather.calculate_semblance(velocities=np.linspace(2000, 6000, 200), win_size=16)
 
     Parameters
     ----------
@@ -261,9 +261,9 @@ class Semblance(BaseSemblance):
         Seismic gather to calculate semblance for.
     velocities : 1d np.ndarray
         Range of velocity values for which semblance is calculated. Measured in meters/seconds.
-    win_size : int, optional, defaults to 25
+    win_size : int, optional, defaults to 50
         Temporal window size used for semblance calculation. The higher the `win_size` is, the smoother the resulting
-        semblance will be but to the detriment of small details. Measured in samples.
+        semblance will be but to the detriment of small details. Measured in miliseconds.
     mode: str, optional, defaults to 'semblance'
         The measure for estimating hodograph coherency. 
         The available options are: 
@@ -282,20 +282,26 @@ class Semblance(BaseSemblance):
         to performance reasons, so that `gather_data.shape` is (trace_length, num_traces).
     velocities : 1d np.ndarray
         Range of velocity values for which semblance was calculated. Measured in meters/seconds.
-    win_size : int
+    win_size_samples : int
         Temporal window size for smoothing the semblance. Measured in samples.
     semblance : 2d np.ndarray
         Array with calculated vertical velocity semblance values.
     """
-    def __init__(self, gather, velocities, win_size=25, mode='semblance'):
+    def __init__(self, gather, velocities=None, win_size=50, mode='semblance'):
         super().__init__(gather, win_size=win_size, mode=mode)
-        self.velocities = velocities  # m/s
+        if velocities is not None:
+            self.velocities = velocities  # m/s
+        else:
+            from ..const import DEFAULT_SDC_VELOCITY
+            self.velocities = np.linspace(DEFAULT_SDC_VELOCITY(gather.times[0]) * 0.9,
+                                          DEFAULT_SDC_VELOCITY(gather.times[-1]) * 1.1,
+                                          30)
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
         self.semblance = self._calc_semblance_numba(semblance_func=self.calc_single_velocity_semblance,
                                                     coherency_func=self.coherency_func,
                                                     gather_data=self.gather.data, times=self.times,
                                                     offsets=self.offsets, velocities=velocities_ms,
-                                                    sample_rate=self.sample_rate, win_size=self.win_size)
+                                                    sample_rate=self.sample_rate, win_size_samples=self.win_size_samples)
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
@@ -316,7 +322,7 @@ class Semblance(BaseSemblance):
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_semblance_numba(semblance_func, coherency_func, gather_data, times, offsets, velocities,
-                              sample_rate, win_size):
+                              sample_rate, win_size_samples):
         """Parallelized and njitted method for vertical velocity semblance calculation.
 
         Parameters
@@ -336,7 +342,7 @@ class Semblance(BaseSemblance):
         for j in prange(len(velocities)):  # pylint: disable=consider-using-enumerate
             semblance[:, j] = semblance_func(coherency_func=coherency_func,
                                              gather_data=gather_data, times=times, offsets=offsets,
-                                             velocity=velocities[j], sample_rate=sample_rate, win_size=win_size,
+                                             velocity=velocities[j], sample_rate=sample_rate, win_size_samples=win_size_samples,
                                              t_min_ix=0, t_max_ix=gather_data.shape[1])
         return semblance
 
@@ -445,7 +451,7 @@ class Semblance(BaseSemblance):
         return StackingVelocity(times, velocities, coords=self.coords)
 
 
-class ResidualSemblance(BaseSemblance):
+class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     """A class for residual vertical velocity semblance calculation and processing.
 
     Residual semblance is a normalized output-input energy ratio for a CDP gather along picked stacking velocity. The
@@ -477,11 +483,11 @@ class ResidualSemblance(BaseSemblance):
     >>> gather = survey.sample_gather().sort(by="offset")
 
     Now let's automatically calculate stacking velocity by gather semblance:
-    >>> semblance = gather.calculate_semblance(velocities=np.linspace(1400, 5000, 200), win_size=8)
+    >>> semblance = gather.calculate_semblance(velocities=np.linspace(1400, 5000, 200), win_size=16)
     >>> velocity = semblance.calculate_stacking_velocity()
 
     Residual semblance for the gather and calculated stacking velocity can be obtained as follows:
-    >>> residual = gather.calculate_residual_semblance(velocity, n_velocities=100, win_size=8)
+    >>> residual = gather.calculate_residual_semblance(velocity, n_velocities=100, win_size=16)
 
     Parameters
     ----------
@@ -491,9 +497,9 @@ class ResidualSemblance(BaseSemblance):
         Stacking velocity around which residual semblance is calculated.
     n_velocities : int, optional, defaults to 140
         The number of velocities to compute residual semblance for.
-    win_size : int, optional, defaults to 25
+    win_size : int, optional, defaults to 50
         Temporal window size used for semblance calculation. The higher the `win_size` is, the smoother the resulting
-        semblance will be but to the detriment of small details. Measured in samples.
+        semblance will be but to the detriment of small details. Measured in miliseconds.
     relative_margin : float, optional, defaults to 0.2
         Relative velocity margin, that determines the velocity range for semblance calculation for each time `t` as
         `stacking_velocity(t)` * (1 +- `relative_margin`).
@@ -515,7 +521,7 @@ class ResidualSemblance(BaseSemblance):
         to performance reasons, so that `gather_data.shape` is (trace_length, num_traces).
     velocities : 1d np.ndarray
         Range of velocity values for which residual semblance was calculated. Measured in meters/seconds.
-    win_size : int
+    win_size_samples : int
         Temporal window size for smoothing the semblance. Measured in samples.
     stacking_velocity : StackingVelocity
         Stacking velocity around which residual semblance was calculated.
@@ -524,7 +530,7 @@ class ResidualSemblance(BaseSemblance):
     residual_semblance : 2d np.ndarray
          Array with calculated residual vertical velocity semblance values.
     """
-    def __init__(self, gather, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2, mode='semblance'):
+    def __init__(self, gather, stacking_velocity, n_velocities=140, win_size=50, relative_margin=0.2, mode='semblance'):
         super().__init__(gather, win_size, mode)
         self.stacking_velocity = stacking_velocity
         self.relative_margin = relative_margin
@@ -542,8 +548,7 @@ class ResidualSemblance(BaseSemblance):
                                                                  offsets=self.offsets, velocities=velocities_ms,
                                                                  left_bound_ix=left_bound_ix,
                                                                  right_bound_ix=right_bound_ix,
-                                                                 sample_rate=self.sample_rate, win_size=self.win_size)
-
+                                                                 sample_rate=self.sample_rate, win_size=self.win_size_samples)
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
         residual semblance."""
@@ -577,7 +582,7 @@ class ResidualSemblance(BaseSemblance):
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_res_semblance_numba(semblance_func, coherency_func, gather_data, times, offsets, velocities,
-                                  left_bound_ix, right_bound_ix, sample_rate, win_size):
+                                  left_bound_ix, right_bound_ix, sample_rate, win_size_samples):
         """Parallelized and njitted method for residual vertical velocity semblance calculation.
 
         Parameters
@@ -609,7 +614,7 @@ class ResidualSemblance(BaseSemblance):
             semblance[t_min_ix : t_max_ix+1, i] = semblance_func(coherency_func=coherency_func,
                                                                  gather_data=gather_data, times=times, offsets=offsets,
                                                                  velocity=velocities[i], sample_rate=sample_rate,
-                                                                 win_size=win_size, t_min_ix=t_min_ix,
+                                                                 win_size=win_size_samples, t_min_ix=t_min_ix,
                                                                  t_max_ix=t_max_ix+1)
 
         # Interpolate semblance to get a rectangular image

@@ -12,14 +12,14 @@ from batchflow.decorators import action, inbatch_parallel
 from .index import SeismicIndex
 from .gather import Gather, CroppedGather
 from .gather.utils.crop_utils import make_origins
-from .semblance import Semblance, ResidualSemblance
+from .semblance import VerticalVelocitySpectrum, ResidualVelocitySpectrum
 from .field import Field
 from .metrics import define_pipeline_metric, PartialMetric, MetricsAccumulator
 from .decorators import create_batch_methods, apply_to_each_component
 from .utils import to_list, as_dict, save_figure
 
 
-@create_batch_methods(Gather, CroppedGather, Semblance, ResidualSemblance)
+@create_batch_methods(Gather, CroppedGather, VerticalVelocitySpectrum, ResidualVelocitySpectrum)
 class SeismicBatch(Batch):
     """A batch class for seismic data that allows for joint and simultaneous processing of small subsets of seismic
     gathers in a parallel way.

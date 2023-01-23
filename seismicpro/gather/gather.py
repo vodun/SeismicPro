@@ -21,7 +21,7 @@ from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_ytickla
                      add_colorbar, piecewise_polynomial, Coordinates)
 from ..containers import TraceContainer, SamplesContainer
 from ..muter import Muter, MuterField
-from ..semblance import Semblance, ResidualSemblance
+from ..semblance import VerticalVelocitySpectrum, ResidualVelocitySpectrum
 from ..stacking_velocity import StackingVelocity, StackingVelocityField
 from ..refractor_velocity import RefractorVelocity, RefractorVelocityField
 from ..decorators import batch_method, plotter
@@ -780,7 +780,7 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", copy_src=False)
-    def calculate_semblance(self, velocities, win_size=25, mode="semblance"):
+    def calculate_vertical_velocity_spectrum(self, velocities=None, win_size=25, mode="semblance"):
         """Calculate vertical velocity semblance for the gather.
 
         Notes
@@ -810,10 +810,10 @@ class Gather(TraceContainer, SamplesContainer):
             Calculated vertical velocity semblance.
         """
         gather = self.copy().sort(by="offset")
-        return Semblance(gather=gather, velocities=velocities, win_size=win_size, mode=mode)
+        return VerticalVelocitySpectrum(gather=gather, velocities=velocities, win_size=win_size, mode=mode)
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
-    def calculate_residual_semblance(self, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2,
+    def calculate_residual_velocity_spectrum(self, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2,
                                      mode="semblance"):
         """Calculate residual vertical velocity semblance for the gather and a chosen stacking velocity.
 
@@ -855,7 +855,7 @@ class Gather(TraceContainer, SamplesContainer):
         if isinstance(stacking_velocity, StackingVelocityField):
             stacking_velocity = stacking_velocity(self.coords)
         gather = self.copy().sort(by="offset")
-        return ResidualSemblance(gather=gather, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
+        return ResidualVelocitySpectrum(gather=gather, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
                                  win_size=win_size, relative_margin=relative_margin, mode=mode)
 
     #------------------------------------------------------------------------#
