@@ -31,6 +31,7 @@ class SurveyAttribute(Metric):
 
 
 class QCMetric(Metric):
+    """Base class for a survey QCMetric"""
     params = []
 
     @property
@@ -449,8 +450,8 @@ class WindowRMS(TracewiseMetric):
         """QC indicator implementation."""
         _ = kwargs
 
-        times = cls.get_times(gather, times)
-        offsets = cls.get_offsets(gather, offsets)
+        times = cls._get_times(gather, times)
+        offsets = cls._get_offsets(gather, offsets)
 
         w_beg, w_end = cls._get_indices(gather, times)
         w_begs = np.full(gather.n_traces, fill_value=w_beg, dtype=np.int16)
@@ -463,11 +464,15 @@ class WindowRMS(TracewiseMetric):
         return cls.rms_win(gather.data, w_begs, w_ends)
 
     @staticmethod
-    def get_times(gather, times):
+    def _get_times(gather, times):
+        """get times to calculate the metric.
+        If provided times are None, get min and max time from the provided gather"""
         return times if times is not None else (min(gather.samples), max(gather.samples))
 
     @staticmethod
-    def get_offsets(gather, offsets):
+    def _get_offsets(gather, offsets):
+        """get times to calculate the metric.
+        If provided times are None, get min and max time from the provided gather"""
         return offsets if offsets is not None else (min(gather.offsets), max(gather.offsets))
 
     @staticmethod
@@ -490,8 +495,8 @@ class WindowRMS(TracewiseMetric):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
         gather = self.survey.get_gather(coords).sort(by='offset')
 
-        times = self.get_times(gather, self.times)
-        offsets = self.get_offsets(gather, self.offsets)
+        times = self._get_times(gather, self.times)
+        offsets = self._get_offsets(gather, self.offsets)
 
         self._plot_gather_metric(mode, gather, ax, **kwargs)
 

@@ -16,7 +16,8 @@ from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
 
 from .headers import load_headers, validate_headers
-from .metrics import SurveyAttribute, QCMetric, DeadTrace, TraceAbsMean, Std, TraceMaxAbs, MaxClipsLen, MaxConstLen, WindowRMS
+from .metrics import SurveyAttribute, QCMetric, \
+    DeadTrace, TraceAbsMean, Std, TraceMaxAbs, MaxClipsLen, MaxConstLen, WindowRMS
 from .plot_geometry import SurveyGeometryPlot
 from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
@@ -1031,7 +1032,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         if self.n_dead_traces is None:
-            self.qc_tracewise(DeadTrace, chunk_size=chunk_size, bar=bar)
+            self.qc_tracewise(DeadTrace(), chunk_size=chunk_size, bar=bar)
 
         self.filter(lambda dt: dt == 0, cols="DeadTrace", inplace=True)
         return self
@@ -1277,7 +1278,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         for metric in metrics:
             if not isinstance(metric, QCMetric):
-                raise TypeError(f"all metrics must be `QCMetric` instances, but {metric.__classs__.__name__} is not")
+                raise TypeError(f"all metrics must be `QCMetric` instances, but {metric.__class__.__name__} is not")
 
         if n_workers is None:
             n_workers = os.cpu_count()
@@ -1355,4 +1356,3 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                                     agg=agg, bin_size=bin_size))
 
         return mmaps[0] if len(mmaps) == 1 else mmaps
-
