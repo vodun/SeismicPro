@@ -16,7 +16,7 @@ from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
 
 from .headers import load_headers, validate_headers
-from .metrics import SurveyAttribute, QCMetric, \
+from .metrics import SurveyAttribute, TracewiseMetric, \
     DeadTrace, TraceAbsMean, Std, TraceMaxAbs, MaxClipsLen, MaxConstLen, WindowRMS
 from .plot_geometry import SurveyGeometryPlot
 from .utils import ibm_to_ieee, calculate_trace_stats
@@ -1250,7 +1250,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Parameters
         ----------
-        metrics : :class:`~metrics.QCMetric` object, or list of :class:`~metrics.QCMetric` object, optional
+        metrics : :class:`~metrics.TracewiseMetric`, or list of :class:`~metrics.TracewiseMetric` objects, optional
             metric objects that define metrics to calculate.
             If None, all metrics that can be initialized with reasonable default parameters are calculated
         chunk_size : int, optional, defaults to 1000
@@ -1277,8 +1277,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         metrics = to_list(metrics)
 
         for metric in metrics:
-            if not isinstance(metric, QCMetric):
-                raise TypeError(f"all metrics must be `QCMetric` instances, but {metric.__class__.__name__} is not")
+            if not isinstance(metric, TracewiseMetric):
+                msg = f"all metrics must be `TracewiseMetric` instances, but {metric.__class__.__name__} is not"
+                raise TypeError(msg)
 
         if n_workers is None:
             n_workers = os.cpu_count()
