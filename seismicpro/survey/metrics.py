@@ -137,10 +137,12 @@ class TracewiseMetric(Metric):
         """Gather plot, mode-dependent"""
         gather = self.survey.get_gather(coords)
 
-        top_ax = self._plot_gather_metric(mode, gather, ax, **kwargs)
+        self._plot_gather_metric(mode, gather, ax, **kwargs)
 
         if self.threshold is None or self.is_lower_better is None:
             return
+
+        top_ax, bottom_ax = ax.figure.axes[1], ax.figure.axes[0]
 
         top_ax.axhline(self.threshold, alpha=0.5)
 
@@ -149,7 +151,7 @@ class TracewiseMetric(Metric):
         mask = fn(mask, self.threshold)
 
         if np.any(mask):
-            self._plot_mask(mode, gather, mask, ax, **kwargs)
+            self._plot_mask(mode, gather, mask, bottom_ax, **kwargs)
 
     def _plot_gather_metric(self, mode, gather, ax, **kwargs):
         """Plot gather and metric values on a top plot"""
@@ -159,11 +161,9 @@ class TracewiseMetric(Metric):
         gather = self.preprocess(gather, **self.kwargs)
         gather.plot(ax=ax, mode=mode, top_header=metric_vals, **kwargs)
 
-        top_ax = ax.figure.axes[1]
-        top_ax.set_yscale(self.top_ax_y_scale)
-        return top_ax
+        ax.figure.axes[1].set_yscale(self.top_ax_y_scale)
 
-    def _plot_mask(self, mode, gather, mask, ax, **kwargs):
+    def _plot_mask(self, mode, gather, mask, ax, eps=EPS, **kwargs):
         """Highlight metric values above/below `cls.threshold` """
 
         # tracewise metric
@@ -188,7 +188,7 @@ class TracewiseMetric(Metric):
                     ax.fill_betweenx(yrange, beg - 0.5, len(mask) - 1 + 0.5, color='red', alpha=0.1)
             else:
                 blurred = signal.fftconvolve(mask.astype(np.int16), np.ones(5), mode='same')
-                gather.data[blurred <= 0] = np.nan
+                gather.data[blurred <= eps] = np.nan
                 gather.plot(ax=ax, mode='seismogram', cmap='Reds', **kwargs)
 
             return
@@ -200,7 +200,7 @@ class TracewiseMetric(Metric):
             gather.data[~(mask.any(axis=1))] = np.nan
             gather.plot(ax=ax, mode='wiggle', alpha=0.1, color='red', **kwargs)
         else:
-            blurred = self._blur_mask(mask.astype(np.int16))
+            blurred = self._blur_mask(mask.astype(np.int16), eps=eps)
             gather.data = blurred
             gather.plot(ax=ax, mode='seismogram', alpha=0.2, cmap='Reds', **kwargs)
 
@@ -463,14 +463,10 @@ class WindowRMS(TracewiseMetric):
 
     @staticmethod
     def _get_times(gather, times):
-        """get times to calculate the metric.
-        If provided times are None, get min and max time from the provided gather"""
         return times if times is not None else (min(gather.samples), max(gather.samples))
 
     @staticmethod
     def _get_offsets(gather, offsets):
-        """get times to calculate the metric.
-        If provided times are None, get min and max time from the provided gather"""
         return offsets if offsets is not None else (min(gather.offsets), max(gather.offsets))
 
     @staticmethod
