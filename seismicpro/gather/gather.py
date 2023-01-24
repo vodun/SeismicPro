@@ -922,8 +922,7 @@ class Gather(TraceContainer, SamplesContainer):
             fetched from it. If `int` or `float` then constant-velocity correction is performed.
             May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
         crossover_mute: bool
-            Whether to perform crossover mute after the nmo correction.
-            This mutes the areas where the time reversal occured after the correction.
+            Whether to mute areas where the time reversal occurred after nmo corrections.
 
         Returns
         -------
