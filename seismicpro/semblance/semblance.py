@@ -293,8 +293,8 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
             self.velocities = velocities  # m/s
         else:
             from ..const import DEFAULT_SDC_VELOCITY
-            self.velocities = np.linspace(DEFAULT_SDC_VELOCITY(gather.times[0]) * 0.9,
-                                          DEFAULT_SDC_VELOCITY(gather.times[-1]) * 1.1,
+            self.velocities = np.linspace(DEFAULT_SDC_VELOCITY(gather.times[0]) * 0.8,
+                                          DEFAULT_SDC_VELOCITY(gather.times[-1]) * 1.2,
                                           30)
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
         self.semblance = self._calc_semblance_numba(semblance_func=self.calc_single_velocity_semblance,
