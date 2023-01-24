@@ -26,7 +26,7 @@ class SemblancePlot(PairedPlot):  # pylint: disable=too-many-instance-attributes
 
         self.figsize = figsize
         self.orientation = orientation
-        self.title = title
+        self.title = title + f'\n Coherency func: {semblance.coherency_func.__name__}' 
         self.click_time = None
         self.click_vel = None
 
@@ -80,8 +80,8 @@ class SemblancePlot(PairedPlot):  # pylint: disable=too-many-instance-attributes
         if hodograph is None:
             return
         hodograph_y = times_to_indices(hodograph, self.gather.times) - 0.5  # Correction for pixel center
-        hodograph_low = np.clip(hodograph_y - self.semblance.win_size, 0, len(self.gather.times) - 1)
-        hodograph_high = np.clip(hodograph_y + self.semblance.win_size, 0, len(self.gather.times) - 1)
+        hodograph_low = np.clip(hodograph_y - self.semblance.win_size_samples, 0, len(self.gather.times) - 1)
+        hodograph_high = np.clip(hodograph_y + self.semblance.win_size_samples, 0, len(self.gather.times) - 1)
         ax.fill_between(np.arange(len(hodograph)), hodograph_low, hodograph_high, color="tab:blue", alpha=0.5)
 
     def click(self, coords):

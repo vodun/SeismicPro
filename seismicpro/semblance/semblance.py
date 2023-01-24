@@ -13,6 +13,7 @@ from ..decorators import batch_method, plotter
 from ..stacking_velocity import StackingVelocity, calculate_stacking_velocity
 from ..utils import add_colorbar, set_ticks, set_text_formatting
 from ..gather.utils import correction
+from ..const import DEFAULT_SDC_VELOCITY
 
 
 coherency_funcs = {
@@ -55,7 +56,7 @@ class BaseVelocitySpectrum:
 
     def __init__(self, gather, win_size, mode='semblance'):
         self.gather = gather
-        self.win_size_samples = int(win_size // gather.sample_rate) + 1
+        self.win_size_samples = np.ceil(win_size / gather.sample_rate).astype(np.int)
         self.coherency_func = coherency_funcs.get(mode)
         if self.coherency_func is None:
             raise ValueError(f"Unknown mode {mode}, avaliable modes are {coherency_funcs.keys()}")
@@ -138,8 +139,8 @@ class BaseVelocitySpectrum:
             semblance_slice[t - t_min_ix] = np.mean(numerator[ix_from : ix_to] / (denominator[ix_from : ix_to] + 1e-8))
         return semblance_slice
 
-    @staticmethod
-    def _plot(semblance, title=None, x_label=None, x_ticklabels=None,  # pylint: disable=too-many-arguments
+    #@staticmethod
+    def _plot(self, title=None, x_label=None, x_ticklabels=None,  # pylint: disable=too-many-arguments
               x_ticker=None, y_ticklabels=None, y_ticker=None, grid=False, stacking_times_ix=None,
               stacking_velocities_ix=None, colorbar=True, clip_threshold_quantile=0.99, n_levels=10, ax=None, **kwargs):
         """Plot vertical velocity semblance and, optionally, stacking velocity.
@@ -180,11 +181,13 @@ class BaseVelocitySpectrum:
         """
         # Cast text-related parameters to dicts and add text formatting parameters from kwargs to each of them
         (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
-
+        if 'label' in title:
+            title['label'] += f'\n Coherency func: {self.coherency_func.__name__}' 
+        
         cmap = plt.get_cmap('seismic')
-        norm = mcolors.BoundaryNorm(np.linspace(0, np.quantile(semblance, clip_threshold_quantile), n_levels),
+        norm = mcolors.BoundaryNorm(np.linspace(0, np.quantile(self.velocity_spectrum, clip_threshold_quantile), n_levels),
                                     cmap.N, clip=True)
-        img = ax.imshow(semblance, norm=norm, aspect='auto', cmap=cmap)
+        img = ax.imshow(self.velocity_spectrum, norm=norm, aspect='auto', cmap=cmap)
         add_colorbar(ax, img, colorbar, y_ticker=y_ticker)
         ax.set_title(**{"label": None, **title})
 
@@ -292,12 +295,11 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         if velocities is not None:
             self.velocities = velocities  # m/s
         else:
-            from ..const import DEFAULT_SDC_VELOCITY
             self.velocities = np.linspace(DEFAULT_SDC_VELOCITY(gather.times[0]) * 0.8,
                                           DEFAULT_SDC_VELOCITY(gather.times[-1]) * 1.2,
                                           30)
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
-        self.semblance = self._calc_semblance_numba(semblance_func=self.calc_single_velocity_semblance,
+        self.velocity_spectrum = self._calc_semblance_numba(semblance_func=self.calc_single_velocity_semblance,
                                                     coherency_func=self.coherency_func,
                                                     gather_data=self.gather.data, times=self.times,
                                                     offsets=self.offsets, velocities=velocities_ms,
@@ -346,7 +348,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
                                              t_min_ix=0, t_max_ix=gather_data.shape[1])
         return semblance
 
-    def _plot(self, stacking_velocity=None, *, title="Semblance", x_ticker=None, y_ticker=None, grid=False,
+    def _plot(self, stacking_velocity=None, *, title="Vertical Velocity Spectrum", x_ticker=None, y_ticker=None, grid=False,
               colorbar=True, ax=None, **kwargs):
         """Plot vertical velocity semblance."""
         # Add a stacking velocity line on the plot
@@ -358,14 +360,14 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
             stacking_velocities_ix = ((stacking_velocities - self.velocities[0]) /
                                       (self.velocities[-1] - self.velocities[0]) * self.semblance.shape[1])
 
-        super()._plot(self.semblance, title=title, x_label="Velocity, m/s", x_ticklabels=self.velocities,
+        super()._plot(title=title, x_label="Velocity, m/s", x_ticklabels=self.velocities,
                       x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax, grid=grid,
                       stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
                       colorbar=colorbar, **kwargs)
         return self
 
     @plotter(figsize=(10, 9), args_to_unpack="stacking_velocity")
-    def plot(self, stacking_velocity=None, *, title="Semblance", interactive=False, **kwargs):
+    def plot(self, stacking_velocity=None, *, title="Vertical Velocity Spectrum", interactive=False, **kwargs):
         """Plot vertical velocity semblance.
 
         Parameters
@@ -542,7 +544,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
 
         left_bound_ix, right_bound_ix = self._calc_velocity_bounds()
-        self.residual_semblance = self._calc_res_semblance_numba(semblance_func=self.calc_single_velocity_semblance,
+        self.velocity_spectrum = self._calc_res_semblance_numba(semblance_func=self.calc_single_velocity_semblance,
                                                                  coherency_func=self.coherency_func,
                                                                  gather_data=self.gather.data, times=self.times,
                                                                  offsets=self.offsets, velocities=velocities_ms,
@@ -627,7 +629,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
                                               cropped_semblance)
         return residual_semblance
 
-    def _plot(self, *, title="Residual semblance", x_ticker=None, y_ticker=None, grid=False, colorbar=True, ax=None,
+    def _plot(self, *, title="Residual Velocity Spectrum", x_ticker=None, y_ticker=None, grid=False, colorbar=True, ax=None,
               **kwargs):
         """Plot residual vertical velocity semblance."""
         x_ticklabels = np.linspace(-self.relative_margin, self.relative_margin, self.residual_semblance.shape[1]) * 100
@@ -636,14 +638,14 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         stacking_times_ix = stacking_times / self.sample_rate
         stacking_velocities_ix = np.full_like(stacking_times_ix, self.residual_semblance.shape[1] / 2)
 
-        super()._plot(self.residual_semblance, title=title, x_label="Relative velocity margin, %",
+        super()._plot(title=title, x_label="Relative velocity margin, %",
                       x_ticklabels=x_ticklabels, x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax,
                       grid=grid, stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
                       colorbar=colorbar, **kwargs)
         return self
 
     @plotter(figsize=(10, 9))
-    def plot(self, *, title="Residual semblance", interactive=False, **kwargs):
+    def plot(self, *, title="Residual Velocity Spectrum", interactive=False, **kwargs):
         """Plot residual vertical velocity semblance. The plot always has a vertical line in the middle, representing
         the stacking velocity it was calculated for.
 
