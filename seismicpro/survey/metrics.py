@@ -84,9 +84,6 @@ class TracewiseMetric(Metric):
 
         res = cls._get_res(gather, **kwargs)
 
-        if res.ndim == 2 and res.shape[1] != 1:
-            res = np.pad(res, pad_width=((0, 0), (gather.n_samples - res.shape[1], 0)))
-
         return res
 
     @staticmethod
@@ -169,7 +166,7 @@ class TracewiseMetric(Metric):
 
         # tracewise metric
         if mask.ndim == 1 or mask.ndim == 2 and mask.shape[1] == 1:
-            mask.squeeze()
+            mask = mask.squeeze()
 
             if mode == 'wiggle':
                 yrange = np.arange(gather.n_samples)
@@ -501,7 +498,6 @@ class WindowRMS(TracewiseMetric):
 
         n_rec = (offs_ind[0], w_beg), len(offs_ind), (w_end - w_beg)
         ax.add_patch(patches.Rectangle(*n_rec, linewidth=1, edgecolor='magenta', facecolor='none'))
-
 
 class SinalToNoiseRMSAdaptive(TracewiseMetric):
     """Signal to Noise RMS ratio computed in sliding windows along first breaks.

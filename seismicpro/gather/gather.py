@@ -1473,7 +1473,7 @@ class Gather(TraceContainer, SamplesContainer):
                 warnings.warn("`top_header` should be `str` or `np.ndarray`")
                 header_values = None
 
-            if header_values:
+            if header_values is not None:
                 top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=header_values, y_ticker=y_ticker)
 
         # Set axis ticks.
