@@ -780,7 +780,7 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", copy_src=False)
-    def calculate_vertical_velocity_spectrum(self, velocities=None, win_size=25, mode="semblance"):
+    def calculate_vertical_velocity_spectrum(self, velocities=None, win_size=25, mode="semblance", stretch_mute=False):
         """Calculate vertical velocity semblance for the gather.
 
         Notes
@@ -810,7 +810,7 @@ class Gather(TraceContainer, SamplesContainer):
             Calculated vertical velocity semblance.
         """
         gather = self.copy().sort(by="offset")
-        return VerticalVelocitySpectrum(gather=gather, velocities=velocities, win_size=win_size, mode=mode)
+        return VerticalVelocitySpectrum(gather=gather, velocities=velocities, win_size=win_size, mode=mode, stretch_mute=stretch_mute)
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
     def calculate_residual_velocity_spectrum(self, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2,
@@ -907,7 +907,7 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
-    def apply_nmo(self, stacking_velocity, crossover_mute=False):
+    def apply_nmo(self, stacking_velocity, crossover_mute=False, fill_value=np.nan, stretch_mute=False):
         """Perform gather normal moveout correction using the given stacking velocity.
 
         Notes
@@ -923,6 +923,8 @@ class Gather(TraceContainer, SamplesContainer):
             May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
         crossover_mute: bool
             Whether to mute areas where the time reversal occurred after nmo corrections.
+        fill_value : float, optional, defaults to np.nan
+            Value used to fill the amplitudes outside the gather bounds after moveout.
 
         Returns
         -------
@@ -943,7 +945,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
         self.data = correction.apply_nmo(self.data, self.times, self.offsets,
-                                         velocities_ms, self.sample_rate, crossover_mute)
+                                         velocities_ms, self.sample_rate, crossover_mute, fill_value, stretch_mute)
         return self
 
     #------------------------------------------------------------------------#

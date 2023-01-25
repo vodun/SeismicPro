@@ -92,7 +92,7 @@ class BaseVelocitySpectrum:
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def calc_single_velocity_semblance(coherency_func, gather_data, times, offsets, velocity, sample_rate,
-                                       win_size_samples, t_min_ix, t_max_ix):  # pylint: disable=too-many-arguments
+                                       win_size_samples, t_min_ix, t_max_ix, stretch_mute):  # pylint: disable=too-many-arguments
         """Calculate semblance for given velocity and time range.
 
         Parameters
@@ -125,7 +125,7 @@ class BaseVelocitySpectrum:
         t_win_size_max_ix = min(len(times) - 1, t_max_ix + win_size_samples)
 
         corrected_gather_data = correction.apply_nmo(gather_data, times[t_win_size_min_ix: t_win_size_max_ix + 1],
-                                                offsets, velocity, sample_rate, crossover_mute=False).T
+                                                offsets, velocity, sample_rate, crossover_mute=False, stretch_mute=stretch_mute).T
 
         numerator, denominator = coherency_func(corrected_gather_data)
         numerator[np.isnan(numerator)] = 0
@@ -290,7 +290,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     semblance : 2d np.ndarray
         Array with calculated vertical velocity semblance values.
     """
-    def __init__(self, gather, velocities=None, win_size=50, mode='semblance'):
+    def __init__(self, gather, velocities=None, win_size=50, mode='semblance', stretch_mute=False):
         super().__init__(gather, win_size=win_size, mode=mode)
         if velocities is not None:
             self.velocities = velocities  # m/s
@@ -303,7 +303,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
                                                     coherency_func=self.coherency_func,
                                                     gather_data=self.gather.data, times=self.times,
                                                     offsets=self.offsets, velocities=velocities_ms,
-                                                    sample_rate=self.sample_rate, win_size_samples=self.win_size_samples)
+                                                    sample_rate=self.sample_rate, win_size_samples=self.win_size_samples, stretch_mute=stretch_mute)
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
@@ -324,7 +324,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_semblance_numba(semblance_func, coherency_func, gather_data, times, offsets, velocities,
-                              sample_rate, win_size_samples):
+                              sample_rate, win_size_samples, stretch_mute):
         """Parallelized and njitted method for vertical velocity semblance calculation.
 
         Parameters
@@ -345,7 +345,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
             semblance[:, j] = semblance_func(coherency_func=coherency_func,
                                              gather_data=gather_data, times=times, offsets=offsets,
                                              velocity=velocities[j], sample_rate=sample_rate, win_size_samples=win_size_samples,
-                                             t_min_ix=0, t_max_ix=gather_data.shape[1])
+                                             t_min_ix=0, t_max_ix=gather_data.shape[1], stretch_mute=stretch_mute)
         return semblance
 
     def _plot(self, stacking_velocity=None, *, title="Vertical Velocity Spectrum", x_ticker=None, y_ticker=None, grid=False,
