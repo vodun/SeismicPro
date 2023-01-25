@@ -1229,7 +1229,7 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
 
     @plotter(figsize=(10, 7))
-    def plot(self, mode="seismogram", *, title=None, x_ticker=None, y_ticker=None, ax=None, **kwargs):
+    def plot(self, mode="seismogram", mask=None, *, title=None, x_ticker=None, y_ticker=None, ax=None, **kwargs):
         """Plot gather traces.
 
         The traces can be displayed in a number of representations, depending on the `mode` provided. Currently, the
@@ -1358,6 +1358,16 @@ class Gather(TraceContainer, SamplesContainer):
         }
         if mode not in plotters_dict:
             raise ValueError(f"Unknown mode {mode}")
+
+        if mask is not None:
+            if isinstance(mask, Gather):
+                mask = mask.data
+            # Convert to float to be able to replace zeros with nans since only nans in mask will not affect main plot
+            mask = np.atleast_2d(mask).astype(np.float16)
+            mask[mask <= EPS] = np.nan
+            if mode in ["seismogram", "wiggle"]:
+                kwargs.update({"mask": mask})
+
         plotters_dict[mode](ax, title=title, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
         return self
 
@@ -1381,7 +1391,7 @@ class Gather(TraceContainer, SamplesContainer):
 
     # pylint: disable=too-many-arguments
     def _plot_seismogram(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src='time', colorbar=False,
-                         q_vmin=0.1, q_vmax=0.9, event_headers=None, top_header=None, **kwargs):
+                         q_vmin=0.1, q_vmax=0.9, event_headers=None, top_header=None, mask=None, **kwargs):
         """Plot the gather as a 2d grayscale image of seismic traces."""
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
@@ -1389,11 +1399,17 @@ class Gather(TraceContainer, SamplesContainer):
         kwargs = {"cmap": "gray", "aspect": "auto", "vmin": vmin, "vmax": vmax, **kwargs}
         img = ax.imshow(self.data.T, **kwargs)
         add_colorbar(ax, img, colorbar, divider, y_ticker)
+        if mask is not None:
+            if mask.shape != self.data.shape:
+                raise
+            kwargs.update({"alpha": 0.5, "cmap": 'Reds'})
+            img = ax.imshow(mask.T, **kwargs)
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
     #pylint: disable=invalid-name
     def _plot_wiggle(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src="time", norm_tracewise=True,
-                     std=0.5, event_headers=None, top_header=None, lw=None, alpha=None, color="black", **kwargs):
+                     std=0.5, event_headers=None, top_header=None, mask=None, lw=None, alpha=None, color="black",
+                     **kwargs):
         """Plot the gather as an amplitude vs time plot for each trace."""
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
@@ -1451,6 +1467,13 @@ class Gather(TraceContainer, SamplesContainer):
         patch = PathPatch(Path(verts, codes), color=color, alpha=alpha)
         ax.add_artist(patch)
         ax.update_datalim([(0, 0), traces.shape])
+
+        if mask is not None:
+            res = cv2.findContours(mask.astype(np.uint8).T, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
+            for item in res:
+                item = item.squeeze()
+                ax.fill(*item.T, color='red', alpha=alpha * 0.5)
+
         if not ax.yaxis_inverted():
             ax.invert_yaxis()
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
