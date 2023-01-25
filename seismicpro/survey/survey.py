@@ -1015,9 +1015,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Parameters
         ----------
-        limits : int or tuple or slice, optional
-            Time limits to be used to detect dead traces if needed. `int` or `tuple` are used as arguments to init a
-            `slice` object. If not given, `limits` passed to `__init__` are used. Measured in samples.
         inplace : bool, optional, defaults to False
             Whether to remove traces inplace or return a new survey instance.
         chunk_size : int, optional, defaults to 1000
@@ -1032,9 +1029,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         if self.n_dead_traces is None:
-            self.qc_tracewise(DeadTrace(), chunk_size=chunk_size, bar=bar)
+            dead_traces_metric = DeadTrace()
+            self.qc_tracewise(dead_traces_metric, chunk_size=chunk_size, bar=bar)
 
-        self.filter(lambda dt: dt == 0, cols="DeadTrace", inplace=True)
+        self.filter(lambda dt: dt == 0, cols=dead_traces_metric.name, inplace=True)
         return self
 
     #------------------------------------------------------------------------#
@@ -1189,7 +1187,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         SurveyGeometryPlot(self, **kwargs).plot()
 
-
     def construct_attribute_map(self, attribute, by, drop_duplicates=False, agg=None, bin_size=None, **kwargs):
         """Construct a map of trace attributes aggregated by gathers.
 
@@ -1320,7 +1317,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             If `tuple`, survey headers names to get coordinates from.
             If `str`, gather type to aggregate header values over.
         metric : str or list of str, optional
-            name(s) of metrics to buis metrics maps.
+            name(s) of metrics to build metrics maps.
             If None, maps for all metrica that were calculated for this survey are built.
         agg : str or callable, optional, defaults to "mean"
             An aggregation function. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.

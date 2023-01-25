@@ -54,7 +54,8 @@ class TracewiseMetric(Metric):
     @property
     def kwargs(self):
         """returns metric kwargs"""
-        return {'threshold': self.threshold, **{name: getattr(self, name) for name in self.params}}
+        return {'threshold': self.threshold, 'top_ax_y_scale': self.top_ax_y_scale,
+                **{name: getattr(self, name) for name in self.params}}
 
 
     @classmethod
