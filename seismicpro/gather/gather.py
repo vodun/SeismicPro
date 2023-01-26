@@ -1363,8 +1363,10 @@ class Gather(TraceContainer, SamplesContainer):
             if isinstance(mask, Gather):
                 mask = mask.data
             # Convert to float to be able to replace zeros with nans since only nans in mask will not affect main plot
-            mask = np.atleast_2d(mask).astype(np.float16)
-            mask[mask <= EPS] = np.nan
+            mask = np.asarray(mask).astype(np.float16)
+            if mask.shape != self.data.shape:
+                raise
+            mask[mask <= 0.1] = np.nan
             if mode in ["seismogram", "wiggle"]:
                 kwargs.update({"mask": mask})
 
@@ -1400,8 +1402,6 @@ class Gather(TraceContainer, SamplesContainer):
         img = ax.imshow(self.data.T, **kwargs)
         add_colorbar(ax, img, colorbar, divider, y_ticker)
         if mask is not None:
-            if mask.shape != self.data.shape:
-                raise
             kwargs.update({"alpha": 0.5, "cmap": 'Reds'})
             img = ax.imshow(mask.T, **kwargs)
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
@@ -1411,6 +1411,13 @@ class Gather(TraceContainer, SamplesContainer):
                      std=0.5, event_headers=None, top_header=None, mask=None, lw=None, alpha=None, color="black",
                      **kwargs):
         """Plot the gather as an amplitude vs time plot for each trace."""
+        def _get_start_end_ixs(self, ixs):
+            """Returns two arrays with indexes of the beginning and end of continuous subsequences in the array"""
+            start_ix = np.argwhere((np.diff(ixs[:, 0], prepend=ixs[0, 0]) != 0) |
+                               (np.diff(ixs[:, 1], prepend=ixs[0, 1]) != 1)).ravel()
+            end_ix = start_ix + np.diff(start_ix, append=len(ixs)) - 1
+            return start_ix, end_ix
+
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
 
@@ -1439,10 +1446,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         # Find polygons bodies: indices of target amplitudes, start and end
         poly_amp_ix = np.argwhere(traces > 0)
-        start_ix = np.argwhere((np.diff(poly_amp_ix[:, 0], prepend=poly_amp_ix[0, 0]) != 0) |
-                               (np.diff(poly_amp_ix[:, 1], prepend=poly_amp_ix[0, 1]) != 1)).ravel()
-        end_ix = start_ix + np.diff(start_ix, append=len(poly_amp_ix)) - 1
-
+        start_ix, end_ix = self._get_start_end_ixs(poly_amp_ix)
         shift = np.arange(len(start_ix)) * 3
         # For each polygon we need to:
         # 1. insert 0 amplitude at the start.
@@ -1466,14 +1470,26 @@ class Gather(TraceContainer, SamplesContainer):
 
         patch = PathPatch(Path(verts, codes), color=color, alpha=alpha)
         ax.add_artist(patch)
-        ax.update_datalim([(0, 0), traces.shape])
 
         if mask is not None:
-            res = cv2.findContours(mask.astype(np.uint8).T, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
-            for item in res:
-                item = item.squeeze()
-                ax.fill(*item.T, color='red', alpha=alpha * 0.5)
+            mask_ix = np.argwhere(mask != 0)
+            start_ix, end_ix = self._get_start_end_ix(mask_ix)
+            verts = np.zeros((len(start_ix)*5, 2))
+            # Compute the polygon bodies, that represent mask coordinates with a small indent
+            up_verts = mask_ix[start_ix].reshape(-1, 1, 2) + np.array([[-0.5, 0.5], [0.5, 0.5]])
+            down_verts = mask_ix[end_ix].reshape(-1, 1, 2) + np.array([[0.5, -0.5], [-0.5, -0.5]])
+            verts = np.stack((up_verts, down_verts), axis=1).reshape(-1, 2)
+            # Create plaseholders for Path.CLOSEPOLY code with coords [0, 0] after each polygon
+            verts = np.insert(verts, np.arange(len(verts), step=4)+4, [0, 0], axis=0)
 
+            # Fill the array representing the nodes codes: either start, intermediate or end code.
+            codes = np.full(len(verts), Path.LINETO)
+            codes[::5] = Path.MOVETO
+            codes[4::5] = Path.CLOSEPOLY
+            mask_patch = PathPatch(Path(verts, codes), color='r', alpha=alpha*0.5)
+            ax.add_artist(mask_patch)
+
+        ax.update_datalim([(0, 0), traces.shape])
         if not ax.yaxis_inverted():
             ax.invert_yaxis()
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
