@@ -42,7 +42,7 @@ class BaseVelocitySpectrum:
         Temporal window size used for semblance calculation. The higher the `win_size` is, the smoother the resulting
         semblance will be but to the detriment of small details. Measured in milisecods.
     mode: str, defaults to `semblance`
-        The coherency measure. See the `coherency_funcs` for avaliable options.
+        The coherency measure. See the `COHERENCY_FUNCS` for avaliable options.
 
     Attributes
     ----------
@@ -59,7 +59,7 @@ class BaseVelocitySpectrum:
         self.win_size_samples = np.ceil(win_size / gather.sample_rate).astype(np.int)
         self.coherency_func = COHERENCY_FUNCS.get(mode)
         if self.coherency_func is None:
-            raise ValueError(f"Unknown mode {mode}, avaliable modes are {coherency_funcs.keys()}")
+            raise ValueError(f"Unknown mode {mode}, avaliable modes are {COHERENCY_FUNCS.keys()}")
 
     @property
     def times(self):
@@ -270,11 +270,11 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     mode: str, optional, defaults to 'semblance'
         The measure for estimating hodograph coherency. 
         The available options are: 
-            `semblance`, 
-            `stacked_amplitude`,
-            `normalized_stacked_amplitude`,
-            `crosscorrelation`
-            `energy_normalized_crosscorrelation`
+            `semblance` or `NE`,
+            `stacked_amplitude` or `S`,
+            `normalized_stacked_amplitude` or `NS`,
+            `crosscorrelation` or `CC`,
+            `energy_normalized_crosscorrelation` or `ENCC`
 
     Attributes
     ----------
