@@ -17,7 +17,7 @@ from sklearn.linear_model import LinearRegression
 
 from .headers import load_headers, validate_headers
 from .metrics import SurveyAttribute, TracewiseMetric, \
-    DeadTrace, TraceAbsMean, Std, TraceMaxAbs, MaxClipsLen, MaxConstLen, WindowRMS
+    DeadTrace, TraceAbsMean, Std, TraceMaxAbs, MaxClipsLen, MaxConstLen, WindowRMS, WindowsMS
 from .plot_geometry import SurveyGeometryPlot
 from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
@@ -1300,7 +1300,13 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             self.qc_metrics = {}
 
         for metric, metric_vals in zip(metrics, zip(*results)):
-            self.headers[metric.name] = np.concatenate(metric_vals)[orig_idx]
+            vals = np.concatenate(metric_vals)[orig_idx]
+            if isinstance(metric, WindowsMS):
+                self.headers[[metric.name + '_sig', metric.name + '_noise']] = vals
+                # self.headers[metric.name + '_sig'] = vals[:, 0]
+                # self.headers[metric.name + '_noise'] = vals[:, 1]
+            else:
+                self.headers[metric.name] = vals
 
             if metric.name in self.qc_metrics:
                 warnings.warn(f'{metric.name} already calculated. Rewriting.')
@@ -1332,6 +1338,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         coords_cols = get_coord_cols_by_alias(by)
 
+        squeeze_output = isinstance(metrics, str)
+
         if metrics is None:
             metrics = list(self.qc_metrics.keys())
 
@@ -1346,11 +1354,22 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                 continue
 
             metric = self.qc_metrics[metric_name]
-            coords = self[coords_cols]
-            metric_values = self[metric_name]
+
+            if isinstance(metric, WindowsMS):
+                metric_cols = [metric.name + '_sig', metric.name + '_noise']
+                vals = (self.headers[coords_cols + metric_cols]
+                        .groupby(coords_cols)
+                        .apply(lambda df: WindowsMS.agg_gather(df[metric_cols].to_numpy()))
+                        .reset_index(name=metric_name))
+
+                coords = vals[coords_cols]
+                metric_values = vals[metric_name]
+            else:
+                coords = self[coords_cols]
+                metric_values = self[metric_name]
 
             pmetric = PartialMetric(metric.__class__, survey=self, name=metric_name, **{**metric.kwargs, **kwargs})
             mmaps.append(pmetric.map_class(coords, metric_values, coords_cols=coords_cols, metric=pmetric,
                                     agg=agg, bin_size=bin_size))
 
-        return mmaps[0] if len(mmaps) == 1 else mmaps
+        return mmaps[0] if (len(mmaps) == 1 and squeeze_output) else mmaps

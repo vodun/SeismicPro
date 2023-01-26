@@ -591,3 +591,92 @@ class SinalToNoiseRMSAdaptive(TracewiseMetric):
         ax.plot(np.arange(gather.n_traces), n_begs + win_size, color='magenta')
         ax.plot(np.arange(gather.n_traces), s_begs, color='lime')
         ax.plot(np.arange(gather.n_traces), s_begs + win_size, color='lime')
+
+class WindowsMS(TracewiseMetric):
+    """ MwanSquares computed for 2 provided windows
+
+    Parameters
+    ----------
+    n_offsets, s_offsets : tuple of 2 ints
+        offset range to use for calcualtion.
+    n_times, s_times : tuple of 2 ints
+        time range to use for calcualtion, measured in ms.
+    """
+    name = "WindowsMS"
+    is_lower_better = False
+    threshold = None
+    top_ax_y_scale = 'log'
+
+    params = ['n_offsets', 'n_times', 's_offsets', 's_times']
+
+    @classmethod
+    def _get_res(cls, gather, s_offsets, s_times, n_offsets, n_times, **kwargs):
+        """QC indicator implementation."""
+        _ = kwargs
+        return np.stack([cls._calc_win(gather, s_offsets, s_times), cls._calc_win(gather, n_offsets, n_times)]).T
+
+    @classmethod
+    def aggregate(cls, res, tracewise=False):
+        """Aggregate input depending on `cls.is_lower_better`"""
+        return res if tracewise else cls.agg_gather(res)
+
+    @classmethod
+    def agg_gather(cls, res):
+        return np.sqrt(np.nanmean(res[:, 0])/np.nanmean(res[:, 1]))
+
+    @classmethod
+    def _calc_win(cls, gather, offsets, times):
+
+        times = cls._get_times(gather, times)
+        offsets = cls._get_offsets(gather, offsets)
+
+        w_beg, w_end = cls._get_indices(gather, times)
+        mask = ((gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1]))
+
+        return cls.ms_win(gather.data, w_beg, w_end, mask)
+
+    @staticmethod
+    def _get_times(gather, times):
+        return times if times is not None else (min(gather.samples), max(gather.samples))
+
+    @staticmethod
+    def _get_offsets(gather, offsets):
+        return offsets if offsets is not None else (min(gather.offsets), max(gather.offsets))
+
+    @staticmethod
+    @njit(nogil=True)
+    def ms_win(data, w_beg, w_end, mask):
+        """Compute RMS for a window defined by its starting and end sample indices."""
+        res = np.full(data.shape[0], fill_value=np.nan)
+
+        for i, (trace, flag) in enumerate(zip(data, mask)):
+            if flag:
+                res[i] = np.mean(trace[w_beg:w_end]**2)
+        return res
+
+    @staticmethod
+    def _get_indices(gather, times):
+        return times_to_indices(np.asarray([max(gather.samples[0], times[0]), min(times[-1], gather.samples[-1])]),
+                                gather.samples).astype(np.int16)
+
+    def _plot(self, mode, coords, ax, **kwargs):
+        """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
+        gather = self.survey.get_gather(coords).sort(by='offset')
+
+        gather.plot(ax=ax, mode=mode, **kwargs)
+
+        self._plot_win(gather, ax, self.s_times, self.s_offsets, 'lime')
+        self._plot_win(gather, ax, self.n_times, self.n_offsets, 'magenta')
+
+    def _plot_win(self, gather, ax, times, offsets, color):
+
+        times = self._get_times(gather, times)
+        offsets = self._get_offsets(gather, offsets)
+
+        mask = (gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1])
+        offs_ind = np.nonzero(mask)[0]
+        w_beg, w_end = self._get_indices(gather, times)
+
+        n_rec = (offs_ind[0], w_beg), len(offs_ind), (w_end - w_beg)
+        ax.add_patch(patches.Rectangle(*n_rec, linewidth=1, edgecolor=color, facecolor='none'))
+
