@@ -1358,12 +1358,12 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             if isinstance(metric, WindowsMS):
                 metric_cols = [metric.name + '_sig', metric.name + '_noise']
                 vals = (self.headers[coords_cols + metric_cols]
-                        .groupby(coords_cols)
-                        .apply(lambda df: WindowsMS.agg_gather(df[metric_cols].to_numpy()))
-                        .reset_index(name=metric_name))
+                        .groupby(coords_cols)[metric_cols]
+                        .apply(lambda df: WindowsMS.agg_gather(df.to_numpy()))
+                        .reset_index(name=metric.name))
 
                 coords = vals[coords_cols]
-                metric_values = vals[metric_name]
+                metric_values = vals[metric.name]
             else:
                 coords = self[coords_cols]
                 metric_values = self[metric_name]

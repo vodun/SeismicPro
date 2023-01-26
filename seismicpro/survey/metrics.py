@@ -441,6 +441,14 @@ class WindowRMS(TracewiseMetric):
     def __init__(self, survey=None, coords_cols=None, offsets=None, times=None, **kwargs):
         super().__init__(survey, coords_cols, offsets=offsets, times=times, **kwargs)
 
+    @staticmethod
+    def _get_times(gather, times):
+        return times if times is not None else (min(gather.samples), max(gather.samples))
+
+    @staticmethod
+    def _get_offsets(gather, offsets):
+        return offsets if offsets is not None else (min(gather.offsets), max(gather.offsets))
+
     @classmethod
     def _get_res(cls, gather, offsets, times, **kwargs):
         """QC indicator implementation."""
@@ -458,14 +466,6 @@ class WindowRMS(TracewiseMetric):
         w_ends[~mask] = -1
 
         return cls.rms_win(gather.data, w_begs, w_ends)
-
-    @staticmethod
-    def _get_times(gather, times):
-        return times if times is not None else (min(gather.samples), max(gather.samples))
-
-    @staticmethod
-    def _get_offsets(gather, offsets):
-        return offsets if offsets is not None else (min(gather.offsets), max(gather.offsets))
 
     @staticmethod
     @njit(nogil=True)
@@ -620,33 +620,23 @@ class WindowsMS(TracewiseMetric):
         """Aggregate input depending on `cls.is_lower_better`"""
         return res if tracewise else cls.agg_gather(res)
 
-    @classmethod
-    def agg_gather(cls, res):
+    @staticmethod
+    def agg_gather(res):
+        """aggrecate the result for the whole gather - compute RMS ratio for signal and noise windows"""
         return np.sqrt(np.nanmean(res[:, 0])/np.nanmean(res[:, 1]))
 
     @classmethod
     def _calc_win(cls, gather, offsets, times):
-
-        times = cls._get_times(gather, times)
-        offsets = cls._get_offsets(gather, offsets)
-
+        """Calculate Mean square amplitudes in a window"""
         w_beg, w_end = cls._get_indices(gather, times)
         mask = ((gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1]))
 
         return cls.ms_win(gather.data, w_beg, w_end, mask)
 
     @staticmethod
-    def _get_times(gather, times):
-        return times if times is not None else (min(gather.samples), max(gather.samples))
-
-    @staticmethod
-    def _get_offsets(gather, offsets):
-        return offsets if offsets is not None else (min(gather.offsets), max(gather.offsets))
-
-    @staticmethod
     @njit(nogil=True)
     def ms_win(data, w_beg, w_end, mask):
-        """Compute RMS for a window defined by its starting and end sample indices."""
+        """Compute mean square for a window defined by its starting and end sample indices."""
         res = np.full(data.shape[0], fill_value=np.nan)
 
         for i, (trace, flag) in enumerate(zip(data, mask)):
@@ -669,14 +659,10 @@ class WindowsMS(TracewiseMetric):
         self._plot_win(gather, ax, self.n_times, self.n_offsets, 'magenta')
 
     def _plot_win(self, gather, ax, times, offsets, color):
-
-        times = self._get_times(gather, times)
-        offsets = self._get_offsets(gather, offsets)
-
+        """show a window on a plot"""
         mask = (gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1])
         offs_ind = np.nonzero(mask)[0]
         w_beg, w_end = self._get_indices(gather, times)
 
         n_rec = (offs_ind[0], w_beg), len(offs_ind), (w_end - w_beg)
         ax.add_patch(patches.Rectangle(*n_rec, linewidth=1, edgecolor=color, facecolor='none'))
-
