@@ -53,7 +53,7 @@ def get_hodograph(gather_data, hodograph_times, sample_rate, interpolate=True, f
 
 @njit(nogil=True)
 def compute_hodograph_times(offsets, times, velocities):
-    """ Calculate the times of hyperbolic hodographs for each time of the gatner with given stacking velocities. 
+    """ Calculate the times of hyperbolic hodographs for each time of the gather with given stacking velocities. 
     Offsets, times and velocities are 1d np.arrays. 
     The result is 2d np.array with shape `(len(offsets), len(times))`."""
     return np.sqrt(times.reshape(-1, 1) ** 2 + (offsets / np.asarray(velocities).reshape(-1, 1)) **2)
@@ -67,13 +67,13 @@ def compute_crossovers_times(hodograph_times):
     crossover_times = np.zeros(hodograph_times.shape[1])
 
     for i in range(hodograph_times.shape[1]):
-        t0 =  hodograph_times[n, i]
+        t_prev =  hodograph_times[n, i]
         for j in range(n-1, 0):
             t = hodograph_times[j, i]
-            if t > t0:
+            if t > t_prev:
                 crossover_times[i] = j
                 break
-            t0 = t
+            t_prev = t
     return crossover_times
 
 

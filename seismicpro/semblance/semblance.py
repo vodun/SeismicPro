@@ -16,7 +16,7 @@ from ..gather.utils import correction
 from ..const import DEFAULT_SDC_VELOCITY
 
 
-coherency_funcs = {
+COHERENCY_FUNCS = {
     "stacked_amplitude": coherency_funcs.stacked_amplitude,
     "S": coherency_funcs.stacked_amplitude,
     "normalized_stacked_amplitude": coherency_funcs.normalized_stacked_amplitude,
@@ -57,7 +57,7 @@ class BaseVelocitySpectrum:
     def __init__(self, gather, win_size, mode='semblance'):
         self.gather = gather
         self.win_size_samples = np.ceil(win_size / gather.sample_rate).astype(np.int)
-        self.coherency_func = coherency_funcs.get(mode)
+        self.coherency_func = COHERENCY_FUNCS.get(mode)
         if self.coherency_func is None:
             raise ValueError(f"Unknown mode {mode}, avaliable modes are {coherency_funcs.keys()}")
 
@@ -131,13 +131,13 @@ class BaseVelocitySpectrum:
         numerator[np.isnan(numerator)] = 0
         denominator[np.isnan(denominator)] = 0
 
-        semblance_slice = np.zeros(t_max_ix - t_min_ix, dtype=np.float32)
+        coherency_slice = np.zeros(t_max_ix - t_min_ix, dtype=np.float32)
         for t in prange(t_min_ix, t_max_ix):
             t_rel = t - t_win_size_min_ix
             ix_from = max(0, t_rel - win_size_samples)
             ix_to = min(len(corrected_gather_data) - 1, t_rel + win_size_samples)
-            semblance_slice[t - t_min_ix] = np.sum(numerator[ix_from : ix_to]) / (np.sum(denominator[ix_from : ix_to]) + + 1e-8)
-        return semblance_slice
+            coherency_slice[t - t_min_ix] = np.sum(numerator[ix_from : ix_to]) / (np.sum(denominator[ix_from : ix_to]) + + 1e-8)
+        return coherency_slice
 
     #@staticmethod
     def _plot(self, title=None, x_label=None, x_ticklabels=None,  # pylint: disable=too-many-arguments
