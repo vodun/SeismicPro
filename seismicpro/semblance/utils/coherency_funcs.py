@@ -9,7 +9,7 @@ def stacked_amplitude(corrected_gather):
     numerator = np.zeros(corrected_gather.shape[0])
     denominator = np.ones(corrected_gather.shape[0])
     for i in prange(corrected_gather.shape[0]):
-        numerator[i] = np.nanmean(corrected_gather[i, :])
+        numerator[i] = np.abs(np.nanmean(corrected_gather[i, :]))
     return numerator, denominator
 
 
@@ -26,16 +26,16 @@ def semblance(corrected_gather):
     numerator = np.zeros(corrected_gather.shape[0])
     denominator = np.zeros(corrected_gather.shape[0])
     for i in prange(corrected_gather.shape[0]):
-        numerator[i] = (np.nansum(corrected_gather[i, :]) ** 2)
-        denominator[i] = np.nansum(corrected_gather[i, :] ** 2) * sum(~np.isnan(corrected_gather[i, :]))
+        numerator[i] = np.nanmean(corrected_gather[i, :]) ** 2
+        denominator[i] = np.nansum(corrected_gather[i, :] ** 2) 
     return numerator, denominator
 
 
 def crosscorrelation(corrected_gather):
     numerator = np.zeros(corrected_gather.shape[0])
-    denominator = np.full(corrected_gather.shape[0], 2)
+    denominator = np.ones(corrected_gather.shape[0])
     for i in prange(corrected_gather.shape[0]):
-        numerator[i] = (np.nansum(corrected_gather[i, :]) ** 2) - np.nansum(corrected_gather[i, :] ** 2)
+        numerator[i] = ((np.nansum(corrected_gather[i, :]) ** 2) - np.nansum(corrected_gather[i, :] ** 2)) / 2
     return numerator, denominator
 
 
@@ -46,7 +46,7 @@ def energy_normalized_crosscorrelation(corrected_gather):
         input_enerty =  np.nansum(corrected_gather[i, :] ** 2)
         output_energy = np.nansum(corrected_gather[i, :]) ** 2
         numerator[i] = output_energy - input_enerty
-        denominator[i] = input_enerty * sum(~np.isnan(corrected_gather[i, :])) / 2
+        denominator[i] = input_enerty * np.sum(~np.isnan(corrected_gather[i, :])) / 2
     return numerator, denominator
 
 

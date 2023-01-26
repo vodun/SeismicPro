@@ -136,7 +136,7 @@ class BaseVelocitySpectrum:
             t_rel = t - t_win_size_min_ix
             ix_from = max(0, t_rel - win_size_samples)
             ix_to = min(len(corrected_gather_data) - 1, t_rel + win_size_samples)
-            semblance_slice[t - t_min_ix] = np.mean(numerator[ix_from : ix_to] / (denominator[ix_from : ix_to] + 1e-8))
+            semblance_slice[t - t_min_ix] = np.sum(numerator[ix_from : ix_to]) / (np.sum(denominator[ix_from : ix_to]) + + 1e-8)
         return semblance_slice
 
     #@staticmethod
