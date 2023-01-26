@@ -610,47 +610,23 @@ class RefractorVelocityField(SpatialField):
             Additional keyword arguments to be passed to `MetricMap.plot`.
         """
         FieldPlot(self, **kwargs).plot()
-        
-        
-    # @staticmethod
-    # @njit(nogil=True, parallel=True)
-    # def _calc_metrics(metrics, gathers_data, gathers_headers, rv_times, sample_rate,
-    #                   shots_coords, receivers_coords,
-    #                   kwargs_names, kwargs_vals, kwargs_lens):
-    #     results = np.zeros((len(metrics), len(gathers_data)), dtype=np.float32)
-    #     kwargs_starts = np.cumsum(kwargs_lens)
-    #     for i in prange(len(gathers_data)):
-    #         j = 0
-    #         for metric in literal_unroll(metrics):
-    #             metric_kwargs = {kwargs_names[i]: kwargs_vals[i] for i in range(kwargs_starts[j], kwargs_starts[j] + kwargs_lens[j + 1])}
-    #             gather_res = metric(gather_data=gathers_data[i], times=gathers_headers[i][:, 0],
-    #                                 offsets=gathers_headers[i][:, 1], rv_times=rv_times[i], sample_rate=sample_rate,
-    #                                 shot_coords=shots_coords[i], receiver_coords=receivers_coords[i],
-    #                                 kwargs=metric_kwargs).mean()
-    #             results[j, i] = gather_res
-    #             j += 1
-    #     return results
+
 
     @staticmethod
-    def _calc_metrics(gather_headers_chunk, gather_data_chunk, rvs_chunk, sample_rate, calc_cols, metrics_callables):
-        res = []
-        for gather_headers, gather_data, rv in zip(gather_headers_chunk, gather_data_chunk, rvs_chunk):
-            refractor_velocity = rv(gather_headers[:, calc_cols.index('offset')])
-            results = []
-            for metric, metric_kwargs in metrics_callables.items():
-                calc_kwargs = Dict.empty(key_type=types.unicode_type, value_type=types.float32)
-                for name, val in metric_kwargs.items():
-                    calc_kwargs[name] = np.float32(val)
-                gather_res = metric(gather_data=gather_data, gather_headers=gather_headers, headers_names=calc_cols,
-                                    rv_times=refractor_velocity, sample_rate=sample_rate, kwargs=calc_kwargs).mean()
-                results.append(gather_res)
-            res.append(results)
-        return res
+    def _calc_metrics(metrics, gathers_chunk, rvs_chunk, first_breaks_col):
+        chunk_results = []
+        for gather, refractor_velocity in zip(gathers_chunk, rvs_chunk):
+            gather_results = []
+            for metric in metrics:
+                metric_callable, metric_kwargs = metric['class'].calc, metric['kwargs']
+                metric_val = metric_callable(gather=gather.scale_standard(), refractor_velocity=refractor_velocity, first_breaks_col=first_breaks_col,
+                                    **metric_kwargs).mean()
+                gather_results.append(metric_val)
+            chunk_results.append(gather_results)
+        return chunk_results
 
 
-    def qc(self, survey=None, metrics=None, first_breaks_col=HDR_FIRST_BREAK, bar=True, n_workers=None, chunk_size=250):
-        init_time = time.time()
-        
+    def qc(self, survey=None, metrics=None, first_breaks_col=HDR_FIRST_BREAK, bar=True, chunk_size=250, n_workers=None):
         if survey is None:
             if not self.has_survey:
                 raise ValueError("Survey must be passed if the field is not linked with a survey.")
@@ -668,34 +644,20 @@ class RefractorVelocityField(SpatialField):
         if not metrics:
             raise ValueError("At least one metric should be passed.")
 
-        sample_rate = survey.sample_rate
-        metrics_callables = {metric_config['class'].calc: metric_config['kwargs'] for metric_config in metrics}
         coords_cols = get_coords_cols(survey.indexed_by)
-        len_coords = len(coords_cols)
+        n_index = len(to_list(survey.indexed_by))
 
-        calc_cols = []
-        for metric_config in metrics:
-            calc_cols += to_list(metric_config['class'].headers)
-        
-        calc_cols = (first_breaks_col, ) + tuple(set(calc_cols)) + coords_cols
-        survey_headers = survey[calc_cols]
+        survey_headers = survey[to_list(survey.indexed_by) + to_list(coords_cols)]
         gather_change_ix = np.where(~survey.headers.index.duplicated(keep="first"))[0][1:]
-        gather_headers_list = np.split(survey_headers, gather_change_ix)
+        gather_headers_unique = survey_headers[[0] + gather_change_ix]
+        n_gathers = len(gather_headers_unique)
         
-        print(f'init time: {time.time() - init_time}')
-        
-        coord_time = time.time()
-        
-        coords_list = [tuple(gather_headers[0, -len_coords:]) for gather_headers in gather_headers_list]
-        coords_to_index = {coords: idx for coords, idx in zip(coords_list, survey.indices)} # for plotting
-        load_data = any(metric_config['class'].data for metric_config in metrics)
-        print(f'coord init time: {time.time() - coord_time}')
-        
-        field_call_time = time.time()
-        refractor_velocities = self(coords_list)
-        print(f'field call time: {time.time() - field_call_time}')
-        
-        n_gathers = len(gather_headers_list)
+        coords_to_index = {tuple(gather_headers_unique[i, n_index:]):  tuple(gather_headers_unique[i, :n_index])
+                           if n_index > 1 else gather_headers_unique[i, 0] for i in range(n_gathers)}
+        self._coords_to_index = coords_to_index
+        gather_coords = gather_headers_unique[:, n_index:]
+        refractor_velocities = self(gather_coords)
+
         n_chunks, mod = divmod(n_gathers, chunk_size)
         if mod:
             n_chunks += 1
@@ -708,39 +670,22 @@ class RefractorVelocityField(SpatialField):
         with tqdm(total=n_gathers, desc="Gathers processed", disable=not bar) as pbar:
             with executor_class(max_workers=n_workers) as pool:
                 for i in range(n_chunks):
-                    gather_headers_chunk = gather_headers_list[i * chunk_size : (i + 1) * chunk_size]
-                    gather_indices_chunk = survey.indices[i * chunk_size : (i + 1) * chunk_size]
-                    gather_data_chunk = [survey.get_gather(idx).data for idx in gather_indices_chunk]
+                    gathers_indices_chunk = survey.indices[i * chunk_size : (i + 1) * chunk_size]
+                    gathers_chunk = [survey.get_gather(idx) for idx in gathers_indices_chunk]
                     rvs_chunk = refractor_velocities[i * chunk_size : (i + 1) * chunk_size]
-                    future = pool.submit(self._calc_metrics, gather_headers_chunk, gather_data_chunk, rvs_chunk, sample_rate, calc_cols, metrics_callables)
+                    future = pool.submit(self._calc_metrics, metrics, gathers_chunk, rvs_chunk, first_breaks_col)
                     future.add_done_callback(lambda fut: pbar.update(len(fut.result())))
                     futures.append(future)
 
         results = sum([future.result() for future in futures], [])
-
-        # def calc_metrics(idx, gather_headers, refractor_velocity):
-        #     gather_data = survey.get_gather(idx).data if load_data else None
-        #     refractor_velocity = refractor_velocity(gather_headers[:, calc_cols.index('offset')])
-        #     results = []
-        #     for metric, metric_kwargs in metrics_callables.items():
-        #         calc_kwargs = Dict.empty(key_type=types.unicode_type, value_type=types.float32)
-        #         for name, val in metric_kwargs.items():
-        #             calc_kwargs[name] = np.float32(val)
-        #         gather_res = metric(gather_data=gather_data, gather_headers=gather_headers, headers_names=calc_cols,
-        #                             rv_times=refractor_velocity, sample_rate=sample_rate, kwargs=calc_kwargs).mean()
-        #         results.append(gather_res)
-        #     return results
-
-        # results = thread_map(calc_metrics, survey.indices, gather_headers_list, refractor_velocities,
-        #                      desc='Gathers processed', disable=not bar, max_workers=n_workers)
         metrics_instances = [metric_config['class'](survey=survey, field=self, first_breaks_col=first_breaks_col, 
-                                                    coords_to_index=coords_to_index, **metric_config['kwargs'])
+                                                    **metric_config['kwargs'])
                              for metric_config in metrics]
         
         metrics_maps = {}
         metric_name_counter = {metric.name: 0 for metric in metrics_instances}
         for metric, metric_values in zip(metrics_instances, zip(*results)):
-            name = f'{metric.name}_{metric_name_counter[metric.name]}'
-            metrics_maps[name] = metric.map_class(coords_list, metric_values, coords_cols=self.coords_cols, metric=metric)
+            name = f'{metric.name}_{metric_name_counter[metric.name]}' if metric_name_counter[metric.name] > 0 else metric.name
+            metrics_maps[name] = metric.map_class(gather_coords, metric_values, coords_cols=self.coords_cols, metric=metric)
             metric_name_counter[metric.name] += 1
         return metrics_maps
