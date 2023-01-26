@@ -1,8 +1,11 @@
 
 
 import os
+import sys
 
 import argparse
+
+sys.path.insert(0, './batchflow')
 
 from seismicpro import Survey
 
