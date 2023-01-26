@@ -1293,6 +1293,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             return [metric.calc(raw_gather, tracewise=True, **metric.kwargs) for metric in metrics]
 
         # known issue with tqdm.notebook bar update when using `unit_scale` https://github.com/tqdm/tqdm/issues/1399
+        # note that total number of traces indicated on this bar is `n_chunks * chunk_size`
+        # which is almost always more than actual number of traces
         results = thread_map(calc_metrics, range(n_chunks), max_workers=n_workers, disable=not bar,
                              desc="Traces processed", unit_scale=chunk_size, unit_divisor=chunk_size, unit='traces')
 
@@ -1303,8 +1305,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             vals = np.concatenate(metric_vals)[orig_idx]
             if isinstance(metric, WindowsMS):
                 self.headers[[metric.name + '_sig', metric.name + '_noise']] = vals
-                # self.headers[metric.name + '_sig'] = vals[:, 0]
-                # self.headers[metric.name + '_noise'] = vals[:, 1]
             else:
                 self.headers[metric.name] = vals
 
