@@ -311,6 +311,18 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """bool: `mark_dead_traces` called."""
         return self.n_dead_traces is not None
 
+    @property
+    def is_uphole(self):
+        """bool or None: Whether the survey is uphole. `None` if uphole-related headers are not loaded."""
+        all_headers = set(self.headers.columns) | set(self.headers.index.names)
+        has_uphole_times = "SourceUpholeTime" in all_headers
+        has_uphole_depths = "SourceDepth" in all_headers
+        has_positive_uphole_times = has_uphole_times and (self["SourceUpholeTime"] > 0).any()
+        has_positive_uphole_depths = has_uphole_depths and (self["SourceDepth"] > 0).any()
+        if not has_uphole_times and not has_uphole_depths:
+            return None
+        return has_positive_uphole_times or has_positive_uphole_depths
+
     @GatherContainer.headers.setter
     def headers(self, headers):
         """Reconstruct trace positions on each headers assignment."""
@@ -355,6 +367,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Sample rate:               {self.sample_rate} ms
         Times range:               [{min(self.samples)} ms, {max(self.samples)} ms]
         Offsets range:             {offset_range}
+        Is uphole:                 {"Unknown" if self.is_uphole is None else self.is_uphole}
         """
 
         if self.has_inferred_geometry:
