@@ -802,7 +802,12 @@ class Gather(TraceContainer, SamplesContainer):
             resulting semblance will be but to the detriment of small details. Measured in samples.
         mode: str, optional, defaults to 'semblance'
             The measure for estimating hodograph coherency. 
-            See func:`~semblance.Semblance` for avaliable modes.
+            The available options are: 
+                `semblance` or `NE`,
+                `stacked_amplitude` or `S`,
+                `normalized_stacked_amplitude` or `NS`,
+                `crosscorrelation` or `CC`,
+                `energy_normalized_crosscorrelation` or `ENCC`
 
         Returns
         -------

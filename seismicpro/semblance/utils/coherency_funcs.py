@@ -45,8 +45,8 @@ def energy_normalized_crosscorrelation(corrected_gather):
     for i in prange(corrected_gather.shape[0]):
         input_enerty =  np.nansum(corrected_gather[i, :] ** 2)
         output_energy = np.nansum(corrected_gather[i, :]) ** 2
-        numerator[i] = output_energy - input_enerty
-        denominator[i] = input_enerty * np.sum(~np.isnan(corrected_gather[i, :])) / 2
+        numerator[i] = 2 * (output_energy - input_enerty) / (np.sum(~np.isnan(corrected_gather[i, :])) - 1)
+        denominator[i] = input_enerty
     return numerator, denominator
 
 
