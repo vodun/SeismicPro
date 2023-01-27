@@ -1228,7 +1228,7 @@ class Gather(TraceContainer, SamplesContainer):
     #                         Visualization methods                          #
     #------------------------------------------------------------------------#
 
-    @plotter(figsize=(10, 7))
+    @plotter(figsize=(10, 7), args_to_unpack="mask")
     def plot(self, mode="seismogram", mask=None, *, title=None, x_ticker=None, y_ticker=None, ax=None, eps=EPS,
              **kwargs):
         """Plot gather traces.
@@ -1259,7 +1259,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         Any positive definite array matching the size of the gather can be drawn above the main plot in `seismogram` or
         `wiggle` mode via `mask` parameter. Any non zero values are trated as a mask and will be plotted in red with
-        small transparancy.
+        small transparancy. Note that `mask` works only with `seismogram` and `wiggle` mods.
 
         Trace headers, whose values are measured in milliseconds (e.g. first break times) may be displayed over a
         seismogram or wiggle plot if passed as `event_headers`. If `top_header` is passed, an auxiliary scatter plot of
@@ -1287,9 +1287,9 @@ class Gather(TraceContainer, SamplesContainer):
             - "seismogram": a 2d grayscale image of seismic traces;
             - "wiggle": an amplitude vs time plot for each trace of the gather;
             - "hist": histogram of the data amplitudes or some header values.
-        mask : 2d array with same shape as self.shape, optional, defaults to None
-            Mask to put above the gather plot. All positive values are treated as mask and will be plotted in red with
-            small transparency. Note that `mask` works only with `seismogram` and `wiggle` mods.
+        mask : 2d array with same shape as self.shape or Gather, optional, defaults to None
+            If `2d array`, a mask to put above the gather plot.
+            If `Gather`, the mask.data will be threated as a mask.
         title : str or dict, optional, defaults to None
             If `str`, a title of the plot.
             If `dict`, should contain keyword arguments to pass to `matplotlib.axes.Axes.set_title`. In this case, the
