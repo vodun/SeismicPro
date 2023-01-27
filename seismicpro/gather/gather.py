@@ -25,7 +25,7 @@ from ..muter import Muter, MuterField
 from ..stacking_velocity import StackingVelocity, StackingVelocityField
 from ..refractor_velocity import RefractorVelocity, RefractorVelocityField
 from ..decorators import batch_method, plotter
-from ..const import HDR_FIRST_BREAK, HDR_TRACE_POS, DEFAULT_SDC_VELOCITY
+from ..const import HDR_FIRST_BREAK, HDR_TRACE_POS, DEFAULT_SDC_VELOCITY, EPS
 
 
 class Gather(TraceContainer, SamplesContainer):
@@ -1256,6 +1256,10 @@ class Gather(TraceContainer, SamplesContainer):
             * `log`: set y-axis to log scale. If `True`, formatting defined in `y_ticker` is discarded,
             * Any additional arguments for `matplotlib.pyplot.hist`.
 
+        Any positive definite array matching the size of the gather can be drawn above the main plot in `seismogram` or
+        `wiggle` mode via `mask` parameter. Any non zero values are trated as a mask and will be plotted in red with
+        small transparancy.
+
         Trace headers, whose values are measured in milliseconds (e.g. first break times) may be displayed over a
         seismogram or wiggle plot if passed as `event_headers`. If `top_header` is passed, an auxiliary scatter plot of
         values of this header will be shown on top of the gather plot.
@@ -1282,6 +1286,9 @@ class Gather(TraceContainer, SamplesContainer):
             - "seismogram": a 2d grayscale image of seismic traces;
             - "wiggle": an amplitude vs time plot for each trace of the gather;
             - "hist": histogram of the data amplitudes or some header values.
+        mask : 2d array with same shape as current gahter, optional, defaults to None
+            Mask to put above the gather plot. All positive values are treated as mask and will be plotted in red with
+            small transparency.
         title : str or dict, optional, defaults to None
             If `str`, a title of the plot.
             If `dict`, should contain keyword arguments to pass to `matplotlib.axes.Axes.set_title`. In this case, the
@@ -1366,7 +1373,7 @@ class Gather(TraceContainer, SamplesContainer):
             mask = np.asarray(mask).astype(np.float16)
             if mask.shape != self.data.shape:
                 raise
-            mask[mask <= 0.1] = np.nan
+            mask[mask <= EPS] = np.nan
             if mode in ["seismogram", "wiggle"]:
                 kwargs.update({"mask": mask})
 
@@ -1409,9 +1416,9 @@ class Gather(TraceContainer, SamplesContainer):
     #pylint: disable=invalid-name
     def _plot_wiggle(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src="time", norm_tracewise=True,
                      std=0.5, event_headers=None, top_header=None, mask=None, lw=None, alpha=None, color="black",
-                     **kwargs):
+                     eps=EPS, **kwargs):
         """Plot the gather as an amplitude vs time plot for each trace."""
-        def _get_start_end_ixs(self, ixs):
+        def _get_start_end_ixs(ixs):
             """Returns two arrays with indexes of the beginning and end of continuous subsequences in the array"""
             start_ix = np.argwhere((np.diff(ixs[:, 0], prepend=ixs[0, 0]) != 0) |
                                (np.diff(ixs[:, 1], prepend=ixs[0, 1]) != 1)).ravel()
@@ -1446,7 +1453,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         # Find polygons bodies: indices of target amplitudes, start and end
         poly_amp_ix = np.argwhere(traces > 0)
-        start_ix, end_ix = self._get_start_end_ixs(poly_amp_ix)
+        start_ix, end_ix = _get_start_end_ixs(poly_amp_ix)
         shift = np.arange(len(start_ix)) * 3
         # For each polygon we need to:
         # 1. insert 0 amplitude at the start.
@@ -1471,9 +1478,9 @@ class Gather(TraceContainer, SamplesContainer):
         patch = PathPatch(Path(verts, codes), color=color, alpha=alpha)
         ax.add_artist(patch)
 
-        if mask is not None:
-            mask_ix = np.argwhere(mask != 0)
-            start_ix, end_ix = self._get_start_end_ix(mask_ix)
+        if mask is not None and np.nansum(mask) > EPS:
+            mask_ix = np.argwhere(mask > EPS)
+            start_ix, end_ix = _get_start_end_ixs(mask_ix)
             verts = np.zeros((len(start_ix)*5, 2))
             # Compute the polygon bodies, that represent mask coordinates with a small indent
             up_verts = mask_ix[start_ix].reshape(-1, 1, 2) + np.array([[-0.5, 0.5], [0.5, 0.5]])
@@ -1486,7 +1493,7 @@ class Gather(TraceContainer, SamplesContainer):
             codes = np.full(len(verts), Path.LINETO)
             codes[::5] = Path.MOVETO
             codes[4::5] = Path.CLOSEPOLY
-            mask_patch = PathPatch(Path(verts, codes), color='r', alpha=alpha*0.5)
+            mask_patch = PathPatch(Path(verts, codes), color='r', alpha=alpha*0.5, lw=0)
             ax.add_artist(mask_patch)
 
         ax.update_datalim([(0, 0), traces.shape])
