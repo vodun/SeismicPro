@@ -453,7 +453,7 @@ class Gather(TraceContainer, SamplesContainer):
         return quantiles.item() if not tracewise and quantiles.ndim == 0 else quantiles
 
     @batch_method(target='threads')
-    def scale_standard(self, tracewise=True, use_global=False, eps=1e-10):
+    def scale_standard(self, tracewise=True, use_global=False, eps=EPS):
         r"""Standardize the gather by removing the mean and scaling to unit variance.
 
         The standard score of a gather `g` is calculated as:
@@ -500,7 +500,7 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target='for')
-    def scale_maxabs(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
+    def scale_maxabs(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=EPS):
         r"""Scale the gather by its maximum absolute value.
 
         Maxabs scale of the gather `g` is calculated as:
@@ -549,7 +549,7 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target='for')
-    def scale_minmax(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
+    def scale_minmax(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=EPS):
         r"""Linearly scale the gather to a [0, 1] range.
 
         The transformation of the gather `g` is given by:
@@ -1229,7 +1229,8 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
 
     @plotter(figsize=(10, 7))
-    def plot(self, mode="seismogram", mask=None, *, title=None, x_ticker=None, y_ticker=None, ax=None, **kwargs):
+    def plot(self, mode="seismogram", mask=None, *, title=None, x_ticker=None, y_ticker=None, ax=None, eps=EPS,
+             **kwargs):
         """Plot gather traces.
 
         The traces can be displayed in a number of representations, depending on the `mode` provided. Currently, the
@@ -1286,9 +1287,9 @@ class Gather(TraceContainer, SamplesContainer):
             - "seismogram": a 2d grayscale image of seismic traces;
             - "wiggle": an amplitude vs time plot for each trace of the gather;
             - "hist": histogram of the data amplitudes or some header values.
-        mask : 2d array with same shape as current gahter, optional, defaults to None
+        mask : 2d array with same shape as self.shape, optional, defaults to None
             Mask to put above the gather plot. All positive values are treated as mask and will be plotted in red with
-            small transparency.
+            small transparency. Note that `mask` works only with `seismogram` and `wiggle` mods.
         title : str or dict, optional, defaults to None
             If `str`, a title of the plot.
             If `dict`, should contain keyword arguments to pass to `matplotlib.axes.Axes.set_title`. In this case, the
@@ -1307,6 +1308,8 @@ class Gather(TraceContainer, SamplesContainer):
             If not given, axis label is defined by `y_tick_src`.
         ax : matplotlib.axes.Axes, optional, defaults to None
             An axis of the figure to plot on. If not given, it will be created automatically.
+        eps : float, optional, defaults to 1e-10
+            A constant to compared `mask` values with to avoid false positives on numbers close to zero.
         x_tick_src : str, optional
             Source of the tick labels to be plotted on x axis. For "seismogram" and "wiggle" can be either "index"
             (default if gather is not sorted) or any header; for "hist" it also defines the data source and can be
@@ -1372,10 +1375,12 @@ class Gather(TraceContainer, SamplesContainer):
             # Convert to float to be able to replace zeros with nans since only nans in mask will not affect main plot
             mask = np.asarray(mask).astype(np.float16)
             if mask.shape != self.data.shape:
-                raise
-            mask[mask <= EPS] = np.nan
-            if mode in ["seismogram", "wiggle"]:
-                kwargs.update({"mask": mask})
+                raise ValueError(f"`mask` shape must match the gather shape, but mask.shape {mask.shape} !="
+                                 f" gather.shape {self.shape}")
+            mask[mask <= eps] = np.nan
+            kwargs.update({"mask": mask})
+            if mode == "wiggle":
+                kwargs.update({"eps": eps})
 
         plotters_dict[mode](ax, title=title, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
         return self
@@ -1478,22 +1483,22 @@ class Gather(TraceContainer, SamplesContainer):
         patch = PathPatch(Path(verts, codes), color=color, alpha=alpha)
         ax.add_artist(patch)
 
-        if mask is not None and np.nansum(mask) > EPS:
-            mask_ix = np.argwhere(mask > EPS)
+        if mask is not None and np.nansum(mask) > eps:
+            mask_ix = np.argwhere(mask > eps)
             start_ix, end_ix = _get_start_end_ixs(mask_ix)
             verts = np.zeros((len(start_ix)*5, 2))
             # Compute the polygon bodies, that represent mask coordinates with a small indent
             up_verts = mask_ix[start_ix].reshape(-1, 1, 2) + np.array([[-0.5, 0.5], [0.5, 0.5]])
             down_verts = mask_ix[end_ix].reshape(-1, 1, 2) + np.array([[0.5, -0.5], [-0.5, -0.5]])
             verts = np.stack((up_verts, down_verts), axis=1).reshape(-1, 2)
-            # Create plaseholders for Path.CLOSEPOLY code with coords [0, 0] after each polygon
+            # Create plaсeholders for Path.CLOSEPOLY code with coords [0, 0] after each polygon
             verts = np.insert(verts, np.arange(len(verts), step=4)+4, [0, 0], axis=0)
 
             # Fill the array representing the nodes codes: either start, intermediate or end code.
             codes = np.full(len(verts), Path.LINETO)
             codes[::5] = Path.MOVETO
             codes[4::5] = Path.CLOSEPOLY
-            mask_patch = PathPatch(Path(verts, codes), color='r', alpha=alpha*0.5, lw=0)
+            mask_patch = PathPatch(Path(verts, codes), color='r', lw=0, alpha=alpha*0.6)
             ax.add_artist(mask_patch)
 
         ax.update_datalim([(0, 0), traces.shape])

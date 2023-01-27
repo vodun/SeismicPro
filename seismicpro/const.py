@@ -2,7 +2,7 @@
 
 from .stacking_velocity import StackingVelocity
 
-# Constant for accurate comparison of floating point values with zero
+# Constant for accurate comparison of floating point values with zero or avoiding division by zero.
 EPS = 1e-10
 
 # Size of trace headers in a SEG-Y file in bytes
