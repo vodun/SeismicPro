@@ -25,7 +25,7 @@ from ..muter import Muter, MuterField
 from ..stacking_velocity import StackingVelocity, StackingVelocityField
 from ..refractor_velocity import RefractorVelocity, RefractorVelocityField
 from ..decorators import batch_method, plotter
-from ..const import HDR_FIRST_BREAK, HDR_TRACE_POS, DEFAULT_SDC_VELOCITY, EPS
+from ..const import HDR_FIRST_BREAK, HDR_TRACE_POS, DEFAULT_SDC_VELOCITY
 
 
 class Gather(TraceContainer, SamplesContainer):
@@ -453,7 +453,7 @@ class Gather(TraceContainer, SamplesContainer):
         return quantiles.item() if not tracewise and quantiles.ndim == 0 else quantiles
 
     @batch_method(target='threads')
-    def scale_standard(self, tracewise=True, use_global=False, eps=EPS):
+    def scale_standard(self, tracewise=True, use_global=False, eps=1e-10):
         r"""Standardize the gather by removing the mean and scaling to unit variance.
 
         The standard score of a gather `g` is calculated as:
@@ -500,7 +500,7 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target='for')
-    def scale_maxabs(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=EPS):
+    def scale_maxabs(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
         r"""Scale the gather by its maximum absolute value.
 
         Maxabs scale of the gather `g` is calculated as:
@@ -549,7 +549,7 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target='for')
-    def scale_minmax(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=EPS):
+    def scale_minmax(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
         r"""Linearly scale the gather to a [0, 1] range.
 
         The transformation of the gather `g` is given by:
@@ -1229,8 +1229,7 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
 
     @plotter(figsize=(10, 7), args_to_unpack="mask")
-    def plot(self, mode="seismogram", mask=None, *, title=None, x_ticker=None, y_ticker=None, ax=None, eps=EPS,
-             **kwargs):
+    def plot(self, mode="seismogram", mask=None, *, title=None, x_ticker=None, y_ticker=None, ax=None, **kwargs):
         """Plot gather traces.
 
         The traces can be displayed in a number of representations, depending on the `mode` provided. Currently, the
@@ -1257,9 +1256,9 @@ class Gather(TraceContainer, SamplesContainer):
             * `log`: set y-axis to log scale. If `True`, formatting defined in `y_ticker` is discarded,
             * Any additional arguments for `matplotlib.pyplot.hist`.
 
-        Any positive definite array matching the size of the gather can be drawn above the main plot in `seismogram` or
-        `wiggle` mode via `mask` parameter. Any non zero values are trated as a mask and will be plotted in red with
-        small transparancy. Note that `mask` works only with `seismogram` and `wiggle` mods.
+        Any array of bools matching the size of the gather can be drawn above the main plot in `seismogram` or `wiggle`
+        mode via `mask` parameter. Any `True` values are trated as a mask and will be plotted in red with small
+        transparancy. Note that `mask` works only with `seismogram` and `wiggle` mods.
 
         Trace headers, whose values are measured in milliseconds (e.g. first break times) may be displayed over a
         seismogram or wiggle plot if passed as `event_headers`. If `top_header` is passed, an auxiliary scatter plot of
@@ -1287,9 +1286,11 @@ class Gather(TraceContainer, SamplesContainer):
             - "seismogram": a 2d grayscale image of seismic traces;
             - "wiggle": an amplitude vs time plot for each trace of the gather;
             - "hist": histogram of the data amplitudes or some header values.
-        mask : 2d array with same shape as self.shape or Gather, optional, defaults to None
-            If `2d array`, a mask to put above the gather plot.
-            If `Gather`, the mask.data will be threated as a mask.
+        mask : 2d array with same shape as self.shape or 1d array with length == self.n_traces or Gather, optional,
+        defaults to None
+            If `2d array`, a binary mask to put above the gather plot,
+            If `1d array`, a binary vector that determines which traces to mask,
+            If `Gather`, its data attribute will be threated as a mask.
         title : str or dict, optional, defaults to None
             If `str`, a title of the plot.
             If `dict`, should contain keyword arguments to pass to `matplotlib.axes.Axes.set_title`. In this case, the
@@ -1308,8 +1309,6 @@ class Gather(TraceContainer, SamplesContainer):
             If not given, axis label is defined by `y_tick_src`.
         ax : matplotlib.axes.Axes, optional, defaults to None
             An axis of the figure to plot on. If not given, it will be created automatically.
-        eps : float, optional, defaults to 1e-10
-            A constant to compared `mask` values with to avoid false positives on numbers close to zero.
         x_tick_src : str, optional
             Source of the tick labels to be plotted on x axis. For "seismogram" and "wiggle" can be either "index"
             (default if gather is not sorted) or any header; for "hist" it also defines the data source and can be
@@ -1374,13 +1373,13 @@ class Gather(TraceContainer, SamplesContainer):
                 mask = mask.data
             # Convert to float to be able to replace zeros with nans since only nans in mask will not affect main plot
             mask = np.asarray(mask).astype(np.float16)
+            if mask.ndim == 1 or mask.ndim == 2 and mask.shape[1] == 1:
+                mask = np.tile(np.atleast_2d(mask), (self.shape[1], 1)).T
             if mask.shape != self.data.shape:
                 raise ValueError(f"`mask` shape must match the gather shape, but mask.shape {mask.shape} !="
                                  f" gather.shape {self.shape}")
-            mask[mask <= eps] = np.nan
+            mask[mask == 0] = np.nan
             kwargs.update({"mask": mask})
-            if mode == "wiggle":
-                kwargs.update({"eps": eps})
 
         plotters_dict[mode](ax, title=title, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
         return self
@@ -1421,7 +1420,7 @@ class Gather(TraceContainer, SamplesContainer):
     #pylint: disable=invalid-name
     def _plot_wiggle(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src="time", norm_tracewise=True,
                      std=0.5, event_headers=None, top_header=None, mask=None, lw=None, alpha=None, color="black",
-                     eps=EPS, **kwargs):
+                     **kwargs):
         """Plot the gather as an amplitude vs time plot for each trace."""
         def _get_start_end_ixs(ixs):
             """Returns two arrays with indexes of the beginning and end of continuous subsequences in the array"""
@@ -1483,8 +1482,8 @@ class Gather(TraceContainer, SamplesContainer):
         patch = PathPatch(Path(verts, codes), color=color, alpha=alpha)
         ax.add_artist(patch)
 
-        if mask is not None and np.nansum(mask) > eps:
-            mask_ix = np.argwhere(mask > eps)
+        if mask is not None and np.nansum(mask) > 0:
+            mask_ix = np.argwhere(mask > 0)
             start_ix, end_ix = _get_start_end_ixs(mask_ix)
             verts = np.zeros((len(start_ix)*5, 2))
             # Compute the polygon bodies, that represent mask coordinates with a small indent
