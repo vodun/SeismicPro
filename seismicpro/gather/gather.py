@@ -364,7 +364,7 @@ class Gather(TraceContainer, SamplesContainer):
         trace_ids = self["TRACE_SEQUENCE_FILE"] - 1
 
         # Keep only headers, defined by SEG-Y standard.
-        used_header_names = (set(to_list(self.indexed_by)) | set(self.headers.columns)) & set(segyio.tracefield.keys)
+        used_header_names = self.available_headers & set(segyio.tracefield.keys)
         used_header_names = to_list(used_header_names)
 
         # Transform header's names into byte number based on the SEG-Y standard.
@@ -693,7 +693,7 @@ class Gather(TraceContainer, SamplesContainer):
     @batch_method(target="for", copy_src=False)  # pylint: disable-next=too-many-arguments
     def calculate_refractor_velocity(self, init=None, bounds=None, n_refractors=None, max_offset=None,
                                      min_velocity_step=1, min_refractor_size=1, loss="L1", huber_coef=20, tol=1e-5,
-                                     first_breaks_col=HDR_FIRST_BREAK, **kwargs):
+                                     first_breaks_col=HDR_FIRST_BREAK, correct_uphole=None, **kwargs):
         """Fit a near-surface velocity model by offsets of traces and times of their first breaks.
 
         Notes
@@ -731,6 +731,10 @@ class Gather(TraceContainer, SamplesContainer):
             Precision goal for the value of loss in the stopping criterion.
         first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `self.headers` where times of first break are stored.
+        correct_uphole : bool, optional
+            Whether to perform uphole correction by adding values of "SourceUpholeTime" header to times of first breaks
+            emulating the case when sources are located on the surface. If not given, correction is performed if
+            "SourceUpholeTime" header is loaded.
         kwargs : misc, optional
             Additional `SLSQP` options, see https://docs.scipy.org/doc/scipy/reference/optimize.minimize-slsqp.html for
             more details.
@@ -740,9 +744,14 @@ class Gather(TraceContainer, SamplesContainer):
         rv : RefractorVelocity
             Constructed near-surface velocity model.
         """
-        return RefractorVelocity.from_first_breaks(self.offsets, self[first_breaks_col], init, bounds, n_refractors,
-                                                   max_offset, min_velocity_step, min_refractor_size, loss, huber_coef,
-                                                   tol, coords=self.coords, **kwargs)
+        times = self[first_breaks_col]
+        if correct_uphole is None:
+            correct_uphole = "SourceUpholeTime" in self.available_headers
+        if correct_uphole:
+            times = times + self["SourceUpholeTime"]
+        return RefractorVelocity.from_first_breaks(self.offsets, times, init, bounds, n_refractors, max_offset,
+                                                   min_velocity_step, min_refractor_size, loss, huber_coef, tol,
+                                                   coords=self.coords, is_uphole_corrected=correct_uphole, **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Gather muting methods                          #
