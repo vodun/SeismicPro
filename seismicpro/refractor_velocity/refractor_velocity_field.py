@@ -150,7 +150,7 @@ class RefractorVelocityField(SpatialField):
         msg = super().__str__() + dedent(f"""\n
         Number of refractors:      {self.n_refractors}
         Is fit from first breaks:  {self.is_fit}
-        Is uphole corrected:       {self.is_uphole_corrected}
+        Is uphole corrected:       {"Unknown" if self.is_uphole_corrected is None else self.is_uphole_corrected}
         """)
 
         if not self.is_empty:
@@ -388,7 +388,8 @@ class RefractorVelocityField(SpatialField):
 
     def construct_item(self, values, coords):
         """Construct an instance of `RefractorVelocity` from its `values` at given `coords`."""
-        return self.item_class(**dict(zip(self.param_names, values)), coords=coords)
+        return self.item_class(**dict(zip(self.param_names, values)), coords=coords,
+                               is_uphole_corrected=self.is_uphole_corrected)
 
     def _get_refined_values(self, interpolator_class, min_refractor_points=0, min_refractor_points_quantile=0):
         """Redefine parameters of velocity models for refractors that contain small number of points and may thus have
@@ -515,7 +516,9 @@ class RefractorVelocityField(SpatialField):
 
         smoothed_values = self._get_smoothed_values(radius, neighbors, min_refractor_points,
                                                     min_refractor_points_quantile)
-        smoothed_items = [self.construct_item(val, rv.coords) for rv, val in zip(self.items, smoothed_values)]
+        smoothed_items = [self.item_class(**dict(zip(self.param_names, val)), coords=rv.coords,
+                                          is_uphole_corrected=rv.is_uphole_corrected)
+                          for rv, val in zip(self.items, smoothed_values)]
         return type(self)(smoothed_items, n_refractors=self.n_refractors, survey=self.survey,
                           is_geographic=self.is_geographic, auto_create_interpolator=self.auto_create_interpolator)
 
@@ -574,7 +577,7 @@ class RefractorVelocityField(SpatialField):
         # Construct a dict of refinement parameters for each velocity model
         rv_kwargs_list = [{"offsets": rv.offsets, "times": rv.times, "init": dict(zip(self.param_names, init)),
                            "bounds": dict(zip(self.param_names, bounds)), "max_offset": rv.max_offset,
-                           "coords": rv.coords}
+                           "coords": rv.coords, "is_uphole_corrected": rv.is_uphole_corrected}
                           for rv, init, bounds in zip(self.items, params_init, params_bounds)]
         common_kwargs = {"min_velocity_step": 0, "min_refractor_size": 0}
 
