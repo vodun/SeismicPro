@@ -1256,9 +1256,9 @@ class Gather(TraceContainer, SamplesContainer):
             * `log`: set y-axis to log scale. If `True`, formatting defined in `y_ticker` is discarded,
             * Any additional arguments for `matplotlib.pyplot.hist`.
 
-        Any array of bools matching the size of the gather can be drawn above the main plot in `seismogram` or `wiggle`
-        mode via `mask` parameter. Any `True` values are trated as a mask and will be plotted in red with small
-        transparancy. Note that `mask` works only with `seismogram` and `wiggle` mods.
+        Any positive definite array matching the size of the gather can be drawn above the main plot in `seismogram`
+        or `wiggle` mode via `mask` parameter. Any values greater than 0.5 are trated as a mask and will be plotted in
+        red with small transparancy. Note that `mask` works only with `seismogram` and `wiggle` mods.
 
         Trace headers, whose values are measured in milliseconds (e.g. first break times) may be displayed over a
         seismogram or wiggle plot if passed as `event_headers`. If `top_header` is passed, an auxiliary scatter plot of
@@ -1288,9 +1288,9 @@ class Gather(TraceContainer, SamplesContainer):
             - "hist": histogram of the data amplitudes or some header values.
         mask : 2d array with same shape as self.shape or 1d array with length == self.n_traces or Gather, optional,
         defaults to None
-            If `2d array`, a binary mask to put above the gather plot,
-            If `1d array`, a binary vector that determines which traces to mask,
-            If `Gather`, its data attribute will be threated as a mask.
+            If `2d array`, a mask to put above the gather plot;
+            If `1d array`, a vector that determines which traces to mask;
+            If `Gather`, its `data` attribute will be threated as a mask.
         title : str or dict, optional, defaults to None
             If `str`, a title of the plot.
             If `dict`, should contain keyword arguments to pass to `matplotlib.axes.Axes.set_title`. In this case, the
@@ -1373,12 +1373,15 @@ class Gather(TraceContainer, SamplesContainer):
                 mask = mask.data
             # Convert to float to be able to replace zeros with nans since only nans in mask will not affect main plot
             mask = np.asarray(mask).astype(np.float16)
-            if mask.ndim == 1 or mask.ndim == 2 and mask.shape[1] == 1:
+            if mask.ndim == 1:
                 mask = np.tile(np.atleast_2d(mask), (self.shape[1], 1)).T
             if mask.shape != self.data.shape:
                 raise ValueError(f"`mask` shape must match the gather shape, but mask.shape {mask.shape} !="
                                  f" gather.shape {self.shape}")
-            mask[mask == 0] = np.nan
+            # Binarize given mask
+            nan_mask = mask <= 0.5
+            mask[nan_mask] = np.nan
+            mask[~nan_mask] = 1
             kwargs.update({"mask": mask})
 
         plotters_dict[mode](ax, title=title, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
