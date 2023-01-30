@@ -128,6 +128,13 @@ class RefractorVelocityField(SpatialField):
         return get_param_names(self.n_refractors)
 
     @cached_property
+    def is_uphole_corrected(self):
+        """bool or None: Whether the field is uphole corrected. `None` if unknown."""
+        if any(item.is_uphole_corrected is None for item in self.items):
+            return None
+        return all(item.is_uphole_corrected for item in self.items)
+
+    @cached_property
     def is_fit(self):
         """bool: Whether the field was constructed directly from offset-traveltime data."""
         return all(item.is_fit for item in self.items)
@@ -143,6 +150,7 @@ class RefractorVelocityField(SpatialField):
         msg = super().__str__() + dedent(f"""\n
         Number of refractors:      {self.n_refractors}
         Is fit from first breaks:  {self.is_fit}
+        Is uphole corrected:       {self.is_uphole_corrected}
         """)
 
         if not self.is_empty:
