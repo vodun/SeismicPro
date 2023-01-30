@@ -48,6 +48,11 @@ class TraceContainer:
         return index_names
 
     @property
+    def available_headers(self):
+        """set of str: Names of available trace headers: both loaded and created manually."""
+        return set(self.headers.columns) | set(self.headers.index.names)
+
+    @property
     def n_traces(self):
         """int: The number of traces."""
         return len(self.headers)

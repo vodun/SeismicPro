@@ -314,9 +314,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     @property
     def is_uphole(self):
         """bool or None: Whether the survey is uphole. `None` if uphole-related headers are not loaded."""
-        all_headers = set(self.headers.columns) | set(self.headers.index.names)
-        has_uphole_times = "SourceUpholeTime" in all_headers
-        has_uphole_depths = "SourceDepth" in all_headers
+        has_uphole_times = "SourceUpholeTime" in self.available_headers
+        has_uphole_depths = "SourceDepth" in self.available_headers
         has_positive_uphole_times = has_uphole_times and (self["SourceUpholeTime"] > 0).any()
         has_positive_uphole_depths = has_uphole_depths and (self["SourceDepth"] > 0).any()
         if not has_uphole_times and not has_uphole_depths:
