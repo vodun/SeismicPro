@@ -62,7 +62,8 @@ def load_refractor_velocities(path, encoding="UTF-8"):
     """
     #pylint: disable-next=import-outside-toplevel
     from .refractor_velocity import RefractorVelocity  # import inside to avoid the circular import
-    df = pd.read_csv(path, sep=r'\s+', encoding=encoding).convert_dtypes()
+    df = pd.read_csv(path, sep=r'\s+', dtype={"is_uphole_corrected": "string"}, encoding="UTF-8")
+    df["is_uphole_corrected"] = df["is_uphole_corrected"].map({"None": None, "True": True, "False": False})
     params_names = df.columns[5:]
     return [RefractorVelocity(**dict(zip(params_names, row[5:])), coords=Coordinates(row[2:4], row[:2]),
                               is_uphole_corrected=row[4])
@@ -86,9 +87,8 @@ def dump_refractor_velocities(refractor_velocities, path, encoding="UTF-8"):
         File encoding.
     """
     rv_list = to_list(refractor_velocities)
-    columns = ['name_x', 'name_y', 'x', 'y', 'is_uphole_corrected'] + list(rv_list[0].params.keys())
-    data = np.empty((len(rv_list), len(columns)), dtype=object)
-    for i, rv in enumerate(rv_list):
-        data[i] = [*rv.coords.names, *rv.coords.coords, rv.is_uphole_corrected] + list(rv.params.values())
-    df = pd.DataFrame(data, columns=columns).convert_dtypes()
+    df = pd.DataFrame([rv.coords.names for rv in rv_list], columns=["name_x", "name_y"], dtype="string")
+    df[["x", "y"]] = pd.DataFrame([rv.coords for rv in rv_list]).convert_dtypes()
+    df["is_uphole_corrected"] = [rv.is_uphole_corrected for rv in rv_list]
+    df[list(rv_list[0].params.keys())] = pd.DataFrame([rv.params.values() for rv in rv_list])
     df.to_string(buf=path, float_format=lambda x: f"{x:.2f}", index=False, encoding=encoding)
