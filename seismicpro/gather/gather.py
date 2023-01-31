@@ -884,8 +884,8 @@ class Gather(TraceContainer, SamplesContainer):
             Headers columns which will be LMO-corrected inplace.
         correct_uphole : bool, optional
             Whether to perform uphole correction by adding values of "SourceUpholeTime" header to estimated delay
-            times. If not given, correction is performed if "SourceUpholeTime" header is loaded and given
-            `refractor_velocity` was also uphole corrected.
+            times. If enabled, centers first breaks around `delay` for uphole surveys. If not given, correction is
+            performed if "SourceUpholeTime" header is loaded and given `refractor_velocity` was also uphole corrected.
 
         Returns
         -------
