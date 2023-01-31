@@ -113,10 +113,10 @@ def validate_headers(headers, offset_atol=10, cdp_atol=10, elev_atol=5, elev_rad
     headers = headers.copy(deep=False)
     headers.reset_index(inplace=True)
 
-    loaded_columns = headers.columns.values
-    available_columns = set(loaded_columns[headers.any(axis=0)])
+    loaded_columns = set(headers.columns)
+    available_columns = set(headers.columns[headers.any(axis=0)])
 
-    zero_columns = set(loaded_columns) - available_columns
+    zero_columns = loaded_columns - available_columns
     if zero_columns:
         msg_list.append("Empty headers: " + ", ".join(zero_columns))
 
