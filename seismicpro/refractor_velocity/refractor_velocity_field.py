@@ -132,10 +132,11 @@ class RefractorVelocityField(SpatialField):
 
     @cached_property
     def is_uphole_corrected(self):
-        """bool or None: Whether the field is uphole corrected. `None` if unknown."""
-        if any(item.is_uphole_corrected is None for item in self.items):
+        """bool or None: Whether the field is uphole corrected. `None` if unknown or mixed items are stored."""
+        is_uphole_corrected_set = {item.is_uphole_corrected for item in self.items}
+        if len(is_uphole_corrected_set) != 1:
             return None
-        return all(item.is_uphole_corrected for item in self.items)
+        return is_uphole_corrected_set.pop()
 
     @cached_property
     def is_fit(self):
