@@ -906,7 +906,7 @@ class Gather(TraceContainer, SamplesContainer):
                              "type")
 
         trace_delays = delay - refractor_velocity(self.offsets)
-        if correct_uphole:
+        if correct_uphole is None:
             correct_uphole = "SourceUpholeTime" in self.available_headers and refractor_velocity.is_uphole_corrected
         if correct_uphole:
             trace_delays += self["SourceUpholeTime"]
