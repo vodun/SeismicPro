@@ -1,5 +1,7 @@
 """Implements the gather quality control metrics."""
 
+from copy import copy
+
 import numpy as np
 
 from ..metrics import PipelineMetric, pass_calc_args
@@ -20,7 +22,7 @@ class FirstBreaksOutliers(PipelineMetric):
     args_to_unpack = ("gather", "refractor_velocity")
 
     @staticmethod
-    def calc(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50):
+    def calc(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50, correct_uphole=None):
         """Calculates the first break outliers metric value.
 
         Returns the fraction of traces in the gather whose first break times differ from those estimated by
@@ -36,6 +38,10 @@ class FirstBreaksOutliers(PipelineMetric):
             Column name from `gather.headers` where first break times are stored.
         threshold_times: float, defaults to 50
             Threshold for the first breaks outliers metric calculation. Measured in milliseconds.
+        correct_uphole : bool, optional
+            Whether to perform uphole correction by adding values of "SourceUpholeTime" header to times of first breaks
+            emulating the case when sources are located on the surface. If not given, correction is performed if
+            "SourceUpholeTime" header is loaded and given `refractor_velocity` was also uphole corrected.
 
         Returns
         -------
@@ -43,21 +49,35 @@ class FirstBreaksOutliers(PipelineMetric):
             Fraction of traces in the gather whose first break times differ from estimated by velocity model for more
             than `threshold_times`.
         """
-        metric = np.abs(refractor_velocity(gather.offsets) - gather[first_breaks_col]) > threshold_times
+        fb_times = gather[first_breaks_col]
+        if correct_uphole is None:
+            correct_uphole = "SourceUpholeTime" in gather.available_headers and refractor_velocity.is_uphole_corrected
+        if correct_uphole:
+            fb_times = fb_times + gather["SourceUpholeTime"]
+        metric = np.abs(refractor_velocity(gather.offsets) - fb_times) > threshold_times
         return np.mean(metric)
 
     @pass_calc_args
-    def plot_gather(cls, gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50, **kwargs):
+    def plot_gather(cls, gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50,
+                    correct_uphole=None, **kwargs):
         """Plot the gather and the first break points."""
-        _ = refractor_velocity, threshold_times
+        _ = refractor_velocity, threshold_times, correct_uphole
         event_headers = kwargs.pop('event_headers', {'headers': first_breaks_col})
         gather.plot(event_headers=event_headers, **kwargs)
 
     @pass_calc_args
     def plot_refractor_velocity(cls, gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50,
-                                **kwargs):
+                                correct_uphole=None, **kwargs):
         """Plot the refractor velocity curve and show the threshold area used for metric calculation."""
-        _ = gather, first_breaks_col
+        fb_times = gather[first_breaks_col]
+        if correct_uphole is None:
+            correct_uphole = "SourceUpholeTime" in gather.available_headers and refractor_velocity.is_uphole_corrected
+        if correct_uphole:
+            fb_times = fb_times + gather["SourceUpholeTime"]
+        refractor_velocity = copy(refractor_velocity)
+        refractor_velocity.offsets = gather["offset"]
+        refractor_velocity.times = fb_times
+        refractor_velocity.max_offset = max(refractor_velocity.max_offset, gather["offset"].max())
         refractor_velocity.plot(threshold_times=threshold_times, **kwargs)
 
 
