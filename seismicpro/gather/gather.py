@@ -865,7 +865,7 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", args_to_unpack="refractor_velocity")
-    def apply_lmo(self, refractor_velocity, delay=100, fill_value=np.nan, event_headers=None):
+    def apply_lmo(self, refractor_velocity, delay=100, fill_value=np.nan, event_headers=None, correct_uphole=None):
         """Perform gather linear moveout correction using the given near-surface velocity model.
 
         Parameters
@@ -882,6 +882,10 @@ class Gather(TraceContainer, SamplesContainer):
             Value used to fill the amplitudes outside the gather bounds after moveout.
         event_headers : str, list, or None, optional, defaults to None
             Headers columns which will be LMO-corrected inplace.
+        correct_uphole : bool, optional
+            Whether to perform uphole correction by adding values of "SourceUpholeTime" header to estimated delay
+            times. If not given, correction is performed if "SourceUpholeTime" header is loaded and given
+            `refractor_velocity` was also uphole corrected.
 
         Returns
         -------
@@ -902,6 +906,10 @@ class Gather(TraceContainer, SamplesContainer):
                              "type")
 
         trace_delays = delay - refractor_velocity(self.offsets)
+        if correct_uphole:
+            correct_uphole = "SourceUpholeTime" in self.available_headers and refractor_velocity.is_uphole_corrected
+        if correct_uphole:
+            trace_delays += self["SourceUpholeTime"]
         trace_delays_samples = times_to_indices(trace_delays, self.samples, round=True).astype(int)
         self.data = correction.apply_lmo(self.data, trace_delays_samples, fill_value)
         if event_headers is not None:
