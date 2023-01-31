@@ -62,7 +62,7 @@ def load_refractor_velocities(path, encoding="UTF-8"):
     """
     #pylint: disable-next=import-outside-toplevel
     from .refractor_velocity import RefractorVelocity  # import inside to avoid the circular import
-    df = pd.read_csv(path, sep=r'\s+', dtype={"is_uphole_corrected": "string"}, encoding="UTF-8")
+    df = pd.read_csv(path, sep=r'\s+', dtype={"is_uphole_corrected": "string"}, encoding=encoding)
     df["is_uphole_corrected"] = df["is_uphole_corrected"].map({"None": None, "True": True, "False": False})
     params_names = df.columns[5:]
     return [RefractorVelocity(**dict(zip(params_names, row[5:])), coords=Coordinates(row[2:4], row[:2]),
