@@ -9,7 +9,6 @@ import numpy as np
 from seismicpro import Survey, Muter, StackingVelocity
 from seismicpro.utils import to_list
 from seismicpro.const import HDR_FIRST_BREAK
-from .survey.asserters import EXTERNAL_HEADERS
 
 
 # Constants
@@ -22,7 +21,7 @@ NUMPY_ATTRS = ['data', 'samples']
 def survey(segy_path):
     """Create gather"""
     survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'],
-                    header_cols=['offset', 'FieldRecord'])
+                    header_cols=['offset', 'FieldRecord'], validate=False)
     survey.remove_dead_traces(bar=False)
     survey.collect_stats(bar=False)
     survey.headers[HDR_FIRST_BREAK] = np.random.randint(0, 1000, len(survey.headers))
@@ -35,16 +34,6 @@ def gather(survey):
     return survey.get_gather((0, 0))
 
 
-@pytest.fixture(scope='function')
-def gather_with_cols(survey):
-    """gather_with_cols"""
-    gather = survey.get_gather((0, 0))
-    gather.headers["col_1"] = np.arange(gather.n_traces, dtype=np.int32)
-    gather.headers["col_2"] = 100 * np.random.random(gather.n_traces)
-    gather.headers["offset"] = gather["offset"] * 0.1
-    return gather
-
-
 def compare_gathers(first, second, drop_cols=None, check_types=False, same_survey=True):
     """compare_gathers"""
     first_attrs = first.__dict__
@@ -54,10 +43,9 @@ def compare_gathers(first, second, drop_cols=None, check_types=False, same_surve
 
     first_headers = first.headers.reset_index()
     second_headers = second.headers.reset_index()
-
-    drop_cols = (to_list(drop_cols) + to_list(EXTERNAL_HEADERS)) if drop_cols is not None else EXTERNAL_HEADERS
-    first_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
-    second_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
+    if drop_cols is not None:
+        first_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
+        second_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
 
     assert len(first_headers) == len(second_headers)
     if len(first_headers) > 0:
@@ -181,15 +169,10 @@ def test_gather_getitem_sample_rate_changes(gather, key, sample_rate):
     """test_gather_getitem_sample_rate_changes"""
     result_getitem = gather[slice(None), key]
     if sample_rate is not None:
-        assert result_getitem.sample_rate == sample_rate  # pylint: disable=protected-access
-    else:
-        with pytest.raises(ValueError):
-            _ = result_getitem.sample_rate
-    if sample_rate is not None:
         assert result_getitem.sample_rate == sample_rate
     else:
         with pytest.raises(ValueError):
-            sample_rate = result_getitem.sample_rate
+            _ = result_getitem.sample_rate
 
 
 ignore =  [None] + COPY_IGNORE_ATTRS + sum([list(combinations(COPY_IGNORE_ATTRS, r=i)) for i in range(1, 4)], [])
@@ -210,14 +193,31 @@ def test_gather_copy(gather, ignore):
 
 
 @pytest.mark.parametrize('columns', ['offset', 'FieldRecord', 'col_1', ['col_1'], ['col_1', 'col_2']])
-def test_gather_store_headers_to_survey(gather_with_cols, columns):
+def test_gather_store_headers_to_survey(segy_path, columns):
     """test_gather_store_headers_to_survey"""
-    gather_with_cols.store_headers_to_survey(columns)
-    survey = gather_with_cols.survey
-    headers_from_survey = survey.headers.loc[gather_with_cols.index].sort_values(by="offset")
-    headers_from_gather = gather_with_cols.headers.sort_values(by="offset")
+    # Creating survey every time since this method affects survey and we cannot use global gather fixture here
+    survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'],
+                    header_cols=['offset', 'FieldRecord'], validate=False)
+    copy_survey = survey.copy()
+
+    gather = survey.get_gather((0, 0))
+    gather.headers["col_1"] = np.arange(gather.n_traces, dtype=np.int32)
+    gather.headers["col_2"] = 100 * np.random.random(gather.n_traces)
+    gather.headers["offset"] = gather["offset"] * 0.1
+
+    gather.store_headers_to_survey(columns)
+    headers_from_survey = survey.headers.loc[gather.index].sort_values(by="offset")
+    headers_from_gather = gather.headers.sort_values(by="offset")
     assert np.allclose(headers_from_survey[columns], headers_from_gather[columns])
 
+    other_indices = list(set(survey.indices) ^ {gather.index})
+    expected_survey = copy_survey.headers.loc[other_indices]
+    changed_survey = survey.headers.loc[other_indices]
+    for column in to_list(columns):
+        if column in ["col_1", "col_2"]:
+            assert changed_survey[column].isnull().sum() == len(changed_survey)
+        else:
+            assert np.allclose(expected_survey[column], changed_survey[column])
 
 @pytest.mark.parametrize('tracewise, use_global', [[True, False], [False, False], [False, True]])
 @pytest.mark.parametrize('q', [0.1, [0.1, 0.2], (0.1, 0.2), np.array([0.1, 0.2])])
@@ -246,9 +246,10 @@ def test_gather_mask_to_pick_and_pick_to_mask(gather):
     mask = gather.pick_to_mask(first_breaks_col=HDR_FIRST_BREAK)
     mask.mask_to_pick(first_breaks_col=HDR_FIRST_BREAK, save_to=gather)
 
-def test_gather_sort(gather):
+@pytest.mark.parametrize('by', ('offset', ['FieldRecord', 'offset']))
+def test_gather_sort(gather, by):
     """test_gather_sort"""
-    gather.sort(by='offset')
+    gather.sort(by=by)
 
 def test_gather_muting(gather):
     """test_gather_muting"""
@@ -275,7 +276,8 @@ def test_gather_stacking_velocity(gather):
 
 def test_gather_get_central_gather(segy_path):
     """test_gather_get_central_gather"""
-    survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'], header_cols=['offset', 'FieldRecord'])
+    survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'], header_cols=['offset', 'FieldRecord'],
+                    validate=False)
     survey = survey.generate_supergathers()
     gather = survey.sample_gather()
     gather.get_central_gather()

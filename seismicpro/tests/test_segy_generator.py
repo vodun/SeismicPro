@@ -35,5 +35,5 @@ def segy_path(request):
 def test_generated_segy_loading(segy_path, header_index):
     s = Survey(segy_path, header_index=header_index, header_cols=['FieldRecord', 'TraceNumber', 'SourceX', 'SourceY',
                                                                   'GroupX', 'GroupY', 'offset', 'CDP_X', 'CDP_Y',
-                                                                  'INLINE_3D', 'CROSSLINE_3D'])
+                                                                  'INLINE_3D', 'CROSSLINE_3D'], validate=False)
     assert s.sample_gather()
