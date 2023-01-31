@@ -1234,7 +1234,15 @@ class Gather(TraceContainer, SamplesContainer):
         data[data == 0] = np.nan
         limits = [0, self.n_samples]
 
+        if window is not None:
+            # TODO: Do we want to maintain backward compatibility here? In previous version when you write
+            # window=[0, 50] with sample_rate=2, we took indices=[0, 26] not [0, 25].
+            # Do we want to do it here? If yes, how to provide the same behavior when passing limits via load?
+            limits = np.round(np.asarray(window) / self.sample_rate).astype(np.int32)
+            limits[1] += 1
+
         if horizon_header is not None:
+            # TODO: Add horizon header loading procedure
             centers = self[horizon_header]
             if len(set(centers)) > 1:
                 raise ValueError("Horizon should have unique value per gather")
@@ -1244,9 +1252,6 @@ class Gather(TraceContainer, SamplesContainer):
             if len(horizon_window) != 2:
                 raise ValueError("`horizon_window` must have exact two elements")
             limits = [centers[0] + horizon_window[0], centers[0] - horizon_window[1]]
-
-        if window is not None:
-            limits = np.round(np.asarray(window) / self.sample_rate).astype(np.int32)
 
         func_dict = {
             'rms': stats.numba_rms,
