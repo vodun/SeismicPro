@@ -78,7 +78,7 @@ def compute_crossovers_times(hodograph_times):
 
 
 @njit(nogil=True, parallel=True)
-def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate, crossover_mute, fill_value=np.nan, stretch_mute=False):
+def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate, crossover_mute=False, stretch_mute=False, fill_value=np.nan):
     r"""Perform gather normal moveout correction with given stacking velocities for each timestamp.
 
     The process of NMO correction removes the moveout effect on traveltimes, assuming that reflection traveltimes in a
@@ -105,9 +105,10 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate, cro
         Measured in meters/milliseconds.
     sample_rate : float
         Sample rate of seismic traces. Measured in milliseconds.
-    crossover_mute: bool
-        Whether to perform crossover mute after the nmo correction.
-        This mutes the areas where the time reversal occured after the correction.
+    crossover_mute: bool, optional, defaults to False
+        Whether to mute areas where the time reversal occurred after nmo corrections.
+    stretch_mute: bool, optional, defaults to False
+        Whether to mute areas where the stretching effect occurred after nmo corrections.
     fill_value : float, optional, defaults to np.nan
         Value used to fill the amplitudes outside the gather bounds after moveout.
 
@@ -123,7 +124,8 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate, cro
         get_hodograph(gather_data, hodograph_times[i], sample_rate, fill_value=fill_value, out=corrected_gather_data[:, i])
 
     if stretch_mute:
-        stretch_times = np.interp(offsets, times * stacking_velocities * np.sqrt((1 + 0.65) ** 2 - 1), times)
+        max_stretch_factor = 0.65 # Reasonable default value for max_stretch_factor
+        stretch_times = np.interp(offsets, times * stacking_velocities * np.sqrt((1 + max_stretch_factor) ** 2 - 1), times)
         corrected_gather_data = mute_gather(corrected_gather_data, stretch_times, times, fill_value)
 
     if crossover_mute:
