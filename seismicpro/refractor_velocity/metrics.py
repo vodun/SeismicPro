@@ -2,7 +2,7 @@ import numpy as np
 from scipy.signal import hilbert
 from scipy.optimize import minimize
 
-from ..metrics import Metric, ScatterMapPlot, MetricMap
+from ..metrics import Metric
 from ..const import HDR_FIRST_BREAK
 from ..utils import times_to_indices
 
@@ -21,11 +21,11 @@ class RefractorVelocityMetric(Metric):
         if event_headers is None:
             event_headers = {'headers': self.first_breaks_col}
         gather.plot(event_headers=event_headers, ax=ax, **kwargs)
-        
+
     def plot_gather(self, coords, ax, **kwargs):
         gather = self.survey.get_gather(coords)
         self._plot_gather(gather, ax=ax, **kwargs)
-        
+
     def plot_refractor_velocity(self, coords, ax, threshold_times=50, **kwargs):
         refractor_velocity = self.field(coords)
         gather = self.survey.get_gather(coords)
@@ -33,25 +33,23 @@ class RefractorVelocityMetric(Metric):
         refractor_velocity.offsets = gather['offset']
         refractor_velocity.plot(threshold_times=threshold_times, ax=ax, **kwargs)
 
-
 class FirstBreaksOutliers(RefractorVelocityMetric):
     name = "first_breaks_outliers"
     vmin = 0
     vmax = 0.05
     is_lower_better = True
 
-    @staticmethod    
+    @staticmethod
     def calc(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50):
         rv_times = refractor_velocity(gather['offset'])
         return np.abs(rv_times - gather[first_breaks_col]) > threshold_times
-
 
 class FirstBreaksAmplitudes(RefractorVelocityMetric):
     name = "first_breaks_amplitudes"
     vmin = -3
     vmax = 3
     is_lower_better = None
-    
+
     @staticmethod
     def calc(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK):
         _ = refractor_velocity
@@ -60,20 +58,19 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
         ix = times_to_indices(g[first_breaks_col], g.samples).astype(np.int64)
         res = g.data[range(len(ix)), ix]
         return res
-    
+
     def plot_gather(self, coords, ax, **kwargs):
         gather = self.survey.get_gather(coords)
         gather['amps'] = self.calc(gather=gather, first_breaks_col=self.first_breaks_col, refractor_velocity=None)
         kwargs['top_header'] = 'amps'
         super()._plot_gather(gather, ax=ax, **kwargs)
 
-
 class FirstBreaksPhases(RefractorVelocityMetric):
     name = 'first_breaks_phases'
     min_value = -np.pi
     max_value = np.pi
     is_lower_better = None
-    
+
     @staticmethod
     def calc(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK):
         _ = refractor_velocity
@@ -91,13 +88,12 @@ class FirstBreaksPhases(RefractorVelocityMetric):
         super()._plot_gather(gather, ax=ax, **kwargs)
         return ax
 
-
 class FirstBreaksCorrelations(RefractorVelocityMetric):
     name = "first_breaks_correlations"
     min_value = -1
     max_value = 1
     is_lower_better = False
-    
+
     @staticmethod
     def calc(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, corr_window=10):
         _ = refractor_velocity
@@ -115,7 +111,7 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
         corrs = (traces_centered * mean_trace_centered).sum(axis=1)
         corrs /= np.sqrt((traces_centered**2).sum(axis=1) * (mean_trace_centered**2).sum(axis=1))
         return corrs
-    
+
     def plot_gather(self, coords, ax, **kwargs):
         gather = self.survey.get_gather(coords)
         corr_window = getattr(self, 'corr_window', 10)
@@ -124,12 +120,11 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
         kwargs['top_header'] = 'corr'
         super()._plot_gather(gather, ax=ax, **kwargs)
 
-
 class GeometryError(RefractorVelocityMetric):
     name = "geometry_error"
     min_value = 0
     is_lower_better = True
-    
+
     @staticmethod
     def sin(x, amp, phase):
         return amp * np.sin(x + phase)
@@ -144,7 +139,6 @@ class GeometryError(RefractorVelocityMetric):
                               bounds=((None, None), (-np.pi, np.pi)), method="Nelder-Mead", tol=1e-5)
         return fit_result.x
 
-    
     @classmethod
     def calc(cls, gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, reg=0.01):
         times = gather[first_breaks_col]
@@ -181,18 +175,18 @@ class DivergencePoint(RefractorVelocityMetric):
     """
     name = "divergence_point"
     is_lower_better = False
-    
+
     def __init__(self, survey=None, **kwargs):
         super().__init__(survey, **kwargs)
         self.vmax = survey['offset'].max() if survey is not None else None
         self.vmin = survey['offset'].min() if survey is not None else None
-    
+
     @staticmethod
     def calc(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50, step=100):
         times = gather[first_breaks_col]
         offsets = gather['offset']
         rv_times = refractor_velocity(offsets)
-        outliers = (np.abs(rv_times - times) > threshold_times)
+        outliers = np.abs(rv_times - times) > threshold_times
         if np.isclose(np.mean(outliers), 0) or step >= len(offsets) - len(offsets) % step:
             return np.array(max(offsets))
 
@@ -205,7 +199,7 @@ class DivergencePoint(RefractorVelocityMetric):
 
         outliers_fractions = [outliers_window.mean() for outliers_window in outliers_splits]
         return np.array(offsets[split_idxs[np.argmax(outliers_fractions) - 1]])
-        
+
     def plot_refractor_velocity(self, coords, ax, **kwargs):
         gather = self.survey.get_gather(coords)
         rv = self.field(coords)
@@ -216,6 +210,6 @@ class DivergencePoint(RefractorVelocityMetric):
                                       threshold_times=threshold_times, step=step)
         ax.axvline(x=divergence_offset, color='k', linestyle='--')
         super().plot_refractor_velocity(coords, ax=ax, threshold_times=threshold_times, **kwargs)
-        
+
 REFRACTOR_VELOCITY_QC_METRICS = [FirstBreaksOutliers, FirstBreaksAmplitudes, FirstBreaksPhases,
                                  FirstBreaksCorrelations, GeometryError, DivergencePoint]

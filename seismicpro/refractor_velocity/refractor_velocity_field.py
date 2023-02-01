@@ -613,8 +613,8 @@ class RefractorVelocityField(SpatialField):
             gather_results = []
             for metric in metrics:
                 metric_callable, metric_kwargs = metric['class'].calc, metric['kwargs']
-                metric_val = metric_callable(gather=gather, refractor_velocity=refractor_velocity, first_breaks_col=first_breaks_col,
-                                    **metric_kwargs).mean()
+                metric_val = metric_callable(gather=gather, refractor_velocity=refractor_velocity,
+                                             first_breaks_col=first_breaks_col, **metric_kwargs).mean()
                 gather_results.append(metric_val)
             chunk_results.append(gather_results)
         return chunk_results
@@ -625,27 +625,28 @@ class RefractorVelocityField(SpatialField):
                 raise ValueError("Survey must be passed if the field is not linked with a survey.")
             survey = self.survey
 
+        is_single_metric = isinstance(metrics, type) and issubclass(metrics, RefractorVelocityMetric)
         metrics = REFRACTOR_VELOCITY_QC_METRICS if metrics is None else to_list(metrics)
         if not metrics:
             raise ValueError("At least one metric should be passed.")
-        is_single_metric = (len(metrics) == 1)
 
         metrics_configs = []
         for metric in metrics:
             if not isinstance(metric, dict) and issubclass(metric, RefractorVelocityMetric):
                 metric = {'class': metric, 'kwargs': {}}
-            if not isinstance(metric, dict) or not (issubclass(metric['class'], RefractorVelocityMetric) 
+            if not isinstance(metric, dict) or not (issubclass(metric['class'], RefractorVelocityMetric)
                                                     or isinstance(metric['kwargs'], dict)):
-                raise ValueError("All passed metrics must be subclasses of RefractorVelocityMetric or dict instances with proper keys.")
+                raise ValueError("""All passed metrics must be subclasses of RefractorVelocityMetric
+                                 or dict with proper keys.""")
             metrics_configs.append(metric)
 
         coords_cols = to_list(get_coords_cols(survey.indexed_by))
         if not np.all(coords_cols == to_list(survey.indexed_by)):
             survey = survey.reindex(coords_cols, inplace=False)
-            
+
         survey_coords = survey[coords_cols]
         gather_change_ix = np.where(~survey.headers.index.duplicated(keep="first"))[0]
-        
+
         gather_coords = survey_coords[gather_change_ix]
         refractor_velocities = self(gather_coords)
         n_gathers = len(gather_coords)
@@ -665,18 +666,20 @@ class RefractorVelocityField(SpatialField):
                     gathers_indices_chunk = survey.indices[i * chunk_size : (i + 1) * chunk_size]
                     gathers_chunk = [survey.get_gather(idx) for idx in gathers_indices_chunk]
                     rvs_chunk = refractor_velocities[i * chunk_size : (i + 1) * chunk_size]
-                    future = pool.submit(self._calc_metrics, metrics_configs, gathers_chunk, rvs_chunk, first_breaks_col)
+                    future = pool.submit(self._calc_metrics, metrics_configs, gathers_chunk,
+                                         rvs_chunk, first_breaks_col)
                     future.add_done_callback(lambda fut: pbar.update(len(fut.result())))
                     futures.append(future)
 
         results = sum([future.result() for future in futures], [])
-        metrics_instances = [metric_config['class'](survey=survey, field=self, first_breaks_col=first_breaks_col, 
+        metrics_instances = [metric_config['class'](survey=survey, field=self, first_breaks_col=first_breaks_col,
                                                     **metric_config['kwargs'])
                              for metric_config in metrics_configs]
 
         metrics_maps = []
         for metric, metric_values in zip(metrics_instances, zip(*results)):
-            metrics_maps.append(metric.map_class(gather_coords, metric_values, coords_cols=self.coords_cols, metric=metric))
+            metrics_maps.append(metric.map_class(gather_coords, metric_values,
+                                                 coords_cols=self.coords_cols, metric=metric))
         if is_single_metric:
             return metrics[0]
         return metrics_maps
