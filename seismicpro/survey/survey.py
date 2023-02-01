@@ -1089,7 +1089,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Supergather generation is usually performed as a first step of velocity analysis. A substantially larger number
         of traces processed at once leads to increased signal-to-noise ratio: seismic wave reflections are much more
         clearly visible than on single CDP gathers and the velocity spectra calculated using
-        :func:`~Gather.calculate_semblance` are more coherent which allows for more accurate stacking velocity picking.
+        :func:`~Gather.calculate_vertical_velocity_spectrum` are more coherent which allows for more accurate stacking velocity picking.
 
         The method creates two new `headers` columns called `SUPERGATHER_INLINE_3D` and `SUPERGATHER_CROSSLINE_3D`
         equal to `INLINE_3D` and `CROSSLINE_3D` of the central CDP gather. Note, that some gathers may be assigned to

@@ -22,8 +22,8 @@ class StackingVelocity(VFUNC):
 
     However, usually a stacking velocity instance is not created directly, but is obtained as a result of calling the
     following methods:
-    * :func:`~semblance.Semblance.calculate_stacking_velocity` - to run an automatic algorithm for stacking velocity
-      computation by vertical velocity semblance,
+    * :func:`~velocity_spectrum.VerticalVelocitySpectrum.calculate_stacking_velocity` - to run an automatic algorithm
+      for stacking velocity computation by vertical velocity spectrum,
     * :func:`StackingVelocityField.__call__` - to interpolate a stacking velocity at passed field coordinates given a
       created or loaded velocity field.
 
@@ -31,11 +31,11 @@ class StackingVelocity(VFUNC):
 
     Examples
     --------
-    Stacking velocity can be automatically calculated for a CDP gather by its semblance:
+    Stacking velocity can be automatically calculated for a CDP gather by its velocity spectrum:
     >>> survey = Survey(path, header_index=["INLINE_3D", "CROSSLINE_3D"], header_cols="offset")
     >>> gather = survey.sample_gather().sort(by="offset")
-    >>> semblance = gather.calculate_semblance(velocities=np.linspace(1400, 5000, 200), win_size=8)
-    >>> velocity = semblance.calculate_stacking_velocity()
+    >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum(velocities=np.linspace(1400, 5000, 200), win_size=16)
+    >>> velocity = velocity_spectrum.calculate_stacking_velocity()
 
     Or it can be interpolated from a velocity field (loaded from a file in this case):
     >>> field = StackingVelocityField.from_file(field_path).create_interpolator("idw")

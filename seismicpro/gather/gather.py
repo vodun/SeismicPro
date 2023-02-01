@@ -21,13 +21,12 @@ from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_ytickla
                      add_colorbar, piecewise_polynomial, Coordinates)
 from ..containers import TraceContainer, SamplesContainer
 from ..muter import Muter, MuterField
-from ..semblance import VerticalVelocitySpectrum, ResidualVelocitySpectrum
+from ..velocity_spectrum import VerticalVelocitySpectrum, ResidualVelocitySpectrum
 from ..stacking_velocity import StackingVelocity, StackingVelocityField
 from ..refractor_velocity import RefractorVelocity, RefractorVelocityField
 from ..decorators import batch_method, plotter
 from ..const import HDR_FIRST_BREAK, HDR_TRACE_POS, DEFAULT_SDC_VELOCITY
-
-from ..semblance.utils.coherency_funcs import stacked_amplitude
+from ..velocity_spectrum.utils.coherency_funcs import stacked_amplitude
 
 
 class Gather(TraceContainer, SamplesContainer):

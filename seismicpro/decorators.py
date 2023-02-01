@@ -101,7 +101,7 @@ def batch_method(*args, target="for", args_to_unpack=None, force=False, copy_src
         Whether to copy batch elements before processing if `src` component differs from `dst`. Usually, this flag
         is set to `True` to keep `src` data intact since most processing methods are done inplace. Sometimes it should
         be set to `False` to avoid redundant copying e.g. when a new object is returned like in
-        :func:`~Gather.calculate_semblance`.
+        :func:`~Gather.calculate_vertical_velocity_spectrum`.
     use_lock : bool or str, optional, defaults to False
         Whether to lock an action when a pipeline is executed. If `str`, defines a pipeline variable name, which will
         store the `Lock`.

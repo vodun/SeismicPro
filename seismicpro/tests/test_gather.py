@@ -256,17 +256,14 @@ def test_gather_muting(gather):
     muter = Muter(offsets=[1000, 2000, 3000], times=[100, 300, 600])
     gather.mute(muter)
 
-def test_gather_semblance(gather):
-    """test_gather_semblance"""
-    gather.sort(by='offset')
-    velocities = np.linspace(1300, 5500, 140)
-    gather.calculate_semblance(velocities=velocities)
+def test_gather_velocity_spectrum(gather):
+    """test_gather_velocity_spectrum"""
+    gather.calculate_vertical_velocity_spectrum()
 
-def test_gather_res_semblance(gather):
-    """test_gather_res_semblance"""
-    gather.sort(by='offset')
+def test_gather_res_velocity_spectrum(gather):
+    """test_gather_res_velocity_spectrum"""
     stacking_velocity = StackingVelocity(times=[0, 3000], velocities=[1600, 3500])
-    gather.calculate_residual_semblance(stacking_velocity=stacking_velocity)
+    gather.calculate_residual_velocity_spectrum(stacking_velocity=stacking_velocity)
 
 def test_gather_stacking_velocity(gather):
     """test_gather_stacking_velocity"""
