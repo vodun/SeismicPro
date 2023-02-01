@@ -1,4 +1,4 @@
-"""Implements Semblance and ResidualSemblance classes."""
+"""Implements VerticalVelocitySpectrum and ResidualVelocitySpectrum classes."""
 
 # pylint: disable=not-an-iterable
 import numpy as np
@@ -31,27 +31,27 @@ COHERENCY_FUNCS = {
 
 
 class BaseVelocitySpectrum:
-    """Base class for vertical velocity semblance calculation.
+    """Base class for vertical velocity spectrum calculation.
     Implements general computation logic and visualization method.
 
     Parameters
     ----------
     gather : Gather
-        Seismic gather to calculate semblance for.
+        Seismic gather to calculate velocity spectrum for.
     win_size : float
-        Temporal window size used for semblance calculation. The higher the `win_size` is, the smoother the resulting
-        semblance will be but to the detriment of small details. Measured in milisecods.
+        Temporal window size used for velocity spectrum calculation. The higher the `win_size` is, the smoother
+         the resulting velocity spectrum will be but to the detriment of small details. Measured in milisecods.
     mode: str, defaults to `semblance`
         The coherency measure. See the `COHERENCY_FUNCS` for avaliable options.
 
     Attributes
     ----------
     gather : Gather
-        Seismic gather for which semblance calculation was called.
+        Seismic gather for which velocity spectrum calculation was called.
     win_size_samples : int
-        Temporal window size for smoothing the semblance. Measured in samples.
+        Temporal window size for smoothing the velocity spectrum. Measured in samples.
     coherency_func : callable
-        The function that estimates the coherency measure for given hodograph.
+        The function that estimates the coherency measure for hodograph.
     """
 
     def __init__(self, gather, win_size, mode='semblance'):
@@ -77,49 +77,49 @@ class BaseVelocitySpectrum:
         return self.gather.offsets  # m
 
     @property
-    def coords(self):
-        """Coordinates or None: Spatial coordinates of the semblance. Determined by the underlying gather. `None` if
-        the gather is indexed by unsupported headers or required coords headers were not loaded or coordinates are
-        non-unique for traces of the gather."""
+    def coords(self): 
+        """Coordinates or None: Spatial coordinates of the velocity_spectrum. Determined by the underlying gather.
+        `None` if the gather is indexed by unsupported headers or required coords headers were not loaded
+        or coordinates are non-unique for traces of the gather."""
         return self.gather.coords
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
-        semblance."""
+        velocity spectrum."""
         _ = time_ix, velocity_ix
         raise NotImplementedError
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def calc_single_velocity_semblance(coherency_func, gather_data, times, offsets, velocity, sample_rate,
-                                       win_size_samples, t_min_ix, t_max_ix, stretch_mute):  # pylint: disable=too-many-arguments
-        """Calculate semblance for given velocity and time range.
+    def calc_single_velocity_spectrum(coherency_func, gather_data, times, offsets, velocity, sample_rate,
+                                       win_size_samples, t_min_ix, t_max_ix, stretch_mute, s, N):  # pylint: disable=too-many-arguments
+        """Calculate velocity spectrum for given velocity and time range.
 
         Parameters
         ----------
         coherency_func: njitted callable
             The function that estimates hodograph coherency.
         gather_data : 2d np.ndarray
-            Gather data for semblance calculation.
+            Gather data for velocity spectrum calculation.
         times : 1d np.ndarray
             Recording time for each trace value. Measured in milliseconds.
         offsets : array-like
             The distance between source and receiver for each trace. Measured in meters.
         velocity : array-like
-            Seismic wave velocity for semblance computation. Measured in meters/milliseconds.
+            Seismic wave velocity for velocity spectrum computation. Measured in meters/milliseconds.
         sample_rate : float
             Sample rate of seismic traces. Measured in milliseconds.
         win_size_samples : int
-            Temporal window size for smoothing the semblance. Measured in samples.
+            Temporal window size for smoothing the velocity spectrum. Measured in samples.
         t_min_ix : int
-            Time index in `times` array to start calculating semblance from. Measured in samples.
+            Time index in `times` array to start calculating velocity spectrum from. Measured in samples.
         t_max_ix : int
-            Time index in `times` array to stop calculating semblance at. Measured in samples.
+            Time index in `times` array to stop calculating velocity spectrum at. Measured in samples.
 
         Returns
         -------
-        semblance_slice : 1d np.ndarray
-            Calculated semblance values for a specified `velocity` in time range from `t_min_ix` to `t_max_ix`.
+        velocity_spectrum_slice : 1d np.ndarray
+            Calculated velocity spectrum values for a specified `velocity` in time range from `t_min_ix` to `t_max_ix`.
         """
         t_win_size_min_ix = max(0, t_min_ix - win_size_samples)
         t_win_size_max_ix = min(len(times) - 1, t_max_ix + win_size_samples)
@@ -127,28 +127,25 @@ class BaseVelocitySpectrum:
         corrected_gather_data = correction.apply_nmo(gather_data, times[t_win_size_min_ix: t_win_size_max_ix + 1],
                                                 offsets, velocity, sample_rate, crossover_mute=False, stretch_mute=stretch_mute).T
 
-        numerator, denominator = coherency_func(corrected_gather_data)
+        numerator, denominator = coherency_func(corrected_gather_data, s, N)
         numerator[np.isnan(numerator)] = 0
         denominator[np.isnan(denominator)] = 0
 
-        coherency_slice = np.zeros(t_max_ix - t_min_ix, dtype=np.float32)
+        velocity_spectrum_slice = np.zeros(t_max_ix - t_min_ix, dtype=np.float32)
         for t in prange(t_min_ix, t_max_ix):
             t_rel = t - t_win_size_min_ix
             ix_from = max(0, t_rel - win_size_samples)
             ix_to = min(len(corrected_gather_data) - 1, t_rel + win_size_samples)
-            coherency_slice[t - t_min_ix] = np.sum(numerator[ix_from : ix_to]) / (np.sum(denominator[ix_from : ix_to]) + + 1e-8)
-        return coherency_slice
+            velocity_spectrum_slice[t - t_min_ix] = np.sum(numerator[ix_from : ix_to]) / (np.sum(denominator[ix_from : ix_to]) + + 1e-8)
+        return velocity_spectrum_slice
 
-    #@staticmethod
     def _plot(self, title=None, x_label=None, x_ticklabels=None,  # pylint: disable=too-many-arguments
               x_ticker=None, y_ticklabels=None, y_ticker=None, grid=False, stacking_times_ix=None,
               stacking_velocities_ix=None, colorbar=True, clip_threshold_quantile=0.99, n_levels=10, ax=None, **kwargs):
-        """Plot vertical velocity semblance and, optionally, stacking velocity.
+        """Plot vertical velocity spectrum and, optionally, stacking velocity.
 
         Parameters
         ----------
-        semblance : 2d np.ndarray
-            An array with vertical velocity or residual semblance.
         title : str, optional, defaults to None
             Plot title.
         x_label : str, optional, defaults to None
@@ -168,12 +165,12 @@ class BaseVelocitySpectrum:
         stacking_velocities_ix : 1d np.ndarray, optional
             Velocity indices of calculated stacking velocities to show on the plot.
         colorbar : bool or dict, optional, defaults to True
-            Whether to add a colorbar to the right of the semblance plot. If `dict`, defines extra keyword arguments
-            for `matplotlib.figure.Figure.colorbar`.
+            Whether to add a colorbar to the right of the velocity spectrum plot. 
+            If `dict`, defines extra keyword arguments for `matplotlib.figure.Figure.colorbar`.
         clip_threshold_quantile : float, optional, defaults to 0.99
-            Clip the semblance value.
+            Clip the velocity spectrum values by given quantile.
         n_levels: int, optional, defaluts to 10
-            The number of levels in the colorbar.
+            The number of levels on the colorbar.
         ax : matplotlib.axes.Axes, optional, defaults to None
             Axes of the figure to plot on.
         kwargs : misc, optional
@@ -203,14 +200,14 @@ class BaseVelocitySpectrum:
         set_ticks(ax, "y", "Time", y_ticklabels, **y_ticker)
 
     def plot(self, *args, interactive=False, **kwargs):
-        """Plot semblance in interactive or non-interactive mode."""
+        """Plot velocity spectrum in interactive or non-interactive mode."""
         if not interactive:
             return self._plot(*args, **kwargs)
         return SemblancePlot(self, *args, **kwargs).plot()
 
 
 class VerticalVelocitySpectrum(BaseVelocitySpectrum):
-    r"""A class for vertical velocity semblance calculation and processing.
+    r"""A class for vertical velocity spectrum calculation and processing.
 
     Semblance is a normalized output-input energy ratio for a CDP gather. The higher the values of semblance are, the
     more coherent the signal is along a hyperbolic trajectory over the entire spread length of the gather.
@@ -235,9 +232,9 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     :math:`v` - velocity value.
 
     The resulting matrix :math:`S(k, v)` has shape (trace_length, n_velocities) and contains vertical velocity
-    semblance values based on hyperbolas with each combination of the starting point :math:`k` and velocity :math:`v`.
+    spectrum values based on hyperbolas with each combination of the starting point :math:`k` and velocity :math:`v`.
 
-    The algorithm for semblance calculation looks as follows:
+    The algorithm for velocity spectrum calculation looks as follows:
     For each velocity from given velocity range:
         1. Calculate NMO-corrected gather.
         2. Calculate squared sum of amplitudes of the corrected gather along the offset axis and its rolling mean in a
@@ -253,20 +250,22 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
 
     Examples
     --------
-    Calculate semblance for 200 velocities from 2000 to 6000 m/s and a temporal window size of 16 ms:
+    Calculate velocity spectrum for 200 velocities from 2000 to 6000 m/s and a temporal window size of 16 ms:
     >>> survey = Survey(path, header_index=["INLINE_3D", "CROSSLINE_3D"], header_cols="offset")
     >>> gather = survey.sample_gather().sort(by="offset")
-    >>> semblance = gather.calculate_semblance(velocities=np.linspace(2000, 6000, 200), win_size=16)
+    >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum(velocities=np.linspace(2000, 6000, 200),
+                                                                        win_size=16)
 
     Parameters
     ----------
     gather : Gather
-        Seismic gather to calculate semblance for.
+        Seismic gather to calculate velocity spectrum for.
     velocities : 1d np.ndarray
-        Range of velocity values for which semblance is calculated. Measured in meters/seconds.
+        Range of velocity values for which velocity spectrum is calculated. Measured in meters/seconds.
+        If not provided, 30 velocities estimated from `const.DEFAULT_SDC_VELOCITY`.
     win_size : int, optional, defaults to 50
-        Temporal window size used for semblance calculation. The higher the `win_size` is, the smoother the resulting
-        semblance will be but to the detriment of small details. Measured in miliseconds.
+        Temporal window size used for velocity spectrum calculation. The higher the `win_size` is, the smoother
+        the resulting velocity spectrum will be but to the detriment of small details. Measured in miliseconds.
     mode: str, optional, defaults to 'semblance'
         The measure for estimating hodograph coherency. 
         The available options are: 
@@ -275,22 +274,21 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
             `normalized_stacked_amplitude` or `NS`,
             `crosscorrelation` or `CC`,
             `energy_normalized_crosscorrelation` or `ENCC`
+    stretch_mute: bool, optional, defaults to False
+        Whether to mute stretcing effects before estimating hodograph coherency.
 
     Attributes
     ----------
     gather : Gather
-        Seismic gather for which semblance calculation was called.
-    gather_data : 2d np.ndarray
-        Gather data for semblance calculation. The data is stored in a transposed form, compared to `Gather.data` due
-        to performance reasons, so that `gather_data.shape` is (trace_length, num_traces).
+        Seismic gather for which velocity spectrum calculation was called.
     velocities : 1d np.ndarray
-        Range of velocity values for which semblance was calculated. Measured in meters/seconds.
+        Range of velocity values for which vertical velocity spectrum was calculated. Measured in meters/seconds.
     win_size_samples : int
-        Temporal window size for smoothing the semblance. Measured in samples.
-    semblance : 2d np.ndarray
-        Array with calculated vertical velocity semblance values.
+        Temporal window size for smoothing the vertical velocity spectrum. Measured in samples.
+    velocity_spectrum : 2d np.ndarray
+        Array with calculated vertical velocity spectrum values.
     """
-    def __init__(self, gather, velocities=None, win_size=50, mode='semblance', stretch_mute=False):
+    def __init__(self, gather, velocities=None, win_size=50, mode='semblance', stretch_mute=False, s=1, N=5):
         super().__init__(gather, win_size=win_size, mode=mode)
         if velocities is not None:
             self.velocities = velocities  # m/s
@@ -299,15 +297,15 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
                                           DEFAULT_SDC_VELOCITY(gather.times[-1]) * 1.2,
                                           30)
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
-        self.velocity_spectrum = self._calc_semblance_numba(semblance_func=self.calc_single_velocity_semblance,
-                                                    coherency_func=self.coherency_func,
-                                                    gather_data=self.gather.data, times=self.times,
-                                                    offsets=self.offsets, velocities=velocities_ms,
-                                                    sample_rate=self.sample_rate, win_size_samples=self.win_size_samples, stretch_mute=stretch_mute)
+        self.velocity_spectrum = self._calc_spectrum_numba(spectrum_func=self.calc_single_velocity_spectrum,
+                                                          coherency_func=self.coherency_func,
+                                                          gather_data=self.gather.data, times=self.times,
+                                                          offsets=self.offsets, velocities=velocities_ms,
+                                                          sample_rate=self.sample_rate, win_size_samples=self.win_size_samples, stretch_mute=stretch_mute, s=s, N=N)
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
-        semblance."""
+        velocity spectrum."""
         if (time_ix < 0) or (time_ix >= len(self.times)):
             time = None
         else:
@@ -323,42 +321,43 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def _calc_semblance_numba(semblance_func, coherency_func, gather_data, times, offsets, velocities,
-                              sample_rate, win_size_samples, stretch_mute):
-        """Parallelized and njitted method for vertical velocity semblance calculation.
+    def _calc_spectrum_numba(spectrum_func, coherency_func, gather_data, times, offsets, velocities,
+                            sample_rate, win_size_samples, stretch_mute, s, N):
+        """Parallelized and njitted method for vertical velocity spectrum calculation.
 
         Parameters
         ----------
-        semblance_func : njitted callable
-            Base function for semblance calculation for single velocity and a time range.
+        spectrum_func : njitted callable
+            Base function for velocity spectrum calculation for single velocity and a time range.
         other parameters : misc
             Passed directly from class attributes (except for velocities which are converted from m/s to m/ms)
 
         Returns
         -------
-        semblance : 2d np.ndarray
-            Array with vertical velocity semblance values.
+        velocity_spectrum : 2d np.ndarray
+            Array with vertical velocity spectrum values.
         """
-        semblance = np.empty((gather_data.shape[1], len(velocities)), dtype=np.float32)
+        velocity_spectrum = np.empty((gather_data.shape[1], len(velocities)), dtype=np.float32)
         # TODO: use prange when fixed in numba
         for j in prange(len(velocities)):  # pylint: disable=consider-using-enumerate
-            semblance[:, j] = semblance_func(coherency_func=coherency_func,
-                                             gather_data=gather_data, times=times, offsets=offsets,
-                                             velocity=velocities[j], sample_rate=sample_rate, win_size_samples=win_size_samples,
-                                             t_min_ix=0, t_max_ix=gather_data.shape[1], stretch_mute=stretch_mute)
-        return semblance
+            velocity_spectrum[:, j] = spectrum_func(coherency_func=coherency_func, gather_data=gather_data, 
+                                                    times=times, offsets=offsets, velocity=velocities[j], 
+                                                    sample_rate=sample_rate, win_size_samples=win_size_samples,
+                                                    t_min_ix=0, t_max_ix=gather_data.shape[1], stretch_mute=stretch_mute, s=s, N=N)
+        return velocity_spectrum
 
     def _plot(self, stacking_velocity=None, *, title="Vertical Velocity Spectrum", x_ticker=None, y_ticker=None, grid=False,
               colorbar=True, ax=None, **kwargs):
-        """Plot vertical velocity semblance."""
+        """Plot vertical velocity spectrum."""
         # Add a stacking velocity line on the plot
         stacking_times_ix, stacking_velocities_ix = None, None
         if stacking_velocity is not None:
             stacking_times = stacking_velocity.times if stacking_velocity.times is not None else self.times
+            stacking_times = self.gather.times
             stacking_velocities = stacking_velocity(stacking_times)
             stacking_times_ix = stacking_times / self.sample_rate
             stacking_velocities_ix = ((stacking_velocities - self.velocities[0]) /
-                                      (self.velocities[-1] - self.velocities[0]) * self.semblance.shape[1])
+                                      (self.velocities[-1] - self.velocities[0]) * self.velocity_spectrum.shape[1])
 
         super()._plot(title=title, x_label="Velocity, m/s", x_ticklabels=self.velocities,
                       x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax, grid=grid,
@@ -368,7 +367,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
 
     @plotter(figsize=(10, 9), args_to_unpack="stacking_velocity")
     def plot(self, stacking_velocity=None, *, title="Vertical Velocity Spectrum", interactive=False, **kwargs):
-        """Plot vertical velocity semblance.
+        """Plot vertical velocity spectrum.
 
         Parameters
         ----------
@@ -376,7 +375,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
             Stacking velocity to plot if given. If its sample rate is more than 50 ms, every point will be highlighted
             with a circle.
             May be `str` if plotted in a pipeline: in this case it defines a component with stacking velocities to use.
-        title : str, optional, defaults to "Semblance"
+        title : str, optional, defaults to "Vertical Velocity Spectrum"
             Plot title.
         x_ticker : dict, optional, defaults to None
             Parameters for ticks and ticklabels formatting for the x-axis; see `.utils.set_ticks` for more details.
@@ -385,30 +384,30 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         grid : bool, optional, defaults to False
             Specifies whether to draw a grid on the plot.
         colorbar : bool or dict, optional, defaults to True
-            Whether to add a colorbar to the right of the semblance plot. If `dict`, defines extra keyword arguments
-            for `matplotlib.figure.Figure.colorbar`.
+            Whether to add a colorbar to the right of the velocity spectrum plot.
+            If `dict`, defines extra keyword arguments for `matplotlib.figure.Figure.colorbar`.
         clip_threshold_quantile : float, optional, defaults to 0.99
-            Clip the semblance value.
+            Clip the velocity spectrum values by given quantile.
         n_levels: int, optional, defaluts to 10
-            The number of levels in the colorbar.
+            The number of levels on the colorbar.
         ax : matplotlib.axes.Axes, optional, defaults to None
             Axes of the figure to plot on.
         kwargs : misc, optional
             Additional common keyword arguments for `x_ticker` and `y_tickers`.
         interactive : bool, optional, defaults to `False`
-            Whether to plot semblance in interactive mode. This mode also plots the gather used to calculate the
-            semblance. Clicking on semblance highlights the corresponding hodograph on the gather plot and allows
-            performing NMO correction of the gather with the selected velocity. Interactive plotting must be performed
-            in a JupyterLab environment with the `%matplotlib widget` magic executed and `ipympl` and `ipywidgets`
-            libraries installed.
+            Whether to plot velocity spectrum in interactive mode. This mode also plots the gather used to calculate the
+            velocity spectrum. Clicking on velocity spectrum highlights the corresponding hodograph on the gather plot
+            and allows performing NMO correction of the gather with the selected velocity. 
+            Interactive plotting must be performed in a JupyterLab environment with the `%matplotlib widget` 
+            magic executed and `ipympl` and `ipywidgets` libraries installed.
         sharey : bool, optional, defaults to True, only for interactive mode
-            Whether to share y axis of semblance and gather plots.
+            Whether to share y axis of velocity spectrum and gather plots.
         gather_plot_kwargs : dict, optional, only for interactive mode
             Additional arguments to pass to `Gather.plot`.
 
         Returns
         -------
-        semblance : Semblance
+        velocity_spectrum : VerticalVelocitySpectrum
             Self unchanged.
         """
         return super().plot(stacking_velocity=stacking_velocity, interactive=interactive, title=title, **kwargs)
@@ -416,7 +415,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     @batch_method(target="for", copy_src=False)
     def calculate_stacking_velocity(self, start_velocity_range=(1400, 1800), end_velocity_range=(2500, 5000),
                                     max_acceleration=None, n_times=25, n_velocities=25):
-        """Calculate stacking velocity by vertical velocity semblance.
+        """Calculate stacking velocity by vertical velocity spectrum.
 
         Notes
         -----
@@ -447,32 +446,33 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         ValueError
             If no stacking velocity was found for given parameters.
         """
-        times, velocities, _ = calculate_stacking_velocity(self.semblance, self.times, self.velocities,
+        times, velocities, _ = calculate_stacking_velocity(self.velocity_spectrum, self.times, self.velocities,
                                                            start_velocity_range, end_velocity_range, max_acceleration,
                                                            n_times, n_velocities)
         return StackingVelocity(times, velocities, coords=self.coords)
 
 
 class ResidualVelocitySpectrum(BaseVelocitySpectrum):
-    """A class for residual vertical velocity semblance calculation and processing.
+    """A class for residual vertical velocity spectrum calculation and processing.
 
-    Residual semblance is a normalized output-input energy ratio for a CDP gather along picked stacking velocity. The
+    Residual velocity spectrum is a normalized output-input energy ratio for a CDP gather along picked stacking velocity. The
     method of its computation for given time and velocity completely coincides with the calculation of
-    :class:`~Semblance`, however, residual semblance is computed in a small area around given stacking velocity, thus
-    allowing for additional optimizations.
+    :class:`~VerticalVelocitySpectrum`, however, residual velocity spectrum is computed in a small area around given 
+    stacking velocity, thus allowing for additional optimizations.
 
     The boundaries in which calculation is performed depend on time `t` and are given by:
     `stacking_velocity(t)` * (1 +- `relative_margin`).
 
-    Since the length of this velocity range varies for different timestamps, the residual semblance values are
+    Since the length of this velocity range varies for different timestamps, the residual velocity spectrum values are
     interpolated to obtain a rectangular matrix of size (trace_length, max(right_boundary - left_boundary)), where
-    `left_boundary` and `right_boundary` are arrays of left and right boundaries for all timestamps respectively.
+    `left_boundary` and `right_boundary` are arrays of left and right b
+    oundaries for all timestamps respectively.
 
-    Thus the residual semblance is a function of time and relative velocity margin. Zero margin line corresponds to
-    the given stacking velocity and generally should pass through local semblance maxima.
+    Thus the residual velocity spectrum is a function of time and relative velocity margin. Zero margin line 
+    corresponds to the given stacking velocity and generally should pass through local velocity spectrum maxima.
 
-    Residual semblance instance can be created either directly by passing source gather, stacking velocity and other
-    arguments to its init or by calling :func:`~Gather.calculate_residual_semblance` method (recommended way).
+    Residual velocity spectrum instance can be created either directly by passing source gather, stacking velocity and other
+    arguments to its init or by calling :func:`~Gather.calculate_residual_velocity_spectrum` method (recommended way).
 
     Notes
     -----
@@ -484,27 +484,27 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     >>> survey = Survey(path, header_index=["INLINE_3D", "CROSSLINE_3D"], header_cols="offset")
     >>> gather = survey.sample_gather().sort(by="offset")
 
-    Now let's automatically calculate stacking velocity by gather semblance:
-    >>> semblance = gather.calculate_semblance(velocities=np.linspace(1400, 5000, 200), win_size=16)
-    >>> velocity = semblance.calculate_stacking_velocity()
+    Now let's automatically calculate stacking velocity by gather velocity spectrum:
+    >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum()
+    >>> velocity = velocity_spectrum.calculate_stacking_velocity()
 
-    Residual semblance for the gather and calculated stacking velocity can be obtained as follows:
-    >>> residual = gather.calculate_residual_semblance(velocity, n_velocities=100, win_size=16)
+    Residual velocity spectrum for the gather and calculated stacking velocity can be obtained as follows:
+    >>> residual = gather.calculate_residual_velocity_spectrum(velocity, n_velocities=100)
 
     Parameters
     ----------
     gather : Gather
-        Seismic gather to calculate residual semblance for.
+        Seismic gather to calculate residual velocity spectrum for.
     stacking_velocity : StackingVelocity
-        Stacking velocity around which residual semblance is calculated.
+        Stacking velocity around which residual velocity spectrum is calculated.
     n_velocities : int, optional, defaults to 140
-        The number of velocities to compute residual semblance for.
+        The number of velocities to compute residual velocity spectrum for.
     win_size : int, optional, defaults to 50
-        Temporal window size used for semblance calculation. The higher the `win_size` is, the smoother the resulting
-        semblance will be but to the detriment of small details. Measured in miliseconds.
+        Temporal window size used for velocity spectrum calculation. The higher the `win_size` is, the smoother
+        the resulting velocity spectrum will be but to the detriment of small details. Measured in miliseconds.
     relative_margin : float, optional, defaults to 0.2
-        Relative velocity margin, that determines the velocity range for semblance calculation for each time `t` as
-        `stacking_velocity(t)` * (1 +- `relative_margin`).
+        Relative velocity margin, that determines the velocity range for velocity spectrum calculation
+        for each time `t` as `stacking_velocity(t)` * (1 +- `relative_margin`).
     mode: str, optional, defaults to 'semblance'
         The measure for estimating hodograph coherency. 
         The available options are: 
@@ -517,20 +517,17 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     Attributes
     ----------
     gather : Gather
-        Seismic gather for which residual semblance calculation was called.
-    gather_data : 2d np.ndarray
-        Gather data for semblance calculation. The data is stored in a transposed form, compared to `Gather.data` due
-        to performance reasons, so that `gather_data.shape` is (trace_length, num_traces).
+        Seismic gather for which residual velocity spectrum calculation was called.
     velocities : 1d np.ndarray
-        Range of velocity values for which residual semblance was calculated. Measured in meters/seconds.
+        Range of velocity values for which residual velocity spectrum was calculated. Measured in meters/seconds.
     win_size_samples : int
-        Temporal window size for smoothing the semblance. Measured in samples.
+        Temporal window size for smoothing the velocity spectrum. Measured in samples.
     stacking_velocity : StackingVelocity
-        Stacking velocity around which residual semblance was calculated.
+        Stacking velocity around which residual velocity spectrum was calculated.
     relative_margin : float, optional, defaults to 0.2
-         Relative velocity margin, that determines the velocity range for semblance calculation for each timestamp.
-    residual_semblance : 2d np.ndarray
-         Array with calculated residual vertical velocity semblance values.
+         Relative velocity margin, that determines the velocity range for velocity spectrum calculation for each time.
+    velocity_spectrum : 2d np.ndarray
+         Array with calculated residual vertical velocity velocity_spectrum values.
     """
     def __init__(self, gather, stacking_velocity, n_velocities=140, win_size=50, relative_margin=0.2, mode='semblance'):
         super().__init__(gather, win_size, mode)
@@ -544,7 +541,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
 
         left_bound_ix, right_bound_ix = self._calc_velocity_bounds()
-        self.velocity_spectrum = self._calc_res_semblance_numba(semblance_func=self.calc_single_velocity_semblance,
+        self.velocity_spectrum = self._calc_res_velocity_spectrum_numba(spectrum_func=self.calc_single_velocity_spectrum, 
                                                                  coherency_func=self.coherency_func,
                                                                  gather_data=self.gather.data, times=self.times,
                                                                  offsets=self.offsets, velocities=velocities_ms,
@@ -553,19 +550,19 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
                                                                  sample_rate=self.sample_rate, win_size=self.win_size_samples)
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
-        residual semblance."""
+        residual velocity spectrum."""
         if (time_ix < 0) or (time_ix >= len(self.times)):
             return None, None
         time = np.interp(time_ix, np.arange(len(self.times)), self.times)
         center_velocity = self.stacking_velocity(time) / 1000  # from m/s to m/ms
 
-        if (velocity_ix < 0) or (velocity_ix >= self.residual_semblance.shape[1]):
+        if (velocity_ix < 0) or (velocity_ix >= self.velocity_spectrum.shape[1]):
             return time, None
-        margin = self.relative_margin * (2 * velocity_ix / (self.residual_semblance.shape[1] - 1) - 1)
+        margin = self.relative_margin * (2 * velocity_ix / (self.velocity_spectrum.shape[1] - 1) - 1)
         return time, center_velocity * (1 + margin)
 
     def _calc_velocity_bounds(self):
-        """Calculate velocity boundaries for each time within which residual semblance will be calculated.
+        """Calculate velocity boundaries for each time within which residual velocity spectrum will be calculated.
 
         Returns
         -------
@@ -583,14 +580,14 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def _calc_res_semblance_numba(semblance_func, coherency_func, gather_data, times, offsets, velocities,
+    def _calc_res_velocity_spectrum_numba(spectrum_func, coherency_func, gather_data, times, offsets, velocities,
                                   left_bound_ix, right_bound_ix, sample_rate, win_size_samples):
-        """Parallelized and njitted method for residual vertical velocity semblance calculation.
+        """Parallelized and njitted method for residual vertical velocity spectrum calculation.
 
         Parameters
         ----------
-        semblance_func : njitted callable
-            Base function for semblance calculation for single velocity and a time range.
+        spectrum_func : njitted callable
+            Base function for velocity spectrum calculation for single velocity and a time range.
         coherency_func : njitted callable
             Function for estimating hodograph coherency.
         left_bound_ix : 1d array
@@ -602,10 +599,10 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
 
         Returns
         -------
-        semblance : 2d np.ndarray
-            Array with residual vertical velocity semblance values.
+        velocity_spectrum : 2d np.ndarray
+            Array with residual vertical velocity spectrum values.
         """
-        semblance = np.zeros((gather_data.shape[1], len(velocities)), dtype=np.float32)
+        velocity_spectrum = np.zeros((gather_data.shape[1], len(velocities)), dtype=np.float32)
         for i in prange(left_bound_ix.min(), right_bound_ix.max() + 1):  # TODO: use prange when fixed in numba
             t_min_ix = np.where(right_bound_ix == i)[0]
             t_min_ix = 0 if len(t_min_ix) == 0 else t_min_ix[0]
@@ -613,30 +610,30 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
             t_max_ix = np.where(left_bound_ix == i)[0]
             t_max_ix = len(times) - 1 if len(t_max_ix) == 0 else t_max_ix[-1]
 
-            semblance[t_min_ix : t_max_ix+1, i] = semblance_func(coherency_func=coherency_func,
+            velocity_spectrum[t_min_ix : t_max_ix+1, i] = spectrum_func(coherency_func=coherency_func,
                                                                  gather_data=gather_data, times=times, offsets=offsets,
                                                                  velocity=velocities[i], sample_rate=sample_rate,
                                                                  win_size=win_size_samples, t_min_ix=t_min_ix,
                                                                  t_max_ix=t_max_ix+1)
 
-        # Interpolate semblance to get a rectangular image
-        semblance_len = (right_bound_ix - left_bound_ix).max()
-        residual_semblance = np.empty((len(times), semblance_len), dtype=np.float32)
-        for i in prange(len(semblance)):
-            cropped_semblance = semblance[i, left_bound_ix[i] : right_bound_ix[i] + 1]
-            residual_semblance[i] = np.interp(np.linspace(0, len(cropped_semblance) - 1, semblance_len),
-                                              np.arange(len(cropped_semblance)),
-                                              cropped_semblance)
-        return residual_semblance
+        # Interpolate velocity spectrum to get a rectangular image
+        residual_velocity_spectrum_len = (right_bound_ix - left_bound_ix).max()
+        residual_velocity_spectrum = np.empty((len(times), residual_velocity_spectrum_len), dtype=np.float32)
+        for i in prange(len(redidual_velocity_spectrum)):
+            cropped_velocity_spectrum = velocity_spectrum[i, left_bound_ix[i] : right_bound_ix[i] + 1]
+            redsdual_velocity_spectrum[i] = np.interp(np.linspace(0, len(cropped_velocity_spectrum) - 1, velocity_spectrum_len),
+                                              np.arange(len(cropped_velocity_spectrum)),
+                                              cropped_velocity_spectrum)
+        return residual_velocity_spectrum
 
     def _plot(self, *, title="Residual Velocity Spectrum", x_ticker=None, y_ticker=None, grid=False, colorbar=True, ax=None,
               **kwargs):
-        """Plot residual vertical velocity semblance."""
-        x_ticklabels = np.linspace(-self.relative_margin, self.relative_margin, self.residual_semblance.shape[1]) * 100
+        """Plot residual vertical velocity spectrum."""
+        x_ticklabels = np.linspace(-self.relative_margin, self.relative_margin, self.velocity_spectrum.shape[1]) * 100
 
         stacking_times = self.stacking_velocity.times if self.stacking_velocity.times is not None else self.times
         stacking_times_ix = stacking_times / self.sample_rate
-        stacking_velocities_ix = np.full_like(stacking_times_ix, self.residual_semblance.shape[1] / 2)
+        stacking_velocities_ix = np.full_like(stacking_times_ix, self.velocity_spectrum.shape[1] / 2)
 
         super()._plot(title=title, x_label="Relative velocity margin, %",
                       x_ticklabels=x_ticklabels, x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax,
@@ -646,12 +643,12 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
 
     @plotter(figsize=(10, 9))
     def plot(self, *, title="Residual Velocity Spectrum", interactive=False, **kwargs):
-        """Plot residual vertical velocity semblance. The plot always has a vertical line in the middle, representing
+        """Plot residual vertical velocity spectrum. The plot always has a vertical line in the middle, representing
         the stacking velocity it was calculated for.
 
         Parameters
         ----------
-        title : str, optional, defaults to "Residual semblance"
+        title : str, optional, defaults to "Residual Velocity Spectrum"
             Plot title.
         x_ticker : dict, optional, defaults to None
             Parameters for ticks and ticklabels formatting for the x-axis; see `.utils.set_ticks` for more details.
@@ -660,30 +657,30 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         grid : bool, optional, defaults to False
             Specifies whether to draw a grid on the plot.
         colorbar : bool or dict, optional, defaults to True
-            Whether to add a colorbar to the right of the residual semblance plot. If `dict`, defines extra keyword
+            Whether to add a colorbar to the right of the residual velocity spectrum plot. If `dict`, defines extra keyword
             arguments for `matplotlib.figure.Figure.colorbar`.
         clip_threshold_quantile : float, optional, defaults to 0.99
-            Clip the semblance value.
+            Clip the residual velocity spectrum values by given quantile.
         n_levels: int, optional, defaluts to 10
-            The number of levels in the colorbar.
+            The number of levels on the colorbar.
         ax : matplotlib.axes.Axes, optional, defaults to None
             Axes of the figure to plot on.
         kwargs : misc, optional
             Additional common keyword arguments for `x_ticker` and `y_tickers`.
         interactive : bool, optional, defaults to `False`
-            Whether to plot residual semblance in interactive mode. This mode also plots the gather used to calculate
-            the residual semblance. Clicking on residual semblance highlights the corresponding hodograph on the gather
+            Whether to plot residual velocity spectrum in interactive mode. This mode also plots the gather used to calculate
+            the residual velocity spectrum. Clicking on residual velocity spectrum highlights the corresponding hodograph on the gather
             plot and allows performing NMO correction of the gather with the selected velocity. Interactive plotting
             must be performed in a JupyterLab environment with the `%matplotlib widget` magic executed and `ipympl` and
             `ipywidgets` libraries installed.
         sharey : bool, optional, defaults to True, only for interactive mode
-            Whether to share y axis of residual semblance and gather plots.
+            Whether to share y axis of residual velocity spectrum and gather plots.
         gather_plot_kwargs : dict, optional, only for interactive mode
             Additional arguments to pass to `Gather.plot`.
 
         Returns
         -------
-        semblance : ResidualSemblance
+        velocity_spectrum : ResidualVelocitySpectrum
             Self unchanged.
         """
         return super().plot(interactive=interactive, title=title, **kwargs)

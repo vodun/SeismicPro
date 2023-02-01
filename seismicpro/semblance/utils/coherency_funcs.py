@@ -5,15 +5,18 @@ import numpy as np
 from numba import njit, prange, jit_module
 
 
-def stacked_amplitude(corrected_gather):
+def stacked_amplitude(corrected_gather, s):
     numerator = np.zeros(corrected_gather.shape[0])
     denominator = np.ones(corrected_gather.shape[0])
     for i in prange(corrected_gather.shape[0]):
-        numerator[i] = np.abs(np.nanmean(corrected_gather[i, :]))
+        N = np.sum(~np.isnan(corrected_gather[i, :]))
+        N = max(N, 1)
+        alpha = ((1-s) / N ** 0.5) + s/N
+        numerator[i] = np.nansum(corrected_gather[i, :]) * alpha
     return numerator, denominator
 
 
-def normalized_stacked_amplitude(corrected_gather):
+def normalized_stacked_amplitude(corrected_gather, s):
     numerator = np.zeros(corrected_gather.shape[0])
     denominator = np.zeros(corrected_gather.shape[0])
     for i in prange(corrected_gather.shape[0]):
@@ -22,16 +25,22 @@ def normalized_stacked_amplitude(corrected_gather):
     return numerator, denominator
 
 
-def semblance(corrected_gather):
+def semblance(corrected_gather, s, N):
     numerator = np.zeros(corrected_gather.shape[0])
     denominator = np.zeros(corrected_gather.shape[0])
     for i in prange(corrected_gather.shape[0]):
-        numerator[i] = np.nanmean(corrected_gather[i, :]) ** 2
+        n = np.sum(~np.isnan(corrected_gather[i, :]))
+        if n < N:
+            numerator[i] = 0
+        else:
+            n = max(n, 1)
+            alpha = ((1-s) / n ** 0.5) + s/n
+            numerator[i] = np.nansum(corrected_gather[i, :]) ** 2 * alpha
         denominator[i] = np.nansum(corrected_gather[i, :] ** 2) 
     return numerator, denominator
 
 
-def crosscorrelation(corrected_gather):
+def crosscorrelation(corrected_gather, s):
     numerator = np.zeros(corrected_gather.shape[0])
     denominator = np.ones(corrected_gather.shape[0])
     for i in prange(corrected_gather.shape[0]):
@@ -39,7 +48,7 @@ def crosscorrelation(corrected_gather):
     return numerator, denominator
 
 
-def energy_normalized_crosscorrelation(corrected_gather):
+def energy_normalized_crosscorrelation(corrected_gather, s):
     numerator = np.zeros(corrected_gather.shape[0])
     denominator = np.zeros(corrected_gather.shape[0])
     for i in prange(corrected_gather.shape[0]):

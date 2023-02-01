@@ -27,6 +27,8 @@ from ..refractor_velocity import RefractorVelocity, RefractorVelocityField
 from ..decorators import batch_method, plotter
 from ..const import HDR_FIRST_BREAK, HDR_TRACE_POS, DEFAULT_SDC_VELOCITY
 
+from ..semblance.utils.coherency_funcs import stacked_amplitude
+
 
 class Gather(TraceContainer, SamplesContainer):
     """A class representing a single seismic gather.
@@ -776,30 +778,38 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     #------------------------------------------------------------------------#
-    #                     Semblance calculation methods                      #
+    #                     Vertical velocity spectrum calculation methods                      #
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", copy_src=False)
-    def calculate_vertical_velocity_spectrum(self, velocities=None, win_size=25, mode="semblance", stretch_mute=False):
-        """Calculate vertical velocity semblance for the gather.
+    def calculate_vertical_velocity_spectrum(self, velocities=None, win_size=25, mode="semblance", stretch_mute=False, s=1, N=5):
+        """Calculate vertical velocity spectrum for the gather.
 
         Notes
         -----
-        A detailed description of vertical velocity semblance and its computation algorithm can be found in
-        :func:`~semblance.Semblance` docs.
+        A detailed description of vertical velocity spectrum and its computation algorithm can be found in
+        :func:`~velocity_spectrum.VerticalVelocitySpectrum` docs.
 
         Examples
         --------
-        Calculate semblance for 200 velocities from 2000 to 6000 m/s and a temporal window size of 8 samples:
-        >>> semblance = gather.calculate_semblance(velocities=np.linspace(2000, 6000, 200), win_size=8)
+        Calculate vertical velocity spectrum with default values.
+        30 velocities sampled from default stacking velocity, 25ms temporal window size, 
+        semblance coherency measure and no muting stretching effects:
+        >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum()
+    
+        Calculate vertical velocity spectrum for 200 velocities from 2000 to 6000 m/s, temporal window size of 50 ms,
+        crosscorrelation coherency measure and muting stretching effects:
+        >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum(velocities=np.linspace(2000, 6000, 200), 
+                                                                            win_size=50, mode='CC', stretch_mute=True)
 
         Parameters
         ----------
-        velocities : 1d np.ndarray
-            Range of velocity values for which semblance is calculated. Measured in meters/seconds.
+        velocities : 1d np.ndarray or None, optional, defaults to None.
+            Range of velocity values for which velocity spectrum is calculated. Measured in meters/seconds.
+            If not provided, 30 velocities estimated from `const.DEFAULT_SDC_VELOCITY`.
         win_size : int, optional, defaults to 25
-            Temporal window size used for semblance calculation. The higher the `win_size` is, the smoother the
-            resulting semblance will be but to the detriment of small details. Measured in samples.
+            Temporal window size used for velocity spectrum calculation. The higher the `win_size` is, the smoother the
+            resulting velocity spectrum will be but to the detriment of small details. Measured in ms.
         mode: str, optional, defaults to 'semblance'
             The measure for estimating hodograph coherency. 
             The available options are: 
@@ -808,60 +818,63 @@ class Gather(TraceContainer, SamplesContainer):
                 `normalized_stacked_amplitude` or `NS`,
                 `crosscorrelation` or `CC`,
                 `energy_normalized_crosscorrelation` or `ENCC`
+        stretch_mute: bool, optional, defaults to False
+            Whether to mute stretcing effects before estimating hodograph coherency.
 
         Returns
         -------
-        semblance : Semblance
-            Calculated vertical velocity semblance.
+        vertical_velocity_spectrum : VerticalVelocitySpectrum
+            Calculated vertical velocity spectrum.
         """
         gather = self.copy().sort(by="offset")
-        return VerticalVelocitySpectrum(gather=gather, velocities=velocities, win_size=win_size, mode=mode, stretch_mute=stretch_mute)
+        return VerticalVelocitySpectrum(gather=gather, velocities=velocities, win_size=win_size, mode=mode, stretch_mute=stretch_mute, s=s, N=N)
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
     def calculate_residual_velocity_spectrum(self, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2,
                                      mode="semblance"):
-        """Calculate residual vertical velocity semblance for the gather and a chosen stacking velocity.
+        """Calculate residual velocity spectrum for the gather and provided stacking velocity.
 
         Notes
         -----
-        A detailed description of residual vertical velocity semblance and its computation algorithm can be found in
-        :func:`~semblance.ResidualSemblance` docs.
+        A detailed description of residual velocity spectrum and its computation algorithm can be found in
+        :func:`~velocity_spectrum.ResidualVelocitySpectrum` docs.
+
 
         Examples
         --------
-        Calculate residual semblance for a gather and a stacking velocity, loaded from a file:
+        Calculate residual velocity spectrum for a gather and a stacking velocity, loaded from a file:
         >>> velocity = StackingVelocity.from_file(velocity_path)
-        >>> residual = gather.calculate_residual_semblance(velocity, n_velocities=100, win_size=8)
+        >>> residual_spectrum = gather.calculate_residual_velocity_spectrum(velocity, n_velocities=100, win_size=8)
 
         Parameters
         ----------
         stacking_velocity : StackingVelocity or StackingVelocityField or str
-            Stacking velocity around which residual semblance is calculated. `StackingVelocity` instance is used
-            directly. If `StackingVelocityField` instance is passed, a `StackingVelocity` corresponding to gather
-            coordinates is fetched from it.
+            Stacking velocity around which residual velocity spectrum is calculated. 
+            `StackingVelocity` instance is used directly. If `StackingVelocityField` instance is passed, 
+            a `StackingVelocity` corresponding to gather coordinates is fetched from it.
             May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
         n_velocities : int, optional, defaults to 140
-            The number of velocities to compute residual semblance for.
+            The number of velocities to compute residual velocity spectrum for.
         win_size : int, optional, defaults to 25
-            Temporal window size used for semblance calculation. The higher the `win_size` is, the smoother the
-            resulting semblance will be but to the detriment of small details. Measured in samples.
+            Temporal window size used for residual velocity spectrum calculation. Measured in ms.
+            The higher the `win_size` is, the smoother the resulting spectrum will be but to the detriment of small details.
         relative_margin : float, optional, defaults to 0.2
-            Relative velocity margin, that determines the velocity range for semblance calculation for each time `t` as
-            `stacking_velocity(t)` * (1 +- `relative_margin`).
+            Relative velocity margin, that determines the velocity range for residual spectrum calculation 
+            for each time `t` as `stacking_velocity(t)` * (1 +- `relative_margin`).
         mode: str, optional, defaults to 'semblance'
             The measure for estimating hodograph coherency. 
-            See func:`~semblance.ResidualSemblance` for avaliable modes.
+            See func:`~velocity_spectrum.ResidualVelocitySpectrum` for avaliable modes.
 
         Returns
         -------
-        semblance : ResidualSemblance
-            Calculated residual vertical velocity semblance.
+        residual_spectrum : ResidualVelocitySpectrum
+            Calculated residual velocity spectrum.
         """
         if isinstance(stacking_velocity, StackingVelocityField):
             stacking_velocity = stacking_velocity(self.coords)
         gather = self.copy().sort(by="offset")
         return ResidualVelocitySpectrum(gather=gather, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
-                                 win_size=win_size, relative_margin=relative_margin, mode=mode)
+                                        win_size=win_size, relative_margin=relative_margin, mode=mode)
 
     #------------------------------------------------------------------------#
     #                           Gather corrections                           #
@@ -1001,7 +1014,7 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target="threads")
-    def stack(self):
+    def stack(self, s=1):
         """Stack a gather by calculating mean value of all non-nan amplitudes for each time over the offset axis.
 
         The gather being stacked must contain traces from a single bin. The resulting gather will contain a single
@@ -1019,9 +1032,11 @@ class Gather(TraceContainer, SamplesContainer):
         # Preserve headers of the first trace of the gather being stacked
         self.headers = self.headers.iloc[[0]]
 
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=RuntimeWarning)
-            self.data = np.nanmean(self.data, axis=0, keepdims=True)
+        # with warnings.catch_warnings():
+        #     warnings.simplefilter("ignore", category=RuntimeWarning)
+        #     self.data = np.nanmean(self.data, axis=0, keepdims=True)
+        n, d = stacked_amplitude(self.data.T, s)
+        self.data = n.astype(np.float32).reshape(1, -1)
         self.data = np.nan_to_num(self.data)
         return self
 
