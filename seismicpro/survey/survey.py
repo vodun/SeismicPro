@@ -1028,8 +1028,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             Survey with no dead traces.
         """
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        dead_traces_metric = DeadTrace()
         if self.n_dead_traces is None:
-            dead_traces_metric = DeadTrace()
             self.qc_tracewise(dead_traces_metric, chunk_size=chunk_size, bar=bar)
 
         self.filter(lambda dt: dt == 0, cols=dead_traces_metric.name, inplace=True)

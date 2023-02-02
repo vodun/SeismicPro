@@ -267,6 +267,8 @@ class Autocorr(TracewiseMetric):
     threshold = 0.9
     top_ax_y_scale = 'log'
 
+    params = ['muter']
+
     @classmethod
     def preprocess(cls, gather, muter, **kwargs):
         _ = kwargs
