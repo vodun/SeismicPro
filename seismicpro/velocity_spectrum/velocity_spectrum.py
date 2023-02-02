@@ -128,8 +128,6 @@ class BaseVelocitySpectrum:
                                                 offsets, velocity, sample_rate, crossover_mute=False, mute_stretch=mute_stretch).T
 
         numerator, denominator = coherency_func(corrected_gather_data)
-        numerator[~np.isfinite(numerator)] = 0
-        denominator[~np.isfinite(denominator)] = 0
 
         velocity_spectrum_slice = np.zeros(t_max_ix - t_min_ix, dtype=np.float32)
         for t in prange(t_min_ix, t_max_ix):

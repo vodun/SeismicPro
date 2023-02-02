@@ -5,14 +5,15 @@ import numpy as np
 from numba import njit, prange, jit_module
 
 
-def stacked_amplitude(corrected_gather, s=0.8):
-    numerator = np.zeros(corrected_gather.shape[0])
-    denominator = np.ones(corrected_gather.shape[0])
+def stacked_amplitude(corrected_gather, s=1, abs=True):
+    numerator = np.zeros_like(corrected_gather[:, 0])
+    denominator = np.ones_like(corrected_gather[:, 0])
     for i in prange(corrected_gather.shape[0]):
-        N = np.sum(~np.isnan(corrected_gather[i, :]))
-        N = max(N, 1)
-        alpha = ((1-s) / N ** 0.5) + s/N
-        numerator[i] = np.nansum(corrected_gather[i, :]) * alpha
+        numerator[i] = np.nansum(corrected_gather[i, :])
+        if abs:
+            numerator[i] = np.abs(numerator[i])
+        n = max(np.sum(~np.isnan(corrected_gather[i, :])), np.int64(1))
+        denominator[i] = n / ((1 - s) * n ** 0.5 + s)
     return numerator, denominator
 
 

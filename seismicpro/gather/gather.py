@@ -1022,7 +1022,7 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target="threads")
-    def stack(self, s=1):
+    def stack(self, s=0.8):
         """Stack a gather by calculating mean value of all non-nan amplitudes for each time over the offset axis.
 
         The gather being stacked must contain traces from a single bin. The resulting gather will contain a single
@@ -1040,11 +1040,8 @@ class Gather(TraceContainer, SamplesContainer):
         # Preserve headers of the first trace of the gather being stacked
         self.headers = self.headers.iloc[[0]]
 
-        # with warnings.catch_warnings():
-        #     warnings.simplefilter("ignore", category=RuntimeWarning)
-        #     self.data = np.nanmean(self.data, axis=0, keepdims=True)
-        n, d = stacked_amplitude(self.data.T, s)
-        self.data = n.astype(np.float32).reshape(1, -1)
+        numerator, denominator = stacked_amplitude(self.data.T, s, False)
+        self.data = (numerator / denominator).reshape(1, -1)
         self.data = np.nan_to_num(self.data)
         return self
 
