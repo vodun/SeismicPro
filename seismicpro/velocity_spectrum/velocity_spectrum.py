@@ -92,7 +92,7 @@ class BaseVelocitySpectrum:
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def calc_single_velocity_spectrum(coherency_func, gather_data, times, offsets, velocity, sample_rate,
-                                       win_size_samples, t_min_ix, t_max_ix, stretch_mute, s, N):  # pylint: disable=too-many-arguments
+                                       win_size_samples, t_min_ix, t_max_ix, mute_stretch=False):  # pylint: disable=too-many-arguments
         """Calculate velocity spectrum for given velocity and time range.
 
         Parameters
@@ -125,18 +125,18 @@ class BaseVelocitySpectrum:
         t_win_size_max_ix = min(len(times) - 1, t_max_ix + win_size_samples)
 
         corrected_gather_data = correction.apply_nmo(gather_data, times[t_win_size_min_ix: t_win_size_max_ix + 1],
-                                                offsets, velocity, sample_rate, crossover_mute=False, stretch_mute=stretch_mute).T
+                                                offsets, velocity, sample_rate, crossover_mute=False, mute_stretch=mute_stretch).T
 
-        numerator, denominator = coherency_func(corrected_gather_data, s, N)
-        numerator[np.isnan(numerator)] = 0
-        denominator[np.isnan(denominator)] = 0
+        numerator, denominator = coherency_func(corrected_gather_data)
+        numerator[~np.isfinite(numerator)] = 0
+        denominator[~np.isfinite(denominator)] = 0
 
         velocity_spectrum_slice = np.zeros(t_max_ix - t_min_ix, dtype=np.float32)
         for t in prange(t_min_ix, t_max_ix):
             t_rel = t - t_win_size_min_ix
             ix_from = max(0, t_rel - win_size_samples)
             ix_to = min(len(corrected_gather_data) - 1, t_rel + win_size_samples)
-            velocity_spectrum_slice[t - t_min_ix] = np.sum(numerator[ix_from : ix_to]) / (np.sum(denominator[ix_from : ix_to]) + + 1e-8)
+            velocity_spectrum_slice[t - t_min_ix] = np.sum(numerator[ix_from : ix_to]) / (np.sum(denominator[ix_from : ix_to]) + 1e-8)
         return velocity_spectrum_slice
 
     def _plot(self, title=None, x_label=None, x_ticklabels=None,  # pylint: disable=too-many-arguments
@@ -274,7 +274,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
             `normalized_stacked_amplitude` or `NS`,
             `crosscorrelation` or `CC`,
             `energy_normalized_crosscorrelation` or `ENCC`
-    stretch_mute: bool, optional, defaults to False
+    mute_stretch: bool, optional, defaults to False
         Whether to mute stretcing effects before estimating hodograph coherency.
 
     Attributes
@@ -288,7 +288,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     velocity_spectrum : 2d np.ndarray
         Array with calculated vertical velocity spectrum values.
     """
-    def __init__(self, gather, velocities=None, win_size=50, mode='semblance', stretch_mute=False, s=1, N=5):
+    def __init__(self, gather, velocities=None, win_size=50, mode='semblance', mute_stretch=False):
         super().__init__(gather, win_size=win_size, mode=mode)
         if velocities is not None:
             self.velocities = velocities  # m/s
@@ -301,7 +301,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
                                                           coherency_func=self.coherency_func,
                                                           gather_data=self.gather.data, times=self.times,
                                                           offsets=self.offsets, velocities=velocities_ms,
-                                                          sample_rate=self.sample_rate, win_size_samples=self.win_size_samples, stretch_mute=stretch_mute, s=s, N=N)
+                                                          sample_rate=self.sample_rate, win_size_samples=self.win_size_samples, mute_stretch=mute_stretch)
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
@@ -322,7 +322,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_spectrum_numba(spectrum_func, coherency_func, gather_data, times, offsets, velocities,
-                            sample_rate, win_size_samples, stretch_mute, s, N):
+                            sample_rate, win_size_samples, mute_stretch):
         """Parallelized and njitted method for vertical velocity spectrum calculation.
 
         Parameters
@@ -343,7 +343,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
             velocity_spectrum[:, j] = spectrum_func(coherency_func=coherency_func, gather_data=gather_data, 
                                                     times=times, offsets=offsets, velocity=velocities[j], 
                                                     sample_rate=sample_rate, win_size_samples=win_size_samples,
-                                                    t_min_ix=0, t_max_ix=gather_data.shape[1], stretch_mute=stretch_mute, s=s, N=N)
+                                                    t_min_ix=0, t_max_ix=gather_data.shape[1], mute_stretch=mute_stretch)
         return velocity_spectrum
 
     def _plot(self, stacking_velocity=None, *, title="Vertical Velocity Spectrum", x_ticker=None, y_ticker=None, grid=False,
@@ -545,9 +545,8 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
                                                                  coherency_func=self.coherency_func,
                                                                  gather_data=self.gather.data, times=self.times,
                                                                  offsets=self.offsets, velocities=velocities_ms,
-                                                                 left_bound_ix=left_bound_ix,
-                                                                 right_bound_ix=right_bound_ix,
-                                                                 sample_rate=self.sample_rate, win_size=self.win_size_samples)
+                                                                 left_bound_ix=left_bound_ix, right_bound_ix=right_bound_ix,
+                                                                 sample_rate=self.sample_rate, win_size_samples=self.win_size_samples)
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
         residual velocity spectrum."""
@@ -613,15 +612,15 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
             velocity_spectrum[t_min_ix : t_max_ix+1, i] = spectrum_func(coherency_func=coherency_func,
                                                                  gather_data=gather_data, times=times, offsets=offsets,
                                                                  velocity=velocities[i], sample_rate=sample_rate,
-                                                                 win_size=win_size_samples, t_min_ix=t_min_ix,
+                                                                 win_size_samples=win_size_samples, t_min_ix=t_min_ix,
                                                                  t_max_ix=t_max_ix+1)
 
         # Interpolate velocity spectrum to get a rectangular image
         residual_velocity_spectrum_len = (right_bound_ix - left_bound_ix).max()
         residual_velocity_spectrum = np.empty((len(times), residual_velocity_spectrum_len), dtype=np.float32)
-        for i in prange(len(redidual_velocity_spectrum)):
+        for i in prange(len(residual_velocity_spectrum)):
             cropped_velocity_spectrum = velocity_spectrum[i, left_bound_ix[i] : right_bound_ix[i] + 1]
-            redsdual_velocity_spectrum[i] = np.interp(np.linspace(0, len(cropped_velocity_spectrum) - 1, velocity_spectrum_len),
+            residual_velocity_spectrum[i] = np.interp(np.linspace(0, len(cropped_velocity_spectrum) - 1, residual_velocity_spectrum_len),
                                               np.arange(len(cropped_velocity_spectrum)),
                                               cropped_velocity_spectrum)
         return residual_velocity_spectrum

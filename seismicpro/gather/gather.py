@@ -781,7 +781,7 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", copy_src=False)
-    def calculate_vertical_velocity_spectrum(self, velocities=None, win_size=25, mode="semblance", stretch_mute=False, s=1, N=5):
+    def calculate_vertical_velocity_spectrum(self, velocities=None, win_size=50, mode="semblance", mute_stretch=False):
         """Calculate vertical velocity spectrum for the gather.
 
         Notes
@@ -806,7 +806,7 @@ class Gather(TraceContainer, SamplesContainer):
         velocities : 1d np.ndarray or None, optional, defaults to None.
             Range of velocity values for which velocity spectrum is calculated. Measured in meters/seconds.
             If not provided, 30 velocities estimated from `const.DEFAULT_SDC_VELOCITY`.
-        win_size : int, optional, defaults to 25
+        win_size : int, optional, defaults to 50
             Temporal window size used for velocity spectrum calculation. The higher the `win_size` is, the smoother the
             resulting velocity spectrum will be but to the detriment of small details. Measured in ms.
         mode: str, optional, defaults to 'semblance'
@@ -817,7 +817,7 @@ class Gather(TraceContainer, SamplesContainer):
                 `normalized_stacked_amplitude` or `NS`,
                 `crosscorrelation` or `CC`,
                 `energy_normalized_crosscorrelation` or `ENCC`
-        stretch_mute: bool, optional, defaults to False
+        mute_stretch: bool, optional, defaults to False
             Whether to mute stretcing effects before estimating hodograph coherency.
 
         Returns
@@ -826,11 +826,11 @@ class Gather(TraceContainer, SamplesContainer):
             Calculated vertical velocity spectrum.
         """
         gather = self.copy().sort(by="offset")
-        return VerticalVelocitySpectrum(gather=gather, velocities=velocities, win_size=win_size, mode=mode, stretch_mute=stretch_mute, s=s, N=N)
+        return VerticalVelocitySpectrum(gather=gather, velocities=velocities, win_size=win_size, mode=mode, mute_stretch=mute_stretch)
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
-    def calculate_residual_velocity_spectrum(self, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2,
-                                     mode="semblance"):
+    def calculate_residual_velocity_spectrum(self, stacking_velocity, n_velocities=140, relative_margin=0.2, 
+                                             win_size=50, mode="semblance", mute_stretch=False):
         """Calculate residual velocity spectrum for the gather and provided stacking velocity.
 
         Notes
@@ -854,15 +854,22 @@ class Gather(TraceContainer, SamplesContainer):
             May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
         n_velocities : int, optional, defaults to 140
             The number of velocities to compute residual velocity spectrum for.
-        win_size : int, optional, defaults to 25
-            Temporal window size used for residual velocity spectrum calculation. Measured in ms.
-            The higher the `win_size` is, the smoother the resulting spectrum will be but to the detriment of small details.
         relative_margin : float, optional, defaults to 0.2
             Relative velocity margin, that determines the velocity range for residual spectrum calculation 
             for each time `t` as `stacking_velocity(t)` * (1 +- `relative_margin`).
+        win_size : int, optional, defaults to 50
+            Temporal window size used for residual velocity spectrum calculation. Measured in ms.
+            The higher the `win_size` is, the smoother the resulting spectrum will be but to the detriment of small details.
         mode: str, optional, defaults to 'semblance'
             The measure for estimating hodograph coherency. 
-            See func:`~velocity_spectrum.ResidualVelocitySpectrum` for avaliable modes.
+            The available options are: 
+                `semblance` or `NE`,
+                `stacked_amplitude` or `S`,
+                `normalized_stacked_amplitude` or `NS`,
+                `crosscorrelation` or `CC`,
+                `energy_normalized_crosscorrelation` or `ENCC`
+        mute_stretch: bool, optional, defaults to False
+            Whether to mute stretcing effects before estimating hodograph coherency.
 
         Returns
         -------
