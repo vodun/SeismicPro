@@ -51,10 +51,10 @@ def test_dump_single_gather(segy_path, tmp_path, name, retain_parent_segy_header
         assert full_exp_headers.equals(full_dump_headers)
 
 
-@pytest.mark.parametrize("dump_kwargs, error",
+@pytest.mark.parametrize("dump_kwargs, error", [
     ({"path": ""}, FileNotFoundError),
     ({"path": "some_path", "name": ""}, ValueError)
-)
+])
 def test_dump_single_gather_with_invalid_kwargs(segy_path, dump_kwargs, error):
     survey = Survey(segy_path, header_index='FieldRecord', validate=False)
     gather = survey.get_gather(1)
