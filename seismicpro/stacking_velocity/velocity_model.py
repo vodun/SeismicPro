@@ -180,7 +180,7 @@ def calculate_stacking_velocity(velocity_spectrum, times, velocities, start_velo
     max_vel_step = np.int32(max_vel_step)
 
     # Create a graph and find paths with maximal velocity spectrum sum along them to all reachable nodes
-    edges, start_node, end_nodes = create_edges(velocity spectrum, times, velocities, start_velocity_range,
+    edges, start_node, end_nodes = create_edges(velocity_spectrum, times, velocities, start_velocity_range,
                                                 end_velocity_range, max_vel_step, n_times, n_velocities)
     graph = nx.DiGraph()
     graph.add_weighted_edges_from(zip(*edges))

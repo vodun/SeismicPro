@@ -26,7 +26,7 @@ class VelocitySpectrumPlot(PairedPlot):  # pylint: disable=too-many-instance-att
 
         self.figsize = figsize
         self.orientation = orientation
-        self.title = title + f'\n Coherency func: {semvelocity_spectrumlance.coherency_func.__name__}' 
+        self.title = title + f'\n Coherency func: {velocity_spectrum.coherency_func.__name__}' 
         self.click_time = None
         self.click_vel = None
 

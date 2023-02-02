@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 
 
 from .utils import coherency_funcs
-from .interactive_plot import SemblancePlot
+from .interactive_plot import VelocitySpectrumPlot
 from ..decorators import batch_method, plotter
 from ..stacking_velocity import StackingVelocity, calculate_stacking_velocity
 from ..utils import add_colorbar, set_ticks, set_text_formatting
@@ -203,7 +203,7 @@ class BaseVelocitySpectrum:
         """Plot velocity spectrum in interactive or non-interactive mode."""
         if not interactive:
             return self._plot(*args, **kwargs)
-        return SemblancePlot(self, *args, **kwargs).plot()
+        return VelocitySpectrumPlot(self, *args, **kwargs).plot()
 
 
 class VerticalVelocitySpectrum(BaseVelocitySpectrum):
