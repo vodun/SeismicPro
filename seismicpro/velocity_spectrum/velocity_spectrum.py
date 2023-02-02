@@ -207,20 +207,38 @@ class BaseVelocitySpectrum:
 class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     r"""A class for vertical velocity spectrum calculation and processing.
 
-    Semblance is a normalized output-input energy ratio for a CDP gather. The higher the values of semblance are, the
+    Velocity spectrum is a measure for hodograph coherency. The higher the values of velocity spectrum are, the
     more coherent the signal is along a hyperbolic trajectory over the entire spread length of the gather.
 
-    Semblance instance can be created either directly by passing source gather, velocity range and window size to its
-    init or by calling :func:`~Gather.calculate_semblance` method (recommended way).
+    Velocity spectrum instance can be created either directly by passing source gather(and optional parameters like 
+    velocity range, window size and coherency measure) to its init
+    or by calling :func:`~Gather.calculate_vertical_velocity_spectrum` method (recommended way).
 
-    The semblance is computed by:
-    :math:`S(k, v) = \frac{\sum^{k+N/2}_{i=k-N/2}(\sum^{M-1}_{j=0} f_{j}(i, v))^2}
-                          {M \sum^{k+N/2}_{i=k-N/2}\sum^{M-1}_{j=0} f_{j}(i, v)^2}`,
+    The velocity spectrum is computed by:
+    :math:`VS(k, v) = \frac{\sum^{k+N/2}_{i=k-N/2} numerator(i, v)}
+                           {\sum^{k+N/2}_{i=k-N/2} denominator(i, v)},
     where:
 
-    S - semblance value for starting time index `k` and velocity `v`,
-    M - number of traces in the gather,
+    VS - velocity spectrum value for starting time index `k` and velocity `v`,
     N - temporal window size,
+    numerator(i, v) - numerator of the coherency measure
+    denominator(i, v) - denominator of the coherency measure
+
+    For different coherency measures:
+
+    - Stacked Amplitude:
+        numerator(i, v) = sum^{M-1}_{j=0} f_{j}(i, v)^2
+        denominator(i, v) = 1
+
+    - Energy Normalized Crosscorrelation:
+        numerator(i, v) = (sum^{M-1}_{j=0} f_{j}(i, v))^2 - sum^{M-1}_{j=0} f_{j}(i, v)^2
+        denominator(i, v) = (M - 1) * (sum^{M-1}_{j=0} f_{j}(i, v)^2)        
+
+    - Semblance:
+        numerator(i, v) = (sum^{M-1}_{j=0} f_{j}(i, v))^2
+        denominator(i, v) = M * sum^{M-1}_{j=0} f_{j}(i, v)^2
+    where:
+
     f_{j}(i, v) - the amplitude value on the `j`-th trace being NMO-corrected for time index `i` and velocity `v`. Thus
     the amplitude is taken for the time defined by :math:`t(i, v) = \sqrt{t_0^2 + \frac{l_j^2}{v^2}}`,
     where:
@@ -229,18 +247,17 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     :math:`l_j` - offset of the `j`-th trace,
     :math:`v` - velocity value.
 
-    The resulting matrix :math:`S(k, v)` has shape (trace_length, n_velocities) and contains vertical velocity
+    See the COHERENCY_FUNCS for the full list available coherency measures
+
+    The resulting matrix :math:`VS(k, v)` has shape (trace_length, n_velocities) and contains vertical velocity
     spectrum values based on hyperbolas with each combination of the starting point :math:`k` and velocity :math:`v`.
 
     The algorithm for velocity spectrum calculation looks as follows:
     For each velocity from given velocity range:
         1. Calculate NMO-corrected gather.
-        2. Calculate squared sum of amplitudes of the corrected gather along the offset axis and its rolling mean in a
-           temporal window with given `win_size`.
-        3. Calculate sum of squared amplitudes of the corrected gather along the offset axis and its rolling mean in a
-           temporal window with given `win_size`.
-        4. Divide a value from step 2 by the value from step 3 for each time to get semblance values for selected
-           velocity.
+        2. Estimate numerator and denominator for given coherency measure for each timestamp.
+        3. Get the velocity spectrum values as the division of rolling sums in a 
+        temporal window of numerator and denominator.
 
     Notes
     -----
@@ -453,7 +470,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
 class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     """A class for residual vertical velocity spectrum calculation and processing.
 
-    Residual velocity spectrum is a normalized output-input energy ratio for a CDP gather along picked stacking velocity. The
+    Residual velocity spectrum is hodograph coherency measure for a CDP gather along picked stacking velocity. The
     method of its computation for given time and velocity completely coincides with the calculation of
     :class:`~VerticalVelocitySpectrum`, however, residual velocity spectrum is computed in a small area around given 
     stacking velocity, thus allowing for additional optimizations.

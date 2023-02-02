@@ -105,7 +105,7 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate, mut
         Measured in meters/milliseconds.
     sample_rate : float
         Sample rate of seismic traces. Measured in milliseconds.
-    crossover_mute: bool, optional, defaults to False
+    mute_crossover: bool, optional, defaults to False
         Whether to mute areas where the time reversal occurred after nmo corrections.
     mute_stretch: bool, optional, defaults to False
         Whether to mute areas where the stretching effect occurred after nmo corrections.
