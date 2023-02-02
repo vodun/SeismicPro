@@ -77,7 +77,7 @@ class BaseVelocitySpectrum:
         return self.gather.offsets  # m
 
     @property
-    def coords(self): 
+    def coords(self):
         """Coordinates or None: Spatial coordinates of the velocity_spectrum. Determined by the underlying gather.
         `None` if the gather is indexed by unsupported headers or required coords headers were not loaded
         or coordinates are non-unique for traces of the gather."""
@@ -125,7 +125,8 @@ class BaseVelocitySpectrum:
         t_win_size_max_ix = min(len(times) - 1, t_max_ix + win_size_samples)
 
         corrected_gather_data = correction.apply_nmo(gather_data, times[t_win_size_min_ix: t_win_size_max_ix + 1],
-                                                offsets, velocity, sample_rate, crossover_mute=False, mute_stretch=mute_stretch).T
+                                                     offsets, velocity, sample_rate, crossover_mute=False,
+                                                     mute_stretch=mute_stretch).T
 
         numerator, denominator = coherency_func(corrected_gather_data)
 
@@ -134,7 +135,8 @@ class BaseVelocitySpectrum:
             t_rel = t - t_win_size_min_ix
             ix_from = max(0, t_rel - win_size_samples)
             ix_to = min(len(corrected_gather_data) - 1, t_rel + win_size_samples)
-            velocity_spectrum_slice[t - t_min_ix] = np.sum(numerator[ix_from : ix_to]) / (np.sum(denominator[ix_from : ix_to]) + 1e-8)
+            velocity_spectrum_slice[t - t_min_ix] = np.sum(numerator[ix_from : ix_to]) / \
+                                                    (np.sum(denominator[ix_from : ix_to]) + 1e-8)
         return velocity_spectrum_slice
 
     def _plot(self, title=None, x_label=None, x_ticklabels=None,  # pylint: disable=too-many-arguments
@@ -177,11 +179,11 @@ class BaseVelocitySpectrum:
         # Cast text-related parameters to dicts and add text formatting parameters from kwargs to each of them
         (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
         if 'label' in title:
-            title['label'] += f'\n Coherency func: {self.coherency_func.__name__}' 
+            title['label'] += f'\n Coherency func: {self.coherency_func.__name__}'
         
         cmap = plt.get_cmap('seismic')
-        norm = mcolors.BoundaryNorm(np.linspace(0, np.quantile(self.velocity_spectrum, clip_threshold_quantile), n_levels),
-                                    cmap.N, clip=True)
+        level_values = np.linspace(0, np.quantile(self.velocity_spectrum, clip_threshold_quantile), n_levels)
+        norm = mcolors.BoundaryNorm(level_values, cmap.N, clip=True)
         img = ax.imshow(self.velocity_spectrum, norm=norm, aspect='auto', cmap=cmap)
         add_colorbar(ax, img, colorbar, y_ticker=y_ticker)
         ax.set_title(**{"label": None, **title})
@@ -316,7 +318,8 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
                                                           coherency_func=self.coherency_func,
                                                           gather_data=self.gather.data, times=self.times,
                                                           offsets=self.offsets, velocities=velocities_ms,
-                                                          sample_rate=self.sample_rate, win_size_samples=self.win_size_samples, mute_stretch=mute_stretch)
+                                                          sample_rate=self.sample_rate, win_size_samples=self.win_size_samples, 
+                                                          mute_stretch=mute_stretch)
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
@@ -355,10 +358,11 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         velocity_spectrum = np.empty((gather_data.shape[1], len(velocities)), dtype=np.float32)
         # TODO: use prange when fixed in numba
         for j in prange(len(velocities)):  # pylint: disable=consider-using-enumerate
-            velocity_spectrum[:, j] = spectrum_func(coherency_func=coherency_func, gather_data=gather_data, 
-                                                    times=times, offsets=offsets, velocity=velocities[j], 
+            velocity_spectrum[:, j] = spectrum_func(coherency_func=coherency_func, gather_data=gather_data,
+                                                    times=times, offsets=offsets, velocity=velocities[j],
                                                     sample_rate=sample_rate, win_size_samples=win_size_samples,
-                                                    t_min_ix=0, t_max_ix=gather_data.shape[1], mute_stretch=mute_stretch)
+                                                    t_min_ix=0, t_max_ix=gather_data.shape[1],
+                                                    mute_stretch=mute_stretch)
         return velocity_spectrum
 
     def _plot(self, stacking_velocity=None, *, title="Vertical Velocity Spectrum", x_ticker=None, y_ticker=None, grid=False,
@@ -486,7 +490,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     Thus the residual velocity spectrum is a function of time and relative velocity margin. Zero margin line 
     corresponds to the given stacking velocity and generally should pass through local velocity spectrum maxima.
 
-    Residual velocity spectrum instance can be created either directly by passing source gather, stacking velocity and other
+    Residual velocity spectrum instance can be created either directly by passing gather, stacking velocity and other
     arguments to its init or by calling :func:`~Gather.calculate_residual_velocity_spectrum` method (recommended way).
 
     Notes
@@ -544,7 +548,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     velocity_spectrum : 2d np.ndarray
          Array with calculated residual vertical velocity velocity_spectrum values.
     """
-    def __init__(self, gather, stacking_velocity, n_velocities=140, win_size=50, relative_margin=0.2, mode='semblance'):
+    def __init__(self, gather, stacking_velocity, n_velocities=140, win_size=50, relative_margin=0.2, mode='semblance', mute_stretch=False):
         super().__init__(gather, win_size, mode)
         self.stacking_velocity = stacking_velocity
         self.relative_margin = relative_margin
@@ -556,12 +560,14 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
 
         left_bound_ix, right_bound_ix = self._calc_velocity_bounds()
-        self.velocity_spectrum = self._calc_res_velocity_spectrum_numba(spectrum_func=self.calc_single_velocity_spectrum, 
-                                                                 coherency_func=self.coherency_func,
-                                                                 gather_data=self.gather.data, times=self.times,
-                                                                 offsets=self.offsets, velocities=velocities_ms,
-                                                                 left_bound_ix=left_bound_ix, right_bound_ix=right_bound_ix,
-                                                                 sample_rate=self.sample_rate, win_size_samples=self.win_size_samples)
+        self.velocity_spectrum = self._calc_res_velocity_spectrum_numba(self.calc_single_velocity_spectrum,
+                                                        coherency_func=self.coherency_func,
+                                                        gather_data=self.gather.data, times=self.times,
+                                                        offsets=self.offsets, velocities=velocities_ms,
+                                                        left_bound_ix=left_bound_ix, right_bound_ix=right_bound_ix,
+                                                        sample_rate=self.sample_rate, win_size_samples=self.win_size_samples,
+                                                        mute_stretch=mute_stretch)
+
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
         residual velocity spectrum."""
@@ -595,7 +601,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_res_velocity_spectrum_numba(spectrum_func, coherency_func, gather_data, times, offsets, velocities,
-                                  left_bound_ix, right_bound_ix, sample_rate, win_size_samples):
+                                  left_bound_ix, right_bound_ix, sample_rate, win_size_samples, mute_stretch):
         """Parallelized and njitted method for residual vertical velocity spectrum calculation.
 
         Parameters
@@ -628,16 +634,16 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
                                                                  gather_data=gather_data, times=times, offsets=offsets,
                                                                  velocity=velocities[i], sample_rate=sample_rate,
                                                                  win_size_samples=win_size_samples, t_min_ix=t_min_ix,
-                                                                 t_max_ix=t_max_ix+1)
+                                                                 t_max_ix=t_max_ix+1, mute_stretch=mute_stretch)
 
         # Interpolate velocity spectrum to get a rectangular image
         residual_velocity_spectrum_len = (right_bound_ix - left_bound_ix).max()
         residual_velocity_spectrum = np.empty((len(times), residual_velocity_spectrum_len), dtype=np.float32)
         for i in prange(len(residual_velocity_spectrum)):
             cropped_velocity_spectrum = velocity_spectrum[i, left_bound_ix[i] : right_bound_ix[i] + 1]
-            residual_velocity_spectrum[i] = np.interp(np.linspace(0, len(cropped_velocity_spectrum) - 1, residual_velocity_spectrum_len),
-                                              np.arange(len(cropped_velocity_spectrum)),
-                                              cropped_velocity_spectrum)
+            x = np.linspace(0, len(cropped_velocity_spectrum) - 1, residual_velocity_spectrum_len)
+            residual_velocity_spectrum[i] = np.interp(x, np.arange(len(cropped_velocity_spectrum)), 
+                                                      cropped_velocity_spectrum)
         return residual_velocity_spectrum
 
     def _plot(self, *, title="Residual Velocity Spectrum", x_ticker=None, y_ticker=None, grid=False, colorbar=True, ax=None,
@@ -671,8 +677,8 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         grid : bool, optional, defaults to False
             Specifies whether to draw a grid on the plot.
         colorbar : bool or dict, optional, defaults to True
-            Whether to add a colorbar to the right of the residual velocity spectrum plot. If `dict`, defines extra keyword
-            arguments for `matplotlib.figure.Figure.colorbar`.
+            Whether to add a colorbar to the right of the residual velocity spectrum plot.
+            If `dict`, defines extra keyword arguments for `matplotlib.figure.Figure.colorbar`.
         clip_threshold_quantile : float, optional, defaults to 0.99
             Clip the residual velocity spectrum values by given quantile.
         n_levels: int, optional, defaluts to 10
@@ -682,11 +688,11 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         kwargs : misc, optional
             Additional common keyword arguments for `x_ticker` and `y_tickers`.
         interactive : bool, optional, defaults to `False`
-            Whether to plot residual velocity spectrum in interactive mode. This mode also plots the gather used to calculate
-            the residual velocity spectrum. Clicking on residual velocity spectrum highlights the corresponding hodograph on the gather
-            plot and allows performing NMO correction of the gather with the selected velocity. Interactive plotting
-            must be performed in a JupyterLab environment with the `%matplotlib widget` magic executed and `ipympl` and
-            `ipywidgets` libraries installed.
+            Whether to plot residual velocity spectrum in interactive mode. This mode also plots the gather used to
+            calculate the residual velocity spectrum. Clicking on residual velocity spectrum highlights the
+            corresponding hodograph on the gather plot and allows performing NMO correction of the gather with
+            the selected velocity. Interactive plotting must be performed in a JupyterLab environment
+            with the `%matplotlib widget` magic executed and `ipympl` and `ipywidgets` libraries installed.
         sharey : bool, optional, defaults to True, only for interactive mode
             Whether to share y axis of residual velocity spectrum and gather plots.
         gather_plot_kwargs : dict, optional, only for interactive mode

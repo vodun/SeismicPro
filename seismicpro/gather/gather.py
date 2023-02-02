@@ -826,10 +826,11 @@ class Gather(TraceContainer, SamplesContainer):
             Calculated vertical velocity spectrum.
         """
         gather = self.copy().sort(by="offset")
-        return VerticalVelocitySpectrum(gather=gather, velocities=velocities, win_size=win_size, mode=mode, mute_stretch=mute_stretch)
+        return VerticalVelocitySpectrum(gather=gather, velocities=velocities, 
+                                        win_size=win_size, mode=mode, mute_stretch=mute_stretch)
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
-    def calculate_residual_velocity_spectrum(self, stacking_velocity, n_velocities=140, relative_margin=0.2, 
+    def calculate_residual_velocity_spectrum(self, stacking_velocity, n_velocities=140, relative_margin=0.2,
                                              win_size=50, mode="semblance", mute_stretch=False):
         """Calculate residual velocity spectrum for the gather and provided stacking velocity.
 
@@ -859,7 +860,8 @@ class Gather(TraceContainer, SamplesContainer):
             for each time `t` as `stacking_velocity(t)` * (1 +- `relative_margin`).
         win_size : int, optional, defaults to 50
             Temporal window size used for residual velocity spectrum calculation. Measured in ms.
-            The higher the `win_size` is, the smoother the resulting spectrum will be but to the detriment of small details.
+            The higher the `win_size` is, the smoother the resulting spectrum will be but to the
+            detriment of small details.
         mode: str, optional, defaults to 'semblance'
             The measure for estimating hodograph coherency. 
             The available options are: 
@@ -879,8 +881,9 @@ class Gather(TraceContainer, SamplesContainer):
         if isinstance(stacking_velocity, StackingVelocityField):
             stacking_velocity = stacking_velocity(self.coords)
         gather = self.copy().sort(by="offset")
-        return ResidualVelocitySpectrum(gather=gather, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
-                                        win_size=win_size, relative_margin=relative_margin, mode=mode)
+        return ResidualVelocitySpectrum(gather=gather, stacking_velocity=stacking_velocity, 
+                                        n_velocities=n_velocities, win_size=win_size, relative_margin=relative_margin, 
+                                        mode=mode, mute_stretch=mute_stretch)
 
     #------------------------------------------------------------------------#
     #                           Gather corrections                           #
@@ -970,7 +973,7 @@ class Gather(TraceContainer, SamplesContainer):
             raise ValueError("stacking_velocity must be of int, float, StackingVelocity or StackingVelocityField type")
 
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
-        self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms, 
+        self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms,
                                          self.sample_rate, mute_crossover, mute_stretch, fill_value)
         return self
 
@@ -1030,8 +1033,8 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        w : float, optional, defaults to 1
-            Weight for the normalizing value used to increase the stack power of long hodographs. Must be in [0, 1] range.
+        w : float in range [0, 1], optional, defaults to 1
+            Weight for normalizing value used to increase the stack power of long hodographs. Must be in [0, 1] range.
             Normalizing the amplitudes sum to (1-w)*/sqrt(N) + w/N, where N is the number of non muted amplitudes.
             Note in case s=1(default), scaling factor is 1/N, e.g stack amplitude is the average of ensemble amplitudes.
 

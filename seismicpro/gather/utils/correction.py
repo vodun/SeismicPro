@@ -78,7 +78,8 @@ def compute_crossovers_times(hodograph_times):
 
 
 @njit(nogil=True, parallel=True)
-def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate, mute_crossover=False, mute_stretch=False, fill_value=np.nan):
+def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate,
+              mute_crossover=False, mute_stretch=False, fill_value=np.nan):
     r"""Perform gather normal moveout correction with given stacking velocities for each timestamp.
 
     The process of NMO correction removes the moveout effect on traveltimes, assuming that reflection traveltimes in a
@@ -121,11 +122,13 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate, mut
     hodograph_times = compute_hodograph_times(offsets, times, stacking_velocities)
 
     for i in prange(times.shape[0]): # pylint: disable=not-an-iterable
-        get_hodograph(gather_data, hodograph_times[i], sample_rate, fill_value=fill_value, out=corrected_gather_data[:, i])
+        get_hodograph(gather_data, hodograph_times[i], sample_rate,
+                      fill_value=fill_value, out=corrected_gather_data[:, i])
 
     if mute_stretch:
         max_stretch_factor = 0.65 # Reasonable default value for max_stretch_factor
-        stretch_times = np.interp(offsets, times * stacking_velocities * np.sqrt((1 + max_stretch_factor) ** 2 - 1), times)
+        stretch_times = np.interp(offsets, times * stacking_velocities * \
+                                  np.sqrt((1 + max_stretch_factor) ** 2 - 1), times)
         corrected_gather_data = mute_gather(corrected_gather_data, stretch_times, times, fill_value)
 
     if mute_crossover:

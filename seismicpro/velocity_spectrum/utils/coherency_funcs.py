@@ -13,7 +13,7 @@ def stacked_amplitude(corrected_gather, w=1, abs=True):
         if abs:
             numerator[i] = np.abs(numerator[i])
         n = max(np.sum(~np.isnan(corrected_gather[i, :])), np.int64(1))
-        denominator[i] = n / ((1 - s) * n ** 0.5 + s)
+        denominator[i] = n / ((1 - w) * n ** 0.5 + w)
     return numerator, denominator
 
 
