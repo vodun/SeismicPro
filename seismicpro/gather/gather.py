@@ -931,7 +931,7 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
-    def apply_nmo(self, stacking_velocity, crossover_mute=False, stretch_mute=False, fill_value=np.nan):
+    def apply_nmo(self, stacking_velocity, mute_crossover=False, mute_stretch=False, fill_value=np.nan):
         """Perform gather normal moveout correction using the given stacking velocity.
 
         Notes
@@ -945,9 +945,9 @@ class Gather(TraceContainer, SamplesContainer):
             `StackingVelocityField` instance is passed, a `StackingVelocity` corresponding to gather coordinates is
             fetched from it. If `int` or `float` then constant-velocity correction is performed.
             May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
-        crossover_mute: bool, optional, defaults to False
+        mute_crossover: bool, optional, defaults to False
             Whether to mute areas where the time reversal occurred after nmo corrections.
-        stretch_mute: bool, optional, defaults to False
+        mute_stretch: bool, optional, defaults to False
             Whether to mute areas where the stretching effect occurred after nmo corrections.
         fill_value : float, optional, defaults to np.nan
             Value used to fill the amplitudes outside the gather bounds after moveout.
@@ -971,7 +971,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
         self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms, 
-                                         self.sample_rate, crossover_mute, stretch_mute, fill_value)
+                                         self.sample_rate, mute_crossover, mute_stretch, fill_value)
         return self
 
     #------------------------------------------------------------------------#
