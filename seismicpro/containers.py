@@ -139,7 +139,7 @@ class TraceContainer:
         else:
             # FIXME: Workaround for a pandas bug https://github.com/pandas-dev/pandas/issues/34822
             # raw=True causes incorrect apply behavior when axis=1 and multiple values are returned from `func`
-            raw = (axis != 1)
+            raw = axis != 1
 
             apply_func = (lambda args, **kwargs: func(*args, **kwargs)) if unpack_args else func
             res = df.apply(apply_func, axis=axis, raw=raw, result_type="expand", **kwargs)

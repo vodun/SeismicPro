@@ -18,7 +18,7 @@ def postprocess_params(params):
     - Crossover offsets are non-negative and increasing,
     - Velocities of refractors are non-negative and increasing.
     """
-    is_1d = (params.ndim == 1)
+    is_1d = params.ndim == 1
 
     # Ensure that all params are non-negative
     params = np.clip(np.atleast_2d(params), 0, None)

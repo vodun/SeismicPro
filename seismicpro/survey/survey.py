@@ -496,7 +496,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self._bins_to_coords_reg = bins_to_coords_reg
         self._coords_to_bins_reg = coords_to_bins_reg
         self.n_bins = len(bins_to_coords)
-        self.is_stacked = (self.n_traces == self.n_bins)
+        self.is_stacked = self.n_traces == self.n_bins
         self.bin_size = np.diag(sp.linalg.polar(bins_to_coords_reg.coef_)[1])
         self.inline_length = (np.ptp(bins_to_coords["INLINE_3D"]) + 1) * self.bin_size[0]
         self.crossline_length = (np.ptp(bins_to_coords["CROSSLINE_3D"]) + 1) * self.bin_size[1]
@@ -513,7 +513,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if transformer is None:
             raise ValueError("Survey geometry was not inferred, call `infer_geometry` method first.")
         coords = np.array(coords)
-        is_coords_1d = (coords.ndim == 1)
+        is_coords_1d = coords.ndim == 1
         coords = np.atleast_2d(coords)
         transformed_coords = transformer.predict(coords)
         if is_coords_1d:
@@ -574,7 +574,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if contours is None:
             raise ValueError("Survey geometry was not inferred, call `infer_geometry` method first.")
         coords = np.array(coords, dtype=np.float32)
-        is_coords_1d = (coords.ndim == 1)
+        is_coords_1d = coords.ndim == 1
         coords = np.atleast_2d(coords)
         dist = np.empty(len(coords), dtype=np.float32)
         for i, coord in enumerate(coords):
