@@ -5,7 +5,7 @@ import numpy as np
 from numba import njit, prange, jit_module
 
 
-def stacked_amplitude(corrected_gather, s=1, abs=True):
+def stacked_amplitude(corrected_gather, w=1, abs=True):
     numerator = np.zeros_like(corrected_gather[:, 0])
     denominator = np.ones_like(corrected_gather[:, 0])
     for i in prange(corrected_gather.shape[0]):

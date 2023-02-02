@@ -1022,11 +1022,18 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target="threads")
-    def stack(self, s=0.8):
+    def stack(self, w=1):
         """Stack a gather by calculating mean value of all non-nan amplitudes for each time over the offset axis.
 
         The gather being stacked must contain traces from a single bin. The resulting gather will contain a single
         trace with `headers` matching those of the first input trace.
+
+        Parameters
+        ----------
+        w : float, optional, defaults to 1
+            Weight for the normalizing value used to increase the stack power of long hodographs. Must be in [0, 1] range.
+            Normalizing the amplitudes sum to (1-w)*/sqrt(N) + w/N, where N is the number of non muted amplitudes.
+            Note in case s=1(default), scaling factor is 1/N, e.g stack amplitude is the average of ensemble amplitudes.
 
         Returns
         -------
@@ -1037,10 +1044,11 @@ class Gather(TraceContainer, SamplesContainer):
         if (lines != lines[0]).any():
             raise ValueError("Only a single CDP gather can be stacked")
 
+        w = np.clip(w, 0, 1)
         # Preserve headers of the first trace of the gather being stacked
         self.headers = self.headers.iloc[[0]]
 
-        numerator, denominator = stacked_amplitude(self.data.T, s, False)
+        numerator, denominator = stacked_amplitude(self.data.T, w, False)
         self.data = (numerator / denominator).reshape(1, -1)
         self.data = np.nan_to_num(self.data)
         return self
