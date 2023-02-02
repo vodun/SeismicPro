@@ -4,6 +4,7 @@ from copy import copy
 
 import numpy as np
 
+from ..refractor_velocity import RefractorVelocity, RefractorVelocityField
 from ..metrics import PipelineMetric, pass_calc_args
 from ..const import HDR_FIRST_BREAK
 
@@ -32,8 +33,8 @@ class FirstBreaksOutliers(PipelineMetric):
         ----------
         gather : Gather
             A seismic gather to get offsets and first break times from.
-        refractor_velocity : RefractorVelocity
-            RefractorVelocity used to estimate the expected first break times at `gather` offsets.
+        refractor_velocity : RefractorVelocity or RefractorVelocityField
+            Near-surface velocity model to estimate the expected first break times at `gather` offsets.
         first_breaks_col : str, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `gather.headers` where first break times are stored.
         threshold_times: float, defaults to 50
@@ -49,12 +50,17 @@ class FirstBreaksOutliers(PipelineMetric):
             Fraction of traces in the gather whose first break times differ from estimated by velocity model for more
             than `threshold_times`.
         """
+        if isinstance(refractor_velocity, RefractorVelocityField):
+            refractor_velocity = refractor_velocity(gather.coords)
+        if not isinstance(refractor_velocity, RefractorVelocity):
+            raise ValueError("refractor_velocity must be of RefractorVelocity or RefractorVelocityField type")
+        expected_times = refractor_velocity(gather.offsets)
         fb_times = gather[first_breaks_col]
         if correct_uphole is None:
             correct_uphole = "SourceUpholeTime" in gather.available_headers and refractor_velocity.is_uphole_corrected
         if correct_uphole:
             fb_times = fb_times + gather["SourceUpholeTime"]
-        metric = np.abs(refractor_velocity(gather.offsets) - fb_times) > threshold_times
+        metric = np.abs(expected_times - fb_times) > threshold_times
         return np.mean(metric)
 
     @pass_calc_args
@@ -74,7 +80,13 @@ class FirstBreaksOutliers(PipelineMetric):
             correct_uphole = "SourceUpholeTime" in gather.available_headers and refractor_velocity.is_uphole_corrected
         if correct_uphole:
             fb_times = fb_times + gather["SourceUpholeTime"]
-        refractor_velocity = copy(refractor_velocity)
+
+        if isinstance(refractor_velocity, RefractorVelocityField):
+            refractor_velocity = refractor_velocity(gather.coords)
+        elif isinstance(refractor_velocity, RefractorVelocity):
+            refractor_velocity = copy(refractor_velocity)
+        else:
+            raise ValueError("refractor_velocity must be of RefractorVelocity or RefractorVelocityField type")
         refractor_velocity.offsets = gather["offset"]
         refractor_velocity.times = fb_times
         refractor_velocity.max_offset = max(refractor_velocity.max_offset, gather["offset"].max())
