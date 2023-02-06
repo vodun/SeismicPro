@@ -1,6 +1,6 @@
 """Implements VerticalVelocitySpectrum and ResidualVelocitySpectrum classes."""
 
-# pylint: disable=not-an-iterable
+# pylint: disable=not-an-iterable, too-many-arguments
 import numpy as np
 from numba import njit, prange
 from matplotlib import colors as mcolors
@@ -92,7 +92,7 @@ class BaseVelocitySpectrum:
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def calc_single_velocity_spectrum(coherency_func, gather_data, times, offsets, velocity, sample_rate,
-                                       win_size_samples, t_min_ix, t_max_ix, mute_stretch=False):  # pylint: disable=too-many-arguments
+                                       win_size_samples, t_min_ix, t_max_ix, mute_stretch=False):
         """Calculate velocity spectrum for given velocity and time range.
 
         Parameters
@@ -125,7 +125,7 @@ class BaseVelocitySpectrum:
         t_win_size_max_ix = min(len(times) - 1, t_max_ix + win_size_samples)
 
         corrected_gather_data = correction.apply_nmo(gather_data, times[t_win_size_min_ix: t_win_size_max_ix + 1],
-                                                     offsets, velocity, sample_rate, crossover_mute=False,
+                                                     offsets, velocity, sample_rate, mute_crossover=False,
                                                      mute_stretch=mute_stretch).T
 
         numerator, denominator = coherency_func(corrected_gather_data)
@@ -139,7 +139,7 @@ class BaseVelocitySpectrum:
                                                     (np.sum(denominator[ix_from : ix_to]) + 1e-8)
         return velocity_spectrum_slice
 
-    def _plot(self, title=None, x_label=None, x_ticklabels=None,  # pylint: disable=too-many-arguments
+    def _plot(self, title=None, x_label=None, x_ticklabels=None,
               x_ticker=None, y_ticklabels=None, y_ticker=None, grid=False, stacking_times_ix=None,
               stacking_velocities_ix=None, colorbar=True, clip_threshold_quantile=0.99, n_levels=10, ax=None, **kwargs):
         """Plot vertical velocity spectrum and, optionally, stacking velocity.
@@ -316,7 +316,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
         self.velocity_spectrum = self._calc_spectrum_numba(
                                                 spectrum_func=self.calc_single_velocity_spectrum,
-                                                coherency_func=self.coherency_func, gather_data=self.gather.data, 
+                                                coherency_func=self.coherency_func, gather_data=self.gather.data,
                                                 times=self.times, offsets=self.offsets, velocities=velocities_ms,
                                                 sample_rate=self.sample_rate, win_size_samples=self.win_size_samples,
                                                 mute_stretch=mute_stretch)
@@ -365,7 +365,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
                                                     mute_stretch=mute_stretch)
         return velocity_spectrum
 
-    def _plot(self, stacking_velocity=None, *, title="Vertical Velocity Spectrum", x_ticker=None, y_ticker=None, 
+    def _plot(self, stacking_velocity=None, *, title="Vertical Velocity Spectrum", x_ticker=None, y_ticker=None,
               grid=False, colorbar=True, ax=None, **kwargs):
         """Plot vertical velocity spectrum."""
         # Add a stacking velocity line on the plot
@@ -602,7 +602,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_res_velocity_spectrum_numba(spectrum_func, coherency_func, gather_data, times, offsets, velocities,
-                                          left_bound_ix, right_bound_ix, sample_rate, win_size_samples, mute_stretch):  # pylint: disable=too-many-arguments
+                                          left_bound_ix, right_bound_ix, sample_rate, win_size_samples, mute_stretch):
         """Parallelized and njitted method for residual vertical velocity spectrum calculation.
 
         Parameters
