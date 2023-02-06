@@ -31,6 +31,7 @@ class RefractorVelocityMetric(Metric):
         gather = self.survey.get_gather(coords)
         refractor_velocity.times = gather[self.first_breaks_col]
         refractor_velocity.offsets = gather['offset']
+        refractor_velocity.max_offset = max(refractor_velocity.max_offset, gather["offset"].max())
         refractor_velocity.plot(threshold_times=threshold_times, ax=ax, **kwargs)
 
 class FirstBreaksOutliers(RefractorVelocityMetric):
