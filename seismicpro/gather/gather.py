@@ -1488,9 +1488,9 @@ class Gather(TraceContainer, SamplesContainer):
             # Compute the polygon bodies, that represent mask coordinates with a small indent
             up_verts = mask_ix[start_ix].reshape(-1, 1, 2) + np.array([[-0.5, 0.5], [0.5, 0.5]])
             down_verts = mask_ix[end_ix].reshape(-1, 1, 2) + np.array([[0.5, -0.5], [-0.5, -0.5]])
-            verts = np.stack((up_verts, down_verts), axis=1).reshape(-1, 2)
-            # Create plaсeholders for Path.CLOSEPOLY code with coords [0, 0] after each polygon
-            verts = np.insert(verts, np.arange(len(verts), step=4)+4, [0, 0], axis=0)
+            # Combine upper and lower vertices and add plaсeholders for Path.CLOSEPOLY code with coords [0, 0] after
+            # each polygon.
+            verts = np.hstack((up_verts, down_verts, np.zeros((len(up_verts), 1, 2)))).reshape(-1, 2)
 
             # Fill the array representing the nodes codes: either start, intermediate or end code.
             codes = np.full(len(verts), Path.LINETO)
