@@ -1256,9 +1256,9 @@ class Gather(TraceContainer, SamplesContainer):
             * `log`: set y-axis to log scale. If `True`, formatting defined in `y_ticker` is discarded,
             * Any additional arguments for `matplotlib.pyplot.hist`.
 
-        Any positive definite array matching the size of the gather can be drawn above the main plot in `seismogram`
-        or `wiggle` mode via `mask` parameter. Any values greater than 0.5 are trated as a mask and will be plotted in
-        red with small transparancy. Note that `mask` works only with `seismogram` and `wiggle` mods.
+        Any 2d array matching the size of the gather or 1d array with length equal to gather.n_traces can be drawn on
+        top of the main plot in `seismogram` or `wiggle` mode via `mask` parameter. Any values in the array greater
+        than 0.5 are treated as a mask and will be plotted in red with small transparency.
 
         Trace headers, whose values are measured in milliseconds (e.g. first break times) may be displayed over a
         seismogram or wiggle plot if passed as `event_headers`. If `top_header` is passed, an auxiliary scatter plot of
@@ -1286,11 +1286,12 @@ class Gather(TraceContainer, SamplesContainer):
             - "seismogram": a 2d grayscale image of seismic traces;
             - "wiggle": an amplitude vs time plot for each trace of the gather;
             - "hist": histogram of the data amplitudes or some header values.
-        mask : 2d array with same shape as self.shape or 1d array with length == self.n_traces or Gather, optional,
-        defaults to None
-            If `2d array`, a mask to put above the gather plot;
+        mask : 2d array with same shape as self.shape or 1d array with length == self.n_traces or Gather or str,
+        optional, defaults to None
+            If `2d array`, a mask to plot on top of the gather plot;
             If `1d array`, a vector that determines which traces to mask;
-            If `Gather`, its `data` attribute will be threated as a mask.
+            If `Gather`, its `data` attribute will be treated as a mask;
+            If `str`, a header name to take mask from.
         title : str or dict, optional, defaults to None
             If `str`, a title of the plot.
             If `dict`, should contain keyword arguments to pass to `matplotlib.axes.Axes.set_title`. In this case, the
@@ -1371,6 +1372,9 @@ class Gather(TraceContainer, SamplesContainer):
         if mask is not None:
             if isinstance(mask, Gather):
                 mask = mask.data
+            elif isinstance(mask, str):
+                mask = self[mask]
+
             mask = np.array(mask)
             if mask.ndim == 1:
                 mask = mask.reshape(-1, 1)
@@ -1418,7 +1422,8 @@ class Gather(TraceContainer, SamplesContainer):
                      **kwargs):
         """Plot the gather as an amplitude vs time plot for each trace."""
         def _get_start_end_ixs(ixs):
-            """Returns two arrays with indexes of the beginning and end of continuous subsequences in the array"""
+            """Return arrays with indices of beginnings and ends of polygons defined by continuous subsequences in
+            `ixs`."""
             start_ix = np.argwhere((np.diff(ixs[:, 0], prepend=ixs[0, 0]) != 0) |
                                    (np.diff(ixs[:, 1], prepend=ixs[0, 1]) != 1)).ravel()
             end_ix = start_ix + np.diff(start_ix, append=len(ixs)) - 1
