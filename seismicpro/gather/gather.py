@@ -1371,18 +1371,10 @@ class Gather(TraceContainer, SamplesContainer):
         if mask is not None:
             if isinstance(mask, Gather):
                 mask = mask.data
-            # Convert to float to be able to replace zeros with nans since only nans in mask will not affect main plot
-            mask = np.asarray(mask).astype(np.float16)
+            mask = np.array(mask)
             if mask.ndim == 1:
-                mask = np.tile(np.atleast_2d(mask), (self.shape[1], 1)).T
-            if mask.shape != self.data.shape:
-                raise ValueError(f"`mask` shape must match the gather shape, but mask.shape {mask.shape} !="
-                                 f" gather.shape {self.shape}")
-            # Binarize given mask
-            nan_mask = mask <= 0.5
-            mask[nan_mask] = np.nan
-            mask[~nan_mask] = 1
-            kwargs.update({"mask": mask})
+                mask = mask.reshape(-1, 1)
+            kwargs["mask"] = np.broadcast_to(np.where(mask < 0.5, np.nan, mask), self.shape)
 
         plotters_dict[mode](ax, title=title, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
         return self
@@ -1414,10 +1406,10 @@ class Gather(TraceContainer, SamplesContainer):
         vmin, vmax = self.get_quantile([q_vmin, q_vmax])
         kwargs = {"cmap": "gray", "aspect": "auto", "vmin": vmin, "vmax": vmax, **kwargs}
         img = ax.imshow(self.data.T, **kwargs)
-        add_colorbar(ax, img, colorbar, divider, y_ticker)
         if mask is not None:
             kwargs.update({"alpha": 0.5, "cmap": 'Reds'})
             img = ax.imshow(mask.T, **kwargs)
+        add_colorbar(ax, img, colorbar, divider, y_ticker)
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
     #pylint: disable=invalid-name
@@ -1428,7 +1420,7 @@ class Gather(TraceContainer, SamplesContainer):
         def _get_start_end_ixs(ixs):
             """Returns two arrays with indexes of the beginning and end of continuous subsequences in the array"""
             start_ix = np.argwhere((np.diff(ixs[:, 0], prepend=ixs[0, 0]) != 0) |
-                               (np.diff(ixs[:, 1], prepend=ixs[0, 1]) != 1)).ravel()
+                                   (np.diff(ixs[:, 1], prepend=ixs[0, 1]) != 1)).ravel()
             end_ix = start_ix + np.diff(start_ix, append=len(ixs)) - 1
             return start_ix, end_ix
 
@@ -1488,7 +1480,6 @@ class Gather(TraceContainer, SamplesContainer):
         if mask is not None and np.nansum(mask) > 0:
             mask_ix = np.argwhere(mask > 0)
             start_ix, end_ix = _get_start_end_ixs(mask_ix)
-            verts = np.zeros((len(start_ix)*5, 2))
             # Compute the polygon bodies, that represent mask coordinates with a small indent
             up_verts = mask_ix[start_ix].reshape(-1, 1, 2) + np.array([[-0.5, 0.5], [0.5, 0.5]])
             down_verts = mask_ix[end_ix].reshape(-1, 1, 2) + np.array([[0.5, -0.5], [-0.5, -0.5]])
