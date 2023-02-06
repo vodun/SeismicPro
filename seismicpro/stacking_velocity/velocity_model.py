@@ -86,7 +86,8 @@ def create_edges(velocity_spectrum, times, velocities, start_velocity_range, end
                 if not ((prev_time_ix == -1) or (prev_vel_ix <= curr_vel_ix <= prev_vel_ix + max_vel_step)):
                     continue
 
-                # Calculate the edge weight: sum of (1 - velocity_spectrum_value) for each value along the path between nodes
+                # Calculate the edge weight: sum of (1 - velocity_spectrum_value)
+                # for each value along the path between nodes
                 times_indices = np.arange(prev_time_ix + 1, curr_time_ix + 1, dtype=np.int32)
                 velocity_indices = interpolate_indices(prev_time_ix, prev_vel_ix, curr_time_ix, curr_vel_ix,
                                                        times_indices)
@@ -120,23 +121,24 @@ def calculate_stacking_velocity(velocity_spectrum, times, velocities, start_velo
     1. Stacking velocity is being found inside a trapezoid whose vertices at first and last time are defined by
        `start_velocity_range` and `end_velocity_range` respectively.
     2. An auxiliary directed graph is constructed so that:
-        1. `n_times` evenly spaced points are generated to cover the whole velocity spectrum time range. For each of these
-           points `n_velocities` evenly spaced points are generated to cover the whole range of velocities inside the
-           trapezoid from its left to right border. All these points form a set of vertices of the graph.
+        1. `n_times` evenly spaced points are generated to cover the whole velocity spectrum time range. For each
+           of these points `n_velocities` evenly spaced points are generated to cover the whole range of velocities
+           inside the trapezoid from its left to right border. All these points form a set of vertices of the graph.
         2. An edge from a vertex A to a vertex B exists only if:
             1. Vertex B is located at the very next timestamp after vertex A,
             2. Velocity at vertex B is no less than at A,
             3. Velocity at vertex B does not exceed that of A by a value determined by `max_acceleration` provided.
         3. Edge weight is defined as sum of velocity spectrum values along its path.
-    3. A path with maximal velocity spectrum sum along it between any of starting and ending nodes is found using Dijkstra
-       algorithm and is considered to be the required stacking velocity.
+    3. A path with maximal velocity spectrum sum along it between any of starting and ending nodes is found using
+        Dijkstra algorithm and is considered to be the required stacking velocity.
 
     Parameters
     ----------
     velocity_spectrum : 2d np.ndarray
         An array with calculated vertical velocity spectrum values.
     times : 1d np.ndarray
-        Recording time for each seismic trace value for which velocity spectrum was calculated. Measured in milliseconds.
+        Recording time for each seismic trace value for which velocity spectrum was calculated.
+        Measured in milliseconds.
     velocities : 1d np.ndarray
         Range of velocity values for which velocity spectrum was calculated. Measured in meters/seconds.
     start_velocity_range : tuple with 2 elements

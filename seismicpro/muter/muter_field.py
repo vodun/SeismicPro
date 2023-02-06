@@ -148,7 +148,7 @@ class MuterField(ValuesAgnosticField, VFUNCFieldMixin):
         field : MuterField
             Created muter field.
         """
-        items = [cls.item_class.from_stacking_velocity(item, max_stretch_factor=stretch_factor)
+        items = [cls.item_class.from_stacking_velocity(item, max_stretch_factor=max_stretch_factor)
                  for item in field.items]
         return cls(items, survey=field.survey, is_geographic=field.is_geographic,
                    auto_create_interpolator=field.auto_create_interpolator)

@@ -2,7 +2,7 @@
 
 # pylint: disable=not-an-iterable, missing-function-docstring
 import numpy as np
-from numba import njit, prange, jit_module
+from numba import prange, jit_module
 
 
 def stacked_amplitude(corrected_gather, w=1, abs=True):
@@ -30,8 +30,8 @@ def semblance(corrected_gather):
     numerator = np.zeros(corrected_gather.shape[0])
     denominator = np.zeros(corrected_gather.shape[0])
     for i in prange(corrected_gather.shape[0]):
-        numerator[i] = np.nansum(corrected_gather[i, :]) ** 2 
-        denominator[i] = np.nansum(corrected_gather[i, :] ** 2) * np.sum(~np.isnan(corrected_gather[i, :])) 
+        numerator[i] = np.nansum(corrected_gather[i, :]) ** 2
+        denominator[i] = np.nansum(corrected_gather[i, :] ** 2) * np.sum(~np.isnan(corrected_gather[i, :]))
     return numerator, denominator
 
 
@@ -49,7 +49,7 @@ def energy_normalized_crosscorrelation(corrected_gather):
     for i in prange(corrected_gather.shape[0]):
         input_enerty =  np.nansum(corrected_gather[i, :] ** 2)
         output_energy = np.nansum(corrected_gather[i, :]) ** 2
-        numerator[i] = 2 * (output_energy - input_enerty) 
+        numerator[i] = 2 * (output_energy - input_enerty)
         denominator[i] = input_enerty * (np.sum(~np.isnan(corrected_gather[i, :])) - 1)
     return numerator, denominator
 

@@ -127,7 +127,8 @@ class Muter(VFUNC):
 
     @classmethod
     def from_stacking_velocity(cls, stacking_velocity, max_stretch_factor=0.65):
-        """ Create a muter from a stacking velocity that is supposed to attenuate the effect of waveform stretching after the nmo correction.
+        """ Create a muter from a stacking velocity that is supposed to attenuate
+        the effect of waveform stretching after the nmo correction.
 
         Parameters
         ----------

@@ -11,13 +11,13 @@ from ..utils.interactive_plot_utils import InteractivePlot, PairedPlot
 class VelocitySpectrumPlot(PairedPlot):  # pylint: disable=too-many-instance-attributes
     """Define an interactive velocity spectrum plot.
 
-    This plot also displays the gather used to calculate the velocity spectrum. Clicking on velocity spectrum highlights the
-    corresponding hodograph on the gather plot and allows performing NMO correction of the gather with the selected
+    This plot also displays the gather used to calculate the velocity spectrum. Clicking on velocity spectrum highlight
+    the corresponding hodograph on the gather plot and allows performing NMO correction of the gather with the selected
     velocity by switching the view. The width of the hodograph matches the window size used to calculate the spectrum
     on both views. An initial click is performed on the maximum spectrum value.
     """
-    def __init__(self, velocity_spectrum, title="Velocity Spectrum", sharey=True, gather_plot_kwargs=None, figsize=(4.5, 4.5),
-                 fontsize=8, orientation="horizontal", **kwargs):
+    def __init__(self, velocity_spectrum, title="Velocity Spectrum", sharey=True, gather_plot_kwargs=None,
+                 figsize=(4.5, 4.5), fontsize=8, orientation="horizontal", **kwargs):
         kwargs = {"fontsize": fontsize, **kwargs}
         text_kwargs = get_text_formatting_kwargs(**kwargs)
         if gather_plot_kwargs is None:
@@ -26,7 +26,7 @@ class VelocitySpectrumPlot(PairedPlot):  # pylint: disable=too-many-instance-att
 
         self.figsize = figsize
         self.orientation = orientation
-        self.title = title + f'\n Coherency func: {velocity_spectrum.coherency_func.__name__}' 
+        self.title = title + f'\n Coherency func: {velocity_spectrum.coherency_func.__name__}'
         self.click_time = None
         self.click_vel = None
 

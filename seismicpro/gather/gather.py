@@ -826,8 +826,8 @@ class Gather(TraceContainer, SamplesContainer):
             Calculated vertical velocity spectrum.
         """
         gather = self.copy().sort(by="offset")
-        return VerticalVelocitySpectrum(gather=gather, velocities=velocities, 
-                                        win_size=win_size, mode=mode, mute_stretch=mute_stretch)
+        return VerticalVelocitySpectrum(gather=gather, velocities=velocities, win_size=win_size, mode=mode,
+                                        mute_stretch=mute_stretch)
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
     def calculate_residual_velocity_spectrum(self, stacking_velocity, n_velocities=140, relative_margin=0.2,
@@ -881,9 +881,9 @@ class Gather(TraceContainer, SamplesContainer):
         if isinstance(stacking_velocity, StackingVelocityField):
             stacking_velocity = stacking_velocity(self.coords)
         gather = self.copy().sort(by="offset")
-        return ResidualVelocitySpectrum(gather=gather, stacking_velocity=stacking_velocity, 
-                                        n_velocities=n_velocities, win_size=win_size, relative_margin=relative_margin, 
-                                        mode=mode, mute_stretch=mute_stretch)
+        return ResidualVelocitySpectrum(gather=gather, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
+                                        win_size=win_size, relative_margin=relative_margin, mode=mode,
+                                        mute_stretch=mute_stretch)
 
     #------------------------------------------------------------------------#
     #                           Gather corrections                           #

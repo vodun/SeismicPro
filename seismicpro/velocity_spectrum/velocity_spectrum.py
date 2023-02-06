@@ -180,7 +180,7 @@ class BaseVelocitySpectrum:
         (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
         if 'label' in title:
             title['label'] += f'\n Coherency func: {self.coherency_func.__name__}'
-        
+
         cmap = plt.get_cmap('seismic')
         level_values = np.linspace(0, np.quantile(self.velocity_spectrum, clip_threshold_quantile), n_levels)
         norm = mcolors.BoundaryNorm(level_values, cmap.N, clip=True)
@@ -314,12 +314,12 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
                                           DEFAULT_SDC_VELOCITY(gather.times[-1]) * 1.2,
                                           30)
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
-        self.velocity_spectrum = self._calc_spectrum_numba(spectrum_func=self.calc_single_velocity_spectrum,
-                                                          coherency_func=self.coherency_func,
-                                                          gather_data=self.gather.data, times=self.times,
-                                                          offsets=self.offsets, velocities=velocities_ms,
-                                                          sample_rate=self.sample_rate, win_size_samples=self.win_size_samples, 
-                                                          mute_stretch=mute_stretch)
+        self.velocity_spectrum = self._calc_spectrum_numba(
+                                                spectrum_func=self.calc_single_velocity_spectrum,
+                                                coherency_func=self.coherency_func, gather_data=self.gather.data, 
+                                                times=self.times, offsets=self.offsets, velocities=velocities_ms,
+                                                sample_rate=self.sample_rate, win_size_samples=self.win_size_samples,
+                                                mute_stretch=mute_stretch)
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
@@ -365,8 +365,8 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
                                                     mute_stretch=mute_stretch)
         return velocity_spectrum
 
-    def _plot(self, stacking_velocity=None, *, title="Vertical Velocity Spectrum", x_ticker=None, y_ticker=None, grid=False,
-              colorbar=True, ax=None, **kwargs):
+    def _plot(self, stacking_velocity=None, *, title="Vertical Velocity Spectrum", x_ticker=None, y_ticker=None, 
+              grid=False, colorbar=True, ax=None, **kwargs):
         """Plot vertical velocity spectrum."""
         # Add a stacking velocity line on the plot
         stacking_times_ix, stacking_velocities_ix = None, None
@@ -548,7 +548,8 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     velocity_spectrum : 2d np.ndarray
          Array with calculated residual vertical velocity velocity_spectrum values.
     """
-    def __init__(self, gather, stacking_velocity, n_velocities=140, win_size=50, relative_margin=0.2, mode='semblance', mute_stretch=False):
+    def __init__(self, gather, stacking_velocity, n_velocities=140, win_size=50, relative_margin=0.2, mode='semblance',
+                 mute_stretch=False):
         super().__init__(gather, win_size, mode)
         self.stacking_velocity = stacking_velocity
         self.relative_margin = relative_margin
@@ -560,13 +561,13 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
 
         left_bound_ix, right_bound_ix = self._calc_velocity_bounds()
-        self.velocity_spectrum = self._calc_res_velocity_spectrum_numba(self.calc_single_velocity_spectrum,
-                                                        coherency_func=self.coherency_func,
-                                                        gather_data=self.gather.data, times=self.times,
-                                                        offsets=self.offsets, velocities=velocities_ms,
-                                                        left_bound_ix=left_bound_ix, right_bound_ix=right_bound_ix,
-                                                        sample_rate=self.sample_rate, win_size_samples=self.win_size_samples,
-                                                        mute_stretch=mute_stretch)
+        self.velocity_spectrum = self._calc_res_velocity_spectrum_numba(
+                                                self.calc_single_velocity_spectrum, coherency_func=self.coherency_func,
+                                                gather_data=self.gather.data, times=self.times,
+                                                offsets=self.offsets, velocities=velocities_ms,
+                                                left_bound_ix=left_bound_ix, right_bound_ix=right_bound_ix,
+                                                sample_rate=self.sample_rate, win_size_samples=self.win_size_samples,
+                                                mute_stretch=mute_stretch)
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
@@ -601,7 +602,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_res_velocity_spectrum_numba(spectrum_func, coherency_func, gather_data, times, offsets, velocities,
-                                  left_bound_ix, right_bound_ix, sample_rate, win_size_samples, mute_stretch):
+                                          left_bound_ix, right_bound_ix, sample_rate, win_size_samples, mute_stretch):  # pylint: disable=too-many-arguments
         """Parallelized and njitted method for residual vertical velocity spectrum calculation.
 
         Parameters
@@ -642,12 +643,12 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         for i in prange(len(residual_velocity_spectrum)):
             cropped_velocity_spectrum = velocity_spectrum[i, left_bound_ix[i] : right_bound_ix[i] + 1]
             x = np.linspace(0, len(cropped_velocity_spectrum) - 1, residual_velocity_spectrum_len)
-            residual_velocity_spectrum[i] = np.interp(x, np.arange(len(cropped_velocity_spectrum)), 
+            residual_velocity_spectrum[i] = np.interp(x, np.arange(len(cropped_velocity_spectrum)),
                                                       cropped_velocity_spectrum)
         return residual_velocity_spectrum
 
-    def _plot(self, *, title="Residual Velocity Spectrum", x_ticker=None, y_ticker=None, grid=False, colorbar=True, ax=None,
-              **kwargs):
+    def _plot(self, *, title="Residual Velocity Spectrum", x_ticker=None, y_ticker=None, grid=False, colorbar=True,
+              ax=None, **kwargs):
         """Plot residual vertical velocity spectrum."""
         x_ticklabels = np.linspace(-self.relative_margin, self.relative_margin, self.velocity_spectrum.shape[1]) * 100
 
