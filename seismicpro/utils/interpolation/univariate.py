@@ -57,7 +57,7 @@ class interp1d:
             Interpolated values, matching the length of `x`.
         """
         x = np.array(x)
-        is_scalar_input = (x.ndim == 0)
+        is_scalar_input = x.ndim == 0
         res = interpolate(x.ravel(), self.x, self.y, self.left_slope, self.right_slope)
         return res.item() if is_scalar_input else res
 
@@ -145,7 +145,7 @@ def calculate_basis_polynomials(x_new, x, n):
 @njit(nogil=True, parallel=True)
 def piecewise_polynomial(x_new, x, y, n):
     """" Perform piecewise polynomial (with degree n) interpolation . Note, x is expected to be sorted. """
-    is_1d = (y.ndim == 1)
+    is_1d = y.ndim == 1
     y = np.atleast_2d(y)
     res = np.zeros((len(y), len(x_new)), dtype=y.dtype)
 
