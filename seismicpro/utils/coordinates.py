@@ -37,7 +37,7 @@ def get_coords_cols(index_cols):
     return coords_cols
 
 
-GEOGRAPHIC_COORDS = {("SourceX", "SourceY"), ("GroupX", "GroupY"), ("CDP_X", "CDP_Y")}
+GEOGRAPHIC_COORDS = {("X", "Y"), ("SourceX", "SourceY"), ("GroupX", "GroupY"), ("CDP_X", "CDP_Y")}
 LINE_COORDS = {("INLINE_3D", "CROSSLINE_3D"), ("SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D")}
 ALLOWED_COORDS = GEOGRAPHIC_COORDS | LINE_COORDS
 

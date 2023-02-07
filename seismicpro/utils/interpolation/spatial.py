@@ -285,9 +285,17 @@ class IDWInterpolator(ValuesAgnosticInterpolator):
         if empty_radius_mask.all():
             return np.empty((0, 0)), np.empty((0, 0)), empty_radius_mask
 
+        # Unlike query_ball_point, query sometimes does not return points exactly radius distance away from the
+        # requested coordinates due to inaccuracies of float arithmetics. This may result in nan interpolation result
+        # if no points are returned. Here the radius in increased according to default numpy tolerances so that all
+        # returned points are either inside a circle of interpolation radius or close to its border for each of the
+        # requested coordinates.
+        isclose_rtol = 1e-05
+        isclose_atol = 1e-08
+        radius = self.radius * (1 + isclose_rtol) + isclose_atol
         neighbors = np.arange(n_radius_points.max()) + 1
         dist, indices = self.nearest_neighbors.query(coords[~empty_radius_mask], k=neighbors,
-                                                     distance_upper_bound=self.radius, workers=-1)
+                                                     distance_upper_bound=radius, workers=-1)
         indices[np.isinf(dist)] = 0  # Set padded indices to 0 for further advanced indexing to properly work
         return indices, self._distances_to_weights(dist), empty_radius_mask
 

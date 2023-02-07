@@ -104,8 +104,11 @@ class RefractorVelocityField(SpatialField):
         Whether coordinate system of the field is geographic. `None` for an empty field if was not specified during
         instantiation.
     coords_cols : tuple with 2 elements or None
-        Names of SEG-Y trace headers representing coordinates of items in the field. `None` if names of coordinates are
-        mixed or the field is empty.
+        Names of SEG-Y trace headers representing coordinates of items in the field if names are the same among all the
+        items and match the geographic system of the field. ("X", "Y") for a field in geographic coordinate system if
+        names of coordinates of its items are either mixed or line-based. ("INLINE_3D", "CROSSLINE_3D") for a field in
+        line-based coordinate system if names of coordinates of its items are either mixed or geographic. `None` for an
+        empty field.
     interpolator : SpatialInterpolator or None
         Field data interpolator.
     is_dirty_interpolator : bool
@@ -332,8 +335,8 @@ class RefractorVelocityField(SpatialField):
         self : RefractorVelocityField
             `self` with new items added. Changes `item_container` inplace and sets the `is_dirty_interpolator` flag to
             `True` if the `items` list is not empty. Sets `is_geographic` flag and `n_refractors` attribute during the
-            first update if they were not defined during field creation. Resets `coords_cols` attribute if headers,
-            defining coordinates of any item being added, differ from those of the field.
+            first update if they were not defined during field creation. Updates `coords_cols` attribute if names of
+            coordinates of any item being added does not match those of the field.
 
         Raises
         ------
