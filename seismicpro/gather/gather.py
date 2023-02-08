@@ -1251,13 +1251,12 @@ class Gather(TraceContainer, SamplesContainer):
             # TODO: Do we want to maintain backward compatibility here? In previous version when you write
             # window=[0, 50] with sample_rate=2, we took indices=[0, 26] not [0, 25].
             # Do we want to do it here? If yes, how to provide the same behavior when passing limits via load?
-            limits = np.round(np.asarray(window) / self.sample_rate).astype(np.int32)
+            limits = times_to_indices(window, self.samples, round=True)
             limits[1] += 1
-
-        if horizon_header is not None:
+        elif horizon_header is not None:
             # TODO: Add horizon header loading procedure
             centers = self[horizon_header]
-            if len(set(centers)) > 1:
+            if (centers != centers[0]).any():
                 raise ValueError("Horizon should have unique value per gather")
 
             if horizon_window is None:

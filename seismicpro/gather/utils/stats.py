@@ -2,7 +2,7 @@ import numpy as np
 from numba import njit, prange
 
 
-@njit(nogil=True)
+@njit(nogil=True, parallel=True)
 def numba_rms(traces):
     temp = np.empty(len(traces), dtype=np.float32)
     for i in prange(len(traces)):
@@ -10,6 +10,9 @@ def numba_rms(traces):
     return temp
 
 
-@njit(nogil=True)
+@njit(nogil=True, parallel=True)
 def numba_abs(traces):
-    return np.abs(traces)
+    temp = np.empty(len(traces), dtype=np.float32)
+    for i in prange(len(traces)):
+        temp[i] = np.nanmean(np.abs(traces[i]))
+    return temp
