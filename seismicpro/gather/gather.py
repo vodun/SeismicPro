@@ -1287,12 +1287,13 @@ class Gather(TraceContainer, SamplesContainer):
             - "seismogram": a 2d grayscale image of seismic traces;
             - "wiggle": an amplitude vs time plot for each trace of the gather;
             - "hist": histogram of the data amplitudes or some header values.
-        mask : 2d array with same shape as self.shape or 1d array with length == self.n_traces or Gather or str,
-        optional, defaults to None
+        mask : 2d array with same shape as self.shape or 1d array with length == self.n_traces or Gather with same
+        shape as self.shape or str, optional, defaults to None.
             If `2d array`, a mask to plot on top of the gather plot;
             If `1d array`, a vector that determines which traces to mask;
             If `Gather`, its `data` attribute will be treated as a mask;
-            If `str`, a header name to take mask from.
+            If `str`, either a header name to take mask from if called directly as Gather.plot or a batch component
+            name if called in a Pipeline.
         title : str or dict, optional, defaults to None
             If `str`, a title of the plot.
             If `dict`, should contain keyword arguments to pass to `matplotlib.axes.Axes.set_title`. In this case, the
