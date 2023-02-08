@@ -104,8 +104,11 @@ class RefractorVelocityField(SpatialField):
         Whether coordinate system of the field is geographic. `None` for an empty field if was not specified during
         instantiation.
     coords_cols : tuple with 2 elements or None
-        Names of SEG-Y trace headers representing coordinates of items in the field. `None` if names of coordinates are
-        mixed or the field is empty.
+        Names of SEG-Y trace headers representing coordinates of items in the field if names are the same among all the
+        items and match the geographic system of the field. ("X", "Y") for a field in geographic coordinate system if
+        names of coordinates of its items are either mixed or line-based. ("INLINE_3D", "CROSSLINE_3D") for a field in
+        line-based coordinate system if names of coordinates of its items are either mixed or geographic. `None` for an
+        empty field.
     interpolator : SpatialInterpolator or None
         Field data interpolator.
     is_dirty_interpolator : bool
@@ -128,6 +131,14 @@ class RefractorVelocityField(SpatialField):
         return get_param_names(self.n_refractors)
 
     @cached_property
+    def is_uphole_corrected(self):
+        """bool or None: Whether the field is uphole corrected. `None` if unknown or mixed items are stored."""
+        is_uphole_corrected_set = {item.is_uphole_corrected for item in self.items}
+        if len(is_uphole_corrected_set) != 1:
+            return None
+        return is_uphole_corrected_set.pop()
+
+    @cached_property
     def is_fit(self):
         """bool: Whether the field was constructed directly from offset-traveltime data."""
         return all(item.is_fit for item in self.items)
@@ -143,6 +154,7 @@ class RefractorVelocityField(SpatialField):
         msg = super().__str__() + dedent(f"""\n
         Number of refractors:      {self.n_refractors}
         Is fit from first breaks:  {self.is_fit}
+        Is uphole corrected:       {"Unknown" if self.is_uphole_corrected is None else self.is_uphole_corrected}
         """)
 
         if not self.is_empty:
@@ -189,7 +201,8 @@ class RefractorVelocityField(SpatialField):
     @classmethod  # pylint: disable-next=too-many-arguments
     def from_survey(cls, survey, is_geographic=None, auto_create_interpolator=True, init=None, bounds=None,
                     n_refractors=None, min_velocity_step=1, min_refractor_size=1, loss='L1', huber_coef=20, tol=1e-5,
-                    first_breaks_col=HDR_FIRST_BREAK, chunk_size=250, n_workers=None, bar=True, **kwargs):
+                    first_breaks_col=HDR_FIRST_BREAK, correct_uphole=None, chunk_size=250, n_workers=None, bar=True,
+                    **kwargs):
         """Create a field by estimating a near-surface velocity model for each gather in the survey.
 
         The survey should contain headers with trace offsets, times of first breaks and coordinates of its gathers.
@@ -226,6 +239,10 @@ class RefractorVelocityField(SpatialField):
             Precision goal for the value of loss in the stopping criterion.
         first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `survey.headers` where times of first break are stored.
+        correct_uphole : bool, optional
+            Whether to perform uphole correction by adding values of "SourceUpholeTime" header to times of first breaks
+            emulating the case when sources are located on the surface. If not given, correction is performed if
+            "SourceUpholeTime" header is loaded.
         chunk_size : int, optional, defaults to 250
             The number of velocity models estimated by each of spawned processes.
         n_workers : int, optional
@@ -249,27 +266,35 @@ class RefractorVelocityField(SpatialField):
         if survey.headers.index.is_unique:
             raise ValueError("Survey must be indexed by gathers, not individual traces")
 
-        # Extract required headers for each gather in the survey
+        # Extract required headers from the survey
         coords_cols = get_coords_cols(survey.indexed_by)
-        survey_headers = survey[("offset", first_breaks_col) + coords_cols]
-        gather_change_ix = np.where(~survey.headers.index.duplicated(keep="first"))[0][1:]
-        gather_headers_list = np.split(survey_headers, gather_change_ix)
+        survey_coords = survey[coords_cols]
+        survey_offsets = survey["offset"]
+        survey_times = survey[first_breaks_col]
+        if correct_uphole is None:
+            correct_uphole = "SourceUpholeTime" in survey.available_headers
+        if correct_uphole:
+            survey_times = survey_times + survey["SourceUpholeTime"]
 
         # Check if coordinates are unique within each gather
-        coords_change_ix = np.where(~np.isclose(np.diff(survey_headers[:, 2:], axis=0), 0).all(axis=1))[0] + 1
+        gather_start_ix = np.where(~survey.headers.index.duplicated(keep="first"))[0]
+        gather_change_ix = gather_start_ix[1:]
+        coords_change_ix = np.where(~np.isclose(np.diff(survey_coords, axis=0), 0).all(axis=1))[0] + 1
         if not np.isin(coords_change_ix, gather_change_ix).all():
             raise ValueError("Non-unique coordinates are found for some gathers in the survey")
 
         # Construct a dict of fit parameters for each gather in the survey
-        rv_kwargs_list = [{"offsets": gather_headers[:, 0], "times": gather_headers[:, 1],
-                           "coords": Coordinates(coords=gather_headers[0, 2:], names=coords_cols)}
-                          for gather_headers in gather_headers_list]
+        gather_offsets = np.split(survey_offsets, gather_change_ix)
+        gather_times = np.split(survey_times, gather_change_ix)
+        gather_coords = [Coordinates(coords, names=coords_cols) for coords in survey_coords[gather_start_ix]]
+        rv_kwargs_list = [{"offsets": offsets, "times": times, "coords": coords}
+                          for offsets, times, coords in zip(gather_offsets, gather_times, gather_coords)]
 
         # Construct a dict of common kwargs
-        max_offset = survey_headers[:, 0].max()
-        common_kwargs = {"init": init, "bounds": bounds, "n_refractors": n_refractors, "max_offset": max_offset,
-                         "min_velocity_step": min_velocity_step, "min_refractor_size": min_refractor_size,
-                         "loss": loss, "huber_coef": huber_coef, "tol": tol, **kwargs}
+        common_kwargs = {"init": init, "bounds": bounds, "n_refractors": n_refractors,
+                         "max_offset": survey_offsets.max(), "min_velocity_step": min_velocity_step,
+                         "min_refractor_size": min_refractor_size, "loss": loss, "huber_coef": huber_coef, "tol": tol,
+                         "is_uphole_corrected": correct_uphole, **kwargs}
 
         # Run parallel fit of velocity models
         rv_list = cls._fit_refractor_velocities_parallel(rv_kwargs_list, common_kwargs, chunk_size, n_workers, bar,
@@ -332,8 +357,8 @@ class RefractorVelocityField(SpatialField):
         self : RefractorVelocityField
             `self` with new items added. Changes `item_container` inplace and sets the `is_dirty_interpolator` flag to
             `True` if the `items` list is not empty. Sets `is_geographic` flag and `n_refractors` attribute during the
-            first update if they were not defined during field creation. Resets `coords_cols` attribute if headers,
-            defining coordinates of any item being added, differ from those of the field.
+            first update if they were not defined during field creation. Updates `coords_cols` attribute if names of
+            coordinates of any item being added does not match those of the field.
 
         Raises
         ------
@@ -367,7 +392,8 @@ class RefractorVelocityField(SpatialField):
 
     def construct_item(self, values, coords):
         """Construct an instance of `RefractorVelocity` from its `values` at given `coords`."""
-        return self.item_class(**dict(zip(self.param_names, values)), coords=coords)
+        return self.item_class(**dict(zip(self.param_names, values)), coords=coords,
+                               is_uphole_corrected=self.is_uphole_corrected)
 
     def _get_refined_values(self, interpolator_class, min_refractor_points=0, min_refractor_points_quantile=0):
         """Redefine parameters of velocity models for refractors that contain small number of points and may thus have
@@ -494,7 +520,9 @@ class RefractorVelocityField(SpatialField):
 
         smoothed_values = self._get_smoothed_values(radius, neighbors, min_refractor_points,
                                                     min_refractor_points_quantile)
-        smoothed_items = [self.construct_item(val, rv.coords) for rv, val in zip(self.items, smoothed_values)]
+        smoothed_items = [self.item_class(**dict(zip(self.param_names, val)), coords=rv.coords,
+                                          is_uphole_corrected=rv.is_uphole_corrected)
+                          for rv, val in zip(self.items, smoothed_values)]
         return type(self)(smoothed_items, n_refractors=self.n_refractors, survey=self.survey,
                           is_geographic=self.is_geographic, auto_create_interpolator=self.auto_create_interpolator)
 
@@ -553,7 +581,7 @@ class RefractorVelocityField(SpatialField):
         # Construct a dict of refinement parameters for each velocity model
         rv_kwargs_list = [{"offsets": rv.offsets, "times": rv.times, "init": dict(zip(self.param_names, init)),
                            "bounds": dict(zip(self.param_names, bounds)), "max_offset": rv.max_offset,
-                           "coords": rv.coords}
+                           "coords": rv.coords, "is_uphole_corrected": rv.is_uphole_corrected}
                           for rv, init, bounds in zip(self.items, params_init, params_bounds)]
         common_kwargs = {"min_velocity_step": 0, "min_refractor_size": 0}
 
