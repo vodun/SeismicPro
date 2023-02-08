@@ -113,10 +113,10 @@ def validate_headers(headers, offset_atol=10, cdp_atol=10, elev_atol=5, elev_rad
     headers = headers.copy(deep=False)
     headers.reset_index(inplace=True)
 
-    loaded_columns = headers.columns.values
-    available_columns = set(loaded_columns[headers.any(axis=0)])
+    loaded_columns = set(headers.columns)
+    available_columns = set(headers.columns[headers.any(axis=0)])
 
-    zero_columns = set(loaded_columns) - available_columns
+    zero_columns = loaded_columns - available_columns
     if zero_columns:
         msg_list.append("Empty headers: " + ", ".join(zero_columns))
 
@@ -128,6 +128,22 @@ def validate_headers(headers, offset_atol=10, cdp_atol=10, elev_atol=5, elev_rad
         fr_with_coords = headers[["FieldRecord", *shot_cols]].drop_duplicates()
         if fr_with_coords.duplicated('FieldRecord').any() or fr_with_coords.duplicated(shot_cols).any():
             msg_list.append("Non-unique mapping of source coordinates (SourceX, SourceY) and source ID (FieldRecord)")
+
+    if "SourceUpholeTime" in available_columns:
+        if (headers["SourceUpholeTime"] < 0).any():
+            msg_list.append("Negative uphole times")
+
+    if "SourceDepth" in available_columns:
+        if (headers["SourceDepth"] < 0).any():
+            msg_list.append("Negative uphole depths")
+
+    if {"SourceUpholeTime", "SourceDepth"} <= loaded_columns:
+        zero_time_mask = np.isclose(headers["SourceUpholeTime"], 0)
+        zero_depth_mask = np.isclose(headers["SourceDepth"], 0)
+        if (~zero_time_mask[zero_depth_mask]).any():
+            msg_list.append("Non-zero uphole time for zero uphole depth")
+        if (~zero_depth_mask[zero_time_mask]).any():
+            msg_list.append("Non-zero uphole depth for zero uphole time")
 
     if 'offset' in available_columns:
         if (headers['offset'] < 0).any():

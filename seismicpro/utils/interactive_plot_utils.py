@@ -503,8 +503,8 @@ class DropdownViewPlot(InteractivePlot):
         """Set the current view of the plot to the given `view`."""
         super().set_view(view)
         self.drop.index = view
-        self.prev.disabled = (view == 0)
-        self.next.disabled = (view == (self.n_views - 1))
+        self.prev.disabled = view == 0
+        self.next.disabled = view == (self.n_views - 1)
 
     def next_view(self, event):
         """Switch to the next view."""
