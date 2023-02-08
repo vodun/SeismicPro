@@ -9,8 +9,10 @@ import scipy
 import segyio
 import numpy as np
 from scipy.signal import firwin
+from matplotlib import colormaps
 from matplotlib.path import Path
 from matplotlib.patches import PathPatch
+from matplotlib.colors import ListedColormap
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .cropped_gather import CroppedGather
@@ -1246,8 +1248,7 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
 
     @plotter(figsize=(10, 7), args_to_unpack="mask")
-    def plot(self, mode="seismogram", mask=None, *, threshold=0.5, title=None, x_ticker=None, y_ticker=None, ax=None,
-             **kwargs):
+    def plot(self, mode="seismogram", mask=None, *, title=None, x_ticker=None, y_ticker=None, ax=None, **kwargs):
         """Plot gather traces.
 
         The traces can be displayed in a number of representations, depending on the `mode` provided. Currently, the
@@ -1256,6 +1257,7 @@ class Gather(TraceContainer, SamplesContainer):
             * `colorbar`: whether to add a colorbar to the right of the gather plot (defaults to `False`). If `dict`,
               defines extra keyword arguments for `matplotlib.figure.Figure.colorbar`,
             * `q_vmin`, `q_vmax`: quantile range of amplitude values covered by the colormap (defaults to 0.1 and 0.9),
+            * `mask_alpha` and `mask_cmap`: transparency and colormap of mask,
             * Any additional arguments for `matplotlib.pyplot.imshow`. Note, that `vmin` and `vmax` arguments take
               priority over `q_vmin` and `q_vmax` respectively.
         - `wiggle`: an amplitude vs time plot for each trace of the gather as an oscillating line around its mean
@@ -1266,6 +1268,7 @@ class Gather(TraceContainer, SamplesContainer):
             * `lw` and `alpha`: width of the lines and transparency of polygons, by default estimated
               based on the number of traces in the gather and figure size.
             * `color`: defines a color for traces,
+            * `mask_alpha` and `mask_color`: transparency and color of mask,
             * Any additional arguments for `matplotlib.pyplot.plot`.
         - `hist`: a histogram of the trace data amplitudes or header values. This mode supports the following `kwargs`:
             * `bins`: if `int`, the number of equal-width bins; if sequence, bin edges that include the left edge of
@@ -1276,7 +1279,8 @@ class Gather(TraceContainer, SamplesContainer):
 
         Any 2d array matching the size of the gather or 1d array with length equal to gather.n_traces can be drawn on
         top of the main plot in `seismogram` or `wiggle` mode via `mask` parameter. Any values in the array greater
-        than 0.5 are treated as a mask and will be plotted in red with small transparency.
+        than `threshold` are treated as a mask and will be plotted in provided color (red by default) and with provided
+        transparency.
 
         Trace headers, whose values are measured in milliseconds (e.g. first break times) may be displayed over a
         seismogram or wiggle plot if passed as `event_headers`. If `top_header` is passed, an auxiliary scatter plot of
@@ -1304,13 +1308,15 @@ class Gather(TraceContainer, SamplesContainer):
             - "seismogram": a 2d grayscale image of seismic traces;
             - "wiggle": an amplitude vs time plot for each trace of the gather;
             - "hist": histogram of the data amplitudes or some header values.
-        mask : 2d array with same shape as self.shape or 1d array with length == self.n_traces or Gather with same
-        shape as self.shape or str, optional, defaults to None.
-            If `2d array`, a mask to plot on top of the gather plot;
-            If `1d array`, a vector that determines which traces to mask;
-            If `Gather`, its `data` attribute will be treated as a mask;
+        mask : 2d array, 1d array, Gather or str, optional, defaults to None
+            If `2d array`, a mask with shape equals to self.shape to plot on top of the gather plot;
+            If `1d array`, a vector containing self.n_traces elements that determines which traces to mask;
+            If `Gather`, its `data` attribute will be treated as a mask, note that Gather shape should be the same as
+            self.shape;
             If `str`, either a header name to take mask from if called directly as Gather.plot or a batch component
             name if called in a Pipeline.
+        threshold : int, optional, defaults to 0.5
+            All mask values greater than `threshold` will be displaed on gather image.
         title : str or dict, optional, defaults to None
             If `str`, a title of the plot.
             If `dict`, should contain keyword arguments to pass to `matplotlib.axes.Axes.set_title`. In this case, the
@@ -1389,18 +1395,29 @@ class Gather(TraceContainer, SamplesContainer):
             raise ValueError(f"Unknown mode {mode}")
 
         if mask is not None:
+            kwargs.update({"mask": self._process_mask(mask)})
+        plotters_dict[mode](ax, title=title, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
+        return self
+
+    def _process_mask(self, mask):
+        if mask is not dict:
+            mask = mask if np.array(mask).ndim != 2 else [mask]
+        masks_list = self._parse_headers_kwargs(mask, "masks")
+        for mask_dict in masks_list:
+            mask = mask_dict["masks"]
             if isinstance(mask, Gather):
+                mask_dcit["label"] = mask_dcit.get("label", mask.name)
                 mask = mask.data
             elif isinstance(mask, str):
+                mask_dcit["label"] = mask_dict.get("label", mask)
                 mask = self[mask]
 
             mask = np.array(mask)
             if mask.ndim == 1:
                 mask = mask.reshape(-1, 1)
-            kwargs["mask"] = np.broadcast_to(np.where(mask < threshold, np.nan, 1), self.shape)
-
-        plotters_dict[mode](ax, title=title, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
-        return self
+            threshold = mask_dict.get("threshold", 0.5)
+            mask_dict["masks"] = np.broadcast_to(np.where(mask < threshold, np.nan, 1), self.shape)
+        return masks_list
 
     def _plot_histogram(self, ax, title, x_ticker, y_ticker, x_tick_src="amplitude", bins=None,
                         log=False, grid=True, **kwargs):
@@ -1422,8 +1439,7 @@ class Gather(TraceContainer, SamplesContainer):
 
     # pylint: disable=too-many-arguments
     def _plot_seismogram(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src='time', colorbar=False,
-                         q_vmin=0.1, q_vmax=0.9, event_headers=None, top_header=None, mask=None, mask_alpha=0.5,
-                         mask_cmap="Reds", **kwargs):
+                         q_vmin=0.1, q_vmax=0.9, event_headers=None, top_header=None, mask=None, **kwargs):
         """Plot the gather as a 2d grayscale image of seismic traces."""
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
@@ -1431,14 +1447,18 @@ class Gather(TraceContainer, SamplesContainer):
         kwargs = {"cmap": "gray", "aspect": "auto", "vmin": vmin, "vmax": vmax, **kwargs}
         img = ax.imshow(self.data.T, **kwargs)
         if mask is not None:
-            ax.imshow(mask.T, cmap=mask_cmap, aspect="auto", alpha=mask_alpha, vmin=0, vmax=1, interpolation="none")
+            kwargs = {"aspect": "auto", "alpha": 0.5, "vmin": 0, "vmax": 1, "interpolation": "none"}
+            for mask_kwargs in mask:
+                color = mask_kwargs.pop("color", "Reds")
+                mask_kwargs["cmap"] = ListedColormap(color) if color not in colormaps() else color
+                ax.imshow(mask_kwargs.pop("masks").T, **{**kwargs, **mask_kwargs})
         add_colorbar(ax, img, colorbar, divider, y_ticker)
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
     #pylint: disable=invalid-name
     def _plot_wiggle(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src="time", norm_tracewise=True,
                      std=0.5, event_headers=None, top_header=None, mask=None, lw=None, alpha=None, color="black",
-                     mask_alpha=None, mask_color="red", **kwargs):
+                     **kwargs):
         """Plot the gather as an amplitude vs time plot for each trace."""
         def _get_start_end_ixs(ixs):
             """Return arrays with indices of beginnings and ends of polygons defined by continuous subsequences in
@@ -1501,23 +1521,28 @@ class Gather(TraceContainer, SamplesContainer):
         patch = PathPatch(Path(verts, codes), color=color, alpha=alpha)
         ax.add_artist(patch)
 
-        if mask is not None and np.nansum(mask) > 0:
-            mask_alpha = alpha*0.6 if mask_alpha is None else mask_alpha
-            mask_ix = np.argwhere(mask > 0)
-            start_ix, end_ix = _get_start_end_ixs(mask_ix)
-            # Compute the polygon bodies, that represent mask coordinates with a small indent
-            up_verts = mask_ix[start_ix].reshape(-1, 1, 2) + np.array([[0.5, -0.5], [-0.5, -0.5]])
-            down_verts = mask_ix[end_ix].reshape(-1, 1, 2) + np.array([[-0.5, 0.5], [0.5, 0.5]])
-            # Combine upper and lower vertices and add plaсeholders for Path.CLOSEPOLY code with coords [0, 0] after
-            # each polygon.
-            verts = np.hstack((up_verts, down_verts, np.zeros((len(up_verts), 1, 2)))).reshape(-1, 2)
+        if mask is not None:
+            for mask_kwargs in mask:
+                mask = mask_kwargs.pop("masks")
+                if np.nansum(mask) == 0:
+                    continue
+                mask_ix = np.argwhere(mask > 0)
+                start_ix, end_ix = _get_start_end_ixs(mask_ix)
+                # Compute the polygon bodies, that represent mask coordinates with a small indent
+                up_verts = mask_ix[start_ix].reshape(-1, 1, 2) + np.array([[0.5, -0.5], [-0.5, -0.5]])
+                down_verts = mask_ix[end_ix].reshape(-1, 1, 2) + np.array([[-0.5, 0.5], [0.5, 0.5]])
+                # Combine upper and lower vertices and add plaсeholders for Path.CLOSEPOLY code with coords [0, 0]
+                # after each polygon.
+                verts = np.hstack((up_verts, down_verts, np.zeros((len(up_verts), 1, 2)))).reshape(-1, 2)
 
-            # Fill the array representing the nodes codes: either start, intermediate or end code.
-            codes = np.full(len(verts), Path.LINETO)
-            codes[::5] = Path.MOVETO
-            codes[4::5] = Path.CLOSEPOLY
-            mask_patch = PathPatch(Path(verts, codes), color=mask_color, lw=0, alpha=mask_alpha)
-            ax.add_artist(mask_patch)
+                # Fill the array representing the nodes codes: either start, intermediate or end code.
+                codes = np.full(len(verts), Path.LINETO)
+                codes[::5] = Path.MOVETO
+                codes[4::5] = Path.CLOSEPOLY
+
+                kwargs = {"alpha": alpha*0.6, "color": "r", "lw": 0}
+                mask_patch = PathPatch(Path(verts, codes), **{**kwargs, **mask_kwargs})
+                ax.add_artist(mask_patch)
 
         ax.update_datalim([(0, 0), traces.shape])
         if not ax.yaxis_inverted():
