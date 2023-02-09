@@ -1275,8 +1275,7 @@ class Gather(TraceContainer, SamplesContainer):
             * Any additional arguments for `matplotlib.pyplot.hist`.
 
         Any 2d array matching the size of the gather or 1d array with length equal to gather.n_traces can be drawn on
-        top of the seismogram or wiggle plot if passed as `mask`. Any values in the array greater than `threshold` are
-        treated as a mask and will be plotted in provided color (red by default) and with provided transparency.
+        top of the seismogram or wiggle plot if passed as `mask`.
 
         Trace headers, whose values are measured in milliseconds (e.g. first break times) may be displayed over a
         seismogram or wiggle plot if passed as `event_headers`. If `top_header` is passed, an auxiliary scatter plot of
@@ -1304,15 +1303,24 @@ class Gather(TraceContainer, SamplesContainer):
             - "seismogram": a 2d grayscale image of seismic traces;
             - "wiggle": an amplitude vs time plot for each trace of the gather;
             - "hist": histogram of the data amplitudes or some header values.
-        mask : 2d array, 1d array, Gather or str, optional, defaults to None
-            If `2d array`, a mask with shape equals to self.shape to plot on top of the gather plot;
-            If `1d array`, a vector containing self.n_traces elements that determines which traces to mask;
-            If `Gather`, its `data` attribute will be treated as a mask, note that Gather shape should be the same as
+        mask : array-like, str, dict or Gather, optional, defaults to None
+            Valid only for "seismogram" and "wiggle" modes.
+            Mask or list of masks to plot on top of the gather plot.
+            If `array-like` either mask or list of masks where each element should be one of:
+            - `2d array`, a mask with shape equals to self.shape to plot on top of the gather plot;
+            - `1d array`, a vector containing self.n_traces elements that determines which traces to mask;
+            - `Gather`, its `data` attribute will be treated as a mask, note that Gather shape should be the same as
             self.shape;
-            If `str`, either a header name to take mask from if called directly as Gather.plot or a batch component
+            - `str`, either a header name to take mask from if called directly as Gather.plot or a batch component
             name if called in a Pipeline.
-        threshold : int, optional, defaults to 0.5
-            All mask values greater than `threshold` will be displaed on gather image.
+            If `dict`, the mask (or list of masks) is specified under the "masks" key and the rest of keys define masks
+            layout. The following keys are supported:
+                - `masks`: mask or list of masks,
+                - `threshold`: the value after which all values will be threated as mask,
+                - `color`: mask color,
+                - `alpha`: mask transparency.
+            If some dictionary value is array-like, each its element will be associated with the corresponding mask.
+            Otherwise, the single value will be used for all masks.
         title : str or dict, optional, defaults to None
             If `str`, a title of the plot.
             If `dict`, should contain keyword arguments to pass to `matplotlib.axes.Axes.set_title`. In this case, the
@@ -1408,7 +1416,7 @@ class Gather(TraceContainer, SamplesContainer):
             mask = np.array(mask)
             if mask.ndim == 1:
                 mask = mask.reshape(-1, 1)
-            threshold = mask_dict.get("threshold", 0.5)
+            threshold = mask_dict.pop("threshold", 0.5)
             mask_dict["masks"] = np.broadcast_to(np.where(mask < threshold, np.nan, 1), self.shape)
         return masks_list
 
