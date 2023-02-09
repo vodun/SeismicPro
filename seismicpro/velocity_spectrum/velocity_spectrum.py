@@ -1,6 +1,8 @@
 """Implements VerticalVelocitySpectrum and ResidualVelocitySpectrum classes."""
 
 # pylint: disable=not-an-iterable, too-many-arguments
+import math
+
 import numpy as np
 from numba import njit, prange
 from matplotlib import colors as mcolors
@@ -48,7 +50,7 @@ class BaseVelocitySpectrum:
     ----------
     gather : Gather
         Seismic gather for which velocity spectrum calculation was called.
-    win_size_samples : int
+    half_win_size_samples : int
         Half of the temporal window size for smoothing the velocity spectrum. Measured in samples.
     coherency_func : callable
         The function that estimates the coherency measure for hodograph.
@@ -56,8 +58,7 @@ class BaseVelocitySpectrum:
 
     def __init__(self, gather, window_size, mode='semblance'):
         self.gather = gather
-        # Ensure window size in samples is odd
-        self.win_size_samples = np.ceil((window_size - gather.sample_rate) / gather.sample_rate / 2).astype(np.int)
+        self.half_win_size_samples = math.ceil((window_size - gather.sample_rate) / gather.sample_rate / 2)
 
         self.coherency_func = COHERENCY_FUNCS.get(mode)
         if self.coherency_func is None:
@@ -94,7 +95,7 @@ class BaseVelocitySpectrum:
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def calc_single_velocity_spectrum(coherency_func, gather_data, times, offsets, velocity, sample_rate,
-                                       win_size_samples, t_min_ix, t_max_ix, max_stretch_factor=np.inf):
+                                       half_win_size_samples, t_min_ix, t_max_ix, max_stretch_factor=np.inf):
         """Calculate velocity spectrum for given velocity and time range.
 
         Parameters
@@ -111,8 +112,8 @@ class BaseVelocitySpectrum:
             Seismic wave velocity for velocity spectrum computation. Measured in meters/milliseconds.
         sample_rate : float
             Sample rate of seismic traces. Measured in milliseconds.
-        win_size_samples : int
-            Temporal window size for smoothing the velocity spectrum. Measured in samples.
+        half_win_size_samples : int
+            Half of the temporal size for smoothing the velocity spectrum. Measured in samples.
         t_min_ix : int
             Time index in `times` array to start calculating velocity spectrum from. Measured in samples.
         t_max_ix : int
@@ -123,8 +124,8 @@ class BaseVelocitySpectrum:
         velocity_spectrum_slice : 1d np.ndarray
             Calculated velocity spectrum values for a specified `velocity` in time range from `t_min_ix` to `t_max_ix`.
         """
-        t_win_size_min_ix = max(0, t_min_ix - win_size_samples)
-        t_win_size_max_ix = min(len(times) - 1, t_max_ix + win_size_samples)
+        t_win_size_min_ix = max(0, t_min_ix - half_win_size_samples)
+        t_win_size_max_ix = min(len(times) - 1, t_max_ix + half_win_size_samples)
 
         corrected_gather_data = correction.apply_nmo(gather_data, times[t_win_size_min_ix: t_win_size_max_ix + 1],
                                                      offsets, velocity, sample_rate, mute_crossover=False,
@@ -135,8 +136,8 @@ class BaseVelocitySpectrum:
         velocity_spectrum_slice = np.empty(t_max_ix - t_min_ix, dtype=np.float32)
         for t in prange(t_min_ix, t_max_ix):
             t_rel = t - t_win_size_min_ix
-            ix_from = max(0, t_rel - win_size_samples)
-            ix_to = min(corrected_gather_data.shape[1], t_rel + win_size_samples)
+            ix_from = max(0, t_rel - half_win_size_samples)
+            ix_to = min(corrected_gather_data.shape[1] - 1, t_rel + half_win_size_samples)
             velocity_spectrum_slice[t - t_min_ix] = np.sum(numerator[ix_from : ix_to]) / \
                                                     (np.sum(denominator[ix_from : ix_to]) + 1e-8)
         return velocity_spectrum_slice
@@ -305,8 +306,8 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         Seismic gather for which velocity spectrum calculation was called.
     velocities : 1d np.ndarray
         Range of velocity values for which vertical velocity spectrum was calculated. Measured in meters/seconds.
-    win_size_samples : int
-        Temporal window size for smoothing the vertical velocity spectrum. Measured in samples.
+    half_win_size_samples : int
+        Half of the temporal window size for smoothing the vertical velocity spectrum. Measured in samples.
     velocity_spectrum : 2d np.ndarray
         Array with calculated vertical velocity spectrum values.
     """
@@ -323,8 +324,8 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
                                                 spectrum_func=self.calc_single_velocity_spectrum,
                                                 coherency_func=self.coherency_func, gather_data=self.gather.data,
                                                 times=self.times, offsets=self.offsets, velocities=velocities_ms,
-                                                sample_rate=self.sample_rate, win_size_samples=self.win_size_samples,
-                                                max_stretch_factor=max_stretch_factor)
+                                                sample_rate=self.sample_rate, max_stretch_factor=max_stretch_factor,
+                                                half_win_size_samples=self.half_win_size_samples)
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
@@ -345,7 +346,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_spectrum_numba(spectrum_func, coherency_func, gather_data, times, offsets, velocities,
-                            sample_rate, win_size_samples, max_stretch_factor):
+                            sample_rate, half_win_size_samples, max_stretch_factor):
         """Parallelized and njitted method for vertical velocity spectrum calculation.
 
         Parameters
@@ -364,9 +365,9 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         for j in prange(len(velocities)):  # pylint: disable=consider-using-enumerate
             velocity_spectrum[:, j] = spectrum_func(coherency_func=coherency_func, gather_data=gather_data,
                                                     times=times, offsets=offsets, velocity=velocities[j],
-                                                    sample_rate=sample_rate, win_size_samples=win_size_samples,
+                                                    half_win_size_samples=half_win_size_samples,
                                                     t_min_ix=0, t_max_ix=gather_data.shape[1],
-                                                    max_stretch_factor=max_stretch_factor)
+                                                    sample_rate=sample_rate, max_stretch_factor=max_stretch_factor)
         return velocity_spectrum
 
     def _plot(self, stacking_velocity=None, *, title="Vertical Velocity Spectrum", x_ticker=None, y_ticker=None,
@@ -549,8 +550,8 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         Seismic gather for which residual velocity spectrum calculation was called.
     velocities : 1d np.ndarray
         Range of velocity values for which residual velocity spectrum was calculated. Measured in meters/seconds.
-    win_size_samples : int
-        Temporal window size for smoothing the velocity spectrum. Measured in samples.
+    half_win_size_samples : int
+        Half of the temporal window size for smoothing the velocity spectrum. Measured in samples.
     stacking_velocity : StackingVelocity
         Stacking velocity around which residual velocity spectrum was calculated.
     relative_margin : float, optional, defaults to 0.2
@@ -576,8 +577,8 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
                                                 gather_data=self.gather.data, times=self.times,
                                                 offsets=self.offsets, velocities=velocities_ms,
                                                 left_bound_ix=left_bound_ix, right_bound_ix=right_bound_ix,
-                                                sample_rate=self.sample_rate, win_size_samples=self.win_size_samples,
-                                                max_stretch_factor=max_stretch_factor)
+                                                half_win_size_samples=self.half_win_size_samples,
+                                                sample_rate=self.sample_rate, max_stretch_factor=max_stretch_factor)
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
@@ -612,7 +613,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_res_velocity_spectrum_numba(spectrum_func, coherency_func, gather_data, times, offsets, velocities,
-                                          left_bound_ix, right_bound_ix, sample_rate, win_size_samples,
+                                          left_bound_ix, right_bound_ix, sample_rate, half_win_size_samples,
                                           max_stretch_factor):
         """Parallelized and njitted method for residual vertical velocity spectrum calculation.
 
@@ -645,7 +646,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
             velocity_spectrum[t_min_ix : t_max_ix+1, i] = spectrum_func(coherency_func=coherency_func,
                                                                  gather_data=gather_data, times=times, offsets=offsets,
                                                                  velocity=velocities[i], sample_rate=sample_rate,
-                                                                 win_size_samples=win_size_samples,
+                                                                 half_win_size_samples=half_win_size_samples,
                                                                  t_min_ix=t_min_ix, t_max_ix=t_max_ix+1,
                                                                  max_stretch_factor=max_stretch_factor)
 
