@@ -8,7 +8,6 @@ import cv2
 import scipy
 import segyio
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.signal import firwin
 from matplotlib.path import Path
 from matplotlib.patches import Polygon, PathPatch
@@ -1401,10 +1400,9 @@ class Gather(TraceContainer, SamplesContainer):
         for mask_dict in masks_list:
             mask = mask_dict["masks"]
             if isinstance(mask, Gather):
-                mask_dcit["label"] = mask_dcit.get("label", mask.name)
                 mask = mask.data
             elif isinstance(mask, str):
-                mask_dcit["label"] = mask_dict.get("label", mask)
+                mask_dict["label"] = mask_dict.get("label", mask)
                 mask = self[mask]
 
             mask = np.array(mask)
