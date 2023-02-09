@@ -13,7 +13,7 @@ from ..decorators import batch_method, plotter
 from ..stacking_velocity import StackingVelocity, calculate_stacking_velocity
 from ..utils import add_colorbar, set_ticks, set_text_formatting
 from ..gather.utils import correction
-from ..const import DEFAULT_SDC_VELOCITY
+from ..const import DEFAULT_STACKING_VELOCITY
 
 
 COHERENCY_FUNCS = {
@@ -38,8 +38,8 @@ class BaseVelocitySpectrum:
     ----------
     gather : Gather
         Seismic gather to calculate velocity spectrum for.
-    win_size : float
-        Temporal window size used for velocity spectrum calculation. The higher the `win_size` is, the smoother
+    window_size : float
+        Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother
         the resulting velocity spectrum will be but to the detriment of small details. Measured in milliseconds.
     mode: str, defaults to `semblance`
         The coherency measure. See the `COHERENCY_FUNCS` for avaliable options.
@@ -273,7 +273,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     >>> survey = Survey(path, header_index=["INLINE_3D", "CROSSLINE_3D"], header_cols="offset")
     >>> gather = survey.sample_gather().sort(by="offset")
     >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum(velocities=np.linspace(2000, 6000, 200),
-                                                                        win_size=16)
+                                                                        window_size=16)
 
     Parameters
     ----------
@@ -281,9 +281,9 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         Seismic gather to calculate velocity spectrum for.
     velocities : 1d np.ndarray
         Range of velocity values for which velocity spectrum is calculated. Measured in meters/seconds.
-        If not provided, 30 velocities estimated from `const.DEFAULT_SDC_VELOCITY`.
-    win_size : int, optional, defaults to 50
-        Temporal window size used for velocity spectrum calculation. The higher the `win_size` is, the smoother
+        If not provided, velocities evenly sampled from  `const.DEFAULT_STACKING_VELOCITY` with step 100 m/s.
+    window_size : int, optional, defaults to 50
+        Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother
         the resulting velocity spectrum will be but to the detriment of small details. Measured in miliseconds.
     mode: str, optional, defaults to 'semblance'
         The measure for estimating hodograph coherency. 
@@ -310,14 +310,14 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     velocity_spectrum : 2d np.ndarray
         Array with calculated vertical velocity spectrum values.
     """
-    def __init__(self, gather, velocities=None, win_size=50, mode='semblance', max_stretch_factor=np.inf):
-        super().__init__(gather, win_size=win_size, mode=mode)
+    def __init__(self, gather, velocities=None, window_size=50, mode='semblance', max_stretch_factor=np.inf):
+        super().__init__(gather, window_size=window_size, mode=mode)
         if velocities is not None:
             self.velocities = velocities  # m/s
         else:
-            self.velocities = np.linspace(DEFAULT_SDC_VELOCITY(gather.times[0]) * 0.8,
-                                          DEFAULT_SDC_VELOCITY(gather.times[-1]) * 1.2,
-                                          30)
+            self.velocities = np.arange(DEFAULT_STACKING_VELOCITY(gather.times[0]) * 0.8,
+                                        DEFAULT_STACKING_VELOCITY(gather.times[-1]) * 1.2,
+                                        100)
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
         self.velocity_spectrum = self._calc_spectrum_numba(
                                                 spectrum_func=self.calc_single_velocity_spectrum,
@@ -361,7 +361,6 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
             Array with vertical velocity spectrum values.
         """
         velocity_spectrum = np.empty((gather_data.shape[1], len(velocities)), dtype=np.float32)
-        # TODO: use prange when fixed in numba
         for j in prange(len(velocities)):  # pylint: disable=consider-using-enumerate
             velocity_spectrum[:, j] = spectrum_func(coherency_func=coherency_func, gather_data=gather_data,
                                                     times=times, offsets=offsets, velocity=velocities[j],
@@ -376,8 +375,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         # Add a stacking velocity line on the plot
         stacking_times_ix, stacking_velocities_ix = None, None
         if stacking_velocity is not None:
-            stacking_times = stacking_velocity.times if stacking_velocity.times is not None else self.times
-            stacking_times = self.gather.times
+            stacking_times = stacking_velocity.times[stacking_velocity.times < self.times[-1]]
             stacking_velocities = stacking_velocity(stacking_times)
             stacking_times_ix = stacking_times / self.sample_rate
             stacking_velocities_ix = ((stacking_velocities - self.velocities[0]) /
@@ -525,8 +523,8 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         Stacking velocity around which residual velocity spectrum is calculated.
     n_velocities : int, optional, defaults to 140
         The number of velocities to compute residual velocity spectrum for.
-    win_size : int, optional, defaults to 50
-        Temporal window size used for velocity spectrum calculation. The higher the `win_size` is, the smoother
+    window_size : int, optional, defaults to 50
+        Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother
         the resulting velocity spectrum will be but to the detriment of small details. Measured in miliseconds.
     relative_margin : float, optional, defaults to 0.2
         Relative velocity margin, that determines the velocity range for velocity spectrum calculation
@@ -560,9 +558,9 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     velocity_spectrum : 2d np.ndarray
          Array with calculated residual vertical velocity velocity_spectrum values.
     """
-    def __init__(self, gather, stacking_velocity, n_velocities=140, win_size=50, relative_margin=0.2, mode='semblance',
-                 max_stretch_factor=np.inf):
-        super().__init__(gather, win_size, mode)
+    def __init__(self, gather, stacking_velocity, n_velocities=140, window_size=50, relative_margin=0.2,
+                mode='semblance', max_stretch_factor=np.inf):
+        super().__init__(gather, window_size, mode)
         self.stacking_velocity = stacking_velocity
         self.relative_margin = relative_margin
 
@@ -666,7 +664,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         """Plot residual vertical velocity spectrum."""
         x_ticklabels = np.linspace(-self.relative_margin, self.relative_margin, self.velocity_spectrum.shape[1]) * 100
 
-        stacking_times = self.stacking_velocity.times if self.stacking_velocity.times is not None else self.times
+        stacking_times = stacking_velocity.times[stacking_velocity.times < self.times[-1]]
         stacking_times_ix = stacking_times / self.sample_rate
         stacking_velocities_ix = np.full_like(stacking_times_ix, self.velocity_spectrum.shape[1] / 2)
 

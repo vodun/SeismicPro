@@ -25,7 +25,7 @@ from ..velocity_spectrum import VerticalVelocitySpectrum, ResidualVelocitySpectr
 from ..stacking_velocity import StackingVelocity, StackingVelocityField
 from ..refractor_velocity import RefractorVelocity, RefractorVelocityField
 from ..decorators import batch_method, plotter
-from ..const import HDR_FIRST_BREAK, HDR_TRACE_POS, DEFAULT_SDC_VELOCITY
+from ..const import HDR_FIRST_BREAK, HDR_TRACE_POS, DEFAULT_STACKING_VELOCITY
 from ..velocity_spectrum.utils.coherency_funcs import stacked_amplitude
 
 
@@ -781,7 +781,7 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", copy_src=False)
-    def calculate_vertical_velocity_spectrum(self, velocities=None, win_size=50, mode="semblance", max_stretch_factor=np.inf):
+    def calculate_vertical_velocity_spectrum(self, velocities=None, window_size=50, mode="semblance", max_stretch_factor=np.inf):
         """Calculate vertical velocity spectrum for the gather.
 
         Notes
@@ -791,23 +791,23 @@ class Gather(TraceContainer, SamplesContainer):
 
         Examples
         --------
-        Calculate vertical velocity spectrum with default values.
-        30 velocities sampled from default stacking velocity, 25ms temporal window size, 
-        semblance coherency measure and no muting stretching effects:
+        Calculate vertical velocity spectrum with default parameters: velocities evenly spaces around default stacking
+        velocity, 50 ms temporal window size, semblance coherency measure and no muting of hodograph stretching:
         >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum()
     
-        Calculate vertical velocity spectrum for 200 velocities from 2000 to 6000 m/s, temporal window size of 50 ms,
-        crosscorrelation coherency measure and muting stretching effects:
-        >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum(velocities=np.linspace(2000, 6000, 200), 
-                                                                            win_size=50, mode='CC', stretch_mute=True)
+        Calculate vertical velocity spectrum for 200 velocities from 2000 to 6000 m/s, temporal window size of 128 ms,
+        crosscorrelation coherency measure and muting stretching effects greater than 0.65:
+        >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum(
+                                                                velocities=np.linspace(2000, 6000, 200), 
+                                                                window_size=128, mode='CC', max_stretch_factor=0.65)
 
         Parameters
         ----------
         velocities : 1d np.ndarray or None, optional, defaults to None.
             Range of velocity values for which velocity spectrum is calculated. Measured in meters/seconds.
-            If not provided, 30 velocities estimated from `const.DEFAULT_SDC_VELOCITY`.
-        win_size : int, optional, defaults to 50
-            Temporal window size used for velocity spectrum calculation. The higher the `win_size` is, the smoother the
+            If not provided, velocities evenly sampled from  `const.DEFAULT_STACKING_VELOCITY` with step 100 m/s.
+        window_size : int, optional, defaults to 50
+            Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother the
             resulting velocity spectrum will be but to the detriment of small details. Measured in ms.
         mode: str, optional, defaults to 'semblance'
             The measure for estimating hodograph coherency. 
@@ -829,12 +829,12 @@ class Gather(TraceContainer, SamplesContainer):
             Calculated vertical velocity spectrum.
         """
         gather = self.copy().sort(by="offset")
-        return VerticalVelocitySpectrum(gather=gather, velocities=velocities, win_size=win_size, mode=mode,
+        return VerticalVelocitySpectrum(gather=gather, velocities=velocities, window_size=window_size, mode=mode,
                                         max_stretch_factor=max_stretch_factor)
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
     def calculate_residual_velocity_spectrum(self, stacking_velocity, n_velocities=140, relative_margin=0.2,
-                                             win_size=50, mode="semblance", max_stretch_factor=np.inf):
+                                             window_size=50, mode="semblance", max_stretch_factor=np.inf):
         """Calculate residual velocity spectrum for the gather and provided stacking velocity.
 
         Notes
@@ -847,7 +847,7 @@ class Gather(TraceContainer, SamplesContainer):
         --------
         Calculate residual velocity spectrum for a gather and a stacking velocity, loaded from a file:
         >>> velocity = StackingVelocity.from_file(velocity_path)
-        >>> residual_spectrum = gather.calculate_residual_velocity_spectrum(velocity, n_velocities=100, win_size=8)
+        >>> residual_spectrum = gather.calculate_residual_velocity_spectrum(velocity, n_velocities=100, window_size=8)
 
         Parameters
         ----------
@@ -861,9 +861,9 @@ class Gather(TraceContainer, SamplesContainer):
         relative_margin : float, optional, defaults to 0.2
             Relative velocity margin, that determines the velocity range for residual spectrum calculation 
             for each time `t` as `stacking_velocity(t)` * (1 +- `relative_margin`).
-        win_size : int, optional, defaults to 50
+        window_size : int, optional, defaults to 50
             Temporal window size used for residual velocity spectrum calculation. Measured in ms.
-            The higher the `win_size` is, the smoother the resulting spectrum will be but to the
+            The higher the `window_size` is, the smoother the resulting spectrum will be but to the
             detriment of small details.
         mode: str, optional, defaults to 'semblance'
             The measure for estimating hodograph coherency. 
@@ -888,7 +888,7 @@ class Gather(TraceContainer, SamplesContainer):
             stacking_velocity = stacking_velocity(self.coords)
         gather = self.copy().sort(by="offset")
         return ResidualVelocitySpectrum(gather=gather, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
-                                        win_size=win_size, relative_margin=relative_margin, mode=mode,
+                                        window_size=window_size, relative_margin=relative_margin, mode=mode,
                                         max_stretch_factor=max_stretch_factor)
 
     #------------------------------------------------------------------------#
@@ -1250,7 +1250,7 @@ class Gather(TraceContainer, SamplesContainer):
             Gather with applied SDC.
         """
         if velocity is None:
-            velocity = DEFAULT_SDC_VELOCITY
+            velocity = DEFAULT_STACKING_VELOCITY
         if not isinstance(velocity, StackingVelocity):
             raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
         self.data = gain.apply_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
@@ -1276,7 +1276,7 @@ class Gather(TraceContainer, SamplesContainer):
             Gather without SDC.
         """
         if velocity is None:
-            velocity = DEFAULT_SDC_VELOCITY
+            velocity = DEFAULT_STACKING_VELOCITY
         if not isinstance(velocity, StackingVelocity):
             raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
         self.data = gain.undo_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
