@@ -1025,7 +1025,7 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target="threads")
-    def stack(self, w=1):
+    def stack(self, amplify_factor=0):
         """Stack a gather by calculating mean value of all non-nan amplitudes for each time over the offset axis.
 
         The gather being stacked must contain traces from a single bin. The resulting gather will contain a single
@@ -1033,10 +1033,12 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        w : float in range [0, 1], optional, defaults to 1
-            Weight for normalizing value used to increase the stack power of long hodographs. Must be in [0, 1] range.
-            Normalizing the amplitudes sum to (1-w)*/sqrt(N) + w/N, where N is the number of non muted amplitudes.
-            Note in case s=1(default), scaling factor is 1/N, e.g stack amplitude is the average of ensemble amplitudes.
+        amplify_factor : float in range [0, 1], optional, defaults to 0
+            Amplifying factor which affects the normalization of the sum of hodographs amplitudes.
+            The amplitudes sum is normalized to amplify_factor/sqrt(N) + (1 - amplify_factor)/N, 
+            where N is the number of live(non muted) amplitudes. Acts as the coherency amplifier for long hodographs.
+            Note in case amplify_factor=1(default), normalization value is 1/N, 
+            e.g stack amplitude is the average of ensemble amplitudes. Must be in [0, 1] range.
 
         Returns
         -------
@@ -1047,11 +1049,11 @@ class Gather(TraceContainer, SamplesContainer):
         if (lines != lines[0]).any():
             raise ValueError("Only a single CDP gather can be stacked")
 
-        w = np.clip(w, 0, 1)
+        amplify_factor = np.clip(amplify_factor, 0, 1)
         # Preserve headers of the first trace of the gather being stacked
         self.headers = self.headers.iloc[[0]]
 
-        numerator, denominator = stacked_amplitude(self.data.T, w, False)
+        numerator, denominator = stacked_amplitude(self.data.T, amplify_factor, False)
         self.data = (numerator / denominator).reshape(1, -1)
         self.data = np.nan_to_num(self.data)
         return self

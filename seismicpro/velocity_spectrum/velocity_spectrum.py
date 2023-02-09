@@ -178,8 +178,8 @@ class BaseVelocitySpectrum:
         """
         # Cast text-related parameters to dicts and add text formatting parameters from kwargs to each of them
         (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
-        if 'label' in title:
-            title['label'] += f'\n Coherency func: {self.coherency_func.__name__}'
+        # if 'label' in title:
+        #     title['label'] += f'\n Coherency func: {self.coherency_func.__name__}'
 
         cmap = plt.get_cmap('seismic')
         level_values = np.linspace(0, np.quantile(self.velocity_spectrum, clip_threshold_quantile), n_levels)
@@ -385,7 +385,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         return self
 
     @plotter(figsize=(10, 9), args_to_unpack="stacking_velocity")
-    def plot(self, stacking_velocity=None, *, title="Vertical Velocity Spectrum", interactive=False, **kwargs):
+    def plot(self, stacking_velocity=None, *, title=None, interactive=False, **kwargs):
         """Plot vertical velocity spectrum.
 
         Parameters
@@ -394,8 +394,8 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
             Stacking velocity to plot if given. If its sample rate is more than 50 ms, every point will be highlighted
             with a circle.
             May be `str` if plotted in a pipeline: in this case it defines a component with stacking velocities to use.
-        title : str, optional, defaults to "Vertical Velocity Spectrum"
-            Plot title.
+        title : str, optional
+            Plot title. If not provided, stacks rows "Vertical Velocity Spectrum" and coherency func name.
         x_ticker : dict, optional, defaults to None
             Parameters for ticks and ticklabels formatting for the x-axis; see `.utils.set_ticks` for more details.
         y_ticker : dict, optional, defaults to None
@@ -429,6 +429,8 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         velocity_spectrum : VerticalVelocitySpectrum
             Self unchanged.
         """
+        if title is None:
+            title = f"Vertical Velocity Spectrum \n Coherency func: {self.coherency_func.__name__}"
         return super().plot(stacking_velocity=stacking_velocity, interactive=interactive, title=title, **kwargs)
 
     @batch_method(target="for", copy_src=False)
@@ -663,14 +665,14 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         return self
 
     @plotter(figsize=(10, 9))
-    def plot(self, *, title="Residual Velocity Spectrum", interactive=False, **kwargs):
+    def plot(self, *, title=None, interactive=False, **kwargs):
         """Plot residual vertical velocity spectrum. The plot always has a vertical line in the middle, representing
         the stacking velocity it was calculated for.
 
         Parameters
         ----------
-        title : str, optional, defaults to "Residual Velocity Spectrum"
-            Plot title.
+        title : str, optional
+            Plot title. If not provided, stacks rows "Residual Velocity Spectrum" and coherency func name.
         x_ticker : dict, optional, defaults to None
             Parameters for ticks and ticklabels formatting for the x-axis; see `.utils.set_ticks` for more details.
         y_ticker : dict, optional, defaults to None
@@ -704,4 +706,6 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         velocity_spectrum : ResidualVelocitySpectrum
             Self unchanged.
         """
+        if title is None:
+            title = f"Residual Velocity Spectrum \n Coherency func: {self.coherency_func.__name__}"
         return super().plot(interactive=interactive, title=title, **kwargs)

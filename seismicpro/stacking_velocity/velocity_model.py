@@ -73,7 +73,7 @@ def create_edges(velocity_spectrum, times, velocities, start_velocity_range, end
     # connected to all of them, and run the search from it
     start_node = (np.int32(-1), np.int32(0))
     prev_nodes = [start_node]
-    semb_max = velocity_spectrum.max()
+    max_spectrum = velocity_spectrum.max()
     for time_ix, start_vel_ix, end_vel_ix in zip(times_ix, start_vels_ix, end_vels_ix):
         curr_vels_ix = np.unique(np.linspace(start_vel_ix, end_vel_ix, n_velocities).astype(np.int32))
         curr_nodes = [(time_ix, vel_ix) for vel_ix in curr_vels_ix]
@@ -86,12 +86,12 @@ def create_edges(velocity_spectrum, times, velocities, start_velocity_range, end
                 if not ((prev_time_ix == -1) or (prev_vel_ix <= curr_vel_ix <= prev_vel_ix + max_vel_step)):
                     continue
 
-                # Calculate the edge weight: sum of (1 - velocity_spectrum_value)
+                # Calculate the edge weight: sum of (max_spectrum - velocity_spectrum_value)
                 # for each value along the path between nodes
                 times_indices = np.arange(prev_time_ix + 1, curr_time_ix + 1, dtype=np.int32)
                 velocity_indices = interpolate_indices(prev_time_ix, prev_vel_ix, curr_time_ix, curr_vel_ix,
                                                        times_indices)
-                weight = len(times_indices) * semb_max
+                weight = len(times_indices) * max_spectrum
                 for ti, vi in zip(times_indices, velocity_indices):
                     weight -= velocity_spectrum[ti, vi]
 

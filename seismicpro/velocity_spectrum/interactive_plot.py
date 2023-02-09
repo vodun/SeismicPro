@@ -16,7 +16,7 @@ class VelocitySpectrumPlot(PairedPlot):  # pylint: disable=too-many-instance-att
     velocity by switching the view. The width of the hodograph matches the window size used to calculate the spectrum
     on both views. An initial click is performed on the maximum spectrum value.
     """
-    def __init__(self, velocity_spectrum, title="Velocity Spectrum", sharey=True, gather_plot_kwargs=None,
+    def __init__(self, velocity_spectrum, title=None, sharey=True, gather_plot_kwargs=None,
                  figsize=(4.5, 4.5), fontsize=8, orientation="horizontal", **kwargs):
         kwargs = {"fontsize": fontsize, **kwargs}
         text_kwargs = get_text_formatting_kwargs(**kwargs)
@@ -26,7 +26,7 @@ class VelocitySpectrumPlot(PairedPlot):  # pylint: disable=too-many-instance-att
 
         self.figsize = figsize
         self.orientation = orientation
-        self.title = title + f'\n Coherency func: {velocity_spectrum.coherency_func.__name__}'
+        self.title = title
         self.click_time = None
         self.click_vel = None
 
