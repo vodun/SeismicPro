@@ -40,7 +40,7 @@ class BaseVelocitySpectrum:
         Seismic gather to calculate velocity spectrum for.
     win_size : float
         Temporal window size used for velocity spectrum calculation. The higher the `win_size` is, the smoother
-         the resulting velocity spectrum will be but to the detriment of small details. Measured in milisecods.
+        the resulting velocity spectrum will be but to the detriment of small details. Measured in milliseconds.
     mode: str, defaults to `semblance`
         The coherency measure. See the `COHERENCY_FUNCS` for avaliable options.
 

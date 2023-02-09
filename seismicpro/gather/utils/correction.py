@@ -18,7 +18,7 @@ def get_hodograph(gather_data, hodograph_times, sample_rate, interpolate=True, f
     gather_data : 2d np.ndarray
         Gather data to retrieve hodograph amplitudes from.
     hodograph_times : 1d np.array
-        Event time for each trace of the hodograph, e.g `len(hodograph_times) == len(gather_data)`.
+        Event time for each trace of the hodograph. Must match the lenght of `gather_data`.
         Measured in milliseconds.
     sample_rate : float
         Sample rate of seismic traces. Measured in milliseconds.
