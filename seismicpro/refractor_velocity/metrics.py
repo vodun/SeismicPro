@@ -9,7 +9,7 @@ from ..utils import times_to_indices
 class RefractorVelocityMetric(Metric):
     views = ("plot_gather", "plot_refractor_velocity")
 
-    def __init__(self, survey=None, field=None, first_breaks_col=HDR_FIRST_BREAK, **kwargs):
+    def __init__(self, survey=None, field=None, first_breaks_col=HDR_FIRST_BREAK, target=None, **kwargs):
         super().__init__(**kwargs)
         self.survey = survey
         self.field = field
@@ -26,12 +26,12 @@ class RefractorVelocityMetric(Metric):
         gather = self.survey.get_gather(coords)
         self._plot_gather(gather, ax=ax, **kwargs)
 
-    def plot_refractor_velocity(self, coords, ax, threshold_times=50, **kwargs):
+    def plot_refractor_velocity(self, coords, ax, **kwargs):
         refractor_velocity = self.field(coords)
         gather = self.survey.get_gather(coords)
         refractor_velocity.times = gather[self.first_breaks_col]
         refractor_velocity.offsets = gather['offset']
-        refractor_velocity.max_offset = max(refractor_velocity.max_offset, gather["offset"].max())
+        threshold_times = getattr(self, 'threshold_times', 50)
         refractor_velocity.plot(threshold_times=threshold_times, ax=ax, **kwargs)
 
 class FirstBreaksOutliers(RefractorVelocityMetric):
@@ -41,9 +41,13 @@ class FirstBreaksOutliers(RefractorVelocityMetric):
     is_lower_better = True
 
     @staticmethod
-    def calc(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50):
+    def _calc(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50):
         rv_times = refractor_velocity(gather['offset'])
         return np.abs(rv_times - gather[first_breaks_col]) > threshold_times
+    
+    @classmethod
+    def calc(cls, *args, **kwargs):
+        return np.mean(cls._calc(*args, **kwargs))
 
 class FirstBreaksAmplitudes(RefractorVelocityMetric):
     name = "first_breaks_amplitudes"
@@ -52,7 +56,7 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
     is_lower_better = None
 
     @staticmethod
-    def calc(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK):
+    def _calc(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK):
         _ = refractor_velocity
         g = gather.copy()
         g.scale_standard()
@@ -60,11 +64,18 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
         res = g.data[range(len(ix)), ix]
         return res
 
+    @classmethod
+    def calc(cls, target=0, *args, **kwargs):
+        amps = cls._calc(*args, **kwargs)
+        return np.mean(abs(amps - target))
+
     def plot_gather(self, coords, ax, **kwargs):
         gather = self.survey.get_gather(coords)
-        gather['amps'] = self.calc(gather=gather, first_breaks_col=self.first_breaks_col, refractor_velocity=None)
+        gather['amps'] = self._calc(gather=gather, first_breaks_col=self.first_breaks_col, refractor_velocity=None)
         kwargs['top_header'] = 'amps'
-        super()._plot_gather(gather, ax=ax, **kwargs)
+        target = getattr(self, 'target', 0)
+        cbar_std = max(abs(gather['amps'] - target))
+        super()._plot_gather(gather, ax=ax,  **kwargs)
 
 class FirstBreaksPhases(RefractorVelocityMetric):
     name = 'first_breaks_phases'
@@ -96,12 +107,13 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
     is_lower_better = False
 
     @staticmethod
-    def calc(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, corr_window=10):
+    def calc(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, win_size=10):
         _ = refractor_velocity
         g = gather.copy()
         g.scale_standard()
         ix = times_to_indices(g[first_breaks_col], g.samples).astype(np.int64)
-        mean_cols = ix.reshape(-1, 1) + np.arange(-corr_window, corr_window).reshape(1, -1)
+        mean_cols = ix.reshape(-1, 1) + np.arange(-win_size // g.sample_rate, win_size // g.sample_rate).reshape(1, -1)
+        mean_cols = np.clip(mean_cols, 0, g.data.shape[1] - 1).astype(np.int64)
 
         traces_windows = g.data[np.arange(len(g.data)).reshape(-1, 1), mean_cols]
         mean_trace = traces_windows.mean(axis=0)
@@ -115,9 +127,9 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
 
     def plot_gather(self, coords, ax, **kwargs):
         gather = self.survey.get_gather(coords)
-        corr_window = getattr(self, 'corr_window', 10)
+        win_size = getattr(self, 'win_size', 10)
         gather['corr'] = self.calc(gather=gather, refractor_velocity=None, first_breaks_col=self.first_breaks_col,
-                                   corr_window=corr_window)
+                                   win_size=win_size)
         kwargs['top_header'] = 'corr'
         super()._plot_gather(gather, ax=ax, **kwargs)
 
