@@ -48,6 +48,11 @@ class TraceContainer:
         return index_names
 
     @property
+    def available_headers(self):
+        """set of str: Names of available trace headers: both loaded and created manually."""
+        return set(self.headers.columns) | set(self.headers.index.names)
+
+    @property
     def n_traces(self):
         """int: The number of traces."""
         return len(self.headers)
@@ -134,7 +139,7 @@ class TraceContainer:
         else:
             # FIXME: Workaround for a pandas bug https://github.com/pandas-dev/pandas/issues/34822
             # raw=True causes incorrect apply behavior when axis=1 and multiple values are returned from `func`
-            raw = (axis != 1)
+            raw = axis != 1
 
             apply_func = (lambda args, **kwargs: func(*args, **kwargs)) if unpack_args else func
             res = df.apply(apply_func, axis=axis, raw=raw, result_type="expand", **kwargs)

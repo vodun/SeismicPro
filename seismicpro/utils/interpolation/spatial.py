@@ -34,7 +34,7 @@ def parse_inputs(coords, values=None):
     (n_coords, n_values). Check correctness and consistency of shapes. If `values` are not passed, only `coords` are
     processed."""
     coords = np.array(coords, order="C")
-    is_coords_1d = (coords.ndim == 1)
+    is_coords_1d = coords.ndim == 1
     coords = np.atleast_2d(coords)
     if coords.ndim != 2 or coords.shape[1] != 2:
         raise ValueError("coords must have shape (n_coords, 2) or (2,)")
@@ -42,7 +42,7 @@ def parse_inputs(coords, values=None):
         return coords, is_coords_1d, None, None
 
     values = np.array(values, dtype=np.float64, order="C")
-    is_values_1d = (values.ndim == 1)
+    is_values_1d = values.ndim == 1
     if is_values_1d and is_coords_1d:
         is_values_1d = False
         values = np.atleast_2d(coords)
@@ -221,7 +221,7 @@ class IDWInterpolator(ValuesAgnosticInterpolator):
 
     def _distances_to_weights(self, dist):
         """Convert distances to neighboring points into weights."""
-        is_1d_dist = (dist.ndim == 1)
+        is_1d_dist = dist.ndim == 1
         dist = np.atleast_2d(dist)
 
         # Transform distances according to dist_transform and smooth them if needed
@@ -281,13 +281,21 @@ class IDWInterpolator(ValuesAgnosticInterpolator):
         defined by `radius`. Also returns a mask of items in `coords` with empty neighborhood."""
         n_radius_points = self.nearest_neighbors.query_ball_point(coords, r=self.radius, return_length=True,
                                                                   workers=-1)
-        empty_radius_mask = (n_radius_points == 0)
+        empty_radius_mask = n_radius_points == 0
         if empty_radius_mask.all():
             return np.empty((0, 0)), np.empty((0, 0)), empty_radius_mask
 
+        # Unlike query_ball_point, query sometimes does not return points exactly radius distance away from the
+        # requested coordinates due to inaccuracies of float arithmetics. This may result in nan interpolation result
+        # if no points are returned. Here the radius in increased according to default numpy tolerances so that all
+        # returned points are either inside a circle of interpolation radius or close to its border for each of the
+        # requested coordinates.
+        isclose_rtol = 1e-05
+        isclose_atol = 1e-08
+        radius = self.radius * (1 + isclose_rtol) + isclose_atol
         neighbors = np.arange(n_radius_points.max()) + 1
         dist, indices = self.nearest_neighbors.query(coords[~empty_radius_mask], k=neighbors,
-                                                     distance_upper_bound=self.radius, workers=-1)
+                                                     distance_upper_bound=radius, workers=-1)
         indices[np.isinf(dist)] = 0  # Set padded indices to 0 for further advanced indexing to properly work
         return indices, self._distances_to_weights(dist), empty_radius_mask
 
