@@ -80,8 +80,9 @@ class VelocitySpectrumPlot(PairedPlot):  # pylint: disable=too-many-instance-att
         if hodograph is None:
             return
         hodograph_y = times_to_indices(hodograph, self.gather.times) - 0.5  # Correction for pixel center
-        hodograph_low = np.clip(hodograph_y - self.velocity_spectrum.win_size_samples, 0, len(self.gather.times) - 1)
-        hodograph_high = np.clip(hodograph_y + self.velocity_spectrum.win_size_samples, 0, len(self.gather.times) - 1)
+        half_window = self.velocity_spectrum.half_win_size_samples
+        hodograph_low = np.clip(hodograph_y - half_window, 0, len(self.gather.times) - 1)
+        hodograph_high = np.clip(hodograph_y + half_window, 0, len(self.gather.times) - 1)
         ax.fill_between(np.arange(len(hodograph)), hodograph_low, hodograph_high, color="tab:blue", alpha=0.5)
 
     def click(self, coords):

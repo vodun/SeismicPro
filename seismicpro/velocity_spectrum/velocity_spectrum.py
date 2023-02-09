@@ -216,7 +216,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     more coherent the signal is along a hyperbolic trajectory over the entire spread length of the gather.
 
     Velocity spectrum instance can be created either directly by passing source gather(and optional parameters like 
-    velocity range, window size and coherency measure) to its init
+    velocity range, window size, coherency measure and factor for stretch mute) to its init
     or by calling :func:`~Gather.calculate_vertical_velocity_spectrum` method (recommended way).
 
     The velocity spectrum is computed by:
@@ -224,12 +224,12 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
                            {\sum^{k+N/2}_{i=k-N/2} denominator(i, v)},
     where:
 
-    VS - velocity spectrum value for starting time index `k` and velocity `v`,
-    N - temporal window size,
-    numerator(i, v) - numerator of the coherency measure
-    denominator(i, v) - denominator of the coherency measure
+     - VS - velocity spectrum value for starting time index `k` and velocity `v`,
+     - N - temporal window size,
+     - numerator(i, v) - numerator of the coherency measure,
+     - denominator(i, v) - denominator of the coherency measure,
 
-    For different coherency measures:
+    For different coherency measures the numerator and denominator calculated as follows:
 
     - Stacked Amplitude:
         numerator(i, v) = sum^{M-1}_{j=0} f_{j}(i, v)^2
@@ -262,7 +262,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         1. Calculate NMO-corrected gather.
         2. Estimate numerator and denominator for given coherency measure for each timestamp.
         3. Get the velocity spectrum values as the division of rolling sums in a 
-        temporal window of numerator and denominator.
+        temporal windows of numerator and denominator.
 
     Notes
     -----
@@ -298,7 +298,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
         This mute is applied after nmo correction for each provided velocity and before coherency calculation.
         The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
-        Reasonably good value is 0.65
+        Reasonably good value is 0.65.
 
     Attributes
     ----------
@@ -370,13 +370,13 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
                                                     sample_rate=sample_rate, max_stretch_factor=max_stretch_factor)
         return velocity_spectrum
 
-    def _plot(self, stacking_velocity=None, *, title="Vertical Velocity Spectrum", x_ticker=None, y_ticker=None,
-              grid=False, colorbar=True, ax=None, **kwargs):
+    def _plot(self, stacking_velocity=None, *, title=None, x_ticker=None, y_ticker=None, grid=False, colorbar=True,
+              ax=None, **kwargs):
         """Plot vertical velocity spectrum."""
         # Add a stacking velocity line on the plot
         stacking_times_ix, stacking_velocities_ix = None, None
         if stacking_velocity is not None:
-            stacking_times = stacking_velocity.times[stacking_velocity.times < self.times[-1]]
+            stacking_times = stacking_velocity.times[stacking_velocity.times <= self.times[-1]]
             stacking_velocities = stacking_velocity(stacking_times)
             stacking_times_ix = stacking_times / self.sample_rate
             stacking_velocities_ix = ((stacking_velocities - self.velocities[0]) /
@@ -399,7 +399,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
             with a circle.
             May be `str` if plotted in a pipeline: in this case it defines a component with stacking velocities to use.
         title : str, optional
-            Plot title. If not provided, stacks rows "Vertical Velocity Spectrum" and coherency func name.
+            Plot title. If not provided, equals to stacked lines "Vertical Velocity Spectrum" and coherency func name.
         x_ticker : dict, optional, defaults to None
             Parameters for ticks and ticklabels formatting for the x-axis; see `.utils.set_ticks` for more details.
         y_ticker : dict, optional, defaults to None
@@ -490,8 +490,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
 
     Since the length of this velocity range varies for different timestamps, the residual velocity spectrum values are
     interpolated to obtain a rectangular matrix of size (trace_length, max(right_boundary - left_boundary)), where
-    `left_boundary` and `right_boundary` are arrays of left and right b
-    oundaries for all timestamps respectively.
+    `left_boundary` and `right_boundary` are arrays of left and right boundaries for all timestamps respectively.
 
     Thus the residual velocity spectrum is a function of time and relative velocity margin. Zero margin line 
     corresponds to the given stacking velocity and generally should pass through local velocity spectrum maxima.
@@ -636,19 +635,20 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
             Array with residual vertical velocity spectrum values.
         """
         velocity_spectrum = np.zeros((gather_data.shape[1], len(velocities)), dtype=np.float32)
-        for i in prange(left_bound_ix.min(), right_bound_ix.max() + 1):  # TODO: use prange when fixed in numba
+        for i in prange(left_bound_ix.min(), right_bound_ix.max() + 1):
             t_min_ix = np.where(right_bound_ix == i)[0]
             t_min_ix = 0 if len(t_min_ix) == 0 else t_min_ix[0]
 
             t_max_ix = np.where(left_bound_ix == i)[0]
             t_max_ix = len(times) - 1 if len(t_max_ix) == 0 else t_max_ix[-1]
 
-            velocity_spectrum[t_min_ix : t_max_ix+1, i] = spectrum_func(coherency_func=coherency_func,
-                                                                 gather_data=gather_data, times=times, offsets=offsets,
-                                                                 velocity=velocities[i], sample_rate=sample_rate,
-                                                                 half_win_size_samples=half_win_size_samples,
-                                                                 t_min_ix=t_min_ix, t_max_ix=t_max_ix+1,
-                                                                 max_stretch_factor=max_stretch_factor)
+            velocity_spectrum[t_min_ix : t_max_ix+1, i] = spectrum_func(
+                                                                coherency_func=coherency_func,
+                                                                gather_data=gather_data, times=times, offsets=offsets,
+                                                                velocity=velocities[i], sample_rate=sample_rate,
+                                                                half_win_size_samples=half_win_size_samples,
+                                                                t_min_ix=t_min_ix, t_max_ix=t_max_ix+1,
+                                                                max_stretch_factor=max_stretch_factor)
 
         # Interpolate velocity spectrum to get a rectangular image
         residual_velocity_spectrum_len = (right_bound_ix - left_bound_ix).max()
@@ -660,12 +660,11 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
                                                       cropped_velocity_spectrum)
         return residual_velocity_spectrum
 
-    def _plot(self, *, title="Residual Velocity Spectrum", x_ticker=None, y_ticker=None, grid=False, colorbar=True,
-              ax=None, **kwargs):
+    def _plot(self, *, title=None, x_ticker=None, y_ticker=None, grid=False, colorbar=True, ax=None, **kwargs):
         """Plot residual vertical velocity spectrum."""
         x_ticklabels = np.linspace(-self.relative_margin, self.relative_margin, self.velocity_spectrum.shape[1]) * 100
 
-        stacking_times = self.stacking_velocity.times[self.stacking_velocity.times < self.times[-1]]
+        stacking_times = self.stacking_velocity.times[self.stacking_velocity.times <= self.times[-1]]
         stacking_times_ix = stacking_times / self.sample_rate
         stacking_velocities_ix = np.full_like(stacking_times_ix, self.velocity_spectrum.shape[1] / 2)
 
@@ -683,7 +682,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         Parameters
         ----------
         title : str, optional
-            Plot title. If not provided, stacks rows "Residual Velocity Spectrum" and coherency func name.
+            Plot title. If not provided, equals to stacked lines "Residual Velocity Spectrum" and coherency func name.
         x_ticker : dict, optional, defaults to None
             Parameters for ticks and ticklabels formatting for the x-axis; see `.utils.set_ticks` for more details.
         y_ticker : dict, optional, defaults to None
