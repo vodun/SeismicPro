@@ -43,6 +43,7 @@ setup(
         'requests>=2.24',
         'psutil>=5.7.2',
         'batchflow>=0.7.5',
+        'tbb>=2021.8.0',
     ],
     classifiers=[
         'Development Status :: 4 - Beta',
