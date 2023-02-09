@@ -30,8 +30,8 @@ def semblance(corrected_gather):
     numerator = np.zeros_like(corrected_gather[:, 0])
     denominator = np.zeros_like(corrected_gather[:, 0])
     for i in prange(corrected_gather.shape[0]):
-        numerator[i] = np.nansum(corrected_gather[i, :]) ** 2
-        denominator[i] = np.nansum(corrected_gather[i, :] ** 2) * np.sum(~np.isnan(corrected_gather[i, :]))
+        numerator[i] = (np.nansum(corrected_gather[i, :]) ** 2) / max(np.sum(~np.isnan(corrected_gather[i, :])), 1)
+        denominator[i] = np.nansum(corrected_gather[i, :] ** 2)
     return numerator, denominator
 
 
