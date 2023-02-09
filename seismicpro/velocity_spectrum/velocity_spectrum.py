@@ -128,7 +128,7 @@ class BaseVelocitySpectrum:
 
         corrected_gather_data = correction.apply_nmo(gather_data, times[t_win_size_min_ix: t_win_size_max_ix + 1],
                                                      offsets, velocity, sample_rate, mute_crossover=False,
-                                                     max_stretch_factor=max_stretch_factor).T
+                                                     max_stretch_factor=max_stretch_factor)
 
         numerator, denominator = coherency_func(corrected_gather_data)
 
@@ -136,7 +136,7 @@ class BaseVelocitySpectrum:
         for t in prange(t_min_ix, t_max_ix):
             t_rel = t - t_win_size_min_ix
             ix_from = max(0, t_rel - win_size_samples)
-            ix_to = min(len(corrected_gather_data) - 1, t_rel + win_size_samples)
+            ix_to = min(corrected_gather_data.shape[1], t_rel + win_size_samples)
             velocity_spectrum_slice[t - t_min_ix] = np.sum(numerator[ix_from : ix_to]) / \
                                                     (np.sum(denominator[ix_from : ix_to]) + 1e-8)
         return velocity_spectrum_slice

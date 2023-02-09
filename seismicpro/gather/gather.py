@@ -1078,7 +1078,7 @@ class Gather(TraceContainer, SamplesContainer):
         # Preserve headers of the first trace of the gather being stacked
         self.headers = self.headers.iloc[[0]]
 
-        numerator, denominator = stacked_amplitude(self.data.T, amplify_factor, False)
+        numerator, denominator = stacked_amplitude(self.data, amplify_factor, False)
         self.data = (numerator / denominator).reshape(1, -1)
         self.data = np.nan_to_num(self.data)
         return self
