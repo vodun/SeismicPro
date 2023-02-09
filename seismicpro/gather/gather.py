@@ -790,7 +790,8 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", copy_src=False)
-    def calculate_vertical_velocity_spectrum(self, velocities=None, window_size=50, mode="semblance", max_stretch_factor=np.inf):
+    def calculate_vertical_velocity_spectrum(self, velocities=None, window_size=50, mode="semblance",
+                                             max_stretch_factor=np.inf):
         """Calculate vertical velocity spectrum for the gather.
 
         Notes
@@ -816,8 +817,8 @@ class Gather(TraceContainer, SamplesContainer):
             Range of velocity values for which velocity spectrum is calculated. Measured in meters/seconds.
             If not provided, velocities evenly sampled from  `const.DEFAULT_STACKING_VELOCITY` with step 100 m/s.
         window_size : int, optional, defaults to 50
-            Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother the
-            resulting velocity spectrum will be but to the detriment of small details. Measured in ms.
+            Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother
+            the resulting velocity spectrum will be but to the detriment of small details. Measured in ms.
         mode: str, optional, defaults to 'semblance'
             The measure for estimating hodograph coherency. 
             The available options are: 

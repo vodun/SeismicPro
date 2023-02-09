@@ -612,7 +612,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_res_velocity_spectrum_numba(spectrum_func, coherency_func, gather_data, times, offsets, velocities,
-                                          left_bound_ix, right_bound_ix, sample_rate, win_size_samples, 
+                                          left_bound_ix, right_bound_ix, sample_rate, win_size_samples,
                                           max_stretch_factor):
         """Parallelized and njitted method for residual vertical velocity spectrum calculation.
 
@@ -664,7 +664,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         """Plot residual vertical velocity spectrum."""
         x_ticklabels = np.linspace(-self.relative_margin, self.relative_margin, self.velocity_spectrum.shape[1]) * 100
 
-        stacking_times = stacking_velocity.times[stacking_velocity.times < self.times[-1]]
+        stacking_times = self.stacking_velocity.times[self.stacking_velocity.times < self.times[-1]]
         stacking_times_ix = stacking_times / self.sample_rate
         stacking_velocities_ix = np.full_like(stacking_times_ix, self.velocity_spectrum.shape[1] / 2)
 
