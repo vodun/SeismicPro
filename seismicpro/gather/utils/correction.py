@@ -37,16 +37,16 @@ def get_hodograph(gather_data, hodograph_times, sample_rate, interpolate=True, f
     """
     if out is None:
         out = np.empty(len(hodograph_times), dtype=gather_data.dtype)
-    for i, hodograph_time in enumerate(hodograph_times / sample_rate):
+    for i, hodograph_sample in enumerate(hodograph_times / sample_rate):
         amplitude = fill_value
-        if hodograph_time <= gather_data.shape[1] - 1:
+        if hodograph_sample <= gather_data.shape[1] - 1:
             if interpolate:
-                time_prev = math.floor(hodograph_time)
-                time_next = math.ceil(hodograph_time)
-                weight = time_next - hodograph_time
+                time_prev = math.floor(hodograph_sample)
+                time_next = math.ceil(hodograph_sample)
+                weight = time_next - hodograph_sample
                 amplitude = gather_data[i, time_prev] * weight + gather_data[i, time_next] * (1 - weight)
             else:
-                amplitude = gather_data[i, round(hodograph_time)]
+                amplitude = gather_data[i, round(hodograph_sample)]
         out[i] = amplitude
     return out
 
@@ -61,8 +61,19 @@ def compute_hodograph_times(offsets, times, velocities):
 
 @njit(nogil=True)
 def compute_crossovers_times(hodograph_times):
-    """ Given times for gather NMO correction, for each trace, find the latest time when a crossover event occurs.
-    Used to mute the trace above this event. """
+    """ Given hodograph_times for gather NMO correction, for each trace, find the latest time
+    when a crossover event occurs. Used to mute each trace of the gather above this event.
+    
+    Parameters
+    ----------
+    hodograph_times : 2d np.ndarray
+        Array storing the times of nmo corrected hodographs for the gather. The same shape as the gather.
+        
+    Returns
+    -------
+    crossover_times : 1d np.array
+        The array with lenght gather.n_traces. Stores the times of crossover events for each trace. 
+    """
     n = len(hodograph_times) - 1
     crossover_times = np.zeros(hodograph_times.shape[1])
 
@@ -79,7 +90,7 @@ def compute_crossovers_times(hodograph_times):
 
 @njit(nogil=True, parallel=True)
 def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate,
-              mute_crossover=False, mute_stretch=False, fill_value=np.nan):
+              mute_crossover=False, max_stretch_factor=np.inf, fill_value=np.nan):
     r"""Perform gather normal moveout correction with given stacking velocities for each timestamp.
 
     The process of NMO correction removes the moveout effect on traveltimes, assuming that reflection traveltimes in a
@@ -125,8 +136,7 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate,
         get_hodograph(gather_data, hodograph_times[i], sample_rate,
                       fill_value=fill_value, out=corrected_gather_data[:, i])
 
-    if mute_stretch:
-        max_stretch_factor = 0.65 # Reasonable default value for max_stretch_factor
+    if not np.isinf(max_stretch_factor):
         stretch_times = np.interp(offsets, times * stacking_velocities * \
                                   np.sqrt((1 + max_stretch_factor) ** 2 - 1), times)
         corrected_gather_data = mute_gather(corrected_gather_data, stretch_times, times, fill_value)

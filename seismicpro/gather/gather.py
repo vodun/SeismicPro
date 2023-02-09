@@ -781,7 +781,7 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", copy_src=False)
-    def calculate_vertical_velocity_spectrum(self, velocities=None, win_size=50, mode="semblance", mute_stretch=False):
+    def calculate_vertical_velocity_spectrum(self, velocities=None, win_size=50, mode="semblance", max_stretch_factor=np.inf):
         """Calculate vertical velocity spectrum for the gather.
 
         Notes
@@ -817,8 +817,11 @@ class Gather(TraceContainer, SamplesContainer):
                 `normalized_stacked_amplitude` or `NS`,
                 `crosscorrelation` or `CC`,
                 `energy_normalized_crosscorrelation` or `ENCC`
-        mute_stretch: bool, optional, defaults to False
-            Whether to mute stretcing effects before estimating hodograph coherency.
+        max_stretch_factor : float, defaults to np.inf
+            Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
+            This mute is applied after nmo correction for each provided velocity and before coherency calculation.
+            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
+            Reasonably good value is 0.65
 
         Returns
         -------
@@ -827,11 +830,11 @@ class Gather(TraceContainer, SamplesContainer):
         """
         gather = self.copy().sort(by="offset")
         return VerticalVelocitySpectrum(gather=gather, velocities=velocities, win_size=win_size, mode=mode,
-                                        mute_stretch=mute_stretch)
+                                        max_stretch_factor=max_stretch_factor)
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
     def calculate_residual_velocity_spectrum(self, stacking_velocity, n_velocities=140, relative_margin=0.2,
-                                             win_size=50, mode="semblance", mute_stretch=False):
+                                             win_size=50, mode="semblance", max_stretch_factor=np.inf):
         """Calculate residual velocity spectrum for the gather and provided stacking velocity.
 
         Notes
@@ -870,8 +873,11 @@ class Gather(TraceContainer, SamplesContainer):
                 `normalized_stacked_amplitude` or `NS`,
                 `crosscorrelation` or `CC`,
                 `energy_normalized_crosscorrelation` or `ENCC`
-        mute_stretch: bool, optional, defaults to False
-            Whether to mute stretcing effects before estimating hodograph coherency.
+        max_stretch_factor : float, defaults to np.inf
+            Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
+            This mute is applied after nmo correction for each provided velocity and before coherency calculation.
+            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
+            Reasonably good value is 0.65
 
         Returns
         -------
@@ -883,7 +889,7 @@ class Gather(TraceContainer, SamplesContainer):
         gather = self.copy().sort(by="offset")
         return ResidualVelocitySpectrum(gather=gather, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
                                         win_size=win_size, relative_margin=relative_margin, mode=mode,
-                                        mute_stretch=mute_stretch)
+                                        max_stretch_factor=max_stretch_factor)
 
     #------------------------------------------------------------------------#
     #                           Gather corrections                           #
@@ -934,7 +940,7 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
-    def apply_nmo(self, stacking_velocity, mute_crossover=False, mute_stretch=False, fill_value=np.nan):
+    def apply_nmo(self, stacking_velocity, mute_crossover=False, max_stretch_factor=np.inf, fill_value=np.nan):
         """Perform gather normal moveout correction using the given stacking velocity.
 
         Notes
@@ -950,8 +956,10 @@ class Gather(TraceContainer, SamplesContainer):
             May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
         mute_crossover: bool, optional, defaults to False
             Whether to mute areas where the time reversal occurred after nmo corrections.
-        mute_stretch: bool, optional, defaults to False
-            Whether to mute areas where the stretching effect occurred after nmo corrections.
+        max_stretch_factor : float, defaults to np.inf
+            Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
+            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
+            Reasonably good value is 0.65
         fill_value : float, optional, defaults to np.nan
             Value used to fill the amplitudes outside the gather bounds after moveout.
 
@@ -974,7 +982,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
         self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms,
-                                         self.sample_rate, mute_crossover, mute_stretch, fill_value)
+                                         self.sample_rate, mute_crossover, max_stretch_factor, fill_value)
         return self
 
     #------------------------------------------------------------------------#
