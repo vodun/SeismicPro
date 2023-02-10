@@ -1274,8 +1274,8 @@ class Gather(TraceContainer, SamplesContainer):
             * `log`: set y-axis to log scale. If `True`, formatting defined in `y_ticker` is discarded,
             * Any additional arguments for `matplotlib.pyplot.hist`.
 
-        Any 2d array matching the size of the gather or 1d array with length equal to gather.n_traces can be drawn on
-        top of the seismogram or wiggle plot if passed as `mask`.
+        A 2d array matching the size of the gather, a 1d array with length equal to gather.n_traces or list of these
+        arrays can be drawn on top of the seismogram or wiggle plot if passed as `mask`.
 
         Trace headers, whose values are measured in milliseconds (e.g. first break times) may be displayed over a
         seismogram or wiggle plot if passed as `event_headers`. If `top_header` is passed, an auxiliary scatter plot of
@@ -1306,13 +1306,12 @@ class Gather(TraceContainer, SamplesContainer):
         mask : array-like, str, dict or Gather, optional, defaults to None
             Valid only for "seismogram" and "wiggle" modes.
             Mask or list of masks to plot on top of the gather plot.
-            If `array-like` either mask or list of masks where each element should be one of:
+            If `array-like` either mask or list of masks where each mask should be one of:
             - `2d array`, a mask with shape equals to self.shape to plot on top of the gather plot;
             - `1d array`, a vector containing self.n_traces elements that determines which traces to mask;
             - `Gather`, its `data` attribute will be treated as a mask, note that Gather shape should be the same as
             self.shape;
-            - `str`, either a header name to take mask from if called directly as Gather.plot or a batch component
-            name if called in a Pipeline.
+            - `str`, either a header name to take mask from or a batch component name.
             If `dict`, the mask (or list of masks) is specified under the "masks" key and the rest of keys define masks
             layout. The following keys are supported:
                 - `masks`: mask or list of masks,

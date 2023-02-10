@@ -573,7 +573,7 @@ class SeismicBatch(Batch):
                 for arg_name in args_to_unpack & kwargs.keys():
                     arg_val = kwargs[arg_name]
                     if isinstance(arg_val, str):
-                        unpacked_args[arg_name] = getattr(self, arg_val)[i]
+                        unpacked_args[arg_name] = getattr(self, arg_val)[i] if hasattr(self, arg_val) else arg_val
 
                 # Format subplot title
                 if title_template is not None:
