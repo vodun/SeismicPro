@@ -45,6 +45,11 @@ class BaseVelocitySpectrum:
         the resulting velocity spectrum will be but to the detriment of small details. Measured in milliseconds.
     mode: str, defaults to `semblance`
         The coherency measure. See the `COHERENCY_FUNCS` for avaliable options.
+    max_stretch_factor : float, defaults to np.inf
+        Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
+        This mute is applied after nmo correction for each provided velocity and before coherency calculation.
+        The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
+        Reasonably good value is 0.65.
 
     Attributes
     ----------
@@ -54,11 +59,14 @@ class BaseVelocitySpectrum:
         Half of the temporal window size for smoothing the velocity spectrum. Measured in samples.
     coherency_func : callable
         The function that estimates the coherency measure for hodograph.
+    max_stretch_factor: float
+        Max allowable factor for stretch muter.
     """
 
-    def __init__(self, gather, window_size, mode='semblance'):
+    def __init__(self, gather, window_size, mode='semblance', max_stretch_factor=np.inf):
         self.gather = gather
         self.half_win_size_samples = math.ceil((window_size - gather.sample_rate) / gather.sample_rate / 2)
+        self.max_stretch_factor = max_stretch_factor
 
         self.coherency_func = COHERENCY_FUNCS.get(mode)
         if self.coherency_func is None:
@@ -118,6 +126,10 @@ class BaseVelocitySpectrum:
             Time index in `times` array to start calculating velocity spectrum from. Measured in samples.
         t_max_ix : int
             Time index in `times` array to stop calculating velocity spectrum at. Measured in samples.
+        max_stretch_factor : float, defaults to np.inf
+            Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
+            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
+            Reasonably good value is 0.65.
 
         Returns
         -------
@@ -181,8 +193,6 @@ class BaseVelocitySpectrum:
         """
         # Cast text-related parameters to dicts and add text formatting parameters from kwargs to each of them
         (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
-        # if 'label' in title:
-        #     title['label'] += f'\n Coherency func: {self.coherency_func.__name__}'
 
         cmap = plt.get_cmap('seismic')
         level_values = np.linspace(0, np.quantile(self.velocity_spectrum, clip_threshold_quantile), n_levels)
@@ -310,9 +320,11 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         Half of the temporal window size for smoothing the vertical velocity spectrum. Measured in samples.
     velocity_spectrum : 2d np.ndarray
         Array with calculated vertical velocity spectrum values.
+    max_stretch_factor: float
+        Max allowable factor for stretch muter.
     """
     def __init__(self, gather, velocities=None, window_size=50, mode='semblance', max_stretch_factor=np.inf):
-        super().__init__(gather, window_size=window_size, mode=mode)
+        super().__init__(gather, window_size, mode, max_stretch_factor)
         if velocities is not None:
             self.velocities = velocities  # m/s
         else:
@@ -557,10 +569,12 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
          Relative velocity margin, that determines the velocity range for velocity spectrum calculation for each time.
     velocity_spectrum : 2d np.ndarray
          Array with calculated residual vertical velocity velocity_spectrum values.
+    max_stretch_factor: float
+        Max allowable factor for stretch muter.
     """
     def __init__(self, gather, stacking_velocity, n_velocities=140, window_size=50, relative_margin=0.2,
                 mode='semblance', max_stretch_factor=np.inf):
-        super().__init__(gather, window_size, mode)
+        super().__init__(gather, window_size, mode, max_stretch_factor)
         self.stacking_velocity = stacking_velocity
         self.relative_margin = relative_margin
 

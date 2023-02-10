@@ -61,7 +61,9 @@ class VelocitySpectrumPlot(PairedPlot):  # pylint: disable=too-many-instance-att
         """Get an optionally corrected gather."""
         if not corrected:
             return self.gather
-        return self.gather.copy(ignore=["headers", "data", "samples"]).apply_nmo(self.click_vel * 1000)
+        max_stretch_factor = self.velocity_spectrum.max_stretch_factor
+        return self.gather.copy(ignore=["headers", "data", "samples"]) \
+                          .apply_nmo(self.click_vel * 1000, max_stretch_factor=max_stretch_factor)
 
     def get_hodograph(self, corrected):
         """Get hodograph times if click has been performed."""
