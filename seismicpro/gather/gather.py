@@ -1246,8 +1246,8 @@ class Gather(TraceContainer, SamplesContainer):
     #                         Visualization methods                          #
     #------------------------------------------------------------------------#
 
-    @plotter(figsize=(10, 7), args_to_unpack="mask")
-    def plot(self, mode="seismogram", mask=None, *, title=None, x_ticker=None, y_ticker=None, ax=None, **kwargs):
+    @plotter(figsize=(10, 7), args_to_unpack="masks")
+    def plot(self, mode="seismogram", *, masks=None, title=None, x_ticker=None, y_ticker=None, ax=None, **kwargs):
         """Plot gather traces.
 
         The traces can be displayed in a number of representations, depending on the `mode` provided. Currently, the
@@ -1274,12 +1274,10 @@ class Gather(TraceContainer, SamplesContainer):
             * `log`: set y-axis to log scale. If `True`, formatting defined in `y_ticker` is discarded,
             * Any additional arguments for `matplotlib.pyplot.hist`.
 
-        A 2d array matching the size of the gather, a 1d array with length equal to gather.n_traces or list of these
-        arrays can be drawn on top of the seismogram or wiggle plot if passed as `mask`.
-
-        Trace headers, whose values are measured in milliseconds (e.g. first break times) may be displayed over a
-        seismogram or wiggle plot if passed as `event_headers`. If `top_header` is passed, an auxiliary scatter plot of
-        values of this header will be shown on top of the gather plot.
+        Some areas of a gather may be highlighted in color by passing optional `masks` argument. Trace headers, whose
+        values are measured in milliseconds (e.g. first break times) may be displayed over a seismogram or wiggle plot
+        if passed as `event_headers`. If `top_header` is passed, an auxiliary scatter plot of values of this header
+        will be shown on top of the gather plot.
 
         While the source of label ticks for both `x` and `y` is defined by `x_tick_src` and `y_tick_src`, ticker
         appearance can be controlled via `x_ticker` and `y_ticker` parameters respectively. In the most general form,
@@ -1303,7 +1301,7 @@ class Gather(TraceContainer, SamplesContainer):
             - "seismogram": a 2d grayscale image of seismic traces;
             - "wiggle": an amplitude vs time plot for each trace of the gather;
             - "hist": histogram of the data amplitudes or some header values.
-        mask : array-like, str, dict or Gather, optional, defaults to None
+        masks : array-like, str, dict or Gather, optional, defaults to None
             Valid only for "seismogram" and "wiggle" modes.
             Mask or list of masks to plot on top of the gather plot.
             If `array-like` either mask or list of masks where each mask should be one of:
@@ -1316,6 +1314,7 @@ class Gather(TraceContainer, SamplesContainer):
             layout. The following keys are supported:
                 - `masks`: mask or list of masks,
                 - `threshold`: the value after which all values will be threated as mask,
+                - `label`: the name of the mask that will be shown in legend,
                 - `color`: mask color,
                 - `alpha`: mask transparency.
             If some dictionary value is array-like, each its element will be associated with the corresponding mask.
@@ -1397,13 +1396,13 @@ class Gather(TraceContainer, SamplesContainer):
         if mode not in plotters_dict:
             raise ValueError(f"Unknown mode {mode}")
 
-        if mask is not None:
-            kwargs.update({"mask": self._process_mask(mask)})
+        if masks is not None:
+            kwargs.update({"masks": self._process_masks(masks)})
         plotters_dict[mode](ax, title=title, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
         return self
 
-    def _process_mask(self, mask):
-        masks_list = self._parse_headers_kwargs(mask, "masks")
+    def _process_masks(self, masks):
+        masks_list = self._parse_headers_kwargs(masks, "masks")
         for mask_dict in masks_list:
             mask = mask_dict["masks"]
             if isinstance(mask, Gather):
@@ -1439,16 +1438,16 @@ class Gather(TraceContainer, SamplesContainer):
 
     # pylint: disable=too-many-arguments
     def _plot_seismogram(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src='time', colorbar=False,
-                         q_vmin=0.1, q_vmax=0.9, event_headers=None, top_header=None, mask=None, **kwargs):
+                         q_vmin=0.1, q_vmax=0.9, event_headers=None, top_header=None, masks=None, **kwargs):
         """Plot the gather as a 2d grayscale image of seismic traces."""
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
         vmin, vmax = self.get_quantile([q_vmin, q_vmax])
         kwargs = {"cmap": "gray", "aspect": "auto", "vmin": vmin, "vmax": vmax, **kwargs}
         img = ax.imshow(self.data.T, **kwargs)
-        if mask is not None:
+        if masks is not None:
             default_mask_kwargs = {"aspect": "auto", "alpha": 0.5, "interpolation": "none"}
-            for mask_kwargs in mask:
+            for mask_kwargs in masks:
                 cmap = ListedColormap(mask_kwargs.pop("color", "red"))
                 label = mask_kwargs.pop("label", None)
                 if label is not None:
@@ -1459,7 +1458,7 @@ class Gather(TraceContainer, SamplesContainer):
 
     #pylint: disable=invalid-name
     def _plot_wiggle(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src="time", norm_tracewise=True,
-                     std=0.5, event_headers=None, top_header=None, mask=None, lw=None, alpha=None, color="black",
+                     std=0.5, event_headers=None, top_header=None, masks=None, lw=None, alpha=None, color="black",
                      **kwargs):
         """Plot the gather as an amplitude vs time plot for each trace."""
         def _get_start_end_ixs(ixs):
@@ -1523,7 +1522,7 @@ class Gather(TraceContainer, SamplesContainer):
         patch = PathPatch(Path(verts, codes), color=color, alpha=alpha)
         ax.add_artist(patch)
 
-        if mask is not None:
+        if masks is not None:
             for mask_kwargs in mask:
                 mask = mask_kwargs.pop("masks")
                 if np.nansum(mask) == 0:
@@ -1542,8 +1541,8 @@ class Gather(TraceContainer, SamplesContainer):
                 codes[::5] = Path.MOVETO
                 codes[4::5] = Path.CLOSEPOLY
 
-                kwargs = {"alpha": alpha*0.6, "color": "r", "lw": 0}
-                mask_patch = PathPatch(Path(verts, codes), **{**kwargs, **mask_kwargs})
+                default_mask_kwargs = {"alpha": alpha*0.6, "color": "r", "lw": 0}
+                mask_patch = PathPatch(Path(verts, codes), **{**default_mask_kwargs, **mask_kwargs})
                 ax.add_artist(mask_patch)
 
         ax.update_datalim([(0, 0), traces.shape])
