@@ -1247,7 +1247,7 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
 
     @plotter(figsize=(10, 7), args_to_unpack="masks")
-    def plot(self, mode="seismogram", *, masks=None, title=None, x_ticker=None, y_ticker=None, ax=None, **kwargs):
+    def plot(self, mode="seismogram", *, title=None, x_ticker=None, y_ticker=None, ax=None, **kwargs):
         """Plot gather traces.
 
         The traces can be displayed in a number of representations, depending on the `mode` provided. Currently, the
@@ -1301,24 +1301,6 @@ class Gather(TraceContainer, SamplesContainer):
             - "seismogram": a 2d grayscale image of seismic traces;
             - "wiggle": an amplitude vs time plot for each trace of the gather;
             - "hist": histogram of the data amplitudes or some header values.
-        masks : array-like, str, dict or Gather, optional, defaults to None
-            Valid only for "seismogram" and "wiggle" modes.
-            Mask or list of masks to plot on top of the gather plot.
-            If `array-like` either mask or list of masks where each mask should be one of:
-            - `2d array`, a mask with shape equals to self.shape to plot on top of the gather plot;
-            - `1d array`, a vector containing self.n_traces elements that determines which traces to mask;
-            - `Gather`, its `data` attribute will be treated as a mask, note that Gather shape should be the same as
-            self.shape;
-            - `str`, either a header name to take mask from or a batch component name.
-            If `dict`, the mask (or list of masks) is specified under the "masks" key and the rest of keys define masks
-            layout. The following keys are supported:
-                - `masks`: mask or list of masks,
-                - `threshold`: the value after which all values will be threated as mask,
-                - `label`: the name of the mask that will be shown in legend,
-                - `color`: mask color,
-                - `alpha`: mask transparency.
-            If some dictionary value is array-like, each its element will be associated with the corresponding mask.
-            Otherwise, the single value will be used for all masks.
         title : str or dict, optional, defaults to None
             If `str`, a title of the plot.
             If `dict`, should contain keyword arguments to pass to `matplotlib.axes.Axes.set_title`. In this case, the
@@ -1361,6 +1343,24 @@ class Gather(TraceContainer, SamplesContainer):
         top_header : str, optional, defaults to None
             Valid only for "seismogram" and "wiggle" modes.
             The name of a header whose values will be plotted on top of the gather plot.
+        masks : array-like, str, dict or Gather, optional, defaults to None
+            Valid only for "seismogram" and "wiggle" modes.
+            Mask or list of masks to plot on top of the gather plot.
+            If `array-like` either mask or list of masks where each mask should be one of:
+            - `2d array`, a mask with shape equals to self.shape to plot on top of the gather plot;
+            - `1d array`, a vector containing self.n_traces elements that determines which traces to mask;
+            - `Gather`, its `data` attribute will be treated as a mask, note that Gather shape should be the same as
+            self.shape;
+            - `str`, either a header name to take mask from or a batch component name.
+            If `dict`, the mask (or list of masks) is specified under the "masks" key and the rest of keys define masks
+            layout. The following keys are supported:
+                - `masks`: mask or list of masks,
+                - `threshold`: the value after which all values will be threated as mask,
+                - `label`: the name of the mask that will be shown in legend,
+                - `color`: mask color,
+                - `alpha`: mask transparency.
+            If some dictionary value is array-like, each its element will be associated with the corresponding mask.
+            Otherwise, the single value will be used for all masks.
         figsize : tuple, optional, defaults to (10, 7)
             Size of the figure to create if `ax` is not given. Measured in inches.
         save_to : str or dict, optional, defaults to None
@@ -1396,27 +1396,8 @@ class Gather(TraceContainer, SamplesContainer):
         if mode not in plotters_dict:
             raise ValueError(f"Unknown mode {mode}")
 
-        if masks is not None:
-            kwargs.update({"masks": self._process_masks(masks)})
         plotters_dict[mode](ax, title=title, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
         return self
-
-    def _process_masks(self, masks):
-        masks_list = self._parse_headers_kwargs(masks, "masks")
-        for mask_dict in masks_list:
-            mask = mask_dict["masks"]
-            if isinstance(mask, Gather):
-                mask = mask.data
-            elif isinstance(mask, str):
-                mask_dict["label"] = mask_dict.get("label", mask)
-                mask = self[mask]
-
-            mask = np.array(mask)
-            if mask.ndim == 1:
-                mask = mask.reshape(-1, 1)
-            threshold = mask_dict.pop("threshold", 0.5)
-            mask_dict["masks"] = np.broadcast_to(np.where(mask < threshold, np.nan, 1), self.shape)
-        return masks_list
 
     def _plot_histogram(self, ax, title, x_ticker, y_ticker, x_tick_src="amplitude", bins=None,
                         log=False, grid=True, **kwargs):
@@ -1447,12 +1428,15 @@ class Gather(TraceContainer, SamplesContainer):
         img = ax.imshow(self.data.T, **kwargs)
         if masks is not None:
             default_mask_kwargs = {"aspect": "auto", "alpha": 0.5, "interpolation": "none"}
-            for mask_kwargs in masks:
+            for mask_kwargs in self._process_masks(masks):
+                mask = mask_kwargs.pop("masks")
+                if np.nansum(mask) == 0: continue
                 cmap = ListedColormap(mask_kwargs.pop("color", "red"))
                 label = mask_kwargs.pop("label", None)
+                # Note that the label will only be visible on the legend
                 if label is not None:
                     ax.add_patch(Polygon([[0, 0]], color=cmap(1), label=label, alpha=mask_kwargs.get("alpha", 0.5)))
-                ax.imshow(mask_kwargs.pop("masks").T, cmap=cmap, **{**default_mask_kwargs, **mask_kwargs})
+                ax.imshow(mask.T, cmap=cmap, **{**default_mask_kwargs, **mask_kwargs})
         add_colorbar(ax, img, colorbar, divider, y_ticker)
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
@@ -1523,10 +1507,9 @@ class Gather(TraceContainer, SamplesContainer):
         ax.add_artist(patch)
 
         if masks is not None:
-            for mask_kwargs in mask:
+            for mask_kwargs in self._process_masks(masks):
                 mask = mask_kwargs.pop("masks")
-                if np.nansum(mask) == 0:
-                    continue
+                if np.nansum(mask) == 0: continue
                 mask_ix = np.argwhere(mask > 0)
                 start_ix, end_ix = _get_start_end_ixs(mask_ix)
                 # Compute the polygon bodies, that represent mask coordinates with a small indent
@@ -1570,6 +1553,23 @@ class Gather(TraceContainer, SamplesContainer):
 
         if len(ax.get_legend_handles_labels()[0]):
             ax.legend()
+
+    def _process_masks(self, masks):
+        masks_list = self._parse_headers_kwargs(masks, "masks")
+        for mask_dict in masks_list:
+            mask = mask_dict["masks"]
+            if isinstance(mask, Gather):
+                mask = mask.data
+            elif isinstance(mask, str):
+                mask_dict["label"] = mask_dict.get("label", mask)
+                mask = self[mask]
+
+            mask = np.array(mask)
+            if mask.ndim == 1:
+                mask = mask.reshape(-1, 1)
+            threshold = mask_dict.pop("threshold", 0.5)
+            mask_dict["masks"] = np.broadcast_to(np.where(mask < threshold, np.nan, 1), self.shape)
+        return masks_list
 
     @staticmethod
     def _parse_headers_kwargs(headers_kwargs, headers_key):

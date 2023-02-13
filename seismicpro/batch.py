@@ -572,13 +572,15 @@ class SeismicBatch(Batch):
                 unpacked_args = {}
                 for arg_name in args_to_unpack & kwargs.keys():
                     arg_val = kwargs[arg_name]
-                    if isinstance(arg_val, dict):
-                        unpack_key = arg_val[arg_name]
-                        arg_val[arg_name] = getattr(self, unpack_key)[i] if hasattr(self, unpack_key) else unpack_key
+                    if isinstance(arg_val, list):
+                        arg_val = [getattr(self, val)[i] if hasattr(self, val) else val for val in arg_val]
+                    elif isinstance(arg_val, dict):
+                        unpack_val = arg_val[arg_name]
+                        arg_val[arg_name] = getattr(self, unpack_val)[i] if hasattr(self, unpack_val) else unpack_val
                     elif isinstance(arg_val, str):
                         arg_val = getattr(self, arg_val)[i] if hasattr(self, arg_val) else arg_val
                     unpacked_args[arg_name] = arg_val
-                print(unpacked_args, kwargs)
+
                 # Format subplot title
                 if title_template is not None:
                     src_title = as_dict(title_template, key='label')
