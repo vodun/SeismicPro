@@ -1430,7 +1430,8 @@ class Gather(TraceContainer, SamplesContainer):
             default_mask_kwargs = {"aspect": "auto", "alpha": 0.5, "interpolation": "none"}
             for mask_kwargs in self._process_masks(masks):
                 mask = mask_kwargs.pop("masks")
-                if np.nansum(mask) == 0: continue
+                if np.nansum(mask) == 0:
+                    continue
                 cmap = ListedColormap(mask_kwargs.pop("color", "red"))
                 label = mask_kwargs.pop("label", None)
                 # Note that the label will only be visible on the legend
@@ -1509,7 +1510,8 @@ class Gather(TraceContainer, SamplesContainer):
         if masks is not None:
             for mask_kwargs in self._process_masks(masks):
                 mask = mask_kwargs.pop("masks")
-                if np.nansum(mask) == 0: continue
+                if np.nansum(mask) == 0:
+                    continue
                 mask_ix = np.argwhere(mask > 0)
                 start_ix, end_ix = _get_start_end_ixs(mask_ix)
                 # Compute the polygon bodies, that represent mask coordinates with a small indent

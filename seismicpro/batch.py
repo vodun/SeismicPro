@@ -537,6 +537,12 @@ class SeismicBatch(Batch):
             If the length of `src_kwargs` when passed as a list does not match the length of `src`.
             If any of the components' `plot` method is not decorated with `plotter` decorator.
         """
+        def _unpack_args(args):
+            unpacked_args = [getattr(self, val)[i] if hasattr(self, val) else val for val in to_list(args)]
+            if isinstance(args, str):
+                return unpacked_args[0]
+            return unpacked_args
+
         # Construct a list of plot kwargs for each component in src
         src_list = to_list(src)
         if src_kwargs is None:
@@ -572,13 +578,10 @@ class SeismicBatch(Batch):
                 unpacked_args = {}
                 for arg_name in args_to_unpack & kwargs.keys():
                     arg_val = kwargs[arg_name]
-                    if isinstance(arg_val, list):
-                        arg_val = [getattr(self, val)[i] if hasattr(self, val) else val for val in arg_val]
-                    elif isinstance(arg_val, dict):
-                        unpack_val = arg_val[arg_name]
-                        arg_val[arg_name] = getattr(self, unpack_val)[i] if hasattr(self, unpack_val) else unpack_val
-                    elif isinstance(arg_val, str):
-                        arg_val = getattr(self, arg_val)[i] if hasattr(self, arg_val) else arg_val
+                    if isinstance(arg_val, dict):
+                        arg_val[arg_name] = _unpack_args(arg_val[arg_name])                        
+                    else:
+                        arg_val = _unpack_args(arg_val)
                     unpacked_args[arg_name] = arg_val
 
                 # Format subplot title
