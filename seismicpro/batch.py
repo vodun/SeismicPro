@@ -476,6 +476,17 @@ class SeismicBatch(Batch):
         self._num_calculated_metrics += 1
         return self
 
+    def _unpack_args(self, args, i):
+        """Replace all names of batch attributes in `args` with batch attributes itself. """
+        if not isinstance(args, (list, tuple, str)):
+            return args
+
+        unpacked_args = [getattr(self, val)[i] if isinstance(val, str) and hasattr(self, val) else val
+                         for val in to_list(args)]
+        if isinstance(args, str):
+            return unpacked_args[0]
+        return unpacked_args
+
     @action
     def plot(self, src, src_kwargs=None, max_width=20, title="{src}: {index}", save_to=None, **common_kwargs):  # pylint: disable=too-many-statements
         """Plot batch components on a grid constructed as follows:
@@ -537,12 +548,6 @@ class SeismicBatch(Batch):
             If the length of `src_kwargs` when passed as a list does not match the length of `src`.
             If any of the components' `plot` method is not decorated with `plotter` decorator.
         """
-        def _unpack_args(args):
-            unpacked_args = [getattr(self, val)[i] if hasattr(self, val) else val for val in to_list(args)]
-            if isinstance(args, str):
-                return unpacked_args[0]
-            return unpacked_args
-
         # Construct a list of plot kwargs for each component in src
         src_list = to_list(src)
         if src_kwargs is None:
@@ -579,9 +584,9 @@ class SeismicBatch(Batch):
                 for arg_name in args_to_unpack & kwargs.keys():
                     arg_val = kwargs[arg_name]
                     if isinstance(arg_val, dict):
-                        arg_val[arg_name] = _unpack_args(arg_val[arg_name])                        
+                        arg_val[arg_name] = self._unpack_args(arg_val[arg_name], i)
                     else:
-                        arg_val = _unpack_args(arg_val)
+                        arg_val = self._unpack_args(arg_val, i)
                     unpacked_args[arg_name] = arg_val
 
                 # Format subplot title
