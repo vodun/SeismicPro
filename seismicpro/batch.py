@@ -477,12 +477,12 @@ class SeismicBatch(Batch):
         return self
 
     @staticmethod
-    def _unpack_args(batch, args):
+    def _unpack_args(batch_item, args):
         """Replace all names of batch components in `args` with corresponding batch items. """
         if not isinstance(args, (list, tuple, str)):
             return args
 
-        unpacked_args = [getattr(batch, val) if isinstance(val, str) and val in batch.components else val
+        unpacked_args = [getattr(batch_item, val) if isinstance(val, str) and val in batch_item.components else val
                          for val in to_list(args)]
         if isinstance(args, str):
             return unpacked_args[0]
