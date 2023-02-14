@@ -1427,17 +1427,18 @@ class Gather(TraceContainer, SamplesContainer):
         kwargs = {"cmap": "gray", "aspect": "auto", "vmin": vmin, "vmax": vmax, **kwargs}
         img = ax.imshow(self.data.T, **kwargs)
         if masks is not None:
-            default_mask_kwargs = {"aspect": "auto", "alpha": 0.5, "interpolation": "none"}
+            default_mask_kwargs = {"aspect": "auto", "alpha": 0.5, "interpolation": "none", "color": "red"}
             for mask_kwargs in self._process_masks(masks):
+                mask_kwargs = {**default_mask_kwargs, **mask_kwargs}
                 mask = mask_kwargs.pop("masks")
                 if np.nansum(mask) == 0:
                     continue
-                cmap = ListedColormap(mask_kwargs.pop("color", "red"))
+                cmap = ListedColormap(mask_kwargs.pop("color"))
                 label = mask_kwargs.pop("label", None)
                 # Note that the label will only be visible on the legend
                 if label is not None:
-                    ax.add_patch(Polygon([[0, 0]], color=cmap(1), label=label, alpha=mask_kwargs.get("alpha", 0.5)))
-                ax.imshow(mask.T, cmap=cmap, **{**default_mask_kwargs, **mask_kwargs})
+                    ax.add_patch(Polygon([[0, 0]], color=cmap(1), label=label, alpha=mask_kwargs["alpha"]))
+                ax.imshow(mask.T, cmap=cmap, **mask_kwargs)
         add_colorbar(ax, img, colorbar, divider, y_ticker)
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
@@ -1597,7 +1598,7 @@ class Gather(TraceContainer, SamplesContainer):
             return [{headers_key: header} for header in headers_kwargs]
 
         if headers_key not in headers_kwargs:
-            raise KeyError(f'{headers_key} key is not defined in event_headers')
+            raise KeyError(f'Missing {headers_key} key in passed kwargs')
 
         headers_kwargs = {key: value if isinstance(value, (list, tuple)) else [value]
                           for key, value in headers_kwargs.items()}

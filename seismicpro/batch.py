@@ -476,12 +476,13 @@ class SeismicBatch(Batch):
         self._num_calculated_metrics += 1
         return self
 
-    def _unpack_args(self, args, i):
-        """Replace all names of batch attributes in `args` with batch attributes itself. """
+    @staticmethod
+    def _unpack_args(batch, args):
+        """Replace all names of batch components in `args` with corresponding batch items. """
         if not isinstance(args, (list, tuple, str)):
             return args
 
-        unpacked_args = [getattr(self, val)[i] if isinstance(val, str) and hasattr(self, val) else val
+        unpacked_args = [getattr(batch, val) if isinstance(val, str) and val in batch.components else val
                          for val in to_list(args)]
         if isinstance(args, str):
             return unpacked_args[0]
@@ -583,10 +584,10 @@ class SeismicBatch(Batch):
                 unpacked_args = {}
                 for arg_name in args_to_unpack & kwargs.keys():
                     arg_val = kwargs[arg_name]
-                    if isinstance(arg_val, dict):
-                        arg_val[arg_name] = self._unpack_args(arg_val[arg_name], i)
+                    if isinstance(arg_val, dict) and arg_name in arg_val:
+                        arg_val[arg_name] = self._unpack_args(self[i], arg_val[arg_name])
                     else:
-                        arg_val = self._unpack_args(arg_val, i)
+                        arg_val = self._unpack_args(self[i], arg_val)
                     unpacked_args[arg_name] = arg_val
 
                 # Format subplot title
