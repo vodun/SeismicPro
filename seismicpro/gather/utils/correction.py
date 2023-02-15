@@ -9,7 +9,7 @@ from .general_utils import mute_gather
 
 
 @njit(nogil=True, fastmath=True)
-def get_hodograph(gather_data, hodograph_times, sample_rate, interpolate=True, fill_value=np.nan, out=None):
+def get_hodograph(gather_data, offsets, hodograph_times, sample_rate, interpolate=True, fill_value=np.nan, out=None, max_offset=np.inf):
     """Retrieve hodograph amplitudes from the `gather_data`.
     Hodograph is defined by `hodograph_times`: the event time for each trace of the gather.
 
@@ -39,24 +39,26 @@ def get_hodograph(gather_data, hodograph_times, sample_rate, interpolate=True, f
         out = np.empty(len(hodograph_times), dtype=gather_data.dtype)
     for i, hodograph_sample in enumerate(hodograph_times / sample_rate):
         amplitude = fill_value
-        if hodograph_sample <= gather_data.shape[1] - 1:
-            if interpolate:
-                time_prev = math.floor(hodograph_sample)
-                time_next = math.ceil(hodograph_sample)
-                weight = time_next - hodograph_sample
-                amplitude = gather_data[i, time_prev] * weight + gather_data[i, time_next] * (1 - weight)
-            else:
-                amplitude = gather_data[i, round(hodograph_sample)]
+        if offsets[i] < max_offset:
+            if hodograph_sample <= gather_data.shape[1] - 1:
+                if interpolate:
+                    time_prev = math.floor(hodograph_sample)
+                    time_next = math.ceil(hodograph_sample)
+                    weight = time_next - hodograph_sample
+                    amplitude = gather_data[i, time_prev] * weight + gather_data[i, time_next] * (1 - weight)
+                else:
+                    amplitude = gather_data[i, round(hodograph_sample)]
         out[i] = amplitude
     return out
 
 
-@njit(nogil=True)
+@njit(nogil=True, parallel=True)
 def compute_hodograph_times(offsets, times, velocities):
     """ Calculate the times of hyperbolic hodographs for each time of the gather with given stacking velocities. 
     Offsets, times and velocities are 1d np.arrays. 
     The result is 2d np.array with shape `(len(offsets), len(times))`."""
-    return np.sqrt(times.reshape(-1, 1) ** 2 + (offsets / np.asarray(velocities).reshape(-1, 1)) **2)
+    velocities = np.ascontiguousarray(np.broadcast_to(velocities, times.shape))
+    return np.sqrt(times.reshape(-1, 1) ** 2 + (offsets / velocities.reshape(-1, 1)) **2)
 
 
 @njit(nogil=True)
@@ -79,7 +81,7 @@ def compute_crossovers_times(hodograph_times):
 
     for i in range(hodograph_times.shape[1]):
         t_prev =  hodograph_times[n, i]
-        for j in range(n-1, 0):
+        for j in range(n-1, 0, -1):
             t = hodograph_times[j, i]
             if t > t_prev:
                 crossover_times[i] = j
@@ -87,6 +89,42 @@ def compute_crossovers_times(hodograph_times):
             t_prev = t
     return crossover_times
 
+
+@njit(nogil=True, parallel=True)
+def compute_crossover_offsets(hodograph_times, times, offsets):
+    """ Given hodograph_times for gather NMO correction, for each trace, find the latest time
+    when a crossover event occurs. Used to mute each trace of the gather above this event.
+    
+    Parameters
+    ----------
+    hodograph_times : 2d np.ndarray
+        Array storing the times of nmo corrected hodographs for the gather. The same shape as the gather.
+        
+    Returns
+    -------
+    crossover_times : 1d np.array
+        The array with lenght gather.n_traces. Stores the times of crossover events for each trace. 
+    """
+    n = len(hodograph_times) - 1
+    crossover_times = np.zeros(hodograph_times.shape[1])
+
+    for i in prange(hodograph_times.shape[1]):
+        t_prev =  hodograph_times[n, i]
+        for j in range(n-1, 0, -1):
+            t = hodograph_times[j, i]
+            if t > t_prev:
+                crossover_times[i] = j
+                break
+            t_prev = t
+    
+    time_max = crossover_times[0]
+    for i in range(1, len(crossover_times) - 1):
+        if crossover_times[i] > time_max:
+            time_max = crossover_times[i]
+        else:
+            crossover_times[i] = time_max
+            
+    return np.interp(times, crossover_times, offsets)
 
 @njit(nogil=True, parallel=True)
 def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate,
@@ -132,18 +170,15 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate,
     corrected_gather_data = np.full_like(gather_data, fill_value=fill_value)
     hodograph_times = compute_hodograph_times(offsets, times, stacking_velocities)
 
-    for i in prange(times.shape[0]): # pylint: disable=not-an-iterable
-        get_hodograph(gather_data, hodograph_times[i], sample_rate,
-                      fill_value=fill_value, out=corrected_gather_data[:, i])
-
-    if not np.isinf(max_stretch_factor):
-        stretch_times = np.interp(offsets, times * stacking_velocities * \
-                                  np.sqrt((1 + max_stretch_factor) ** 2 - 1), times)
-        corrected_gather_data = mute_gather(corrected_gather_data, stretch_times, times, fill_value)
+    max_offsets = times * stacking_velocities * np.sqrt((1 + max_stretch_factor) ** 2 - 1)
 
     if mute_crossover:
-        crossovers_times = compute_crossovers_times(hodograph_times) * sample_rate
-        corrected_gather_data = mute_gather(corrected_gather_data, crossovers_times, times, fill_value)
+        crossover_offsets = compute_crossover_offsets(hodograph_times, times, offsets)
+        max_offsets = np.minimum(max_offsets, crossover_offsets)
+
+    for i in prange(times.shape[0]): # pylint: disable=not-an-iterable
+        get_hodograph(gather_data, offsets, hodograph_times[i], sample_rate,
+                      fill_value=fill_value, out=corrected_gather_data[:, i], max_offset=max_offsets[i])
 
     return corrected_gather_data
 
