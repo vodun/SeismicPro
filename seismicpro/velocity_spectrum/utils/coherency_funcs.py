@@ -6,7 +6,7 @@ from numba import prange, jit_module
 
 
 def stacked_amplitude(corrected_gather, amplify_factor=0, abs=True):
-    numerator = np.zeros_like(corrected_gather[0])
+    numerator = np.empty_like(corrected_gather[0])
     denominator = np.ones_like(corrected_gather[0])
     for i in prange(corrected_gather.shape[1]):
         numerator[i] = np.nansum(corrected_gather[:, i])
@@ -18,8 +18,8 @@ def stacked_amplitude(corrected_gather, amplify_factor=0, abs=True):
 
 
 def normalized_stacked_amplitude(corrected_gather):
-    numerator = np.zeros_like(corrected_gather[0])
-    denominator = np.zeros_like(corrected_gather[0])
+    numerator = np.empty_like(corrected_gather[0])
+    denominator = np.empty_like(corrected_gather[0])
     for i in prange(corrected_gather.shape[1]):
         numerator[i] = np.abs(np.nansum(corrected_gather[:, i]))
         denominator[i] = np.nansum(np.abs(corrected_gather[:, i]))
@@ -27,8 +27,8 @@ def normalized_stacked_amplitude(corrected_gather):
 
 
 def semblance(corrected_gather):
-    numerator = np.zeros_like(corrected_gather[0])
-    denominator = np.zeros_like(corrected_gather[0])
+    numerator = np.empty_like(corrected_gather[0])
+    denominator = np.empty_like(corrected_gather[0])
     for i in prange(corrected_gather.shape[1]):
         numerator[i] = (np.nansum(corrected_gather[:, i]) ** 2) / max(np.sum(~np.isnan(corrected_gather[:, i])), 1)
         denominator[i] = np.nansum(corrected_gather[:, i] ** 2)
@@ -36,7 +36,7 @@ def semblance(corrected_gather):
 
 
 def crosscorrelation(corrected_gather):
-    numerator = np.zeros_like(corrected_gather[0])
+    numerator = np.empty_like(corrected_gather[0])
     denominator = np.ones_like(corrected_gather[0])
     for i in prange(corrected_gather.shape[1]):
         numerator[i] = ((np.nansum(corrected_gather[:, i]) ** 2) - np.nansum(corrected_gather[:, i] ** 2)) / 2
@@ -44,8 +44,8 @@ def crosscorrelation(corrected_gather):
 
 
 def energy_normalized_crosscorrelation(corrected_gather):
-    numerator = np.zeros_like(corrected_gather[0])
-    denominator = np.zeros_like(corrected_gather[0])
+    numerator = np.empty_like(corrected_gather[0])
+    denominator = np.empty_like(corrected_gather[0])
     for i in prange(corrected_gather.shape[1]):
         input_enerty =  np.nansum(corrected_gather[:, i] ** 2)
         output_energy = np.nansum(corrected_gather[:, i]) ** 2

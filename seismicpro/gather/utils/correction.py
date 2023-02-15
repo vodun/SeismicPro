@@ -5,11 +5,10 @@ import math
 import numpy as np
 from numba import njit, prange
 
-from .general_utils import mute_gather
-
 
 @njit(nogil=True, fastmath=True)
-def get_hodograph(gather_data, offsets, hodograph_times, sample_rate, interpolate=True, fill_value=np.nan, out=None, max_offset=np.inf):
+def get_hodograph(gather_data, offsets, hodograph_times, sample_rate, interpolate=True, 
+                  fill_value=np.nan, max_offset=np.inf, out=None):
     """Retrieve hodograph amplitudes from the `gather_data`.
     Hodograph is defined by `hodograph_times`: the event time for each trace of the gather.
 
@@ -27,6 +26,8 @@ def get_hodograph(gather_data, offsets, hodograph_times, sample_rate, interpolat
         If `False`, the nearest time sample amplitude is obtained.
     fill_value : float, defaults to np.nan
         Fill value to use if the traveltime is outside the gather bounds.
+    max_offset: float, optional, defaults to np.inf
+        The maximum offset value for which the hodograph being tracked.
     out : np.array, optional
         The buffer to store result in. If not provided, allocate new array.
 
@@ -55,26 +56,31 @@ def get_hodograph(gather_data, offsets, hodograph_times, sample_rate, interpolat
 @njit(nogil=True, parallel=True)
 def compute_hodograph_times(offsets, times, velocities):
     """ Calculate the times of hyperbolic hodographs for each time of the gather with given stacking velocities. 
-    Offsets, times and velocities are 1d np.arrays. 
-    The result is 2d np.array with shape `(len(offsets), len(times))`."""
+    Offsets, times are 1d np.arrays. Velocities  is 1d.array or scalar. 
+    The result is 2d np.array with shape `(len(times), len(offsets))`."""
+    # Explicit broadcasting velocities, in case it's scalar. Required for `parallel=True` flag 
     velocities = np.ascontiguousarray(np.broadcast_to(velocities, times.shape))
     return np.sqrt(times.reshape(-1, 1) ** 2 + (offsets / velocities.reshape(-1, 1)) **2)
 
 
 @njit(nogil=True, parallel=True)
 def compute_crossover_offsets(hodograph_times, times, offsets):
-    """ Given hodograph_times for gather NMO correction, for each trace, find the latest time
-    when a crossover event occurs. Used to mute each trace of the gather above this event.
-    
+    """ Given hodograph_times for gather NMO correction, 
+    for each timestamp find the offset after which the crossover events occur.
+
     Parameters
     ----------
     hodograph_times : 2d np.ndarray
-        Array storing the times of nmo corrected hodographs for the gather. The same shape as the gather.
+        Array storing the times of nmo corrected hodographs for the gather, with shape is transposed gather.shape
+    times : 1d np.ndarray
+        Gather timestamps.
+    offsets : 1d np.ndarray
+        Gather offsets.
         
     Returns
     -------
-    crossover_times : 1d np.array
-        The array with lenght gather.n_traces. Stores the times of crossover events for each trace. 
+    crossover_offsets : 1d np.array
+        The array with lenght gather.n_times. Stores the offsets where crossover events occur for each timestamp. 
     """
     n = len(hodograph_times) - 1
     crossover_times = np.zeros(hodograph_times.shape[1])
@@ -128,8 +134,11 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate,
         Sample rate of seismic traces. Measured in milliseconds.
     mute_crossover: bool, optional, defaults to False
         Whether to mute areas where the time reversal occurred after nmo corrections.
-    mute_stretch: bool, optional, defaults to False
-        Whether to mute areas where the stretching effect occurred after nmo corrections.
+    max_stretch_factor : float, defaults to np.inf
+        Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
+        This mute is applied after nmo correction for each provided velocity and before coherency calculation.
+        The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
+        Reasonably good value is 0.65
     fill_value : float, optional, defaults to np.nan
         Value used to fill the amplitudes outside the gather bounds after moveout.
 

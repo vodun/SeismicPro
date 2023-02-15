@@ -256,9 +256,10 @@ def test_gather_muting(gather):
     muter = Muter(offsets=[1000, 2000, 3000], times=[100, 300, 600])
     gather.mute(muter)
 
-def test_gather_velocity_spectrum(gather):
+@pytest.mark.parametrize('mode', ('S', 'NS', 'NE', 'CC', 'ENCC'))
+def test_gather_velocity_spectrum(gather, mode):
     """test_gather_velocity_spectrum"""
-    gather.calculate_vertical_velocity_spectrum()
+    gather.calculate_vertical_velocity_spectrum(mode=mode)
 
 def test_gather_res_velocity_spectrum(gather):
     """test_gather_res_velocity_spectrum"""

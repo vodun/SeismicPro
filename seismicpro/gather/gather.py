@@ -1077,9 +1077,8 @@ class Gather(TraceContainer, SamplesContainer):
         # Preserve headers of the first trace of the gather being stacked
         self.headers = self.headers.iloc[[0]]
 
-        numerator, denominator = stacked_amplitude(self.data, amplify_factor, False)
-        self.data = (numerator / denominator).reshape(1, -1)
-        self.data = np.nan_to_num(self.data)
+        self.data = stacked_amplitude(self.data, amplify_factor, abs=False)[0]
+        self.data = self.data.reshape(1, -1)
         return self
 
     def crop(self, origins, crop_shape, n_crops=1, stride=None, pad_mode='constant', **kwargs):

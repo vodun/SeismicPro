@@ -65,7 +65,7 @@ class BaseVelocitySpectrum:
 
     def __init__(self, gather, window_size, mode='semblance', max_stretch_factor=np.inf):
         self.gather = gather.copy()
-        self.half_win_size_samples = math.ceil((window_size / gather.sample_rate / 2)
+        self.half_win_size_samples = math.ceil((window_size / gather.sample_rate / 2))
         self.max_stretch_factor = max_stretch_factor
 
         self.coherency_func = COHERENCY_FUNCS.get(mode)
@@ -241,17 +241,25 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
 
     For different coherency measures the numerator and denominator calculated as follows:
 
-    - Stacked Amplitude:
-        numerator(i, v) = sum^{M-1}_{j=0} f_{j}(i, v)^2
+    - Stacked Amplitude, "S":
+        numerator(i, v) = abs(sum^{M-1}_{j=0} f_{j}(i, v))
         denominator(i, v) = 1
 
-    - Energy Normalized Crosscorrelation:
-        numerator(i, v) = (sum^{M-1}_{j=0} f_{j}(i, v))^2 - sum^{M-1}_{j=0} f_{j}(i, v)^2
-        denominator(i, v) = (M - 1) * (sum^{M-1}_{j=0} f_{j}(i, v)^2)        
+    - Normalized Stacked Amplitude, "NS":
+        numerator(i, v) = abs(sum^{M-1}_{j=0} f_{j}(i, v))
+        denominator(i, v) = sum^{M-1}_{j=0} abs(f_{j}(i, v))
 
-    - Semblance:
+    - Semblance, "NE:
         numerator(i, v) = (sum^{M-1}_{j=0} f_{j}(i, v))^2
         denominator(i, v) = M * sum^{M-1}_{j=0} f_{j}(i, v)^2
+
+    - Crosscorrelation, "CC":
+        numerator(i, v) = (sum^{M-1}_{j=0} f_{j}(i, v))^2 - sum^{M-1}_{j=0} f_{j}(i, v)^2
+        denominator(i, v) = 1
+
+    - Energy Normalized Crosscorrelation, "ENCC":
+        numerator(i, v) = (sum^{M-1}_{j=0} f_{j}(i, v))^2 - sum^{M-1}_{j=0} f_{j}(i, v)^2
+        denominator(i, v) = (M - 1) * (sum^{M-1}_{j=0} f_{j}(i, v)^2)    
     where:
 
     f_{j}(i, v) - the amplitude value on the `j`-th trace being NMO-corrected for time index `i` and velocity `v`. Thus
@@ -335,22 +343,6 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
                                                 sample_rate=self.sample_rate, max_stretch_factor=max_stretch_factor,
                                                 half_win_size_samples=self.half_win_size_samples)
 
-    def get_time_velocity_by_indices(self, time_ix, velocity_ix):
-        """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
-        velocity spectrum."""
-        if (time_ix < 0) or (time_ix >= len(self.times)):
-            time = None
-        else:
-            time = np.interp(time_ix, np.arange(len(self.times)), self.times)
-
-        if (velocity_ix < 0) or (velocity_ix >= len(self.velocities)):
-            velocity = None
-        else:
-            velocity = np.interp(velocity_ix, np.arange(len(self.velocities)), self.velocities)
-            velocity /= 1000  # from m/s to m/ms
-
-        return time, velocity
-
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_spectrum_numba(spectrum_func, coherency_func, gather_data, times, offsets, velocities,
@@ -377,6 +369,22 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
                                                     t_min_ix=0, t_max_ix=gather_data.shape[1],
                                                     sample_rate=sample_rate, max_stretch_factor=max_stretch_factor)
         return velocity_spectrum
+
+    def get_time_velocity_by_indices(self, time_ix, velocity_ix):
+        """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
+        velocity spectrum."""
+        if (time_ix < 0) or (time_ix >= len(self.times)):
+            time = None
+        else:
+            time = np.interp(time_ix, np.arange(len(self.times)), self.times)
+
+        if (velocity_ix < 0) or (velocity_ix >= len(self.velocities)):
+            velocity = None
+        else:
+            velocity = np.interp(velocity_ix, np.arange(len(self.velocities)), self.velocities)
+            velocity /= 1000  # from m/s to m/ms
+
+        return time, velocity
 
     def _plot(self, stacking_velocity=None, *, title=None, x_ticker=None, y_ticker=None, grid=False, colorbar=True,
               ax=None, **kwargs):
@@ -536,11 +544,11 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     mode: str, optional, defaults to 'semblance'
         The measure for estimating hodograph coherency. 
         The available options are: 
-            `semblance`, 
-            `stacked_amplitude`,
-            `normalized_stacked_amplitude`,
-            `crosscorrelation`
-            `energy_normalized_crosscorrelation`
+            `semblance` or `NE`,
+            `stacked_amplitude` or `S`,
+            `normalized_stacked_amplitude` or `NS`,
+            `crosscorrelation` or `CC`,
+            `energy_normalized_crosscorrelation` or `ENCC`
     max_stretch_factor : float, defaults to np.inf
         Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
         This mute is applied after nmo correction for each provided velocity and before coherency calculation.
@@ -584,19 +592,6 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
                                                 left_bound_ix=left_bound_ix, right_bound_ix=right_bound_ix,
                                                 half_win_size_samples=self.half_win_size_samples,
                                                 sample_rate=self.sample_rate, max_stretch_factor=max_stretch_factor)
-
-    def get_time_velocity_by_indices(self, time_ix, velocity_ix):
-        """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
-        residual velocity spectrum."""
-        if (time_ix < 0) or (time_ix >= len(self.times)):
-            return None, None
-        time = np.interp(time_ix, np.arange(len(self.times)), self.times)
-        center_velocity = self.stacking_velocity(time) / 1000  # from m/s to m/ms
-
-        if (velocity_ix < 0) or (velocity_ix >= self.velocity_spectrum.shape[1]):
-            return time, None
-        margin = self.relative_margin * (2 * velocity_ix / (self.velocity_spectrum.shape[1] - 1) - 1)
-        return time, center_velocity * (1 + margin)
 
     def _calc_velocity_bounds(self):
         """Calculate velocity boundaries for each time within which residual velocity spectrum will be calculated.
@@ -665,6 +660,19 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
             residual_velocity_spectrum[i] = np.interp(x, np.arange(len(cropped_velocity_spectrum)),
                                                       cropped_velocity_spectrum)
         return residual_velocity_spectrum
+
+    def get_time_velocity_by_indices(self, time_ix, velocity_ix):
+        """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
+        residual velocity spectrum."""
+        if (time_ix < 0) or (time_ix >= len(self.times)):
+            return None, None
+        time = np.interp(time_ix, np.arange(len(self.times)), self.times)
+        center_velocity = self.stacking_velocity(time) / 1000  # from m/s to m/ms
+
+        if (velocity_ix < 0) or (velocity_ix >= self.velocity_spectrum.shape[1]):
+            return time, None
+        margin = self.relative_margin * (2 * velocity_ix / (self.velocity_spectrum.shape[1] - 1) - 1)
+        return time, center_velocity * (1 + margin)
 
     def _plot(self, *, title=None, x_ticker=None, y_ticker=None, grid=False, colorbar=True, ax=None, **kwargs):
         """Plot residual vertical velocity spectrum."""
