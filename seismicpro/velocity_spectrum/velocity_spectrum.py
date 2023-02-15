@@ -64,7 +64,7 @@ class BaseVelocitySpectrum:
     """
 
     def __init__(self, gather, window_size, mode='semblance', max_stretch_factor=np.inf):
-        self.gather = gather
+        self.gather = gather.copy()
         self.half_win_size_samples = math.ceil((window_size - gather.sample_rate) / gather.sample_rate / 2)
         self.max_stretch_factor = max_stretch_factor
 
@@ -273,10 +273,6 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         2. Estimate numerator and denominator for given coherency measure for each timestamp.
         3. Get the velocity spectrum values as the division of rolling sums in a 
         temporal windows of numerator and denominator.
-
-    Notes
-    -----
-    The gather should be sorted by offset.
 
     Examples
     --------
@@ -509,10 +505,6 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
 
     Residual velocity spectrum instance can be created either directly by passing gather, stacking velocity and other
     arguments to its init or by calling :func:`~Gather.calculate_residual_velocity_spectrum` method (recommended way).
-
-    Notes
-    -----
-    The gather should be sorted by offset.
 
     Examples
     --------

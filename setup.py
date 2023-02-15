@@ -27,7 +27,7 @@ setup(
     install_requires=[
         'numpy>=1.20',
         'scipy>=1.7',
-        'numba>=0.54',
+        'numba>=0.55',
         'pandas>=1.3',
         'scikit-learn>=0.23.2',
         'opencv_python>=4.5.1',

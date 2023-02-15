@@ -29,9 +29,8 @@ class VelocitySpectrumPlot(PairedPlot):  # pylint: disable=too-many-instance-att
         self.title = title
         self.click_time = None
         self.click_vel = None
-
         self.velocity_spectrum = velocity_spectrum
-        self.gather = self.velocity_spectrum.gather.copy(ignore="data")
+        self.gather = self.velocity_spectrum.gather.copy(ignore="data").sort('offset')
         self.plot_velocity_spectrum = partial(self.velocity_spectrum._plot, title=None, **kwargs)
 
         super().__init__(orientation=orientation)
