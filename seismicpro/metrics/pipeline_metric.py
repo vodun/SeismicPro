@@ -9,7 +9,7 @@ from collections import defaultdict
 import numpy as np
 from batchflow import Pipeline
 
-from .metrics import define_metric, Metric, PartialMetric
+from .metric import Metric
 from ..utils import to_list, get_first_defined
 
 

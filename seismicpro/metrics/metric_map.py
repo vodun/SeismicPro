@@ -5,48 +5,84 @@ import pandas as pd
 from matplotlib import colors as mcolors
 
 from .interactive_map import ScatterMapPlot, BinarizedMapPlot
-from .utils import parse_coords, parse_metric_values
+from .utils import parse_coords, parse_index, parse_metric_data
 from ..decorators import plotter
 from ..utils import to_list, get_first_defined, add_colorbar, calculate_axis_limits, set_ticks, set_text_formatting
 
 
 class BaseMetricMap:
-    """Base metric map class. Implements general input processing, map visualization and reaggregation methods.
+    """Base metric map class. Implements general map data processing, visualization and reaggregation methods.
 
     Should not be instantiated directly, use `MetricMap` or its subclasses instead.
     """
-    def __init__(self, coords, metric_values, *, coords_cols=None, metric=None, metric_name=None, agg=None):
-        from .metrics import Metric, PartialMetric  # pylint: disable=import-outside-toplevel
-        if metric is None:
-            metric = Metric
-        if not (isinstance(metric, (Metric, PartialMetric)) or
-                isinstance(metric, type) and issubclass(metric, Metric)):
-            raise ValueError("metric must be either of a Metric type or a subclass of Metric")
-
+    def __init__(self, coords, values, *, coords_cols=None, index=None, index_cols=None, metric=None, agg=None,
+                 calculate_immediately=True, **context):
         coords, coords_cols = parse_coords(coords, coords_cols)
-        metric_values, metric_name = parse_metric_values(metric_values, metric_name, metric)
+        values, metric = parse_metric_data(values, metric)
         metric_data = pd.DataFrame(coords, columns=coords_cols)
-        metric_data[metric_name] = metric_values
+        metric_data[metric.name] = values
 
-        self.metric_data = metric_data.dropna()
-        self.coords_cols = coords_cols
-        self.metric_name = metric_name
-
-        if isinstance(metric, Metric):
-            self.metric = metric
-            self.metric.name = metric_name
-            self.metric.coords_cols = coords_cols
+        if index is None:
+            index_cols = coords_cols
         else:
-            self.metric = PartialMetric(metric, name=metric_name, coords_cols=coords_cols)
+            index, index_cols = parse_index(index, index_cols)
+            metric_data[index_cols] = index
 
         if agg is None:
             default_agg = {True: "max", False: "min", None: "mean"}
-            agg = default_agg[self.metric.is_lower_better]
-        self.agg = agg
+            agg = default_agg[metric.is_lower_better]
 
-    def __getattr__(self, name):
-        """Redirect attribute search into metric class or instance."""
-        return getattr(self.metric, name)
+        self._metric_data = None
+        self._index_data = None
+        self._map_data = None
+        self._map_coords_to_indices = None
+        self._index_to_coords = None
+
+        self.metric_data_list = [metric_data]
+        self.coords_cols = coords_cols
+        self.index_cols = index_cols
+        self.has_index = index is not None
+        self.metric = metric
+        self.bound_metric = None
+        self.agg = agg
+        self.context = context
+        self.requires_recalculation = True
+        if calculate_immediately:
+            self._recalculate()
+
+    @property
+    def metric_name(self):
+        return self.metric.name
+
+    @property
+    def metric_data(self):
+        if self.requires_recalculation:
+            self._recalculate()
+        return self._metric_data
+
+    @property
+    def index_data(self):
+        if self.requires_recalculation:
+            self._recalculate()
+        return self._index_data
+
+    @property
+    def map_data(self):
+        if self.requires_recalculation:
+            self._recalculate()
+        return self._map_data
+
+    @property
+    def map_coords_to_indices(self):
+        if self.requires_recalculation:
+            self._recalculate()
+        return self._map_coords_to_indices
+
+    @property
+    def index_to_coords(self):
+        if self.requires_recalculation:
+            self._recalculate()
+        return self._index_to_coords
 
     @property
     def plot_title(self):
@@ -64,7 +100,50 @@ class BaseMetricMap:
         """None or array-like: labels of y axis ticks."""
         return None
 
-    def evaluate(self, agg=None):
+    def append(self, other):
+        if ((self.coords_cols != other.coords_cols) or
+            (self.has_index is not other.has_index) or (self.index_cols != other.index_cols) or
+            (type(self.metric) is not type(other.metric)) or (self.metric_name != other.metric_name)):
+            raise ValueError("Only a map with the same types of coordinates, index and metric can be appended")
+        self.metric_data_list += other.metric_data_list
+        self.context.update(other.context)
+        self.metric = other.metric
+        self.bound_metric = None  # The context may have changed
+        self.requires_recalculation = True
+
+    def extend(self, other):
+        self.append(other)
+
+    def _recalculate(self):
+        self._metric_data = pd.concat(self.metric_data_list, ignore_index=True, copy=False)
+        requires_explode = pd.api.types.is_object_dtype(self._metric_data[self.metric_name].dtype)
+        metric_agg = (lambda s: s.explode().agg(self.agg)) if requires_explode else self.agg
+        agg_dict = {
+            self.coords_cols[0]: (self.coords_cols[0], "first"),
+            self.coords_cols[1]: (self.coords_cols[1], "first"),
+            "_DELTA_X": (self.coords_cols[0], np.ptp),
+            "_DELTA_Y": (self.coords_cols[1], np.ptp),
+            self.metric_name: (self.metric_name, metric_agg),
+        }
+        index_data = self._metric_data.groupby(self.index_cols, as_index=False, sort=False).agg(**agg_dict)
+        if index_data[["_DELTA_X", "_DELTA_Y"]].any(axis=None):
+            raise ValueError
+        index_data.drop(columns=["_DELTA_X", "_DELTA_Y"], inplace=True)
+        self._index_data = index_data
+        self._index_to_coords = index_data.groupby(self.index_cols)[self.coords_cols]
+        self._calculate_map_data()
+        self.requires_recalculation = False
+
+    def _calculate_map_data(self):
+        raise NotImplementedError
+
+    def get_indices_by_map_coords(self, map_coords):
+        return self.map_coords_to_indices.get_group(map_coords).set_index(self.index_cols)[self.metric_name]
+
+    def get_coords_by_index(self, index):
+        return tuple(self.index_to_coords.get_group(index).iloc[0].to_list())
+
+    def evaluate(self, agg=None, use_global=False):
         """Aggregate metric values.
 
         Parameters
@@ -80,7 +159,35 @@ class BaseMetricMap:
         """
         if agg is None:
             agg = self.agg
-        return self.metric_data[self.metric_name].agg(agg)
+
+        if use_global:
+            metric_data = self.metric_data[self.metric_name]
+            if pd.api.types.is_object_dtype(metric_data):
+                metric_data = metric_data.explode()
+            return metric_data.agg(agg)
+
+        if agg == self.agg:
+            return self.index_data[self.metric_name].agg(self.agg)
+        return self.aggregate(agg=agg).index_data[self.metric_name].agg(agg)
+
+    def aggregate(self, agg=None, bin_size=None):
+        """Aggregate the map with new `agg` and `bin_size`.
+
+        agg : str or callable, optional
+            A function used for aggregating the map. If not given, will be determined by the value of `is_lower_better`
+            attribute of the metric class in order to highlight outliers. Passed directly to
+            `pandas.core.groupby.DataFrameGroupBy.agg`.
+        bin_size : int, float or array-like with length 2, optional
+            Bin size for X and Y axes. If single `int` or `float`, the same bin size will be used for both axes.
+
+        Returns
+        -------
+        metrics_maps : BaseMetricMap
+            Aggregated map.
+        """
+        return self.map_class(self.metric_data[self.coords_cols], self.metric_data[self.metric_name],
+                              index=self.metric_data[self.index_cols], metric=self.metric, agg=agg, bin_size=bin_size,
+                              **self.context)
 
     def get_worst_coords(self, is_lower_better=None):
         """Get coordinates with the worst metric value depending on `is_lower_better`. If not given, `is_lower_better`
@@ -91,7 +198,7 @@ class BaseMetricMap:
         2. If `is_lower_better` is `False`, coordinates with minimum metric value are returned,
         3. Otherwise, coordinates whose value has maximum absolute deviation from the mean metric value is returned.
         """
-        is_lower_better = self.is_lower_better if is_lower_better is None else is_lower_better
+        is_lower_better = self.metric.is_lower_better if is_lower_better is None else is_lower_better
         if is_lower_better is None:
             return (self.map_data - self.map_data.mean()).abs().idxmax()
         if is_lower_better:
@@ -110,10 +217,10 @@ class BaseMetricMap:
     def _plot(self, *, title=None, x_ticker=None, y_ticker=None, is_lower_better=None, vmin=None, vmax=None, cmap=None,
               colorbar=True, center_colorbar=True, clip_threshold_quantile=0.95, keep_aspect=False, ax=None, **kwargs):
         """Plot the metric map."""
-        is_lower_better = self.is_lower_better if is_lower_better is None else is_lower_better
+        is_lower_better = self.metric.is_lower_better if is_lower_better is None else is_lower_better
         vmin_vmax_passed = (vmin is not None) or (vmax is not None)
-        vmin = get_first_defined(vmin, self.vmin, self.min_value)
-        vmax = get_first_defined(vmax, self.vmax, self.max_value)
+        vmin = get_first_defined(vmin, self.metric.vmin, self.metric.min_value)
+        vmax = get_first_defined(vmax, self.metric.vmax, self.metric.max_value)
 
         if (not vmin_vmax_passed) and (is_lower_better is None) and center_colorbar:
             norm = self.get_centered_norm(clip_threshold_quantile)
@@ -191,35 +298,14 @@ class BaseMetricMap:
         if not interactive:
             return self._plot(**kwargs)
 
-        if plot_on_click is not None:
-            plot_on_click_list = to_list(plot_on_click)
-        else:
-            # Instantiate the metric if it hasn't been done yet
-            from .metrics import Metric  # pylint: disable=import-outside-toplevel
-            if not isinstance(self.metric, Metric):
-                self.metric = self.metric()
-            plot_on_click_list, kwargs = self.metric.get_views(**kwargs)
+        if plot_on_click is None:
+            if self.bound_metric is None:
+                self.bound_metric = self.metric.bind_context(metric_map=self, **self.context)
+            plot_on_click, kwargs = self.bound_metric.get_views(**kwargs)
+        plot_on_click_list = to_list(plot_on_click)
         if len(plot_on_click_list) == 0:
             raise ValueError("At least one click view must be specified")
         return self.interactive_map_class(self, plot_on_click=plot_on_click_list, **kwargs).plot()
-
-    def aggregate(self, agg=None, bin_size=None):
-        """Aggregate the map with new `agg` and `bin_size`.
-
-        agg : str or callable, optional
-            A function used for aggregating the map. If not given, will be determined by the value of `is_lower_better`
-            attribute of the metric class in order to highlight outliers. Passed directly to
-            `pandas.core.groupby.DataFrameGroupBy.agg`.
-        bin_size : int, float or array-like with length 2, optional
-            Bin size for X and Y axes. If single `int` or `float`, the same bin size will be used for both axes.
-
-        Returns
-        -------
-        metrics_maps : BaseMetricMap
-            Aggregated map.
-        """
-        return self.map_class(self.metric_data[self.coords_cols], self.metric_data[self.metric_name],
-                              metric=self.metric, agg=agg, bin_size=bin_size)
 
 
 class ScatterMap(BaseMetricMap):
@@ -228,9 +314,19 @@ class ScatterMap(BaseMetricMap):
 
     Should not be instantiated directly, use `MetricMap` or its subclasses instead."""
     def __init__(self, *args, **kwargs):
+        self._has_overlaying_indices = None
         super().__init__(*args, **kwargs)
-        exploded = self.metric_data.explode(self.metric_name)
-        self.map_data = exploded.groupby(self.coords_cols).agg(self.agg)[self.metric_name]
+
+    @property
+    def has_overlaying_indices(self):
+        if self.requires_recalculation:
+            self._recalculate()
+        return self._has_overlaying_indices
+
+    def _calculate_map_data(self):
+        self._map_coords_to_indices = self._index_data.groupby(self.coords_cols)
+        self._has_overlaying_indices = (self._map_coords_to_indices.size() > 1).any()
+        self._map_data = self._map_coords_to_indices[self.metric_name].agg(self.agg)
 
     def _plot_map(self, ax, is_lower_better, **kwargs):
         """Display map data as a scatter plot."""
@@ -258,16 +354,16 @@ class BinarizedMap(BaseMetricMap):
     Should not be instantiated directly, use `MetricMap` or its subclasses instead.
     """
     def __init__(self, *args, bin_size, **kwargs):
+        if isinstance(bin_size, (int, float, np.number)):
+            bin_size = (bin_size, bin_size)
+        self.bin_size = np.array(bin_size)
+        self.x_bin_coords = None
+        self.y_bin_coords = None
         super().__init__(*args, **kwargs)
 
-        if bin_size is not None:
-            if isinstance(bin_size, (int, float, np.number)):
-                bin_size = (bin_size, bin_size)
-            bin_size = np.array(bin_size)
-        self.bin_size = bin_size
-
-        # Perform a shallow copy of the metric data since new columns are going to be appended
-        map_data = self.metric_data.copy(deep=False)
+    def _calculate_map_data(self):
+        # Perform a shallow copy of the grouped data since new columns are going to be appended
+        map_data = self._index_data.copy(deep=False)
 
         # Binarize map coordinates
         bin_cols = ["BIN_X", "BIN_Y"]
@@ -277,12 +373,8 @@ class BinarizedMap(BaseMetricMap):
         y_bin_range = np.arange(map_data["BIN_Y"].max() + 1)
         self.x_bin_coords = min_coords[0] + self.bin_size[0] * x_bin_range + self.bin_size[0] // 2
         self.y_bin_coords = min_coords[1] + self.bin_size[1] * y_bin_range + self.bin_size[1] // 2
-        map_data = map_data.set_index(bin_cols + self.coords_cols)[self.metric_name].explode().sort_index()
-
-        # Construct a mapping from a bin to its contents and a binarized map
-        bin_to_coords = map_data.groupby(bin_cols + self.coords_cols).agg(self.agg)
-        self.bin_to_coords = bin_to_coords.to_frame().reset_index(level=self.coords_cols).groupby(bin_cols)
-        self.map_data = map_data.groupby(bin_cols).agg(self.agg)
+        self._map_coords_to_indices = map_data.groupby(bin_cols)
+        self._map_data = self._map_coords_to_indices[self.metric_name].agg(self.agg)
 
     @property
     def plot_title(self):
@@ -311,25 +403,6 @@ class BinarizedMap(BaseMetricMap):
 
         kwargs = {"interpolation": "none", "origin": "lower", "aspect": "auto", **kwargs}
         return ax.imshow(map_image.T, **kwargs)
-
-    def get_bin_contents(self, coords):
-        """Get contents of a bin by its coords.
-
-        Parameters
-        ----------
-        coords : tuple with 2 elements
-            Bin index along X and Y axes.
-
-        Returns
-        -------
-        contents : None or pandas.Series
-            If no such bin exist `None` is returned. Otherwise a series with metric data in the bin is returned. Its
-            index stores metric coordinates and values - corresponding metric values.
-        """
-        if coords not in self.bin_to_coords.groups:
-            return None
-        contents = self.bin_to_coords.get_group(coords).set_index(self.coords_cols)[self.metric_name]
-        return contents.sort_values(ascending=not self.is_lower_better)
 
 
 class MetricMapMeta(type):

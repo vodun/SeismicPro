@@ -1,7 +1,10 @@
-"""Implements base classes for metric calculation"""
+"""Implements base class for metric calculation"""
+
+from copy import deepcopy
+from textwrap import dedent
 
 from .metric_map import MetricMap
-from ..utils import to_list
+from ..utils import to_list, get_first_defined
 
 
 class Metric:
@@ -61,80 +64,88 @@ class Metric:
         Default views of the metric to display on click on a metric map in interactive mode. No default views are
         defined.
     """
-    name = None
+    name = "metric"
+    is_lower_better = None
     min_value = None
     max_value = None
-    is_lower_better = None
+
     map_class = MetricMap
+    views = tuple()
     vmin = None
     vmax = None
-    views = tuple()
 
-    def __init__(self, **kwargs):
-        for key, val in kwargs.items():
-            setattr(self, key, val)
+    def __init__(self, name=None):
+        if name is not None:
+            if not isinstance(name, str):
+                raise TypeError("Metric name name must be a string")
+            self.name = name
+        self.has_bound_context = False
 
-    @classmethod
-    def calc(cls, *args, **kwargs):
+    def __call__(self, *args, **kwargs):
         """Calculate the metric. Must be overridden in child classes."""
-        _ = cls, args, kwargs
+        _ = self, args, kwargs
         raise NotImplementedError
+
+    def __repr__(self):
+        """String representation of the metric."""
+        return f"{type(self).__name__}(name='{self.name}')"
+
+    def __str__(self):
+        msg = f"""
+        Metric type:               {type(self).__name__}
+        Metric name:               {self.name}
+        Is lower value better:     {get_first_defined(self.is_lower_better, "Undefined")}
+        Minimum metric value:      {get_first_defined(self.min_value, "Undefined")}
+        Maximum metric value:      {get_first_defined(self.max_value, "Undefined")}
+
+        Metric map visualization parameters:
+        Knows evaluation context:  {self.has_bound_context}
+        Metric map type:           {self.map_class.__name__}
+        Number of metric views:    {len(self.views)}
+        Minimum displayed value:   {get_first_defined(self.vmin, "Undefined")}
+        Maximum displayed value:   {get_first_defined(self.vmax, "Undefined")}
+        """
+        return dedent(msg).strip()
+
+    def info(self):
+        print(self)
+
+    def bind(self, metric_map):
+        _ = metric_map
+        return self
+
+    def bind_context(self, metric_map, **kwargs):
+        if self.has_bound_context:
+            return self
+
+        # Copy the metric to handle the case when it is simultaneously used in multiple maps
+        self_bound = deepcopy(self).bind(metric_map=metric_map, **kwargs)
+        self_bound.has_bound_context = True
+        return self_bound
 
     def get_views(self, **kwargs):
         """Return plotters of the metric views and those `kwargs` that should be passed further to an interactive map
         plotter."""
         return [getattr(self, view) for view in to_list(self.views)], kwargs
 
-    @staticmethod
-    def combine_init_params(*params):
-        """Combine metric parameters memorized for different batches of data into a single `dict` of keyword arguments.
-        Should be redefined in child metric classes if complex accumulation logic is reqired, returns the last
-        parameters `dict` by default."""
-        return params[-1]
+    def construct_map(self, coords, values, *, coords_cols=None, index=None, index_cols=None, agg=None, bin_size=None,
+                      calculate_immediately=True, **context):
+        return self.map_class(coords, values, coords_cols=coords_cols, index=index, index_cols=index_cols, metric=self,
+                              agg=agg, bin_size=bin_size, calculate_immediately=calculate_immediately, **context)
 
 
-class PartialMetric:
-    """Return an object which behaves like `Metric` but memorizes keyword arguments `kwargs` for further instantiation.
-
-    Metric instantiation may be very time-consuming, that's why it is performed only during first interactive plotting
-    of its map. `PartialMetric` allows conveniently memorizing arguments for metric `__init__` and postpone its call
-    until the metric instance is actually needed. Moreover, `PartialMetric` can be applied to another `PartialMetric`,
-    so that processing methods may consequently add new arguments.
-    """
-    def __init__(self, metric, **kwargs):
-        if isinstance(metric, type) and issubclass(metric, Metric):
-            self.metric_type = metric
-            self._kwargs = [kwargs]
-        elif isinstance(metric, PartialMetric):
-            self.metric_type = metric.metric_type
-            self._kwargs = [{**metric.kwargs, **kwargs}]
-        else:
-            raise ValueError("metric must be either an instance of PartialMetric or a subclass of Metric")
-
-    @property
-    def kwargs(self):
-        """dict: keyword arguments memorized for future metric instantiation."""
-        if len(self._kwargs) > 1:
-            self._kwargs = [self.metric_type.combine_init_params(*self._kwargs)]
-        return self._kwargs[0]
-
-    def __getattr__(self, name):
-        """Get a value of metric attribute either from memorized parameters or its class attributes."""
-        if name in self.kwargs:
-            return self.kwargs[name]
-        return getattr(self.metric_type, name)
-
-    def __call__(self, *args, **kwargs):
-        """Instantiate a metric using memorized and passed parameters."""
-        kwargs = {**self.kwargs, **kwargs}
-        return self.metric_type(*args, **kwargs)
-
-    def update(self, other):
-        """Combine memorized parameters of `self` and `other` and store them in `self`."""
-        self._kwargs += other._kwargs  # pylint: disable=protected-access
+def is_metric(metric, metric_class=Metric):
+    return isinstance(metric, metric_class) or isinstance(metric, type) and issubclass(metric, metric_class)
 
 
-def define_metric(cls_name="MetricPlaceholder", base_cls=Metric, **kwargs):
-    """Define a metric class called `cls_name` inherited from `base_cls` whose attributes and methods are stored in
-    `kwargs`."""
-    return type(cls_name, (base_cls,), kwargs)
+def initialize_metrics(metrics, metric_class=Metric):
+    is_single_metric = is_metric(metrics, metric_class=metric_class)
+    metrics = to_list(metrics)
+    if not metrics:
+        raise ValueError("At least one metric should be passed")
+    if not all(is_metric(metric, metric_class=metric_class) for metric in metrics):
+        raise TypeError(f"All passed metrics must be either instances or subclasses of {metric_class.__name__}")
+    if len({metric.name for metric in metrics}) != len(metrics):
+        raise ValueError("Passed metrics must have different names")
+    metrics = [metric() if isinstance(metric, type) else metric for metric in metrics]
+    return metrics, is_single_metric

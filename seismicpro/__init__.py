@@ -9,7 +9,7 @@ from .semblance import Semblance, ResidualSemblance
 from .muter import Muter, MuterField
 from .stacking_velocity import StackingVelocity, StackingVelocityField
 from .refractor_velocity import RefractorVelocity, RefractorVelocityField
-from .metrics import Metric, MetricMap, MetricsAccumulator
+from .metrics import Metric, MetricMap
 from .utils import aggregate_segys, make_prestack_segy
 
 
