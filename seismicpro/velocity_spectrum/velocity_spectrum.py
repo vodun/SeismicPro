@@ -65,7 +65,7 @@ class BaseVelocitySpectrum:
 
     def __init__(self, gather, window_size, mode='semblance', max_stretch_factor=np.inf):
         self.gather = gather.copy()
-        self.half_win_size_samples = math.ceil((window_size - gather.sample_rate) / gather.sample_rate / 2)
+        self.half_win_size_samples = math.ceil((window_size / gather.sample_rate / 2)
         self.max_stretch_factor = max_stretch_factor
 
         self.coherency_func = COHERENCY_FUNCS.get(mode)
@@ -286,7 +286,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     ----------
     gather : Gather
         Seismic gather to calculate velocity spectrum for.
-    velocities : 1d np.ndarray
+    velocities : 1d np.ndarray, optional, defaults to None
         Range of velocity values for which velocity spectrum is calculated. Measured in meters/seconds.
         If not provided, velocities evenly sampled from  `const.DEFAULT_STACKING_VELOCITY` with step 100 m/s.
     window_size : int, optional, defaults to 50
