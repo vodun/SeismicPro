@@ -838,7 +838,7 @@ class Gather(TraceContainer, SamplesContainer):
         vertical_velocity_spectrum : VerticalVelocitySpectrum
             Calculated vertical velocity spectrum.
         """
-        return VerticalVelocitySpectrum(gather=gather, velocities=velocities, window_size=window_size, mode=mode,
+        return VerticalVelocitySpectrum(gather=self, velocities=velocities, window_size=window_size, mode=mode,
                                         max_stretch_factor=max_stretch_factor)
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
@@ -895,7 +895,7 @@ class Gather(TraceContainer, SamplesContainer):
         """
         if isinstance(stacking_velocity, StackingVelocityField):
             stacking_velocity = stacking_velocity(self.coords)
-        return ResidualVelocitySpectrum(gather=gather, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
+        return ResidualVelocitySpectrum(gather=self, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
                                         window_size=window_size, relative_margin=relative_margin, mode=mode,
                                         max_stretch_factor=max_stretch_factor)
 

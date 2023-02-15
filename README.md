@@ -103,7 +103,7 @@ stacking_pipeline = (dataset
     .load(src="raw")
     .sort(src="raw", by="offset")
     .mute(src="raw", dst="muted_raw", muter=muter)
-    .calculate_vertical_velocity_spectrum(src="muted_raw", dst="raw_spectrum",  win_size=16,
+    .calculate_vertical_velocity_spectrum(src="muted_raw", dst="raw_spectrum",
                                           velocities=SPECTRUM_VELOCITY_RANGE)
     .calculate_stacking_velocity(src="raw_spectrum", dst="velocity",
                                  start_velocity_range=START_VELOCITY_RANGE,
