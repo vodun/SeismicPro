@@ -1,5 +1,6 @@
 """Implements functions for various gather corrections"""
 
+# pylint: disable=not-an-iterable
 import math
 
 import numpy as np
@@ -7,7 +8,7 @@ from numba import njit, prange
 
 
 @njit(nogil=True, fastmath=True)
-def get_hodograph(gather_data, offsets, hodograph_times, sample_rate, interpolate=True, 
+def get_hodograph(gather_data, offsets, hodograph_times, sample_rate, interpolate=True,
                   fill_value=np.nan, max_offset=np.inf, out=None):
     """Retrieve hodograph amplitudes from the `gather_data`.
     Hodograph is defined by `hodograph_times`: the event time for each trace of the gather.
@@ -58,7 +59,7 @@ def compute_hodograph_times(offsets, times, velocities):
     """ Calculate the times of hyperbolic hodographs for each time of the gather with given stacking velocities. 
     Offsets, times are 1d np.arrays. Velocities  is 1d.array or scalar. 
     The result is 2d np.array with shape `(len(times), len(offsets))`."""
-    # Explicit broadcasting velocities, in case it's scalar. Required for `parallel=True` flag 
+    # Explicit broadcasting velocities, in case it's scalar. Required for `parallel=True` flag
     velocities = np.ascontiguousarray(np.broadcast_to(velocities, times.shape))
     return np.sqrt(times.reshape(-1, 1) ** 2 + (offsets / velocities.reshape(-1, 1)) **2)
 
@@ -93,14 +94,14 @@ def compute_crossover_offsets(hodograph_times, times, offsets):
                 crossover_times[i] = j
                 break
             t_prev = t
-    
+
     time_max = crossover_times[0]
     for i in range(1, len(crossover_times) - 1):
         if crossover_times[i] > time_max:
             time_max = crossover_times[i]
         else:
             crossover_times[i] = time_max
-            
+
     return np.interp(times, crossover_times, offsets)
 
 @njit(nogil=True, parallel=True)
@@ -156,7 +157,7 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate,
         crossover_offsets = compute_crossover_offsets(hodograph_times, times, offsets)
         max_offsets = np.minimum(max_offsets, crossover_offsets)
 
-    for i in prange(times.shape[0]): # pylint: disable=not-an-iterable
+    for i in prange(times.shape[0]):
         get_hodograph(gather_data, offsets, hodograph_times[i], sample_rate,
                       fill_value=fill_value, out=corrected_gather_data[:, i], max_offset=max_offsets[i])
 
