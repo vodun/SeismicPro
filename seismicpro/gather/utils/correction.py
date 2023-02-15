@@ -61,35 +61,6 @@ def compute_hodograph_times(offsets, times, velocities):
     return np.sqrt(times.reshape(-1, 1) ** 2 + (offsets / velocities.reshape(-1, 1)) **2)
 
 
-@njit(nogil=True)
-def compute_crossovers_times(hodograph_times):
-    """ Given hodograph_times for gather NMO correction, for each trace, find the latest time
-    when a crossover event occurs. Used to mute each trace of the gather above this event.
-    
-    Parameters
-    ----------
-    hodograph_times : 2d np.ndarray
-        Array storing the times of nmo corrected hodographs for the gather. The same shape as the gather.
-        
-    Returns
-    -------
-    crossover_times : 1d np.array
-        The array with lenght gather.n_traces. Stores the times of crossover events for each trace. 
-    """
-    n = len(hodograph_times) - 1
-    crossover_times = np.zeros(hodograph_times.shape[1])
-
-    for i in range(hodograph_times.shape[1]):
-        t_prev =  hodograph_times[n, i]
-        for j in range(n-1, 0, -1):
-            t = hodograph_times[j, i]
-            if t > t_prev:
-                crossover_times[i] = j
-                break
-            t_prev = t
-    return crossover_times
-
-
 @njit(nogil=True, parallel=True)
 def compute_crossover_offsets(hodograph_times, times, offsets):
     """ Given hodograph_times for gather NMO correction, for each trace, find the latest time
