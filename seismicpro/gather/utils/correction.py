@@ -41,7 +41,7 @@ def get_hodograph(gather_data, offsets, hodograph_times, sample_rate, interpolat
         out = np.empty(len(hodograph_times), dtype=gather_data.dtype)
     for i, hodograph_sample in enumerate(hodograph_times / sample_rate):
         amplitude = fill_value
-        if offsets[i] < max_offset:
+        if offsets[i] <= max_offset:
             if hodograph_sample <= gather_data.shape[1] - 1:
                 if interpolate:
                     time_prev = math.floor(hodograph_sample)
@@ -96,7 +96,7 @@ def compute_crossover_offsets(hodograph_times, times, offsets):
             t_prev = t
 
     time_max = crossover_times[0]
-    for i in range(1, len(crossover_times) - 1):
+    for i in range(1, len(crossover_times)):
         if crossover_times[i] > time_max:
             time_max = crossover_times[i]
         else:
