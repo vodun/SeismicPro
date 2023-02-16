@@ -20,12 +20,13 @@ from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices
 from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_yticklabels, set_text_formatting,
                      add_colorbar, piecewise_polynomial, Coordinates)
 from ..containers import TraceContainer, SamplesContainer
-from ..semblance import Semblance, ResidualSemblance
 from ..muter import Muter, MuterField
+from ..velocity_spectrum import VerticalVelocitySpectrum, ResidualVelocitySpectrum
 from ..stacking_velocity import StackingVelocity, StackingVelocityField
 from ..refractor_velocity import RefractorVelocity, RefractorVelocityField
 from ..decorators import batch_method, plotter
-from ..const import HDR_FIRST_BREAK, HDR_TRACE_POS, DEFAULT_SDC_VELOCITY
+from ..const import HDR_FIRST_BREAK, HDR_TRACE_POS, DEFAULT_STACKING_VELOCITY
+from ..velocity_spectrum.utils.coherency_funcs import stacked_amplitude
 
 
 class Gather(TraceContainer, SamplesContainer):
@@ -758,7 +759,7 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", args_to_unpack="muter")
-    def mute(self, muter, fill_value=0):
+    def mute(self, muter, fill_value=np.nan):
         """Mute the gather using given `muter` which defines an offset-time boundary above which gather amplitudes will
         be set to `fill_value`.
 
@@ -768,7 +769,7 @@ class Gather(TraceContainer, SamplesContainer):
             A muter to use. `Muter` instance is used directly. If `MuterField` instance is passed, a `Muter`
             corresponding to gather coordinates is fetched from it.
             May be `str` if called in a pipeline: in this case it defines a component with muters to apply.
-        fill_value : float, optional, defaults to 0
+        fill_value : float, optional, defaults to np.nan
             A value to fill the muted part of the gather with.
 
         Returns
@@ -785,80 +786,120 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     #------------------------------------------------------------------------#
-    #                     Semblance calculation methods                      #
+    #             Vertical Velocity Spectrum calculation methods             #
     #------------------------------------------------------------------------#
 
     @batch_method(target="threads", copy_src=False)
-    def calculate_semblance(self, velocities, win_size=25):
-        """Calculate vertical velocity semblance for the gather.
+    def calculate_vertical_velocity_spectrum(self, velocities=None, window_size=50, mode="semblance",
+                                             max_stretch_factor=np.inf):
+        """Calculate vertical velocity spectrum for the gather.
 
         Notes
         -----
-        A detailed description of vertical velocity semblance and its computation algorithm can be found in
-        :func:`~semblance.Semblance` docs.
+        A detailed description of vertical velocity spectrum and its computation algorithm can be found in
+        :func:`~velocity_spectrum.VerticalVelocitySpectrum` docs.
 
         Examples
         --------
-        Calculate semblance for 200 velocities from 2000 to 6000 m/s and a temporal window size of 8 samples:
-        >>> semblance = gather.calculate_semblance(velocities=np.linspace(2000, 6000, 200), win_size=8)
+        Calculate vertical velocity spectrum with default parameters: velocities evenly spaces around default stacking
+        velocity, 50 ms temporal window size, semblance coherency measure and no muting of hodograph stretching:
+        >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum()
+    
+        Calculate vertical velocity spectrum for 200 velocities from 2000 to 6000 m/s, temporal window size of 128 ms,
+        crosscorrelation coherency measure and muting stretching effects greater than 0.65:
+        >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum(
+                                                                velocities=np.linspace(2000, 6000, 200), 
+                                                                window_size=128, mode='CC', max_stretch_factor=0.65)
 
         Parameters
         ----------
-        velocities : 1d np.ndarray
-            Range of velocity values for which semblance is calculated. Measured in meters/seconds.
-        win_size : int, optional, defaults to 25
-            Temporal window size used for semblance calculation. The higher the `win_size` is, the smoother the
-            resulting semblance will be but to the detriment of small details. Measured in samples.
+        velocities : 1d np.ndarray or None, optional, defaults to None.
+            Range of velocity values for which velocity spectrum is calculated. Measured in meters/seconds.
+            If not provided velocity range is inferred from const.DEFAULT_STACKING_VELOCITY evaluated for gather times
+            and then additionally extended by 20%. Spectrum velocities are evenly sampled from this range
+            with a step of 100 m/s.
+        window_size : int, optional, defaults to 50
+            Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother
+            the resulting velocity spectrum will be but to the detriment of small details. Measured in ms.
+        mode: str, optional, defaults to 'semblance'
+            The measure for estimating hodograph coherency. 
+            The available options are: 
+                `semblance` or `NE`,
+                `stacked_amplitude` or `S`,
+                `normalized_stacked_amplitude` or `NS`,
+                `crosscorrelation` or `CC`,
+                `energy_normalized_crosscorrelation` or `ENCC`
+        max_stretch_factor : float, defaults to np.inf
+            Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
+            This mute is applied after nmo correction for each provided velocity and before coherency calculation.
+            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
+            Reasonably good value is 0.65
 
         Returns
         -------
-        semblance : Semblance
-            Calculated vertical velocity semblance.
+        vertical_velocity_spectrum : VerticalVelocitySpectrum
+            Calculated vertical velocity spectrum.
         """
-        gather = self.copy().sort(by="offset")
-        return Semblance(gather=gather, velocities=velocities, win_size=win_size)
+        return VerticalVelocitySpectrum(gather=self, velocities=velocities, window_size=window_size, mode=mode,
+                                        max_stretch_factor=max_stretch_factor)
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
-    def calculate_residual_semblance(self, stacking_velocity, n_velocities=140, win_size=25, relative_margin=0.2):
-        """Calculate residual vertical velocity semblance for the gather and a chosen stacking velocity.
+    def calculate_residual_velocity_spectrum(self, stacking_velocity, n_velocities=140, relative_margin=0.2,
+                                             window_size=50, mode="semblance", max_stretch_factor=np.inf):
+        """Calculate residual velocity spectrum for the gather and provided stacking velocity.
 
         Notes
         -----
-        A detailed description of residual vertical velocity semblance and its computation algorithm can be found in
-        :func:`~semblance.ResidualSemblance` docs.
+        A detailed description of residual velocity spectrum and its computation algorithm can be found in
+        :func:`~velocity_spectrum.ResidualVelocitySpectrum` docs.
+
 
         Examples
         --------
-        Calculate residual semblance for a gather and a stacking velocity, loaded from a file:
+        Calculate residual velocity spectrum for a gather and a stacking velocity, loaded from a file:
         >>> velocity = StackingVelocity.from_file(velocity_path)
-        >>> residual = gather.calculate_residual_semblance(velocity, n_velocities=100, win_size=8)
+        >>> residual_spectrum = gather.calculate_residual_velocity_spectrum(velocity, n_velocities=100, window_size=8)
 
         Parameters
         ----------
         stacking_velocity : StackingVelocity or StackingVelocityField or str
-            Stacking velocity around which residual semblance is calculated. `StackingVelocity` instance is used
-            directly. If `StackingVelocityField` instance is passed, a `StackingVelocity` corresponding to gather
-            coordinates is fetched from it.
+            Stacking velocity around which residual velocity spectrum is calculated. 
+            `StackingVelocity` instance is used directly. If `StackingVelocityField` instance is passed, 
+            a `StackingVelocity` corresponding to gather coordinates is fetched from it.
             May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
         n_velocities : int, optional, defaults to 140
-            The number of velocities to compute residual semblance for.
-        win_size : int, optional, defaults to 25
-            Temporal window size used for semblance calculation. The higher the `win_size` is, the smoother the
-            resulting semblance will be but to the detriment of small details. Measured in samples.
+            The number of velocities to compute residual velocity spectrum for.
         relative_margin : float, optional, defaults to 0.2
-            Relative velocity margin, that determines the velocity range for semblance calculation for each time `t` as
-            `stacking_velocity(t)` * (1 +- `relative_margin`).
+            Relative velocity margin, that determines the velocity range for residual spectrum calculation 
+            for each time `t` as `stacking_velocity(t)` * (1 +- `relative_margin`).
+        window_size : int, optional, defaults to 50
+            Temporal window size used for residual velocity spectrum calculation. Measured in ms.
+            The higher the `window_size` is, the smoother the resulting spectrum will be but to the
+            detriment of small details.
+        mode: str, optional, defaults to 'semblance'
+            The measure for estimating hodograph coherency. 
+            The available options are: 
+                `semblance` or `NE`,
+                `stacked_amplitude` or `S`,
+                `normalized_stacked_amplitude` or `NS`,
+                `crosscorrelation` or `CC`,
+                `energy_normalized_crosscorrelation` or `ENCC`
+        max_stretch_factor : float, defaults to np.inf
+            Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
+            This mute is applied after nmo correction for each provided velocity and before coherency calculation.
+            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
+            Reasonably good value is 0.65
 
         Returns
         -------
-        semblance : ResidualSemblance
-            Calculated residual vertical velocity semblance.
+        residual_velocity_spectrum : ResidualVelocitySpectrum
+            Calculated residual velocity spectrum.
         """
         if isinstance(stacking_velocity, StackingVelocityField):
             stacking_velocity = stacking_velocity(self.coords)
-        gather = self.copy().sort(by="offset")
-        return ResidualSemblance(gather=gather, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
-                                 win_size=win_size, relative_margin=relative_margin)
+        return ResidualVelocitySpectrum(gather=self, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
+                                        window_size=window_size, relative_margin=relative_margin, mode=mode,
+                                        max_stretch_factor=max_stretch_factor)
 
     #------------------------------------------------------------------------#
     #                           Gather corrections                           #
@@ -917,7 +958,7 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
-    def apply_nmo(self, stacking_velocity):
+    def apply_nmo(self, stacking_velocity, mute_crossover=False, max_stretch_factor=np.inf, fill_value=np.nan):
         """Perform gather normal moveout correction using the given stacking velocity.
 
         Notes
@@ -931,6 +972,14 @@ class Gather(TraceContainer, SamplesContainer):
             `StackingVelocityField` instance is passed, a `StackingVelocity` corresponding to gather coordinates is
             fetched from it. If `int` or `float` then constant-velocity correction is performed.
             May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
+        mute_crossover: bool, optional, defaults to False
+            Whether to mute areas where the time reversal occurred after nmo corrections.
+        max_stretch_factor : float, defaults to np.inf
+            Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
+            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
+            Reasonably good value is 0.65
+        fill_value : float, optional, defaults to np.nan
+            Value used to fill the amplitudes outside the gather bounds after moveout.
 
         Returns
         -------
@@ -950,14 +999,15 @@ class Gather(TraceContainer, SamplesContainer):
             raise ValueError("stacking_velocity must be of int, float, StackingVelocity or StackingVelocityField type")
 
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
-        self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms, self.sample_rate)
+        self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms,
+                                         self.sample_rate, mute_crossover, max_stretch_factor, fill_value)
         return self
 
     #------------------------------------------------------------------------#
     #                       General processing methods                       #
     #------------------------------------------------------------------------#
 
-    @batch_method(target="for")
+    @batch_method(target="threads")
     def sort(self, by):
         """Sort gather by specified headers.
 
@@ -1001,11 +1051,20 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target="threads")
-    def stack(self):
+    def stack(self, amplify_factor=0):
         """Stack a gather by calculating mean value of all non-nan amplitudes for each time over the offset axis.
 
         The gather being stacked must contain traces from a single bin. The resulting gather will contain a single
         trace with `headers` matching those of the first input trace.
+
+        Parameters
+        ----------
+        amplify_factor : float in range [0, 1], optional, defaults to 0
+            Amplifying factor which affects the normalization of the sum of hodographs amplitudes.
+            The amplitudes sum is multiplied by amplify_factor/sqrt(N) + (1 - amplify_factor)/N, 
+            where N is the number of live(non muted) amplitudes. Acts as the coherency amplifier for long hodographs.
+            Note that in case amplify_factor=0 (default), sum of trace amplitudes is simply divided by N, 
+            so that stack amplitude is the average of ensemble amplitudes. Must be in [0, 1] range.
 
         Returns
         -------
@@ -1016,13 +1075,12 @@ class Gather(TraceContainer, SamplesContainer):
         if (lines != lines[0]).any():
             raise ValueError("Only a single CDP gather can be stacked")
 
+        amplify_factor = np.clip(amplify_factor, 0, 1)
         # Preserve headers of the first trace of the gather being stacked
         self.headers = self.headers.iloc[[0]]
 
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=RuntimeWarning)
-            self.data = np.nanmean(self.data, axis=0, keepdims=True)
-        self.data = np.nan_to_num(self.data)
+        self.data = stacked_amplitude(self.data, amplify_factor, abs=False)[0]
+        self.data = self.data.reshape(1, -1)
         return self
 
     def crop(self, origins, crop_shape, n_crops=1, stride=None, pad_mode='constant', **kwargs):
@@ -1154,7 +1212,7 @@ class Gather(TraceContainer, SamplesContainer):
         self.samples = new_samples
         return self
 
-    @batch_method(target="for")
+    @batch_method(target="threads")
     def apply_agc(self, window_size=250, mode='rms'):
         """Calculate instantaneous or RMS amplitude AGC coefficients and apply them to gather data.
 
@@ -1189,7 +1247,7 @@ class Gather(TraceContainer, SamplesContainer):
         self.data = gain.apply_agc(data=self.data, window_size=window_size_samples, mode=mode)
         return self
 
-    @batch_method(target="for")
+    @batch_method(target="threads")
     def apply_sdc(self, velocity=None, v_pow=2, t_pow=1):
         """Calculate spherical divergence correction coefficients and apply them to gather data.
 
@@ -1209,7 +1267,7 @@ class Gather(TraceContainer, SamplesContainer):
             Gather with applied SDC.
         """
         if velocity is None:
-            velocity = DEFAULT_SDC_VELOCITY
+            velocity = DEFAULT_STACKING_VELOCITY
         if not isinstance(velocity, StackingVelocity):
             raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
         self.data = gain.apply_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
@@ -1235,7 +1293,7 @@ class Gather(TraceContainer, SamplesContainer):
             Gather without SDC.
         """
         if velocity is None:
-            velocity = DEFAULT_SDC_VELOCITY
+            velocity = DEFAULT_STACKING_VELOCITY
         if not isinstance(velocity, StackingVelocity):
             raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
         self.data = gain.undo_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
