@@ -1059,9 +1059,9 @@ class Gather(TraceContainer, SamplesContainer):
         ----------
         amplify_factor : float in range [0, 1], optional, defaults to 0
             Amplifying factor which affects the normalization of the sum of hodographs amplitudes.
-            The amplitudes sum is normalized to amplify_factor/sqrt(N) + (1 - amplify_factor)/N, 
+            The amplitudes sum is multiplied by amplify_factor/sqrt(N) + (1 - amplify_factor)/N, 
             where N is the number of live(non muted) amplitudes. Acts as the coherency amplifier for long hodographs.
-            Note in case amplify_factor=0 (default), normalization value is 1/N, 
+            Note that in case amplify_factor=0 (default), sum of trace amplitudes is simply divided by N, 
             so that stack amplitude is the average of ensemble amplitudes. Must be in [0, 1] range.
 
         Returns

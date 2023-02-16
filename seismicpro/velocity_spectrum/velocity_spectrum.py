@@ -249,17 +249,17 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         numerator(i, v) = abs(sum^{M-1}_{j=0} f_{j}(i, v))
         denominator(i, v) = sum^{M-1}_{j=0} abs(f_{j}(i, v))
 
-    - Semblance, "NE:
-        numerator(i, v) = (sum^{M-1}_{j=0} f_{j}(i, v))^2
-        denominator(i, v) = M * sum^{M-1}_{j=0} f_{j}(i, v)^2
+    - Semblance, "NE":
+        numerator(i, v) = (sum^{M-1}_{j=0} f_{j}(i, v))^2 / M
+        denominator(i, v) = sum^{M-1}_{j=0} f_{j}(i, v)^2
 
     - Crosscorrelation, "CC":
         numerator(i, v) = (sum^{M-1}_{j=0} f_{j}(i, v))^2 - sum^{M-1}_{j=0} f_{j}(i, v)^2
         denominator(i, v) = 1
 
     - Energy Normalized Crosscorrelation, "ENCC":
-        numerator(i, v) = (sum^{M-1}_{j=0} f_{j}(i, v))^2 - sum^{M-1}_{j=0} f_{j}(i, v)^2
-        denominator(i, v) = (M - 1) * (sum^{M-1}_{j=0} f_{j}(i, v)^2)    
+        numerator(i, v) = ((sum^{M-1}_{j=0} f_{j}(i, v))^2 - sum^{M-1}_{j=0} f_{j}(i, v)^2) / (M - 1)
+        denominator(i, v) = sum^{M-1}_{j=0} f_{j}(i, v)^2
     where:
 
     f_{j}(i, v) - the amplitude value on the `j`-th trace being NMO-corrected for time index `i` and velocity `v`. Thus
@@ -286,7 +286,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     --------
     Calculate velocity spectrum for 200 velocities from 2000 to 6000 m/s and a temporal window size of 16 ms:
     >>> survey = Survey(path, header_index=["INLINE_3D", "CROSSLINE_3D"], header_cols="offset")
-    >>> gather = survey.sample_gather().sort(by="offset")
+    >>> gather = survey.sample_gather()
     >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum(velocities=np.linspace(2000, 6000, 200),
                                                                         window_size=16)
 
@@ -518,7 +518,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     --------
     First let's sample a CDP gather and sort it by offset:
     >>> survey = Survey(path, header_index=["INLINE_3D", "CROSSLINE_3D"], header_cols="offset")
-    >>> gather = survey.sample_gather().sort(by="offset")
+    >>> gather = survey.sample_gather()
 
     Now let's automatically calculate stacking velocity by gather velocity spectrum:
     >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum()
