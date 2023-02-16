@@ -44,13 +44,13 @@ def get_hodograph(gather_data, offsets, hodograph_times, sample_rate, interpolat
     for i, hodograph_sample in enumerate(hodograph_times / sample_rate):
         amplitude = fill_value
         if offsets[i] <= max_offset and hodograph_sample <= gather_data.shape[1] - 1:
-                if interpolate:
-                    time_prev = math.floor(hodograph_sample)
-                    time_next = math.ceil(hodograph_sample)
-                    weight = time_next - hodograph_sample
-                    amplitude = gather_data[i, time_prev] * weight + gather_data[i, time_next] * (1 - weight)
-                else:
-                    amplitude = gather_data[i, round(hodograph_sample)]
+            if interpolate:
+                time_prev = math.floor(hodograph_sample)
+                time_next = math.ceil(hodograph_sample)
+                weight = time_next - hodograph_sample
+                amplitude = gather_data[i, time_prev] * weight + gather_data[i, time_next] * (1 - weight)
+            else:
+                amplitude = gather_data[i, round(hodograph_sample)]
         out[i] = amplitude
     return out
 
@@ -62,7 +62,7 @@ def compute_hodograph_times(offsets, times, velocities):
     The result is 2d np.array with shape `(len(times), len(offsets))`."""
     # Explicit broadcasting velocities, in case it's scalar. Required for `parallel=True` flag
     velocities = np.ascontiguousarray(np.broadcast_to(velocities, times.shape))
-    return np.sqrt(times.reshape(-1, 1) ** 2 + (offsets / velocities.reshape(-1, 1)) **2)
+    return np.sqrt(times.reshape(-1, 1) ** 2 + (offsets / velocities.reshape(-1, 1)) ** 2)
 
 
 @njit(nogil=True, parallel=True)
@@ -73,7 +73,7 @@ def compute_crossover_offsets(hodograph_times, times, offsets):
     Parameters
     ----------
     hodograph_times : 2d np.ndarray
-        Array storing the times of nmo corrected hodographs for the gather, with shape is transposed gather.shape
+        Array storing the times of nmo corrected hodographs for the gather, with shape is transposed gather.shape.
     times : 1d np.ndarray
         Gather timestamps.
     offsets : 1d np.ndarray
