@@ -103,7 +103,7 @@ class BaseVelocitySpectrum:
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def calc_single_velocity_spectrum(coherency_func, gather_data, times, offsets, velocity, sample_rate,
-                                       half_win_size_samples, t_min_ix, t_max_ix, max_stretch_factor=np.inf):
+                                       half_win_size_samples, t_min_ix, t_max_ix, max_stretch_factor=np.inf, out=None):
         """Calculate velocity spectrum for given velocity and time range.
 
         Parameters
@@ -130,10 +130,12 @@ class BaseVelocitySpectrum:
             Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
             The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
             Reasonably good value is 0.65.
+        out : np.array, optional
+            The buffer to store result in. If not provided, allocate new array.
 
         Returns
         -------
-        velocity_spectrum_slice : 1d np.ndarray
+        out : 1d np.ndarray
             Calculated velocity spectrum values for a specified `velocity` in time range from `t_min_ix` to `t_max_ix`.
         """
         t_win_size_min_ix = max(0, t_min_ix - half_win_size_samples)
@@ -145,14 +147,15 @@ class BaseVelocitySpectrum:
 
         numerator, denominator = coherency_func(corrected_gather_data)
 
-        velocity_spectrum_slice = np.empty(t_max_ix - t_min_ix, dtype=np.float32)
+        if out is None:
+            out = np.empty(t_max_ix - t_min_ix, dtype=np.float32)
+
         for t in prange(t_min_ix, t_max_ix):
             t_rel = t - t_win_size_min_ix
             ix_from = max(0, t_rel - half_win_size_samples)
             ix_to = min(corrected_gather_data.shape[1] - 1, t_rel + half_win_size_samples)
-            velocity_spectrum_slice[t - t_min_ix] = np.sum(numerator[ix_from : ix_to]) / \
-                                                    (np.sum(denominator[ix_from : ix_to]) + 1e-8)
-        return velocity_spectrum_slice
+            out[t - t_min_ix] = np.sum(numerator[ix_from : ix_to]) / (np.sum(denominator[ix_from : ix_to]) + 1e-8)
+        return out
 
     def _plot(self, title=None, x_label=None, x_ticklabels=None,
               x_ticker=None, y_ticklabels=None, y_ticker=None, grid=False, stacking_times_ix=None,
@@ -255,7 +258,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
 
     - Crosscorrelation, "CC":
         numerator(i, v) = (sum^{M-1}_{j=0} f_{j}(i, v))^2 - sum^{M-1}_{j=0} f_{j}(i, v)^2
-        denominator(i, v) = 1
+        denominator(i, v) = 2
 
     - Energy Normalized Crosscorrelation, "ENCC":
         numerator(i, v) = ((sum^{M-1}_{j=0} f_{j}(i, v))^2 - sum^{M-1}_{j=0} f_{j}(i, v)^2) / (M - 1)
@@ -363,11 +366,10 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         """
         velocity_spectrum = np.empty((gather_data.shape[1], len(velocities)), dtype=np.float32)
         for j in prange(len(velocities)):  # pylint: disable=consider-using-enumerate
-            velocity_spectrum[:, j] = spectrum_func(coherency_func=coherency_func, gather_data=gather_data,
-                                                    times=times, offsets=offsets, velocity=velocities[j],
-                                                    half_win_size_samples=half_win_size_samples,
-                                                    t_min_ix=0, t_max_ix=gather_data.shape[1],
-                                                    sample_rate=sample_rate, max_stretch_factor=max_stretch_factor)
+            spectrum_func(coherency_func=coherency_func, gather_data=gather_data, times=times, offsets=offsets,
+                          velocity=velocities[j], half_win_size_samples=half_win_size_samples,
+                          t_min_ix=0, t_max_ix=gather_data.shape[1], sample_rate=sample_rate,
+                          max_stretch_factor=max_stretch_factor, out=velocity_spectrum[:, j])
         return velocity_spectrum
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
@@ -632,7 +634,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
 
         Returns
         -------
-        velocity_spectrum : 2d np.ndarray
+        residual_velocity_spectrum : 2d np.ndarray
             Array with residual vertical velocity spectrum values.
         """
         velocity_spectrum = np.zeros((gather_data.shape[1], len(velocities)), dtype=np.float32)
@@ -643,13 +645,10 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
             t_max_ix = np.where(left_bound_ix == i)[0]
             t_max_ix = len(times) - 1 if len(t_max_ix) == 0 else t_max_ix[-1]
 
-            velocity_spectrum[t_min_ix : t_max_ix+1, i] = spectrum_func(
-                                                                coherency_func=coherency_func,
-                                                                gather_data=gather_data, times=times, offsets=offsets,
-                                                                velocity=velocities[i], sample_rate=sample_rate,
-                                                                half_win_size_samples=half_win_size_samples,
-                                                                t_min_ix=t_min_ix, t_max_ix=t_max_ix+1,
-                                                                max_stretch_factor=max_stretch_factor)
+            spectrum_func(coherency_func=coherency_func, gather_data=gather_data, times=times, offsets=offsets,
+                          velocity=velocities[i], sample_rate=sample_rate,
+                          half_win_size_samples=half_win_size_samples, t_min_ix=t_min_ix, t_max_ix=t_max_ix+1,
+                          max_stretch_factor=max_stretch_factor, out=velocity_spectrum[t_min_ix : t_max_ix+1, i])
 
         # Interpolate velocity spectrum to get a rectangular image
         residual_velocity_spectrum_len = (right_bound_ix - left_bound_ix).max()

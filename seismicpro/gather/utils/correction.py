@@ -17,6 +17,8 @@ def get_hodograph(gather_data, offsets, hodograph_times, sample_rate, interpolat
     ----------
     gather_data : 2d np.ndarray
         Gather data to retrieve hodograph amplitudes from.
+    offsets : 1d np.ndarray
+        The distance between source and receiver for each trace. Measured in meters.
     hodograph_times : 1d np.array
         Event time for each trace of the hodograph. Must match the lenght of `gather_data`.
         Measured in milliseconds.
