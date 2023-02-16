@@ -299,7 +299,9 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         Seismic gather to calculate velocity spectrum for.
     velocities : 1d np.ndarray, optional, defaults to None
         Range of velocity values for which velocity spectrum is calculated. Measured in meters/seconds.
-        If not provided, velocities evenly sampled from  `const.DEFAULT_STACKING_VELOCITY` with step 100 m/s.
+        If not provided velocity range is inferred from const.DEFAULT_STACKING_VELOCITY evaluated for gather times
+        and then additionally extended by 20%. Spectrum velocities are evenly sampled from this range
+        with a step of 100 m/s.
     window_size : int, optional, defaults to 50
         Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother
         the resulting velocity spectrum will be but to the detriment of small details. Measured in miliseconds.
