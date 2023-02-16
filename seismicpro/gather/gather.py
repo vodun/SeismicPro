@@ -1433,9 +1433,8 @@ class Gather(TraceContainer, SamplesContainer):
                 mask_kwargs = {**default_mask_kwargs, **mask_kwargs}
                 mask = mask_kwargs.pop("masks")
                 cmap = ListedColormap(mask_kwargs.pop("color"))
-                # Note that the label will only be visible on the legend
                 label = mask_kwargs.pop("label")
-                # Invisible artist is not being plotted. Serves as the legend handler for ax.imshow bellow.
+                # Add an invisible artist to display mask label on the legend since imshow does not support it
                 ax.add_patch(Polygon([[0, 0]], color=cmap(1), label=label, alpha=mask_kwargs["alpha"]))
                 ax.imshow(mask.T, cmap=cmap, **mask_kwargs)
         add_colorbar(ax, img, colorbar, divider, y_ticker)
@@ -1558,7 +1557,7 @@ class Gather(TraceContainer, SamplesContainer):
         colors_iterator = cycle(['tab:red', 'tab:blue', 'tab:orange', 'tab:green', 'tab:purple', 'tab:pink',
                                  'tab:olive', 'tab:cyan'])
         masks_list = self._parse_headers_kwargs(masks, "masks")
-        for ix, mask_dict in enumerate(masks_list):
+        for ix, (mask_dict, default_color) in enumerate(zip(masks_list, colors_iterator)):
             mask = mask_dict["masks"]
             if isinstance(mask, Gather):
                 mask = mask.data
@@ -1571,11 +1570,9 @@ class Gather(TraceContainer, SamplesContainer):
                 mask = mask.reshape(-1, 1)
             threshold = mask_dict.pop("threshold", 0.5)
             mask_dict["masks"] = np.broadcast_to(np.where(mask < threshold, np.nan, 1), self.shape)
-            mask_dict["label"] = mask_dict.get("label", f"mask_{ix+1}")
-            mask_dict["color"] = mask_dict.get("color", next(colors_iterator))
-            if np.isnan(mask_dict["masks"]).all():
-                continue
-            yield mask_dict
+            mask_dict["label"] = mask_dict.get("label", f"Mask {ix+1}")
+            mask_dict["color"] = mask_dict.get("color", default_color)
+        return [mask_dict for mask_dict in masks_list if not np.isnan(mask_dict["masks"]).all()]
 
     @staticmethod
     def _parse_headers_kwargs(headers_kwargs, headers_key):
