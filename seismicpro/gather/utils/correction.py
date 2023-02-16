@@ -43,8 +43,7 @@ def get_hodograph(gather_data, offsets, hodograph_times, sample_rate, interpolat
         out = np.empty(len(hodograph_times), dtype=gather_data.dtype)
     for i, hodograph_sample in enumerate(hodograph_times / sample_rate):
         amplitude = fill_value
-        if offsets[i] <= max_offset:
-            if hodograph_sample <= gather_data.shape[1] - 1:
+        if offsets[i] <= max_offset and hodograph_sample <= gather_data.shape[1] - 1:
                 if interpolate:
                     time_prev = math.floor(hodograph_sample)
                     time_next = math.ceil(hodograph_sample)
@@ -68,7 +67,7 @@ def compute_hodograph_times(offsets, times, velocities):
 
 @njit(nogil=True, parallel=True)
 def compute_crossover_offsets(hodograph_times, times, offsets):
-    """ Given hodograph_times for gather NMO correction, 
+    """ Given `hodograph_times` for gather NMO correction, 
     for each timestamp find the offset after which the crossover events occur.
 
     Parameters
@@ -161,7 +160,7 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_rate,
 
     for i in prange(times.shape[0]):
         get_hodograph(gather_data, offsets, hodograph_times[i], sample_rate,
-                      fill_value=fill_value, out=corrected_gather_data[:, i], max_offset=max_offsets[i])
+                      fill_value=fill_value, max_offset=max_offsets[i], out=corrected_gather_data[:, i])
 
     return corrected_gather_data
 

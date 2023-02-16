@@ -257,8 +257,8 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         denominator(i, v) = sum^{M-1}_{j=0} f_{j}(i, v)^2
 
     - Crosscorrelation, "CC":
-        numerator(i, v) = (sum^{M-1}_{j=0} f_{j}(i, v))^2 - sum^{M-1}_{j=0} f_{j}(i, v)^2
-        denominator(i, v) = 2
+        numerator(i, v) = ((sum^{M-1}_{j=0} f_{j}(i, v))^2 - sum^{M-1}_{j=0} f_{j}(i, v)^2) / 2
+        denominator(i, v) = 1
 
     - Energy Normalized Crosscorrelation, "ENCC":
         numerator(i, v) = ((sum^{M-1}_{j=0} f_{j}(i, v))^2 - sum^{M-1}_{j=0} f_{j}(i, v)^2) / (M - 1)
