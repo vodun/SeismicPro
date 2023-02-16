@@ -2,6 +2,7 @@
 
 import os
 import warnings
+from itertools import cycle
 from textwrap import dedent
 
 import cv2
@@ -1427,17 +1428,15 @@ class Gather(TraceContainer, SamplesContainer):
         kwargs = {"cmap": "gray", "aspect": "auto", "vmin": vmin, "vmax": vmax, **kwargs}
         img = ax.imshow(self.data.T, **kwargs)
         if masks is not None:
-            default_mask_kwargs = {"aspect": "auto", "alpha": 0.5, "interpolation": "none", "color": "red"}
+            default_mask_kwargs = {"aspect": "auto", "alpha": 0.5, "interpolation": "none"}
             for mask_kwargs in self._process_masks(masks):
                 mask_kwargs = {**default_mask_kwargs, **mask_kwargs}
                 mask = mask_kwargs.pop("masks")
-                if np.nansum(mask) == 0:
-                    continue
                 cmap = ListedColormap(mask_kwargs.pop("color"))
-                label = mask_kwargs.pop("label", None)
                 # Note that the label will only be visible on the legend
-                if label is not None:
-                    ax.add_patch(Polygon([[0, 0]], color=cmap(1), label=label, alpha=mask_kwargs["alpha"]))
+                label = mask_kwargs.pop("label")
+                # Invisible artist is not being plotted. Serves as the legend handler for ax.imshow bellow.
+                ax.add_patch(Polygon([[0, 0]], color=cmap(1), label=label, alpha=mask_kwargs["alpha"]))
                 ax.imshow(mask.T, cmap=cmap, **mask_kwargs)
         add_colorbar(ax, img, colorbar, divider, y_ticker)
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
@@ -1511,8 +1510,6 @@ class Gather(TraceContainer, SamplesContainer):
         if masks is not None:
             for mask_kwargs in self._process_masks(masks):
                 mask = mask_kwargs.pop("masks")
-                if np.nansum(mask) == 0:
-                    continue
                 mask_ix = np.argwhere(mask > 0)
                 start_ix, end_ix = _get_start_end_ixs(mask_ix)
                 # Compute the polygon bodies, that represent mask coordinates with a small indent
@@ -1527,7 +1524,7 @@ class Gather(TraceContainer, SamplesContainer):
                 codes[::5] = Path.MOVETO
                 codes[4::5] = Path.CLOSEPOLY
 
-                default_mask_kwargs = {"alpha": alpha*0.6, "color": "r", "lw": 0}
+                default_mask_kwargs = {"alpha": alpha*0.7, "lw": 0}
                 mask_patch = PathPatch(Path(verts, codes), **{**default_mask_kwargs, **mask_kwargs})
                 ax.add_artist(mask_patch)
 
@@ -1558,8 +1555,10 @@ class Gather(TraceContainer, SamplesContainer):
             ax.legend()
 
     def _process_masks(self, masks):
+        colors_iterator = cycle(['tab:red', 'tab:blue', 'tab:orange', 'tab:green', 'tab:purple', 'tab:pink',
+                                 'tab:olive', 'tab:cyan'])
         masks_list = self._parse_headers_kwargs(masks, "masks")
-        for mask_dict in masks_list:
+        for ix, mask_dict in enumerate(masks_list):
             mask = mask_dict["masks"]
             if isinstance(mask, Gather):
                 mask = mask.data
@@ -1572,7 +1571,11 @@ class Gather(TraceContainer, SamplesContainer):
                 mask = mask.reshape(-1, 1)
             threshold = mask_dict.pop("threshold", 0.5)
             mask_dict["masks"] = np.broadcast_to(np.where(mask < threshold, np.nan, 1), self.shape)
-        return masks_list
+            mask_dict["label"] = mask_dict.get("label", f"mask_{ix+1}")
+            mask_dict["color"] = mask_dict.get("color", next(colors_iterator))
+            if np.isnan(mask_dict["masks"]).all():
+                continue
+            yield mask_dict
 
     @staticmethod
     def _parse_headers_kwargs(headers_kwargs, headers_key):
