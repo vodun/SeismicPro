@@ -296,7 +296,7 @@ class SeismicBatch(Batch):
         return self
 
     @action
-    @inbatch_parallel(init='init_component', target='for')
+    @inbatch_parallel(init='init_component', target='threads')
     def crop(self, pos, src, origins, crop_shape, dst=None, joint=True, n_crops=1, stride=None, **kwargs):
         """Crop batch components.
 

@@ -1005,7 +1005,7 @@ class Gather(TraceContainer, SamplesContainer):
     #                       General processing methods                       #
     #------------------------------------------------------------------------#
 
-    @batch_method(target="for")
+    @batch_method(target="threads")
     def sort(self, by):
         """Sort gather by specified headers.
 
@@ -1210,7 +1210,7 @@ class Gather(TraceContainer, SamplesContainer):
         self.samples = new_samples
         return self
 
-    @batch_method(target="for")
+    @batch_method(target="threads")
     def apply_agc(self, window_size=250, mode='rms'):
         """Calculate instantaneous or RMS amplitude AGC coefficients and apply them to gather data.
 
@@ -1245,7 +1245,7 @@ class Gather(TraceContainer, SamplesContainer):
         self.data = gain.apply_agc(data=self.data, window_size=window_size_samples, mode=mode)
         return self
 
-    @batch_method(target="for")
+    @batch_method(target="threads")
     def apply_sdc(self, velocity=None, v_pow=2, t_pow=1):
         """Calculate spherical divergence correction coefficients and apply them to gather data.
 
