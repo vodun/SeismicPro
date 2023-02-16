@@ -36,10 +36,11 @@ class StackingVelocityScatterMapPlot(ScatterMapPlot):
     def click(self, coords):
         """Process the click and highlight a spatial window in which the metric was calculated."""
         coords = super().click(coords)
+        metric = self.metric_map.bound_metric
         if self.window is not None:
             self.window.remove()
-        if self.metric_map.is_window_metric and self.plot_window:
-            self.window = patches.Circle(coords, self.metric_map.nearest_neighbors.radius, color="blue", alpha=0.3)
+        if metric.is_window_metric and self.plot_window:
+            self.window = patches.Circle(coords, metric.coords_neighbors.radius, color="blue", alpha=0.3)
             self.main.ax.add_patch(self.window)
         return coords
 
@@ -56,27 +57,43 @@ class StackingVelocityMetric(Metric):
     map_class = StackingVelocityMetricMap
     views = "plot_on_click"
 
-    def __init__(self, times, velocities, nearest_neighbors):
-        super().__init__()
-        self.times = times
-        self.velocities = velocities
-        self.velocity_limits = calculate_axis_limits(velocities)
-        self.nearest_neighbors = nearest_neighbors
+    def __init__(self, name=None):
+        super().__init__(name=name)
+
+        # Attributes set after context binding
+        self.times = None
+        self.velocities = None
+        self.velocity_limits = None
+        self.coords_neighbors = None
+
+    def __str__(self):
+        is_window_str = f"Is window metric:          {self.is_window_metric}"
+        return self._get_general_info() + "\n" + is_window_str + "\n\n" + self._get_plot_info()
+
+    def __call__(self, velocities, times):
+        """Calculate the metric. Selects only central velocity for non-window metrics and redirect the call to a static
+        `calc` method which may be njitted."""
+        if self.is_window_metric:
+            return self.calc(velocities, times)
+        return self.calc(velocities[0], times)
 
     @staticmethod
-    def calc_metric(*args, **kwargs):
+    def calc(*args, **kwargs):
         """Calculate the metric. Must be overridden in child classes."""
         _ = args, kwargs
         raise NotImplementedError
 
-    @classmethod
-    def calc(cls, *args, **kwargs):
-        """Redirect metric calculation to a static `calc_metric` method which may be njitted."""
-        return cls.calc_metric(*args, **kwargs)
+    def bind(self, metric_map, times, velocities, coords_neighbors):
+        _ = metric_map
+        self.times = times
+        self.velocities = velocities
+        self.velocity_limits = calculate_axis_limits(velocities)
+        self.coords_neighbors = coords_neighbors
+        return self
 
     def coords_to_window(self, coords):
         """Return all stacking velocities in a spatial window around given `coords`."""
-        _, window_indices = self.nearest_neighbors.radius_neighbors([coords], return_distance=True, sort_results=True)
+        _, window_indices = self.coords_neighbors.radius_neighbors([coords], return_distance=True, sort_results=True)
         window_indices = window_indices[0]
         if not self.is_window_metric:
             window_indices = window_indices[:1]
@@ -98,9 +115,9 @@ class StackingVelocityMetric(Metric):
         self.plot(window, ax=ax, **kwargs)
 
 
-class IsDecreasing(StackingVelocityMetric):
+class HasInversions(StackingVelocityMetric):
     """Check if a stacking velocity decreases at some time."""
-    name = "is_decreasing"
+    name = "has_inversions"
     min_value = 0
     max_value = 1
     is_lower_better = True
@@ -108,7 +125,7 @@ class IsDecreasing(StackingVelocityMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def calc_metric(stacking_velocity, times):
+    def calc(stacking_velocity, times):
         """Return whether the stacking velocity decreases at some time."""
         _ = times
         for cur_vel, next_vel in zip(stacking_velocity[:-1], stacking_velocity[1:]):
@@ -117,10 +134,10 @@ class IsDecreasing(StackingVelocityMetric):
         return False
 
     def plot(self, window, ax, **kwargs):
-        """Plot the stacking velocity and highlight segments with decreasing velocity in red."""
+        """Plot the stacking velocity and highlight segments with velocity inversions in red."""
         super().plot(window, ax, **kwargs)
 
-        # Highlight decreasing sections
+        # Highlight sections with velocity inversion
         stacking_velocity = window[0]
         decreasing_pos = np.where(np.diff(stacking_velocity) < 0)[0]
         if len(decreasing_pos):
@@ -131,7 +148,7 @@ class IsDecreasing(StackingVelocityMetric):
 
 
 class MaxAccelerationDeviation(StackingVelocityMetric):
-    """Calculate maximal deviation of instantaneous acceleration from the mean acceleration over all times."""
+    """Calculate maximal absolute deviation of instantaneous acceleration from the mean acceleration over all times."""
     name = "max_acceleration_deviation"
     min_value = 0
     max_value = None
@@ -140,7 +157,7 @@ class MaxAccelerationDeviation(StackingVelocityMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def calc_metric(stacking_velocity, times):
+    def calc(stacking_velocity, times):
         """Return the maximal deviation of instantaneous acceleration from the mean acceleration over all times."""
         mean_acc = (stacking_velocity[-1] - stacking_velocity[0]) / (times[-1] - times[0])
         max_deviation = 0
@@ -170,7 +187,7 @@ class MaxStandardDeviation(StackingVelocityMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def calc_metric(window, times):
+    def calc(window, times):
         """Return the maximal spatial velocity standard deviation in a window over all times."""
         _ = times
         if window.shape[0] == 0:
@@ -194,7 +211,7 @@ class MaxRelativeVariation(StackingVelocityMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def calc_metric(window, times):
+    def calc(window, times):
         """Return the maximal absolute relative difference between central stacking velocity and the average of all
         remaining velocities in the window over all times."""
         _ = times
@@ -213,4 +230,4 @@ class MaxRelativeVariation(StackingVelocityMetric):
         ax.plot(window[0], self.times, color="tab:red")
 
 
-VELOCITY_QC_METRICS = [IsDecreasing, MaxAccelerationDeviation, MaxStandardDeviation, MaxRelativeVariation]
+VELOCITY_QC_METRICS = [HasInversions, MaxAccelerationDeviation, MaxStandardDeviation, MaxRelativeVariation]

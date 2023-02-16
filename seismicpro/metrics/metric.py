@@ -90,14 +90,18 @@ class Metric:
         """String representation of the metric."""
         return f"{type(self).__name__}(name='{self.name}')"
 
-    def __str__(self):
+    def _get_general_info(self):
         msg = f"""
         Metric type:               {type(self).__name__}
         Metric name:               {self.name}
         Is lower value better:     {get_first_defined(self.is_lower_better, "Undefined")}
         Minimum metric value:      {get_first_defined(self.min_value, "Undefined")}
         Maximum metric value:      {get_first_defined(self.max_value, "Undefined")}
+        """
+        return dedent(msg).strip()
 
+    def _get_plot_info(self):
+        msg = f"""
         Metric map visualization parameters:
         Knows evaluation context:  {self.has_bound_context}
         Metric map type:           {self.map_class.__name__}
@@ -106,6 +110,9 @@ class Metric:
         Maximum displayed value:   {get_first_defined(self.vmax, "Undefined")}
         """
         return dedent(msg).strip()
+
+    def __str__(self):
+        return self._get_general_info() + "\n\n" + self._get_plot_info()
 
     def info(self):
         print(self)
