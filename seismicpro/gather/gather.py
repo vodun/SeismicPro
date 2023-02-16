@@ -2,6 +2,7 @@
 
 import os
 import warnings
+from itertools import cycle
 from textwrap import dedent
 
 import cv2
@@ -10,7 +11,8 @@ import segyio
 import numpy as np
 from scipy.signal import firwin
 from matplotlib.path import Path
-from matplotlib.patches import PathPatch
+from matplotlib.patches import Polygon, PathPatch
+from matplotlib.colors import ListedColormap
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .cropped_gather import CroppedGather
@@ -1303,7 +1305,7 @@ class Gather(TraceContainer, SamplesContainer):
     #                         Visualization methods                          #
     #------------------------------------------------------------------------#
 
-    @plotter(figsize=(10, 7))
+    @plotter(figsize=(10, 7), args_to_unpack="masks")
     def plot(self, mode="seismogram", *, title=None, x_ticker=None, y_ticker=None, ax=None, **kwargs):
         """Plot gather traces.
 
@@ -1331,9 +1333,10 @@ class Gather(TraceContainer, SamplesContainer):
             * `log`: set y-axis to log scale. If `True`, formatting defined in `y_ticker` is discarded,
             * Any additional arguments for `matplotlib.pyplot.hist`.
 
-        Trace headers, whose values are measured in milliseconds (e.g. first break times) may be displayed over a
-        seismogram or wiggle plot if passed as `event_headers`. If `top_header` is passed, an auxiliary scatter plot of
-        values of this header will be shown on top of the gather plot.
+        Some areas of a gather may be highlighted in color by passing optional `masks` argument. Trace headers, whose
+        values are measured in milliseconds (e.g. first break times) may be displayed over a seismogram or wiggle plot
+        if passed as `event_headers`. If `top_header` is passed, an auxiliary scatter plot of values of this header
+        will be shown on top of the gather plot.
 
         While the source of label ticks for both `x` and `y` is defined by `x_tick_src` and `y_tick_src`, ticker
         appearance can be controlled via `x_ticker` and `y_ticker` parameters respectively. In the most general form,
@@ -1399,6 +1402,24 @@ class Gather(TraceContainer, SamplesContainer):
         top_header : str, optional, defaults to None
             Valid only for "seismogram" and "wiggle" modes.
             The name of a header whose values will be plotted on top of the gather plot.
+        masks : array-like, str, dict or Gather, optional, defaults to None
+            Valid only for "seismogram" and "wiggle" modes.
+            Mask or list of masks to plot on top of the gather plot.
+            If `array-like` either mask or list of masks where each mask should be one of:
+            - `2d array`, a mask with shape equals to self.shape to plot on top of the gather plot;
+            - `1d array`, a vector containing self.n_traces elements that determines which traces to mask;
+            - `Gather`, its `data` attribute will be treated as a mask, note that Gather shape should be the same as
+            self.shape;
+            - `str`, either a header name to take mask from or a batch component name.
+            If `dict`, the mask (or list of masks) is specified under the "masks" key and the rest of keys define masks
+            layout. The following keys are supported:
+                - `masks`: mask or list of masks,
+                - `threshold`: the value after which all values will be threated as mask,
+                - `label`: the name of the mask that will be shown in legend,
+                - `color`: mask color,
+                - `alpha`: mask transparency.
+            If some dictionary value is array-like, each its element will be associated with the corresponding mask.
+            Otherwise, the single value will be used for all masks.
         figsize : tuple, optional, defaults to (10, 7)
             Size of the figure to create if `ax` is not given. Measured in inches.
         save_to : str or dict, optional, defaults to None
@@ -1433,6 +1454,7 @@ class Gather(TraceContainer, SamplesContainer):
         }
         if mode not in plotters_dict:
             raise ValueError(f"Unknown mode {mode}")
+
         plotters_dict[mode](ax, title=title, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
         return self
 
@@ -1456,20 +1478,39 @@ class Gather(TraceContainer, SamplesContainer):
 
     # pylint: disable=too-many-arguments
     def _plot_seismogram(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src='time', colorbar=False,
-                         q_vmin=0.1, q_vmax=0.9, event_headers=None, top_header=None, **kwargs):
+                         q_vmin=0.1, q_vmax=0.9, event_headers=None, top_header=None, masks=None, **kwargs):
         """Plot the gather as a 2d grayscale image of seismic traces."""
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
         vmin, vmax = self.get_quantile([q_vmin, q_vmax])
         kwargs = {"cmap": "gray", "aspect": "auto", "vmin": vmin, "vmax": vmax, **kwargs}
         img = ax.imshow(self.data.T, **kwargs)
+        if masks is not None:
+            default_mask_kwargs = {"aspect": "auto", "alpha": 0.5, "interpolation": "none"}
+            for mask_kwargs in self._process_masks(masks):
+                mask_kwargs = {**default_mask_kwargs, **mask_kwargs}
+                mask = mask_kwargs.pop("masks")
+                cmap = ListedColormap(mask_kwargs.pop("color"))
+                label = mask_kwargs.pop("label")
+                # Add an invisible artist to display mask label on the legend since imshow does not support it
+                ax.add_patch(Polygon([[0, 0]], color=cmap(1), label=label, alpha=mask_kwargs["alpha"]))
+                ax.imshow(mask.T, cmap=cmap, **mask_kwargs)
         add_colorbar(ax, img, colorbar, divider, y_ticker)
         self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
 
     #pylint: disable=invalid-name
     def _plot_wiggle(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src="time", norm_tracewise=True,
-                     std=0.5, event_headers=None, top_header=None, lw=None, alpha=None, color="black", **kwargs):
+                     std=0.5, event_headers=None, top_header=None, masks=None, lw=None, alpha=None, color="black",
+                     **kwargs):
         """Plot the gather as an amplitude vs time plot for each trace."""
+        def _get_start_end_ixs(ixs):
+            """Return arrays with indices of beginnings and ends of polygons defined by continuous subsequences in
+            `ixs`."""
+            start_ix = np.argwhere((np.diff(ixs[:, 0], prepend=ixs[0, 0]) != 0) |
+                                   (np.diff(ixs[:, 1], prepend=ixs[0, 1]) != 1)).ravel()
+            end_ix = start_ix + np.diff(start_ix, append=len(ixs)) - 1
+            return start_ix, end_ix
+
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
 
@@ -1498,10 +1539,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         # Find polygons bodies: indices of target amplitudes, start and end
         poly_amp_ix = np.argwhere(traces > 0)
-        start_ix = np.argwhere((np.diff(poly_amp_ix[:, 0], prepend=poly_amp_ix[0, 0]) != 0) |
-                               (np.diff(poly_amp_ix[:, 1], prepend=poly_amp_ix[0, 1]) != 1)).ravel()
-        end_ix = start_ix + np.diff(start_ix, append=len(poly_amp_ix)) - 1
-
+        start_ix, end_ix = _get_start_end_ixs(poly_amp_ix)
         shift = np.arange(len(start_ix)) * 3
         # For each polygon we need to:
         # 1. insert 0 amplitude at the start.
@@ -1525,6 +1563,28 @@ class Gather(TraceContainer, SamplesContainer):
 
         patch = PathPatch(Path(verts, codes), color=color, alpha=alpha)
         ax.add_artist(patch)
+
+        if masks is not None:
+            for mask_kwargs in self._process_masks(masks):
+                mask = mask_kwargs.pop("masks")
+                mask_ix = np.argwhere(mask > 0)
+                start_ix, end_ix = _get_start_end_ixs(mask_ix)
+                # Compute the polygon bodies, that represent mask coordinates with a small indent
+                up_verts = mask_ix[start_ix].reshape(-1, 1, 2) + np.array([[0.5, -0.5], [-0.5, -0.5]])
+                down_verts = mask_ix[end_ix].reshape(-1, 1, 2) + np.array([[-0.5, 0.5], [0.5, 0.5]])
+                # Combine upper and lower vertices and add plaсeholders for Path.CLOSEPOLY code with coords [0, 0]
+                # after each polygon.
+                verts = np.hstack((up_verts, down_verts, np.zeros((len(up_verts), 1, 2)))).reshape(-1, 2)
+
+                # Fill the array representing the nodes codes: either start, intermediate or end code.
+                codes = np.full(len(verts), Path.LINETO)
+                codes[::5] = Path.MOVETO
+                codes[4::5] = Path.CLOSEPOLY
+
+                default_mask_kwargs = {"alpha": alpha*0.7, "lw": 0}
+                mask_patch = PathPatch(Path(verts, codes), **{**default_mask_kwargs, **mask_kwargs})
+                ax.add_artist(mask_patch)
+
         ax.update_datalim([(0, 0), traces.shape])
         if not ax.yaxis_inverted():
             ax.invert_yaxis()
@@ -1548,11 +1608,35 @@ class Gather(TraceContainer, SamplesContainer):
 
         top_ax.set_title(**{'label': None, **title})
 
+        if len(ax.get_legend_handles_labels()[0]):
+            ax.legend()
+
+    def _process_masks(self, masks):
+        colors_iterator = cycle(['tab:red', 'tab:blue', 'tab:orange', 'tab:green', 'tab:purple', 'tab:pink',
+                                 'tab:olive', 'tab:cyan'])
+        masks_list = self._parse_headers_kwargs(masks, "masks")
+        for ix, (mask_dict, default_color) in enumerate(zip(masks_list, colors_iterator)):
+            mask = mask_dict["masks"]
+            if isinstance(mask, Gather):
+                mask = mask.data
+            elif isinstance(mask, str):
+                mask_dict["label"] = mask_dict.get("label", mask)
+                mask = self[mask]
+
+            mask = np.array(mask)
+            if mask.ndim == 1:
+                mask = mask.reshape(-1, 1)
+            threshold = mask_dict.pop("threshold", 0.5)
+            mask_dict["masks"] = np.broadcast_to(np.where(mask < threshold, np.nan, 1), self.shape)
+            mask_dict["label"] = mask_dict.get("label", f"Mask {ix+1}")
+            mask_dict["color"] = mask_dict.get("color", default_color)
+        return [mask_dict for mask_dict in masks_list if not np.isnan(mask_dict["masks"]).all()]
+
     @staticmethod
     def _parse_headers_kwargs(headers_kwargs, headers_key):
         """Construct a `dict` of kwargs for each header defined in `headers_kwargs` under `headers_key` key so that it
         contains all other keys from `headers_kwargs` with the values defined as follows:
-        1. If the value in `headers_kwargs` is an array-like, it is indexed with the index of the currently processed
+        1. If the value in `headers_kwargs` is a list or tuple, it is indexed with the index of the currently processed
            header,
         2. Otherwise, it is kept unchanged.
 
@@ -1568,15 +1652,18 @@ class Gather(TraceContainer, SamplesContainer):
          {'headers': 'FirstBreakPred', 's': 5, 'c': 'red'}]
         """
         if not isinstance(headers_kwargs, dict):
-            return [{headers_key: header} for header in to_list(headers_kwargs)]
+            headers_kwargs = headers_kwargs if isinstance(headers_kwargs, (list, tuple)) else [headers_kwargs]
+            return [{headers_key: header} for header in headers_kwargs]
 
         if headers_key not in headers_kwargs:
-            raise KeyError(f'{headers_key} key is not defined in event_headers')
+            raise KeyError(f'Missing {headers_key} key in passed kwargs')
 
-        n_headers = len(to_list(headers_kwargs[headers_key]))
+        headers_kwargs = {key: value if isinstance(value, (list, tuple)) else [value]
+                          for key, value in headers_kwargs.items()}
+        n_headers = len(headers_kwargs[headers_key])
+
         kwargs_list = [{} for _ in range(n_headers)]
         for key, values in headers_kwargs.items():
-            values = to_list(values)
             if len(values) == 1:
                 values = values * n_headers
             elif len(values) != n_headers:
@@ -1602,9 +1689,6 @@ class Gather(TraceContainer, SamplesContainer):
             elif process_outliers != "none":
                 raise ValueError(f"Unknown outlier processing mode {process_outliers}")
             ax.scatter(x_coords, y_coords, label=label, **kwargs)
-
-        if headers_kwargs:
-            ax.legend()
 
     def _plot_top_subplot(self, ax, divider, header_values, y_ticker, **kwargs):
         """Add a scatter plot of given header values on top of the main gather plot."""

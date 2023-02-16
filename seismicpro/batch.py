@@ -476,6 +476,18 @@ class SeismicBatch(Batch):
         self._num_calculated_metrics += 1
         return self
 
+    @staticmethod
+    def _unpack_args(args, batch_item):
+        """Replace all names of batch components in `args` with corresponding values from `batch_item`. """
+        if not isinstance(args, (list, tuple, str)):
+            return args
+
+        unpacked_args = [getattr(batch_item, val) if isinstance(val, str) and val in batch_item.components else val
+                         for val in to_list(args)]
+        if isinstance(args, str):
+            return unpacked_args[0]
+        return unpacked_args
+
     @action
     def plot(self, src, src_kwargs=None, max_width=20, title="{src}: {index}", save_to=None, **common_kwargs):  # pylint: disable=too-many-statements
         """Plot batch components on a grid constructed as follows:
@@ -572,8 +584,11 @@ class SeismicBatch(Batch):
                 unpacked_args = {}
                 for arg_name in args_to_unpack & kwargs.keys():
                     arg_val = kwargs[arg_name]
-                    if isinstance(arg_val, str):
-                        unpacked_args[arg_name] = getattr(self, arg_val)[i]
+                    if isinstance(arg_val, dict) and arg_name in arg_val:
+                        arg_val[arg_name] = self._unpack_args(arg_val[arg_name], self[i])
+                    else:
+                        arg_val = self._unpack_args(arg_val, self[i])
+                    unpacked_args[arg_name] = arg_val
 
                 # Format subplot title
                 if title_template is not None:
