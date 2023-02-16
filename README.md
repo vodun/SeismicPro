@@ -103,15 +103,15 @@ stacking_pipeline = (dataset
     .load(src="raw")
     .sort(src="raw", by="offset")
     .mute(src="raw", dst="muted_raw", muter=muter)
-    .calculate_semblance(src="muted_raw", dst="raw_semb",
-                         velocities=SEMBLANCE_VELOCITY_RANGE, win_size=8)
-    .calculate_stacking_velocity(src="raw_semb", dst="velocity",
+    .calculate_vertical_velocity_spectrum(src="muted_raw", dst="raw_spectrum",
+                                          velocities=SPECTRUM_VELOCITY_RANGE)
+    .calculate_stacking_velocity(src="raw_spectrum", dst="velocity",
                                  start_velocity_range=START_VELOCITY_RANGE,
                                  end_velocity_range=END_VELOCITY_RANGE,
                                  n_times=N_TIMES, n_velocities=N_VELOCITIES)
     .get_central_gather(src="raw")
     .apply_nmo(src="raw", stacking_velocity="velocity")
-    .mute(src="raw", muter=muter, fill_value=np.nan)
+    .mute(src="raw", muter=muter)
     .stack(src="raw")
     .dump(src="raw", path=STACK_TRACE_PATH)
 )
