@@ -12,7 +12,7 @@ from .stacking_velocity import StackingVelocity
 from .metrics import VELOCITY_QC_METRICS, StackingVelocityMetric
 from ..metrics import initialize_metrics
 from ..field import ValuesAgnosticField, VFUNCFieldMixin
-from ..utils import to_list, IDWInterpolator
+from ..utils import IDWInterpolator
 
 
 class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
@@ -191,12 +191,12 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
         """Perform quality control of the velocity field by calculating spatial-window-based metrics for its stacking
         velocities evaluated at given `coords` and `times`.
 
-        If `coords` are not given, coordinates of items in the field are used, but interpolation is performed as well.
+        If `coords` are not given, coordinates of items in the field are used, but interpolation is performed anyway.
         If `times` are not given, samples of the underlying `Survey` are used if it is defined.
 
         By default, the following metrics are calculated:
         * Presence of segments with velocity inversions,
-        * Maximal deviation of instantaneous acceleration from the mean acceleration over all times,
+        * Maximal deviation of instantaneous acceleration from mean acceleration over all times,
         * Maximal spatial velocity standard deviation in a window over all times,
         * Maximal absolute relative difference between central stacking velocity and the average of all remaining
           velocities in the window over all times.
@@ -253,8 +253,8 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
 
         results = thread_map(calculate_metrics, windows_indices, max_workers=n_workers,
                              desc="Coordinates processed", disable=not bar)
-        metrics_maps = [metric.construct_map(coords, values, coords_cols=self.coords_cols, times=times,
-                                             velocities=velocities, coords_neighbors=coords_neighbors)
+        context = {"times": times, "velocities": velocities, "coords_neighbors": coords_neighbors}
+        metrics_maps = [metric.construct_map(coords, values, coords_cols=self.coords_cols, **context)
                         for metric, values in zip(metrics, zip(*results))]
         if is_single_metric:
             return metrics_maps[0]
