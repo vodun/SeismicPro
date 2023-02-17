@@ -1,7 +1,5 @@
 """Package-level constants"""
 
-EPS = 1e-10
-
 # Size of trace headers in a SEG-Y file in bytes
 TRACE_HEADER_SIZE = 240
 
