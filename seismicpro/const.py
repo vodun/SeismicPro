@@ -1,5 +1,7 @@
 """Package-level constants"""
 
+from .stacking_velocity import StackingVelocity
+
 # Size of trace headers in a SEG-Y file in bytes
 TRACE_HEADER_SIZE = 240
 
@@ -17,6 +19,7 @@ ENDIANNESS = {
 
 HDR_FIRST_BREAK = 'FirstBreak'
 HDR_TRACE_POS = 'TRACE_POS_IN_SURVEY'
+
 
 # Default stacking velocity for spherical divergence correction and velocity spectrum calculation.
 # Estimated as the mean stacking velocity among variety of surveys.
