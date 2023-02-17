@@ -41,7 +41,7 @@ class BaseMetricMap:
         self.metric_data_list = [metric_data]
         self.coords_cols = coords_cols
         self.index_cols = index_cols
-        self.has_index = index is not None
+        self.has_index = index_cols != coords_cols
         self.metric = metric
         self.bound_metric = None
         self.agg = agg
@@ -71,18 +71,6 @@ class BaseMetricMap:
         if self.requires_recalculation:
             self._recalculate()
         return self._map_data
-
-    @property
-    def map_coords_to_indices(self):
-        if self.requires_recalculation:
-            self._recalculate()
-        return self._map_coords_to_indices
-
-    @property
-    def index_to_coords(self):
-        if self.requires_recalculation:
-            self._recalculate()
-        return self._index_to_coords
 
     @property
     def plot_title(self):
@@ -138,10 +126,14 @@ class BaseMetricMap:
         raise NotImplementedError
 
     def get_indices_by_map_coords(self, map_coords):
-        return self.map_coords_to_indices.get_group(map_coords).set_index(self.index_cols)[self.metric_name]
+        if self.requires_recalculation:
+            self._recalculate()
+        return self._map_coords_to_indices.get_group(map_coords).set_index(self.index_cols)[self.metric_name]
 
     def get_coords_by_index(self, index):
-        return tuple(self.index_to_coords.get_group(index).iloc[0].to_list())
+        if self.requires_recalculation:
+            self._recalculate()
+        return tuple(self._index_to_coords.get_group(index).iloc[0].to_list())
 
     def evaluate(self, agg=None, use_global=False):
         """Aggregate metric values.
