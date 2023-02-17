@@ -43,10 +43,7 @@ class FieldPlot(PairedPlot):  # pylint: disable=too-many-instance-attributes
             [f"v{i} - Velocity of refractor {i}" for i in range(1, field.n_refractors + 1)]
         )
 
-        coords_cols = self.field.coords_cols
-        if coords_cols is None:
-            coords_cols = ["X", "Y"] if self.field.is_geographic else ["INLINE_3D", "CROSSLINE_3D"]
-        param_maps = [MetricMap(self.coords, col, coords_cols=coords_cols) for col in self.values.T]
+        param_maps = [MetricMap(self.coords, col, coords_cols=self.field.coords_cols) for col in self.values.T]
         self.plot_fn = [partial(param_map._plot, title="", **kwargs) for param_map in param_maps]
         self.init_click_coords = param_maps[0].get_worst_coords()
 

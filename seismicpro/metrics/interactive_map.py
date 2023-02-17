@@ -102,8 +102,8 @@ class MapBinPlot(MapCoordsPlot):
         self.drop.observe(self.select_option, names="value")
 
         self.sort.disabled = False
-        self.prev.disabled = (self.curr_option == 0)
-        self.next.disabled = (self.curr_option == (len(self.options) - 1))
+        self.prev.disabled = self.curr_option == 0
+        self.next.disabled = self.curr_option == (len(self.options) - 1)
 
         if redraw:
             self.redraw()
