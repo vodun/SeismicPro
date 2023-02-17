@@ -65,7 +65,7 @@ class SurveyGeometryPlot(PairedPlot):  # pylint: disable=too-many-instance-attri
     @staticmethod
     def _process_survey(survey, coord_cols):
         survey = survey.reindex(coord_cols)
-        coords = survey.indices.to_frame().values
+        coords = survey.indices.to_frame(index=False).to_numpy()
         coords_neighbors = NearestNeighbors(n_neighbors=1).fit(coords)
         return survey, coords[:, 0], coords[:, 1], coords_neighbors
 

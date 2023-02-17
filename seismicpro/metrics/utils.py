@@ -16,7 +16,7 @@ def parse_coords(coords, coords_cols=None):
         data_coords_cols = coords.names
         if None in data_coords_cols:  # Undefined index names, fallback to defaults
             data_coords_cols = None
-        coords = coords.to_frame().to_numpy()
+        coords = coords.to_frame(index=False).to_numpy()
     elif isinstance(coords, (list, tuple, np.ndarray)):
         data_coords_cols = None
 
@@ -52,7 +52,7 @@ def parse_index(index, index_cols=None):
         data_index_cols = index.names
         if None in data_index_cols:  # Undefined index names, fallback to defaults
             data_index_cols = None
-        index = index.to_frame().to_numpy()
+        index = index.to_frame(index=False).to_numpy()
     elif isinstance(index, (list, tuple, np.ndarray)):
         data_index_cols = None
         index = np.asarray(index)
