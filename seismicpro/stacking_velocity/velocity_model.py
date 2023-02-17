@@ -19,18 +19,19 @@ def interpolate_indices(x0, y0, x1, y1, x):
 
 
 @njit(nogil=True)
-def create_edges(semblance, times, velocities, start_velocity_range, end_velocity_range, max_vel_step,
+def create_edges(velocity_spectrum, times, velocities, start_velocity_range, end_velocity_range, max_vel_step,
                  n_times, n_velocities):
     """Return edges of the graph for stacking velocity computation with their weights.
 
     Parameters
     ----------
-    semblance : 2d np.ndarray
-        An array with calculated vertical velocity semblance values.
+    velocity_spectrum : 2d np.ndarray
+        An array with calculated vertical velocity spectrum values.
     times : 1d np.ndarray
-        Recording time for each seismic trace value for which semblance was calculated. Measured in milliseconds.
+        Recording time for each seismic trace value for which velocity spectrum was calculated. 
+        Measured in milliseconds.
     velocities : 1d np.ndarray
-        Range of velocity values for which semblance was calculated. Measured in meters/seconds.
+        Range of velocity values for which velocity spectrum was calculated. Measured in meters/seconds.
     start_velocity_range : 1d np.ndarray with 2 elements
         Valid range for stacking velocity for the first timestamp. Both velocities are measured in meters/seconds.
     end_velocity_range : 1d np.ndarray with 2 elements
@@ -60,7 +61,7 @@ def create_edges(semblance, times, velocities, start_velocity_range, end_velocit
     end_nodes = []
     weights = []
 
-    # Switch from time and velocity values to their indices in semblance
+    # Switch from time and velocity values to their indices in velocity spectrum
     # to further use them as node identifiers in the graph
     times_ix = np.linspace(0, len(times) - 1, n_times).astype(np.int32)
     start_vel_min_ix, start_vel_max_ix = get_closest_index_by_val(start_velocity_range, velocities)
@@ -72,6 +73,7 @@ def create_edges(semblance, times, velocities, start_velocity_range, end_velocit
     # connected to all of them, and run the search from it
     start_node = (np.int32(-1), np.int32(0))
     prev_nodes = [start_node]
+    max_spectrum = velocity_spectrum.max()
     for time_ix, start_vel_ix, end_vel_ix in zip(times_ix, start_vels_ix, end_vels_ix):
         curr_vels_ix = np.unique(np.linspace(start_vel_ix, end_vel_ix, n_velocities).astype(np.int32))
         curr_nodes = [(time_ix, vel_ix) for vel_ix in curr_vels_ix]
@@ -84,13 +86,14 @@ def create_edges(semblance, times, velocities, start_velocity_range, end_velocit
                 if not ((prev_time_ix == -1) or (prev_vel_ix <= curr_vel_ix <= prev_vel_ix + max_vel_step)):
                     continue
 
-                # Calculate the edge weight: sum of (1 - semblance_value) for each value along the path between nodes
+                # Calculate the edge weight: sum of (max_spectrum - velocity_spectrum_value)
+                # for each value along the path between nodes
                 times_indices = np.arange(prev_time_ix + 1, curr_time_ix + 1, dtype=np.int32)
                 velocity_indices = interpolate_indices(prev_time_ix, prev_vel_ix, curr_time_ix, curr_vel_ix,
                                                        times_indices)
-                weight = len(times_indices)
+                weight = len(times_indices) * max_spectrum
                 for ti, vi in zip(times_indices, velocity_indices):
-                    weight -= semblance[ti, vi]
+                    weight -= velocity_spectrum[ti, vi]
 
                 start_nodes.append((prev_time_ix, prev_vel_ix))
                 end_nodes.append((curr_time_ix, curr_vel_ix))
@@ -101,42 +104,43 @@ def create_edges(semblance, times, velocities, start_velocity_range, end_velocit
     return edges, start_node, curr_nodes
 
 
-def calculate_stacking_velocity(semblance, times, velocities, start_velocity_range, end_velocity_range,
+def calculate_stacking_velocity(velocity_spectrum, times, velocities, start_velocity_range, end_velocity_range,
                                 max_acceleration=None, n_times=25, n_velocities=25):
-    """Calculate stacking velocity by given semblance.
+    """Calculate stacking velocity by given velocity_spectrum.
 
     Stacking velocity is the value of the seismic velocity obtained from the best fit of the traveltime curve by a
     hyperbola for each timestamp. It is used to correct the arrival times of reflection events in the traces for their
     varying offsets prior to stacking.
 
-    If calculated by semblance, stacking velocity must meet the following conditions:
+    If calculated by velocity spectrum, stacking velocity must meet the following conditions:
     1. It should be monotonically increasing
     2. Its gradient should be bounded above to avoid gather stretching after NMO correction
-    3. It should pass through local energy maxima on the semblance
+    3. It should pass through local energy maxima on the velocity spectrum
 
     In order for these conditions to be satisfied, the following algorithm is proposed:
     1. Stacking velocity is being found inside a trapezoid whose vertices at first and last time are defined by
        `start_velocity_range` and `end_velocity_range` respectively.
     2. An auxiliary directed graph is constructed so that:
-        1. `n_times` evenly spaced points are generated to cover the whole semblance time range. For each of these
-           points `n_velocities` evenly spaced points are generated to cover the whole range of velocities inside the
-           trapezoid from its left to right border. All these points form a set of vertices of the graph.
+        1. `n_times` evenly spaced points are generated to cover the whole velocity spectrum time range. For each
+           of these points `n_velocities` evenly spaced points are generated to cover the whole range of velocities
+           inside the trapezoid from its left to right border. All these points form a set of vertices of the graph.
         2. An edge from a vertex A to a vertex B exists only if:
             1. Vertex B is located at the very next timestamp after vertex A,
             2. Velocity at vertex B is no less than at A,
             3. Velocity at vertex B does not exceed that of A by a value determined by `max_acceleration` provided.
-        3. Edge weight is defined as sum of semblance values along its path.
-    3. A path with maximal semblance sum along it between any of starting and ending nodes is found using Dijkstra
-       algorithm and is considered to be the required stacking velocity.
+        3. Edge weight is defined as sum of velocity spectrum values along its path.
+    3. A path with maximal velocity spectrum sum along it between any of starting and ending nodes is found using
+        Dijkstra algorithm and is considered to be the required stacking velocity.
 
     Parameters
     ----------
-    semblance : 2d np.ndarray
-        An array with calculated vertical velocity semblance values.
+    velocity_spectrum : 2d np.ndarray
+        An array with calculated vertical velocity spectrum values.
     times : 1d np.ndarray
-        Recording time for each seismic trace value for which semblance was calculated. Measured in milliseconds.
+        Recording time for each seismic trace value for which velocity spectrum was calculated.
+        Measured in milliseconds.
     velocities : 1d np.ndarray
-        Range of velocity values for which semblance was calculated. Measured in meters/seconds.
+        Range of velocity values for which velocity spectrum was calculated. Measured in meters/seconds.
     start_velocity_range : tuple with 2 elements
         Valid range for stacking velocity for the first timestamp. Both velocities are measured in meters/seconds.
     end_velocity_range : tuple with 2 elements
@@ -156,7 +160,7 @@ def calculate_stacking_velocity(semblance, times, velocities, start_velocity_ran
     stacking_velocities : 1d np.ndarray
         Picked stacking velocities. Matches the length of `stacking_times`. Measured in meters/seconds.
     metric : float
-        Sum of semblance values along the stacking velocity path.
+        Sum of velocity spectrum values along the stacking velocity path.
 
     Raises
     ------
@@ -177,8 +181,8 @@ def calculate_stacking_velocity(semblance, times, velocities, start_velocity_ran
     max_vel_step = np.ceil((max_acceleration * total_time / n_times) / np.mean(velocities[1:] - velocities[:-1]))
     max_vel_step = np.int32(max_vel_step)
 
-    # Create a graph and find paths with maximal semblance sum along them to all reachable nodes
-    edges, start_node, end_nodes = create_edges(semblance, times, velocities, start_velocity_range,
+    # Create a graph and find paths with maximal velocity spectrum sum along them to all reachable nodes
+    edges, start_node, end_nodes = create_edges(velocity_spectrum, times, velocities, start_velocity_range,
                                                 end_velocity_range, max_vel_step, n_times, n_velocities)
     graph = nx.DiGraph()
     graph.add_weighted_edges_from(zip(*edges))
@@ -191,7 +195,7 @@ def calculate_stacking_velocity(semblance, times, velocities, start_velocity_ran
         raise ValueError("No path was found for given parameters")
     path, metric = min(path_weights, key=lambda x: x[1])
 
-    # Remove the first auxiliary node from the path and calculate mean semblance value along it
+    # Remove the first auxiliary node from the path and calculate mean velocity spectrum value along it
     path = np.array(path)[1:]
     metric = 1 - metric / len(times)
     return times[path[:, 0]], velocities[path[:, 1]], metric
