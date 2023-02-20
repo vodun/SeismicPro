@@ -1,7 +1,10 @@
 """Implements the gather quality control metrics."""
 
+from copy import copy
+
 import numpy as np
 
+from ..refractor_velocity import RefractorVelocity, RefractorVelocityField
 from ..metrics import PipelineMetric, pass_calc_args
 from ..const import HDR_FIRST_BREAK
 
@@ -20,7 +23,7 @@ class FirstBreaksOutliers(PipelineMetric):
     args_to_unpack = ("gather", "refractor_velocity")
 
     @staticmethod
-    def calc(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50):
+    def calc(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50, correct_uphole=None):
         """Calculates the first break outliers metric value.
 
         Returns the fraction of traces in the gather whose first break times differ from those estimated by
@@ -30,12 +33,16 @@ class FirstBreaksOutliers(PipelineMetric):
         ----------
         gather : Gather
             A seismic gather to get offsets and first break times from.
-        refractor_velocity : RefractorVelocity
-            RefractorVelocity used to estimate the expected first break times at `gather` offsets.
+        refractor_velocity : RefractorVelocity or RefractorVelocityField
+            Near-surface velocity model to estimate the expected first break times at `gather` offsets.
         first_breaks_col : str, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `gather.headers` where first break times are stored.
         threshold_times: float, defaults to 50
             Threshold for the first breaks outliers metric calculation. Measured in milliseconds.
+        correct_uphole : bool, optional
+            Whether to perform uphole correction by adding values of "SourceUpholeTime" header to times of first breaks
+            emulating the case when sources are located on the surface. If not given, correction is performed if
+            "SourceUpholeTime" header is loaded and given `refractor_velocity` was also uphole corrected.
 
         Returns
         -------
@@ -43,35 +50,60 @@ class FirstBreaksOutliers(PipelineMetric):
             Fraction of traces in the gather whose first break times differ from estimated by velocity model for more
             than `threshold_times`.
         """
-        metric = np.abs(refractor_velocity(gather.offsets) - gather[first_breaks_col]) > threshold_times
+        if isinstance(refractor_velocity, RefractorVelocityField):
+            refractor_velocity = refractor_velocity(gather.coords)
+        if not isinstance(refractor_velocity, RefractorVelocity):
+            raise ValueError("refractor_velocity must be of RefractorVelocity or RefractorVelocityField type")
+        expected_times = refractor_velocity(gather.offsets)
+        fb_times = gather[first_breaks_col]
+        if correct_uphole is None:
+            correct_uphole = "SourceUpholeTime" in gather.available_headers and refractor_velocity.is_uphole_corrected
+        if correct_uphole:
+            fb_times = fb_times + gather["SourceUpholeTime"]
+        metric = np.abs(expected_times - fb_times) > threshold_times
         return np.mean(metric)
 
     @pass_calc_args
-    def plot_gather(cls, gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50, **kwargs):
+    def plot_gather(cls, gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50,
+                    correct_uphole=None, **kwargs):
         """Plot the gather and the first break points."""
-        _ = refractor_velocity, threshold_times
+        _ = refractor_velocity, threshold_times, correct_uphole
         event_headers = kwargs.pop('event_headers', {'headers': first_breaks_col})
         gather.plot(event_headers=event_headers, **kwargs)
 
     @pass_calc_args
     def plot_refractor_velocity(cls, gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50,
-                                **kwargs):
+                                correct_uphole=None, **kwargs):
         """Plot the refractor velocity curve and show the threshold area used for metric calculation."""
-        _ = gather, first_breaks_col
+        fb_times = gather[first_breaks_col]
+        if correct_uphole is None:
+            correct_uphole = "SourceUpholeTime" in gather.available_headers and refractor_velocity.is_uphole_corrected
+        if correct_uphole:
+            fb_times = fb_times + gather["SourceUpholeTime"]
+
+        if isinstance(refractor_velocity, RefractorVelocityField):
+            refractor_velocity = refractor_velocity(gather.coords)
+        elif isinstance(refractor_velocity, RefractorVelocity):
+            refractor_velocity = copy(refractor_velocity)
+        else:
+            raise ValueError("refractor_velocity must be of RefractorVelocity or RefractorVelocityField type")
+        refractor_velocity.offsets = gather["offset"]
+        refractor_velocity.times = fb_times
+        refractor_velocity.max_offset = max(refractor_velocity.max_offset, gather["offset"].max())
         refractor_velocity.plot(threshold_times=threshold_times, **kwargs)
 
 
 class SignalLeakage(PipelineMetric):
     """Calculate signal leakage during ground-roll attenuation.
 
-    The metric is based on the assumption that a vertical velocity semblance calculated for the difference between
+    The metric is based on the assumption that a vertical velocity spectrum calculated for the difference between
     processed and source gathers should not have pronounced energy maxima.
     """
     name = "signal_leakage"
     min_value = 0
     max_value = None
     is_lower_better = True
-    views = ("plot_diff_gather", "plot_diff_semblance")
+    views = ("plot_diff_gather", "plot_diff_velocity_spectrum")
     args_to_unpack = ("gather_before", "gather_after")
 
     @staticmethod
@@ -86,9 +118,10 @@ class SignalLeakage(PipelineMetric):
     def calc(cls, gather_before, gather_after, velocities):
         """Calculate signal leakage when moving from `gather_before` to `gather_after`."""
         gather_diff = cls.get_diff_gather(gather_before, gather_after)
-        semblance_diff = gather_diff.calculate_semblance(velocities)
-        semblance_before = gather_before.calculate_semblance(velocities)
-        signal_leakage = semblance_diff.semblance.ptp(axis=1) / (1 + 1e-6 - semblance_before.semblance.ptp(axis=1))
+        spectrum_diff = gather_diff.calculate_vertical_velocity_spectrum(velocities)
+        spectrum_before = gather_before.calculate_vertical_velocity_spectrum(velocities)
+        signal_leakage = spectrum_diff.velocity_spectrum.ptp(axis=1) / \
+                        (1 + 1e-6 - spectrum_before.velocity_spectrum.ptp(axis=1))
         return max(0, np.max(signal_leakage))
 
     @pass_calc_args
@@ -99,8 +132,8 @@ class SignalLeakage(PipelineMetric):
         gather_diff.plot(ax=ax, **kwargs)
 
     @pass_calc_args
-    def plot_diff_semblance(cls, gather_before, gather_after, velocities, ax, **kwargs):
-        """Plot a semblance of the difference between `gather_after` and `gather_before`."""
+    def plot_diff_velocity_spectrum(cls, gather_before, gather_after, velocities, ax, **kwargs):
+        """Plot a velocity spectrum of the difference between `gather_after` and `gather_before`."""
         gather_diff = cls.get_diff_gather(gather_before, gather_after)
-        semblance_diff = gather_diff.calculate_semblance(velocities)
-        semblance_diff.plot(ax=ax, **{"title": None, **kwargs})
+        spectrum_diff = gather_diff.calculate_vertical_velocity_spectrum(velocities)
+        spectrum_diff.plot(ax=ax, **{"title": None, **kwargs})

@@ -72,8 +72,11 @@ class MuterField(ValuesAgnosticField, VFUNCFieldMixin):
         Whether coordinate system of the field is geographic. `None` for an empty field if was not specified during
         instantiation.
     coords_cols : tuple with 2 elements or None
-        Names of SEG-Y trace headers representing coordinates of items in the field. `None` if names of coordinates are
-        mixed or the field is empty.
+        Names of SEG-Y trace headers representing coordinates of items in the field if names are the same among all the
+        items and match the geographic system of the field. ("X", "Y") for a field in geographic coordinate system if
+        names of coordinates of its items are either mixed or line-based. ("INLINE_3D", "CROSSLINE_3D") for a field in
+        line-based coordinate system if names of coordinates of its items are either mixed or geographic. `None` for an
+        empty field.
     interpolator : SpatialInterpolator or None
         Field data interpolator.
     is_dirty_interpolator : bool
@@ -128,5 +131,27 @@ class MuterField(ValuesAgnosticField, VFUNCFieldMixin):
         """
         items = [cls.item_class.from_refractor_velocity(item, delay=delay, velocity_reduction=velocity_reduction)
                  for item in field.item_container.values()]
+        return cls(items, survey=field.survey, is_geographic=field.is_geographic,
+                   auto_create_interpolator=field.auto_create_interpolator)
+
+    @classmethod
+    def from_stacking_velocity_field(cls, field, max_stretch_factor=0.65):
+        """Create a muter field to attenuate the effect of waveform stretching after the nmo correction
+        by constructing a muter for each stacking velocity in a `field`.
+
+        Parameters
+        ----------
+        field : StackingVelocityField
+            Stacking velocity field to construct a muter field from.
+        max_stretch_factor : float, defaults to 0.65
+            Maximum allowed stretch factor.
+
+        Returns
+        -------
+        field : MuterField
+            Created muter field.
+        """
+        items = [cls.item_class.from_stacking_velocity(item, max_stretch_factor=max_stretch_factor)
+                 for item in field.items]
         return cls(items, survey=field.survey, is_geographic=field.is_geographic,
                    auto_create_interpolator=field.auto_create_interpolator)

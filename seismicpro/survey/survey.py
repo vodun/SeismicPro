@@ -311,6 +311,17 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """bool: `mark_dead_traces` called."""
         return self.n_dead_traces is not None
 
+    @property
+    def is_uphole(self):
+        """bool or None: Whether the survey is uphole. `None` if uphole-related headers are not loaded."""
+        has_uphole_times = "SourceUpholeTime" in self.available_headers
+        has_uphole_depths = "SourceDepth" in self.available_headers
+        has_positive_uphole_times = has_uphole_times and (self["SourceUpholeTime"] > 0).any()
+        has_positive_uphole_depths = has_uphole_depths and (self["SourceDepth"] > 0).any()
+        if not has_uphole_times and not has_uphole_depths:
+            return None
+        return has_positive_uphole_times or has_positive_uphole_depths
+
     @GatherContainer.headers.setter
     def headers(self, headers):
         """Reconstruct trace positions on each headers assignment."""
@@ -355,6 +366,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Sample rate:               {self.sample_rate} ms
         Times range:               [{min(self.samples)} ms, {max(self.samples)} ms]
         Offsets range:             {offset_range}
+        Is uphole:                 {"Unknown" if self.is_uphole is None else self.is_uphole}
         """
 
         if self.has_inferred_geometry:
@@ -484,7 +496,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self._bins_to_coords_reg = bins_to_coords_reg
         self._coords_to_bins_reg = coords_to_bins_reg
         self.n_bins = len(bins_to_coords)
-        self.is_stacked = (self.n_traces == self.n_bins)
+        self.is_stacked = self.n_traces == self.n_bins
         self.bin_size = np.diag(sp.linalg.polar(bins_to_coords_reg.coef_)[1])
         self.inline_length = (np.ptp(bins_to_coords["INLINE_3D"]) + 1) * self.bin_size[0]
         self.crossline_length = (np.ptp(bins_to_coords["CROSSLINE_3D"]) + 1) * self.bin_size[1]
@@ -501,7 +513,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if transformer is None:
             raise ValueError("Survey geometry was not inferred, call `infer_geometry` method first.")
         coords = np.array(coords)
-        is_coords_1d = (coords.ndim == 1)
+        is_coords_1d = coords.ndim == 1
         coords = np.atleast_2d(coords)
         transformed_coords = transformer.predict(coords)
         if is_coords_1d:
@@ -562,7 +574,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if contours is None:
             raise ValueError("Survey geometry was not inferred, call `infer_geometry` method first.")
         coords = np.array(coords, dtype=np.float32)
-        is_coords_1d = (coords.ndim == 1)
+        is_coords_1d = coords.ndim == 1
         coords = np.atleast_2d(coords)
         dist = np.empty(len(coords), dtype=np.float32)
         for i, coord in enumerate(coords):
@@ -1089,7 +1101,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Supergather generation is usually performed as a first step of velocity analysis. A substantially larger number
         of traces processed at once leads to increased signal-to-noise ratio: seismic wave reflections are much more
         clearly visible than on single CDP gathers and the velocity spectra calculated using
-        :func:`~Gather.calculate_semblance` are more coherent which allows for more accurate stacking velocity picking.
+        :func:`~Gather.calculate_vertical_velocity_spectrum` are more coherent
+        which allows for more accurate stacking velocity picking.
 
         The method creates two new `headers` columns called `SUPERGATHER_INLINE_3D` and `SUPERGATHER_CROSSLINE_3D`
         equal to `INLINE_3D` and `CROSSLINE_3D` of the central CDP gather. Note, that some gathers may be assigned to
