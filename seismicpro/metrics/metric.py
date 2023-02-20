@@ -122,13 +122,16 @@ class Metric:
         return self
 
     def bind_context(self, metric_map, **kwargs):
-        if self.has_bound_context:
-            return self
-
         # Copy the metric to handle the case when it is simultaneously used in multiple maps
         self_bound = deepcopy(self).bind(metric_map=metric_map, **kwargs)
         self_bound.has_bound_context = True
         return self_bound
+
+    def set_name(self, name=None):
+        self_renamed = deepcopy(self)
+        if name is not None:
+            self_renamed.name = name
+        return self_renamed
 
     def get_views(self, **kwargs):
         """Return plotters of the metric views and those `kwargs` that should be passed further to an interactive map

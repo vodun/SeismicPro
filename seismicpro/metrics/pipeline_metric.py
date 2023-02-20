@@ -1,36 +1,14 @@
 """Implements a metric that tracks a pipeline in which it was calculated and allows for automatic plotting of batch
 components on its interactive maps"""
 
-import warnings
 from inspect import signature
 from functools import partial
-from collections import defaultdict
 
 import numpy as np
 from batchflow import Pipeline
 
 from .metric import Metric
 from ..utils import to_list, get_first_defined
-
-
-def pass_coords(method):
-    """Indicate that the decorated view plotter should be provided with click coordinates besides `ax`."""
-    method.args_unpacking_mode = "coords"
-    return classmethod(method)
-
-
-def pass_batch(method):
-    """Indicate that the decorated view plotter should be provided with a batch for which `calculate_metric` method was
-    called besides `ax`."""
-    method.args_unpacking_mode = "batch"
-    return classmethod(method)
-
-
-def pass_calc_args(method):
-    """Indicate that the decorated view plotter should be provided with all arguments passed to the metric `calc`
-    method besides `ax`."""
-    method.args_unpacking_mode = "calc_args"
-    return classmethod(method)
 
 
 class PipelineMetric(Metric):
@@ -146,17 +124,27 @@ class PipelineMetric(Metric):
         A mapping from spatial coordinates to the ordinal numbers of indices in the dataset for which the pipeline was
         executed.
     """
-    args_to_unpack = "all"
+    args_to_unpack = None
 
-    def __init__(self, pipeline, calculate_metric_index, coords_cols=None, coords_to_pos=None, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, name=None):
+        super().__init__(name=name)
+
+        # Attributes set after context binding
+        self.dataset = None
+        self.plot_pipeline = None
+        self.calculate_metric_args = None
+        self.calculate_metric_kwargs = None
+
+    def __call__(self, value):
+        """Return an already calculated metric. May be overridden in child classes."""
+        return value
+
+    def bind(self, metric_map, pipeline, calculate_metric_index):
+        _ = metric_map
         self.dataset = pipeline.dataset
-        self.coords_dataset = None if coords_cols is None else self.dataset.reindex(coords_cols, recursive=False)
-
-        self.coords_cols = coords_cols
-        self.coords_to_pos = coords_to_pos
 
         # Slice the pipeline in which the metric was calculated up to its calculate_metric call
+        # pylint: disable=protected-access
         calculate_metric_indices = [i for i, action in enumerate(pipeline._actions)
                                       if action["name"] == "calculate_metric"]
         calculate_metric_action_index = calculate_metric_indices[calculate_metric_index]
@@ -166,54 +154,13 @@ class PipelineMetric(Metric):
         # Get args and kwargs of the calculate_metric call with possible named expressions in them
         self.calculate_metric_args = pipeline._actions[calculate_metric_action_index]["args"]
         self.calculate_metric_kwargs = pipeline._actions[calculate_metric_action_index]["kwargs"]
+        # pylint: enable=protected-access
+        return self
 
-    @classmethod
-    def calc(cls, metric):
-        """Return an already calculated metric. May be overridden in child classes."""
-        return metric
+    def get_calc_signature(self):
+        return signature(self.__call__)
 
-    @staticmethod
-    def combine_init_params(*params):
-        """Combine metric parameters memorized for different batches of data into a single `dict` of keyword arguments
-        by merging `dict`s under "coords_to_pos" key and taking the last value in `params` for all other keys."""
-        merged_params = {key: val for param in params for key, val in param.items()}
-        params_coords_to_pos = [param["coords_to_pos"] for param in params if "coords_to_pos" in param]
-        if not params_coords_to_pos:
-            return merged_params
-        merged_coords_to_pos = defaultdict(list)
-        for coords_to_pos in params_coords_to_pos:
-            for key, val in coords_to_pos.items():
-                merged_coords_to_pos[key].extend(val)
-        return {**merged_params, "coords_to_pos": merged_coords_to_pos}
-
-    def make_batch(self, coords, batch_src, pipeline):
-        """Construct a batch for given spatial `coords` and execute the `pipeline` for it. The batch can be generated
-        either directly from coords if `batch_src` is "coords" or from the corresponding index if `batch_src` is
-        "index"."""
-        if batch_src == "index":
-            if self.coords_to_pos is None:
-                raise ValueError("Unable to use indices to get the batch by coordinates since coords_to_pos was not "
-                                 "passed during metric instantiation. Please specify batch_src='coords'.")
-            subset_index = self.dataset.subset_by_pos(self.coords_to_pos[coords])
-            subset = self.dataset.create_subset(subset_index)
-        elif batch_src == "coords":
-            if self.coords_dataset is None:
-                raise ValueError("Unable to use coordinates to get the batch since coords_cols were not passed "
-                                 "during metric instantiation. Please specify batch_src='index'.")
-            subset_index = tuple([coords] if coords in part else [] for part in self.coords_dataset.parts)
-            subset = self.coords_dataset.create_subset(subset_index)
-        else:
-            raise ValueError("Unknown source to get the batch from. Available options are 'index' and 'coords'.")
-
-        if len(subset) > 1:
-            # TODO: try moving to MapBinPlot in this case
-            warnings.warn("Multiple gathers exist for given coordinates, only the first one is shown", RuntimeWarning)
-        batch = subset.next_batch(1, shuffle=False)
-        batch = pipeline.execute_for(batch)
-        return batch
-
-    @classmethod
-    def unpack_calc_args(cls, batch, *args, **kwargs):
+    def unpack_calc_args(self, batch, *args, **kwargs):
         """Unpack arguments for metric calculation depending on the `args_to_unpack` class attribute and return them
         with the first unpacked `calc` argument. If `args_to_unpack` equals "all", tries to unpack all the passed
         arguments.
@@ -224,17 +171,17 @@ class PipelineMetric(Metric):
           `calc` methods for the corresponding batch items.
         * Otherwise the argument value is passed to `calc` methods for all batch items.
         """
-        sign = signature(cls.calc)
+        sign = self.get_calc_signature()
         bound_args = sign.bind(*args, **kwargs)
 
-        # Determine PipelineMetric.calc arguments to unpack
-        if cls.args_to_unpack is None:
+        # Determine arguments to unpack
+        if self.args_to_unpack is None:
             args_to_unpack = set()
-        elif cls.args_to_unpack == "all":
+        elif self.args_to_unpack == "all":
             args_to_unpack = {name for name, param in sign.parameters.items()
                                    if param.kind not in {param.VAR_POSITIONAL, param.VAR_KEYWORD}}
         else:
-            args_to_unpack = set(to_list(cls.args_to_unpack))
+            args_to_unpack = set(to_list(self.args_to_unpack))
 
         # Convert the value of each argument to an array-like matching the length of the batch
         packed_args = {}
@@ -272,64 +219,72 @@ class PipelineMetric(Metric):
         args, _ = self.unpack_calc_args(batch, *calc_args, **calc_kwargs)
         return args[0]
 
-    def plot_component(self, coords, ax, batch_src, pipeline, plot_component, **kwargs):
+    def make_batch(self, index):
+        """Construct a batch for given spatial `coords` and execute the `pipeline` for it. The batch can be generated
+        either directly from coords if `batch_src` is "coords" or from the corresponding index if `batch_src` is
+        "index"."""
+        subset_index = [[index[1:]] if i == index[0] else [] for i in range(self.dataset.n_parts)]
+        batch = self.dataset.create_subset(subset_index).next_batch(1, shuffle=False)
+        return self.plot_pipeline.execute_for(batch)
+
+    def plot_component(self, ax, coords, index, plot_component, **kwargs):
         """Construct a batch by click coordinates and plot its component."""
-        default_pipelines = {
-            "index": self.plot_pipeline,
-            "coords": Pipeline().load(src=plot_component)
-        }
-        if pipeline is None:
-            pipeline = default_pipelines[batch_src]
-        batch = self.make_batch(coords, batch_src, pipeline)
+        _ = coords
+        batch = self.make_batch(index)
         item = getattr(batch, plot_component)[0]
         item.plot(ax=ax, **kwargs)
 
-    def plot_view(self, coords, ax, batch_src, pipeline, view_fn, **kwargs):
+    def plot_view(self, ax, coords, index, view_fn, **kwargs):
         """Plot a given metric view. Pass extra arguments depending on `@pass_*` decorator."""
-        if view_fn.args_unpacking_mode == "coords":
-            return view_fn(coords, ax=ax, **kwargs)
+        _ = coords
+        batch = self.make_batch(index)
+        calc_args, calc_kwargs = self.eval_calc_args(batch)
+        return view_fn(*calc_args, ax=ax, **calc_kwargs, **kwargs)
 
-        if pipeline is None:
-            if batch_src == "coords":
-                raise ValueError("A pipeline must be passed to plot a view if a batch is generated from coordinates")
-            pipeline = self.plot_pipeline
-        batch = self.make_batch(coords, batch_src, pipeline)
-
-        if view_fn.args_unpacking_mode == "batch":
-            return view_fn(batch, ax=ax, **kwargs)
-
-        coords_args, coords_kwargs = self.eval_calc_args(batch)
-        return view_fn(*coords_args, ax=ax, **coords_kwargs, **kwargs)
-
-    def get_views(self, batch_src="index", pipeline=None, plot_component=None, **kwargs):
+    def get_views(self, plot_component=None, **kwargs):
         """Get metric views by parameters passed to interactive metric map plotter. If `plot_component` is given,
         batch components are displayed. Otherwise defined metric views are shown."""
         if plot_component is not None:
-            return [partial(self.plot_component, batch_src=batch_src, pipeline=pipeline, plot_component=component)
-                    for component in to_list(plot_component)], kwargs
+            views = [partial(self.plot_component, plot_component=component) for component in to_list(plot_component)]
+            return views, kwargs
 
         view_fns = [getattr(self, view) for view in to_list(self.views)]
-        if not all(hasattr(view_fn, "args_unpacking_mode") for view_fn in view_fns):
-            raise ValueError("Each metric view must be decorated with @pass_coords, @pass_batch or @pass_calc_args")
-        return [partial(self.plot_view, batch_src=batch_src, pipeline=pipeline, view_fn=view_fn)
-                for view_fn in view_fns], kwargs
+        return [partial(self.plot_view, view_fn=view_fn) for view_fn in view_fns], kwargs
 
 
-def define_pipeline_metric(metric, metric_name):
+class FunctionalMetric(PipelineMetric):
+    args_to_unpack = "all"
+
+    def __init__(self, func, name=None):
+        if not callable(func):
+            raise ValueError("func must be callable")
+        self.func = func
+        super().__init__(name=name)
+
+        # Attributes set after context binding
+        self.dataset = None
+        self.plot_pipeline = None
+        self.calculate_metric_args = None
+        self.calculate_metric_kwargs = None
+
+    def __repr__(self):
+        """String representation of the metric."""
+        return f"{type(self).__name__}(func='{self.func.__name__}', name='{self.name}')"
+
+    def __call__(self, *args, **kwargs):
+        return self.func(*args, **kwargs)
+
+    def get_calc_signature(self):
+        return signature(self.func)
+
+
+def define_pipeline_metric(metric, metric_name=None):
     """Define a new `PipelineMetric` from a `callable` or another `PipelineMetric`. In the first case, the `callable`
     defines `calc` method of the metric. In the latter case only the new metric name is being set."""
-    is_metric_type = isinstance(metric, type) and issubclass(metric, PipelineMetric)
-    is_callable = not isinstance(metric, type) and callable(metric)
-    if not (is_metric_type or is_callable):
-        raise ValueError(f"metric must be either a subclass of PipelineMetric or a callable but {type(metric)} given")
-
-    if is_callable:
-        metric_name = get_first_defined(metric_name, metric.__name__)
-        if metric_name == "<lambda>":
-            raise ValueError("metric_name must be passed for lambda metrics")
-        return define_metric(base_cls=PipelineMetric, name=metric_name, calc=staticmethod(metric))
-
-    metric_name = get_first_defined(metric_name, metric.name)
-    if metric_name is None:
-        raise ValueError("metric_name must be passed if not defined in metric class")
-    return PartialMetric(metric, name=metric_name)
+    if isinstance(metric, PipelineMetric):  # Instantiated metric
+        return metric.set_name(metric_name)
+    if isinstance(metric, type) and issubclass(metric, PipelineMetric):  # Non-instantiated metric
+        return metric(name=metric_name)
+    if callable(metric):
+        return FunctionalMetric(func=metric, name=metric_name)
+    raise ValueError("metric must be either an instance of PipelineMetric or its subclass or a callable")

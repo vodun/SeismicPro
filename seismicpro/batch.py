@@ -5,6 +5,7 @@ from functools import partial
 from collections import defaultdict
 
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from batchflow import save_data_to, Batch, DatasetIndex, NamedExpression
 from batchflow.decorators import action, inbatch_parallel
@@ -14,7 +15,7 @@ from .gather import Gather, CroppedGather
 from .gather.utils.crop_utils import make_origins
 from .velocity_spectrum import VerticalVelocitySpectrum, ResidualVelocitySpectrum
 from .field import Field
-from .metrics import MetricMap
+from .metrics import MetricMap, define_pipeline_metric
 from .decorators import create_batch_methods, apply_to_each_component
 from .utils import to_list, as_dict, save_figure
 
@@ -451,28 +452,26 @@ class SeismicBatch(Batch):
         unpacked_args, first_arg = metric.unpack_calc_args(self, *args, **kwargs)
 
         # Calculate metric values and their coordinates
-        values = [metric.calc(*args, **kwargs) for args, kwargs in unpacked_args]
+        values = [metric(*args, **kwargs) for args, kwargs in unpacked_args]
         coords_items = first_arg if coords_component is None else getattr(self, coords_component)
         coords = [item.coords for item in coords_items]
         if None in coords:
             raise ValueError("All batch items must have well-defined coordinates")
 
-        # Construct a mapping from coordinates to ordinal numbers of gathers in the dataset index.
-        # Later used by PipelineMetric to generate a batch by coordinates of a click on an interactive metric map.
-        part_offsets = np.cumsum([0] + self.dataset.n_gathers_by_part[:-1])
-        part_index_pos = [part.get_gathers_locs(indices) for part, indices in zip(self.dataset.parts, self.indices)]
-        dataset_index_pos = np.concatenate([pos + offset for pos, offset in zip(part_index_pos, part_offsets)])
-        coords_to_pos = defaultdict(list)
-        for coord, pos in zip(coords, dataset_index_pos):
-            coords_to_pos[tuple(coord)].append(pos)
+        # Construct metric map index as a concatenation of dataset part and batch index
+        part_indices = []
+        for i, ix in enumerate(self.indices):
+            if len(ix):
+                ix = ix.to_frame(index=False)
+                ix.insert(0, "Part", i)
+                part_indices.append(ix)
+        index = pd.concat(part_indices, ignore_index=True, copy=False)
 
-        # Construct a metric and its accumulator
-        metric = PartialMetric(metric, pipeline=self.pipeline, calculate_metric_index=self._num_calculated_metrics,
-                               coords_to_pos=coords_to_pos)
-        accumulator = MetricsAccumulator(coords, **{metric.name: {"values": values, "metric_type": metric}})
-
+        # Construct and save the map
+        metric_map = MetricMap(coords, values, index=index, metric=metric, calculate_immediately=False,
+                               pipeline=self.pipeline, calculate_metric_index=self._num_calculated_metrics)
         if save_to is not None:
-            save_data_to(data=accumulator, dst=save_to, batch=self)
+            save_data_to(data=metric_map, dst=save_to, batch=self)
         self._num_calculated_metrics += 1
         return self
 

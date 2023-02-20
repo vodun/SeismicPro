@@ -5,7 +5,7 @@ from copy import copy
 import numpy as np
 
 from ..refractor_velocity import RefractorVelocity, RefractorVelocityField
-from ..metrics import PipelineMetric, pass_calc_args
+from ..metrics import PipelineMetric
 from ..const import HDR_FIRST_BREAK
 
 
@@ -22,8 +22,8 @@ class FirstBreaksOutliers(PipelineMetric):
     views = ("plot_gather", "plot_refractor_velocity")
     args_to_unpack = ("gather", "refractor_velocity")
 
-    @staticmethod
-    def calc(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50, correct_uphole=None):
+    def __call__(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50,
+                 correct_uphole=None):
         """Calculates the first break outliers metric value.
 
         Returns the fraction of traces in the gather whose first break times differ from those estimated by
@@ -63,17 +63,17 @@ class FirstBreaksOutliers(PipelineMetric):
         metric = np.abs(expected_times - fb_times) > threshold_times
         return np.mean(metric)
 
-    @pass_calc_args
-    def plot_gather(cls, gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50,
-                    correct_uphole=None, **kwargs):
+    @staticmethod
+    def plot_gather(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50,
+                    correct_uphole=None, *, ax, **kwargs):
         """Plot the gather and the first break points."""
         _ = refractor_velocity, threshold_times, correct_uphole
         event_headers = kwargs.pop('event_headers', {'headers': first_breaks_col})
-        gather.plot(event_headers=event_headers, **kwargs)
+        gather.plot(ax=ax, event_headers=event_headers, **kwargs)
 
-    @pass_calc_args
-    def plot_refractor_velocity(cls, gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50,
-                                correct_uphole=None, **kwargs):
+    @staticmethod
+    def plot_refractor_velocity(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50,
+                                correct_uphole=None, *, ax, **kwargs):
         """Plot the refractor velocity curve and show the threshold area used for metric calculation."""
         fb_times = gather[first_breaks_col]
         if correct_uphole is None:
@@ -90,7 +90,7 @@ class FirstBreaksOutliers(PipelineMetric):
         refractor_velocity.offsets = gather["offset"]
         refractor_velocity.times = fb_times
         refractor_velocity.max_offset = max(refractor_velocity.max_offset, gather["offset"].max())
-        refractor_velocity.plot(threshold_times=threshold_times, **kwargs)
+        refractor_velocity.plot(ax=ax, threshold_times=threshold_times, **kwargs)
 
 
 class SignalLeakage(PipelineMetric):
@@ -108,32 +108,28 @@ class SignalLeakage(PipelineMetric):
 
     @staticmethod
     def get_diff_gather(gather_before, gather_after):
-        """Construct a new gather whose amplitudes are elementwise differences of amplitudes from `gather_after` and
+        """Construct a new gather whose amplitudes are element-wise differences of amplitudes from `gather_after` and
         `gather_before`."""
         gather_diff = gather_after.copy(ignore=["data", "headers", "samples"])
         gather_diff.data = gather_after.data - gather_before.data
         return gather_diff
 
-    @classmethod
-    def calc(cls, gather_before, gather_after, velocities):
+    def __call__(self, gather_before, gather_after, velocities=None):
         """Calculate signal leakage when moving from `gather_before` to `gather_after`."""
-        gather_diff = cls.get_diff_gather(gather_before, gather_after)
+        gather_diff = self.get_diff_gather(gather_before, gather_after)
         spectrum_diff = gather_diff.calculate_vertical_velocity_spectrum(velocities)
         spectrum_before = gather_before.calculate_vertical_velocity_spectrum(velocities)
-        signal_leakage = spectrum_diff.velocity_spectrum.ptp(axis=1) / \
-                        (1 + 1e-6 - spectrum_before.velocity_spectrum.ptp(axis=1))
+        signal_leakage = spectrum_diff.velocity_spectrum.ptp(axis=1) / (1 + 1e-6 - spectrum_before.velocity_spectrum.ptp(axis=1))
         return max(0, np.max(signal_leakage))
 
-    @pass_calc_args
-    def plot_diff_gather(cls, gather_before, gather_after, velocities, ax, **kwargs):
+    def plot_diff_gather(self, gather_before, gather_after, velocities=None, *, ax, **kwargs):
         """Plot the difference between `gather_after` and `gather_before`."""
         _ = velocities
-        gather_diff = cls.get_diff_gather(gather_before, gather_after)
+        gather_diff = self.get_diff_gather(gather_before, gather_after)
         gather_diff.plot(ax=ax, **kwargs)
 
-    @pass_calc_args
-    def plot_diff_velocity_spectrum(cls, gather_before, gather_after, velocities, ax, **kwargs):
+    def plot_diff_velocity_spectrum(self, gather_before, gather_after, velocities=None, *, ax, **kwargs):
         """Plot a velocity spectrum of the difference between `gather_after` and `gather_before`."""
-        gather_diff = cls.get_diff_gather(gather_before, gather_after)
+        gather_diff = self.get_diff_gather(gather_before, gather_after)
         spectrum_diff = gather_diff.calculate_vertical_velocity_spectrum(velocities)
         spectrum_diff.plot(ax=ax, **{"title": None, **kwargs})
