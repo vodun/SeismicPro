@@ -1275,10 +1275,15 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         if isinstance(by, str):
             by_to_coords_cols = {
+                "source": ["SourceX", "SourceY"],
                 "shot": ["SourceX", "SourceY"],
                 "receiver": ["GroupX", "GroupY"],
+                "rec": ["GroupX", "GroupY"],
+                "cdp": ["CDP_X", "CDP_Y"],
+                "cmp": ["CDP_X", "CDP_Y"],
                 "midpoint": ["CDP_X", "CDP_Y"],
                 "bin": ["INLINE_3D", "CROSSLINE_3D"],
+                "supergather": ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"],
             }
             coords_cols = by_to_coords_cols.get(by)
             if coords_cols is None:
@@ -1296,5 +1301,5 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             if drop_duplicates:
                 map_data.drop_duplicates(inplace=True)
 
-        metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
-        return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
+        return SurveyAttribute(name=attribute).construct_map(map_data.iloc[:, :2], map_data.iloc[:, 2], agg=agg,
+                                                             bin_size=bin_size, survey=self)

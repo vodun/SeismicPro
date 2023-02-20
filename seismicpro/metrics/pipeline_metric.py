@@ -8,7 +8,7 @@ import numpy as np
 from batchflow import Pipeline
 
 from .metric import Metric
-from ..utils import to_list, get_first_defined
+from ..utils import to_list
 
 
 class PipelineMetric(Metric):
@@ -155,7 +155,6 @@ class PipelineMetric(Metric):
         self.calculate_metric_args = pipeline._actions[calculate_metric_action_index]["args"]
         self.calculate_metric_kwargs = pipeline._actions[calculate_metric_action_index]["kwargs"]
         # pylint: enable=protected-access
-        return self
 
     def get_calc_signature(self):
         return signature(self.__call__)
@@ -269,7 +268,7 @@ class FunctionalMetric(PipelineMetric):
 
     def __repr__(self):
         """String representation of the metric."""
-        return f"{type(self).__name__}(func='{self.func.__name__}', name='{self.name}')"
+        return f"{type(self).__name__}(func={self.func.__name__}, name='{self.name}')"
 
     def __call__(self, *args, **kwargs):
         return self.func(*args, **kwargs)

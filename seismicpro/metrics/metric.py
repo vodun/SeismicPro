@@ -119,11 +119,11 @@ class Metric:
 
     def bind(self, metric_map):
         _ = metric_map
-        return self
 
     def bind_context(self, metric_map, **kwargs):
         # Copy the metric to handle the case when it is simultaneously used in multiple maps
-        self_bound = deepcopy(self).bind(metric_map=metric_map, **kwargs)
+        self_bound = deepcopy(self)
+        self_bound.bind(metric_map=metric_map, **kwargs)
         self_bound.has_bound_context = True
         return self_bound
 

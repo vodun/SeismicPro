@@ -88,7 +88,6 @@ class StackingVelocityMetric(Metric):
         self.velocities = velocities
         self.velocity_limits = calculate_axis_limits(velocities)
         self.coords_neighbors = coords_neighbors
-        return self
 
     def get_window_velocities(self, coords):
         """Return all stacking velocities in a spatial window around given `coords`."""
