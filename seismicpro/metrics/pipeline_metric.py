@@ -222,7 +222,8 @@ class PipelineMetric(Metric):
         """Construct a batch for given spatial `coords` and execute the `pipeline` for it. The batch can be generated
         either directly from coords if `batch_src` is "coords" or from the corresponding index if `batch_src` is
         "index"."""
-        subset_index = [[index[1:]] if i == index[0] else [] for i in range(self.dataset.n_parts)]
+        subset_index = [[] for _ in range(self.dataset.n_parts)]
+        subset_index[index[0]] = [index[1:] if len(index) > 2 else index[1]]
         batch = self.dataset.create_subset(subset_index).next_batch(1, shuffle=False)
         return self.plot_pipeline.execute_for(batch)
 
