@@ -74,12 +74,13 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method
         return InteractivePlot(plot_fn=self.plot_map, click_fn=self.click, title=self.title, figsize=self.figsize)
 
     def construct_aux_titles(self, coords, indices, metric_values):
-        if self.metric_map.has_index:
-            index_cols = to_list(self.metric_map.index_cols)
-            indices_str = [", ".join(f"{col} {val}" for col, val in zip(index_cols, to_list(ix))) for ix in indices]
-            return [f"{metric:.03f} metric for {ix} at {coord}"
-                    for metric, ix, coord in zip(metric_values, indices_str, coords)]
-        return [f"{metric:.03f} metric at {coord}" for coord, metric in zip(coords, metric_values)]
+        index_cols = self.metric_map.index_cols
+        coords_cols = self.metric_map.coords_cols
+        data_cols = index_cols + coords_cols
+        keep_cols = [True] * len(index_cols) + [col not in index_cols for col in coords_cols]
+        ix_coord_str = [", ".join(f"{col} {val}" for val, col, keep in zip(ix + coord, data_cols, keep_cols) if keep)
+                        for ix, coord in zip(indices, coords)]
+        return [f"{metric:.03f} metric for {ix_coord}" for metric, ix_coord in zip(metric_values, ix_coord_str)]
 
     def preprocess_click_coords(self, click_coords):
         _ = click_coords
