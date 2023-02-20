@@ -20,7 +20,7 @@ class RefractorVelocityMetric(Metric):
             gather = gather.sort(by=sort_by)
         if event_headers is None:
             event_headers = {'headers': self.first_breaks_col}
-        gather.plot(event_headers=event_headers, ax=ax, **kwargs)
+        gather.apply_agc(110).plot(event_headers=event_headers, ax=ax, **kwargs)
 
     def plot_gather(self, coords, ax, **kwargs):
         gather = self.survey.get_gather(coords)
