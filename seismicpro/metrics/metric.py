@@ -40,6 +40,11 @@ class Metric:
     * Optionally implement one or more views and list them in the `views` attribute,
     * Optionally set other metric attributes for future convenience.
 
+    Parameters
+    ----------
+    name : str, optional
+        Metric name, overrides default name if given.
+
     Attributes
     ----------
     name : str
