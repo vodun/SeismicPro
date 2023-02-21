@@ -479,9 +479,6 @@ class MetricMap(metaclass=MetricMapMeta):
     In case of a large number of points it makes sense to aggregate the map first to make the plot more clear:
     >>> std_map.aggregate(bin_size=100, agg="mean").plot()
 
-
-    coords, values, *, coords_cols=None, index=None, index_cols=None, metric=None, agg=None,
-                 calculate_immediately=True, **context
     Parameters
     ----------
     coords : 2d array-like with 2 columns
