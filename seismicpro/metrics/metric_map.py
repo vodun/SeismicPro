@@ -10,7 +10,7 @@ from ..decorators import plotter
 from ..utils import to_list, get_first_defined, add_colorbar, calculate_axis_limits, set_ticks, set_text_formatting
 
 
-class BaseMetricMap:
+class BaseMetricMap:  # pylint: disable=too-many-instance-attributes
     """Base metric map class. Implements general map data processing, visualization and reaggregation methods.
 
     Should not be instantiated directly, use `MetricMap` or its subclasses instead.
@@ -37,13 +37,12 @@ class BaseMetricMap:
         self._map_data = None
         self._map_coords_to_indices = None
         self._index_to_coords = None
+        self._metric = metric
+        self._bound_metric = None
 
         self.metric_data_list = [metric_data]
         self.coords_cols = coords_cols
         self.index_cols = index_cols
-        self.has_index = index_cols != coords_cols
-        self.metric = metric
-        self.bound_metric = None
         self.agg = agg
         self.context = context
         self.requires_recalculation = True
@@ -51,58 +50,71 @@ class BaseMetricMap:
             self._recalculate()
 
     @property
+    def metric(self):
+        """Metric: The metric described by the map."""
+        return get_first_defined(self._bound_metric, self._metric)
+
+    @property
     def metric_name(self):
+        """str: Name of the metric."""
         return self.metric.name
 
     @property
     def metric_data(self):
+        """pandas.DataFrame: A `DataFrame` storing indices of items, their coordinates and metric values."""
         if self.requires_recalculation:
             self._recalculate()
         return self._metric_data
 
     @property
     def index_data(self):
+        """pandas.DataFrame: `metric_data` aggregated by items."""
         if self.requires_recalculation:
             self._recalculate()
         return self._index_data
 
     @property
     def map_data(self):
+        """pandas.Series: Aggregated metric data used for map visualization. Stores aggregated metric as its value and
+        map coordinates as its index."""
         if self.requires_recalculation:
             self._recalculate()
         return self._map_data
 
     @property
     def plot_title(self):
-        """str: title of the map plot."""
+        """str: Title of the metric map plot."""
         agg_name = self.agg.__name__ if callable(self.agg) else self.agg
         return f"{agg_name}({self.metric_name})"
 
     @property
     def x_tick_labels(self):
-        """None or array-like: labels of x axis ticks."""
+        """None or array-like: Labels of x axis ticks."""
         return None
 
     @property
     def y_tick_labels(self):
-        """None or array-like: labels of y axis ticks."""
+        """None or array-like: Labels of y axis ticks."""
         return None
 
     def append(self, other):
-        if ((self.coords_cols != other.coords_cols) or
-            (self.has_index is not other.has_index) or (self.index_cols != other.index_cols) or
+        """Append metric data from `other` map to `self`."""
+        if ((self.coords_cols != other.coords_cols) or (self.index_cols != other.index_cols) or
             (type(self.metric) is not type(other.metric)) or (self.metric_name != other.metric_name)):
             raise ValueError("Only a map with the same types of coordinates, index and metric can be appended")
         self.metric_data_list += other.metric_data_list
         self.context.update(other.context)
-        self.metric = other.metric
-        self.bound_metric = None  # The context may have changed
+        self._metric = other._metric  # pylint: disable=protected-access
+        self._bound_metric = None  # The context may have changed
         self.requires_recalculation = True
 
     def extend(self, other):
+        """Append metric data from `other` map to `self`. An alias for `append`."""
         self.append(other)
 
     def _recalculate(self):
+        """Preprocess and aggregate metric data into data to plot on the map. Automatically called upon the first
+        access to map data if `append` or `extend` method was previously executed."""
         self._metric_data = pd.concat(self.metric_data_list, ignore_index=True, copy=False)
         requires_explode = pd.api.types.is_object_dtype(self._metric_data[self.metric_name].dtype)
         metric_agg = (lambda s: s.explode().agg(self.agg)) if requires_explode else self.agg
@@ -115,7 +127,7 @@ class BaseMetricMap:
         }
         index_data = self._metric_data.groupby(self.index_cols, as_index=False, sort=False).agg(**agg_dict)
         if index_data[["_DELTA_X", "_DELTA_Y"]].any(axis=None):
-            raise ValueError
+            raise ValueError("Some map items have non-unique coordinates")
         index_data.drop(columns=["_DELTA_X", "_DELTA_Y"], inplace=True)
         self._index_data = index_data
         self._index_to_coords = index_data.groupby(self.index_cols)[self.coords_cols]
@@ -123,26 +135,32 @@ class BaseMetricMap:
         self.requires_recalculation = False
 
     def _calculate_map_data(self):
+        """Calculate metric map data. Must be redefined in child classes."""
         raise NotImplementedError
 
     def get_indices_by_map_coords(self, map_coords):
+        """Get all items assigned to given `map_coords`. The items are returned as a `pandas.Series` which contains
+        indices of items as its index and corresponding aggregated metrics as values."""
         if self.requires_recalculation:
             self._recalculate()
         return self._map_coords_to_indices.get_group(map_coords).set_index(self.index_cols)[self.metric_name]
 
     def get_coords_by_index(self, index):
+        """Get a tuple of spatial coordinates of a map item with given `index`."""
         if self.requires_recalculation:
             self._recalculate()
         return tuple(self._index_to_coords.get_group(index).iloc[0].to_list())
 
-    def evaluate(self, agg=None, use_global=False):
+    def evaluate(self, agg=None, preaggregate=True):
         """Aggregate metric values.
 
         Parameters
         ----------
-        agg : str or callable, optional, defaults to None
+        agg : str or callable, optional
             A function used for aggregating metric values. If not given, `agg` passed during map initialization is
             used. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
+        preaggregate : bool, optional, defaults to True
+            Whether to preaggregate metric values by map item before the resulting aggregation.
 
         Returns
         -------
@@ -152,7 +170,7 @@ class BaseMetricMap:
         if agg is None:
             agg = self.agg
 
-        if use_global:
+        if not preaggregate:
             metric_data = self.metric_data[self.metric_name]
             if pd.api.types.is_object_dtype(metric_data):
                 metric_data = metric_data.explode()
@@ -283,7 +301,8 @@ class BaseMetricMap:
             `%matplotlib widget` magic executed and `ipympl` and `ipywidgets` libraries installed.
         plot_on_click : callable or list of callable, optional, only for interactive mode
             Views called on each click to display some data representation at the click location. Each of them must
-            accept click coordinates as a tuple as `coords` argument and axes to plot on as `ax` argument.
+            accept and index of an item to plot as `index` argument, its coordinates as `coords` argument and axes to
+            plot on as `ax` argument.
         plot_on_click_kwargs : dict or list of dict, optional, only for interactive mode
             Any additional arguments for each view.
         """
@@ -291,9 +310,9 @@ class BaseMetricMap:
             return self._plot(**kwargs)
 
         if plot_on_click is None:
-            if self.bound_metric is None:
-                self.bound_metric = self.metric.bind_context(metric_map=self, **self.context)
-            plot_on_click, kwargs = self.bound_metric.get_views(**kwargs)
+            if not self.metric.has_bound_context:
+                self._bound_metric = self.metric.bind_metric_map(self)
+            plot_on_click, kwargs = self.metric.get_views(**kwargs)
         plot_on_click_list = to_list(plot_on_click)
         if len(plot_on_click_list) == 0:
             raise ValueError("At least one click view must be specified")
@@ -311,11 +330,13 @@ class ScatterMap(BaseMetricMap):
 
     @property
     def has_overlaying_indices(self):
+        """bool: Whether the map contains items with different indices at the same coordinates."""
         if self.requires_recalculation:
             self._recalculate()
         return self._has_overlaying_indices
 
     def _calculate_map_data(self):
+        """Calculate metric map data by aggregating metric values of items with the same coordinates."""
         self._map_coords_to_indices = self._index_data.groupby(self.coords_cols)
         self._has_overlaying_indices = (self._map_coords_to_indices.size() > 1).any()
         self._map_data = self._map_coords_to_indices[self.metric_name].agg(self.agg)
@@ -354,6 +375,7 @@ class BinarizedMap(BaseMetricMap):
         super().__init__(*args, **kwargs)
 
     def _calculate_map_data(self):
+        """Calculate metric map data by aggregating metric values within constructed grid of bins."""
         # Perform a shallow copy of the grouped data since new columns are going to be appended
         map_data = self._index_data.copy(deep=False)
 
@@ -370,17 +392,17 @@ class BinarizedMap(BaseMetricMap):
 
     @property
     def plot_title(self):
-        """str: title of the map plot."""
+        """str: Title of the metric map plot."""
         return super().plot_title + f" in {self.bin_size[0]}x{self.bin_size[1]} bins"
 
     @property
     def x_tick_labels(self):
-        """array-like: labels of x axis ticks."""
+        """array-like: Labels of x axis ticks."""
         return self.x_bin_coords
 
     @property
     def y_tick_labels(self):
-        """array-like: labels of y axis ticks."""
+        """array-like: Labels of y axis ticks."""
         return self.y_bin_coords
 
     def _plot_map(self, ax, is_lower_better, **kwargs):
@@ -417,12 +439,27 @@ class MetricMapMeta(type):
 
 
 class MetricMap(metaclass=MetricMapMeta):
-    """Construct a map from metric values and their coordinates.
+    """Construct a metric map.
+
+    A metric map stores information about metric `values` calculated for individual items defined by `index` and
+    located at spatial coordinates `coords`. `index` argument may be omitted: in this case, the map assumed that an
+    item is uniquely determined by its coordinates.
+
+    Several metric values may be defined for an item in the map. It can be done either by providing several entries in
+    the `index`, `coords` and `values` arrays or by passing a single entry with a list-like metric value. In both these
+    cases metric data will be first aggregated by item using provided `agg` function.
+
+    The map allows for metric visualization over a field map via its `plot` method. The constructed plot may optionally
+    be interactive: a `metric` may define views - special methods that display some data representation for items at
+    click locations.
+
+    Sometimes a plot of a map with thousands of items may become hard to perceive. In this case, `aggregate` method may
+    come in handy, which aggregates the map within spatially defined bins of a given size.
 
     Examples
     --------
     A map can be created directly from known values and coordinates:
-    >>> metric_map = MetricMap(coords=[[0, 0], [0, 1], [1, 0], [1, 1]], metric_values=[1, 2, 3, 4])
+    >>> metric_map = MetricMap(coords=[[0, 0], [0, 1], [1, 0], [1, 1]], values=[1, 2, 3, 4])
 
     But usually maps are constructed via helper functions. One of the most common cases is to accumulate metric values
     in a pipeline and then convert them into a map:
@@ -431,11 +468,10 @@ class MetricMap(metaclass=MetricMapMeta):
     >>> pipeline = (dataset
     ...     .pipeline()
     ...     .load(src="raw")
-    ...     .gather_metrics(MetricsAccumulator, coords=L("raw").coords, std=L("raw").data.std(),
-    ...                     save_to=V("accumulator", mode="a"))
+    ...     .calculate_metric(lambda gather: gather.data.std(), gather="raw", save_to=V("map", mode="a"))
     ... )
     >>> pipeline.run(batch_size=16, n_epochs=1)
-    >>> std_map = pipeline.v("accumulator").construct_map()
+    >>> std_map = pipeline.v("map")
 
     The resulting map can be visualized by calling `plot` method:
     >>> std_map.plot()
@@ -443,43 +479,51 @@ class MetricMap(metaclass=MetricMapMeta):
     In case of a large number of points it makes sense to aggregate the map first to make the plot more clear:
     >>> std_map.aggregate(bin_size=100, agg="mean").plot()
 
+
+    coords, values, *, coords_cols=None, index=None, index_cols=None, metric=None, agg=None,
+                 calculate_immediately=True, **context
     Parameters
     ----------
     coords : 2d array-like with 2 columns
         Metric coordinates for X and Y axes.
-    metric_values : 1d array-like or array of 1d arrays
+    values : 1d array-like or array of 1d arrays
         One or more metric values for each pair of coordinates in `coords`. Must match `coords` in length.
-    coords_cols : array-like with 2 elements, optional
+    coords_cols : array-like of str with 2 elements, optional
         Names of X and Y coordinates. Usually names of survey headers used to extract coordinates from. Defaults to
         ("X", "Y") if not given and cannot be inferred from `coords`.
-    metric : Metric or subclass of Metric, optional, defaults to Metric
-        The metric whose values are used to construct the map.
-    metric_name : str, optional
-        Metric name. Defaults to "metric" if not given and cannot be inferred from `metric` and `metric_values`.
+    index : array-like, optional
+        Unique identifiers of items in the map. Equals to `coords` if not given. Must match `coords` in length.
+    index_cols : str or array-like of str, optional
+        Names of `index` columns, usually names of survey headers used to extract `index` from. Equals to `coords_cols`
+        if `index` is not given.
+    metric : str or Metric or subclass of Metric, optional
+        The metric whose values are used to construct the map. If `str`, defines the name of the default `Metric`.
     agg : str or callable, optional
         A function used for aggregating the map. If not given, will be determined by the value of `is_lower_better`
         attribute of the metric class in order to highlight outliers. Passed directly to
         `pandas.core.groupby.DataFrameGroupBy.agg`.
     bin_size : int, float or array-like with length 2, optional
         Bin size for X and Y axes. If single `int` or `float`, the same bin size will be used for both axes.
+    calculate_immediately : bool, optional, defaults to True
+        Whether to calculate map data immediately or postpone it until the first access.
+    context : misc, optional
+        Any additional keyword arguments defining metric calculation context. Will be later passed to
+        `metric.bind_context` method together with the metric map upon the first interactive map plot.
 
     Attributes
     ----------
-    metric_data : pandas.DataFrame
-        A `DataFrame` with coordinates and metric values. NaN metric values are dropped.
-    map_data : pandas.Series
-        Aggregated map data. Series index stores either metric coordinates as is if `bin_size` was not given or indices
-        of bins otherwise.
-    coords_cols : array-like with 2 elements
+    metric_data_list : list of pandas.DataFrame
+        A list of `DataFrame`s storing indices of map items, their coordinates and metric values.
+    coords_cols : array-like of str with 2 elements
         Names of X and Y coordinates.
-    metric_name : str
-        Name of the metric.
-    metric : Metric or subclass of Metric
-        A metric class or instance with `metric_name` and `coords_cols` attributes set.
+    index_cols : array-like of str
+        Names of index columns.
     agg : str or callable
         A function used for aggregating the map.
     bin_size : 1d np.ndarray with 2 elements
         Bin size for X and Y axes. Available only if the map was binarized.
+    context : dict
+        Additional keyword arguments defining metric calculation context.
     """
     scatter_map_class = ScatterMap
     binarized_map_class = BinarizedMap
