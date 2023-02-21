@@ -4,13 +4,15 @@ from functools import partial
 
 from sklearn.neighbors import NearestNeighbors
 
-from ..utils import to_list, get_first_defined, get_text_formatting_kwargs, align_args
+from ..utils import get_first_defined, get_text_formatting_kwargs, align_args
 from ..utils.interactive_plot_utils import InteractivePlot, DropdownOptionPlot, PairedPlot
 
 
 class NonOverlayingIndicesPlot(InteractivePlot):
-    """Construct an interactive plot that passes the last click coordinates to a `plot_fn` of each of its views in
-    addition to `ax`."""
+    """Construct an interactive plot that displays data representation at click locations in case when each pair of
+    spatial coordinates being plot on the map corresponds to a single metric map item. Used by `ScatterMapPlot` for
+    non-binarized maps with `False` value of `has_overlaying_indices` flag. Passes the last click coordinates and an
+    index of the corresponding item to a `plot_fn` of each of metric views in addition to `ax`."""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.current_coords = None
@@ -19,17 +21,20 @@ class NonOverlayingIndicesPlot(InteractivePlot):
 
     @property
     def title(self):
-        """str: Return the title of the map data plot."""
+        """str: Return the title of the plot for current item."""
         return self.current_title
 
     @property
     def plot_fn(self):
-        """callable: plotter of the current view with the last click coordinates passed."""
+        """callable: Plotter of the current view with the last click coordinates and an index of the corresponding item
+        passed."""
         if self.current_coords is None or self.current_index is None:
             return None
         return partial(super().plot_fn, coords=self.current_coords, index=self.current_index)
 
     def process_map_click(self, coords, indices, titles):
+        """Handle a click on the main metric map plot. Each of `coords`, `indices` and `titles` are guaranteed to
+        contain a single element."""
         self.current_coords = coords[0]
         self.current_index = indices[0]
         self.current_title = titles[0]
@@ -37,7 +42,15 @@ class NonOverlayingIndicesPlot(InteractivePlot):
 
 
 class OverlayingIndicesPlot(DropdownOptionPlot):
+    """Construct an interactive plot that displays data representation at click locations in case when each pair of
+    spatial coordinates being plot on the map may correspond to multiple metric map items. Used by `ScatterMapPlot` for
+    non-binarized maps with `True` value of `has_overlaying_indices` flag and `BinarizedMapPlot` for all binarized
+    maps. Passes coordinates and an index of an item selected in a dropdown list to a `plot_fn` of each of metric views
+    in addition to `ax`."""
+
     def process_map_click(self, coords, indices, titles):
+        """Handle a click on the main metric map plot by updating the list of dropdown options and selecting the first
+        one of them."""
         options = [{"coords": coord, "index": index, "option_title": title}
                    for coord, index, title in zip(coords, indices, titles)]
         self.update_state(0, options)
@@ -47,8 +60,10 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method
     """Base class for interactive metric map visualization.
 
     Two methods should be redefined in a concrete plotter child class:
-    * `construct_aux_plot` - construct an interactive plot with map contents at click location,
-    * `click` - handle a click on the map plot.
+    * `construct_aux_plot` - construct an interactive plot which displays map contents at click location. Must
+      implement `process_map_click` method which should accept `coords`, `indices` and `titles` lists with coordinates
+      of items at click location, their indices and titles of the auxiliary plot.
+    * `preprocess_click_coords` - transform coordinates of a click into coordinates of the metric map data.
     """
     def __init__(self, metric_map, plot_on_click=None, plot_on_click_kwargs=None, title=None, is_lower_better=None,
                  figsize=(4.5, 4.5), fontsize=8, orientation="horizontal", **kwargs):
@@ -74,6 +89,8 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method
         return InteractivePlot(plot_fn=self.plot_map, click_fn=self.click, title=self.title, figsize=self.figsize)
 
     def construct_aux_titles(self, coords, indices, metric_values):
+        """Return a list of titles of the auxiliary plot for each item with known coordinates, index and metric
+        value."""
         index_cols = self.metric_map.index_cols
         coords_cols = self.metric_map.coords_cols
         data_cols = index_cols + coords_cols
@@ -83,21 +100,22 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method
         return [f"{metric:.03f} metric for {ix_coord}" for metric, ix_coord in zip(metric_values, ix_coord_str)]
 
     def preprocess_click_coords(self, click_coords):
+        """Transform coordinates of a click into coordinates of the metric map data."""
         _ = click_coords
         raise NotImplementedError
 
-    def click(self, click_coords):
+    def click(self, coords):
         """Handle a click on the map plot."""
-        click_coords = self.preprocess_click_coords(click_coords)
-        if click_coords is None:
+        map_coords = self.preprocess_click_coords(coords)
+        if map_coords is None:
             return None
         is_ascending = not get_first_defined(self.is_lower_better, self.metric_map.metric.is_lower_better, True)
-        click_indices = self.metric_map.get_indices_by_map_coords(click_coords).sort_values(ascending=is_ascending)
+        click_indices = self.metric_map.get_indices_by_map_coords(map_coords).sort_values(ascending=is_ascending)
         indices, metric_values = zip(*click_indices.items())
         coords = [self.metric_map.get_coords_by_index(index) for index in indices]
         titles = self.construct_aux_titles(coords, indices, metric_values)
         self.aux.process_map_click(coords, indices, titles)
-        return click_coords
+        return map_coords
 
     def plot(self):
         """Display the map and perform initial clicking."""
@@ -134,7 +152,7 @@ class BinarizedMapPlot(MetricMapPlot):
         return OverlayingIndicesPlot(plot_fn=self.plot_on_click, toolbar_position=toolbar_position)
 
     def preprocess_click_coords(self, click_coords):
-        """Return coordinates of a bin corresponding to click coords. Ignore the click if it was performed outside the
-        map."""
+        """Return coordinates of a bin corresponding to coordinates of a click. Ignore the click if it was performed
+        outside the map."""
         coords = (int(click_coords[0] + 0.5), int(click_coords[1] + 0.5))
         return coords if coords in self.metric_map.map_data else None
