@@ -250,7 +250,7 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
         # Calculate metrics and construct maps
         def calculate_metrics(window_indices):
             window_velocities = velocities[window_indices]
-            return [metric(window_velocities, times) for metric in metrics]
+            return [metric(window_velocities, times) for metric in metrics]  # pylint: disable=too-many-function-args
 
         results = thread_map(calculate_metrics, windows_indices, max_workers=n_workers,
                              desc="Coordinates processed", disable=not bar)
