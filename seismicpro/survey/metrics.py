@@ -14,7 +14,8 @@ class SurveyAttribute(Metric):
         # Attributes set after context binding
         self.survey = None
 
-    def bind(self, metric_map, survey):
+    def bind_context(self, metric_map, survey):
+        """Process metric evaluation context: memorize the parent survey, reindexed by `coords_cols`."""
         self.survey = survey.reindex(metric_map.coords_cols)
 
     def plot(self, ax, coords, index, sort_by=None, **kwargs):

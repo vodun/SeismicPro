@@ -83,7 +83,8 @@ class StackingVelocityMetric(Metric):
         raise NotImplementedError
 
     def bind_context(self, metric_map, times, velocities, coords_neighbors):
-        """Process metric evaluation context."""
+        """Process metric evaluation context: memorize stacking velocities of all items, times for which they were
+        calculated and `coords_neighbors` which allows reconstructing windows used for metric calculation."""
         _ = metric_map
         self.times = times
         self.velocities = velocities

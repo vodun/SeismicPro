@@ -1231,7 +1231,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         SurveyGeometryPlot(self, **kwargs).plot()
 
-    def construct_attribute_map(self, attribute, by, drop_duplicates=False, agg=None, bin_size=None, **kwargs):
+    def construct_attribute_map(self, attribute, by, drop_duplicates=False, agg=None, bin_size=None):
         """Construct a map of trace attributes aggregated by gathers.
 
         Examples
@@ -1255,9 +1255,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         attribute : str
             If "fold", calculates the number of traces in gathers defined by `by`. Otherwise defines a survey header
             name to construct a map for.
-        by : tuple with 2 elements or {"shot", "receiver", "midpoint", "bin"}
-            If `tuple`, survey headers names to get coordinates from.
-            If `str`, gather type to aggregate header values over.
+        by : {"source", "shot", "receiver", "rec", "cdp", "cmp", "midpoint", "bin", "supergather"}
+            Gather type to aggregate header values over.
         drop_duplicates : bool, optional, defaults to False
             Whether to drop duplicated (coordinates, value) pairs. Useful when dealing with an attribute defined for a
             shot or receiver, not a trace (e.g. constructing a map of elevations by shots).
@@ -1265,33 +1264,26 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             An aggregation function. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
         bin_size : int, float or array-like with length 2, optional
             Bin size for X and Y axes. If single `int` or `float`, the same bin size will be used for both axes.
-        kwargs : misc, optional
-            Additional keyword arguments to pass to `Metric.__init__`.
 
         Returns
         -------
         attribute_map : BaseMetricMap
             Constructed attribute map.
         """
-        if isinstance(by, str):
-            by_to_coords_cols = {
-                "source": ["SourceX", "SourceY"],
-                "shot": ["SourceX", "SourceY"],
-                "receiver": ["GroupX", "GroupY"],
-                "rec": ["GroupX", "GroupY"],
-                "cdp": ["CDP_X", "CDP_Y"],
-                "cmp": ["CDP_X", "CDP_Y"],
-                "midpoint": ["CDP_X", "CDP_Y"],
-                "bin": ["INLINE_3D", "CROSSLINE_3D"],
-                "supergather": ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"],
-            }
-            coords_cols = by_to_coords_cols.get(by)
-            if coords_cols is None:
-                raise ValueError(f"by must be one of {', '.join(by_to_coords_cols.keys())} but {by} given.")
-        else:
-            coords_cols = to_list(by)
-        if len(coords_cols) != 2:
-            raise ValueError("Exactly 2 coordinates headers must be passed")
+        by_to_coords_cols = {
+            "source": ["SourceX", "SourceY"],
+            "shot": ["SourceX", "SourceY"],
+            "receiver": ["GroupX", "GroupY"],
+            "rec": ["GroupX", "GroupY"],
+            "cdp": ["CDP_X", "CDP_Y"],
+            "cmp": ["CDP_X", "CDP_Y"],
+            "midpoint": ["CDP_X", "CDP_Y"],
+            "bin": ["INLINE_3D", "CROSSLINE_3D"],
+            "supergather": ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"],
+        }
+        coords_cols = by_to_coords_cols.get(by.lower())
+        if coords_cols is None:
+            raise ValueError(f"by must be one of {', '.join(by_to_coords_cols.keys())} but {by} given.")
 
         if attribute == "fold":
             map_data = self.headers.groupby(coords_cols, as_index=False).size().rename(columns={"size": "Fold"})
