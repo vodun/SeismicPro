@@ -524,18 +524,20 @@ class DropdownViewPlot(InteractivePlot):
 
 
 class DropdownOptionPlot(InteractivePlot):
-    """Construct an interactive plot that displays contents of a metric map bin.
+    """Construct an interactive plot that changes the behavior of `plot_fn` depending on the chosen option: each of
+    them defines its own keyword arguments passed to a `plot_fn` of each of metric views in addition to `ax`.
 
-    The plot allows selecting an item in the bin using a dropdown widget and iterating over items in both directions
-    using arrow buttons.
+    The plot allows selecting an option using a dropdown widget and iterating over options in both directions using
+    arrow buttons.
 
     Parameters
     ----------
-    is_lower_better : bool, optional, defaults to True
-        Specifies if lower value of the metric is better. Affects the default sorting of bin contents to first display
-        a plot for the worst metric value.
-    kwargs : misc, optional
-        Additional keyword arguments to :func:`~InteractivePlot.__init__`.
+    options : list of dict, optional
+        Available options. All options must have the same key. `option_title` is an obligatory key, that defines
+        displayed label of the option in the dropdown widget. All other options are passed to a `plot_fn` of each of
+        metric views in addition to `ax`.
+    args, kwargs : misc, optional
+        Additional arguments to :func:`~InteractivePlot.__init__`.
     """
     def __init__(self, *args, options=None, **kwargs):
         # Define widgets for option selection
