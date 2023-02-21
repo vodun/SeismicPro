@@ -2,7 +2,6 @@
 
 from string import Formatter
 from functools import partial
-from collections import defaultdict
 
 import numpy as np
 import pandas as pd
@@ -376,12 +375,12 @@ class SeismicBatch(Batch):
 
     @action(no_eval="save_to")
     def calculate_metric(self, metric, *args, metric_name=None, coords_component=None, save_to=None, **kwargs):
-        """Calculate a metric for each batch element and store the results into an accumulator.
+        """Calculate a metric for each batch element and store the results into a metric map.
 
-        The passed metric must be either a subclass of `PipelineMetric` or a `callable`. In the latter case, a new
-        subclass of `PipelineMetric` is created with its `calc` method defined by the `callable`. The metric class is
-        provided with information about the pipeline it was calculated in which allows restoring metric calculation
-        context during interactive metric map plotting.
+        The passed metric must be either an instance or a subclass of `PipelineMetric` or a `callable`. In the latter
+        case, a new instance of `FunctionalMetric` will be created with its `__call__` method defined by the callable.
+        The metric map is provided with information about the pipeline it was calculated in which allows restoring
+        metric calculation context during interactive metric map plotting.
 
         Examples
         --------
@@ -399,12 +398,12 @@ class SeismicBatch(Batch):
         ...     .pipeline()
         ...     .load(src=["before", "after"])
         ...     .calculate_metric(SignalLeakage, "before", "after", velocities=np.linspace(1500, 5500, 100),
-        ...                       save_to=V("accumulator", mode="a"))
+        ...                       save_to=V("map", mode="a"))
         ... )
         >>> pipeline.run(batch_size=16, n_epochs=1)
 
-        Extract the created metric accumulator, construct the map and plot it:
-        >>> leakage_map = pipeline.v("accumulator").construct_map()
+        Extract the created map and plot it:
+        >>> leakage_map = pipeline.v("map")
         >>> leakage_map.plot(interactive=True)  # works only in JupyterLab with `%matplotlib widget` magic executed
 
         2. Calculate standard deviation of gather amplitudes using a lambda-function:
@@ -412,24 +411,23 @@ class SeismicBatch(Batch):
         ...     .pipeline()
         ...     .load(src="before")
         ...     .calculate_metric(lambda gather: gather.data.std(), "before", metric_name="std",
-        ...                       save_to=V("accumulator", mode="a"))
+        ...                       save_to=V("map", mode="a"))
         ... )
         >>> pipeline.run(batch_size=16, n_epochs=1)
-        >>> std_map = pipeline.v("accumulator").construct_map()
+        >>> std_map = pipeline.v("map")
         >>> std_map.plot(interactive=True, plot_component="before")
 
         Parameters
         ----------
-        metric : subclass of PipelineMetric or callable
+        metric : PipelineMetric or subclass of PipelineMetric or callable
             The metric to calculate.
-        metric_name : str or None, optional
-            A name of the calculated metric. Obligatory if `metric` is `lambda` or `name` attribute is not overridden
-            in the metric class.
+        metric_name : str, optional
+            A name of the calculated metric.
         coords_component : str, optional
             A component name to extract coordinates from. If not given, the first argument passed to the metric
             calculation function is used.
         save_to : NamedExpression
-            A named expression to save the constructed `MetricsAccumulator` instance to.
+            A named expression to save the constructed `MetricMap` instance to.
         args : misc, optional
             Additional positional arguments to the metric calculation function.
         kwargs : misc, optional
@@ -442,10 +440,9 @@ class SeismicBatch(Batch):
 
         Raises
         ------
-        ValueError
+        TypeError
             If wrong type of `metric` is passed.
-            If `metric` is `lambda` and `metric_name` is not given.
-            If `metric` is a subclass of `PipelineMetric` and `metric.name` is `None`.
+        ValueError
             If some batch item has `None` coordinates.
         """
         metric = define_pipeline_metric(metric, metric_name)
