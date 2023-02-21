@@ -27,7 +27,7 @@ class FirstBreaksOutliers(PipelineMetric):
                  correct_uphole=None):
         """Calculate the first break outliers metric.
 
-        Returns the fraction of traces in the gather whose first break times differ from those estimated by a
+        Returns the fraction of traces in the gather whose times of first breaks differ from those estimated by a
         near-surface velocity model by more than `threshold_times`.
 
         Parameters
@@ -37,7 +37,7 @@ class FirstBreaksOutliers(PipelineMetric):
         refractor_velocity : RefractorVelocity or RefractorVelocityField
             Near-surface velocity model to estimate the expected times of first breaks at `gather` offsets.
         first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
-            Column name from `gather.headers` where first break times are stored.
+            Column name from `gather.headers` where times of first breaks are stored.
         threshold_times: float, optional, defaults to 50
             Threshold for the first breaks outliers metric calculation. Measured in milliseconds.
         correct_uphole : bool, optional
@@ -48,8 +48,8 @@ class FirstBreaksOutliers(PipelineMetric):
         Returns
         -------
         metric : float
-            Fraction of traces in the gather whose times of first breaks differ from estimated by velocity model by
-            more than `threshold_times`.
+            Fraction of traces in the gather whose times of first breaks differ from those estimated by the velocity
+            model by more than `threshold_times`.
         """
         if isinstance(refractor_velocity, RefractorVelocityField):
             refractor_velocity = refractor_velocity(gather.coords)
