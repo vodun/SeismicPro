@@ -31,7 +31,7 @@ def parse_coords(coords, coords_cols=None):
         coords = np.asarray(coords)
         coords = np.array(coords.tolist()) if coords.ndim == 1 else coords
     else:
-        raise ValueError(f"Unsupported type of coords {type(coords)}")
+        raise TypeError(f"Unsupported type of coords {type(coords)}")
 
     coords_cols = get_first_defined(coords_cols, data_coords_cols, ("X", "Y"))
     coords_cols = to_list(coords_cols)
@@ -45,6 +45,7 @@ def parse_coords(coords, coords_cols=None):
 
 
 def parse_index(index, index_cols=None):
+    """Cast given `index` to a 2d `np.ndarray` and try inferring names index columns if `index_cols` is not passed."""
     if isinstance(index, pd.DataFrame):
         data_index_cols = index.columns.tolist()
         index = index.to_numpy()
@@ -59,27 +60,27 @@ def parse_index(index, index_cols=None):
         if index.ndim == 1:
             index = index.reshape(-1, 1)
         if index.ndim != 2:
-            raise ValueError
+            raise ValueError("index must be one- or two-dimensional")
     else:
-        raise ValueError(f"Unsupported type of index {type(index)}")
+        raise TypeError(f"Unsupported type of index {type(index)}")
 
     index_cols = get_first_defined(index_cols, data_index_cols)
     if index_cols is None:
-        raise ValueError
+        raise ValueError("Undefined index_cols")
     index_cols = to_list(index_cols)
     if len(index_cols) != index.shape[1]:
-        raise ValueError
+        raise ValueError("Length of index_cols must correspond to the shape of index")
     return index, index_cols
 
 
 def parse_metric_data(values, metric=None):
     """Cast given `values` to a 1d `np.ndarray`. Create a corresponding `Metric` instance with a proper name if not
     given."""
-    err_msg = "Metric values must be a 1-dimensional array-like."
+    val_err_msg = "Metric values must be a 1-dimensional array-like."
     if isinstance(values, pd.DataFrame):
         columns = values.columns
         if len(columns) != 1:
-            raise ValueError(err_msg)
+            raise ValueError(val_err_msg)
         data_metric_name = columns[0]
         values = values.to_numpy()[:, 0]
     elif isinstance(values, pd.Series):
@@ -89,15 +90,16 @@ def parse_metric_data(values, metric=None):
         data_metric_name = None
         values = np.array(values)
         if values.ndim != 1:
-            raise ValueError(err_msg)
+            raise ValueError(val_err_msg)
 
     from .metric import Metric  # pylint: disable=import-outside-toplevel
+    type_err_msg = "metric must be str or an instance or a subclass of Metric"
     if isinstance(metric, type):
         if not issubclass(metric, Metric):
-            raise ValueError
+            raise TypeError(type_err_msg)
         metric = metric()  # Initialize the metric if it was passed as a class, not an instance
     if not isinstance(metric, Metric):
         if metric is not None and not isinstance(metric, str):
-            raise ValueError
+            raise TypeError(type_err_msg)
         metric = Metric(name=get_first_defined(metric, data_metric_name))
     return values, metric
