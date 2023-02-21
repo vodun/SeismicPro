@@ -207,11 +207,12 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
             Metrics to calculate. Defaults to those defined in `~metrics.VELOCITY_QC_METRICS`.
         radius : positive float, optional
             Spatial window radius (Euclidean distance). Equals to `self.default_neighborhood_radius` if not given.
-        coords : 2d np.array or list of Coordinates or None, optional
+        coords : 2d np.array or list of Coordinates, optional
             Spatial coordinates of stacking velocities to calculate metrics for. If not given, coordinates of items in
             the field are used.
-        times : 1d array-like
-            Times to calculate metrics for. Measured in milliseconds.
+        times : 1d array-like, optional
+            Times to calculate metrics for. By default, samples of the underlying `Survey` are used. Measured in
+            milliseconds.
         n_workers : int, optional
             The number of threads to be spawned to calculate metrics. Defaults to the number of cpu cores.
         bar : bool, optional, defaults to True
