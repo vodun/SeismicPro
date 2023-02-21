@@ -5,12 +5,12 @@ In order to define your own metric you need to inherit a new class from `Stackin
   velocities in a spatial window or only the central one in its `calc` method. In the first case, the central velocity
   will be the first one in the stacked 2d array of velocities.
 * Optionally define all other class attributes of `Metric` for future convenience.
-* Redefine `calc` static method, which must accept two arguments: stacking velocities and times they are estimated for.
-  If `is_window_metric` is `False`, stacking velocities will be a 1d array, otherwise it will be a 2d array with shape
+* Redefine `calc` method, which must accept two arguments: stacking velocities and times they are estimated for. If
+  `is_window_metric` is `False`, stacking velocities will be a 1d array, otherwise it will be a 2d array with shape
   `(n_velocities, n_times)`. Times are always represented as a 1d array. `calc` must return a single metric value.
 * Optionally redefine `plot` method which will be used to plot stacking velocities on click on a metric map in
   interactive mode. It should accept an instance of `matplotlib.axes.Axes` to plot on and the same arguments that were
-  passed to `calc` during metric calculation. By default it plots all stacking velocities in the window.
+  passed to `calc` during metric calculation. By default it plots all stacking velocities in the window in blue.
 
 If you want the created metric to be calculated by :func:`~stacking_velocity_field.StackingVelocityField.qc` method by
 default, it should also be appended to a `VELOCITY_QC_METRICS` list.
@@ -25,8 +25,8 @@ from ..utils import calculate_axis_limits, set_ticks, set_text_formatting
 
 
 class StackingVelocityScatterMapPlot(ScatterMapPlot):
-    """Equivalent to `ScatterMapPlot` class except for `click` method, which also highlights a spatial window in which
-    the metric was calculated."""
+    """Equivalent to `ScatterMapPlot` class except for the `click` method, which also highlights a spatial window in
+    which the metric was calculated."""
     def __init__(self, *args, plot_window=True, **kwargs):
         self.plot_window = plot_window
         self.window = None
@@ -35,18 +35,18 @@ class StackingVelocityScatterMapPlot(ScatterMapPlot):
     def click(self, coords):
         """Process the click and highlight a spatial window in which the metric was calculated."""
         coords = super().click(coords)
-        metric = self.metric_map.bound_metric
         if self.window is not None:
             self.window.remove()
-        if metric.is_window_metric and self.plot_window:
-            self.window = patches.Circle(coords, metric.coords_neighbors.radius, color="blue", alpha=0.3)
+        if self.metric_map.metric.is_window_metric and self.plot_window:
+            self.window = patches.Circle(coords, self.metric_map.metric.coords_neighbors.radius,
+                                         color="blue", alpha=0.3)
             self.main.ax.add_patch(self.window)
         return coords
 
 
 class StackingVelocityMetricMap(MetricMap):
-    """Equivalent to `MetricMap` class except for interactive scatter plot class, which highlights a spatial window in
-    which the metric was calculated on click."""
+    """Equivalent to `MetricMap` class except for the interactive scatter plot class, which highlights a spatial window
+    in which the metric was calculated on click."""
     interactive_scatter_map_class = StackingVelocityScatterMapPlot
 
 
@@ -82,7 +82,8 @@ class StackingVelocityMetric(Metric):
         _ = args, kwargs
         raise NotImplementedError
 
-    def bind(self, metric_map, times, velocities, coords_neighbors):
+    def bind_context(self, metric_map, times, velocities, coords_neighbors):
+        """Process metric evaluation context."""
         _ = metric_map
         self.times = times
         self.velocities = velocities
