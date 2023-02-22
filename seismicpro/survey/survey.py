@@ -182,7 +182,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         # Forbid loading UnassignedInt1 and UnassignedInt2 headers since they are treated differently from all other
         # headers by `segyio`
         allowed_headers = set(segyio.tracefield.keys.keys()) - {"UnassignedInt1", "UnassignedInt2"}
-
         header_index = to_list(header_index)
         if header_cols is None:
             header_cols = set()
@@ -198,12 +197,16 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                 source_id_cols = "FieldRecord"
             elif {"SourceX", "SourceY"} <= headers_to_load:
                 source_id_cols = ["SourceX", "SourceY"]
+        else:
+            headers_to_load |= set(to_list(source_id_cols))
         self.source_id_cols = source_id_cols
+
         if receiver_id_cols is None:
             if {"GroupX", "GroupY"} <= headers_to_load:
-                source_id_cols = ["GroupX", "GroupY"]
+                receiver_id_cols = ["GroupX", "GroupY"]
+        else:
+            headers_to_load |= set(to_list(receiver_id_cols))
         self.receiver_id_cols = receiver_id_cols
-        headers_to_load = headers_to_load | set(to_list(source_id_cols)) | set(to_list(receiver_id_cols))
 
         # TRACE_SEQUENCE_FILE is not loaded but reconstructed manually since sometimes it is undefined in the file but
         # we rely on it during gather loading
