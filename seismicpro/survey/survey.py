@@ -1300,7 +1300,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         SurveyGeometryPlot(self, **kwargs).plot()
 
-    def construct_attribute_map(self, attribute, by, drop_duplicates=False, agg=None, bin_size=None):
+    def construct_attribute_map(self, attribute, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
         """Construct a map of trace attributes aggregated by gathers.
 
         Examples
@@ -1315,8 +1315,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Generate supergathers and calculate the number of traces in each of them (fold):
         >>> supergather_columns = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
-        >>> supergather_survey = survey.generate_supergathers(size=(7, 7), step=(7, 7))
-        >>> fold_map = supergather_survey.construct_attribute_map("fold", by=supergather_columns)
+        >>> supergather_survey = survey.generate_supergathers(size=7, step=7)
+        >>> fold_map = supergather_survey.construct_attribute_map("fold", by="supergather")
         >>> fold_map.plot()
 
         Parameters
@@ -1326,9 +1326,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             name to construct a map for.
         by : {"source", "shot", "receiver", "rec", "cdp", "cmp", "midpoint", "bin", "supergather"}
             Gather type to aggregate header values over.
+        id_cols : str or list of str, optional
+            Trace headers that uniquely identify a gather of the chosen type. Acts as an index of the resulting map.
         drop_duplicates : bool, optional, defaults to False
-            Whether to drop duplicated (coordinates, value) pairs. Useful when dealing with an attribute defined for a
-            shot or receiver, not a trace (e.g. constructing a map of elevations by shots).
+            Whether to drop duplicated entries of (index, coordinates, metric value). Useful when dealing with an
+            attribute defined for a shot or receiver, not a trace (e.g. constructing a map of elevations by shots).
         agg : str or callable, optional, defaults to "mean"
             An aggregation function. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
         bin_size : int, float or array-like with length 2, optional
@@ -1339,28 +1341,32 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         attribute_map : BaseMetricMap
             Constructed attribute map.
         """
-        by_to_coords_cols = {
-            "source": ["SourceX", "SourceY"],
-            "shot": ["SourceX", "SourceY"],
-            "receiver": ["GroupX", "GroupY"],
-            "rec": ["GroupX", "GroupY"],
-            "cdp": ["CDP_X", "CDP_Y"],
-            "cmp": ["CDP_X", "CDP_Y"],
-            "midpoint": ["CDP_X", "CDP_Y"],
-            "bin": ["INLINE_3D", "CROSSLINE_3D"],
-            "supergather": ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"],
+        by_to_cols = {
+            "source": (self.source_id_cols, ["SourceX", "SourceY"]),
+            "shot": (self.source_id_cols, ["SourceX", "SourceY"]),
+            "receiver": (self.receiver_id_cols, ["GroupX", "GroupY"]),
+            "rec": (self.receiver_id_cols, ["GroupX", "GroupY"]),
+            "cdp": (None, ["CDP_X", "CDP_Y"]),
+            "cmp": (None, ["CDP_X", "CDP_Y"]),
+            "midpoint": (None, ["CDP_X", "CDP_Y"]),
+            "bin": (None, ["INLINE_3D", "CROSSLINE_3D"]),
+            "supergather": (None, ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]),
         }
-        coords_cols = by_to_coords_cols.get(by.lower())
+        index_cols, coords_cols = by_to_cols.get(by.lower())
         if coords_cols is None:
-            raise ValueError(f"by must be one of {', '.join(by_to_coords_cols.keys())} but {by} given.")
+            raise ValueError(f"by must be one of {', '.join(by_to_cols.keys())} but {by} given.")
+        index_cols = get_first_defined(index_cols, id_cols)
 
-        if attribute == "fold":
-            map_data = self.headers.groupby(coords_cols, as_index=False).size().rename(columns={"size": "Fold"})
-        else:
-            data_cols = coords_cols + [attribute]
-            map_data = self.get_headers(data_cols)
-            if drop_duplicates:
-                map_data.drop_duplicates(inplace=True)
+        metric_data = self.get_headers(coords_cols)
+        if index_cols is not None:
+            index_cols = to_list(index_cols)
+            metric_data[index_cols] = self[index_cols]
+        metric_data[attribute] = np.ones(len(metric_data)) if attribute == "fold" else self[attribute]
+        if drop_duplicates:
+            metric_data.drop_duplicates(inplace=True)
+        index = metric_data[index_cols] if index_cols is not None else None
+        coords = metric_data[coords_cols]
+        values = metric_data[attribute]
 
-        return SurveyAttribute(name=attribute).construct_map(map_data.iloc[:, :2], map_data.iloc[:, 2], agg=agg,
-                                                             bin_size=bin_size, survey=self)
+        metric = SurveyAttribute(name=attribute)
+        return metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size, survey=self)
