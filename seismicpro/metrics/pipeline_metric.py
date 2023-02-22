@@ -51,10 +51,10 @@ class PipelineMetric(Metric):
     If several components are passed, a multiview plot is created:
     >>> std_map.plot(interactive=True, pipeline=plot_pipeline, plot_component=["raw", "sorted"])
 
-    A `PipelineMetric` allows for defining default views. Each of them must the same arguments used in `__call__` along
-    with the axes to plot on which will be passed as an `ax` keyword argument. Each of the views must be listed in the
-    `views` class attribute. The following class extends the `StdMetric` class with two views: one plotting the gather
-    used to calculate the metric itself and the other plotting the same gather sorted by offset.
+    A `PipelineMetric` allows for defining default views. Each of them must accept the same arguments used by
+    `__call__` along with the axes to plot on which will be passed as an `ax` keyword argument. Each of the views must
+    be listed in the `views` class attribute. The following class extends `StdMetric` with two views: one plotting the
+    gather used to calculate the metric itself and the other plotting the same gather sorted by offset.
     >>> class PlotStdMetric(StdMetric):
     ...     views = ("plot", "plot_sorted")
     ...

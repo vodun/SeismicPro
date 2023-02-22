@@ -12,7 +12,7 @@ class NonOverlayingIndicesPlot(InteractivePlot):
     """Construct an interactive plot that displays data representation at click locations in case when each pair of
     spatial coordinates being plot on the map corresponds to a single metric map item. Used by `ScatterMapPlot` for
     non-binarized maps with `False` value of `has_overlaying_indices` flag. Passes the last click coordinates and an
-    index of the corresponding item to a `plot_fn` of each of metric views in addition to `ax`."""
+    index of the corresponding item to the current view plotter in addition to `ax`."""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.current_coords = None
@@ -45,8 +45,8 @@ class OverlayingIndicesPlot(DropdownOptionPlot):
     """Construct an interactive plot that displays data representation at click locations in case when each pair of
     spatial coordinates being plot on the map may correspond to multiple metric map items. Used by `ScatterMapPlot` for
     non-binarized maps with `True` value of `has_overlaying_indices` flag and `BinarizedMapPlot` for all binarized
-    maps. Passes coordinates and an index of an item selected in a dropdown list to a `plot_fn` of each of metric views
-    in addition to `ax`."""
+    maps. Passes coordinates and an index of an item selected in the dropdown list to the current view plotter in
+    addition to `ax`."""
 
     def process_map_click(self, coords, indices, titles):
         """Handle a click on the main metric map plot by updating the list of dropdown options and selecting the first

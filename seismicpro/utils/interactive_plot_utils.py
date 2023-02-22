@@ -525,7 +525,7 @@ class DropdownViewPlot(InteractivePlot):
 
 class DropdownOptionPlot(InteractivePlot):
     """Construct an interactive plot that changes the behavior of `plot_fn` depending on the chosen option: each of
-    them defines its own keyword arguments passed to a `plot_fn` of each of metric views in addition to `ax`.
+    them defines its own keyword arguments passed to the current view plotter in addition to `ax`.
 
     The plot allows selecting an option using a dropdown widget and iterating over options in both directions using
     arrow buttons.
@@ -533,9 +533,9 @@ class DropdownOptionPlot(InteractivePlot):
     Parameters
     ----------
     options : list of dict, optional
-        Available options. All options must have the same key. `option_title` is an obligatory key, that defines
-        displayed label of the option in the dropdown widget. All other options are passed to a `plot_fn` of each of
-        metric views in addition to `ax`.
+        Available options. All options must have the same keys. `option_title` is an obligatory key, that defines
+        displayed label of the option in the dropdown widget. All other parameters are passed to the current view
+        plotter in addition to `ax`.
     args, kwargs : misc, optional
         Additional arguments to :func:`~InteractivePlot.__init__`.
     """
