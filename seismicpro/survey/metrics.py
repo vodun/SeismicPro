@@ -8,7 +8,6 @@ from scipy import signal
 from matplotlib import patches
 
 from ..metrics import Metric
-from ..const import EPS
 from ..gather.utils import times_to_indices
 
 class SurveyAttribute(Metric):
@@ -39,7 +38,7 @@ class TracewiseMetric(Metric):
     max_value = None
     is_lower_better = None
 
-    views = ("plot_image", "plot_wiggle")
+    views = ("plot_image", "plot_wiggle", "plot_wiggle_bad_only")
 
     threshold = None
     top_ax_y_scale = 'linear'
@@ -131,37 +130,56 @@ class TracewiseMetric(Metric):
         """"Gather wiggle plot where samples with indicator above/below `cls.threshold` are highlited."""
         self._plot('wiggle', coords, ax, **kwargs)
 
+    def plot_wiggle_bad_only(self, coords, ax, **kwargs):
+        self._plot('wiggle_bad_only', coords, ax, **kwargs)
+
     def _plot(self, mode, coords, ax, **kwargs):
         """Gather plot, mode-dependent"""
-        gather = self.survey.get_gather(coords)
-
-        self._plot_gather_metric(mode, gather, ax, **kwargs)
-
-        if self.threshold is None or self.is_lower_better is None:
-            return
-
-        top_ax, bottom_ax = ax.figure.axes[1], ax.figure.axes[0]
-
-        top_ax.axhline(self.threshold, alpha=0.5)
-
+        gather = self.survey.get_gather(coords).sort('offset')
         mask = self.get_res(gather, **self.kwargs)
+        if self.threshold is None or self.is_lower_better is None:
+            mode = "wiggle" if mode == "wiggle_bad_only" else mode
+            self.preprocess(gather, **self.kwargs).plot(ax=ax, mode=mode, **kwargs)
+            return
         fn = np.greater_equal if self.is_lower_better else np.less_equal
         mask = fn(mask, self.threshold)
-
-        if np.any(mask):
-            self._plot_mask(mode, gather, mask, bottom_ax, **kwargs)
-
-    def _plot_gather_metric(self, mode, gather, ax, **kwargs):
-        """Plot gather and metric values on a top plot"""
-
         metric_vals = self.calc(gather, tracewise=True, **self.kwargs)
-
         gather = self.preprocess(gather, **self.kwargs)
-        gather.plot(ax=ax, mode=mode, top_header=metric_vals, **kwargs)
+        if mode == "wiggle_bad_only":
+            good_traces = np.sum(np.atleast_2d(mask), axis=1) == 0
+            if sum(good_traces) != gather.n_traces:
+                gather.data[good_traces] = np.nan
+            mode = "wiggle"
+        gather.plot(ax=ax, mode=mode, top_header=metric_vals,
+                    masks={"masks": mask, "alpha":0.8, "label": self.name or "metric"}, **kwargs)
+        ax.figure.axes[1].axhline(self.threshold, alpha=0.5)
+        # self._plot_gather_metric(mode, gather, ax, **kwargs)
 
-        ax.figure.axes[1].set_yscale(self.top_ax_y_scale)
+        # if self.threshold is None or self.is_lower_better is None:
+        #     return
 
-    def _plot_mask(self, mode, gather, mask, ax, eps=EPS, **kwargs):
+        # top_ax, bottom_ax = ax.figure.axes[1], ax.figure.axes[0]
+
+        # top_ax.axhline(self.threshold, alpha=0.5)
+
+        # mask = self.get_res(gather, **self.kwargs)
+        # fn = np.greater_equal if self.is_lower_better else np.less_equal
+        # mask = fn(mask, self.threshold)
+
+        # if np.any(mask):
+        #     self._plot_mask(mode, gather, mask, bottom_ax, **kwargs)
+
+    # def _plot_gather_metric(self, mode, gather, ax, **kwargs):
+    #     """Plot gather and metric values on a top plot"""
+
+    #     metric_vals = self.calc(gather, tracewise=True, **self.kwargs)
+
+    #     gather = self.preprocess(gather, **self.kwargs)
+    #     gather.plot(ax=ax, mode=mode, top_header=metric_vals, **kwargs)
+
+    #     ax.figure.axes[1].set_yscale(self.top_ax_y_scale)
+
+    def _plot_mask(self, mode, gather, mask, ax, eps=1e-10, **kwargs):
         """Highlight metric values above/below `cls.threshold` """
 
         # tracewise metric
@@ -203,7 +221,7 @@ class TracewiseMetric(Metric):
             gather.plot(ax=ax, mode='seismogram', alpha=0.2, cmap='Reds', **kwargs)
 
     @staticmethod
-    def _blur_mask(flt, eps=EPS):
+    def _blur_mask(flt, eps=1e-10):
         """Blure filter values"""
         if np.any(flt == 1):
             win_size = np.floor(min((np.prod(flt.shape) / np.sum(flt == 1)), np.min(flt.shape) / 10)).astype(np.int16)
@@ -217,9 +235,9 @@ class TracewiseMetric(Metric):
         return flt
 
 
-class Spikes(TracewiseMetric):
+class SpikesOld(TracewiseMetric):
     """Spikes detection."""
-    name = "spikes"
+    name = "spikes old"
     min_value = 0
     max_value = None
     is_lower_better = True
@@ -246,18 +264,33 @@ class Spikes(TracewiseMetric):
         return np.pad(res, ((0, 0), (1, 1)))
 
     @staticmethod
-    @njit
+    @njit(parallel=True, nogil=True)
     def fill_leading_nulls(arr):
         """"Fill leading null values of array's row with the first non null value in a row."""
 
         n_samples = arr.shape[1]
 
-        for i in range(arr.shape[0]):
+        for i in prange(arr.shape[0]):
             nan_indices = np.nonzero(np.isnan(arr[i]))[0]
             if len(nan_indices) > 0:
                 j = nan_indices[-1] + 1
                 if j < n_samples:
                     arr[i, :j] = arr[i, j]
+
+
+class SpikesNew(SpikesOld):
+    """Spikes detection."""
+    name = "spikes new"
+
+    @classmethod
+    def _get_res(cls, gather, **kwargs):
+        """QC indicator implementation."""
+        _ = kwargs
+        traces = gather.data
+        cls.fill_leading_nulls(traces)
+
+        res = (traces[:, 2:] + traces[:, :-2]) / (2 * traces[:, 1:-1] + 1e-10)
+        return np.pad(res, ((0, 0), (1, 1)))
 
 
 class Autocorr(TracewiseMetric):
@@ -281,6 +314,48 @@ class Autocorr(TracewiseMetric):
         return np.nanmean(gather.data[..., 1:] * gather.data[..., :-1], axis=1)
 
 
+class AutocorrWindow(TracewiseMetric):
+    """Autocorrelation with shift 1"""
+    name = "autocorr window"
+    is_lower_better = False
+    threshold = 0.8
+    top_ax_y_scale = 'linear'
+
+    params = ['muter', 'win_size', 'step']
+
+    @classmethod
+    def preprocess(cls, gather, muter, **kwargs):
+        _ = kwargs
+        return gather.copy().mute(muter=muter, fill_value=0).scale_standard()
+
+    @classmethod
+    def _get_res(cls, gather, win_size=10, step=None, **kwargs):
+        """QC indicator implementation."""
+        _ = kwargs
+        win_size = int(win_size // gather.sample_rate)
+        step = int(step // gather.sample_rate) if step is not None else win_size
+
+        windows = np.arange(0, gather.n_samples, step, dtype=np.int32)
+        windows = np.array(list(zip(windows, windows+win_size)))
+        return cls._calculate_window_correlation(gather.data, windows)
+
+    @staticmethod
+    @njit(parallel=True, nogil=True)
+    def _calculate_window_correlation(traces, windows):
+        first = traces[:, 1:]
+        second = traces[:, :-1]
+        corr = np.zeros((len(traces), len(traces[0])))
+        for i in prange(len(windows)):
+            start, end = windows[i]
+            for j in prange(len(traces)):
+                win_first = first[j, start: end]
+                win_second = second[j, start: end]
+                numerator = np.nansum((win_first - np.nanmean(win_first)) * (win_second - np.nanmean(win_second)))
+                denominator = len(win_first) * np.nanstd(win_first) * np.nanstd(win_second)
+                corr[j, start: end] = np.nan if denominator < 1e-10 else numerator / denominator
+        return corr
+
+
 class TraceAbsMean(TracewiseMetric):
     """Absolute value of the trace's mean scaled by trace's std."""
     name = "trace_absmean"
@@ -292,7 +367,7 @@ class TraceAbsMean(TracewiseMetric):
     def _get_res(cls, gather, **kwargs):
         """QC indicator implementation."""
         _ = kwargs
-        return np.abs(gather.data.mean(axis=1) / (gather.data.std(axis=1) + EPS))
+        return np.abs(gather.data.mean(axis=1) / (gather.data.std(axis=1) + 1e-10))
 
 
 class TraceMaxAbs(TracewiseMetric):
@@ -306,7 +381,7 @@ class TraceMaxAbs(TracewiseMetric):
     def _get_res(cls, gather, **kwargs):
         """QC indicator implementation."""
         _ = kwargs
-        return np.max(np.abs(gather.data), axis=1) / (gather.data.std(axis=1) + EPS)
+        return np.max(np.abs(gather.data), axis=1) / (gather.data.std(axis=1) + 1e-10)
 
 
 class MaxClipsLen(TracewiseMetric):
@@ -420,7 +495,7 @@ class DeadTrace(TracewiseMetric):  # pylint: disable=abstract-method
     def _get_res(cls, gather, **kwargs):
         """Return QC indicator."""
         _ = kwargs
-        return (np.max(gather.data, axis=1) - np.min(gather.data, axis=1) < EPS).astype(np.float32)
+        return (np.max(gather.data, axis=1) - np.min(gather.data, axis=1) < 1e-10).astype(np.float32)
 
 
 class WindowRMS(TracewiseMetric):
@@ -574,7 +649,7 @@ class SinalToNoiseRMSAdaptive(TracewiseMetric):
             if n_beg >= 0 and s_beg >= 0:
                 sig = trace[s_beg:s_beg + win_size]
                 noise = trace[n_beg:n_beg + win_size]
-                res[i] = np.sqrt(np.mean(sig**2)) / (np.sqrt(np.mean(noise**2)) + EPS)
+                res[i] = np.sqrt(np.mean(sig**2)) / (np.sqrt(np.mean(noise**2)) + 1e-10)
         return res
 
     def _plot(self, mode, coords, ax, **kwargs):
