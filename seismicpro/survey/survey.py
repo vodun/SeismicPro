@@ -454,7 +454,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if validate:
             headers = self.headers.copy(deep=False)
             headers.reset_index(inplace=True)
-            validate_source_headers(self.headers, cols)
+            validate_source_headers(headers, cols)
         self.source_id_cols = cols
 
     def set_receiver_id_cols(self, cols, validate=True):
@@ -463,7 +463,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if validate:
             headers = self.headers.copy(deep=False)
             headers.reset_index(inplace=True)
-            validate_receiver_headers(self.headers, cols)
+            validate_receiver_headers(headers, cols)
         self.receiver_id_cols = cols
 
     def validate_headers(self, offset_atol=10, cdp_atol=10, elevation_atol=5, elevation_radius=50):

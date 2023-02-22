@@ -48,19 +48,19 @@ def validate_trace_headers(headers, offset_atol=10, cdp_atol=10, elevation_atol=
         n_duplicated = headers.duplicated(["FieldRecord", "TraceNumber"], keep=False).sum()
         if n_duplicated:
             msg_list.append(f"Non-unique traces identifier (FieldRecord, TraceNumber) for {n_duplicated} traces "
-                            f"({(n_duplicated / n_traces):.02f} %)")
+                            f"({(n_duplicated / n_traces):.02f}%)")
 
     if "SourceUpholeTime" in non_empty_columns:
         n_neg_uphole_time = (headers["SourceUpholeTime"] < 0).sum()
         if n_neg_uphole_time:
             msg_list.append(f"Negative uphole times for {n_neg_uphole_time} traces "
-                            f"({(n_neg_uphole_time / n_traces):.02f} %)")
+                            f"({(n_neg_uphole_time / n_traces):.02f}%)")
 
     if "SourceDepth" in non_empty_columns:
         n_neg_uphole_depth = (headers["SourceUpholeTime"] < 0).sum()
         if n_neg_uphole_depth:
             msg_list.append(f"Negative uphole depths for {n_neg_uphole_depth} traces "
-                            f"({(n_neg_uphole_depth / n_traces):.02f} %)")
+                            f"({(n_neg_uphole_depth / n_traces):.02f}%)")
 
     if {"SourceUpholeTime", "SourceDepth"} <= loaded_columns:
         zero_time_mask = np.isclose(headers["SourceUpholeTime"], 0)
@@ -69,15 +69,15 @@ def validate_trace_headers(headers, offset_atol=10, cdp_atol=10, elevation_atol=
         n_zero_depth = (zero_depth_mask[~zero_time_mask]).sum()
         if n_zero_time:
             msg_list.append(f"Zero uphole time for non-zero uphole depth for {n_zero_time} traces "
-                            f"({(n_zero_time / n_traces):.02f} %)")
+                            f"({(n_zero_time / n_traces):.02f}%)")
         if n_zero_depth:
             msg_list.append(f"Zero uphole depth for non-zero uphole time for {n_zero_depth} traces "
-                            f"({(n_zero_depth / n_traces):.02f} %)")
+                            f"({(n_zero_depth / n_traces):.02f}%)")
 
     if "offset" in non_empty_columns:
         n_neg_offsets = (headers["offset"] < 0).sum()
         if n_neg_offsets:
-            msg_list.append(f"Negative offsets for {n_neg_offsets} traces ({(n_neg_offsets / n_traces):.02f} %)")
+            msg_list.append(f"Negative offsets for {n_neg_offsets} traces ({(n_neg_offsets / n_traces):.02f}%)")
 
     if {*shot_coords_cols, *rec_coords_cols, "offset"} <= non_empty_columns:
         shot_coords = headers[shot_coords_cols].to_numpy()
@@ -88,7 +88,7 @@ def validate_trace_headers(headers, offset_atol=10, cdp_atol=10, elevation_atol=
         if n_diff:
             msg_list.append("Distance between source (SourceX, SourceY) and receiver (GroupX, GroupY) differs from "
                             f"the corresponding offset by more than {offset_atol} meters for {n_diff} traces "
-                            f"({(n_diff / n_traces):.02f} %)")
+                            f"({(n_diff / n_traces):.02f}%)")
 
     if {*shot_coords_cols, *rec_coords_cols, *cdp_coords_cols} <= non_empty_columns:
         calculated_cdp = (headers[shot_coords_cols].to_numpy() + headers[rec_coords_cols].to_numpy()) / 2
@@ -97,7 +97,7 @@ def validate_trace_headers(headers, offset_atol=10, cdp_atol=10, elevation_atol=
         if n_diff:
             msg_list.append("A midpoint between source (SourceX, SourceY) and receiver (GroupX, GroupY) differs from "
                             f"the corresponding coordinates (CDP_X, CDP_Y) by more than {cdp_atol} meters for "
-                            f"{n_diff} traces ({(n_diff / n_traces):.02f} %)")
+                            f"{n_diff} traces ({(n_diff / n_traces):.02f}%)")
 
     if {*shot_coords_cols, "SourceSurfaceElevation"} <= non_empty_columns:
         unique_shot_elevations = headers[shot_coords_cols + ["SourceSurfaceElevation"]].drop_duplicates()
@@ -105,7 +105,7 @@ def validate_trace_headers(headers, offset_atol=10, cdp_atol=10, elevation_atol=
         n_duplicated = (n_uniques > 1).sum()
         if n_duplicated:
             msg_list.append(f"Non-unique surface elevation (SourceSurfaceElevation) for {n_duplicated} source "
-                            f"locations ({(n_duplicated / len(n_uniques)):.02f} %)")
+                            f"locations ({(n_duplicated / len(n_uniques)):.02f}%)")
 
     if {*rec_coords_cols, "ReceiverGroupElevation"} <= non_empty_columns:
         unique_rec_elevations = headers[rec_coords_cols + ["ReceiverGroupElevation"]].drop_duplicates()
@@ -113,7 +113,7 @@ def validate_trace_headers(headers, offset_atol=10, cdp_atol=10, elevation_atol=
         n_duplicated = (n_uniques > 1).sum()
         if n_duplicated:
             msg_list.append(f"Non-unique surface elevation (ReceiverGroupElevation) for {n_duplicated} receiver "
-                            f"locations ({(n_duplicated / len(n_uniques)):.02f} %)")
+                            f"locations ({(n_duplicated / len(n_uniques)):.02f}%)")
 
     if {*shot_coords_cols, *rec_coords_cols, "ReceiverGroupElevation", "SourceSurfaceElevation"} <= non_empty_columns:
         elevations = np.concatenate([unique_shot_elevations.to_numpy(), unique_rec_elevations.to_numpy()])
@@ -124,7 +124,7 @@ def validate_trace_headers(headers, offset_atol=10, cdp_atol=10, elevation_atol=
             msg_list.append("Surface elevations of sources (SourceSurfaceElevation) and receivers "
                             f"(ReceiverGroupElevation) differ by more than {elevation_atol} meters within spatial "
                             f"radius of {elevation_radius} meters for {n_diff} sensor locations "
-                            f"({(n_diff / len(elevations)):.02f} %)")
+                            f"({(n_diff / len(elevations)):.02f}%)")
 
     if {*cdp_coords_cols, *bin_coords_cols} <= non_empty_columns:
         unique_cdp_bin = headers[cdp_coords_cols + bin_coords_cols].drop_duplicates()
@@ -132,14 +132,14 @@ def validate_trace_headers(headers, offset_atol=10, cdp_atol=10, elevation_atol=
         n_duplicated = (n_cdp_per_bin > 1).sum()
         if n_duplicated:
             msg_list.append(f"Non-unique midpoint coordinates (CDP_X, CDP_Y) for {n_duplicated} bins "
-                            f"({(n_duplicated / len(n_cdp_per_bin)):.02f} %)")
+                            f"({(n_duplicated / len(n_cdp_per_bin)):.02f}%)")
         n_bin_per_cdp = unique_cdp_bin.groupby(cdp_coords_cols).size()
         n_duplicated = (n_bin_per_cdp > 1).sum()
         if n_duplicated:
             msg_list.append(f"Non-unique bin (INLINE_3D, CROSSLINE_3D) for {n_duplicated} midpoint locations "
-                            f"({(n_duplicated / len(n_bin_per_cdp)):.02f} %)")
+                            f"({(n_duplicated / len(n_bin_per_cdp)):.02f}%)")
 
-    warn_list("The loaded Survey has the following problems with trace headers:", msg_list)
+    warn_list("The survey has the following inconsistencies in trace headers:", msg_list)
 
 
 def validate_source_headers(headers, source_id_cols=None):
@@ -161,13 +161,13 @@ def validate_source_headers(headers, source_id_cols=None):
     coords_cols = ["SourceX", "SourceY"]
     loaded_columns = set(headers.columns)
 
-    if {*source_id_cols, *coords_cols} <= loaded_columns:
+    if set(source_id_cols) != set(coords_cols) and {*source_id_cols, *coords_cols} <= loaded_columns:
         unique_coords = headers[source_id_cols + coords_cols].drop_duplicates()
         n_uniques = unique_coords.groupby(source_id_cols).size()
         n_duplicated = (n_uniques > 1).sum()
         if n_duplicated:
             msg_list.append(f"Non-unique source coordinates (SourceX, SourceY) for {n_duplicated} sources "
-                            f"({(n_duplicated / len(n_uniques)):.02f} %)")
+                            f"({(n_duplicated / len(n_uniques)):.02f}%)")
 
     if {*source_id_cols, "SourceSurfaceElevation"} <= loaded_columns:
         unique_elevations = headers[source_id_cols + ["SourceSurfaceElevation"]].drop_duplicates()
@@ -175,7 +175,7 @@ def validate_source_headers(headers, source_id_cols=None):
         n_duplicated = (n_uniques > 1).sum()
         if n_duplicated:
             msg_list.append(f"Non-unique surface elevation (SourceSurfaceElevation) for {n_duplicated} sources "
-                            f"({(n_duplicated / len(n_uniques)):.02f} %)")
+                            f"({(n_duplicated / len(n_uniques)):.02f}%)")
 
     if {*source_id_cols, "SourceUpholeTime"} <= loaded_columns:
         unique_uphole_time = headers[source_id_cols + ["SourceUpholeTime"]].drop_duplicates()
@@ -183,7 +183,7 @@ def validate_source_headers(headers, source_id_cols=None):
         n_duplicated = (n_uniques > 1).sum()
         if n_duplicated:
             msg_list.append(f"Non-unique source uphole time (SourceUpholeTime) for {n_duplicated} sources "
-                            f"({(n_duplicated / len(n_uniques)):.02f} %)")
+                            f"({(n_duplicated / len(n_uniques)):.02f}%)")
 
     if {*source_id_cols, "SourceDepth"} <= loaded_columns:
         unique_depth = headers[source_id_cols + ["SourceDepth"]].drop_duplicates()
@@ -191,7 +191,7 @@ def validate_source_headers(headers, source_id_cols=None):
         n_duplicated = (n_uniques > 1).sum()
         if n_duplicated:
             msg_list.append(f"Non-unique source depth (SourceDepth) for {n_duplicated} sources "
-                            f"({(n_duplicated / len(n_uniques)):.02f} %)")
+                            f"({(n_duplicated / len(n_uniques)):.02f}%)")
 
     warn_list("Selected source ID columns result in the following inconsistencies of trace headers:", msg_list)
 
@@ -216,13 +216,13 @@ def validate_receiver_headers(headers, receiver_id_cols=None):
     coords_cols = ["GroupX", "GroupY"]
     loaded_columns = set(headers.columns)
 
-    if {*receiver_id_cols, *coords_cols} <= loaded_columns:
+    if set(receiver_id_cols) != set(coords_cols) and {*receiver_id_cols, *coords_cols} <= loaded_columns:
         unique_coords = headers[receiver_id_cols + coords_cols].drop_duplicates()
         n_uniques = unique_coords.groupby(receiver_id_cols).size()
         n_duplicated = (n_uniques > 1).sum()
         if n_duplicated:
             msg_list.append(f"Non-unique receiver coordinates (GroupX, GroupY) for {n_duplicated} receivers "
-                            f"({(n_duplicated / len(n_uniques)):.02f} %)")
+                            f"({(n_duplicated / len(n_uniques)):.02f}%)")
 
     if {*receiver_id_cols, "ReceiverGroupElevation"} <= loaded_columns:
         unique_elevations = headers[receiver_id_cols + ["ReceiverGroupElevation"]].drop_duplicates()
@@ -230,6 +230,6 @@ def validate_receiver_headers(headers, receiver_id_cols=None):
         n_duplicated = (n_uniques > 1).sum()
         if n_duplicated:
             msg_list.append(f"Non-unique surface elevation (ReceiverGroupElevation) for {n_duplicated} receivers "
-                            f"({(n_duplicated / len(n_uniques)):.02f} %)")
+                            f"({(n_duplicated / len(n_uniques)):.02f}%)")
 
     warn_list("Selected receiver ID columns result in the following inconsistencies of trace headers:", msg_list)
