@@ -119,9 +119,9 @@ class Gather(TraceContainer, SamplesContainer):
         """Coordinates or None: Spatial coordinates of the gather. Headers to extract coordinates from are determined
         automatically by the `indexed_by` attribute of the gather. `None` if the gather is indexed by unsupported
         headers or required coords headers were not loaded or coordinates are non-unique for traces of the gather."""
-        try:
-            coords_cols = get_coords_cols(self.indexed_by)  # Possibly unknown coordinates for indexed_by
-            coords = self[coords_cols]  # Required coords headers may not be loaded
+        try:  # Possibly unknown coordinates for indexed_by, required coords headers may be not loaded
+            coords_cols = get_coords_cols(self.indexed_by, self.survey.source_id_cols, self.survey.receiver_id_cols)
+            coords = self[coords_cols]
         except KeyError:
             return None
         if (coords != coords[0]).any():  # Non-unique coordinates
