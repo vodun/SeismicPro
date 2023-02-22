@@ -119,16 +119,17 @@ class BaseMetricMap:  # pylint: disable=too-many-instance-attributes
         requires_explode = pd.api.types.is_object_dtype(self._metric_data[self.metric_name].dtype)
         metric_agg = (lambda s: s.explode().agg(self.agg)) if requires_explode else self.agg
         agg_dict = {
-            self.coords_cols[0]: (self.coords_cols[0], "first"),
-            self.coords_cols[1]: (self.coords_cols[1], "first"),
-            "_DELTA_X": (self.coords_cols[0], np.ptp),
-            "_DELTA_Y": (self.coords_cols[1], np.ptp),
+            "x_min": (self.coords_cols[0], "min"),
+            "y_min": (self.coords_cols[1], "min"),
+            "x_max": (self.coords_cols[0], "max"),
+            "y_max": (self.coords_cols[1], "max"),
             self.metric_name: (self.metric_name, metric_agg),
         }
         index_data = self._metric_data.groupby(self.index_cols, as_index=False, sort=False).agg(**agg_dict)
-        if index_data[["_DELTA_X", "_DELTA_Y"]].any(axis=None):
+        if (index_data["x_min"] != index_data["x_max"]).any() or (index_data["y_min"] != index_data["y_max"]).any():
             raise ValueError("Some map items have non-unique coordinates")
-        index_data.drop(columns=["_DELTA_X", "_DELTA_Y"], inplace=True)
+        index_data.rename(columns={"x_min": self.coords_cols[0], "y_min": self.coords_cols[1]}, inplace=True)
+        index_data.drop(columns=["x_max", "y_max"], inplace=True)
         self._index_data = index_data
         self._index_to_coords = index_data.groupby(self.index_cols)[self.coords_cols]
         self._calculate_map_data()
