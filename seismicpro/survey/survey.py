@@ -21,6 +21,7 @@ from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
 from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
+from ..metrics import MetricMap
 from ..containers import GatherContainer, SamplesContainer
 from ..utils import to_list, maybe_copy, get_cols, get_first_defined
 from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK, HDR_TRACE_POS
@@ -1300,47 +1301,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         SurveyGeometryPlot(self, **kwargs).plot()
 
-    def construct_attribute_map(self, attribute, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
-        """Construct a map of trace attributes aggregated by gathers.
-
-        Examples
-        --------
-        Construct a map of maximum offsets by shots:
-        >>> max_offset_map = survey.construct_attribute_map("offset", by="shot", agg="max")
-        >>> max_offset_map.plot()
-
-        The map allows for interactive plotting: a gather type defined by `by` will be displayed on click on the map.
-        The gather may be optionally sorted if `sort_by` argument if passed to the `plot` method:
-        >>> max_offset_map.plot(interactive=True, sort_by="offset")
-
-        Generate supergathers and calculate the number of traces in each of them (fold):
-        >>> supergather_columns = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
-        >>> supergather_survey = survey.generate_supergathers(size=7, step=7)
-        >>> fold_map = supergather_survey.construct_attribute_map("fold", by="supergather")
-        >>> fold_map.plot()
-
-        Parameters
-        ----------
-        attribute : str
-            If "fold", calculates the number of traces in gathers defined by `by`. Otherwise defines a survey header
-            name to construct a map for.
-        by : {"source", "shot", "receiver", "rec", "cdp", "cmp", "midpoint", "bin", "supergather"}
-            Gather type to aggregate header values over.
-        id_cols : str or list of str, optional
-            Trace headers that uniquely identify a gather of the chosen type. Acts as an index of the resulting map.
-        drop_duplicates : bool, optional, defaults to False
-            Whether to drop duplicated entries of (index, coordinates, metric value). Useful when dealing with an
-            attribute defined for a shot or receiver, not a trace (e.g. constructing a map of elevations by shots).
-        agg : str or callable, optional, defaults to "mean"
-            An aggregation function. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
-        bin_size : int, float or array-like with length 2, optional
-            Bin size for X and Y axes. If single `int` or `float`, the same bin size will be used for both axes.
-
-        Returns
-        -------
-        attribute_map : BaseMetricMap
-            Constructed attribute map.
-        """
+    def _construct_map(self, values, name, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
         by_to_cols = {
             "source": (self.source_id_cols, ["SourceX", "SourceY"]),
             "shot": (self.source_id_cols, ["SourceX", "SourceY"]),
@@ -1361,12 +1322,84 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if index_cols is not None:
             index_cols = to_list(index_cols)
             metric_data[index_cols] = self[index_cols]
-        metric_data[attribute] = np.ones(len(metric_data)) if attribute == "fold" else self[attribute]
+        metric_data[name] = values
         if drop_duplicates:
             metric_data.drop_duplicates(inplace=True)
         index = metric_data[index_cols] if index_cols is not None else None
         coords = metric_data[coords_cols]
-        values = metric_data[attribute]
+        values = metric_data[name]
 
-        metric = SurveyAttribute(name=attribute)
+        metric = SurveyAttribute(name=name)
+        return metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size, survey=self)
+
+    def construct_header_map(self, col, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
+        """Construct a metric map of trace header values aggregated by gather.
+
+        Examples
+        --------
+        Construct a map of maximum offset by shots:
+        >>> max_offset_map = survey.construct_header_map("offset", by="shot", agg="max")
+        >>> max_offset_map.plot()
+
+        The map allows for interactive plotting: a gather type defined by `by` will be displayed on click on the map.
+        The gather may optionally be sorted if `sort_by` argument is passed to the `plot` method:
+        >>> max_offset_map.plot(interactive=True, sort_by="offset")
+
+        Parameters
+        ----------
+        col : str
+            Headers column to extract values from.
+        by : {"source", "shot", "receiver", "rec", "cdp", "cmp", "midpoint", "bin", "supergather"}
+            Gather type to aggregate header values over.
+        id_cols : str or list of str, optional
+            Trace headers that uniquely identify a gather of the chosen type. Acts as an index of the resulting map.
+        drop_duplicates : bool, optional, defaults to False
+            Whether to drop duplicated entries of (index, coordinates, metric value). Useful when dealing with a header
+            defined for a shot or receiver, not a trace (e.g. constructing a map of elevations by shots).
+        agg : str or callable, optional, defaults to "mean"
+            An aggregation function. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
+        bin_size : int, float or array-like with length 2, optional
+            Bin size for X and Y axes. If single `int` or `float`, the same bin size will be used for both axes.
+
+        Returns
+        -------
+        header_map : BaseMetricMap
+            Constructed header map.
+        """
+        return self._construct_map(self[col], name=col, by=by, id_cols=id_cols, drop_duplicates=drop_duplicates,
+                                   agg=agg, bin_size=bin_size)
+
+
+    def construct_fold_map(self, by, id_cols=None, agg=None, bin_size=None):
+        """Construct a metric map which stores the number of traces for each gather (fold).
+
+        Examples
+        --------
+        Generate supergathers and calculate their fold:
+        >>> supergather_columns = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
+        >>> supergather_survey = survey.generate_supergathers(size=7, step=7)
+        >>> fold_map = supergather_survey.construct_fold_map(by="supergather")
+        >>> fold_map.plot()
+
+        Parameters
+        ----------
+        by : {"source", "shot", "receiver", "rec", "cdp", "cmp", "midpoint", "bin", "supergather"}
+            Gather type to aggregate header values over.
+        id_cols : str or list of str, optional
+            Trace headers that uniquely identify a gather of the chosen type. Acts as an index of the resulting map.
+        agg : str or callable, optional, defaults to "mean"
+            An aggregation function. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
+        bin_size : int, float or array-like with length 2, optional
+            Bin size for X and Y axes. If single `int` or `float`, the same bin size will be used for both axes.
+
+        Returns
+        -------
+        fold_map : BaseMetricMap
+            Constructed fold map.
+        """
+        tmp_map = self._construct_map(np.ones(len(self)), name="fold", by=by, id_cols=id_cols, agg="sum")
+        metric = tmp_map.metric
+        index = tmp_map.index_data[tmp_map.index_cols]
+        coords = tmp_map.index_data[tmp_map.coords_cols]
+        values = tmp_map.index_data[tmp_map.metric_name]
         return metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size, survey=self)
