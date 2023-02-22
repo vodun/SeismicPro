@@ -443,7 +443,7 @@ class MetricMap(metaclass=MetricMapMeta):
     """Construct a metric map.
 
     A metric map stores information about metric `values` calculated for individual items defined by `index` and
-    located at spatial coordinates `coords`. `index` argument may be omitted: in this case, the map assumed that an
+    located at spatial coordinates `coords`. `index` argument may be omitted: in this case, the map assumes that an
     item is uniquely determined by its coordinates.
 
     Several metric values may be defined for an item in the map. It can be done either by providing several entries in

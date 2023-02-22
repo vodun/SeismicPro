@@ -69,6 +69,8 @@ class Metric:
         Maximum colorbar value. Unlike `max_value` which describes maximum feasible value of the metric in mathematical
         sense, `vmax` defines colorbar limit to compare several maps or highlight outliers. Takes precedence over
         `max_value`.
+    has_bound_context : bool
+        Whether the metric has bound execution context and can be used for interactive metric map plotting.
     """
     name = "metric"
     is_lower_better = None
