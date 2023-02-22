@@ -1302,6 +1302,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         SurveyGeometryPlot(self, **kwargs).plot()
 
     def _construct_map(self, values, name, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
+        """Construct a metric map of `values` aggregated by gather, whose type is defined by `by`."""
         by_to_cols = {
             "source": (self.source_id_cols, ["SourceX", "SourceY"]),
             "shot": (self.source_id_cols, ["SourceX", "SourceY"]),
