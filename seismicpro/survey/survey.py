@@ -1316,7 +1316,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         index_cols, coords_cols = by_to_cols.get(by.lower())
         if coords_cols is None:
             raise ValueError(f"by must be one of {', '.join(by_to_cols.keys())} but {by} given.")
-        index_cols = get_first_defined(index_cols, id_cols)
+        index_cols = get_first_defined(id_cols, index_cols)
 
         metric_data = self.get_headers(coords_cols)
         if index_cols is not None:
@@ -1397,7 +1397,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         fold_map : BaseMetricMap
             Constructed fold map.
         """
-        tmp_map = self._construct_map(np.ones(len(self)), name="fold", by=by, id_cols=id_cols, agg="sum")
+        tmp_map = self._construct_map(np.ones(self.n_traces), name="fold", by=by, id_cols=id_cols, agg="sum")
         metric = tmp_map.metric
         index = tmp_map.index_data[tmp_map.index_cols]
         coords = tmp_map.index_data[tmp_map.coords_cols]
