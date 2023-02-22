@@ -15,7 +15,7 @@ def warn_list(title, warning_list, width=80):
     if n_warnings == 0:
         return
     ix_len = len(str(n_warnings))
-    wrap_space = (3 + ix_len)
+    wrap_space = 3 + ix_len
     wrap_sep = "\n" + " " * wrap_space
     line_sep = "\n\n" + "-" * width
     warning_list = [wrap_sep.join(wrap(warn_str, width=width-wrap_space)) for warn_str in warning_list]

@@ -21,7 +21,6 @@ from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
 from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
-from ..metrics import MetricMap
 from ..containers import GatherContainer, SamplesContainer
 from ..utils import to_list, maybe_copy, get_cols, get_first_defined
 from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK, HDR_TRACE_POS
@@ -450,6 +449,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         print(self)
 
     def set_source_id_cols(self, cols, validate=True):
+        """Set new trace headers that uniquely identify a seismic source and optionally validate consistency of
+        source-related trace headers by checking that each source has unique coordinates, surface elevation, uphole
+        time and depth."""
         if set(to_list(cols)) - self.available_headers:
             raise ValueError("Required headers were not loaded")
         if validate:
@@ -459,6 +461,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.source_id_cols = cols
 
     def set_receiver_id_cols(self, cols, validate=True):
+        """Set new trace headers that uniquely identify a receiver and optionally validate consistency of
+        receiver-related trace headers by checking that each receiver has unique coordinates and surface elevation."""
         if set(to_list(cols)) - self.available_headers:
             raise ValueError("Required headers were not loaded")
         if validate:
@@ -468,32 +472,41 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.receiver_id_cols = cols
 
     def validate_headers(self, offset_atol=10, cdp_atol=10, elevation_atol=5, elevation_radius=50):
-        """Validate trace headers by checking that:
-        - All headers are not empty,
-        - Trace identifier (FieldRecord, TraceNumber) has no duplicates,
-        - Traces with the same shot index (FieldRecord) do not have different coordinates (SourceX, SourceY),
-        - Traces do not have signed offsets,
-        - Offsets in trace headers coincide with distances between shots (SourceX, SourceY) and receivers (GroupX,
-        GroupY),
-        - Mapping from geographic (CDP_X, CDP_Y) to line-based (INLINE_3D/CROSSLINE_3D) coordinates and back is unique,
-        - Coordinates of a midpoint (CDP_X, CDP_Y) matches those of the corresponding shot (SourceX, SourceY) and
-        receiver (GroupX, GroupY),
-        - Surface elevation of a shot (SourceSurfaceElevation) or receiver (ReceiverGroupElevation) is the same for all
-        its traces,
-        - Elevation-related headers (ReceiverGroupElevation, SourceSurfaceElevation) have consistent ranges.
+        """Check trace headers for consistency.
+
+        1. Validate trace headers by checking that:
+           - All headers are not empty,
+           - Trace identifier (FieldRecord, TraceNumber) has no duplicates,
+           - Source uphole times and depths are non-negative,
+           - Source uphole time is zero if and only if source depth is also zero,
+           - Traces do not have signed offsets,
+           - Offsets in trace headers coincide with distances between sources (SourceX, SourceY) and receivers (GroupX,
+             GroupY),
+           - Coordinates of a midpoint (CDP_X, CDP_Y) matches those of the corresponding source (SourceX, SourceY) and
+             receiver (GroupX, GroupY),
+           - Surface elevation is unique for a given spatial location,
+           - Elevation-related headers (ReceiverGroupElevation, SourceSurfaceElevation) have consistent ranges,
+           - Mapping from geographic (CDP_X, CDP_Y) to line-based (INLINE_3D, CROSSLINE_3D) coordinates and back is
+             unique.
+
+        2. Validate consistency of source-related trace headers by checking that each source has unique coordinates,
+           surface elevation, uphole time and depth.
+
+        3. Validate consistency of receiver-related trace headers by checking that each receiver has unique coordinates
+           and surface elevation.
 
         If any of the checks fail, a warning is displayed.
 
         Parameters
         ----------
         offset_atol : int, optional, defaults to 10
-            Maximum allowed difference between a trace offset and the distance between its shot and receiver.
+            Maximum allowed difference between a trace offset and the distance between its source and receiver.
         cdp_atol : int, optional, defaults to 10
-            Maximum allowed difference between coordinates of a trace CDP and the midpoint between its shot and
+            Maximum allowed difference between coordinates of a trace CDP and the midpoint between its source and
             receiver.
         elevation_atol : int, optional, defaults to 5
-            Maximum allowed difference between surface elevation at a given shot/receiver location and mean elevation
-            of all shots and receivers within a radius defined by `elev_radius`.
+            Maximum allowed difference between surface elevation at a given source/receiver location and mean elevation
+            of all sources and receivers within a radius defined by `elevation_radius`.
         elevation_radius : int, optional, defaults to 50
             Radius of the neighborhood to estimate mean surface elevation.
         """
