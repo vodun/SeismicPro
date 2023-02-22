@@ -15,13 +15,14 @@ from tqdm.auto import tqdm
 from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
 
-from .headers import load_headers, validate_headers
+from .headers import load_headers
+from .headers_checks import validate_trace_headers, validate_source_headers, validate_receiver_headers
 from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
 from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
 from ..containers import GatherContainer, SamplesContainer
-from ..utils import to_list, maybe_copy, get_cols
+from ..utils import to_list, maybe_copy, get_cols, get_first_defined
 from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK, HDR_TRACE_POS
 
 
@@ -84,6 +85,14 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         If not given, only headers from `header_index` are loaded and `TRACE_SEQUENCE_FILE` header is reconstructed
         automatically if not in the index.
         If "all", all available headers are loaded.
+    source_id_cols : str or list of str, optional
+        Trace headers that uniquely identify a seismic source. If not given, set in the following way (in order of
+        priority):
+        - `FieldRecord` if it loaded,
+        - [`SourceX`, `SourceY`] if they are loaded,
+        - `None` otherwise.
+    receiver_id_cols : str or list of str, optional
+        Trace headers that uniquely identify a receiver. If not given, set to [`GroupX`, `GroupY`] if they are loaded.
     name : str, optional
         Survey name. If not given, source file name is used. This name is mainly used to identify the survey when it is
         added to an index, see :class:`~index.SeismicIndex` docs for more info.
@@ -91,7 +100,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Default time limits to be used during trace loading and survey statistics calculation. `int` or `tuple` are
         used as arguments to init a `slice` object. If not given, whole traces are used. Measured in samples.
     validate : bool, optional, defaults to True
-        Whether to perform trace headers validation.
+        Whether to perform validation of trace headers consistency.
     endian : {"big", "msb", "little", "lsb"}, optional, defaults to "big"
         SEG-Y file endianness.
     chunk_size : int, optional, defaults to 25000
@@ -117,6 +126,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Sample rate of seismic traces. Measured in milliseconds.
     limits : slice
         Default time limits to be used during trace loading and survey statistics calculation. Measured in samples.
+    source_id_cols : str or list of str or None
+        Trace headers that uniquely identify a seismic source.
+    receiver_id_cols : str or list of str or None
+        Trace headers that uniquely identify a receiver.
     segy_handler : segyio.segy.SegyFile
         Source SEG-Y file handler.
     has_stats : bool
@@ -160,8 +173,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     """
 
     # pylint: disable-next=too-many-arguments, too-many-statements
-    def __init__(self, path, header_index, header_cols=None, name=None, limits=None, validate=True, endian="big",
-                 chunk_size=25000, n_workers=None, bar=True, use_segyio_trace_loader=False):
+    def __init__(self, path, header_index, header_cols=None, source_id_cols=None, receiver_id_cols=None, name=None,
+                 limits=None, validate=True, endian="big", chunk_size=25000, n_workers=None, bar=True,
+                 use_segyio_trace_loader=False):
         self.path = os.path.abspath(path)
         self.name = os.path.splitext(os.path.basename(self.path))[0] if name is None else name
 
@@ -176,10 +190,24 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             header_cols = allowed_headers
         else:
             header_cols = set(to_list(header_cols))
+        headers_to_load = set(header_index) | header_cols
+
+        # Parse source and receiver id cols and set defaults if needed
+        if source_id_cols is None:
+            if "FieldRecord" in headers_to_load:
+                source_id_cols = "FieldRecord"
+            elif {"SourceX", "SourceY"} <= headers_to_load:
+                source_id_cols = ["SourceX", "SourceY"]
+        self.source_id_cols = source_id_cols
+        if receiver_id_cols is None:
+            if {"GroupX", "GroupY"} <= headers_to_load:
+                source_id_cols = ["GroupX", "GroupY"]
+        self.receiver_id_cols = receiver_id_cols
+        headers_to_load = headers_to_load | set(to_list(source_id_cols)) | set(to_list(receiver_id_cols))
 
         # TRACE_SEQUENCE_FILE is not loaded but reconstructed manually since sometimes it is undefined in the file but
         # we rely on it during gather loading
-        headers_to_load = (set(header_index) | header_cols) - {"TRACE_SEQUENCE_FILE"}
+        headers_to_load = headers_to_load - {"TRACE_SEQUENCE_FILE"}
 
         unknown_headers = headers_to_load - allowed_headers
         if unknown_headers:
@@ -306,6 +334,20 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return len(self.file_samples)
 
     @property
+    def n_sources(self):
+        """int: The number of sources."""
+        if self.source_id_cols is None:
+            return None
+        return len(self.get_headers(self.source_id_cols).drop_duplicates())
+
+    @property
+    def n_receivers(self):
+        """int: The number of receivers."""
+        if self.receiver_id_cols is None:
+            return None
+        return len(self.get_headers(self.receiver_id_cols).drop_duplicates())
+
+    @property
     def dead_traces_marked(self):
         """bool: `mark_dead_traces` called."""
         return self.n_dead_traces is not None
@@ -352,7 +394,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """Print survey metadata including information about the source file, field geometry if it was inferred and
         trace statistics if they were calculated."""
         offsets = self.headers.get('offset')
-        offset_range = f'[{np.min(offsets)} m, {np.max(offsets)} m]' if offsets is not None else None
+        offset_range = f'[{np.min(offsets)} m, {np.max(offsets)} m]' if offsets is not None else "Unknown"
         msg = f"""
         Survey path:               {self.path}
         Survey name:               {self.name}
@@ -360,12 +402,14 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Indexed by:                {', '.join(to_list(self.indexed_by))}
         Number of gathers:         {self.n_gathers}
+        Number of sources:         {get_first_defined(self.n_sources, "Unknown")}
+        Number of receivers:       {get_first_defined(self.n_receivers, "Unknown")}
         Number of traces:          {self.n_traces}
         Trace length:              {self.n_samples} samples
         Sample rate:               {self.sample_rate} ms
         Times range:               [{min(self.samples)} ms, {max(self.samples)} ms]
         Offsets range:             {offset_range}
-        Is uphole:                 {"Unknown" if self.is_uphole is None else self.is_uphole}
+        Is uphole:                 {get_first_defined(self.is_uphole, "Unknown")}
         """
 
         if self.has_inferred_geometry:
@@ -401,7 +445,25 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         trace statistics if they were calculated."""
         print(self)
 
-    def validate_headers(self, offset_atol=10, cdp_atol=10, elev_atol=5, elev_radius=50):
+    def set_source_id_cols(self, cols, validate=True):
+        if set(to_list(cols)) - self.available_headers:
+            raise ValueError("Required headers were not loaded")
+        if validate:
+            headers = self.headers.copy(deep=False)
+            headers.reset_index(inplace=True)
+            validate_source_headers(self.headers, cols)
+        self.source_id_cols = cols
+
+    def set_receiver_id_cols(self, cols, validate=True):
+        if set(to_list(cols)) - self.available_headers:
+            raise ValueError("Required headers were not loaded")
+        if validate:
+            headers = self.headers.copy(deep=False)
+            headers.reset_index(inplace=True)
+            validate_receiver_headers(self.headers, cols)
+        self.receiver_id_cols = cols
+
+    def validate_headers(self, offset_atol=10, cdp_atol=10, elevation_atol=5, elevation_radius=50):
         """Validate trace headers by checking that:
         - All headers are not empty,
         - Trace identifier (FieldRecord, TraceNumber) has no duplicates,
@@ -425,14 +487,18 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         cdp_atol : int, optional, defaults to 10
             Maximum allowed difference between coordinates of a trace CDP and the midpoint between its shot and
             receiver.
-        elev_atol : int, optional, defaults to 5
+        elevation_atol : int, optional, defaults to 5
             Maximum allowed difference between surface elevation at a given shot/receiver location and mean elevation
             of all shots and receivers within a radius defined by `elev_radius`.
-        elev_radius : int, optional, defaults to 50
+        elevation_radius : int, optional, defaults to 50
             Radius of the neighborhood to estimate mean surface elevation.
         """
-        validate_headers(self.headers, offset_atol=offset_atol, cdp_atol=cdp_atol, elev_atol=elev_atol,
-                         elev_radius=elev_radius)
+        headers = self.headers.copy(deep=False)
+        headers.reset_index(inplace=True)
+        validate_trace_headers(headers, offset_atol=offset_atol, cdp_atol=cdp_atol, elevation_atol=elevation_atol,
+                               elevation_radius=elevation_radius)
+        validate_source_headers(headers, self.source_id_cols)
+        validate_receiver_headers(headers, self.receiver_id_cols)
 
     #------------------------------------------------------------------------#
     #                        Geometry-related methods                        #
@@ -442,7 +508,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """Get a binary mask of the field with ones set for bins with at least one trace and zeros otherwise. Mask
         origin corresponds to a bin with minimum inline and crossline over the field and is also returned."""
         # Find unique pairs of inlines and crosslines, drop_duplicates is way faster than np.unique
-        lines = pd.DataFrame(self[["INLINE_3D", "CROSSLINE_3D"]]).drop_duplicates().values
+        lines = self.get_headers(["INLINE_3D", "CROSSLINE_3D"]).drop_duplicates().to_numpy()
 
         # Construct a binary mask of a field where True value is set for bins containing at least one trace
         # and False otherwise
@@ -476,7 +542,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         cols = coords_cols + bins_cols
 
         # Construct a mapping from bins to their coordinates and back
-        bins_to_coords = pd.DataFrame(self[cols], columns=cols)
+        bins_to_coords = self.get_headers(cols)
         bins_to_coords = bins_to_coords.groupby(bins_cols, sort=False, as_index=False).agg("mean")
         bins_to_coords_reg = LinearRegression(copy_X=False, n_jobs=-1)
         bins_to_coords_reg.fit(bins_to_coords[bins_cols], bins_to_coords[coords_cols])
@@ -1289,7 +1355,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             map_data = self.headers.groupby(coords_cols, as_index=False).size().rename(columns={"size": "Fold"})
         else:
             data_cols = coords_cols + [attribute]
-            map_data = pd.DataFrame(self[data_cols], columns=data_cols)
+            map_data = self.get_headers(data_cols)
             if drop_duplicates:
                 map_data.drop_duplicates(inplace=True)
 
