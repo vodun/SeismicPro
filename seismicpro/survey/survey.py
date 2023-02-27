@@ -1302,18 +1302,29 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             Whether to display a field contour if survey geometry was inferred.
         keep_aspect : bool, optional, defaults to False
             Whether to keep aspect ratio of the map plot.
+        source_id_cols : str or list of str, optional
+            Trace headers that uniquely identify a seismic source. If not given, `self.source_id_cols` is used.
+        source_sort_by : str or list of str, optional
+            Header names to sort the displayed common source gathers by. If not given, passed `sort_by` value is used.
+        receiver_id_cols : str or list of str, optional
+            Trace headers that uniquely identify a receiver. If not given, `self.receiver_id_cols` is used.
+        receiver_sort_by : str or list of str, optional
+            Header names to sort the displayed common receiver gathers by. If not given, passed `sort_by` value is
+            used.
+        sort_by : str or list of str, optional
+            Default header names to sort the displayed gather by. If not given, no sorting is performed.
+        gather_plot_kwargs : dict, optional
+            Additional arguments to pass to `Gather.plot`.
         x_ticker : str or dict, optional
             Parameters to control `x` axis tick formatting and layout of the map plot. See `.utils.set_ticks` for more
             details.
         y_ticker : dict, optional
             Parameters to control `y` axis tick formatting and layout of the map plot. See `.utils.set_ticks` for more
             details.
-        sort_by : str, optional
-            Header name to sort the displayed gather by.
-        gather_plot_kwargs : dict, optional
-            Additional arguments to pass to `Gather.plot`.
         figsize : tuple with 2 elements, optional, defaults to (4.5, 4.5)
             Size of created map and gather figures. Measured in inches.
+        orientation : {"horizontal", "vertical"}, optional, defaults to "horizontal"
+            Defines whether to stack the main and auxiliary plots horizontally or vertically.
         kwargs : misc, optional
             Additional keyword arguments to pass to `matplotlib.axes.Axes.scatter` when plotting the map.
         """
