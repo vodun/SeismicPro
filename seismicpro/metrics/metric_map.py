@@ -200,6 +200,17 @@ class BaseMetricMap:  # pylint: disable=too-many-instance-attributes
                               index=self.metric_data[self.index_cols], metric=self.metric, agg=agg, bin_size=bin_size,
                               **self.context)
 
+    def construct_items_titles(self, coords_list, index_list, values_list=None):
+        """Return a title of the auxiliary plot for each item by its coordinates, index and optionally a metric
+        value."""
+        index_list = [(index,) if not isinstance(index, tuple) else index for index in index_list]
+        data = [index + coords for index, coords in zip(index_list, coords_list)]
+        cols = self.index_cols + self.coords_cols
+        titles_list = [", ".join(list(dict.fromkeys([f"{col} {val}" for col, val in zip(cols, row)]))) for row in data]
+        if values_list is None:
+            return titles_list
+        return [f"{val:.03f} metric for {title}" for val, title in zip(values_list, titles_list)]
+
     def get_worst_coords(self, is_lower_better=None):
         """Get coordinates with the worst metric value depending on `is_lower_better`. If not given, `is_lower_better`
         attribute of `self.metric` is used.
