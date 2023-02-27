@@ -77,69 +77,72 @@ class SurveyGeometryPlot(PairedPlot):  # pylint: disable=too-many-instance-attri
 
     @property
     def is_shot_view(self):
-        """bool: whether the current view displays shot locations."""
+        """bool: Whether the current view displays shot locations."""
         return self.main.current_view == 0
 
     @property
     def active_map(self):
+        """MetricMap: Fold map of sources or receivers depending on the current view."""
         return self.source_map if self.is_shot_view else self.receiver_map
 
     @property
     def survey(self):
-        """Survey: a survey to get gathers from, depends on the current view."""
+        """Survey: A survey to get gathers from, depends on the current view."""
         return self.source_survey if self.is_shot_view else self.receiver_survey
 
     @property
     def coords(self):
-        """np.ndarray: Coordinates of shots or receivers, depend on the current view."""
+        """np.ndarray: Coordinates of sources or receivers depending on the current view."""
         return self.source_coords if self.is_shot_view else self.receiver_coords
 
     @property
     def coords_neighbors(self):
-        """sklearn.neighbors.NearestNeighbors: nearest neighbors of shots or receivers, depend on the current view."""
+        """sklearn.neighbors.NearestNeighbors: Nearest neighbors of sources or receivers depending on the current
+        view."""
         return self.source_neighbors if self.is_shot_view else self.receiver_neighbors
-    
+
     @property
     def sort_by(self):
+        """str or list of str: Gather sorting depending on the current view."""
         return self.source_sort_by if self.is_shot_view else self.receiver_sort_by
 
     @property
     def activated_coords_cols(self):
-        """list of 2 str: coordinates columns, describing highlighted objects, depend on the current view."""
+        """list of 2 str: Coordinates columns describing highlighted objects depending on the current view."""
         return ["GroupX", "GroupY"] if self.is_shot_view else ["SourceX", "SourceY"]
 
     @property
     def main_color(self):
-        """str: color of the plotted objects, depends on the current view."""
+        """str: Color of the plotted objects depending on the current view."""
         return "tab:red" if self.is_shot_view else "tab:blue"
 
     @property
     def main_marker(self):
-        """str: marker of the plotted objects, depends on the current view."""
+        """str: Marker of the plotted objects depending on the current view."""
         return "*" if self.is_shot_view else "v"
 
     @property
     def aux_color(self):
-        """str: color of the highlighted objects, depends on the current view."""
+        """str: Color of the highlighted objects depending on the current view."""
         return "tab:blue" if self.is_shot_view else "tab:red"
 
     @property
     def aux_marker(self):
-        """str: marker of the highlighted objects, depends on the current view."""
+        """str: Marker of the highlighted objects depending on the current view."""
         return "v" if self.is_shot_view else "*"
 
     @property
     def map_x_label(self):
-        """str: label of the x map axis, depends on the current view."""
+        """str: Label of the X map axis depending on the current view."""
         return "SourceX" if self.is_shot_view else "GroupX"
 
     @property
     def map_y_label(self):
-        """str: label of the y map axis, depends on the current view."""
+        """str: Label of the Y map axis depending on the current view."""
         return "SourceY" if self.is_shot_view else "GroupY"
 
     def _plot_map(self, ax, contours, keep_aspect, x_lim, y_lim, x_ticker, y_ticker, **kwargs):
-        """Plot shot or receiver locations depending on the current view."""
+        """Plot locations of sources or receivers depending on the current view."""
         self.aux.clear()
         self.aux.box.layout.visibility = "hidden"
 
@@ -156,6 +159,7 @@ class SurveyGeometryPlot(PairedPlot):  # pylint: disable=too-many-instance-attri
         set_ticks(ax, "y", self.map_y_label, **y_ticker)
 
     def _plot_gather(self, ax, coords, index, **kwargs):
+        """Display a gather with given index and highlight locations of activated sources or receivers."""
         _ = coords
         gather = self.survey.get_gather(index)
         if self.sort_by is not None:
@@ -164,6 +168,7 @@ class SurveyGeometryPlot(PairedPlot):  # pylint: disable=too-many-instance-attri
         self._plot_activated(gather[self.activated_coords_cols])
 
     def _plot_activated(self, coords):
+        """Highlight locations of activated sources or receivers."""
         if self.activated_scatter is not None:
             self.activated_scatter.remove()
         self.activated_scatter = self.main.ax.scatter(*coords.T, color=self.aux_color, marker=self.aux_marker,
@@ -171,7 +176,8 @@ class SurveyGeometryPlot(PairedPlot):  # pylint: disable=too-many-instance-attri
         self.main.fig.canvas.draw_idle()
 
     def click(self, coords):
-        """Highlight activated shot or receiver locations and display a gather."""
+        """Process a click on the map: display the selected gather and highlight locations of activated sources or
+        receivers."""
         coords = tuple(self.coords[self.coords_neighbors.kneighbors([coords], return_distance=False).item()])
         gather_indices = self.active_map.get_indices_by_map_coords(coords).index.tolist()
         gather_coords = [coords] * len(gather_indices)
@@ -181,7 +187,7 @@ class SurveyGeometryPlot(PairedPlot):  # pylint: disable=too-many-instance-attri
         return coords
 
     def unclick(self):
-        """Remove highlighted shot or receiver locations and hide the gather plot."""
+        """Remove highlighted locations of sources or receivers, clear the gather plot and hide it."""
         if self.activated_scatter is not None:
             self.activated_scatter.remove()
             self.activated_scatter = None
