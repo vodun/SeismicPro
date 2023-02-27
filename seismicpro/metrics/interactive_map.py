@@ -135,9 +135,9 @@ class ScatterMapPlot(MetricMapPlot):
     def construct_aux_plot(self):
         """Construct an interactive plot with data representation at click location."""
         toolbar_position = "right" if self.orientation == "horizontal" else "left"
-        if self.metric_map.has_overlaying_indices:
-            return OverlayingIndicesPlot(plot_fn=self.plot_on_click, toolbar_position=toolbar_position)
-        return NonOverlayingIndicesPlot(plot_fn=self.plot_on_click, toolbar_position=toolbar_position)
+        kwargs = {"plot_fn": self.plot_on_click, "figsize": self.figsize, "toolbar_position": toolbar_position}
+        aux_plot_type = OverlayingIndicesPlot if self.metric_map.has_overlaying_indices else NonOverlayingIndicesPlot
+        return aux_plot_type(**kwargs)
 
     def preprocess_click_coords(self, click_coords):
         """Return map coordinates closest to coordinates of the click."""
@@ -150,7 +150,8 @@ class BinarizedMapPlot(MetricMapPlot):
     def construct_aux_plot(self):
         """Construct an interactive plot with map contents at click location."""
         toolbar_position = "right" if self.orientation == "horizontal" else "left"
-        return OverlayingIndicesPlot(plot_fn=self.plot_on_click, toolbar_position=toolbar_position)
+        return OverlayingIndicesPlot(plot_fn=self.plot_on_click, figsize=self.figsize,
+                                     toolbar_position=toolbar_position)
 
     def preprocess_click_coords(self, click_coords):
         """Return coordinates of a bin corresponding to coordinates of a click. Ignore the click if it was performed
