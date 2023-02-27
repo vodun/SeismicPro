@@ -396,17 +396,22 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     def __str__(self):
         """Print survey metadata including information about the source file, field geometry if it was inferred and
         trace statistics if they were calculated."""
+        source_id_str = ", ".join(to_list(self.source_id_cols)) if self.source_id_cols is not None else "Unknown"
+        receiver_id_str = ", ".join(to_list(self.receiver_id_cols)) if self.receiver_id_cols is not None else "Unknown"
         offsets = self.headers.get('offset')
-        offset_range = f'[{np.min(offsets)} m, {np.max(offsets)} m]' if offsets is not None else "Unknown"
+        offset_range = f"[{np.min(offsets)} m, {np.max(offsets)} m]" if offsets is not None else "Unknown"
+
         msg = f"""
         Survey path:               {self.path}
         Survey name:               {self.name}
         Survey size:               {os.path.getsize(self.path) / (1024**3):4.3f} GB
 
-        Indexed by:                {', '.join(to_list(self.indexed_by))}
-        Number of gathers:         {self.n_gathers}
+        Source ID headers:         {source_id_str}
         Number of sources:         {get_first_defined(self.n_sources, "Unknown")}
+        Receiver ID headers:       {receiver_id_str}
         Number of receivers:       {get_first_defined(self.n_receivers, "Unknown")}
+        Indexed by:                {", ".join(to_list(self.indexed_by))}
+        Number of gathers:         {self.n_gathers}
         Number of traces:          {self.n_traces}
         Trace length:              {self.n_samples} samples
         Sample rate:               {self.sample_rate} ms

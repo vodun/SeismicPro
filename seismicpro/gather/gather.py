@@ -19,8 +19,8 @@ from .cropped_gather import CroppedGather
 from .plot_corrections import NMOCorrectionPlot, LMOCorrectionPlot
 from .utils import correction, normalization, gain
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
-from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_yticklabels, set_text_formatting,
-                     add_colorbar, piecewise_polynomial, Coordinates)
+from ..utils import (to_list, get_coords_cols, get_first_defined, set_ticks, format_subplot_yticklabels,
+                     set_text_formatting, add_colorbar, piecewise_polynomial, Coordinates)
 from ..containers import TraceContainer, SamplesContainer
 from ..muter import Muter, MuterField
 from ..velocity_spectrum import VerticalVelocitySpectrum, ResidualVelocitySpectrum
@@ -208,10 +208,6 @@ class Gather(TraceContainer, SamplesContainer):
         offsets = self.headers.get('offset')
         offset_range = f'[{np.min(offsets)} m, {np.max(offsets)} m]' if offsets is not None else None
 
-        # Format gather coordinates
-        coords = self.coords
-        coords_str = "Unknown" if coords is None else str(coords)
-
         # Count the number of zero/constant traces
         n_dead_traces = np.isclose(np.max(self.data, axis=1), np.min(self.data, axis=1)).sum()
 
@@ -221,7 +217,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         Indexed by:                  {', '.join(to_list(self.indexed_by))}
         Index value:                 {'Combined' if self.index is None else self.index}
-        Gather coordinates:          {coords_str}
+        Gather coordinates:          {get_first_defined(self.coords, "Unknown")}
         Gather sorting:              {self.sort_by}
 
         Number of traces:            {self.n_traces}
