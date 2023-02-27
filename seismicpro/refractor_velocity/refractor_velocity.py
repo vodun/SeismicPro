@@ -75,6 +75,8 @@ class RefractorVelocity:
         Parameters of the velocity model. Passed as keyword arguments.
     coords : Coordinates, optional
         Spatial coordinates at which refractor velocity is defined.
+    is_uphole_corrected : bool, optional
+        Whether the velocity model is uphole corrected.
 
     Attributes
     ----------
@@ -90,6 +92,8 @@ class RefractorVelocity:
         Times of knots of the offset-traveltime curve. Measured in milliseconds.
     coords : Coordinates or None
         Spatial coordinates at which refractor velocity is defined.
+    is_uphole_corrected : bool or None
+        Whether the velocity model is uphole corrected. `None` if unknown.
     is_fit : bool
         Whether the model parameters were estimated using `from_first_breaks` method.
     fit_result : OptimizeResult
@@ -107,7 +111,7 @@ class RefractorVelocity:
     times : 1d ndarray
         Time of first break for each trace. Measured in milliseconds. Defined only if the model was fit.
     """
-    def __init__(self, coords=None, **params):
+    def __init__(self, coords=None, is_uphole_corrected=None, **params):
         self._validate_params(params)
         self.n_refractors = len(params) // 2
 
@@ -116,6 +120,7 @@ class RefractorVelocity:
         self.piecewise_offsets, self.piecewise_times = self._calc_knots_by_params(np.array(list(self.params.values())))
         self.interpolator = interp1d(self.piecewise_offsets, self.piecewise_times)
         self.coords = coords
+        self.is_uphole_corrected = is_uphole_corrected
 
         # Fit-related attributes, set only when from_first_breaks is called
         self.is_fit = False
@@ -129,7 +134,7 @@ class RefractorVelocity:
     @classmethod  # pylint: disable-next=too-many-arguments, too-many-statements
     def from_first_breaks(cls, offsets, times, init=None, bounds=None, n_refractors=None, max_offset=None,
                           min_velocity_step=1, min_refractor_size=1, loss="L1", huber_coef=20, tol=1e-5, coords=None,
-                          **kwargs):
+                          is_uphole_corrected=None, **kwargs):
         """Fit a near-surface velocity model by offsets of traces and times of their first breaks.
 
         This methods allows specifying:
@@ -171,6 +176,8 @@ class RefractorVelocity:
             Precision goal for the value of loss in the stopping criterion.
         coords : Coordinates or None, optional
             Spatial coordinates of the created refractor velocity.
+        is_uphole_corrected : bool, optional
+            Whether `times` are uphole corrected.
         kwargs : misc, optional
             Additional `SLSQP` options, see https://docs.scipy.org/doc/scipy/reference/optimize.minimize-slsqp.html for
             more details.
@@ -284,7 +291,7 @@ class RefractorVelocity:
         params = dict(zip(param_names, param_values))
 
         # Construct a refractor velocity instance
-        self = cls(coords=coords, **params)
+        self = cls(coords=coords, is_uphole_corrected=is_uphole_corrected, **params)
         self.is_fit = True
         self.fit_result = fit_result
         self.max_offset = max_offset
@@ -325,7 +332,7 @@ class RefractorVelocity:
         return rv_list[0]
 
     @classmethod
-    def from_constant_velocity(cls, velocity, coords=None):
+    def from_constant_velocity(cls, velocity, coords=None, is_uphole_corrected=None):
         """Define a 1-layer near-surface velocity model with given layer velocity and zero intercept time.
 
         Parameters
@@ -334,6 +341,8 @@ class RefractorVelocity:
             Velocity of the first layer.
         coords : Coordinates, optional
             Spatial coordinates of the created object.
+        is_uphole_corrected : bool, optional
+            Whether the velocity model is uphole corrected.
 
         Returns
         -------
@@ -345,7 +354,7 @@ class RefractorVelocity:
         ValueError
             If passed `velocity` is negative.
         """
-        return cls(t0=0, v1=velocity, coords=coords)
+        return cls(t0=0, v1=velocity, coords=coords, is_uphole_corrected=is_uphole_corrected)
 
     @property
     def param_names(self):
@@ -360,7 +369,8 @@ class RefractorVelocity:
     def __repr__(self):
         """String representation of the velocity model."""
         params_str = ", ".join([f"{param}={val:.0f}" for param, val in self.params.items()])
-        return f"RefractorVelocity({params_str}, coords={repr(self.coords)})"
+        args_str = f"{params_str}, coords={repr(self.coords)}, is_uphole_corrected={self.is_uphole_corrected}"
+        return f"RefractorVelocity({args_str})"
 
     def __getattr__(self, key):
         """Get requested parameter of the velocity model by its name."""

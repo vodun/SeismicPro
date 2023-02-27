@@ -2,8 +2,6 @@
 
 import os
 import mmap
-import warnings
-from textwrap import wrap
 from struct import unpack
 from functools import partial
 from concurrent.futures import ProcessPoolExecutor
@@ -12,7 +10,6 @@ import segyio
 import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
-from sklearn.neighbors import RadiusNeighborsRegressor
 
 from ..const import TRACE_HEADER_SIZE, ENDIANNESS
 from ..utils import ForPoolExecutor
@@ -98,89 +95,3 @@ def load_headers(path, headers_to_load, trace_data_offset, trace_size, n_traces,
                 future.add_done_callback(partial(callback, start_pos=start))
 
     return pd.DataFrame(headers, columns=headers_order)
-
-
-# pylint: disable=too-many-statements
-def validate_headers(headers, offset_atol=10, cdp_atol=10, elev_atol=5, elev_radius=50):
-    """Validate trace headers for consistency"""
-    msg_list = []
-
-    shot_cols = ["SourceX", "SourceY"]
-    rec_cols = ["GroupX", "GroupY"]
-    cdp_cols = ["CDP_X", "CDP_Y"]
-    bin_cols = ["INLINE_3D", "CROSSLINE_3D"]
-
-    headers = headers.copy(deep=False)
-    headers.reset_index(inplace=True)
-
-    loaded_columns = headers.columns.values
-    available_columns = set(loaded_columns[headers.any(axis=0)])
-
-    zero_columns = set(loaded_columns) - available_columns
-    if zero_columns:
-        msg_list.append("Empty headers: " + ", ".join(zero_columns))
-
-    if {"FieldRecord", "TraceNumber"} <= available_columns:
-        if headers.duplicated(["FieldRecord", "TraceNumber"]).any():
-            msg_list.append("Non-unique traces identifier (FieldRecord, TraceNumber)")
-
-    if {"FieldRecord", *shot_cols} <= available_columns:
-        fr_with_coords = headers[["FieldRecord", *shot_cols]].drop_duplicates()
-        if fr_with_coords.duplicated('FieldRecord').any() or fr_with_coords.duplicated(shot_cols).any():
-            msg_list.append("Non-unique mapping of source coordinates (SourceX, SourceY) and source ID (FieldRecord)")
-
-    if 'offset' in available_columns:
-        if (headers['offset'] < 0).any():
-            msg_list.append("Signed offsets")
-
-    if {*shot_cols, *rec_cols, "offset"} <= available_columns:
-        calculated_offsets = np.sqrt(np.sum((headers[shot_cols].values - headers[rec_cols].values)**2, axis=1))
-        if not np.allclose(calculated_offsets, headers["offset"].abs(), rtol=0, atol=offset_atol):
-            msg_list.append("Offsets in headers and calculated distances between shots (SourceX, SourceY) and "
-                            "receivers (GroupX, GroupY) do not match for some traces within margin of error equal to "
-                            f"{offset_atol} meters")
-
-    if {*cdp_cols, *bin_cols} <= available_columns:
-        unique_bins_cdp = headers[[*bin_cols, *cdp_cols]].drop_duplicates()
-        if unique_bins_cdp.duplicated(cdp_cols).any() or unique_bins_cdp.duplicated(bin_cols).any():
-            msg_list.append("Non-unique mapping of midpoint (CDP_X, CDP_Y) to line-based (INLINE_3D/ CROSSLINE_3D) "
-                            "coordinates")
-
-    if {*shot_cols, *rec_cols, *cdp_cols} <= available_columns:
-        calculated_cdp = (headers[shot_cols].values + headers[rec_cols].values) / 2
-        if not np.allclose(calculated_cdp, headers[cdp_cols], rtol=0, atol=cdp_atol):
-            msg_list.append("CDP_X and CDP_Y coordinates in headers and those calculated as midpoint between shots "
-                            "(SourceX, SourceY) and receivers (GroupX, GroupY) do not match for some traces within "
-                            f"margin of error equal to {cdp_atol} meters")
-
-    if {*shot_cols, "SourceSurfaceElevation"} <= available_columns:
-        unique_shot_elevs = headers[[*shot_cols, "SourceSurfaceElevation"]].drop_duplicates()
-        has_nonunique_shot_elevs = unique_shot_elevs.duplicated(shot_cols).any()
-        if has_nonunique_shot_elevs:
-            msg_list.append("Non-unique surface elevation (SourceSurfaceElevation) for at least one shot")
-
-    if {*rec_cols, "ReceiverGroupElevation"} <= available_columns:
-        unique_rec_elevs = headers[[*rec_cols, "ReceiverGroupElevation"]].drop_duplicates()
-        has_nonunique_rec_elevs = unique_rec_elevs.duplicated(rec_cols).any()
-        if has_nonunique_rec_elevs:
-            msg_list.append("Non-unique surface elevation (ReceiverGroupElevation) for at least one receiver")
-
-    if {*shot_cols, *rec_cols, "ReceiverGroupElevation", "SourceSurfaceElevation"} <= available_columns:
-        if has_nonunique_shot_elevs:
-            unique_shot_elevs = unique_shot_elevs[~unique_shot_elevs[shot_cols].duplicated(keep=False)]
-        if has_nonunique_rec_elevs:
-            unique_rec_elevs = unique_rec_elevs[~unique_rec_elevs[rec_cols].duplicated(keep=False)]
-
-        if len(unique_shot_elevs) > 0 and len(unique_rec_elevs) > 0:
-            data = np.concatenate((unique_shot_elevs.to_numpy(), unique_rec_elevs.to_numpy()))
-            rnr = RadiusNeighborsRegressor(radius=elev_radius).fit(data[:, :2], data[:, 2])
-            if not np.allclose(rnr.predict(data[:, :2]), data[:, 2], rtol=0, atol=elev_atol):
-                msg_list.append("Elevations of shot (SourceSurfaceElevation) and receiver (ReceiverGroupElevation) "
-                                f"differ by more than {elev_atol} meters within radius of {elev_radius} meters")
-
-    if msg_list:
-        line_sep = "\n\n" + "-"*80
-        msg_list = ["\n    ".join(wrap(msg, width=76)) for msg in msg_list]
-        warning_msg = line_sep + "\n\nThe loaded Survey has the following problems with trace headers:"
-        warning_msg += "".join([f"\n\n {i+1}. {msg}" for i, msg in enumerate(msg_list)]) + line_sep
-        warnings.warn(warning_msg)
