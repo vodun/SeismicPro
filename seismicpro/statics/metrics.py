@@ -24,10 +24,11 @@ class TravelTimeMetric(Metric):
 
     def get_gather(self, index, sort_by=None):
         part, index = (0, index) if len(self.survey_list) == 1 else index
-        gather = self.survey_list[part].get_gather(index, copy_headers=True)
+        survey = self.survey_list[part]
+        gather = survey.get_gather(index, copy_headers=True)
         if sort_by is not None:
             gather = gather.sort(by=sort_by)
-        uphole_correction_method = self.nsm._get_uphole_correction_method(gather.sur)
+        uphole_correction_method = self.nsm._get_uphole_correction_method(survey)
         source_coords, receiver_coords, correction = self.nsm._get_predict_traveltime_data(gather, uphole_correction_method)
         pred_traveltimes = self.estimate_traveltimes(source_coords, receiver_coords, bar=False) - correction
         gather["Predicted " + self.first_breaks_col] = pred_traveltimes
