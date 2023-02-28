@@ -30,9 +30,8 @@ class TravelTimeMetric(Metric):
             gather = gather.sort(by=sort_by)
         uphole_correction_method = self.nsm._get_uphole_correction_method(survey)
         source_coords, receiver_coords, correction = self.nsm._get_predict_traveltime_data(gather, uphole_correction_method)
-        pred_traveltimes = self.estimate_traveltimes(source_coords, receiver_coords, bar=False) - correction
+        pred_traveltimes = self.nsm.estimate_traveltimes(source_coords, receiver_coords, bar=False) - correction
         gather["Predicted " + self.first_breaks_col] = pred_traveltimes
-        # Shift by uphole if needed
         return gather
 
     def plot_on_click(self, ax, coords, index, sort_by=None, **kwargs):
