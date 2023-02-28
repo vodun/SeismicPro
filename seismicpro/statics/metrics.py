@@ -37,7 +37,7 @@ class TravelTimeMetric(Metric):
     def plot_on_click(self, ax, coords, index, sort_by=None, **kwargs):
         _ = coords
         gather = self.get_gather(index, sort_by)
-        gather.plot(ax=ax, event_headers=[self.nsm.first_breaks_col, "PredictedFirstBreaks"], **kwargs)
+        gather.plot(ax=ax, event_headers=[self.nsm.first_breaks_col, "Predicted " + self.first_breaks_col], **kwargs)
 
     def get_views(self, sort_by=None, **kwargs):
         return [partial(self.plot_on_click, sort_by=sort_by)], kwargs
