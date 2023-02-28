@@ -418,7 +418,11 @@ class NearSurfaceModel:
     @staticmethod
     def _calc_metrics(metrics, gather_data_list):
         res = []
-        for shots_coords, receivers_coords, true_traveltimes, pred_traveltimes in gather_data_list:
+        for gather_data in gather_data_list:
+            shots_coords = gather_data[["SourceX", "SourceY"]].to_numpy()
+            receivers_coords = gather_data[["GroupX", "GroupY"]].to_numpy()
+            true_traveltimes = gather_data["True"].to_numpy()
+            pred_traveltimes = gather_data["Pred"].to_numpy()
             metric_values = [metric(shots_coords, receivers_coords, true_traveltimes, pred_traveltimes)
                              for metric in metrics]
             res.append(metric_values)
@@ -471,14 +475,7 @@ class NearSurfaceModel:
 
         qc_gb = qc_df.groupby(id_cols)
         indices_to_pos = qc_gb.indices
-        gather_data_list = []
-        for gather_indices in indices_to_pos.values():
-            gather_data = qc_df.iloc[gather_indices]
-            gather_shots_coords = gather_data[["SourceX", "SourceY"]].to_numpy()
-            gather_receivers_coords = gather_data[["GroupX", "GroupY"]].to_numpy()
-            gather_true_traveltimes = gather_data["True"].to_numpy()
-            gather_pred_traveltimes = gather_data["Pred"].to_numpy()
-            gather_data_list.append((gather_shots_coords, gather_receivers_coords, gather_true_traveltimes, gather_pred_traveltimes))
+        gather_data_list = [qc_df.iloc[gather_indices] for gather_indices in indices_to_pos.values()]
         coords = qc_gb[coords_cols].first()  # Check for uniqueness
         index = coords.index
 
