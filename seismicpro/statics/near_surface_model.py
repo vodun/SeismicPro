@@ -424,10 +424,10 @@ class NearSurfaceModel:
         metrics, is_single_metric = initialize_metrics(metrics, metric_class=TravelTimeMetric)
 
         by_to_cols = {
-            "source": "source_id_cols",
-            "shot": "source_id_cols",
-            "receiver": "receiver_id_cols",
-            "rec": "receiver_id_cols",
+            "source": ("source_id_cols", ["SourceX", "SourceY"]),
+            "shot": ("source_id_cols", ["SourceX", "SourceY"]),
+            "receiver": ("receiver_id_cols", ["GroupX", "GroupY"]),
+            "rec": ("receiver_id_cols", ["GroupX", "GroupY"]),
         }
         id_cols_attr, coords_cols = by_to_cols.get(by.lower())
         if id_cols_attr is None:
@@ -459,6 +459,7 @@ class NearSurfaceModel:
         qc_df[["GroupX", "GroupY"]] = receivers_coords[:, :2]
         qc_df["True"] = traveltimes
         qc_df["Pred"] = pred_traveltimes
+        qc_df = qc_df[id_cols + ["SourceX", "SourceY", "GroupX", "GroupY", "True", "Pred"]]
 
         qc_gb = qc_df.groupby(id_cols)
         indices_to_pos = qc_gb.indices

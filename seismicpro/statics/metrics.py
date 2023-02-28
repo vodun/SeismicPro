@@ -18,7 +18,7 @@ class TravelTimeMetric(Metric):
 
     def bind_context(self, metric_map, nsm, survey_list, first_breaks_col):
         self.nsm = nsm
-        index_cols = metric_map.index_cols[1:] if len(survey_list) == 1 else metric_map.index_cols[1:]
+        index_cols = metric_map.index_cols if len(survey_list) == 1 else metric_map.index_cols[1:]
         self.survey_list = [sur.reindex(index_cols) for sur in survey_list]
         self.first_breaks_col = first_breaks_col
 
