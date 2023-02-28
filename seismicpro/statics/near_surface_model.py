@@ -13,37 +13,43 @@ from .data_loader import TensorDataLoader
 from .metrics import TravelTimeMetric, TRAVELTIME_QC_METRICS
 from .interactive_plot import ProfilePlot, StaticsCorrectionPlot
 from ..const import HDR_FIRST_BREAK
-from ..metrics import PartialMetric
+from ..metrics import initialize_metrics
 from ..utils import to_list, IDWInterpolator, ForPoolExecutor
 
 
 class NearSurfaceModel:
-    def __init__(self, survey, refractor_velocity_field, first_breaks_col=HDR_FIRST_BREAK, is_uphole=None,
-                 init_weathering_velocity=None, filter_azimuths=True, n_intermediate_points=5,
-                 n_smoothing_neighbors=32, device="cpu"):
+    def __init__(self, survey, refractor_velocity_field, first_breaks_col=HDR_FIRST_BREAK,
+                 uphole_correction_method="auto", filter_azimuths=True, init_weathering_velocity=None,
+                 n_intermediate_points=5, n_smoothing_neighbors=32, device="cpu"):
         survey_list = to_list(survey)
         rvf_list = to_list(refractor_velocity_field)
+        if len(rvf_list) == 1:
+            rvf_list *= len(survey_list)
         if len(survey_list) != len(rvf_list):
             raise ValueError
         if any(rvf_list[0].n_refractors != rvf.n_refractors for rvf in rvf_list):
             raise ValueError
+        self.survey_list = survey_list
+        self.rvf_list = rvf_list
+        self.n_refractors = rvf_list[0].n_refractors
 
-        self.is_uphole = is_uphole
-        self.first_breaks_col = first_breaks_col
-        survey_data = [self._get_survey_data(sur, rvf, filter_azimuths) for sur, rvf in zip(survey_list, rvf_list)]
-        shots_coords_list, receivers_coords_list, traveltimes_list, field_params_list = zip(*survey_data)
+        if uphole_correction_method not in {"auto", "time", "depth", None}:
+            raise ValueError
+        self.uphole_correction_method = uphole_correction_method
+
+        traveltime_data = [self._get_traveltime_data(sur, first_breaks_col) for sur in survey_list]
+        shots_coords_list, receivers_coords_list, traveltimes_list = zip(*traveltime_data)
         shots_coords = np.concatenate(shots_coords_list)
         receivers_coords = np.concatenate(receivers_coords_list)
         traveltimes = np.concatenate(traveltimes_list)
-        field_params = pd.concat(field_params_list, ignore_index=True)
+
+        field_params = [self._get_field_params(sur, rvf, filter_azimuths) for sur, rvf in zip(survey_list, rvf_list)]
+        field_params = pd.concat(field_params, ignore_index=True)
         field_params = field_params.groupby(by=["X", "Y"], as_index=False, sort=False).mean()
         unique_coords = field_params[["X", "Y"]].to_numpy()
         surface_elevation = field_params["Elevation"].to_numpy()
         self.surface_elevation_interpolator = IDWInterpolator(unique_coords, surface_elevation, neighbors=8)
-
-        self.survey_list = survey_list
         self.field_params = field_params
-        self.n_refractors = rvf_list[0].n_refractors
 
         # Define initial model
         field_params_array = field_params[rvf_list[0].param_names].to_numpy()
@@ -65,8 +71,10 @@ class NearSurfaceModel:
             slowness_contrast = np.sqrt(all_slownesses[:, i]**2 - all_slownesses[:, i + 1]**2)
             thicknesses.append(np.nan_to_num((intercepts[i] / 2 - prev_delay) / slowness_contrast))
         thicknesses = np.column_stack(thicknesses)
-        thicknesses[:] = thicknesses.mean(axis=0)  # TODO: FIXME use mean refractor velocity
-        thicknesses[:, 0] = np.maximum(thicknesses[:, 0], (shots_coords[:, 2] - shots_coords[:, 3]).max() + 1)
+
+        # TODO: ideally remove these lines, but double-check
+        # thicknesses[:] = thicknesses.mean(axis=0)
+        # thicknesses[:, 0] = np.maximum(thicknesses[:, 0], (shots_coords[:, 2] - shots_coords[:, 3]).max() + 1)
         elevations = surface_elevation.reshape(-1, 1) - thicknesses.cumsum(axis=1)
 
         # Fit nearest neighbors
@@ -93,7 +101,7 @@ class NearSurfaceModel:
         self.neighbors_weights = torch.tensor(neighbors_weights, dtype=torch.float32, device=device)
 
         # Convert dataset arrays to torch tensors but don't move them to the device as they can be large
-        self.shots_coords = torch.tensor(shots_coords[:, [0, 1, 3]], dtype=torch.float32)
+        self.shots_coords = torch.tensor(shots_coords, dtype=torch.float32)
         self.receivers_coords = torch.tensor(receivers_coords, dtype=torch.float32)
         self.intermediate_indices = torch.tensor(intermediate_indices)
         self.traveltimes = torch.tensor(traveltimes, dtype=torch.float32)
@@ -112,33 +120,45 @@ class NearSurfaceModel:
         self.elevations_reg_hist = []
         self.thicknesses_reg_hist = []
 
-    def _get_survey_data(self, survey, refractor_velocity_field, filter_azimuths=True):
-        is_uphole = self.is_uphole
-        if is_uphole is None:
-            loaded_headers = set(survey.headers.columns) | set(survey.headers.index.names)
-            is_uphole = "SourceDepth" in loaded_headers
+    def _get_uphole_correction_method(self, survey):
+        if self.uphole_correction_method != "auto":
+            return self.uphole_correction_method
+        if not survey.is_uphole:
+            return None
+        return "time" if "SourceUpholeTime" in survey.available_headers else "depth"
 
-        shots_coords = survey[["SourceX", "SourceY", "SourceSurfaceElevation"]]
-        shots_depths = survey["SourceDepth"] if is_uphole else 0
-        shots_coords = np.column_stack([shots_coords, shots_coords[:, -1] - shots_depths])
-        receivers_coords = survey[["GroupX", "GroupY", "ReceiverGroupElevation"]]
-        traveltimes = survey[self.first_breaks_col]
+    def _get_traveltime_data(self, survey, first_breaks_col):
+        source_coords = survey[["SourceX", "SourceY", "SourceSurfaceElevation"]]
+        receiver_coords = survey[["GroupX", "GroupY", "ReceiverGroupElevation"]]
+        traveltimes = survey[first_breaks_col]
 
-        shots_elevations = pd.DataFrame(shots_coords[:, :3], columns=["X", "Y", "Elevation"])
+        uphole_correction_method = self._get_uphole_correction_method(survey)
+        if uphole_correction_method == "time":
+            traveltimes += survey["SourceUpholeTime"]
+        elif uphole_correction_method == "depth":
+            source_coords[:, -1] -= survey["SourceDepth"]
+        return source_coords, receiver_coords, traveltimes
+
+    def _get_field_params(self, survey, refractor_velocity_field, filter_azimuths=True):
+        shots_elevations = pd.DataFrame(survey[["SourceX", "SourceY", "SourceSurfaceElevation"]],
+                                        columns=["X", "Y", "Elevation"])
         shots_elevations = shots_elevations.groupby(by=["X", "Y"], as_index=False, sort=False).mean()
-        receivers_elevations = pd.DataFrame(receivers_coords, columns=["X", "Y", "Elevation"])
+        receivers_elevations = pd.DataFrame(survey[["GroupX", "GroupY", "ReceiverGroupElevation"]],
+                                            columns=["X", "Y", "Elevation"])
         receivers_elevations = receivers_elevations.groupby(by=["X", "Y"], as_index=False, sort=False).mean()
         field_params = pd.concat([shots_elevations, receivers_elevations], ignore_index=True)
         field_params = field_params.groupby(by=["X", "Y"], as_index=False, sort=False).mean()
 
-        if filter_azimuths:
-            rx, ry = (receivers_coords[:, :2] - shots_coords[:, :2]).T
+        if filter_azimuths and survey.has_inferred_geometry and not survey.is_2d:
+            shots_coords = survey[["SourceX", "SourceY"]]
+            receivers_coords = survey[["GroupX", "GroupY"]]
+            rx, ry = (receivers_coords - shots_coords).T
             azimuth = np.arctan2(ry, rx) / np.pi + 1  # [0, 1]
             n_sectors = 8
             sector_size = 2 / n_sectors
             sector = np.clip((azimuth // sector_size).astype(np.int32), 0, n_sectors - 1)
-            sector_df = pd.DataFrame(np.column_stack([shots_coords[:, :2], receivers_coords[:, :2], sector]),
-                                    columns=["SourceX", "SourceY", "GroupX", "GroupY", "Sector"])
+            sector_df = pd.DataFrame(np.column_stack([shots_coords, receivers_coords, sector]),
+                                     columns=["SourceX", "SourceY", "GroupX", "GroupY", "Sector"])
             shot_sectors = sector_df.groupby(["SourceX", "SourceY"])["Sector"].nunique().rename("Shot_n_sectors")
             rec_sectors = sector_df.groupby(["GroupX", "GroupY"])["Sector"].nunique().rename("Rec_n_sectors")
 
@@ -149,11 +169,11 @@ class NearSurfaceModel:
 
         rvf_params = refractor_velocity_field.interpolate(field_params[["X", "Y"]].to_numpy(), is_geographic=True)
         field_params[refractor_velocity_field.param_names] = rvf_params
-        return shots_coords, receivers_coords, traveltimes, field_params
+        return field_params
 
     def _get_intermediate_indices(self, shots, receivers):
-        intermediate_coords = np.concatenate([(1 - alpha) * shots + alpha * receivers
-                                              for alpha in np.linspace(0, 1, 2 + self.n_intermediate_points)])
+        alpha_range = np.linspace(0, 1, 2 + self.n_intermediate_points)
+        intermediate_coords = np.concatenate([(1 - alpha) * shots + alpha * receivers for alpha in alpha_range])
         return self.tree.query(intermediate_coords, workers=-1)[1].reshape(2 + self.n_intermediate_points, -1).T
 
     def _describe_rays(self, coords, slownesses, elevations, dips_cos, dips_tan):
@@ -393,14 +413,9 @@ class NearSurfaceModel:
         return res
 
     def qc(self, metrics=None, by="shot", chunk_size=250, n_workers=None, bar=True):
-        is_single_metric = isinstance(metrics, type) and issubclass(metrics, TravelTimeMetric)
         if metrics is None:
             metrics = TRAVELTIME_QC_METRICS
-        metrics = to_list(metrics)
-        if not metrics:
-            raise ValueError("At least one metric should be passed")
-        if not all(isinstance(metric, type) and issubclass(metric, TravelTimeMetric) for metric in metrics):
-            raise ValueError("All passed metrics must be subclasses of TravelTimeMetric")
+        metrics, is_single_metric = initialize_metrics(metrics, metric_class=TravelTimeMetric)
 
         coords_cols = {"shot": ["SourceX", "SourceY"], "receiver": ["GroupX", "GroupY"]}[by]
         qc_df = pd.DataFrame(np.column_stack([self.shots_coords[:, :2].numpy(), self.receivers_coords[:, :2].numpy()]),
