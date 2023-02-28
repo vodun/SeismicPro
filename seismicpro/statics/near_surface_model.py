@@ -36,6 +36,7 @@ class NearSurfaceModel:
         if uphole_correction_method not in {"auto", "time", "depth", None}:
             raise ValueError
         self.uphole_correction_method = uphole_correction_method
+        self.first_breaks_col = first_breaks_col
 
         traveltime_data = [self._get_traveltime_data(sur, first_breaks_col) for sur in survey_list]
         shots_coords_list, receivers_coords_list, traveltimes_list = zip(*traveltime_data)
@@ -282,10 +283,8 @@ class NearSurfaceModel:
         return self._estimate_traveltimes(shots_coords, shots_slownesses, shots_elevations, receivers_coords,
                                           receivers_slownesses, receivers_elevations, mean_slownesses)
 
-    def _estimate_train_traveltimes(self, batch_size=1000000, bar=True):
-        loader = TensorDataLoader(self.shots_coords, self.receivers_coords, self.intermediate_indices,
-                                  batch_size=batch_size, shuffle=False, drop_last=False, device=self.device)
-        tqdm_loader = tqdm(loader, desc="Traveltime estimation", disable=not bar)
+    def _estimate_traveltimes_by_loader(self, loader, bar=True):
+        tqdm_loader = tqdm(loader, desc="Traveltimes estimated", disable=not bar)
         with torch.no_grad():
             tt = [self._estimate_traveltimes_by_indices(shots_coords, receivers_coords, intermediate_indices).cpu()
                   for shots_coords, receivers_coords, intermediate_indices in tqdm_loader]
@@ -301,16 +300,20 @@ class NearSurfaceModel:
             coords = np.column_stack([coords, self.surface_elevation_interpolator(coords)])
         return coords, is_1d
 
-    def estimate_traveltimes(self, shots, receivers):
+    def estimate_traveltimes(self, shots, receivers, batch_size=1000000, bar=False):
         shots, is_1d_shots = self._process_coords(shots)
+        shots = np.require(shots, dtype=np.float32)
         receivers, is_1d_receivers = self._process_coords(receivers)
+        receivers = np.require(receivers, dtype=np.float32)
         shots, receivers = np.broadcast_arrays(shots, receivers)
+        intermediate_indices = self._get_intermediate_indices(shots[:, :2], receivers[:, :2])
 
-        intermediate_indices = torch.tensor(self._get_intermediate_indices(shots[:, :2], receivers[:, :2]), device=self.device)
-        shots = torch.tensor(shots, device=self.device)
-        receivers = torch.tensor(receivers, device=self.device)
-        with torch.no_grad():
-            traveltimes = self._estimate_traveltimes_by_indices(shots, receivers, intermediate_indices).cpu().numpy()
+        shots = torch.from_numpy(shots)
+        receivers = torch.from_numpy(receivers)
+        intermediate_indices = torch.from_numpy(intermediate_indices)
+        loader = TensorDataLoader(shots, receivers, intermediate_indices, batch_size=batch_size, shuffle=False,
+                                  drop_last=False, device=self.device)
+        traveltimes = self._estimate_traveltimes_by_loader(loader, bar=bar).cpu().numpy()
 
         if is_1d_shots and is_1d_receivers:
             return traveltimes[0]
@@ -337,7 +340,9 @@ class NearSurfaceModel:
         return delays
 
     def estimate_loss(self, batch_size=1000000, bar=True):
-        pred_traveltimes = self._estimate_train_traveltimes(batch_size=batch_size, bar=bar)
+        loader = TensorDataLoader(self.shots_coords, self.receivers_coords, self.intermediate_indices,
+                                  batch_size=batch_size, shuffle=False, drop_last=False, device=self.device)
+        pred_traveltimes = self._estimate_traveltimes_by_loader(loader, bar=bar)
         return torch.abs(pred_traveltimes - self.traveltimes).mean().item()
 
     def fit(self, batch_size=250000, n_epochs=5, elevations_reg_coef=0.5, thicknesses_reg_coef=0.5,
@@ -407,24 +412,59 @@ class NearSurfaceModel:
             receivers_coords = gather_data[:, 2:4]
             true_traveltimes = gather_data[:, 4]
             pred_traveltimes = gather_data[:, 5]
-            metric_values = [metric.calc(shots_coords, receivers_coords, true_traveltimes, pred_traveltimes)
+            metric_values = [metric(shots_coords, receivers_coords, true_traveltimes, pred_traveltimes)
                              for metric in metrics]
             res.append(metric_values)
         return res
 
-    def qc(self, metrics=None, by="shot", chunk_size=250, n_workers=None, bar=True):
+    def qc(self, metrics=None, survey=None, by="shot", id_cols=None, first_breaks_col=None, chunk_size=250,
+           n_workers=None, bar=True):
         if metrics is None:
             metrics = TRAVELTIME_QC_METRICS
         metrics, is_single_metric = initialize_metrics(metrics, metric_class=TravelTimeMetric)
 
-        coords_cols = {"shot": ["SourceX", "SourceY"], "receiver": ["GroupX", "GroupY"]}[by]
-        qc_df = pd.DataFrame(np.column_stack([self.shots_coords[:, :2].numpy(), self.receivers_coords[:, :2].numpy()]),
-                             columns=["SourceX", "SourceY", "GroupX", "GroupY"])
-        qc_df["True"] = self.traveltimes.numpy()
-        qc_df["Pred"] = self._estimate_train_traveltimes(bar=bar).numpy()
-        coords_to_indices = qc_df.groupby(coords_cols).indices
-        coords = np.stack(list(coords_to_indices.keys()))
-        gather_data_list = [qc_df.iloc[gather_indices].to_numpy() for gather_indices in coords_to_indices.values()]
+        by_to_cols = {
+            "source": "source_id_cols",
+            "shot": "source_id_cols",
+            "receiver": "receiver_id_cols",
+            "rec": "receiver_id_cols",
+        }
+        id_cols_attr, coords_cols = by_to_cols.get(by.lower())
+        if id_cols_attr is None:
+            raise ValueError(f"by must be one of {', '.join(by_to_cols.keys())} but {by} given.")
+        survey_list = self.survey_list if survey is None else to_list(survey)
+        if id_cols is None:
+            id_cols_set = {getattr(sur, id_cols_attr) for sur in survey_list}
+            if len(id_cols_set) != 1:
+                raise ValueError("source/receiver id columns must be the same for all surveys")
+            id_cols = id_cols_set.pop()
+        id_cols = to_list(id_cols)
+
+        if first_breaks_col is None:
+            first_breaks_col = self.first_breaks_col if survey is None else HDR_FIRST_BREAK
+        traveltime_data = [self._get_traveltime_data(sur, first_breaks_col) for sur in survey_list]
+        shots_coords_list, receivers_coords_list, traveltimes_list = zip(*traveltime_data)
+        shots_coords = np.concatenate(shots_coords_list)
+        receivers_coords = np.concatenate(receivers_coords_list)
+        traveltimes = np.concatenate(traveltimes_list)
+        pred_traveltimes = self.estimate_traveltimes(shots_coords, receivers_coords, bar=bar)
+
+        qc_df_list = [sur.get_headers(id_cols) for sur in survey_list]
+        if len(survey_list) > 1:
+            id_cols = ["Part"] + id_cols
+            for i, df in enumerate(qc_df_list):
+                df.insert(0, "Part", i)
+        qc_df = pd.concat(qc_df_list, ignore_index=True, copy=False)
+        qc_df[["SourceX", "SourceY"]] = shots_coords[:, :2]
+        qc_df[["GroupX", "GroupY"]] = receivers_coords[:, :2]
+        qc_df["True"] = traveltimes
+        qc_df["Pred"] = pred_traveltimes
+
+        qc_gb = qc_df.groupby(id_cols)
+        indices_to_pos = qc_gb.indices
+        gather_data_list = [qc_df.iloc[gather_indices].to_numpy() for gather_indices in indices_to_pos.values()]
+        coords = qc_gb[coords_cols].first()  # Check for uniqueness
+        index = coords.index
 
         n_gathers = len(gather_data_list)
         n_chunks, mod = divmod(n_gathers, chunk_size)
@@ -445,10 +485,9 @@ class NearSurfaceModel:
                     futures.append(future)
 
         results = sum([future.result() for future in futures], [])
-        metrics = [PartialMetric(metric, nsm=self, survey_list=self.survey_list, coords_cols=coords_cols)
-                   for metric in metrics]
-        metrics_maps = [metric.map_class(coords, metric_values, coords_cols=coords_cols, metric=metric)
-                        for metric, metric_values in zip(metrics, zip(*results))]
+        context = {"nsm": self, "survey_list": self.survey_list, "first_breaks_col": first_breaks_col}
+        metrics_maps = [metric.construct_map(coords, values, index=index, **context)
+                        for metric, values in zip(metrics, zip(*results))]
         if is_single_metric:
             return metrics_maps[0]
         return metrics_maps

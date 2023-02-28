@@ -8,25 +8,33 @@ from ..metrics import Metric
 
 
 class TravelTimeMetric(Metric):
-    def __init__(self, nsm, survey_list, coords_cols, **kwargs):
-        super().__init__(**kwargs)
-        self.nsm = nsm
-        self.survey_list = [survey.reindex(coords_cols) for survey in survey_list]
+    def __init__(self, name=None):
+        super().__init__(name=name)
 
-    def plot_on_click(self, coords, ax, sort_by=None, **kwargs):
-        survey = [survey for survey in self.survey_list if coords in survey.indices][0]
-        gather = survey.get_gather(coords, copy_headers=True)
+        # Attributes set after context binding
+        self.nsm = None
+        self.survey_list = None
+        self.first_breaks_col = None
+
+    def bind_context(self, metric_map, nsm, survey_list, first_breaks_col):
+        self.nsm = nsm
+        index_cols = metric_map.index_cols[1:] if len(survey_list) == 1 else metric_map.index_cols[1:]
+        self.survey_list = [sur.reindex(index_cols) for sur in survey_list]
+        self.first_breaks_col = first_breaks_col
+
+    def get_gather(self, index, sort_by=None):
+        part, index = (0, index) if len(self.survey_list) == 1 else index
+        gather = self.survey_list[part].get_gather(index, copy_headers=True)
         if sort_by is not None:
             gather = gather.sort(by=sort_by)
-        is_uphole = self.nsm.is_uphole
-        if is_uphole is None:
-            loaded_headers = set(survey.headers.columns) | set(survey.headers.index.names)
-            is_uphole = "SourceDepth" in loaded_headers
-        shots_coords = gather[["SourceX", "SourceY", "SourceSurfaceElevation"]]
-        if is_uphole:
-            shots_coords[:, -1] -= gather["SourceDepth"]
-        fb_pred = self.nsm.estimate_traveltimes(shots_coords, gather[["GroupX", "GroupY", "ReceiverGroupElevation"]])
-        gather["PredictedFirstBreaks"] = fb_pred
+        source_coords, receiver_coords, _ = self.nsm._get_traveltime_data(gather, self.first_breaks_col)
+        gather["Predicted " + self.first_breaks_col] = self.estimate_traveltimes(source_coords, receiver_coords, bar=False)
+        # Shift by uphole if needed
+        return gather
+
+    def plot_on_click(self, ax, coords, index, sort_by=None, **kwargs):
+        _ = coords
+        gather = self.get_gather(index, sort_by)
         gather.plot(ax=ax, event_headers=[self.nsm.first_breaks_col, "PredictedFirstBreaks"], **kwargs)
 
     def get_views(self, sort_by=None, **kwargs):
@@ -38,9 +46,7 @@ class MeanAbsoluteError(TravelTimeMetric):
     min_value = 0
     is_lower_better = True
 
-    @staticmethod
-    @njit(nogil=True)
-    def calc(shots_coords, receivers_coords, true_traveltimes, pred_traveltimes):
+    def __call__(self, shots_coords, receivers_coords, true_traveltimes, pred_traveltimes):
         _ = shots_coords, receivers_coords
         return np.abs(true_traveltimes - pred_traveltimes).mean()
 
@@ -50,41 +56,39 @@ class GeometryError(TravelTimeMetric):
     min_value = 0
     is_lower_better = True
 
+    def __init__(self, reg=0.01, name=None):
+        self.reg = reg
+        super().__init__(name=name)
+
+    def __repr__(self):
+        """String representation of the metric."""
+        return f"{type(self).__name__}(reg={self.reg}, name='{self.name}')"
+
     @staticmethod
     def sin(x, amp, phase):
         return amp * np.sin(x + phase)
 
     @classmethod
-    def loss(cls, params, x, y, reg=0.01):
+    def loss(cls, params, x, y, reg):
         return np.abs(y - cls.sin(x, *params)).mean() + reg * params[0]**2
 
     @classmethod
-    def fit(cls, azimuth, diff, reg=0.01):
+    def fit(cls, azimuth, diff, reg):
         fit_result = minimize(cls.loss, x0=[0, 0], args=(azimuth, diff - diff.mean(), reg),
                               bounds=((None, None), (-np.pi, np.pi)), method="Nelder-Mead", tol=1e-5)
         return fit_result.x
 
-    @classmethod
-    def calc(cls, shots_coords, receivers_coords, true_traveltimes, pred_traveltimes):
+    def __call__(self, shots_coords, receivers_coords, true_traveltimes, pred_traveltimes):
         diff = true_traveltimes - pred_traveltimes
         x, y = (receivers_coords - shots_coords).T
         azimuth = np.arctan2(y, x)
-        params = cls.fit(azimuth, diff)
+        params = self.fit(azimuth, diff, reg=self.reg)
         return abs(params[0])
 
-    def plot_diff_by_azimuth(self, coords, ax, **kwargs):
-        survey = [survey for survey in self.survey_list if coords in survey.indices][0]
-        gather = survey.get_gather(coords, copy_headers=True)
-        is_uphole = self.nsm.is_uphole
-        if is_uphole is None:
-            loaded_headers = set(survey.headers.columns) | set(survey.headers.index.names)
-            is_uphole = "SourceDepth" in loaded_headers
-        shots_coords = gather[["SourceX", "SourceY", "SourceSurfaceElevation"]]
-        if is_uphole:
-            shots_coords[:, -1] -= gather["SourceDepth"]
-        fb_pred = self.nsm.estimate_traveltimes(shots_coords, gather[["GroupX", "GroupY", "ReceiverGroupElevation"]])
-
-        diff = gather[self.nsm.first_breaks_col] - fb_pred
+    def plot_diff_by_azimuth(self, ax, coords, index, **kwargs):
+        _ = coords
+        gather = self.get_gather(index)
+        diff = gather[self.first_breaks_col] - gather["Predicted " + self.first_breaks_col]
         x, y = (gather[["GroupX", "GroupY"]] - gather[["SourceX", "SourceY"]]).T
         azimuth = np.arctan2(y, x)
 
