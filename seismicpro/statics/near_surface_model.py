@@ -441,10 +441,10 @@ class NearSurfaceModel:
             raise ValueError(f"by must be one of {', '.join(by_to_cols.keys())} but {by} given.")
         survey_list = self.survey_list if survey is None else to_list(survey)
         if id_cols is None:
-            id_cols_set = {getattr(sur, id_cols_attr) for sur in survey_list}
-            if len(id_cols_set) != 1:
+            id_cols_list = [getattr(sur, id_cols_attr) for sur in survey_list]
+            if any(item != id_cols_list[0] for item in id_cols_list):
                 raise ValueError("source/receiver id columns must be the same for all surveys")
-            id_cols = id_cols_set.pop()
+            id_cols = id_cols_list[0]
         id_cols = to_list(id_cols)
 
         if first_breaks_col is None:
