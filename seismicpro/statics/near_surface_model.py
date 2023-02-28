@@ -135,10 +135,21 @@ class NearSurfaceModel:
 
         uphole_correction_method = self._get_uphole_correction_method(survey)
         if uphole_correction_method == "time":
-            traveltimes += survey["SourceUpholeTime"]
+            traveltimes = traveltimes + survey["SourceUpholeTime"]
         elif uphole_correction_method == "depth":
             source_coords[:, -1] -= survey["SourceDepth"]
         return source_coords, receiver_coords, traveltimes
+
+    def _get_predict_traveltime_data(self, container, uphole_correction_method):
+        source_coords = container[["SourceX", "SourceY", "SourceSurfaceElevation"]]
+        receiver_coords = container[["GroupX", "GroupY", "ReceiverGroupElevation"]]
+        if uphole_correction_method == "depth":
+            source_coords[:, -1] -= container["SourceDepth"]
+        if uphole_correction_method == "time":
+            traveltime_correction = container["SourceUpholeTime"]
+        else:
+            traveltime_correction = np.zeros(container.n_traces, dtype=np.float32)
+        return source_coords, receiver_coords, traveltime_correction
 
     def _get_field_params(self, survey, refractor_velocity_field, filter_azimuths=True):
         shots_elevations = pd.DataFrame(survey[["SourceX", "SourceY", "SourceSurfaceElevation"]],
@@ -407,11 +418,7 @@ class NearSurfaceModel:
     @staticmethod
     def _calc_metrics(metrics, gather_data_list):
         res = []
-        for gather_data in gather_data_list:
-            shots_coords = gather_data[:, :2]
-            receivers_coords = gather_data[:, 2:4]
-            true_traveltimes = gather_data[:, 4]
-            pred_traveltimes = gather_data[:, 5]
+        for shots_coords, receivers_coords, true_traveltimes, pred_traveltimes in gather_data_list:
             metric_values = [metric(shots_coords, receivers_coords, true_traveltimes, pred_traveltimes)
                              for metric in metrics]
             res.append(metric_values)
@@ -442,12 +449,14 @@ class NearSurfaceModel:
 
         if first_breaks_col is None:
             first_breaks_col = self.first_breaks_col if survey is None else HDR_FIRST_BREAK
-        traveltime_data = [self._get_traveltime_data(sur, first_breaks_col) for sur in survey_list]
-        shots_coords_list, receivers_coords_list, traveltimes_list = zip(*traveltime_data)
+        traveltime_data = [self._get_predict_traveltime_data(sur, self._get_uphole_correction_method(sur))
+                           for sur in survey_list]
+        shots_coords_list, receivers_coords_list, traveltime_corrections_list = zip(*traveltime_data)
         shots_coords = np.concatenate(shots_coords_list)
         receivers_coords = np.concatenate(receivers_coords_list)
-        traveltimes = np.concatenate(traveltimes_list)
-        pred_traveltimes = self.estimate_traveltimes(shots_coords, receivers_coords, bar=bar)
+        traveltime_corrections = np.concatenate(traveltime_corrections_list)
+        traveltimes = np.concatenate([sur[first_breaks_col] for sur in survey_list])
+        pred_traveltimes = self.estimate_traveltimes(shots_coords, receivers_coords, bar=bar) - traveltime_corrections
 
         qc_df_list = [sur.get_headers(id_cols) for sur in survey_list]
         if len(survey_list) > 1:
@@ -459,11 +468,17 @@ class NearSurfaceModel:
         qc_df[["GroupX", "GroupY"]] = receivers_coords[:, :2]
         qc_df["True"] = traveltimes
         qc_df["Pred"] = pred_traveltimes
-        qc_df = qc_df[id_cols + ["SourceX", "SourceY", "GroupX", "GroupY", "True", "Pred"]]
 
         qc_gb = qc_df.groupby(id_cols)
         indices_to_pos = qc_gb.indices
-        gather_data_list = [qc_df.iloc[gather_indices].to_numpy() for gather_indices in indices_to_pos.values()]
+        gather_data_list = []
+        for gather_indices in indices_to_pos.values():
+            gather_data = qc_df.iloc[gather_indices]
+            gather_shots_coords = gather_data[["SourceX", "SourceY"]].to_numpy()
+            gather_receivers_coords = gather_data[["GroupX", "GroupY"]].to_numpy()
+            gather_true_traveltimes = gather_data["True"].to_numpy()
+            gather_pred_traveltimes = gather_data["Pred"].to_numpy()
+            gather_data_list.append((gather_shots_coords, gather_receivers_coords, gather_true_traveltimes, gather_pred_traveltimes))
         coords = qc_gb[coords_cols].first()  # Check for uniqueness
         index = coords.index
 
