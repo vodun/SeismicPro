@@ -97,7 +97,7 @@ class GeometryError(TravelTimeMetric):
         x, y = (gather[["GroupX", "GroupY"]] - gather[["SourceX", "SourceY"]]).T
         azimuth = np.arctan2(y, x)
 
-        params = self.fit(azimuth, diff)
+        params = self.fit(azimuth, diff, reg=self.reg)
         ax.scatter(azimuth, diff)
         azimuth = np.linspace(-np.pi, np.pi, 100)
         ax.plot(azimuth, diff.mean() + self.sin(azimuth, *params))
