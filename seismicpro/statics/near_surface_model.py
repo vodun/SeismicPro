@@ -608,10 +608,6 @@ class NearSurfaceModel:
     def plot_profile(self, **kwargs):
         return ProfilePlot(self, **kwargs).plot()
 
-    def plot_statics_correction(self, survey=None, **kwargs):
-        survey_list = self.survey_list if survey is None else to_list(survey)
-        return StaticsCorrectionPlot(self, survey_list, **kwargs).plot()
-
 
 class Statics:
     def __init__(self, survey, source_map, receiver_map, corrected_source_map=None):
