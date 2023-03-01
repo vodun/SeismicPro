@@ -567,9 +567,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         bins_to_coords = self.get_headers(cols)
         bins_to_coords = bins_to_coords.groupby(bins_cols, sort=False, as_index=False).agg("mean")
         bins_to_coords_reg = LinearRegression(copy_X=False, n_jobs=-1)
-        bins_to_coords_reg.fit(bins_to_coords[bins_cols], bins_to_coords[coords_cols])
+        bins_to_coords_reg.fit(bins_to_coords[bins_cols].to_numpy(), bins_to_coords[coords_cols].to_numpy())
         coords_to_bins_reg = LinearRegression(copy_X=False, n_jobs=-1)
-        coords_to_bins_reg.fit(bins_to_coords[coords_cols], bins_to_coords[bins_cols])
+        coords_to_bins_reg.fit(bins_to_coords[coords_cols].to_numpy(), bins_to_coords[bins_cols].to_numpy())
 
         # Compute field contour
         field_mask, origin = self._get_field_mask()
