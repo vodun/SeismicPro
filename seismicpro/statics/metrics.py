@@ -1,7 +1,6 @@
 from functools import partial
 
 import numpy as np
-from numba import njit
 from scipy.optimize import minimize
 
 from ..metrics import Metric

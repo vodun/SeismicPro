@@ -13,8 +13,9 @@ from .data_loader import TensorDataLoader
 from .metrics import TravelTimeMetric, TRAVELTIME_QC_METRICS
 from .interactive_plot import ProfilePlot, StaticsCorrectionPlot
 from ..const import HDR_FIRST_BREAK
-from ..metrics import initialize_metrics
-from ..utils import to_list, IDWInterpolator, ForPoolExecutor
+from ..survey import Survey
+from ..metrics import initialize_metrics, MetricMap
+from ..utils import to_list, get_first_defined, IDWInterpolator, ForPoolExecutor
 
 
 class NearSurfaceModel:
@@ -30,6 +31,7 @@ class NearSurfaceModel:
         if any(rvf_list[0].n_refractors != rvf.n_refractors for rvf in rvf_list):
             raise ValueError
         self.survey_list = survey_list
+        self.is_single_survey = isinstance(survey, Survey)
         self.rvf_list = rvf_list
         self.n_refractors = rvf_list[0].n_refractors
 
@@ -505,6 +507,93 @@ class NearSurfaceModel:
             return metrics_maps[0]
         return metrics_maps
 
+    def _get_source_delays(self, survey, index_cols, **kwargs):
+        index_cols = to_list(index_cols)
+        cols = set(index_cols + ["SourceX", "SourceY", "SourceSurfaceElevation"])
+        if "SourceDepth" in survey.available_headers:
+            cols.add("SourceDepth")
+        if "SourceUpholeTime" in survey.available_headers:
+            cols.add("SourceUpholeTime")
+        data = survey.get_headers(list(cols))
+        data_gb = data.groupby(index_cols, as_index=False)
+        # TODO: probably add the check
+        # if (data_gb[["SourceX", "SourceY"]].nunique() > 1).any(axis=None):
+        #     raise ValueError("Duplicated coords for a single index value")
+        data = data_gb.mean()
+        source_coords = data[["SourceX", "SourceY", "SourceSurfaceElevation"]].to_numpy()
+        data["SurfaceDelay"] = self.estimate_delays(source_coords, **kwargs)
+        uphole_correction_method = self._get_uphole_correction_method(survey)
+        if uphole_correction_method == "time":
+            data["Delay"] = data["SurfaceDelay"] - data["SourceUpholeTime"]
+        elif uphole_correction_method == "depth":
+            source_coords[:, -1] = source_coords[:, -1] - data["SourceDepth"].to_numpy()
+            data["Delay"] = self.estimate_delays(source_coords, **kwargs)
+        else:
+            data["Delay"] = data["SurfaceDelay"]
+        return data
+
+    def _get_receiver_delays(self, survey, index_cols, **kwargs):
+        index_cols = to_list(index_cols)
+        cols = list(set(index_cols + ["GroupX", "GroupY", "ReceiverGroupElevation"]))
+        data = survey.get_headers(cols)
+        data_gb = data.groupby(index_cols, as_index=False)
+        # TODO: probably add the check
+        # if (data_gb[["GroupX", "GroupY"]].nunique() > 1).any(axis=None):
+        #     raise ValueError("Duplicated coords for a single index value")
+        data = data_gb.mean()
+        data["Delay"] = self.estimate_delays(data[["GroupX", "GroupY", "ReceiverGroupElevation"]].to_numpy(), **kwargs)
+        return data
+
+    def calculate_statics(self, intermediate_datum=None, intermediate_datum_refractor=None, final_datum=None,
+                          replacement_velocity=None, survey=None, source_id_cols=None, receiver_id_cols=None):
+        estimate_delays_kwargs = {
+            "intermediate_datum": intermediate_datum,
+            "intermediate_datum_refractor": intermediate_datum_refractor,
+            "final_datum": final_datum,
+            "replacement_velocity": replacement_velocity,
+        }
+        if survey is None:
+            survey_list = self.survey_list
+            is_single_survey = self.is_single_survey
+        else:
+            survey_list = to_list(survey)
+            is_single_survey = isinstance(survey, Survey)
+        if source_id_cols is None and any(sur.source_id_cols != survey_list[0].source_id_cols for sur in survey_list):
+            raise ValueError
+        source_id_cols = get_first_defined(source_id_cols, survey_list[0].source_id_cols)
+        if source_id_cols is None:
+            raise ValueError
+        if receiver_id_cols is None and any(sur.receiver_id_cols != survey_list[0].receiver_id_cols for sur in survey_list):
+            raise ValueError
+        receiver_id_cols = get_first_defined(receiver_id_cols, survey_list[0].receiver_id_cols)
+        if receiver_id_cols is None:
+            raise ValueError
+        add_part = len(survey_list) > 1
+        source_delays_list = []
+        receiver_delays_list = []
+        for i, survey in enumerate(survey_list):
+            source_delays = self._get_source_delays(survey, source_id_cols, **estimate_delays_kwargs)
+            receiver_delays = self._get_receiver_delays(survey, receiver_id_cols, **estimate_delays_kwargs)
+            if add_part:
+                source_delays.insert(0, "Part", i)
+                receiver_delays.insert(0, "Part", i)
+            source_delays_list.append(source_delays)
+            receiver_delays_list.append(receiver_delays)
+        source_delays = pd.concat(source_delays_list, ignore_index=True, copy=False)
+        receiver_delays = pd.concat(receiver_delays_list, ignore_index=True, copy=False)
+        source_id_cols = to_list(source_id_cols)
+        if add_part:
+            source_id_cols = ["Part"] + source_id_cols
+        receiver_id_cols = to_list(receiver_id_cols)
+        if add_part:
+            receiver_id_cols = ["Part"] + receiver_id_cols
+
+        source_map = MetricMap(source_delays[["SourceX", "SourceY"]], source_delays["Delay"], index=source_delays[source_id_cols])
+        corrected_source_map = MetricMap(source_delays[["SourceX", "SourceY"]], source_delays["SurfaceDelay"], index=source_delays[source_id_cols])
+        receiver_map = MetricMap(receiver_delays[["GroupX", "GroupY"]], receiver_delays["Delay"], index=receiver_delays[receiver_id_cols])
+        survey_list = survey_list[0] if is_single_survey else survey_list
+        return Statics(survey_list, source_map, receiver_map, corrected_source_map)
+
     def plot_loss(self):
         _, ((ax1, ax2), (ax3, ax4)) = plt.subplots(ncols=2, nrows=2, figsize=(12, 8), tight_layout=True)
         ax1.plot(self.loss_hist)
@@ -522,3 +611,100 @@ class NearSurfaceModel:
     def plot_statics_correction(self, survey=None, **kwargs):
         survey_list = self.survey_list if survey is None else to_list(survey)
         return StaticsCorrectionPlot(self, survey_list, **kwargs).plot()
+
+
+class Statics:
+    def __init__(self, survey, source_map, receiver_map, corrected_source_map=None):
+        self.source_map = source_map
+        self.receiver_map = receiver_map
+        self.corrected_source_map = get_first_defined(corrected_source_map, source_map)
+        self.survey_list = to_list(survey)
+        self.is_single_survey = isinstance(survey, Survey)
+
+        self.source_statics = source_map.index_data.set_index(source_map.index_cols)["Delay"]
+        self.receiver_statics = receiver_map.index_data.set_index(receiver_map.index_cols)["Delay"]
+
+    def plot(self, by="shot", corrected=True, interactive=False, sort_by=None, center=True):
+        by = by.lower()
+        if by in {"source", "shot"}:
+            statics_map = self.corrected_source_map if corrected else self.source_map
+        elif by in {"receiver", "rec"}:
+            statics_map = self.receiver_map
+        else:
+            raise ValueError("Unknown by")
+        
+        if interactive:
+            index_cols = statics_map.index_cols if len(self.survey_list) == 1 else statics_map.index_cols[1:]
+            survey_list = [sur.reindex(index_cols) for sur in self.survey_list]
+
+            def get_gather(index):
+                part, index = (0, index) if len(survey_list) == 1 else index
+                survey = survey_list[part]
+                gather = survey.get_gather(index, copy_headers=True)
+                if sort_by is not None:
+                    gather = gather.sort(by=sort_by)
+                return gather
+
+            def plot_gather(ax, coords, index, **kwargs):
+                _ = coords, kwargs
+                gather = get_gather(index)
+                gather.plot(ax=ax, title="Gather without statics corrections applied")
+
+            def plot_gather_statics(ax, coords, index, **kwargs):
+                _ = coords, kwargs
+                gather = get_gather(index)
+
+                source_statics = self.source_statics if len(survey_list) == 1 else self.source_statics.loc[index[0]]
+                source_statics = source_statics.copy(deep=False)
+                source_statics.rename("_source_delay", inplace=True)
+                receiver_statics = self.receiver_statics if len(survey_list) == 1 else self.receiver_statics.loc[index[0]]
+                receiver_statics = receiver_statics.copy(deep=False)
+                receiver_statics.rename("_receiver_delay", inplace=True)
+
+                headers = gather.headers
+                headers = headers.join(source_statics, on=source_statics.index.names)
+                headers = headers.join(receiver_statics, on=receiver_statics.index.names)
+                headers["_statics"] = headers["_source_delay"] + headers["_receiver_delay"]
+                if center:
+                    headers["_statics"] = headers["_statics"] - headers["_statics"].mean()
+                if len(headers) != len(gather.headers):
+                    raise ValueError("duplicates after merge")
+                gather = gather.copy(ignore="headers")
+                gather.headers = headers
+                gather = gather.apply_statics("_statics")
+                gather.plot(ax=ax, title="Gather with statics corrections applied")
+
+            plot_on_click = [plot_gather, plot_gather_statics]
+        else:
+            plot_on_click = None
+        statics_map.plot(interactive=interactive, plot_on_click=plot_on_click)
+
+    @staticmethod
+    def _apply_to_survey(survey, source_statics, receiver_statics, statics_col="Statics"):
+        source_statics = source_statics.copy(deep=False)
+        source_statics.rename("_source_delay", inplace=True)
+        receiver_statics = receiver_statics.copy(deep=False)
+        receiver_statics.rename("_receiver_delay", inplace=True)
+
+        headers = survey.headers
+        headers = headers.join(source_statics, on=source_statics.index.names)
+        headers = headers.join(receiver_statics, on=receiver_statics.index.names)
+        headers[statics_col] = headers["_source_delay"] + headers["_receiver_delay"]
+        headers.drop(columns=["_source_delay", "_receiver_delay"], inplace=True)
+        if len(headers) != len(survey.headers):
+            raise ValueError("duplicates after merge")
+        statics_survey = survey.copy(ignore="headers")
+        statics_survey.headers = headers
+        return statics_survey
+
+    def apply(self, statics_col="Statics"):
+        if len(self.survey_list) == 1:
+            statics_survey = self._apply_to_survey(self.survey_list[0], self.source_statics, self.receiver_statics, statics_col)
+            if self.is_single_survey:
+                return statics_survey
+            return [statics_survey]
+        statics_survey_list = [self._apply_to_survey(survey, self.source_statics.loc[i], self.receiver_statics.loc[i], statics_col)
+                               for i, survey in enumerate(self.survey_list)]
+        if self.is_single_survey:
+            return statics_survey_list[0]
+        return statics_survey_list
