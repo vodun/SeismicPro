@@ -12,17 +12,19 @@ import numpy as np
 import scipy as sp
 import pandas as pd
 from tqdm.auto import tqdm
+from tqdm.contrib.concurrent import thread_map
 from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
 
 from .headers import load_headers
 from .headers_checks import validate_trace_headers, validate_source_headers, validate_receiver_headers
-from .metrics import SurveyAttribute
+from .metrics import SurveyAttribute, TracewiseMetric
 from .plot_geometry import SurveyGeometryPlot
 from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
 from ..containers import GatherContainer, SamplesContainer
-from ..utils import to_list, maybe_copy, get_cols, get_first_defined
+from ..metrics import is_metric
+from ..utils import to_list, maybe_copy, get_cols, get_first_defined, get_coord_cols_by_alias
 from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK, HDR_TRACE_POS
 
 
@@ -292,6 +294,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.std = None
         self.quantile_interpolator = None
         self.n_dead_traces = None
+
+        # calculated QC metrics
+        self.qc_metrics = None
 
         # Define all geometry-related attributes and automatically infer field geometry if required headers are loaded
         self.has_inferred_geometry = False
@@ -1280,6 +1285,81 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.headers = headers
         return self
 
+    def qc_tracewise(self, metrics=None, chunk_size=1000, n_workers=None, bar=True):
+        """Calculate tracewise QC metrics.
+
+        Parameters
+        ----------
+        metrics : :class:`~metrics.TracewiseMetric`, or list of :class:`~metrics.TracewiseMetric` objects, optional
+            metric objects that define metrics to calculate.
+            If None, all metrics that can be initialized with reasonable default parameters are calculated
+        chunk_size : int, optional, defaults to 1000
+            number of traces loaded on each iteration
+        n_workers : int, optional
+            The number of threads to be spawned to calculate metrics. Defaults to the number of cpu cores.
+        bar : bool, optional, defaults to True
+            Whether to show a progress bar.
+
+        Returns
+        -------
+        Survey
+            Survey with metrics written to headers
+
+        Raises
+        ------
+        TypeError
+            If provided metrics are not  :class:`~metrics.TracewiseMetric` subclasses
+        """
+
+        ##TODO: TRY TO USE initialize_metrics
+        if metrics is None:
+            metrics = []#[DeadTrace(), TraceAbsMean(), Std(), TraceMaxAbs(), MaxClipsLen(), MaxConstLen(), WindowRMS()]
+
+        metrics = to_list(metrics)
+
+        for metric in metrics:
+            if not isinstance(metric, TracewiseMetric):
+                msg = f"all metrics must be `TracewiseMetric` instances, but {metric.__class__.__name__} is not"
+                raise TypeError(msg)
+
+        if n_workers is None:
+            n_workers = os.cpu_count()
+
+        n_traces = len(self.headers)
+        n_chunks = n_traces // chunk_size + (1 if n_traces % chunk_size else 0)
+
+        idx_sort = self['TRACE_SEQUENCE_FILE'].argsort(kind='stable')
+        orig_idx = idx_sort.argsort(kind='stable')
+
+        def calc_metrics(i):
+            headers = self.headers.iloc[idx_sort[i*chunk_size:(i+1)*chunk_size]]
+            raw_gather = self.load_gather(headers)
+            return [metric(raw_gather, **metric.kwargs) for metric in metrics]
+
+        # known issue with tqdm.notebook bar update when using `unit_scale` https://github.com/tqdm/tqdm/issues/1399
+        # note that total number of traces indicated on this bar is `n_chunks * chunk_size`
+        # which is almost always more than actual number of traces
+        # TODO: TRY process_map
+        results = thread_map(calc_metrics, range(n_chunks), max_workers=n_workers, disable=not bar,
+                             desc="Traces processed", unit_scale=chunk_size, unit_divisor=chunk_size, unit='traces')
+
+        if self.qc_metrics is None:
+            self.qc_metrics = {}
+
+        for metric, metric_vals in zip(metrics, zip(*results)):
+            vals = np.concatenate(metric_vals)[orig_idx]
+            # TODO: MAKE WindowsMS and other RMS metrics WORK
+            # if isinstance(metric, WindowsMS):
+            #     self.headers[[metric.name + '_sig', metric.name + '_noise']] = vals
+            # else:
+            self.headers[metric.name] = vals
+
+            if metric.name in self.qc_metrics:
+                warnings.warn(f'{metric.name} already calculated. Rewriting.')
+            self.qc_metrics[metric.name] = metric
+
+        return self
+
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #
     #------------------------------------------------------------------------#
@@ -1330,7 +1410,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         SurveyGeometryPlot(self, **kwargs).plot()
 
-    def _construct_map(self, values, name, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
+    def _construct_map(self, values, name, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None, metric=None):
         """Construct a metric map of `values` aggregated by gather, whose type is defined by `by`."""
         by_to_cols = {
             "source": (self.source_id_cols, ["SourceX", "SourceY"]),
@@ -1359,10 +1439,12 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         coords = metric_data[coords_cols]
         values = metric_data[name]
 
-        metric = SurveyAttribute(name=name)
+        metric = SurveyAttribute(name=name) if metric is None else metric
+        if not is_metric(metric, metric_class=SurveyAttribute):
+            raise
         return metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size, survey=self)
 
-    def construct_header_map(self, col, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
+    def construct_header_map(self, col, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None, metric=None):
         """Construct a metric map of trace header values aggregated by gather.
 
         Examples
@@ -1397,7 +1479,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             Constructed header map.
         """
         return self._construct_map(self[col], name=col, by=by, id_cols=id_cols, drop_duplicates=drop_duplicates,
-                                   agg=agg, bin_size=bin_size)
+                                   agg=agg, bin_size=bin_size, metric=metric)
 
 
     def construct_fold_map(self, by, id_cols=None, agg=None, bin_size=None):
@@ -1433,3 +1515,60 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         coords = tmp_map.index_data[tmp_map.coords_cols]
         values = tmp_map.index_data[tmp_map.metric_name]
         return metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size, survey=self)
+
+    def construct_qc_maps(self, by, metrics=None, agg=None, bin_size=None):
+        """Construct a map of tracewise metric aggregated by gathers.
+
+        Parameters
+        ----------
+        by : tuple with 2 elements or {"shot", "receiver", "midpoint", "bin"}
+            If `tuple`, survey headers names to get coordinates from.
+            If `str`, gather type to aggregate header values over.
+        metric : str or list of str, optional
+            name(s) of metrics to build metrics maps.
+            If None, maps for all metrica that were calculated for this survey are built.
+        agg : str or callable, optional, defaults to "mean"
+            An aggregation function. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
+        bin_size : int, float or array-like with length 2, optional
+            Bin size for X and Y axes. If single `int` or `float`, the same bin size will be used for both axes.
+
+        Returns
+        -------
+        BaseMetricMap
+            Constructed metric map.
+        """
+
+        squeeze_output = isinstance(metrics, str)
+        if metrics is None:
+            metrics = list(self.qc_metrics.keys())
+        metrics = to_list(metrics)
+
+        mmaps = []
+        for metric_name in metrics:
+            if metric_name not in self.qc_metrics:
+                warnings.warn(f"{metric_name} not calculated yet!")
+                continue
+
+            metric = self.qc_metrics[metric_name]
+            metric_mmap = self.construct_header_map(col=metric_name, by=by, agg=agg, bin_size=bin_size, metric=metric)
+            mmaps.append(metric_mmap)
+            # if isinstance(metric, WindowsMS):
+            #     metric_cols = [metric.name + '_sig', metric.name + '_noise']
+            #     vals = (self.headers[coords_cols + metric_cols]
+            #             .groupby(coords_cols)[metric_cols]
+            #             .apply(lambda df: WindowsMS.agg_gather(df.to_numpy()))
+            #             .reset_index(name=metric.name))
+
+            #     coords = vals[coords_cols]
+            #     metric_values = vals[metric.name]
+            # else:
+
+            # coords = self[coords_cols]
+            # metric_values = self[metric_name]
+
+            # # pmetric = PartialMetric(metric.__class__, survey=self, name=metric_name, **{**metric.kwargs, **kwargs})
+            # # mmaps.append(pmetric.map_class(coords, metric_values, coords_cols=coords_cols, metric=pmetric,
+            # #                         agg=agg, bin_size=bin_size))
+            # mmaps.append(metric.construct_map(coords, metric_values, coords_cols=coords_cols, agg=agg, bin_size=bin_size, survey=self, **{**metric.kwargs, **kwargs}))
+
+        return mmaps[0] if (len(mmaps) == 1 and squeeze_output) else mmaps
