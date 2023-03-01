@@ -638,7 +638,11 @@ class Statics:
             survey_list = [sur.reindex(index_cols) for sur in self.survey_list]
 
             def get_gather(index):
-                part, index = (0, index) if len(survey_list) == 1 else index
+                if len(survey_list) == 1:
+                    part = 0
+                else:
+                    part = index[0]
+                    index = index[1:]
                 survey = survey_list[part]
                 gather = survey.get_gather(index, copy_headers=True)
                 if sort_by is not None:

@@ -22,7 +22,11 @@ class TravelTimeMetric(Metric):
         self.first_breaks_col = first_breaks_col
 
     def get_gather(self, index, sort_by=None):
-        part, index = (0, index) if len(self.survey_list) == 1 else index
+        if len(self.survey_list) == 1:
+            part = 0
+        else:
+            part = index[0]
+            index = index[1:]
         survey = self.survey_list[part]
         gather = survey.get_gather(index, copy_headers=True)
         if sort_by is not None:
