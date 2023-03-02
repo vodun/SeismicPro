@@ -47,21 +47,16 @@ class TracewiseMetric(SurveyAttribute):
 
     params = []
 
-    def __call__(self, gather, **kwargs):  # pylint: disable=arguments-renamed
+    def __call__(self, gather, **kwargs):
         """Return an already calculated metric."""
         gather = self.preprocess(gather, **kwargs)
         mask = self.get_mask(gather, **kwargs)
         return self.aggregate(mask)
 
     def aggregate(self, mask):
+        """Aggregate input mask depending on `cls.is_lower_better."""
         agg_fn = np.nanmax if self.is_lower_better else np.nanmin
         return mask if mask.ndim == 1 else agg_fn(mask, axis=1)
-
-    @property
-    def kwargs(self):
-        """returns metric kwargs"""
-        return {'threshold': self.threshold, 'top_ax_y_scale': self.top_ax_y_scale,
-                **{name: getattr(self, name) for name in self.params}}
 
     @classmethod
     def preprocess(cls, gather, **kwargs):
@@ -80,6 +75,12 @@ class TracewiseMetric(SurveyAttribute):
         with `np.nan` and output shape either `gater.data.shape`, or (`gather.n_traces`,)."""
         return NotImplementedError
 
+    @property
+    def kwargs(self):
+        """returns metric kwargs"""
+        return {'threshold': self.threshold, 'top_ax_y_scale': self.top_ax_y_scale,
+                **{name: getattr(self, name) for name in self.params}}
+
     def plot(self, coords, ax, index, sort_by=None, bad_only=False, **kwargs):
         """Gather plot where samples with indicator above/below `cls.threshold` are highlited."""
         _ = coords
@@ -88,7 +89,7 @@ class TracewiseMetric(SurveyAttribute):
             gather = gather.sort(sort_by)
         gather = self.preprocess(gather, **self.kwargs)
 
-        mask = self.get_mask(gather.copy(), **self.kwargs)
+        mask = self.get_mask(gather, **self.kwargs)
         metric_vals = self.aggregate(mask)
 
         bin_fn = np.greater_equal if self.is_lower_better else np.less_equal
@@ -96,9 +97,9 @@ class TracewiseMetric(SurveyAttribute):
         if bad_only:
             gather.data[self.aggregate(bin_mask) == 0] = np.nan
 
-        mask_dict = {"masks": bin_mask, "alpha":0.8, "label": self.name or "metric"}
         mode = kwargs.pop("mode", "wiggle")
-        gather.plot(ax=ax, mode=mode, top_header=metric_vals, masks=mask_dict, **kwargs)
+        masks_dict = {"masks": bin_mask, "alpha":0.8, "label": self.name or "metric", **kwargs.pop("masks", {})}
+        gather.plot(ax=ax, mode=mode, top_header=metric_vals, masks=masks_dict, **kwargs)
         ax.figure.axes[1].axhline(self.threshold, alpha=0.5)
 
     def get_views(self, sort_by=None, **kwargs):
@@ -119,7 +120,7 @@ class MuteTracewiseMetric(TracewiseMetric):
     @classmethod
     def preprocess(cls, gather, muter, **kwargs):
         _ = kwargs
-        return gather.copy().mute(muter=muter, fill_value=np.nan).scale_standard()
+        return gather.mute(muter=muter, fill_value=np.nan).scale_standard()
 
 
 class Spikes(MuteTracewiseMetric):
@@ -135,23 +136,19 @@ class Spikes(MuteTracewiseMetric):
     def get_mask(cls, gather, **kwargs):
         """QC indicator implementation."""
         _ = kwargs
-        traces = gather.data
+        traces = gather.data.copy()
         cls.fill_leading_nulls(traces)
 
         res = np.abs(traces[:, 2:] + traces[:, :-2] - 2*traces[:, 1:-1]) / 3
-
         return np.pad(res, ((0, 0), (1, 1)))
 
     @staticmethod
     @njit(parallel=True, nogil=True)
     def fill_leading_nulls(arr):
         """"Fill leading null values of array's row with the first non null value in a row."""
-
-        n_samples = arr.shape[1]
-
         for i in prange(arr.shape[0]):
             nan_indices = np.nonzero(np.isnan(arr[i]))[0]
             if len(nan_indices) > 0:
                 j = nan_indices[-1] + 1
-                if j < n_samples:
+                if j < arr.shape[1]:
                     arr[i, :j] = arr[i, j]
