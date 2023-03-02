@@ -24,7 +24,7 @@ from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
 from ..containers import GatherContainer, SamplesContainer
 from ..metrics import is_metric
-from ..utils import to_list, maybe_copy, get_cols, get_first_defined, get_coord_cols_by_alias
+from ..utils import to_list, maybe_copy, get_cols, get_first_defined
 from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK, HDR_TRACE_POS
 
 
@@ -1334,7 +1334,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         def calc_metrics(i):
             headers = self.headers.iloc[idx_sort[i*chunk_size:(i+1)*chunk_size]]
             raw_gather = self.load_gather(headers)
-            return [metric(raw_gather, **metric.kwargs) for metric in metrics]
+            return [metric(raw_gather) for metric in metrics]
 
         # known issue with tqdm.notebook bar update when using `unit_scale` https://github.com/tqdm/tqdm/issues/1399
         # note that total number of traces indicated on this bar is `n_chunks * chunk_size`
