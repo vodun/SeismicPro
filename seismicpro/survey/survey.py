@@ -18,14 +18,14 @@ from sklearn.linear_model import LinearRegression
 
 from .headers import load_headers
 from .headers_checks import validate_trace_headers, validate_source_headers, validate_receiver_headers
-from .metrics import SurveyAttribute, TracewiseMetric, DeadTrace
+from .metrics import SurveyAttribute, DeadTrace, DEFAULT_TRACEWISE_METRICS
 from .plot_geometry import SurveyGeometryPlot
 from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
 from ..containers import GatherContainer, SamplesContainer
-from ..metrics import is_metric
+from ..metrics import is_metric, initialize_metrics
 from ..utils import to_list, maybe_copy, get_cols, get_first_defined
-from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK, HDR_TRACE_POS
+from ..const import ENDIANNESS, HDR_FIRST_BREAK, HDR_TRACE_POS
 
 
 class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-instance-attributes
@@ -450,11 +450,12 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
          q01 | q99:                {self.get_quantile(0.01):>10.2f} | {self.get_quantile(0.99):<10.2f}
         """
 
-        # if self.qc_metrics is not None:
-        #     #TODO: add info about all metrics
-        #     msg += f"""
-        # Number of dead traces:     {self.n_dead_traces}
-        # """
+        if self.qc_metrics is not None:
+            msg += f"""
+        Number of bad traces after tracewise QC found by:
+        """
+            n_traces = [metric.binarize(self.headers[name]).sum() for name, metric in self.qc_metrics.items()]
+            msg += "\n\t".join([f"{name:<27}{num}" for name, num in zip(self.qc_metrics, n_traces)])
         return dedent(msg).strip()
 
     def info(self):
@@ -777,7 +778,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         survey : Survey
             The survey with collected stats. Sets `has_stats` flag to `True` and updates statistics attributes inplace.
         """
-        # TODO: how to process here?
+        # TODO: what to do here?
         # if self.n_dead_traces != 0:
         #     warnings.warn("The survey was not checked for dead traces or they were not removed. "
         #                   "Run `remove_dead_traces` first.", RuntimeWarning)
@@ -1111,6 +1112,15 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             raise ValueError('Empty traces after setting limits.')
         return slice(*limits)
 
+    def filter_by_metric(self, metric_name, threshold=None, inplace=False):
+        """"filter by metric"""
+        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
+        metric = self.qc_metrics.get(metric_name)
+        if metric is None:
+            avalible_metrics = ', '.join(self.qc_metrics.keys())
+            raise ValueError(f"`metric_name` must be one of {avalible_metrics}, but {metric_name} given.")
+        self.filter(lambda metric_value: ~metric.binarize(metric_value, threshold) , cols=metric_name, inplace=True)
+
     def remove_dead_traces(self, chunk_size=1000, inplace=False, bar=True):
         """ Remove dead (constant) traces from the survey.
         Calculates :class:`~survey.metrics.DeadTrace` if it was not calculated before.
@@ -1141,15 +1151,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         self.filter_by_metric(dead_traces_metric.name, inplace=True)
         return self
-
-    def filter_by_metric(self, metric_name, threshold=None, inplace=False):
-        """"filter by metric"""
-        self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
-        metric = self.qc_metrics.get(metric_name)
-        if metric is None:
-            avalible_metrics = ', '.join(self.qc_metrics.keys())
-            raise ValueError(f"`metric_name` must be one of {avalible_metrics}, but {metric_name} given.")
-        self.filter(lambda metric_value: ~metric.binarize(metric_value, threshold) , cols=metric_name, inplace=True)
 
     #------------------------------------------------------------------------#
     #                         Task specific methods                          #
@@ -1291,16 +1292,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             If provided metrics are not  :class:`~metrics.TracewiseMetric` subclasses
         """
 
-        ##TODO: TRY TO USE initialize_metrics
-        if metrics is None:
-            metrics = []#[DeadTrace(), TraceAbsMean(), Std(), TraceMaxAbs(), MaxClipsLen(), MaxConstLen(), WindowRMS()]
-
-        metrics = to_list(metrics)
-
-        for metric in metrics:
-            if not isinstance(metric, TracewiseMetric):
-                msg = f"all metrics must be `TracewiseMetric` instances, but {metric.__class__.__name__} is not"
-                raise TypeError(msg)
+        metrics, _ = initialize_metrics(DEFAULT_TRACEWISE_METRICS if metrics is None else to_list(metrics))
 
         if n_workers is None:
             n_workers = os.cpu_count()

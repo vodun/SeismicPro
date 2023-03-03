@@ -165,7 +165,7 @@ class Spikes(MuteTracewiseMetric):
 
 class Autocorr(MuteTracewiseMetric):
     """Autocorrelation with shift 1"""
-    name = "autocorr"
+    name = "autocorrelation"
     min_value = -1
     max_value = 1
     is_lower_better = False
@@ -273,7 +273,7 @@ class MaxConstLen(MaxLenMetric):
 
 class DeadTrace(TracewiseMetric):
     """Detects constant traces."""
-    name = "DeadTrace"
+    name = "dead_trace"
     min_value = 0
     max_value = 1
     is_lower_better = True
@@ -283,3 +283,5 @@ class DeadTrace(TracewiseMetric):
     def get_mask(cls, gather):
         """Return QC indicator."""
         return (np.max(gather.data, axis=1) - np.min(gather.data, axis=1) < 1e-10).astype(np.float32)
+
+DEFAULT_TRACEWISE_METRICS = [TraceAbsMean, TraceMaxAbs, MaxClipsLen, MaxConstLen, DeadTrace]
