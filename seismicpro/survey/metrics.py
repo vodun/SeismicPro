@@ -56,10 +56,10 @@ class TracewiseMetric(SurveyAttribute):
         mask = self.get_mask(gather)
         return self.aggregate(mask)
 
-    def aggregate(self, mask):
-        """Aggregate input mask depending on `cls.is_lower_better."""
-        agg_fn = np.nanmax if self.is_lower_better else np.nanmin
-        return mask if mask.ndim == 1 else agg_fn(mask, axis=1)
+    @property
+    def get_preprocess_kwargs(self):
+        """Returns all args to self.preprocess method."""
+        return {name: getattr(self, name) for name in self.preprocess_kwargs}
 
     @classmethod
     def preprocess(cls, gather, **kwargs):
@@ -78,10 +78,14 @@ class TracewiseMetric(SurveyAttribute):
         with `np.nan` and output shape either `gater.data.shape`, or (`gather.n_traces`,)."""
         raise NotImplementedError
 
-    @property
-    def get_preprocess_kwargs(self):
-        """Returns all args to self.preprocess method."""
-        return {name: getattr(self, name) for name in self.preprocess_kwargs}
+    def aggregate(self, mask):
+        """Aggregate input mask depending on `cls.is_lower_better."""
+        agg_fn = np.nanmax if self.is_lower_better else np.nanmin
+        return mask if mask.ndim == 1 else agg_fn(mask, axis=1)
+
+    def binarize(self, mask, threshold=None):
+        bin_fn = np.greater_equal if self.is_lower_better else np.less_equal
+        return bin_fn(mask, self.threshold if threshold is None else threshold)
 
     def plot(self, coords, ax, index, sort_by=None, threshold=None, top_ax_y_scale=None,  bad_only=False, **kwargs):
         """Gather plot where samples with indicator above/below `cls.threshold` are highlited."""
@@ -98,9 +102,7 @@ class TracewiseMetric(SurveyAttribute):
         # We need to copy gather since some metrics changes gather in get_mask, but we want to plot gather unchanged
         mask = self.get_mask(gather.copy())
         metric_vals = self.aggregate(mask)
-
-        bin_fn = np.greater_equal if self.is_lower_better else np.less_equal
-        bin_mask = bin_fn(mask, threshold)
+        bin_mask = self.binarize(mask, threshold)
         if bad_only:
             gather.data[self.aggregate(bin_mask) == 0] = np.nan
 
