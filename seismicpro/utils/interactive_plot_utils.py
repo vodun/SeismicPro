@@ -1,6 +1,7 @@
 """Building blocks for interactive plots"""
 
 from time import time
+from functools import partial
 
 import matplotlib.pyplot as plt
 
@@ -520,6 +521,110 @@ class DropdownViewPlot(InteractivePlot):
         """Set the current view of the plot according to the selected dropdown option."""
         _ = change
         self.set_view(self.drop.index)
+
+
+class DropdownOptionPlot(InteractivePlot):
+    """Construct an interactive plot that changes the behavior of `plot_fn` depending on the chosen option: each of
+    them defines its own keyword arguments passed to the current view plotter in addition to `ax`.
+
+    The plot allows selecting an option using a dropdown widget and iterating over options in both directions using
+    arrow buttons.
+
+    Parameters
+    ----------
+    options : list of dict, optional
+        Available options. All options must have the same keys. `option_title` is an obligatory key, that defines
+        displayed label of the option in the dropdown widget. All other parameters are passed to the current view
+        plotter in addition to `ax`.
+    args, kwargs : misc, optional
+        Additional arguments to :func:`~InteractivePlot.__init__`.
+    """
+    def __init__(self, *args, options=None, **kwargs):
+        # Define widgets for option selection
+        self.sort = widgets.Button(icon="sort", tooltip="", disabled=True,
+                                   layout=widgets.Layout(**BUTTON_LAYOUT))
+        self.prev = widgets.Button(icon="angle-left", tooltip="", disabled=True,
+                                   layout=widgets.Layout(**BUTTON_LAYOUT))
+        self.drop = widgets.Dropdown(layout=widgets.Layout(height=WIDGET_HEIGHT, width="inherit"))
+        self.next = widgets.Button(icon="angle-right", tooltip="", disabled=True,
+                                   layout=widgets.Layout(**BUTTON_LAYOUT))
+
+        # Define handlers
+        self.sort.on_click(self.reverse_options)
+        self.prev.on_click(self.prev_option)
+        self.drop.observe(self.select_option, names="value")
+        self.next.on_click(self.next_option)
+
+        super().__init__(*args, **kwargs)
+
+        self.options = None
+        self.current_option_ix = None
+        if options is not None:
+            self.update_state(0, options)
+
+    def construct_header(self):
+        """Construct a header of the plot that contains a dropdown widget with available options, sorting button and
+        arrow buttons to iterate over options in both directions."""
+        return widgets.HBox([self.sort, self.prev, self.drop, self.next])
+
+    @property
+    def plot_fn(self):
+        """callable: Plotter of the current view with passed parameters of the selected option."""
+        if self.options is None:
+            return None
+        plot_kwargs = {key: val for key, val in self.options[self.current_option_ix].items() if key != "option_title"}
+        return partial(super().plot_fn, **plot_kwargs)
+
+    def update_state(self, option_ix, options=None, redraw=True):
+        """Set new plot options and the currently active option."""
+        new_options = self.options
+        if options is not None:
+            if not isinstance(options, (list, tuple)) or not all(isinstance(option, dict) for option in options):
+                raise TypeError("options must be a list or tuple of dicts")
+            if any(option.keys() != options[0].keys() for option in options):
+                raise KeyError("All options must have the same keys")
+            if "option_title" not in options[0].keys():
+                raise KeyError("All options must have a title")
+            new_options = options
+        if (new_options is None) or (option_ix < 0) or (option_ix >= len(new_options)):
+            return
+
+        self.options = new_options
+        self.current_option_ix = option_ix
+
+        # Unobserve dropdown widget to simultaneously update both options and the currently selected option
+        self.drop.unobserve(self.select_option, names="value")
+        with self.drop.hold_sync():
+            self.drop.options = [option["option_title"] for option in new_options]
+            self.drop.index = self.current_option_ix
+        self.drop.observe(self.select_option, names="value")
+
+        self.sort.disabled = False
+        self.prev.disabled = self.current_option_ix == 0
+        self.next.disabled = self.current_option_ix == (len(self.options) - 1)
+
+        if redraw:
+            self.redraw()
+
+    def reverse_options(self, event):
+        """Reverse options order. Keep the currently active option unchanged."""
+        _ = event
+        self.update_state(len(self.options) - self.current_option_ix - 1, self.options[::-1], redraw=False)
+
+    def next_option(self, event):
+        """Switch to the next option."""
+        _ = event
+        self.update_state(min(self.current_option_ix + 1, len(self.options) - 1))
+
+    def prev_option(self, event):
+        """Switch to the previous option."""
+        _ = event
+        self.update_state(max(self.current_option_ix - 1, 0))
+
+    def select_option(self, change):
+        """Select an option."""
+        _ = change
+        self.update_state(self.drop.index)
 
 
 class PairedPlot:

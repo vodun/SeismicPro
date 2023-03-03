@@ -10,8 +10,9 @@ from sklearn.neighbors import NearestNeighbors
 
 from .stacking_velocity import StackingVelocity
 from .metrics import VELOCITY_QC_METRICS, StackingVelocityMetric
+from ..metrics import initialize_metrics
 from ..field import ValuesAgnosticField, VFUNCFieldMixin
-from ..utils import to_list, IDWInterpolator
+from ..utils import IDWInterpolator
 
 
 class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
@@ -190,12 +191,12 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
         """Perform quality control of the velocity field by calculating spatial-window-based metrics for its stacking
         velocities evaluated at given `coords` and `times`.
 
-        If `coords` are not given, coordinates of items in the field are used, but interpolation is performed as well.
+        If `coords` are not given, coordinates of items in the field are used, but interpolation is performed anyway.
         If `times` are not given, samples of the underlying `Survey` are used if it is defined.
 
         By default, the following metrics are calculated:
-        * Presence of segments with velocity decrease in time,
-        * Maximal deviation of instantaneous acceleration from the mean acceleration over all times,
+        * Presence of segments with velocity inversions,
+        * Maximal deviation of instantaneous acceleration from mean acceleration over all times,
         * Maximal spatial velocity standard deviation in a window over all times,
         * Maximal absolute relative difference between central stacking velocity and the average of all remaining
           velocities in the window over all times.
@@ -206,11 +207,12 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
             Metrics to calculate. Defaults to those defined in `~metrics.VELOCITY_QC_METRICS`.
         radius : positive float, optional
             Spatial window radius (Euclidean distance). Equals to `self.default_neighborhood_radius` if not given.
-        coords : 2d np.array or list of Coordinates or None, optional
+        coords : 2d np.array or list of Coordinates, optional
             Spatial coordinates of stacking velocities to calculate metrics for. If not given, coordinates of items in
             the field are used.
-        times : 1d array-like
-            Times to calculate metrics for. Measured in milliseconds.
+        times : 1d array-like, optional
+            Times to calculate metrics for. By default, samples of the underlying `Survey` are used. Measured in
+            milliseconds.
         n_workers : int, optional
             The number of threads to be spawned to calculate metrics. Defaults to the number of cpu cores.
         bar : bool, optional, defaults to True
@@ -221,14 +223,9 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
         metrics_maps : StackingVelocityMetricMap or list of StackingVelocityMetricMap
             Calculated metrics maps. Has the same shape as `metrics`.
         """
-        is_single_metric = isinstance(metrics, type) and issubclass(metrics, StackingVelocityMetric)
         if metrics is None:
             metrics = VELOCITY_QC_METRICS
-        metrics = to_list(metrics)
-        if not metrics:
-            raise ValueError("At least one metric should be passed")
-        if not all(isinstance(metric, type) and issubclass(metric, StackingVelocityMetric) for metric in metrics):
-            raise ValueError("All passed metrics must be subclasses of StackingVelocityMetric")
+        metrics, is_single_metric = initialize_metrics(metrics, metric_class=StackingVelocityMetric)
 
         # Set default radius, coords and times
         if radius is None:
@@ -250,16 +247,16 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
         # Sort results to guarantee that central stacking velocity of each window will have index 0
         _, windows_indices = coords_neighbors.radius_neighbors(coords, return_distance=True, sort_results=True)
 
-        # Initialize metrics and calculate them
-        def calc_metrics(window_indices):
-            window = velocities[window_indices]
-            return [metric.calc(window if metric.is_window_metric else window[0], times) for metric in metrics]
+        # Calculate metrics and construct maps
+        def calculate_metrics(window_indices):
+            window_velocities = velocities[window_indices]
+            return [metric(window_velocities, times) for metric in metrics]  # pylint: disable=too-many-function-args
 
-        metrics = [metric(times, velocities, coords_neighbors) for metric in metrics]
-        results = thread_map(calc_metrics, windows_indices, max_workers=n_workers,
+        results = thread_map(calculate_metrics, windows_indices, max_workers=n_workers,
                              desc="Coordinates processed", disable=not bar)
-        metrics_maps = [metric.map_class(coords, metric_values, coords_cols=self.coords_cols, metric=metric)
-                        for metric, metric_values in zip(metrics, zip(*results))]
+        context = {"times": times, "velocities": velocities, "coords_neighbors": coords_neighbors}
+        metrics_maps = [metric.construct_map(coords, values, coords_cols=self.coords_cols, **context)
+                        for metric, values in zip(metrics, zip(*results))]
         if is_single_metric:
             return metrics_maps[0]
         return metrics_maps
