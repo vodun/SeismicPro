@@ -202,7 +202,29 @@ class TraceMaxAbs(TracewiseMetric):
         return np.max(np.abs(gather.data), axis=1) / (gather.data.std(axis=1) + 1e-10)
 
 
-class MaxClipsLen(TracewiseMetric):
+class MaxLenMetric(TracewiseMetric):
+    """Base class for metrics that calculates length of continuous sequence of 1."""
+
+    @staticmethod
+    @njit(nogil=True, parallel=True)
+    def compute_indicators_length(indicators, counter_init, old_shape):
+        for i in prange(len(indicators)):
+            counter = counter_init
+            indicator = indicators[i]
+            for j in range(len(indicator)):
+                if indicator[j] == 1:
+                    counter += 1
+                else:
+                    if counter > 1:
+                        indicators[i, j - counter: j] = counter
+                    counter = counter_init
+
+            if counter > 1:
+                indicators[i, -counter:] = counter
+        return indicators.reshape(old_shape)
+
+
+class MaxClipsLen(MaxLenMetric):
     """Detecting minimum/maximun clips"""
     name = "max_clips_len"
     min_value = 1
@@ -211,9 +233,8 @@ class MaxClipsLen(TracewiseMetric):
     threshold = 3
 
     @classmethod
-    def get_mask(cls, gather, **kwargs):
+    def get_mask(cls, gather):
         """QC indicator implementation."""
-        _ = kwargs
         traces = gather.data
 
         maxes = traces.max(axis=-1, keepdims=True)
@@ -224,69 +245,29 @@ class MaxClipsLen(TracewiseMetric):
 
         return (res_plus + res_minus).astype(np.float32)
 
-    @staticmethod
-    @njit(nogil=True)
-    def get_val_subseq(traces, cmpval):
-        """Indicator of constant subsequences equal to given value."""
-
+    @classmethod
+    def get_val_subseq(cls, traces, val):
         old_shape = traces.shape
         traces = np.atleast_2d(traces)
-
-        indicators = (traces == cmpval).astype(np.int16)
-
-        for t, indicator in enumerate(indicators):
-            counter = 0
-            for i, sample in enumerate(indicator):
-                if sample == 1:
-                    counter += 1
-                else:
-                    if counter > 1:
-                        indicators[t, i - counter: i] = counter
-                    counter = 0
-
-            if counter > 1:
-                indicators[t, -counter:] = counter
-
-        return indicators.reshape(*old_shape)
+        indicators = (traces == val).astype(np.int16)
+        return cls.compute_indicators_length(indicators, 0, old_shape)
 
 
-class MaxConstLen(TracewiseMetric):
+class MaxConstLen(MaxLenMetric):
     """Detecting constant subsequences"""
     name = "const_len"
     is_lower_better = True
     threshold = 4
 
     @classmethod
-    def get_mask(cls, gather, **kwargs):
+    def get_mask(cls, gather):
         """QC indicator implementation."""
-        _ = kwargs
-        res = cls.get_const_subseq(gather.data)
-        return res.astype(np.float32)
-
-    @staticmethod
-    @njit(nogil=True)
-    def get_const_subseq(traces):
-        """Indicator of constant subsequences."""
-
-        old_shape = traces.shape
-        traces = np.atleast_2d(traces)
-
+        traces = np.atleast_2d(gather.data)
         indicators = np.zeros_like(traces, dtype=np.int16)
         indicators[:, 1:] = (traces[:, 1:] == traces[:, :-1]).astype(np.int16)
-        for t, indicator in enumerate(indicators):
-            counter = 0
-            for i, sample in enumerate(indicator):
-                if sample == 1:
-                    counter += 1
-                else:
-                    if counter > 0:
-                        indicators[t, i - counter - 1:i] = counter + 1
-                    counter = 0
+        res = cls.compute_indicators_length(indicators, 1, gather.data.shape)
+        return res.astype(np.float32)
 
-            if counter > 0:
-                indicators[t, -counter - 1:] = counter + 1
-
-        return indicators.reshape(*old_shape)
 
 class DeadTrace(TracewiseMetric):
     """Detects constant traces."""
@@ -297,7 +278,6 @@ class DeadTrace(TracewiseMetric):
     threshold = 0.5
 
     @classmethod
-    def get_mask(cls, gather, **kwargs):
+    def get_mask(cls, gather):
         """Return QC indicator."""
-        _ = kwargs
         return (np.max(gather.data, axis=1) - np.min(gather.data, axis=1) < 1e-10).astype(np.float32)
