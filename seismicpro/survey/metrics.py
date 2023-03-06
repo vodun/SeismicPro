@@ -35,9 +35,8 @@ class SurveyAttribute(Metric):
 
 
 class TracewiseMetric(SurveyAttribute):
-    """Base class for tracewise metrics with addidional plotters and aggregations
-    Child classes should redefine `_get_res` method, and optionnaly `preprocess`.
-    """
+    """Base class for tracewise metrics with addidional plotters and aggregations. Child classes should redefine
+    `get_mask` method, and optionnaly `preprocess`."""
 
     min_value = None
     max_value = None
@@ -45,6 +44,7 @@ class TracewiseMetric(SurveyAttribute):
     threshold = None
     top_ax_y_scale = "linear"
 
+    # List with all parameters for preprocess method except `gather`.
     preprocess_kwargs = []
 
     def __init__(self, name=None):
@@ -58,7 +58,7 @@ class TracewiseMetric(SurveyAttribute):
 
     @property
     def get_preprocess_kwargs(self):
-        """Returns all args to self.preprocess method."""
+        """Returns all args to `self.preprocess` method."""
         return {name: getattr(self, name) for name in self.preprocess_kwargs}
 
     @classmethod
@@ -69,26 +69,23 @@ class TracewiseMetric(SurveyAttribute):
 
     @classmethod
     def get_mask(cls, gather):
-        """QC indicator implementation.
-        Takes a gather as an argument and returns either a samplewise qc indicator with shape
-        (`gather.n_traces`, `gather.n_samples - d`), where `d >= 0`,
-        or a tracewize indicator with shape (`gather.n_traces`,).
-        For a 2d output with 2-d axis smaller than `gather.n_samples`,
-        it will be padded with zeros at the beggining in `get_res`. Return QC indicator with zero traces masked
-        with `np.nan` and output shape either `gater.data.shape`, or (`gather.n_traces`,)."""
+        """QC indicator implementation. Takes a gather as an argument and returns either a samplewise qc indicator with
+        shape equal to `gather.shape` or a tracewize indicator with shape (`gather.n_traces`,)."""
         raise NotImplementedError
 
     def aggregate(self, mask):
-        """Aggregate input mask depending on `cls.is_lower_better."""
+        """Aggregate input mask depending on `self.is_lower_better` to select the worst mask value for each trace"""
         agg_fn = np.nanmax if self.is_lower_better else np.nanmin
         return mask if mask.ndim == 1 else agg_fn(mask, axis=1)
 
     def binarize(self, mask, threshold=None):
+        """Binarize input mask by `threshold`. Depending on `self.is_lower_better` values greater or less than the
+        `threshold` will be taken. If `threshold` is None, `self.threshold` is used."""
         bin_fn = np.greater_equal if self.is_lower_better else np.less_equal
         return bin_fn(mask, self.threshold if threshold is None else threshold)
 
     def plot(self, coords, ax, index, sort_by=None, threshold=None, top_ax_y_scale=None,  bad_only=False, **kwargs):
-        """Gather plot where samples with indicator above/below `cls.threshold` are highlited."""
+        """Gather plot where samples with indicator above/below `.threshold` are highlited."""
         threshold = self.threshold if threshold is None else threshold
         top_ax_y_scale = self.top_ax_y_scale if top_ax_y_scale is None else top_ax_y_scale
         _ = coords
@@ -107,17 +104,22 @@ class TracewiseMetric(SurveyAttribute):
             gather.data[self.aggregate(bin_mask) == 0] = np.nan
 
         mode = kwargs.pop("mode", "wiggle")
-        masks_dict = {"masks": bin_mask, "alpha":0.8, "label": self.name or "metric", **kwargs.pop("masks", {})}
+        masks_dict = {"masks": bin_mask, "alpha": 0.8, "label": self.name or "metric", **kwargs.pop("masks", {})}
         gather.plot(ax=ax, mode=mode, top_header=metric_vals, masks=masks_dict, **kwargs)
         ax.figure.axes[1].axhline(threshold, alpha=0.5)
         ax.figure.axes[1].set_yscale(top_ax_y_scale)
 
     def get_views(self, sort_by=None, threshold=None, top_ax_y_scale=None, **kwargs):
+        """Return plotters of the metric views and those `kwargs` that should be passed further to an interactive map
+        plotter."""
         plot_kwargs = {"sort_by": sort_by, "threshold": threshold, "top_ax_y_scale": top_ax_y_scale}
         return [partial(self.plot, **plot_kwargs), partial(self.plot, bad_only=True, **plot_kwargs)], kwargs
 
 
 class MuteTracewiseMetric(TracewiseMetric):
+    """Base class for tracewise metric with implemented `self.preprocess` method which applies muting and standatd
+    scaling to the input gather. Child classes should redefine `get_mask` method."""
+
     preprocess_kwargs = ['muter']
 
     def __init__(self, muter, name=None):
@@ -134,7 +136,23 @@ class MuteTracewiseMetric(TracewiseMetric):
 
 
 class Spikes(MuteTracewiseMetric):
-    """Spikes detection."""
+    """Spikes detection. The metric reacts to drastic changes in traces ampliutes in 1-width window around each
+    amplitude value. The resulted 2d mask shows the deviation of the ampluteds of an input gather.
+
+    The metric is highly depends on muter, if muter isn't strong enough, the metric will overreact to the first breaks.
+
+    Parameters
+    ----------
+    muter : Muter
+    A muter to use.
+    name : str, optional, defaults to "spikes"
+    Metrics name.
+
+    Attributes
+    ----------
+    ?? Do we want to describe them ??
+    """
+
     name = "spikes"
     min_value = 0
     max_value = None
@@ -163,7 +181,7 @@ class Spikes(MuteTracewiseMetric):
                     arr[i, :j] = arr[i, j]
 
 
-class Autocorr(MuteTracewiseMetric):
+class Autocorrelation(MuteTracewiseMetric):
     """Autocorrelation with shift 1"""
     name = "autocorrelation"
     min_value = -1
@@ -267,9 +285,7 @@ class MaxConstLen(MaxLenMetric):
         traces = np.atleast_2d(gather.data)
         indicators = np.zeros_like(traces, dtype=np.int16)
         indicators[:, 1:] = (traces[:, 1:] == traces[:, :-1]).astype(np.int16)
-        res = cls.compute_indicators_length(indicators, 1, gather.data.shape)
-        return res.astype(np.float32)
-
+        return cls.compute_indicators_length(indicators, 1, gather.data.shape).astype(np.float32)
 
 class DeadTrace(TracewiseMetric):
     """Detects constant traces."""
