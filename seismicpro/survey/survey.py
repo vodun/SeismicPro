@@ -355,14 +355,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             return None
         return len(self.get_headers(self.receiver_id_cols).drop_duplicates())
 
-    # @property
-    # def n_dead_traces(self):
-    #     """int: Number of constant traces."""
-    #     dead_traces_metric = self._get_dead_traces_metric()
-    #     if dead_traces_metric is None:
-    #         return None
-    #     return sum(self.headers[dead_traces_metric.name])
-
     @property
     def is_uphole(self):
         """bool or None: Whether the survey is uphole. `None` if uphole-related headers are not loaded."""
@@ -455,7 +447,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Number of bad traces after tracewise QC found by:
         """
             n_traces = [metric.binarize(self.headers[name]).sum() for name, metric in self.qc_metrics.items()]
-            msg += "\n\t".join([f"{name:<27}{num}" for name, num in zip(self.qc_metrics, n_traces)])
+            msg += "\n\t".join([f"{name+':':<27}{num}" for name, num in zip(self.qc_metrics, n_traces)])
         return dedent(msg).strip()
 
     def info(self):
@@ -1114,19 +1106,25 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     def filter_by_metric(self, metric_name, threshold=None, inplace=False):
         """"filter by metric"""
+
+        if self.qc_metrics is None:
+            raise ValueError("Not a single metric has been calculated yet, call `self.qc_tracewise` to compute one")
+
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         metric = self.qc_metrics.get(metric_name)
         if metric is None:
             avalible_metrics = ', '.join(self.qc_metrics.keys())
-            raise ValueError(f"`metric_name` must be one of {avalible_metrics}, but {metric_name} given.")
+            raise ValueError(f"`metric_name` must be one of {avalible_metrics}, but {metric_name} was given.")
         self.filter(lambda metric_value: ~metric.binarize(metric_value, threshold) , cols=metric_name, inplace=True)
 
-    def remove_dead_traces(self, chunk_size=1000, inplace=False, bar=True):
+    def remove_dead_traces(self, header_name=None, chunk_size=1000, inplace=False, bar=True):
         """ Remove dead (constant) traces from the survey.
-        Calculates :class:`~survey.metrics.DeadTrace` if it was not calculated before.
+        Calculates :class:`~survey.metrics.DeadTrace` if `header_name` is not passed.
 
         Parameters
         ----------
+        header_name : str, optional, defaults to None
+            Header name to ....!!!!!!!!
         chunk_size : int, optional, defaults to 1000
             Number of traces loaded on each iteration.
         inplace : bool, optional, defaults to False
@@ -1141,15 +1139,12 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
 
-        dead_traces_metric = DeadTrace()
-        if self.qc_metrics is not None:
-            dead_traces = [metric for metric in self.qc_metrics if isinstance(metric, DeadTrace)]
-            dead_traces_metric = dead_traces if len(dead_traces) > 0 else dead_traces_metric
+        if header_name is None:
+            dead_trace = DeadTrace()
+            header_name = dead_trace.name
+            self.qc_tracewise(dead_trace, chunk_size=chunk_size, bar=bar)
 
-        if dead_traces_metric.name not in self.headers:
-            self.qc_tracewise(dead_traces_metric, chunk_size=chunk_size, bar=bar)
-
-        self.filter_by_metric(dead_traces_metric.name, inplace=True)
+        self.filter_by_metric(header_name, inplace=True)
         return self
 
     #------------------------------------------------------------------------#
