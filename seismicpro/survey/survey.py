@@ -18,13 +18,13 @@ from sklearn.linear_model import LinearRegression
 
 from .headers import load_headers
 from .headers_checks import validate_trace_headers, validate_source_headers, validate_receiver_headers
-from .metrics import SurveyAttribute, DeadTrace, DEFAULT_TRACEWISE_METRICS
+from .metrics import SurveyAttribute, DeadTrace, WindowRMS, SinalToNoiseRMSAdaptive, DEFAULT_TRACEWISE_METRICS
 from .plot_geometry import SurveyGeometryPlot
 from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
 from ..containers import GatherContainer, SamplesContainer
 from ..metrics import is_metric, initialize_metrics
-from ..utils import to_list, maybe_copy, get_cols, get_first_defined
+from ..utils import to_list, maybe_copy, get_cols, get_first_defined, get_coords_and_index_from_by
 from ..const import ENDIANNESS, HDR_FIRST_BREAK, HDR_TRACE_POS
 
 
@@ -1316,10 +1316,13 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         for metric, metric_vals in zip(metrics, zip(*results)):
             vals = np.concatenate(metric_vals)[orig_idx]
             # TODO: MAKE WindowsMS and other RMS metrics WORK
-            # if isinstance(metric, WindowsMS):
-            #     self.headers[[metric.name + '_sig', metric.name + '_noise']] = vals
-            # else:
-            self.headers[metric.name] = vals
+            if isinstance(metric, WindowRMS):
+                self.headers[[metric.name + '_sig', metric.name + '_n']] = vals
+            elif isinstance(metric, SinalToNoiseRMSAdaptive):
+                columns = [metric.name + postfix for postfix in ["_sig_sum", "_sig_n", "_noise_sum", "_noise_n"]]
+                self.headers[columns] = vals
+            else:
+                self.headers[metric.name] = vals
 
             if metric.name in self.qc_metrics:
                 warnings.warn(f'{metric.name} already calculated. Rewriting.')
@@ -1379,20 +1382,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     def _construct_map(self, values, name, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None, metric=None):
         """Construct a metric map of `values` aggregated by gather, whose type is defined by `by`."""
-        by_to_cols = {
-            "source": (self.source_id_cols, ["SourceX", "SourceY"]),
-            "shot": (self.source_id_cols, ["SourceX", "SourceY"]),
-            "receiver": (self.receiver_id_cols, ["GroupX", "GroupY"]),
-            "rec": (self.receiver_id_cols, ["GroupX", "GroupY"]),
-            "cdp": (None, ["CDP_X", "CDP_Y"]),
-            "cmp": (None, ["CDP_X", "CDP_Y"]),
-            "midpoint": (None, ["CDP_X", "CDP_Y"]),
-            "bin": (None, ["INLINE_3D", "CROSSLINE_3D"]),
-            "supergather": (None, ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]),
-        }
-        index_cols, coords_cols = by_to_cols.get(by.lower())
-        if coords_cols is None:
-            raise ValueError(f"by must be one of {', '.join(by_to_cols.keys())} but {by} given.")
+        index_cols, coords_cols = get_coords_and_index_from_by(self, by)
         index_cols = get_first_defined(id_cols, index_cols)
 
         metric_data = self.get_headers(coords_cols)
@@ -1411,7 +1401,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             raise
         return metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size, survey=self)
 
-    def construct_header_map(self, col, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None, metric=None):
+    def construct_header_map(self, col, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
         """Construct a metric map of trace header values aggregated by gather.
 
         Examples
@@ -1446,7 +1436,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             Constructed header map.
         """
         return self._construct_map(self[col], name=col, by=by, id_cols=id_cols, drop_duplicates=drop_duplicates,
-                                   agg=agg, bin_size=bin_size, metric=metric)
+                                   agg=agg, bin_size=bin_size)
 
 
     def construct_fold_map(self, by, id_cols=None, agg=None, bin_size=None):
@@ -1517,7 +1507,12 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                 continue
 
             metric = self.qc_metrics[metric_name]
-            metric_mmap = self.construct_header_map(col=metric_name, by=by, agg=agg, bin_size=bin_size, metric=metric)
+            index_cols, coords_cols = get_coords_and_index_from_by(self, by)
+            index_cols = to_list(coords_cols) if index_cols is None else to_list(index_cols)
+            coords_cols = to_list(coords_cols)
+            columns = index_cols + coords_cols + to_list(metric.header_cols)
+            coords, values, index = metric.aggregate_headers(self.get_headers(columns), index_cols, coords_cols)
+            metric_mmap = metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size, survey=self)
             mmaps.append(metric_mmap)
             # if isinstance(metric, WindowsMS):
             #     metric_cols = [metric.name + '_sig', metric.name + '_noise']

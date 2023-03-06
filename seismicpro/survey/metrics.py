@@ -6,6 +6,8 @@ import numpy as np
 from numba import njit, prange
 
 from ..metrics import Metric
+from ..utils import to_list
+from ..gather.utils import times_to_indices
 
 
 class SurveyAttribute(Metric):
@@ -61,6 +63,10 @@ class TracewiseMetric(SurveyAttribute):
         """Returns all args to `self.preprocess` method."""
         return {name: getattr(self, name) for name in self.preprocess_kwargs}
 
+    @property
+    def header_cols(self):
+        return self.name
+
     @classmethod
     def preprocess(cls, gather, **kwargs):
         """Preprocess gather for calculating metric. Identity by default."""
@@ -72,6 +78,10 @@ class TracewiseMetric(SurveyAttribute):
         """QC indicator implementation. Takes a gather as an argument and returns either a samplewise qc indicator with
         shape equal to `gather.shape` or a tracewize indicator with shape (`gather.n_traces`,)."""
         raise NotImplementedError
+
+    def aggregate_headers(self, headers, index_cols, coords_cols):
+        index = headers[to_list(index_cols)] if index_cols is not None else None
+        return headers[to_list(coords_cols)], headers[self.name], index
 
     def aggregate(self, mask):
         """Aggregate input mask depending on `self.is_lower_better` to select the worst mask value for each trace"""
@@ -287,6 +297,7 @@ class MaxConstLen(MaxLenMetric):
         indicators[:, 1:] = (traces[:, 1:] == traces[:, :-1]).astype(np.int16)
         return cls.compute_indicators_length(indicators, 1, gather.data.shape).astype(np.float32)
 
+
 class DeadTrace(TracewiseMetric):
     """Detects constant traces."""
     name = "dead_trace"
@@ -299,5 +310,98 @@ class DeadTrace(TracewiseMetric):
     def get_mask(cls, gather):
         """Return QC indicator."""
         return (np.max(gather.data, axis=1) - np.min(gather.data, axis=1) < 1e-10).astype(np.float32)
+
+
+class WindowRMS(TracewiseMetric):
+    """ RMS computed for provided window
+
+    Parameters
+    ----------
+    offsets : tuple of 2 ints
+        offset range to use for calcualtion.
+    times : tuple of 2 ints
+        time range to use for calcualtion, measured in ms.
+    """
+    name = "RMS"
+    is_lower_better = False
+    threshold = None
+    top_ax_y_scale = 'log'
+
+    preprocess_kwargs = ['offsets', 'times']
+
+    def __init__(self, offsets=None, times=None, name=None):
+        super().__init__(name=name)
+        self.offsets = offsets
+        self.times = times
+
+    @property
+    def header_cols(self):
+        return [self.name+"_sum", self.name+"_n"]
+
+    @staticmethod
+    def _get_times(gather, times):
+        return (min(gather.samples), max(gather.samples)) if times is None else times
+
+    @staticmethod
+    def _get_offsets(gather, offsets):
+        return (min(gather.offsets), max(gather.offsets)) if offsets is None else offsets
+
+    @staticmethod
+    def _get_indices(gather, times):
+        times_range = np.asarray([max(gather.samples[0], times[0]), min(gather.samples[-1], times[1])])
+        return times_to_indices(times_range, gather.samples).astype(np.int16)
+
+    def aggregate_headers(self, headers, index_cols, coords_cols):
+        groupby_cols = self.header_cols + [coords_cols] if index_cols != coords_cols else []
+        groupby = headers.groupby(index_cols)[groupby_cols]
+        aggregated_gb = groupby.agg({groupby_cols[0]: lambda x: np.sqrt(np.sum(x)),
+                                     groupby_cols[1]: "sum",
+                                     **{groupby_cols[i]: "mean" for i in range(2, len(groupby_cols))}})
+        aggregated_gb.reset_index(inplace=True)
+        coords = aggregated_gb[coords_cols]
+        value = aggregated_gb[groupby_cols[0]] / aggregated_gb[groupby_cols[1]]
+        index = aggregated_gb[index_cols]
+        return coords, value, index
+
+    @classmethod
+    def get_mask(cls, gather):
+        """QC indicator implementation."""
+
+        times = cls._get_times(gather, self.times)
+        offsets = cls._get_offsets(gather, self.offsets)
+        w_beg, w_end = cls._get_indices(gather, self.times)
+        ixs = np.nonzero((gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1]))[0]
+        win_sizes = np.full(len(ixs), fill=w_end - w_beg)
+        results = np.full(len(ixs), fill=0)
+        results[ixs] = np.sum(gather.data[ixs, w_beg: w_end] ** 2)
+        return results, win_sizes
+        # return cls.rms_win(gather.data, ixs, w_beg, w_end)
+
+    @staticmethod
+    @njit(nogil=True)
+    def rms_win(data, ixs, w_beg, w_end):
+        """Compute RMS for a window defined by its starting and end sample indices."""
+        res = np.full(data.shape[0], fill_value=np.nan)
+        for i in prange(len(ixs)):
+            ix = ixs[i]
+            res[ix] = data[ix, w_beg: w_end]**2
+        return res
+
+    def _plot(self, coords, ax, index, **kwargs):
+        """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
+        super()._plot(coords, ax, index, **kwargs)
+        gather = self.survey.get_gather(index).sort(by='offset')
+
+        times = self._get_times(gather, self.times)
+        offsets = self._get_offsets(gather, self.offsets)
+
+        mask = (gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1])
+        offs_ind = np.nonzero(mask)[0]
+        w_beg, w_end = self._get_indices(gather, times)
+
+        n_rec = (offs_ind[0], w_beg), len(offs_ind), (w_end - w_beg)
+        from matplotlib import patches
+        ax.add_patch(patches.Rectangle(*n_rec, linewidth=1, edgecolor='magenta', facecolor='none'))
+
 
 DEFAULT_TRACEWISE_METRICS = [TraceAbsMean, TraceMaxAbs, MaxClipsLen, MaxConstLen, DeadTrace]
