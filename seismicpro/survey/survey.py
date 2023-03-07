@@ -1321,7 +1321,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             if isinstance(metric, WindowRMS):
                 self.headers[[metric.name + '_sum', metric.name + '_n']] = vals
             elif isinstance(metric, SinalToNoiseRMSAdaptive):
-                columns = [metric.name + postfix for postfix in ["_sig_sum", "_sig_n", "_noise_sum", "_noise_n"]]
+                columns = [metric.name + postfix for postfix in ["_signal_sum", "_signal_n", "_noise_sum", "_noise_n"]]
                 self.headers[columns] = vals
             else:
                 self.headers[metric.name] = vals

@@ -7,8 +7,7 @@ from numba import njit, prange
 from matplotlib import patches
 
 from ..metrics import Metric
-from ..utils import to_list
-from ..gather.utils import times_to_indices
+from ..utils import to_list, times_to_indices
 
 
 class SurveyAttribute(Metric):
@@ -356,7 +355,7 @@ class WindowRMS(TracewiseMetric):
 
         return square_amps, win_sizes
 
-    def aggregate_headers(self, headers, index_cols, coords_cols):
+    def aggregate_headers(self, headers, index_cols, coords_cols): #TODO: rename
         groupby_cols = self.header_cols + coords_cols if index_cols != coords_cols else []
         groupby = headers.groupby(index_cols)[groupby_cols]
         aggregated_gb = groupby.agg({groupby_cols[0]: lambda x: np.sqrt(np.sum(x)),
@@ -400,6 +399,126 @@ class WindowRMS(TracewiseMetric):
         plotter."""
         plot_kwargs = {"threshold": threshold, "top_ax_y_scale": top_ax_y_scale}
         return [partial(self.plot, **plot_kwargs), partial(self.plot, bad_only=True, **plot_kwargs)], kwargs
+
+
+class SinalToNoiseRMSAdaptive(TracewiseMetric):
+    """Signal to Noise RMS ratio computed in sliding windows along first breaks.
+    The Metric parameters are: window size that is used for both signal and noise windows,
+    and the shifts of the windows from from the first breaks picking.
+    Noise window beginnings are computed as fbp_time - shift_up - window_size,
+    Signal windows beginnings are computed as fbp_time + shift_down.
+    Only traces that contain noise and signal windows of the provided `window_size` are considered,
+    the metric is Null for other traces.
+
+
+    Parameters
+    ----------
+    win_size : int
+        length of the windows for computing signam and noise RMS amplitudes measured in ms.
+    shift_up : int
+        the delta between noise window end and first breaks, measured in ms.
+    shift_down : int
+        the delta between signal window beginning and first breaks, measured in ms.
+    first_breaks_col : str, optional
+        header with first breaks, by default HDR_FIRST_BREAK
+    """
+
+    name = "Adaptive StN RMS"
+    is_lower_better = False
+    threshold = None
+
+    def __init__(self, win_size, shift_up, shift_down, refractor_velocity, name=None):
+        super().__init__(name=name)
+        self.win_size = win_size
+        self.shift_up = shift_up
+        self.shift_down = shift_down
+        self.refractor_velocity = refractor_velocity
+
+    def __call__(self, gather):
+        """Return an already calculated metric."""
+        gather = self.preprocess(gather)
+        return self.get_mask(gather)
+
+    @property
+    def header_cols(self):
+        return [self.name + postfix for postfix in ["_signal_sum", "_signal_n", "_noise_sum", "_noise_n"]]
+
+    def _get_indices(self, gather):
+        """Convert times to use for noise and signal windows into indices"""
+        fbp = self.refractor_velocity(gather.offsets)
+
+        signal_start_times = fbp + self.shift_down
+        signal_start_times[signal_start_times > gather.samples[-1] - self.win_size] = np.nan
+
+        noise_start_times = fbp - self.shift_up - self.win_size
+        noise_start_times[noise_start_times < 0] = np.nan
+
+        signal_start_ixs = times_to_indices(signal_start_times, gather.samples).astype(np.int16)
+        noise_start_ixs = times_to_indices(noise_start_times, gather.samples).astype(np.int16)
+
+        return signal_start_ixs, noise_start_ixs
+
+    def get_mask(self, gather):
+        """QC indicator implementation. See `plot` docstring for parameters descriptions."""
+        signal_start_ixs, noise_start_ixs = self._get_indices(gather)
+        win_size = times_to_indices((self.win_size, ), gather.samples)[0].astype(np.int16)
+        # TODO: simplify and delete np.nans in _get_indices
+        noise_start_ixs[np.isnan(noise_start_ixs)] = -1
+        signal_start_ixs[np.isnan(signal_start_ixs)] = -1
+
+        return self.rms_2_windows_ratio(gather.data, signal_start_ixs, noise_start_ixs, win_size)
+
+    @staticmethod
+    @njit(nogil=True, parallel=True)
+    def rms_2_windows_ratio(data, signal_start_ixs, noise_start_ixs, win_size): #TODO: rename
+        """Compute RMS ratio for 2 windows defined by their starting samples and window size."""
+        signal_sum = np.full(data.shape[0], fill_value=0, dtype=np.float32)
+        signal_num = np.full(data.shape[0], fill_value=0, dtype=np.int32)
+        noise_sum = np.full(data.shape[0], fill_value=0, dtype=np.float32)
+        noise_num = np.full(data.shape[0], fill_value=0, dtype=np.int32)
+
+        for i in prange(data.shape[0]):
+            trace, signal_start_ix, noise_start_ix = data[i], signal_start_ixs[i], noise_start_ixs[i]
+            if signal_start_ix >= 0 and noise_start_ix >= 0:
+                signal_sum[i] = sum(trace[signal_start_ix: signal_start_ix + win_size] ** 2)
+                signal_num[i] = len(trace[signal_start_ix: signal_start_ix + win_size])
+
+                noise_sum[i] = sum(trace[noise_start_ix: noise_start_ix + win_size] ** 2)
+                noise_num[i] = len(trace[noise_start_ix: noise_start_ix + win_size])
+        return np.vstack((signal_sum, signal_num, noise_sum, noise_num)).T
+
+    def aggregate_headers(self, headers, index_cols, coords_cols):
+        groupby_cols = self.header_cols + coords_cols if index_cols != coords_cols else []
+        groupby = headers.groupby(index_cols)[groupby_cols]
+        aggregated_gb = groupby.agg({groupby_cols[0]: lambda x: np.sqrt(np.sum(x)),
+                                     groupby_cols[1]: "sum",
+                                     groupby_cols[2]: lambda x: np.sqrt(np.sum(x)),
+                                     groupby_cols[3]: "sum",
+                                     **{groupby_cols[i]: "mean" for i in range(4, len(groupby_cols))}})
+        aggregated_gb.reset_index(inplace=True)
+        coords = aggregated_gb[coords_cols]
+        signal = aggregated_gb[groupby_cols[0]] / aggregated_gb[groupby_cols[1]]
+        noise = aggregated_gb[groupby_cols[2]] / aggregated_gb[groupby_cols[3]]
+        value = signal / (noise + 1e-10)
+        index = aggregated_gb[index_cols]
+        return coords, value, index
+
+    def _plot(self, mode, coords, ax, **kwargs):
+        """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows."""
+        gather = self.survey.get_gather(coords).sort(by='offset')
+
+        self._plot_gather_metric(mode, gather, ax, **kwargs)
+
+        n_begs, s_begs = self._get_indices(gather, **self.kwargs)
+        n_begs[np.isnan(s_begs)] = np.nan
+        s_begs[np.isnan(n_begs)] = np.nan
+
+        win_size = np.rint(self.win_size/gather.sample_rate)
+
+        ax.plot(np.arange(gather.n_traces), n_begs, color='magenta')
+        ax.plot(np.arange(gather.n_traces), n_begs + win_size, color='magenta')
+        ax.plot(np.arange(gather.n_traces), s_begs, color='lime')
+        ax.plot(np.arange(gather.n_traces), s_begs + win_size, color='lime')
 
 
 DEFAULT_TRACEWISE_METRICS = [TraceAbsMean, TraceMaxAbs, MaxClipsLen, MaxConstLen, DeadTrace]
