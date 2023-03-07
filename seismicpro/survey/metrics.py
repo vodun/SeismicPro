@@ -46,35 +46,24 @@ class TracewiseMetric(SurveyAttribute):
     threshold = None
     top_ax_y_scale = "linear"
 
-    # List with all parameters for preprocess method except `gather`.
-    preprocess_kwargs = []
-
     def __init__(self, name=None):
         super().__init__(name=name)
 
-    def __call__(self, gather, **kwargs):
+    def __call__(self, gather):
         """Return an already calculated metric."""
-        gather = self.preprocess(gather, **{**self.get_preprocess_kwargs, **kwargs})
+        gather = self.preprocess(gather)
         mask = self.get_mask(gather)
         return self.aggregate(mask)
-
-    @property
-    def get_preprocess_kwargs(self):
-        """Returns all args to `self.preprocess` method."""
-        return {name: getattr(self, name) for name in self.preprocess_kwargs}
 
     @property
     def header_cols(self):
         return self.name
 
-    @classmethod
-    def preprocess(cls, gather, **kwargs):
+    def preprocess(self, gather):
         """Preprocess gather for calculating metric. Identity by default."""
-        _ = kwargs
         return gather
 
-    @classmethod
-    def get_mask(cls, gather):
+    def get_mask(self, gather):
         """QC indicator implementation. Takes a gather as an argument and returns either a samplewise qc indicator with
         shape equal to `gather.shape` or a tracewize indicator with shape (`gather.n_traces`,)."""
         raise NotImplementedError
@@ -103,7 +92,7 @@ class TracewiseMetric(SurveyAttribute):
         gather = self.survey.get_gather(index)
         if sort_by is not None:
             gather = gather.sort(sort_by)
-        gather = self.preprocess(gather, **self.get_preprocess_kwargs)
+        gather = self.preprocess(gather)
 
         # TODO: Can we do only single copy here? (first copy done in self.preprocess)
         # We need to copy gather since some metrics changes gather in get_mask, but we want to plot gather unchanged
@@ -130,8 +119,6 @@ class MuteTracewiseMetric(TracewiseMetric):
     """Base class for tracewise metric with implemented `self.preprocess` method which applies muting and standatd
     scaling to the input gather. Child classes should redefine `get_mask` method."""
 
-    preprocess_kwargs = ['muter']
-
     def __init__(self, muter, name=None):
         super().__init__(name=name)
         self.muter = muter
@@ -140,9 +127,8 @@ class MuteTracewiseMetric(TracewiseMetric):
         """String representation of the metric."""
         return f"{type(self).__name__}(name='{self.name}', muter='{self.muter}')"
 
-    @classmethod
-    def preprocess(cls, gather, muter):
-        return gather.copy().mute(muter=muter, fill_value=np.nan).scale_standard()
+    def preprocess(self, gather):
+        return gather.copy().mute(muter=self.muter, fill_value=np.nan).scale_standard()
 
 
 class Spikes(MuteTracewiseMetric):
@@ -170,11 +156,10 @@ class Spikes(MuteTracewiseMetric):
     threshold = 2
     top_ax_y_scale = "log"
 
-    @classmethod
-    def get_mask(cls, gather):
+    def get_mask(self, gather):
         """QC indicator implementation."""
         traces = gather.data
-        cls.fill_leading_nulls(traces)
+        self.fill_leading_nulls(traces)
 
         res = np.abs(traces[:, 2:] + traces[:, :-2] - 2*traces[:, 1:-1]) / 3
         return np.pad(res, ((0, 0), (1, 1)))
@@ -200,8 +185,7 @@ class Autocorrelation(MuteTracewiseMetric):
     threshold = 0.8
     top_ax_y_scale = "log"
 
-    @classmethod
-    def get_mask(cls, gather):
+    def get_mask(self, gather):
         """QC indicator implementation."""
         return np.nanmean(gather.data[..., 1:] * gather.data[..., :-1], axis=1)
 
@@ -213,8 +197,7 @@ class TraceAbsMean(TracewiseMetric):
     threshold = 0.1
     top_ax_y_scale = "log"
 
-    @classmethod
-    def get_mask(cls, gather):
+    def get_mask(self, gather):
         """QC indicator implementation."""
         return np.abs(gather.data.mean(axis=1) / (gather.data.std(axis=1) + 1e-10))
 
@@ -226,8 +209,7 @@ class TraceMaxAbs(TracewiseMetric):
     threshold = 15
     top_ax_y_scale = "log"
 
-    @classmethod
-    def get_mask(cls, gather):
+    def get_mask(self, gather):
         """QC indicator implementation."""
         return np.max(np.abs(gather.data), axis=1) / (gather.data.std(axis=1) + 1e-10)
 
@@ -262,25 +244,23 @@ class MaxClipsLen(MaxLenMetric):
     is_lower_better = True
     threshold = 3
 
-    @classmethod
-    def get_mask(cls, gather):
+    def get_mask(self, gather):
         """QC indicator implementation."""
         traces = gather.data
 
         maxes = traces.max(axis=-1, keepdims=True)
         mins = traces.min(axis=-1, keepdims=True)
 
-        res_plus = cls.get_val_subseq(traces, maxes)
-        res_minus = cls.get_val_subseq(traces, mins)
+        res_plus = self.get_val_subseq(traces, maxes)
+        res_minus = self.get_val_subseq(traces, mins)
 
         return (res_plus + res_minus).astype(np.float32)
 
-    @classmethod
-    def get_val_subseq(cls, traces, val):
+    def get_val_subseq(self, traces, val):
         old_shape = traces.shape
         traces = np.atleast_2d(traces)
         indicators = (traces == val).astype(np.int16)
-        return cls.compute_indicators_length(indicators, 0, old_shape)
+        return self.compute_indicators_length(indicators, 0, old_shape)
 
 
 class MaxConstLen(MaxLenMetric):
@@ -289,13 +269,12 @@ class MaxConstLen(MaxLenMetric):
     is_lower_better = True
     threshold = 4
 
-    @classmethod
-    def get_mask(cls, gather):
+    def get_mask(self, gather):
         """QC indicator implementation."""
         traces = np.atleast_2d(gather.data)
         indicators = np.zeros_like(traces, dtype=np.int16)
         indicators[:, 1:] = (traces[:, 1:] == traces[:, :-1]).astype(np.int16)
-        return cls.compute_indicators_length(indicators, 1, gather.data.shape).astype(np.float32)
+        return self.compute_indicators_length(indicators, 1, gather.data.shape).astype(np.float32)
 
 
 class DeadTrace(TracewiseMetric):
@@ -306,8 +285,7 @@ class DeadTrace(TracewiseMetric):
     is_lower_better = True
     threshold = 0.5
 
-    @classmethod
-    def get_mask(cls, gather):
+    def get_mask(self, gather):
         """Return QC indicator."""
         return (np.max(gather.data, axis=1) - np.min(gather.data, axis=1) < 1e-10).astype(np.float32)
 
@@ -323,16 +301,19 @@ class WindowRMS(TracewiseMetric):
         time range to use for calcualtion, measured in ms.
     """
     name = "RMS"
-    is_lower_better = False
+    is_lower_better = False # TODO: think what should it be?
     threshold = None
     top_ax_y_scale = 'log'
-
-    preprocess_kwargs = ['offsets', 'times']
 
     def __init__(self, offsets=None, times=None, name=None):
         super().__init__(name=name)
         self.offsets = offsets
         self.times = times
+
+    def __call__(self, gather):
+        """Return an already calculated metric."""
+        gather = self.preprocess(gather)
+        return self.get_mask(gather)
 
     @property
     def header_cols(self):
@@ -352,7 +333,7 @@ class WindowRMS(TracewiseMetric):
         return times_to_indices(times_range, gather.samples).astype(np.int16)
 
     def aggregate_headers(self, headers, index_cols, coords_cols):
-        groupby_cols = self.header_cols + [coords_cols] if index_cols != coords_cols else []
+        groupby_cols = self.header_cols + coords_cols if index_cols != coords_cols else []
         groupby = headers.groupby(index_cols)[groupby_cols]
         aggregated_gb = groupby.agg({groupby_cols[0]: lambda x: np.sqrt(np.sum(x)),
                                      groupby_cols[1]: "sum",
@@ -363,19 +344,17 @@ class WindowRMS(TracewiseMetric):
         index = aggregated_gb[index_cols]
         return coords, value, index
 
-    @classmethod
-    def get_mask(cls, gather):
+    def get_mask(self, gather):
         """QC indicator implementation."""
 
-        times = cls._get_times(gather, self.times)
-        offsets = cls._get_offsets(gather, self.offsets)
-        w_beg, w_end = cls._get_indices(gather, self.times)
+        times = self._get_times(gather, self.times)
+        offsets = self._get_offsets(gather, self.offsets)
+        w_beg, w_end = self._get_indices(gather, times)
         ixs = np.nonzero((gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1]))[0]
-        win_sizes = np.full(len(ixs), fill=w_end - w_beg)
-        results = np.full(len(ixs), fill=0)
-        results[ixs] = np.sum(gather.data[ixs, w_beg: w_end] ** 2)
-        return results, win_sizes
-        # return cls.rms_win(gather.data, ixs, w_beg, w_end)
+        win_sizes = np.full(gather.shape[0], fill_value=w_end - w_beg)
+        results = np.full(gather.shape[0], fill_value=0)
+        results[ixs] = np.sum(gather.data[ixs, w_beg: w_end] ** 2, axis=1)
+        return np.vstack((results, win_sizes)).T
 
     @staticmethod
     @njit(nogil=True)
@@ -387,10 +366,23 @@ class WindowRMS(TracewiseMetric):
             res[ix] = data[ix, w_beg: w_end]**2
         return res
 
-    def _plot(self, coords, ax, index, **kwargs):
+    def plot(self, coords, ax, index, threshold=None, top_ax_y_scale=None, **kwargs):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
-        super()._plot(coords, ax, index, **kwargs)
+        _ = coords
+        # TODO: add threshold processing and marking traces inside rectangle
         gather = self.survey.get_gather(index).sort(by='offset')
+        amp_sum, amp_num = self.get_mask(gather).T
+        tracewise_metric = np.sqrt(amp_sum) / amp_num
+        tracewise_metric[tracewise_metric==0] = np.nan
+        # bin_mask = self.binarize(mask, threshold)
+        # if bad_only:
+        #     gather.data[self.aggregate(bin_mask) == 0] = np.nan
+
+        mode = kwargs.pop("mode", "wiggle")
+        # masks_dict = {"masks": bin_mask, "alpha": 0.8, "label": self.name or "metric", **kwargs.pop("masks", {})}
+        gather.plot(ax=ax, mode=mode, top_header=tracewise_metric, **kwargs)
+        # ax.figure.axes[1].axhline(threshold, alpha=0.5)
+        ax.figure.axes[1].set_yscale(top_ax_y_scale)
 
         times = self._get_times(gather, self.times)
         offsets = self._get_offsets(gather, self.offsets)
@@ -398,10 +390,17 @@ class WindowRMS(TracewiseMetric):
         mask = (gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1])
         offs_ind = np.nonzero(mask)[0]
         w_beg, w_end = self._get_indices(gather, times)
+        if len(offs_ind) > 0:
+            n_rec = (offs_ind[0], w_beg), len(offs_ind), (w_end - w_beg)
+            from matplotlib import patches
+            ax.add_patch(patches.Rectangle(*n_rec, linewidth=2, edgecolor='magenta', facecolor='none'))
 
-        n_rec = (offs_ind[0], w_beg), len(offs_ind), (w_end - w_beg)
-        from matplotlib import patches
-        ax.add_patch(patches.Rectangle(*n_rec, linewidth=1, edgecolor='magenta', facecolor='none'))
+    def get_views(self, threshold=None, top_ax_y_scale=None, **kwargs):
+        """Return plotters of the metric views and those `kwargs` that should be passed further to an interactive map
+        plotter."""
+        plot_kwargs = {"threshold": threshold, "top_ax_y_scale": top_ax_y_scale}
+        return [partial(self.plot, **plot_kwargs)], kwargs
+
 
 
 DEFAULT_TRACEWISE_METRICS = [TraceAbsMean, TraceMaxAbs, MaxClipsLen, MaxConstLen, DeadTrace]

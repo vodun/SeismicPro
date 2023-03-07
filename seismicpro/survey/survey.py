@@ -18,7 +18,7 @@ from sklearn.linear_model import LinearRegression
 
 from .headers import load_headers
 from .headers_checks import validate_trace_headers, validate_source_headers, validate_receiver_headers
-from .metrics import SurveyAttribute, DeadTrace, WindowRMS, SinalToNoiseRMSAdaptive, DEFAULT_TRACEWISE_METRICS
+from .metrics import SurveyAttribute, TracewiseMetric, DeadTrace, WindowRMS, SinalToNoiseRMSAdaptive, DEFAULT_TRACEWISE_METRICS
 from .plot_geometry import SurveyGeometryPlot
 from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
@@ -1287,7 +1287,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             If provided metrics are not  :class:`~metrics.TracewiseMetric` subclasses
         """
 
-        metrics, _ = initialize_metrics(DEFAULT_TRACEWISE_METRICS if metrics is None else to_list(metrics))
+        if metrics is None:
+            metrics = DEFAULT_TRACEWISE_METRICS
+        metrics, _ = initialize_metrics(metrics, metric_class=TracewiseMetric)
 
         if n_workers is None:
             n_workers = os.cpu_count()
@@ -1317,7 +1319,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             vals = np.concatenate(metric_vals)[orig_idx]
             # TODO: MAKE WindowsMS and other RMS metrics WORK
             if isinstance(metric, WindowRMS):
-                self.headers[[metric.name + '_sig', metric.name + '_n']] = vals
+                self.headers[[metric.name + '_sum', metric.name + '_n']] = vals
             elif isinstance(metric, SinalToNoiseRMSAdaptive):
                 columns = [metric.name + postfix for postfix in ["_sig_sum", "_sig_n", "_noise_sum", "_noise_n"]]
                 self.headers[columns] = vals
