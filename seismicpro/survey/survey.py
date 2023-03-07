@@ -1513,6 +1513,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             index_cols = to_list(coords_cols) if index_cols is None else to_list(index_cols)
             coords_cols = to_list(coords_cols)
             columns = index_cols + coords_cols + to_list(metric.header_cols)
+            # TODO: Can we do it somehow differently?
             coords, values, index = metric.aggregate_headers(self.get_headers(columns), index_cols, coords_cols)
             metric_mmap = metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size, survey=self)
             mmaps.append(metric_mmap)

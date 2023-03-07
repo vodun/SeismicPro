@@ -4,6 +4,7 @@ from functools import partial
 
 import numpy as np
 from numba import njit, prange
+from matplotlib import patches
 
 from ..metrics import Metric
 from ..utils import to_list
@@ -81,6 +82,8 @@ class TracewiseMetric(SurveyAttribute):
         """Binarize input mask by `threshold`. Depending on `self.is_lower_better` values greater or less than the
         `threshold` will be taken. If `threshold` is None, `self.threshold` is used."""
         bin_fn = np.greater_equal if self.is_lower_better else np.less_equal
+        if threshold is None and self.threshold is None:
+            raise ValueError("Either `threshold` or `self.threshold` must be non None.")
         return bin_fn(mask, self.threshold if threshold is None else threshold)
 
     def plot(self, coords, ax, index, sort_by=None, threshold=None, top_ax_y_scale=None,  bad_only=False, **kwargs):
@@ -154,7 +157,6 @@ class Spikes(MuteTracewiseMetric):
     max_value = None
     is_lower_better = True
     threshold = 2
-    top_ax_y_scale = "log"
 
     def get_mask(self, gather):
         """QC indicator implementation."""
@@ -183,10 +185,10 @@ class Autocorrelation(MuteTracewiseMetric):
     max_value = 1
     is_lower_better = False
     threshold = 0.8
-    top_ax_y_scale = "log"
 
     def get_mask(self, gather):
         """QC indicator implementation."""
+        # TODO: descide what to do with almost nan traces (in 98% in trace are nan, it almost always will have -1 val)
         return np.nanmean(gather.data[..., 1:] * gather.data[..., :-1], axis=1)
 
 
@@ -195,7 +197,6 @@ class TraceAbsMean(TracewiseMetric):
     name = "trace_absmean"
     is_lower_better = True
     threshold = 0.1
-    top_ax_y_scale = "log"
 
     def get_mask(self, gather):
         """QC indicator implementation."""
@@ -207,7 +208,6 @@ class TraceMaxAbs(TracewiseMetric):
     name = "trace_maxabs"
     is_lower_better = True
     threshold = 15
-    top_ax_y_scale = "log"
 
     def get_mask(self, gather):
         """QC indicator implementation."""
@@ -302,8 +302,8 @@ class WindowRMS(TracewiseMetric):
     """
     name = "RMS"
     is_lower_better = False # TODO: think what should it be?
+    # What treshold to use? Leave it none?
     threshold = None
-    top_ax_y_scale = 'log'
 
     def __init__(self, offsets=None, times=None, name=None):
         super().__init__(name=name)
@@ -332,6 +332,30 @@ class WindowRMS(TracewiseMetric):
         times_range = np.asarray([max(gather.samples[0], times[0]), min(gather.samples[-1], times[1])])
         return times_to_indices(times_range, gather.samples).astype(np.int16)
 
+    def get_mask(self, gather):
+        """QC indicator implementation."""
+        times = self._get_times(gather, self.times)
+        offsets = self._get_offsets(gather, self.offsets)
+        w_beg, w_end = self._get_indices(gather, times)
+
+        window_ixs = np.nonzero((gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1]))[0]
+        square_amps, win_sizes = self.rms_win(gather.data, window_ixs, w_beg, w_end)
+        return np.vstack((square_amps, win_sizes)).T
+
+    @staticmethod
+    @njit(nogil=True, parallel=True)
+    def rms_win(data, ixs, w_beg, w_end):
+        """Compute sum of square amplitudes for a window defined by its starting and end sample indices."""
+        square_amps = np.full(data.shape[0], fill_value=np.nan)
+        win_sizes = np.full(data.shape[0], fill_value=0)
+        for i in prange(len(ixs)):
+            ix = ixs[i]
+            trace = data[ix, w_beg: w_end]
+            square_amps[ix] = sum(trace**2)
+            win_sizes[ix] = len(trace)
+
+        return square_amps, win_sizes
+
     def aggregate_headers(self, headers, index_cols, coords_cols):
         groupby_cols = self.header_cols + coords_cols if index_cols != coords_cols else []
         groupby = headers.groupby(index_cols)[groupby_cols]
@@ -344,29 +368,7 @@ class WindowRMS(TracewiseMetric):
         index = aggregated_gb[index_cols]
         return coords, value, index
 
-    def get_mask(self, gather):
-        """QC indicator implementation."""
-
-        times = self._get_times(gather, self.times)
-        offsets = self._get_offsets(gather, self.offsets)
-        w_beg, w_end = self._get_indices(gather, times)
-        ixs = np.nonzero((gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1]))[0]
-        win_sizes = np.full(gather.shape[0], fill_value=w_end - w_beg)
-        results = np.full(gather.shape[0], fill_value=0)
-        results[ixs] = np.sum(gather.data[ixs, w_beg: w_end] ** 2, axis=1)
-        return np.vstack((results, win_sizes)).T
-
-    @staticmethod
-    @njit(nogil=True)
-    def rms_win(data, ixs, w_beg, w_end):
-        """Compute RMS for a window defined by its starting and end sample indices."""
-        res = np.full(data.shape[0], fill_value=np.nan)
-        for i in prange(len(ixs)):
-            ix = ixs[i]
-            res[ix] = data[ix, w_beg: w_end]**2
-        return res
-
-    def plot(self, coords, ax, index, threshold=None, top_ax_y_scale=None, **kwargs):
+    def plot(self, coords, ax, index, threshold=None, top_ax_y_scale=None, bad_only=False, **kwargs):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
         _ = coords
         # TODO: add threshold processing and marking traces inside rectangle
@@ -374,33 +376,30 @@ class WindowRMS(TracewiseMetric):
         amp_sum, amp_num = self.get_mask(gather).T
         tracewise_metric = np.sqrt(amp_sum) / amp_num
         tracewise_metric[tracewise_metric==0] = np.nan
-        # bin_mask = self.binarize(mask, threshold)
-        # if bad_only:
-        #     gather.data[self.aggregate(bin_mask) == 0] = np.nan
+        if bad_only:
+            bin_mask = self.binarize(tracewise_metric, threshold)
+            gather.data[self.aggregate(bin_mask) == 0] = np.nan
 
         mode = kwargs.pop("mode", "wiggle")
-        # masks_dict = {"masks": bin_mask, "alpha": 0.8, "label": self.name or "metric", **kwargs.pop("masks", {})}
         gather.plot(ax=ax, mode=mode, top_header=tracewise_metric, **kwargs)
-        # ax.figure.axes[1].axhline(threshold, alpha=0.5)
+        ax.figure.axes[1].axhline(threshold, alpha=0.5)
+        top_ax_y_scale = self.top_ax_y_scale if top_ax_y_scale is None else top_ax_y_scale
         ax.figure.axes[1].set_yscale(top_ax_y_scale)
 
         times = self._get_times(gather, self.times)
         offsets = self._get_offsets(gather, self.offsets)
-
-        mask = (gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1])
-        offs_ind = np.nonzero(mask)[0]
         w_beg, w_end = self._get_indices(gather, times)
+
+        offs_ind = np.nonzero((gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1]))[0]
         if len(offs_ind) > 0:
             n_rec = (offs_ind[0], w_beg), len(offs_ind), (w_end - w_beg)
-            from matplotlib import patches
             ax.add_patch(patches.Rectangle(*n_rec, linewidth=2, edgecolor='magenta', facecolor='none'))
 
     def get_views(self, threshold=None, top_ax_y_scale=None, **kwargs):
         """Return plotters of the metric views and those `kwargs` that should be passed further to an interactive map
         plotter."""
         plot_kwargs = {"threshold": threshold, "top_ax_y_scale": top_ax_y_scale}
-        return [partial(self.plot, **plot_kwargs)], kwargs
-
+        return [partial(self.plot, **plot_kwargs), partial(self.plot, bad_only=True, **plot_kwargs)], kwargs
 
 
 DEFAULT_TRACEWISE_METRICS = [TraceAbsMean, TraceMaxAbs, MaxClipsLen, MaxConstLen, DeadTrace]
