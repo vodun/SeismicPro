@@ -1316,15 +1316,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             self.qc_metrics = {}
 
         for metric, metric_vals in zip(metrics, zip(*results)):
-            vals = np.concatenate(metric_vals)[orig_idx]
-            # TODO: MAKE WindowsMS and other RMS metrics WORK
-            if isinstance(metric, WindowRMS):
-                self.headers[[metric.name + '_sum', metric.name + '_n']] = vals
-            elif isinstance(metric, SinalToNoiseRMSAdaptive):
-                columns = [metric.name + postfix for postfix in ["_signal_sum", "_signal_n", "_noise_sum", "_noise_n"]]
-                self.headers[columns] = vals
-            else:
-                self.headers[metric.name] = vals
+            self.headers[metric.header_cols] = np.concatenate(metric_vals)[orig_idx]
 
             if metric.name in self.qc_metrics:
                 warnings.warn(f'{metric.name} already calculated. Rewriting.')
@@ -1512,28 +1504,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             index_cols, coords_cols = get_coords_and_index_from_by(self, by)
             index_cols = to_list(coords_cols) if index_cols is None else to_list(index_cols)
             coords_cols = to_list(coords_cols)
-            columns = index_cols + coords_cols + to_list(metric.header_cols)
+            columns = set(index_cols + coords_cols + to_list(metric.header_cols))
             # TODO: Can we do it somehow differently?
             coords, values, index = metric.aggregate_headers(self.get_headers(columns), index_cols, coords_cols)
             metric_mmap = metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size, survey=self)
             mmaps.append(metric_mmap)
-            # if isinstance(metric, WindowsMS):
-            #     metric_cols = [metric.name + '_sig', metric.name + '_noise']
-            #     vals = (self.headers[coords_cols + metric_cols]
-            #             .groupby(coords_cols)[metric_cols]
-            #             .apply(lambda df: WindowsMS.agg_gather(df.to_numpy()))
-            #             .reset_index(name=metric.name))
-
-            #     coords = vals[coords_cols]
-            #     metric_values = vals[metric.name]
-            # else:
-
-            # coords = self[coords_cols]
-            # metric_values = self[metric_name]
-
-            # # pmetric = PartialMetric(metric.__class__, survey=self, name=metric_name, **{**metric.kwargs, **kwargs})
-            # # mmaps.append(pmetric.map_class(coords, metric_values, coords_cols=coords_cols, metric=pmetric,
-            # #                         agg=agg, bin_size=bin_size))
-            # mmaps.append(metric.construct_map(coords, metric_values, coords_cols=coords_cols, agg=agg, bin_size=bin_size, survey=self, **{**metric.kwargs, **kwargs}))
-
         return mmaps[0] if (len(mmaps) == 1 and squeeze_output) else mmaps
