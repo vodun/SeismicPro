@@ -2,6 +2,7 @@
 location and allows for their spatial interpolation"""
 
 import os
+import copy
 from textwrap import dedent
 from functools import partial, cached_property
 from concurrent.futures import ProcessPoolExecutor
@@ -15,6 +16,7 @@ from .metrics import REFRACTOR_VELOCITY_QC_METRICS, RefractorVelocityMetric
 from .interactive_plot import FieldPlot
 from .utils import get_param_names, postprocess_params, dump_refractor_velocities, load_refractor_velocities
 from ..field import SpatialField
+from ..metrics import initialize_metrics
 from ..utils import to_list, get_coords_cols, Coordinates, IDWInterpolator, ForPoolExecutor
 from ..const import HDR_FIRST_BREAK
 
@@ -635,15 +637,13 @@ class RefractorVelocityField(SpatialField):
         FieldPlot(self, **kwargs).plot()
 
     @staticmethod
-    def _calc_metrics(metrics, gathers_chunk, rvs_chunk, first_breaks_col):
+    def _calc_metrics(metrics, gathers_chunk, rvs_chunk):
         chunk_results = []
         for gather, refractor_velocity in zip(gathers_chunk, rvs_chunk):
             gather_results = []
             for metric in metrics:
-                metric = metric.copy()
-                metric_callable, metric_kwargs = metric.pop('class').calc, metric
-                metric_val = metric_callable(gather=gather, refractor_velocity=refractor_velocity,
-                                             first_breaks_col=first_breaks_col, **metric_kwargs).mean()
+                # metric_callable, metric_kwargs = metric.pop('class').calc, metric
+                metric_val = metric(gather=gather, refractor_velocity=refractor_velocity)
                 gather_results.append(metric_val)
             chunk_results.append(gather_results)
         return chunk_results
@@ -654,29 +654,19 @@ class RefractorVelocityField(SpatialField):
                 raise ValueError("Survey must be passed if the field is not linked with a survey.")
             survey = self.survey
 
-        is_single_metric = isinstance(metrics, type) and issubclass(metrics, RefractorVelocityMetric)
-        metrics = REFRACTOR_VELOCITY_QC_METRICS if metrics is None else to_list(metrics)
-        if not metrics:
-            raise ValueError("At least one metric should be passed.")
+        metrics = REFRACTOR_VELOCITY_QC_METRICS if metrics is None else to_list(copy.deepcopy(metrics))
 
-        metrics_configs = []
-        for metric in metrics:
-            if not isinstance(metric, dict):
-                metric_config = {'class': metric}
-            else:
-                metric_config = metric.copy()
-            if not (issubclass(metric_config['class'], RefractorVelocityMetric)):
-                raise ValueError("""All passed metrics must be subclasses of RefractorVelocityMetric
-                                 or dict with proper keys.""")
-            metrics_configs.append(metric_config)
+        context = {'survey': survey, 'field': self, 'first_breaks_col': first_breaks_col}
+        metrics_classes, metrics_contexts = zip(*[(metric.pop('class'), dict(**metric, **context)) if isinstance (metric, dict)
+                                                  else (metric, context) for metric in metrics])
+        metrics_instances, is_single_metric = initialize_metrics(metrics_classes, metric_class=RefractorVelocityMetric)
+        
+        for metric_instance, metric_context in zip(metrics_instances, metrics_contexts):
+            metric_instance.bind_context(metric_map=None, **metric_context)
 
         coords_cols = to_list(get_coords_cols(survey.indexed_by))
-        if not coords_cols == to_list(survey.indexed_by):
-            survey = survey.reindex(coords_cols, inplace=False)
-
-        survey_coords = survey[coords_cols]
         gather_change_ix = np.where(~survey.headers.index.duplicated(keep="first"))[0]
-        gather_coords = survey_coords[gather_change_ix]
+        gather_coords = survey[coords_cols][gather_change_ix]
         n_gathers = len(gather_coords)
 
         n_chunks, mod = divmod(n_gathers, chunk_size)
@@ -693,24 +683,22 @@ class RefractorVelocityField(SpatialField):
                 for i in range(n_chunks):
                     gathers_indices_chunk = survey.indices[i * chunk_size : (i + 1) * chunk_size]
                     gathers_chunk = [survey.get_gather(idx) for idx in gathers_indices_chunk]
-                    chunk_coords = [gather.coords for gather in gathers_chunk]
+                    chunk_coords = gather_coords[i * chunk_size : (i + 1) * chunk_size]
                     rvs_chunk = self(chunk_coords)
-                    future = pool.submit(self._calc_metrics, metrics_configs, gathers_chunk,
-                                         rvs_chunk, first_breaks_col)
+                    future = pool.submit(self._calc_metrics, metrics_instances, gathers_chunk,
+                                         rvs_chunk)
                     future.add_done_callback(lambda fut: pbar.update(len(fut.result())))
                     futures.append(future)
 
         results = sum([future.result() for future in futures], [])
 
-        metrics_instances = []
-        for metric in metrics_configs:
-            metric_class, metric_kwargs = metric.pop('class'), metric
-            metrics_instances.append(metric_class(survey=survey, field=self, first_breaks_col=first_breaks_col,
-                                                     **metric_kwargs))
+        index_cols = to_list(survey.indexed_by)
+        index = None if coords_cols == index_cols else survey.indices
+
         metrics_maps = []
-        for metric, metric_values in zip(metrics_instances, zip(*results)):
-            metrics_maps.append(metric.map_class(gather_coords, metric_values,
-                                                 coords_cols=self.coords_cols, metric=metric))
+        for metric, metric_values, metric_context in zip(metrics_instances, zip(*results), metrics_contexts):
+            metrics_maps.append(metric.construct_map(coords=gather_coords, values=metric_values, coords_cols=self.coords_cols,
+                                                     **metric_context))
         if is_single_metric:
-            return metrics[0]
+            return metrics_maps[0]
         return metrics_maps
