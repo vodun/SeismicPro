@@ -313,7 +313,7 @@ class BaseWindowMetric(TracewiseMetric):
         return stats
 
     def aggregate_headers(self, headers, index_cols, coords_cols): #TODO: rename
-        groupby_cols = self.header_cols + coords_cols if index_cols != coords_cols else []
+        groupby_cols = self.header_cols + (coords_cols if index_cols != coords_cols else [])
         groupby = headers.groupby(index_cols)[groupby_cols]
         sums_func = {sum_name: lambda x: np.sqrt(np.sum(x)) for sum_name in self.header_cols[::2]}
         nums_func = {num_name: "sum" for num_name in self.header_cols[1::2]}
@@ -329,11 +329,13 @@ class BaseWindowMetric(TracewiseMetric):
     def _get_agg_metric_value(self, aggregated_gb):
         raise NotImplementedError
 
-    def plot(self, coords, ax, index, threshold=None, top_ax_y_scale=None, bad_only=False, **kwargs):
+    def plot(self, coords, ax, index, sort_by="offset", threshold=None, top_ax_y_scale=None, bad_only=False, **kwargs):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
         _ = coords
         # TODO: add threshold processing and marking traces inside rectangle
-        gather = self.survey.get_gather(index).sort(by='offset')
+        gather = self.survey.get_gather(index)
+        if sort_by is not None:
+            gather = gather.sort(sort_by)
         stats = self.get_mask(gather)
         tracewise_metric = self._calculate_metric_from_stats(stats)
         tracewise_metric[tracewise_metric==0] = np.nan
@@ -353,12 +355,6 @@ class BaseWindowMetric(TracewiseMetric):
     def _plot(self, gather, ax):
         """Add any additional metric related graphs on plot"""
         pass
-
-    def get_views(self, threshold=None, top_ax_y_scale=None, **kwargs):
-        """Return plotters of the metric views and those `kwargs` that should be passed further to an interactive map
-        plotter."""
-        plot_kwargs = {"threshold": threshold, "top_ax_y_scale": top_ax_y_scale}
-        return [partial(self.plot, **plot_kwargs), partial(self.plot, bad_only=True, **plot_kwargs)], kwargs
 
 
 class WindowRMS(BaseWindowMetric):
@@ -419,12 +415,6 @@ class WindowRMS(BaseWindowMetric):
         if len(offs_ind) > 0:
             n_rec = (offs_ind[0], times[0]), len(offs_ind), (times[1] - times[0])
             ax.add_patch(patches.Rectangle(*n_rec, linewidth=2, edgecolor='magenta', facecolor='none'))
-
-    def get_views(self, threshold=None, top_ax_y_scale=None, **kwargs):
-        """Return plotters of the metric views and those `kwargs` that should be passed further to an interactive map
-        plotter."""
-        plot_kwargs = {"threshold": threshold, "top_ax_y_scale": top_ax_y_scale}
-        return [partial(self.plot, **plot_kwargs), partial(self.plot, bad_only=True, **plot_kwargs)], kwargs
 
 
 class SinalToNoiseRMSAdaptive(BaseWindowMetric):
@@ -510,4 +500,4 @@ class SinalToNoiseRMSAdaptive(BaseWindowMetric):
         ax.plot(np.arange(gather.n_traces), indices[2], color='magenta')
         ax.plot(np.arange(gather.n_traces), indices[3], color='magenta')
 
-DEFAULT_TRACEWISE_METRICS = [TraceAbsMean, TraceMaxAbs, MaxClipsLen, MaxConstLen, DeadTrace]
+DEFAULT_TRACEWISE_METRICS = [TraceAbsMean, TraceMaxAbs, MaxClipsLen, MaxConstLen, DeadTrace, WindowRMS]
