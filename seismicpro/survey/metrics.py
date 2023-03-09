@@ -7,7 +7,7 @@ from numba import njit, prange
 from matplotlib import patches
 
 from ..metrics import Metric
-from ..utils import to_list, times_to_indices
+from ..utils import times_to_indices
 
 
 class SurveyAttribute(Metric):
@@ -57,6 +57,7 @@ class TracewiseMetric(SurveyAttribute):
 
     @property
     def header_cols(self):
+        """Column names in survey.headers to srote metrics results"""
         return self.name
 
     def preprocess(self, gather):
@@ -69,8 +70,9 @@ class TracewiseMetric(SurveyAttribute):
         raise NotImplementedError
 
     def aggregate_headers(self, headers, index_cols, coords_cols):
-        index = headers[to_list(index_cols)] if index_cols is not None else None
-        return headers[to_list(coords_cols)], headers[self.name], index
+        """Aggregate headers before constructing metrics map"""
+        index = headers[index_cols] if index_cols is not None else None
+        return headers[coords_cols], headers[self.name], index
 
     def aggregate(self, mask):
         """Aggregate input mask depending on `self.is_lower_better` to select the worst mask value for each trace"""
@@ -250,15 +252,14 @@ class MaxClipsLen(MaxLenMetric):
         maxes = traces.max(axis=-1, keepdims=True)
         mins = traces.min(axis=-1, keepdims=True)
 
-        res_plus = self.get_val_subseq(traces, maxes)
-        res_minus = self.get_val_subseq(traces, mins)
+        res_plus = self._get_val_subseq(traces, maxes)
+        res_minus = self._get_val_subseq(traces, mins)
 
         return (res_plus + res_minus).astype(np.float32)
 
-    def get_val_subseq(self, traces, val):
+    def _get_val_subseq(self, traces, val):
         old_shape = traces.shape
-        traces = np.atleast_2d(traces)
-        indicators = (traces == val).astype(np.int16)
+        indicators = (np.atleast_2d(traces) == val).astype(np.int16)
         return self.compute_indicators_length(indicators, 0, old_shape)
 
 
@@ -298,7 +299,7 @@ class BaseWindowMetric(TracewiseMetric):
 
     @staticmethod
     @njit(nogil=True, parallel=True)
-    def compute_stats_by_ixs(data, start_ixs_list, end_ixs_list): #TODO: rename
+    def compute_stats_by_ixs(data, start_ixs_list, end_ixs_list):
         """Compute RMS ratio for 2 windows defined by their starting samples and window size."""
         stats = np.full((data.shape[0], 2 * len(start_ixs_list)), fill_value=0, dtype=np.float32)
 
@@ -312,7 +313,7 @@ class BaseWindowMetric(TracewiseMetric):
                     stats[i, 2*ix+1] = len(trace[start_ix: end_ix])
         return stats
 
-    def aggregate_headers(self, headers, index_cols, coords_cols): #TODO: rename
+    def aggregate_headers(self, headers, index_cols, coords_cols):
         groupby_cols = self.header_cols + (coords_cols if index_cols != coords_cols else [])
         groupby = headers.groupby(index_cols)[groupby_cols]
         sums_func = {sum_name: lambda x: np.sqrt(np.sum(x)) for sum_name in self.header_cols[::2]}
@@ -332,7 +333,6 @@ class BaseWindowMetric(TracewiseMetric):
     def plot(self, coords, ax, index, sort_by="offset", threshold=None, top_ax_y_scale=None, bad_only=False, **kwargs):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
         _ = coords
-        # TODO: add threshold processing and marking traces inside rectangle
         gather = self.survey.get_gather(index)
         if sort_by is not None:
             gather = gather.sort(sort_by)
