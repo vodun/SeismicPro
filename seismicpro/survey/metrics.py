@@ -322,7 +322,7 @@ class BaseWindowMetric(TracewiseMetric):
         aggregated_gb = groupby.agg({**sums_func, **nums_func, **coords_func})
         aggregated_gb.reset_index(inplace=True)
         coords = aggregated_gb[coords_cols]
-        value = self._get_agg_metric_value(aggregated_gb)
+        value = self._calculate_metric_from_stats(aggregated_gb[self.header_cols].to_numpy())
         index = aggregated_gb[index_cols]
         return coords, value, index
 
@@ -334,25 +334,25 @@ class BaseWindowMetric(TracewiseMetric):
         _ = coords
         # TODO: add threshold processing and marking traces inside rectangle
         gather = self.survey.get_gather(index).sort(by='offset')
-        tracewise_metric = self._get_trasewise_metric(gather)
+        stats = self.get_mask(gather)
+        tracewise_metric = self._calculate_metric_from_stats(stats)
         tracewise_metric[tracewise_metric==0] = np.nan
         if bad_only:
             bin_mask = self.binarize(tracewise_metric, threshold)
             gather.data[self.aggregate(bin_mask) == 0] = np.nan
 
-        mode = kwargs.pop("mode", "wiggle")
-        gather.plot(ax=ax, mode=mode, top_header=tracewise_metric, **kwargs)
+        gather.plot(ax=ax, top_header=tracewise_metric, **kwargs)
         ax.figure.axes[1].axhline(threshold, alpha=0.5)
         top_ax_y_scale = self.top_ax_y_scale if top_ax_y_scale is None else top_ax_y_scale
         ax.figure.axes[1].set_yscale(top_ax_y_scale)
         self._plot(gather=gather, ax=ax)
 
+    def _calculate_metric_from_stats(self, gather):
+        raise NotImplementedError
+
     def _plot(self, gather, ax):
         """Add any additional metric related graphs on plot"""
         pass
-
-    def _get_trasewise_metric(self, gather):
-        raise NotImplementedError
 
     def get_views(self, threshold=None, top_ax_y_scale=None, **kwargs):
         """Return plotters of the metric views and those `kwargs` that should be passed further to an interactive map
@@ -408,8 +408,8 @@ class WindowRMS(BaseWindowMetric):
         result[window_ixs] = self.compute_stats_by_ixs(gather.data[window_ixs], (start_ixs, ), (end_ixs, ))
         return result
 
-    def _get_agg_metric_value(self, aggregated_gb):
-        return np.sqrt(aggregated_gb[self.header_cols[0]]) / aggregated_gb[self.header_cols[1]]
+    def _calculate_metric_from_stats(self, stats):
+        return stats[:, 0] / stats[:, 1]
 
     def _plot(self, gather, ax):
         times = self._get_time_ixs(gather, self.times)
@@ -419,10 +419,6 @@ class WindowRMS(BaseWindowMetric):
         if len(offs_ind) > 0:
             n_rec = (offs_ind[0], times[0]), len(offs_ind), (times[1] - times[0])
             ax.add_patch(patches.Rectangle(*n_rec, linewidth=2, edgecolor='magenta', facecolor='none'))
-
-    def _get_trasewise_metric(self, gather):
-        amp_sum, amp_num = self.get_mask(gather).T
-        return np.sqrt(amp_sum) / amp_num
 
     def get_views(self, threshold=None, top_ax_y_scale=None, **kwargs):
         """Return plotters of the metric views and those `kwargs` that should be passed further to an interactive map
@@ -453,7 +449,7 @@ class SinalToNoiseRMSAdaptive(BaseWindowMetric):
         header with first breaks, by default HDR_FIRST_BREAK
     """
 
-    name = "Adaptive StN RMS"
+    name = "adaptive_rms"
     is_lower_better = False
     threshold = None
 
@@ -501,14 +497,8 @@ class SinalToNoiseRMSAdaptive(BaseWindowMetric):
         ssi, sei, nsi, nei = self._get_indices(gather)
         return self.compute_stats_by_ixs(gather.data, (ssi, nsi), (sei, nei))
 
-    def _get_agg_metric_value(self, aggregated_gb):
-        signal = np.sqrt(aggregated_gb[self.header_cols[0]]) / aggregated_gb[self.header_cols[1]]
-        noise = np.sqrt(aggregated_gb[self.header_cols[2]]) / aggregated_gb[self.header_cols[3]]
-        return signal / (noise + 1e-10)
-
-    def _get_trasewise_metric(self, gather):
-        signal_sum, signal_num, noise_sum, noise_num = self.get_mask(gather).T
-        return (np.sqrt(signal_sum) / signal_num) / (np.sqrt(noise_sum) / noise_num + 1e-10)
+    def _calculate_metric_from_stats(self, stats):
+        return (stats[:, 0] / stats[:, 1]) / (stats[:, 2] / stats[:, 3] + 1e-10)
 
     def _plot(self, gather, ax):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows."""
