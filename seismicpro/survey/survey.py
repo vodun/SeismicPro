@@ -1105,7 +1105,22 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return slice(*limits)
 
     def filter_by_metric(self, metric_name, threshold=None, inplace=False):
-        """"filter by metric"""
+        """"Filter traces using metric with name `metric_name` and passed `threshold`.
+
+        Parameters
+        ----------
+        metric_name : str
+            Name of metric that stores in `self.qc_metrics`.
+        threshold : int, optional, defaults to None
+            Threshold to use during filtration. If None, theshold defined in metric will be used.
+        inplace : bool, optional, defaults to False
+            Whether to remove traces inplace or return a new survey instance.
+
+        Returns
+        -------
+        Survey
+            Filtered survey.
+        """
 
         if self.qc_metrics is None:
             raise ValueError("Not a single metric has been calculated yet, call `self.qc_tracewise` to compute one")
@@ -1114,7 +1129,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         metric = self.qc_metrics.get(metric_name)
         if metric is None:
             avalible_metrics = ', '.join(self.qc_metrics.keys())
-            raise ValueError(f"`metric_name` must be one of {avalible_metrics}, but {metric_name} was given.")
+            raise ValueError(f"`metric_name` must be one of {avalible_metrics}, but {metric_name} was given")
         self.filter(lambda metric_value: ~metric.binarize(metric_value, threshold) , cols=metric_name, inplace=True)
 
     def remove_dead_traces(self, header_name=None, chunk_size=1000, inplace=False, bar=True):
@@ -1124,7 +1139,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Parameters
         ----------
         header_name : str, optional, defaults to None
-            Header name to ....!!!!!!!!
+            Name of header column with marked dead traces.
         chunk_size : int, optional, defaults to 1000
             Number of traces loaded on each iteration.
         inplace : bool, optional, defaults to False
@@ -1267,10 +1282,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Parameters
         ----------
         metrics : :class:`~metrics.TracewiseMetric`, or list of :class:`~metrics.TracewiseMetric` objects, optional
-            metric objects that define metrics to calculate.
-            If None, all metrics that can be initialized with reasonable default parameters are calculated
+            Metric objects or instances that define metrics to calculate. If None, all metrics that can be initialized
+            with reasonable default parameters are calculated.
         chunk_size : int, optional, defaults to 1000
-            number of traces loaded on each iteration
+            Number of traces loaded on each iteration.
         n_workers : int, optional
             The number of threads to be spawned to calculate metrics. Defaults to the number of cpu cores.
         bar : bool, optional, defaults to True
@@ -1279,7 +1294,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Returns
         -------
         Survey
-            Survey with metrics written to headers
+            Survey with metrics written to headers and filled `self.qc_metrics` dict.
 
         Raises
         ------
@@ -1472,12 +1487,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Parameters
         ----------
-        by : tuple with 2 elements or {"shot", "receiver", "midpoint", "bin"}
-            If `tuple`, survey headers names to get coordinates from.
-            If `str`, gather type to aggregate header values over.
+        by : {"source", "shot", "receiver", "rec", "cdp", "cmp", "midpoint", "bin", "supergather"}
+            Gather type to aggregate header values over.
         metric : str or list of str, optional
-            name(s) of metrics to build metrics maps.
-            If None, maps for all metrica that were calculated for this survey are built.
+            name(s) of metrics to build metrics maps. If None, maps for all metrics that were calculated for this
+            survey are built.
         agg : str or callable, optional, defaults to "mean"
             An aggregation function. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
         bin_size : int, float or array-like with length 2, optional
