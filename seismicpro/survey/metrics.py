@@ -289,7 +289,79 @@ class DeadTrace(TracewiseMetric):
         return (np.max(gather.data, axis=1) - np.min(gather.data, axis=1) < 1e-10).astype(np.float32)
 
 
-class WindowRMS(TracewiseMetric):
+class BaseWindowMetric(TracewiseMetric):
+
+    def __call__(self, gather):
+        """Return an already calculated metric."""
+        gather = self.preprocess(gather)
+        return self.get_mask(gather)
+
+    @staticmethod
+    @njit(nogil=True, parallel=True)
+    def compute_stats_by_ixs(data, start_ixs_list, end_ixs_list): #TODO: rename
+        """Compute RMS ratio for 2 windows defined by their starting samples and window size."""
+        stats = np.full((data.shape[0], 2 * len(start_ixs_list)), fill_value=0, dtype=np.float32)
+
+        for i in prange(data.shape[0]):
+            trace = data[i]
+            for ix in prange(len(start_ixs_list)):
+                start_ix = start_ixs_list[ix][i]
+                end_ix = end_ixs_list[ix][i]
+                if start_ix >= 0 and end_ix >= 0:
+                    stats[i, 2*ix] = sum(trace[start_ix: end_ix] ** 2)
+                    stats[i, 2*ix+1] = len(trace[start_ix: end_ix])
+        return stats
+
+    def aggregate_headers(self, headers, index_cols, coords_cols): #TODO: rename
+        groupby_cols = self.header_cols + coords_cols if index_cols != coords_cols else []
+        groupby = headers.groupby(index_cols)[groupby_cols]
+        sums_func = {sum_name: lambda x: np.sqrt(np.sum(x)) for sum_name in self.header_cols[::2]}
+        nums_func = {num_name: "sum" for num_name in self.header_cols[1::2]}
+        coords_func = {coord_name: "mean" for coord_name in groupby_cols[len(self.header_cols):]}
+
+        aggregated_gb = groupby.agg({**sums_func, **nums_func, **coords_func})
+        aggregated_gb.reset_index(inplace=True)
+        coords = aggregated_gb[coords_cols]
+        value = self._get_agg_metric_value(aggregated_gb)
+        index = aggregated_gb[index_cols]
+        return coords, value, index
+
+    def _get_agg_metric_value(self, aggregated_gb):
+        raise NotImplementedError
+
+    def plot(self, coords, ax, index, threshold=None, top_ax_y_scale=None, bad_only=False, **kwargs):
+        """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
+        _ = coords
+        # TODO: add threshold processing and marking traces inside rectangle
+        gather = self.survey.get_gather(index).sort(by='offset')
+        tracewise_metric = self._get_trasewise_metric(gather)
+        tracewise_metric[tracewise_metric==0] = np.nan
+        if bad_only:
+            bin_mask = self.binarize(tracewise_metric, threshold)
+            gather.data[self.aggregate(bin_mask) == 0] = np.nan
+
+        mode = kwargs.pop("mode", "wiggle")
+        gather.plot(ax=ax, mode=mode, top_header=tracewise_metric, **kwargs)
+        ax.figure.axes[1].axhline(threshold, alpha=0.5)
+        top_ax_y_scale = self.top_ax_y_scale if top_ax_y_scale is None else top_ax_y_scale
+        ax.figure.axes[1].set_yscale(top_ax_y_scale)
+        self._plot(gather=gather, ax=ax)
+
+    def _plot(self, gather, ax):
+        """Add any additional metric related graphs on plot"""
+        pass
+
+    def _get_trasewise_metric(self, gather):
+        raise NotImplementedError
+
+    def get_views(self, threshold=None, top_ax_y_scale=None, **kwargs):
+        """Return plotters of the metric views and those `kwargs` that should be passed further to an interactive map
+        plotter."""
+        plot_kwargs = {"threshold": threshold, "top_ax_y_scale": top_ax_y_scale}
+        return [partial(self.plot, **plot_kwargs), partial(self.plot, bad_only=True, **plot_kwargs)], kwargs
+
+
+class WindowRMS(BaseWindowMetric):
     """ RMS computed for provided window
 
     Parameters
@@ -309,90 +381,48 @@ class WindowRMS(TracewiseMetric):
         self.offsets = offsets
         self.times = times
 
-    def __call__(self, gather):
-        """Return an already calculated metric."""
-        gather = self.preprocess(gather)
-        return self.get_mask(gather)
-
     @property
     def header_cols(self):
         return [self.name+"_sum", self.name+"_n"]
 
     @staticmethod
-    def _get_times(gather, times):
-        return (min(gather.samples), max(gather.samples)) if times is None else times
+    def _get_time_ixs(gather, times):
+        if times is None:
+            return (min(gather.samples), max(gather.samples))
+        times = np.asarray([max(gather.samples[0], times[0]), min(gather.samples[-1], times[1])])
+        return times_to_indices(times, gather.samples).astype(np.int16)
 
     @staticmethod
     def _get_offsets(gather, offsets):
         return (min(gather.offsets), max(gather.offsets)) if offsets is None else offsets
 
-    @staticmethod
-    def _get_indices(gather, times):
-        times_range = np.asarray([max(gather.samples[0], times[0]), min(gather.samples[-1], times[1])])
-        return times_to_indices(times_range, gather.samples).astype(np.int16)
-
     def get_mask(self, gather):
         """QC indicator implementation."""
-        times = self._get_times(gather, self.times)
+        times = self._get_time_ixs(gather, self.times)
         offsets = self._get_offsets(gather, self.offsets)
-        w_beg, w_end = self._get_indices(gather, times)
 
         window_ixs = np.nonzero((gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1]))[0]
-        square_amps, win_sizes = self.rms_win(gather.data, window_ixs, w_beg, w_end)
-        return np.vstack((square_amps, win_sizes)).T
+        start_ixs = np.full(len(window_ixs), fill_value=times[0])
+        end_ixs = np.full(len(window_ixs), fill_value=times[1])
+        result = np.full((gather.data.shape[0], 2), fill_value=np.nan)
+        result[window_ixs] = self.compute_stats_by_ixs(gather.data[window_ixs], (start_ixs, ), (end_ixs, ))
+        return result
 
-    @staticmethod
-    @njit(nogil=True, parallel=True)
-    def rms_win(data, ixs, w_beg, w_end):
-        """Compute sum of square amplitudes for a window defined by its starting and end sample indices."""
-        square_amps = np.full(data.shape[0], fill_value=np.nan)
-        win_sizes = np.full(data.shape[0], fill_value=0)
-        for i in prange(len(ixs)):
-            ix = ixs[i]
-            trace = data[ix, w_beg: w_end]
-            square_amps[ix] = sum(trace**2)
-            win_sizes[ix] = len(trace)
+    def _get_agg_metric_value(self, aggregated_gb):
+        return np.sqrt(aggregated_gb[self.header_cols[0]]) / aggregated_gb[self.header_cols[1]]
 
-        return square_amps, win_sizes
-
-    def aggregate_headers(self, headers, index_cols, coords_cols): #TODO: rename
-        groupby_cols = self.header_cols + coords_cols if index_cols != coords_cols else []
-        groupby = headers.groupby(index_cols)[groupby_cols]
-        aggregated_gb = groupby.agg({groupby_cols[0]: lambda x: np.sqrt(np.sum(x)),
-                                     groupby_cols[1]: "sum",
-                                     **{groupby_cols[i]: "mean" for i in range(2, len(groupby_cols))}})
-        aggregated_gb.reset_index(inplace=True)
-        coords = aggregated_gb[coords_cols]
-        value = aggregated_gb[groupby_cols[0]] / aggregated_gb[groupby_cols[1]]
-        index = aggregated_gb[index_cols]
-        return coords, value, index
-
-    def plot(self, coords, ax, index, threshold=None, top_ax_y_scale=None, bad_only=False, **kwargs):
-        """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
-        _ = coords
-        # TODO: add threshold processing and marking traces inside rectangle
-        gather = self.survey.get_gather(index).sort(by='offset')
-        amp_sum, amp_num = self.get_mask(gather).T
-        tracewise_metric = np.sqrt(amp_sum) / amp_num
-        tracewise_metric[tracewise_metric==0] = np.nan
-        if bad_only:
-            bin_mask = self.binarize(tracewise_metric, threshold)
-            gather.data[self.aggregate(bin_mask) == 0] = np.nan
-
-        mode = kwargs.pop("mode", "wiggle")
-        gather.plot(ax=ax, mode=mode, top_header=tracewise_metric, **kwargs)
-        ax.figure.axes[1].axhline(threshold, alpha=0.5)
-        top_ax_y_scale = self.top_ax_y_scale if top_ax_y_scale is None else top_ax_y_scale
-        ax.figure.axes[1].set_yscale(top_ax_y_scale)
-
-        times = self._get_times(gather, self.times)
+    def _plot(self, gather, ax):
+        times = self._get_time_ixs(gather, self.times)
         offsets = self._get_offsets(gather, self.offsets)
-        w_beg, w_end = self._get_indices(gather, times)
 
         offs_ind = np.nonzero((gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1]))[0]
         if len(offs_ind) > 0:
-            n_rec = (offs_ind[0], w_beg), len(offs_ind), (w_end - w_beg)
+            n_rec = (offs_ind[0], times[0]), len(offs_ind), (times[1] - times[0])
             ax.add_patch(patches.Rectangle(*n_rec, linewidth=2, edgecolor='magenta', facecolor='none'))
+
+    def _get_trasewise_metric(self, gather):
+        amp_sum, amp_num = self.get_mask(gather).T
+        return np.sqrt(amp_sum) / amp_num
 
     def get_views(self, threshold=None, top_ax_y_scale=None, **kwargs):
         """Return plotters of the metric views and those `kwargs` that should be passed further to an interactive map
@@ -401,7 +431,7 @@ class WindowRMS(TracewiseMetric):
         return [partial(self.plot, **plot_kwargs), partial(self.plot, bad_only=True, **plot_kwargs)], kwargs
 
 
-class SinalToNoiseRMSAdaptive(TracewiseMetric):
+class SinalToNoiseRMSAdaptive(BaseWindowMetric):
     """Signal to Noise RMS ratio computed in sliding windows along first breaks.
     The Metric parameters are: window size that is used for both signal and noise windows,
     and the shifts of the windows from from the first breaks picking.
@@ -434,11 +464,6 @@ class SinalToNoiseRMSAdaptive(TracewiseMetric):
         self.shift_down = shift_down
         self.refractor_velocity = refractor_velocity
 
-    def __call__(self, gather):
-        """Return an already calculated metric."""
-        gather = self.preprocess(gather)
-        return self.get_mask(gather)
-
     @property
     def header_cols(self):
         return [self.name + postfix for postfix in ["_signal_sum", "_signal_n", "_noise_sum", "_noise_n"]]
@@ -448,77 +473,51 @@ class SinalToNoiseRMSAdaptive(TracewiseMetric):
         fbp = self.refractor_velocity(gather.offsets)
 
         signal_start_times = fbp + self.shift_down
-        signal_start_times[signal_start_times > gather.samples[-1] - self.win_size] = np.nan
+        signal_end_times = np.clip(signal_start_times + self.win_size, None, gather.samples[-1])
 
-        noise_start_times = fbp - self.shift_up - self.win_size
-        noise_start_times[noise_start_times < 0] = np.nan
+        noise_end_times = fbp - self.shift_up
+        noise_start_times = np.clip(noise_end_times - self.win_size, 0, None)
+
+        signal_mask = signal_start_times > gather.samples[-1]
+        noise_mask = noise_end_times < 0
+        mask = signal_mask | noise_mask
 
         signal_start_ixs = times_to_indices(signal_start_times, gather.samples).astype(np.int16)
+        signal_end_ixs = times_to_indices(signal_end_times, gather.samples).astype(np.int16)
         noise_start_ixs = times_to_indices(noise_start_times, gather.samples).astype(np.int16)
+        noise_end_ixs = times_to_indices(noise_end_times, gather.samples).astype(np.int16)
 
-        return signal_start_ixs, noise_start_ixs
+        # Avoiding dividing signal rms by zero and optimize computations a little
+        signal_start_ixs[mask] = -1
+        signal_end_ixs[mask] = -1
+
+        noise_start_ixs[mask] = -1
+        noise_end_ixs[mask] = -1
+
+        return signal_start_ixs, signal_end_ixs, noise_start_ixs, noise_end_ixs
 
     def get_mask(self, gather):
         """QC indicator implementation. See `plot` docstring for parameters descriptions."""
-        signal_start_ixs, noise_start_ixs = self._get_indices(gather)
-        win_size = times_to_indices((self.win_size, ), gather.samples)[0].astype(np.int16)
-        # TODO: simplify and delete np.nans in _get_indices
-        noise_start_ixs[np.isnan(noise_start_ixs)] = -1
-        signal_start_ixs[np.isnan(signal_start_ixs)] = -1
+        ssi, sei, nsi, nei = self._get_indices(gather)
+        return self.compute_stats_by_ixs(gather.data, (ssi, nsi), (sei, nei))
 
-        return self.rms_2_windows_ratio(gather.data, signal_start_ixs, noise_start_ixs, win_size)
+    def _get_agg_metric_value(self, aggregated_gb):
+        signal = np.sqrt(aggregated_gb[self.header_cols[0]]) / aggregated_gb[self.header_cols[1]]
+        noise = np.sqrt(aggregated_gb[self.header_cols[2]]) / aggregated_gb[self.header_cols[3]]
+        return signal / (noise + 1e-10)
 
-    @staticmethod
-    @njit(nogil=True, parallel=True)
-    def rms_2_windows_ratio(data, signal_start_ixs, noise_start_ixs, win_size): #TODO: rename
-        """Compute RMS ratio for 2 windows defined by their starting samples and window size."""
-        signal_sum = np.full(data.shape[0], fill_value=0, dtype=np.float32)
-        signal_num = np.full(data.shape[0], fill_value=0, dtype=np.int32)
-        noise_sum = np.full(data.shape[0], fill_value=0, dtype=np.float32)
-        noise_num = np.full(data.shape[0], fill_value=0, dtype=np.int32)
+    def _get_trasewise_metric(self, gather):
+        signal_sum, signal_num, noise_sum, noise_num = self.get_mask(gather).T
+        return (np.sqrt(signal_sum) / signal_num) / (np.sqrt(noise_sum) / noise_num + 1e-10)
 
-        for i in prange(data.shape[0]):
-            trace, signal_start_ix, noise_start_ix = data[i], signal_start_ixs[i], noise_start_ixs[i]
-            if signal_start_ix >= 0 and noise_start_ix >= 0:
-                signal_sum[i] = sum(trace[signal_start_ix: signal_start_ix + win_size] ** 2)
-                signal_num[i] = len(trace[signal_start_ix: signal_start_ix + win_size])
-
-                noise_sum[i] = sum(trace[noise_start_ix: noise_start_ix + win_size] ** 2)
-                noise_num[i] = len(trace[noise_start_ix: noise_start_ix + win_size])
-        return np.vstack((signal_sum, signal_num, noise_sum, noise_num)).T
-
-    def aggregate_headers(self, headers, index_cols, coords_cols):
-        groupby_cols = self.header_cols + coords_cols if index_cols != coords_cols else []
-        groupby = headers.groupby(index_cols)[groupby_cols]
-        aggregated_gb = groupby.agg({groupby_cols[0]: lambda x: np.sqrt(np.sum(x)),
-                                     groupby_cols[1]: "sum",
-                                     groupby_cols[2]: lambda x: np.sqrt(np.sum(x)),
-                                     groupby_cols[3]: "sum",
-                                     **{groupby_cols[i]: "mean" for i in range(4, len(groupby_cols))}})
-        aggregated_gb.reset_index(inplace=True)
-        coords = aggregated_gb[coords_cols]
-        signal = aggregated_gb[groupby_cols[0]] / aggregated_gb[groupby_cols[1]]
-        noise = aggregated_gb[groupby_cols[2]] / aggregated_gb[groupby_cols[3]]
-        value = signal / (noise + 1e-10)
-        index = aggregated_gb[index_cols]
-        return coords, value, index
-
-    def _plot(self, mode, coords, ax, **kwargs):
+    def _plot(self, gather, ax):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows."""
-        gather = self.survey.get_gather(coords).sort(by='offset')
+        indices = self._get_indices(gather)
+        indices = np.where(np.asarray(indices) == -1, np.nan, indices)
 
-        self._plot_gather_metric(mode, gather, ax, **kwargs)
-
-        n_begs, s_begs = self._get_indices(gather, **self.kwargs)
-        n_begs[np.isnan(s_begs)] = np.nan
-        s_begs[np.isnan(n_begs)] = np.nan
-
-        win_size = np.rint(self.win_size/gather.sample_rate)
-
-        ax.plot(np.arange(gather.n_traces), n_begs, color='magenta')
-        ax.plot(np.arange(gather.n_traces), n_begs + win_size, color='magenta')
-        ax.plot(np.arange(gather.n_traces), s_begs, color='lime')
-        ax.plot(np.arange(gather.n_traces), s_begs + win_size, color='lime')
-
+        ax.plot(np.arange(gather.n_traces), indices[0], color='lime')
+        ax.plot(np.arange(gather.n_traces), indices[1], color='lime')
+        ax.plot(np.arange(gather.n_traces), indices[2], color='magenta')
+        ax.plot(np.arange(gather.n_traces), indices[3], color='magenta')
 
 DEFAULT_TRACEWISE_METRICS = [TraceAbsMean, TraceMaxAbs, MaxClipsLen, MaxConstLen, DeadTrace]
