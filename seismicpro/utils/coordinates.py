@@ -42,7 +42,8 @@ def get_coords_cols(index_cols, source_id_cols=None, receiver_id_cols=None):
     raise KeyError(f"Unknown coordinates columns for {index_cols} index")
 
 
-def get_coords_and_index_from_by(survey, by):
+def get_cols_from_by(survey, by):
+    """Return sensor id columns and coords columns based on `by`"""
     by_to_cols = {
         "source": (survey.source_id_cols, ["SourceX", "SourceY"]),
         "shot": (survey.source_id_cols, ["SourceX", "SourceY"]),

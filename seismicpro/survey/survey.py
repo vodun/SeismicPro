@@ -1,7 +1,6 @@
 """Implements Survey class describing a single SEG-Y file"""
 
 import os
-import math
 import warnings
 from copy import copy
 from textwrap import dedent
@@ -18,13 +17,13 @@ from sklearn.linear_model import LinearRegression
 
 from .headers import load_headers
 from .headers_checks import validate_trace_headers, validate_source_headers, validate_receiver_headers
-from .metrics import SurveyAttribute, TracewiseMetric, DeadTrace, WindowRMS, SinalToNoiseRMSAdaptive, DEFAULT_TRACEWISE_METRICS
+from .metrics import SurveyAttribute, TracewiseMetric, DeadTrace, DEFAULT_TRACEWISE_METRICS
 from .plot_geometry import SurveyGeometryPlot
 from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
 from ..containers import GatherContainer, SamplesContainer
-from ..metrics import is_metric, initialize_metrics
-from ..utils import to_list, maybe_copy, get_cols, get_first_defined, get_coords_and_index_from_by
+from ..metrics import initialize_metrics
+from ..utils import to_list, maybe_copy, get_cols, get_first_defined, get_cols_from_by
 from ..const import ENDIANNESS, HDR_FIRST_BREAK, HDR_TRACE_POS
 
 
@@ -443,7 +442,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
 
         if self.qc_metrics is not None:
-            msg += f"""
+            msg += """
         Number of bad traces after tracewise QC found by:
         """
             n_traces = [metric.binarize(self.headers[name]).sum() for name, metric in self.qc_metrics.items()]
@@ -1306,24 +1305,22 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             metrics = DEFAULT_TRACEWISE_METRICS
         metrics, _ = initialize_metrics(metrics, metric_class=TracewiseMetric)
 
+        n_chunks = self.n_traces // chunk_size + (1 if self.n_traces % chunk_size else 0)
         if n_workers is None:
             n_workers = os.cpu_count()
-
-        n_traces = len(self.headers)
-        n_chunks = n_traces // chunk_size + (1 if n_traces % chunk_size else 0)
+        n_workers = min(n_chunks, n_workers)
 
         idx_sort = self['TRACE_SEQUENCE_FILE'].argsort(kind='stable')
         orig_idx = idx_sort.argsort(kind='stable')
 
         def calc_metrics(i):
-            headers = self.headers.iloc[idx_sort[i*chunk_size:(i+1)*chunk_size]]
+            headers = self.headers.iloc[idx_sort[i * chunk_size: (i + 1) * chunk_size]]
             raw_gather = self.load_gather(headers)
             return [metric(raw_gather) for metric in metrics]
 
         # known issue with tqdm.notebook bar update when using `unit_scale` https://github.com/tqdm/tqdm/issues/1399
         # note that total number of traces indicated on this bar is `n_chunks * chunk_size`
         # which is almost always more than actual number of traces
-        # TODO: TRY process_map
         results = thread_map(calc_metrics, range(n_chunks), max_workers=n_workers, disable=not bar,
                              desc="Traces processed", unit_scale=chunk_size, unit_divisor=chunk_size, unit='traces')
 
@@ -1389,9 +1386,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         SurveyGeometryPlot(self, **kwargs).plot()
 
-    def _construct_map(self, values, name, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None, metric=None):
+    def _construct_map(self, values, name, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
         """Construct a metric map of `values` aggregated by gather, whose type is defined by `by`."""
-        index_cols, coords_cols = get_coords_and_index_from_by(self, by)
+        index_cols, coords_cols = get_cols_from_by(self, by)
         index_cols = get_first_defined(id_cols, index_cols)
 
         metric_data = self.get_headers(coords_cols)
@@ -1405,9 +1402,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         coords = metric_data[coords_cols]
         values = metric_data[name]
 
-        metric = SurveyAttribute(name=name) if metric is None else metric
-        if not is_metric(metric, metric_class=SurveyAttribute):
-            raise
+        metric = SurveyAttribute(name=name)
         return metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size, survey=self)
 
     def construct_header_map(self, col, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
@@ -1515,7 +1510,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                 continue
 
             metric = self.qc_metrics[metric_name]
-            index_cols, coords_cols = get_coords_and_index_from_by(self, by)
+            index_cols, coords_cols = get_cols_from_by(self, by)
             index_cols = to_list(coords_cols) if index_cols is None else to_list(index_cols)
             coords_cols = to_list(coords_cols)
             columns = set(index_cols + coords_cols + to_list(metric.header_cols))

@@ -57,7 +57,7 @@ class TracewiseMetric(SurveyAttribute):
 
     @property
     def header_cols(self):
-        """Column names in survey.headers to srote metrics results"""
+        """Column names in survey.headers to srote metrics results."""
         return self.name
 
     def preprocess(self, gather):
@@ -70,7 +70,7 @@ class TracewiseMetric(SurveyAttribute):
         raise NotImplementedError
 
     def aggregate_headers(self, headers, index_cols, coords_cols):
-        """Aggregate headers before constructing metrics map"""
+        """Aggregate headers before constructing metric map. No aggregation performed by default."""
         index = headers[index_cols] if index_cols is not None else None
         return headers[coords_cols], headers[self.name], index
 
@@ -80,8 +80,9 @@ class TracewiseMetric(SurveyAttribute):
         return mask if mask.ndim == 1 else agg_fn(mask, axis=1)
 
     def binarize(self, mask, threshold=None):
-        """Binarize input mask by `threshold`. Depending on `self.is_lower_better` values greater or less than the
-        `threshold` will be taken. If `threshold` is None, `self.threshold` is used."""
+        """Binarize input mask by `threshold` marking bad mask values as True. Depending on `self.is_lower_better`
+        values greater or less than the `threshold` will be treated as a bad value. If `threshold` is None,
+        `self.threshold` is used."""
         bin_fn = np.greater_equal if self.is_lower_better else np.less_equal
         if threshold is None and self.threshold is None:
             raise ValueError("Either `threshold` or `self.threshold` must be non None.")
@@ -137,7 +138,7 @@ class MuteTracewiseMetric(TracewiseMetric):
 
 class Spikes(MuteTracewiseMetric):
     """Spikes detection. The metric reacts to drastic changes in traces ampliutes in 1-width window around each
-    amplitude value. The resulted 2d mask shows the deviation of the ampluteds of an input gather.
+    amplitude value.
 
     The metric is highly depends on muter, if muter isn't strong enough, the metric will overreact to the first breaks.
 
@@ -160,7 +161,7 @@ class Spikes(MuteTracewiseMetric):
     threshold = 2
 
     def get_mask(self, gather):
-        """QC indicator implementation."""
+        """QC indicator implementation. The resulted 2d mask shows the deviation of the ampluteds of an input gather."""
         traces = gather.data
         self.fill_leading_nulls(traces)
 
@@ -180,7 +181,17 @@ class Spikes(MuteTracewiseMetric):
 
 
 class Autocorrelation(MuteTracewiseMetric):
-    """Autocorrelation with shift 1"""
+    """Trace correlation with itself shifted by 1.
+
+    The metric is highly depends on muter, if muter isn't strong enough, the metric will overreact to the first breaks.
+
+    Parameters
+    ----------
+    muter : Muter
+    A muter to use.
+    name : str, optional, defaults to "autocorrelation"
+    Metrics name.
+    """
     name = "autocorrelation"
     min_value = -1
     max_value = 1
@@ -194,7 +205,13 @@ class Autocorrelation(MuteTracewiseMetric):
 
 
 class TraceAbsMean(TracewiseMetric):
-    """Absolute value of the trace's mean scaled by trace's std."""
+    """Absolute value of the trace's mean scaled by trace's std.
+
+    Parameters
+    ----------
+    name : str, optional, defaults to "trace_absmean"
+    Metrics name.
+    """
     name = "trace_absmean"
     is_lower_better = True
     threshold = 0.1
@@ -205,7 +222,13 @@ class TraceAbsMean(TracewiseMetric):
 
 
 class TraceMaxAbs(TracewiseMetric):
-    """Maximun absolute amplitude value scaled by trace's std."""
+    """Maximun absolute amplitude value scaled by trace's std.
+
+    Parameters
+    ----------
+    name : str, optional, defaults to "trace_maxabs"
+    Metrics name.
+    """
     name = "trace_maxabs"
     is_lower_better = True
     threshold = 15
@@ -238,7 +261,14 @@ class MaxLenMetric(TracewiseMetric):
 
 
 class MaxClipsLen(MaxLenMetric):
-    """Detecting minimum/maximun clips"""
+    """Detecting minimum and maximun clips.
+
+    Parameters
+    ----------
+    name : str, optional, defaults to "max_clips_len"
+    Metrics name.
+    """
+
     name = "max_clips_len"
     min_value = 1
     max_value = None
@@ -264,7 +294,14 @@ class MaxClipsLen(MaxLenMetric):
 
 
 class MaxConstLen(MaxLenMetric):
-    """Detecting constant subsequences"""
+    """Detecting constant subsequences.
+
+    Parameters
+    ----------
+    name : str, optional, defaults to "const_len"
+    Metrics name.
+    """
+
     name = "const_len"
     is_lower_better = True
     threshold = 4
@@ -278,7 +315,14 @@ class MaxConstLen(MaxLenMetric):
 
 
 class DeadTrace(TracewiseMetric):
-    """Detects constant traces."""
+    """Detects constant traces.
+
+    Parameters
+    ----------
+    name : str, optional, defaults to "dead_trace"
+    Metrics name.
+    """
+
     name = "dead_trace"
     min_value = 0
     max_value = 1
@@ -291,7 +335,9 @@ class DeadTrace(TracewiseMetric):
 
 
 class BaseWindowMetric(TracewiseMetric):
-
+    """Base class for all window based metric that provide method for computing sum of squares of traces amplitudes in
+    provided windows defined by start and end indices and length of windows for every trace. Also, provide a method
+    `self.aggregate_headers` that is aggregating the results by passed `index_cols` or `coords_cols`."""
     def __call__(self, gather):
         """Return an already calculated metric."""
         gather = self.preprocess(gather)
@@ -300,7 +346,7 @@ class BaseWindowMetric(TracewiseMetric):
     @staticmethod
     @njit(nogil=True, parallel=True)
     def compute_stats_by_ixs(data, start_ixs_list, end_ixs_list):
-        """Compute RMS ratio for 2 windows defined by their starting samples and window size."""
+        """TODO"""
         stats = np.full((data.shape[0], 2 * len(start_ixs_list)), fill_value=0, dtype=np.float32)
 
         for i in prange(data.shape[0]):
@@ -314,6 +360,7 @@ class BaseWindowMetric(TracewiseMetric):
         return stats
 
     def aggregate_headers(self, headers, index_cols, coords_cols):
+        """TODO"""
         groupby_cols = self.header_cols + (coords_cols if index_cols != coords_cols else [])
         groupby = headers.groupby(index_cols)[groupby_cols]
         sums_func = {sum_name: lambda x: np.sqrt(np.sum(x)) for sum_name in self.header_cols[::2]}
@@ -358,16 +405,18 @@ class BaseWindowMetric(TracewiseMetric):
 
 
 class WindowRMS(BaseWindowMetric):
-    """ RMS computed for provided window
+    """Computes traces RMS for provided window by offsets and times.
 
     Parameters
     ----------
-    offsets : tuple of 2 ints
-        offset range to use for calcualtion.
-    times : tuple of 2 ints
-        time range to use for calcualtion, measured in ms.
+    offsets : tuple of 2 ints, optional, defaults to gather length
+        Offset range to use for calcualtion.
+    times : tuple of 2 ints, optional, defaults to gather length
+        Time range to use for calcualtion, measured in ms.
+    name : str, optional, defaults to "rms"
+        Metrics name.
     """
-    name = "RMS"
+    name = "rms"
     is_lower_better = False # TODO: think what should it be?
     # What treshold to use? Leave it none?
     threshold = None
@@ -377,8 +426,15 @@ class WindowRMS(BaseWindowMetric):
         self.offsets = offsets
         self.times = times
 
+    def __repr__(self):
+        """String representation of the metric."""
+        offsets_range = ", ".join(self.offsets)
+        times_range = ", ".join(self.times)
+        return f"{type(self).__name__}(name='{self.name}', offsets='[{offsets_range}]', times='[{times_range}]')"
+
     @property
     def header_cols(self):
+        """Column names in survey.headers to srote metrics results."""
         return [self.name+"_sum", self.name+"_n"]
 
     @staticmethod
@@ -418,25 +474,27 @@ class WindowRMS(BaseWindowMetric):
 
 
 class SinalToNoiseRMSAdaptive(BaseWindowMetric):
-    """Signal to Noise RMS ratio computed in sliding windows along first breaks.
-    The Metric parameters are: window size that is used for both signal and noise windows,
-    and the shifts of the windows from from the first breaks picking.
-    Noise window beginnings are computed as fbp_time - shift_up - window_size,
-    Signal windows beginnings are computed as fbp_time + shift_down.
+    """Signal to Noise RMS ratio computed in sliding windows along provided refractor velocity.
+    RMS will be computed in two windows for every gather:
+    1. Window shifted up from refractor velocity by `shift_up` ms. RMS in this window represents the noise value.
+    2. WIndow shifted down from refractor velocity by `shift_down` ms`. RMS in this window represents the signal value.
+
     Only traces that contain noise and signal windows of the provided `window_size` are considered,
-    the metric is Null for other traces.
+    the metric is 0 for other traces.
 
 
     Parameters
     ----------
     win_size : int
-        length of the windows for computing signam and noise RMS amplitudes measured in ms.
+        Length of the windows for computing signam and noise RMS amplitudes measured in ms.
     shift_up : int
-        the delta between noise window end and first breaks, measured in ms.
+        The delta between noise window end and first breaks, measured in ms.
     shift_down : int
-        the delta between signal window beginning and first breaks, measured in ms.
-    first_breaks_col : str, optional
-        header with first breaks, by default HDR_FIRST_BREAK
+        The delta between signal window beginning and first breaks, measured in ms.
+    refractor_velocity: RefractorVelocity
+        Refractor velocity object to find times along witch
+    name : str, optional, defaults to "adaptive_rms"
+        Metrics name.
     """
 
     name = "adaptive_rms"
@@ -450,8 +508,15 @@ class SinalToNoiseRMSAdaptive(BaseWindowMetric):
         self.shift_down = shift_down
         self.refractor_velocity = refractor_velocity
 
+    def __repr__(self):
+        """String representation of the metric."""
+        repr_str = "(name='{self.name}', win_size='[{self.win_size}]', shift_up='[{self.shift_up}]', "\
+                   f"shift_down='[{self.shift_down}]', refractor_velocity='{self.refractor_velocity}')"
+        return f"{type(self).__name__}" + repr_str
+
     @property
     def header_cols(self):
+        """Column names in survey.headers to srote metrics results."""
         return [self.name + postfix for postfix in ["_signal_sum", "_signal_n", "_noise_sum", "_noise_n"]]
 
     def _get_indices(self, gather):
