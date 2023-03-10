@@ -1,3 +1,4 @@
+# pylint: disable=not-an-iterable
 """Implements survey metrics"""
 
 from functools import partial
@@ -62,6 +63,7 @@ class TracewiseMetric(SurveyAttribute):
 
     def preprocess(self, gather):
         """Preprocess gather for calculating metric. Identity by default."""
+        _ = self
         return gather
 
     def get_mask(self, gather):
@@ -120,7 +122,7 @@ class TracewiseMetric(SurveyAttribute):
         return [partial(self.plot, **plot_kwargs), partial(self.plot, bad_only=True, **plot_kwargs)], kwargs
 
 
-class MuteTracewiseMetric(TracewiseMetric):
+class MuteTracewiseMetric(TracewiseMetric):  # pylint: disable=abstract-method
     """Base class for tracewise metric with implemented `self.preprocess` method which applies muting and standatd
     scaling to the input gather. Child classes should redefine `get_mask` method."""
 
@@ -238,16 +240,17 @@ class TraceMaxAbs(TracewiseMetric):
         return np.max(np.abs(gather.data), axis=1) / (gather.data.std(axis=1) + 1e-10)
 
 
-class MaxLenMetric(TracewiseMetric):
+class MaxLenMetric(TracewiseMetric):  # pylint: disable=abstract-method
     """Base class for metrics that calculates length of continuous sequence of 1."""
 
     @staticmethod
     @njit(nogil=True, parallel=True)
     def compute_indicators_length(indicators, counter_init, old_shape):
+        """Compute length of continuous sequence of 1 in provided `indicators` and fill the squence with its length."""
         for i in prange(len(indicators)):
             counter = counter_init
             indicator = indicators[i]
-            for j in range(len(indicator)):
+            for j in range(len(indicator)):  # pylint: disable=consider-using-enumerate
                 if indicator[j] == 1:
                     counter += 1
                 else:
@@ -374,9 +377,6 @@ class BaseWindowMetric(TracewiseMetric):
         index = aggregated_gb[index_cols]
         return coords, value, index
 
-    def _get_agg_metric_value(self, aggregated_gb):
-        raise NotImplementedError
-
     def plot(self, coords, ax, index, sort_by="offset", threshold=None, top_ax_y_scale=None, bad_only=False, **kwargs):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
         _ = coords
@@ -396,7 +396,7 @@ class BaseWindowMetric(TracewiseMetric):
         ax.figure.axes[1].set_yscale(top_ax_y_scale)
         self._plot(gather=gather, ax=ax)
 
-    def _calculate_metric_from_stats(self, gather):
+    def _calculate_metric_from_stats(self, stats):
         raise NotImplementedError
 
     def _plot(self, gather, ax):
