@@ -71,11 +71,6 @@ class TracewiseMetric(SurveyAttribute):
         shape equal to `gather.shape` or a tracewize indicator with shape (`gather.n_traces`,)."""
         raise NotImplementedError
 
-    def aggregate_headers(self, headers, index_cols, coords_cols):
-        """Aggregate headers before constructing metric map. No aggregation performed by default."""
-        index = headers[index_cols] if index_cols is not None else None
-        return headers[coords_cols], headers[self.name], index
-
     def aggregate(self, mask):
         """Aggregate input mask depending on `self.is_lower_better` to select the worst mask value for each trace"""
         agg_fn = np.nanmax if self.is_lower_better else np.nanmin
@@ -90,7 +85,12 @@ class TracewiseMetric(SurveyAttribute):
             raise ValueError("Either `threshold` or `self.threshold` must be non None.")
         return bin_fn(mask, self.threshold if threshold is None else threshold)
 
-    def plot(self, coords, ax, index, sort_by=None, threshold=None, top_ax_y_scale=None,  bad_only=False, **kwargs):
+    def aggregate_headers(self, headers, index_cols, coords_cols):
+        """Aggregate headers before constructing metric map. No aggregation performed by default."""
+        index = headers[index_cols] if index_cols is not None else None
+        return headers[coords_cols], headers[self.name], index
+
+    def plot(self, ax, coords, index, sort_by=None, threshold=None, top_ax_y_scale=None,  bad_only=False, **kwargs):
         """Gather plot where samples with indicator above/below `.threshold` are highlited."""
         threshold = self.threshold if threshold is None else threshold
         top_ax_y_scale = self.top_ax_y_scale if top_ax_y_scale is None else top_ax_y_scale
@@ -428,9 +428,7 @@ class WindowRMS(BaseWindowMetric):
 
     def __repr__(self):
         """String representation of the metric."""
-        offsets_range = ", ".join(self.offsets)
-        times_range = ", ".join(self.times)
-        return f"{type(self).__name__}(name='{self.name}', offsets='[{offsets_range}]', times='[{times_range}]')"
+        return f"{type(self).__name__}(name='{self.name}', offsets='{self.offsets}', times='{self.times}')"
 
     @property
     def header_cols(self):
@@ -510,8 +508,8 @@ class SinalToNoiseRMSAdaptive(BaseWindowMetric):
 
     def __repr__(self):
         """String representation of the metric."""
-        repr_str = "(name='{self.name}', win_size='[{self.win_size}]', shift_up='[{self.shift_up}]', "\
-                   f"shift_down='[{self.shift_down}]', refractor_velocity='{self.refractor_velocity}')"
+        repr_str = f"(name='{self.name}', win_size='{self.win_size}', shift_up='{self.shift_up}', "\
+                   f"shift_down='{self.shift_down}', refractor_velocity='{self.refractor_velocity}')"
         return f"{type(self).__name__}" + repr_str
 
     @property
