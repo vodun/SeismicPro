@@ -377,12 +377,13 @@ class BaseWindowMetric(TracewiseMetric):
         index = aggregated_gb[index_cols]
         return coords, value, index
 
-    def plot(self, coords, ax, index, sort_by="offset", threshold=None, top_ax_y_scale=None, bad_only=False, **kwargs):
+    def plot(self, ax, coords, index, sort_by=None, threshold=None, top_ax_y_scale=None, bad_only=False, **kwargs):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
+        # TODO: add mask to gather plot
         _ = coords
         gather = self.survey.get_gather(index)
-        if sort_by is not None:
-            gather = gather.sort(sort_by)
+        sort_by = "offset" if sort_by is None else sort_by
+        gather = gather.sort(sort_by)
         stats = self.get_mask(gather)
         tracewise_metric = self._calculate_metric_from_stats(stats)
         tracewise_metric[tracewise_metric==0] = np.nan
@@ -391,15 +392,16 @@ class BaseWindowMetric(TracewiseMetric):
             gather.data[self.aggregate(bin_mask) == 0] = np.nan
 
         gather.plot(ax=ax, top_header=tracewise_metric, **kwargs)
-        ax.figure.axes[1].axhline(threshold, alpha=0.5)
+        if threshold is not None:
+            ax.figure.axes[1].axhline(threshold, alpha=0.5)
         top_ax_y_scale = self.top_ax_y_scale if top_ax_y_scale is None else top_ax_y_scale
         ax.figure.axes[1].set_yscale(top_ax_y_scale)
-        self._plot(gather=gather, ax=ax)
+        self._plot(ax=ax, gather=gather)
 
     def _calculate_metric_from_stats(self, stats):
         raise NotImplementedError
 
-    def _plot(self, gather, ax):
+    def _plot(self, ax, gather):
         """Add any additional metric related graphs on plot"""
         pass
 
@@ -461,7 +463,8 @@ class WindowRMS(BaseWindowMetric):
     def _calculate_metric_from_stats(self, stats):
         return stats[:, 0] / stats[:, 1]
 
-    def _plot(self, gather, ax):
+    def _plot(self, ax, gather):
+        # TODO: do we want to plot this metric with sort_by != 'offset'?
         times = self._get_time_ixs(gather, self.times)
         offsets = self._get_offsets(gather, self.offsets)
 
@@ -553,7 +556,7 @@ class SinalToNoiseRMSAdaptive(BaseWindowMetric):
     def _calculate_metric_from_stats(self, stats):
         return (stats[:, 0] / stats[:, 1]) / (stats[:, 2] / stats[:, 3] + 1e-10)
 
-    def _plot(self, gather, ax):
+    def _plot(self, ax, gather):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows."""
         indices = self._get_indices(gather)
         indices = np.where(np.asarray(indices) == -1, np.nan, indices)

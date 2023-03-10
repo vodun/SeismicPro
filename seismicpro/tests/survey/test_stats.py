@@ -6,7 +6,7 @@ import numpy as np
 
 from seismicpro import Survey, make_prestack_segy
 
-from . import assert_surveys_equal, assert_survey_processed_inplace
+from . import assert_surveys_equal
 
 
 def gen_random_traces(n_traces, n_samples):
