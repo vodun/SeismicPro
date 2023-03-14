@@ -660,6 +660,8 @@ class RefractorVelocityField(SpatialField):
         metrics_classes, metrics_contexts = zip(*[(metric.pop('class'), dict(**metric, **context)) if isinstance (metric, dict)
                                                   else (metric, context) for metric in metrics])
         metrics_instances, is_single_metric = initialize_metrics(metrics_classes, metric_class=RefractorVelocityMetric)
+        print(metrics_instances)
+        print(is_single_metric)
         
         for metric_instance, metric_context in zip(metrics_instances, metrics_contexts):
             metric_instance.bind_context(metric_map=None, **metric_context)
@@ -683,7 +685,8 @@ class RefractorVelocityField(SpatialField):
                 for i in range(n_chunks):
                     gathers_indices_chunk = survey.indices[i * chunk_size : (i + 1) * chunk_size]
                     gathers_chunk = [survey.get_gather(idx) for idx in gathers_indices_chunk]
-                    chunk_coords = gather_coords[i * chunk_size : (i + 1) * chunk_size]
+                    # chunk_coords = gather_coords[i * chunk_size : (i + 1) * chunk_size]
+                    chunk_coords = [g.coords.coords for g in gathers_chunk]
                     rvs_chunk = self(chunk_coords)
                     future = pool.submit(self._calc_metrics, metrics_instances, gathers_chunk,
                                          rvs_chunk)
@@ -697,8 +700,8 @@ class RefractorVelocityField(SpatialField):
 
         metrics_maps = []
         for metric, metric_values, metric_context in zip(metrics_instances, zip(*results), metrics_contexts):
-            metrics_maps.append(metric.construct_map(coords=gather_coords, values=metric_values, coords_cols=self.coords_cols,
-                                                     **metric_context))
+            metrics_maps.append(metric.construct_map(coords=gather_coords, index=index, index_cols=index_cols,
+                                                     values=metric_values, coords_cols=self.coords_cols, **metric_context))
         if is_single_metric:
             return metrics_maps[0]
-        return metrics_maps
+        return metrics_maps, results
