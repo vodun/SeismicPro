@@ -642,7 +642,6 @@ class RefractorVelocityField(SpatialField):
         for gather, refractor_velocity in zip(gathers_chunk, rvs_chunk):
             gather_results = []
             for metric in metrics:
-                # metric_callable, metric_kwargs = metric.pop('class').calc, metric
                 metric_val = metric(gather=gather, refractor_velocity=refractor_velocity)
                 gather_results.append(metric_val)
             chunk_results.append(gather_results)
@@ -685,8 +684,8 @@ class RefractorVelocityField(SpatialField):
                 for i in range(n_chunks):
                     gathers_indices_chunk = survey.indices[i * chunk_size : (i + 1) * chunk_size]
                     gathers_chunk = [survey.get_gather(idx) for idx in gathers_indices_chunk]
-                    # chunk_coords = gather_coords[i * chunk_size : (i + 1) * chunk_size]
-                    chunk_coords = [g.coords.coords for g in gathers_chunk]
+                    chunk_coords = gather_coords[i * chunk_size : (i + 1) * chunk_size]
+                    # chunk_coords = [g.coords.coords for g in gathers_chunk]
                     rvs_chunk = self(chunk_coords)
                     future = pool.submit(self._calc_metrics, metrics_instances, gathers_chunk,
                                          rvs_chunk)
@@ -704,4 +703,4 @@ class RefractorVelocityField(SpatialField):
                                                      values=metric_values, coords_cols=self.coords_cols, **metric_context))
         if is_single_metric:
             return metrics_maps[0]
-        return metrics_maps, results
+        return metrics_maps

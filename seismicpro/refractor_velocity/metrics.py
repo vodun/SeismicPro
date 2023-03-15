@@ -33,7 +33,7 @@ class RefractorVelocityMetric(Metric):
         if sort_by is not None:
             gather = gather.sort(by=sort_by)
         if event_headers is None:
-            event_headers = {'headers': self.first_breaks_col}
+            event_headers = {'headers': self.first_breaks_col} #event_headers = kwargs.pop('event_headers', {'headers': first_breaks_col})
         if top_header or mask:
             refractor_velocity = self.field(gather.coords)
             metric_values = self.calc(gather=gather, refractor_velocity=refractor_velocity)
@@ -51,7 +51,7 @@ class RefractorVelocityMetric(Metric):
                 kwargs['top_header'] = self.name
         gather.plot(event_headers=event_headers, ax=ax, **kwargs)
 
-    def plot_refractor_velocity(self, coords, ax, index, **kwargs):
+    def plot_refractor_velocity(self, coords, ax, index, **kwargs): # refractor_velocity.max_offset = max(refractor_velocity.max_offset, gather["offset"].max())
         refractor_velocity = self.field(coords)
         gather = self.survey.get_gather(index)
         refractor_velocity.times = gather[self.first_breaks_col]
@@ -82,7 +82,7 @@ class FirstBreaksOutliers(RefractorVelocityMetric):
 class FirstBreaksAmplitudes(RefractorVelocityMetric):
     name = "first_breaks_amplitudes"
     vmin = 0
-    vmax = 0.5
+    vmax = 0.5 # mask threshold?
     is_lower_better = None
 
     def calc(self, gather, refractor_velocity):
@@ -112,7 +112,7 @@ class FirstBreaksPhases(RefractorVelocityMetric): # tick labels
 
     def calc(self, gather, refractor_velocity):
         _ = refractor_velocity
-        # g = gather.copy() # ????
+        # g = gather.copy()
         ix = times_to_indices(gather[self.first_breaks_col], gather.samples).astype(np.int64)
         phases = hilbert(gather.data, axis=1)[range(len(ix)), ix]
         res = abs(np.angle(phases))
@@ -264,7 +264,7 @@ class DivergencePoint(RefractorVelocityMetric):
 
     def calc(self, gather, refractor_velocity):
         g = gather.copy()
-        times = g[self.first_breaks_col] ##### uphole
+        times = g[self.first_breaks_col]
         if self.correct_uphole:
             times += g["SourceUpholeTime"]
         offsets = g['offset']
