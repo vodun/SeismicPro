@@ -1293,5 +1293,5 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             if drop_duplicates:
                 map_data.drop_duplicates(inplace=True)
 
-        return SurveyAttribute(name=attribute).construct_map(map_data.iloc[:, :2], map_data.iloc[:, 2], agg=agg,
-                                                             bin_size=bin_size, survey=self)
+        metric = SurveyAttribute(name=attribute).provide_context(survey=self)
+        return metric.construct_map(map_data.iloc[:, :2], map_data.iloc[:, 2], agg=agg, bin_size=bin_size)

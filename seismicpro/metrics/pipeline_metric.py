@@ -96,7 +96,7 @@ class PipelineMetric(Metric):
         The `pipeline` up to the `calculate_metric` method.
     calculate_metric_args : tuple
         Positional arguments passed to `calculate_metric` call. May contain non-evaluated named expressions.
-    calculate_metric_args : dict
+    calculate_metric_kwargs : dict
         Keyword arguments passed to `calculate_metric` call. May contain non-evaluated named expressions.
     """
     args_to_unpack = None

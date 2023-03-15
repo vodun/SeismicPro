@@ -379,8 +379,8 @@ class SeismicBatch(Batch):
 
         The passed metric must be either an instance or a subclass of `PipelineMetric` or a `callable`. In the latter
         case, a new instance of `FunctionalMetric` will be created with its `__call__` method defined by the callable.
-        The metric map is provided with information about the pipeline it was calculated in which allows restoring
-        metric calculation context during interactive metric map plotting.
+        The metric is provided with information about the pipeline it was calculated in, which allows restoring a batch
+        of data by its spatial coordinates upon interactive metric map plotting.
 
         Examples
         --------
@@ -422,7 +422,7 @@ class SeismicBatch(Batch):
         metric : PipelineMetric or subclass of PipelineMetric or callable
             The metric to calculate.
         metric_name : str, optional
-            A name of the calculated metric.
+            A name of the metric.
         coords_component : str, optional
             A component name to extract coordinates from. If not given, the first argument passed to the metric
             calculation function is used.
@@ -465,8 +465,8 @@ class SeismicBatch(Batch):
         index = pd.concat(part_indices, ignore_index=True, copy=False)
 
         # Construct and save the map
-        metric_map = MetricMap(coords, values, index=index, metric=metric, calculate_immediately=False,
-                               pipeline=self.pipeline, calculate_metric_index=self._num_calculated_metrics)
+        metric = metric.provide_context(pipeline=self.pipeline, calculate_metric_index=self._num_calculated_metrics)
+        metric_map = metric.construct_map(coords, values, index=index, calculate_immediately=False)
         if save_to is not None:
             save_data_to(data=metric_map, dst=save_to, batch=self)
         self._num_calculated_metrics += 1
