@@ -255,7 +255,7 @@ class StackingVelocityField(ValuesAgnosticField, VFUNCFieldMixin):
         results = thread_map(calculate_metrics, windows_indices, max_workers=n_workers,
                              desc="Coordinates processed", disable=not bar)
         context = {"times": times, "velocities": velocities, "coords_neighbors": coords_neighbors}
-        metrics_maps = [metric.construct_map(coords, values, coords_cols=self.coords_cols, **context)
+        metrics_maps = [metric.provide_context(**context).construct_map(coords, values, coords_cols=self.coords_cols)
                         for metric, values in zip(metrics, zip(*results))]
         if is_single_metric:
             return metrics_maps[0]

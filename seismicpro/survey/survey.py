@@ -1359,8 +1359,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         coords = metric_data[coords_cols]
         values = metric_data[name]
 
-        metric = SurveyAttribute(name=name)
-        return metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size, survey=self)
+        metric = SurveyAttribute(name=name).provide_context(survey=self)
+        return metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size)
 
     def construct_header_map(self, col, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
         """Construct a metric map of trace header values aggregated by gather.
@@ -1399,7 +1399,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return self._construct_map(self[col], name=col, by=by, id_cols=id_cols, drop_duplicates=drop_duplicates,
                                    agg=agg, bin_size=bin_size)
 
-
     def construct_fold_map(self, by, id_cols=None, agg=None, bin_size=None):
         """Construct a metric map which stores the number of traces for each gather (fold).
 
@@ -1428,8 +1427,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             Constructed fold map.
         """
         tmp_map = self._construct_map(np.ones(self.n_traces), name="fold", by=by, id_cols=id_cols, agg="sum")
-        metric = tmp_map.metric
         index = tmp_map.index_data[tmp_map.index_cols]
         coords = tmp_map.index_data[tmp_map.coords_cols]
         values = tmp_map.index_data[tmp_map.metric_name]
-        return metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size, survey=self)
+        return tmp_map.metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size)

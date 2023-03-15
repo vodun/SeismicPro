@@ -16,7 +16,7 @@ class BaseMetricMap:  # pylint: disable=too-many-instance-attributes
     Should not be instantiated directly, use `MetricMap` or its subclasses instead.
     """
     def __init__(self, coords, values, *, coords_cols=None, index=None, index_cols=None, metric=None, agg=None,
-                 calculate_immediately=True, **context):
+                 calculate_immediately=True):
         coords, coords_cols = parse_coords(coords, coords_cols)
         values, metric = parse_metric_data(values, metric)
         metric_data = pd.DataFrame(coords, columns=coords_cols)
@@ -44,7 +44,6 @@ class BaseMetricMap:  # pylint: disable=too-many-instance-attributes
         self.coords_cols = coords_cols
         self.index_cols = index_cols
         self.agg = agg
-        self.context = context
         self.requires_recalculation = True
         if calculate_immediately:
             self._recalculate()
@@ -103,9 +102,8 @@ class BaseMetricMap:  # pylint: disable=too-many-instance-attributes
             (type(self.metric) is not type(other.metric)) or (self.metric_name != other.metric_name)):
             raise ValueError("Only a map with the same types of coordinates, index and metric can be appended")
         self.metric_data_list += other.metric_data_list
-        self.context.update(other.context)
         self._metric = other._metric  # pylint: disable=protected-access
-        self._bound_metric = None  # The context may have changed
+        self._bound_metric = other._bound_metric  # pylint: disable=protected-access
         self.requires_recalculation = True
 
     def extend(self, other):
@@ -197,8 +195,7 @@ class BaseMetricMap:  # pylint: disable=too-many-instance-attributes
             Aggregated map.
         """
         return self.map_class(self.metric_data[self.coords_cols], self.metric_data[self.metric_name],
-                              index=self.metric_data[self.index_cols], metric=self.metric, agg=agg, bin_size=bin_size,
-                              **self.context)
+                              index=self.metric_data[self.index_cols], metric=self.metric, agg=agg, bin_size=bin_size)
 
     def construct_items_titles(self, coords_list, index_list, values_list=None):
         """Return a title of the auxiliary plot for each item by its coordinates, index and optionally a metric
@@ -455,7 +452,7 @@ class MetricMap(metaclass=MetricMapMeta):
 
     A metric map stores information about metric `values` calculated for individual items defined by `index` and
     located at spatial coordinates `coords`. `index` argument may be omitted: in this case, the map assumes that an
-    item is uniquely determined by its coordinates.
+    item is uniquely identified by its coordinates.
 
     Several metric values may be defined for an item in the map. It can be done either by providing several entries in
     the `index`, `coords` and `values` arrays or by passing a single entry with a list-like metric value. In both these
@@ -515,9 +512,6 @@ class MetricMap(metaclass=MetricMapMeta):
         Bin size for X and Y axes. If single `int` or `float`, the same bin size will be used for both axes.
     calculate_immediately : bool, optional, defaults to True
         Whether to calculate map data immediately or postpone it until the first access.
-    context : misc, optional
-        Any additional keyword arguments defining metric calculation context. Will be later passed to
-        `metric.bind_context` method together with the metric map upon the first interactive map plot.
 
     Attributes
     ----------
@@ -531,8 +525,6 @@ class MetricMap(metaclass=MetricMapMeta):
         A function used for aggregating the map.
     bin_size : 1d np.ndarray with 2 elements
         Bin size for X and Y axes. Available only if the map was binarized.
-    context : dict
-        Additional keyword arguments defining metric calculation context.
     """
     scatter_map_class = ScatterMap
     binarized_map_class = BinarizedMap

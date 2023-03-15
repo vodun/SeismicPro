@@ -23,7 +23,7 @@ class FirstBreaksOutliers(PipelineMetric):
     views = ("plot_gather", "plot_refractor_velocity")
     args_to_unpack = ("gather", "refractor_velocity")
 
-    def __call__(gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50,
+    def __call__(self, gather, refractor_velocity, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50,
                  correct_uphole=None):
         """Calculate the first break outliers metric.
 

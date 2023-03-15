@@ -25,8 +25,9 @@ class Metric:
 
     Each view should somehow be able to transform click information into data for visualization, which usually requires
     knowledge of the metric calculation context (in the described case one needs a `Survey` instance to obtain a gather
-    by its coordinates). This context should be stored in the corresponding `MetricMap` instance and is provided to the
-    metric by calling its `bind_context` upon the first interactive plot of the metric map.
+    by its coordinates). This context should be provided to the metric by calling `provide_context` method before
+    constructing a map. The context is then explicitly passed to the `bind_context` method along with the parent metric
+    map upon the first interactive map visualization.
 
     The simplest way to calculate a metric and construct its map is to manually iterate over a dataset and calculate
     the metric for each item. However, convenient interfaces for the most common use cases exist e.g. `PipelineMetric`
@@ -38,6 +39,8 @@ class Metric:
     * Define metric calculation logic in its `__call__` method,
     * Optionally redefine `__init__` to store some additional metric parameters,
     * Optionally implement one or more views and list them in the `views` attribute,
+    * Optionally redefine `bind_context` method which accepts a parent metric map and the provided calculation context
+      as its parameters and transforms them to be further be used by views,
     * Optionally set other metric attributes for future convenience.
 
     Parameters
@@ -69,6 +72,8 @@ class Metric:
         Maximum colorbar value. Unlike `max_value` which describes maximum feasible value of the metric in mathematical
         sense, `vmax` defines colorbar limit to compare several maps or highlight outliers. Takes precedence over
         `max_value`.
+    context : dict
+        Metric calculation context.
     has_bound_context : bool
         Whether the metric has bound execution context and can be used for interactive metric map plotting.
     """
@@ -87,6 +92,7 @@ class Metric:
             if not isinstance(name, str):
                 raise TypeError("Metric name name must be a string")
             self.name = name
+        self.context = {}
         self.has_bound_context = False
 
     def __call__(self, *args, **kwargs):
@@ -129,17 +135,27 @@ class Metric:
 
     def copy(self):
         """Copy the metric."""
-        return deepcopy(self)
+        return deepcopy(self, memo={id(self.context): self.context})
+
+    def provide_context(self, **context):
+        """Memorize metric calculation context to be further used for interactive metric map plotting."""
+        # Copy the metric to handle the case when it is simultaneously calculated in deferent contexts (e.g for
+        # different surveys)
+        self_copy = self.copy()
+        self_copy.context = context
+        return self_copy
 
     def bind_context(self, metric_map):
         """Process metric evaluation context."""
         _ = metric_map
 
     def bind_metric_map(self, metric_map):
-        """Return a copy of the metric with bound `metric_map` context and `has_bound_context` flag set to `True`."""
+        """Return a copy of the metric with bound `metric_map` and its calculation context. Sets `has_bound_context`
+        flag to `True`."""
         # Copy the metric to handle the case when it is simultaneously used in multiple maps
         self_bound = self.copy()
-        self_bound.bind_context(metric_map=metric_map, **metric_map.context)
+        self_bound.bind_context(metric_map=metric_map, **self.context)
+        self_bound.context = {}
         self_bound.has_bound_context = True
         return self_bound
 
@@ -156,7 +172,7 @@ class Metric:
         return [getattr(self, view) for view in to_list(self.views)], kwargs
 
     def construct_map(self, coords, values, *, coords_cols=None, index=None, index_cols=None, agg=None, bin_size=None,
-                      calculate_immediately=True, **context):
+                      calculate_immediately=True):
         """Construct a metric map.
 
         Parameters
@@ -181,9 +197,6 @@ class Metric:
             Bin size for X and Y axes. If single `int` or `float`, the same bin size will be used for both axes.
         calculate_immediately : bool, optional, defaults to True
             Whether to calculate map data immediately or postpone it until the first access.
-        context : misc, optional
-            Any additional keyword arguments defining metric calculation context. Will be later passed to
-            `metric.bind_context` method together with the metric map upon the first interactive map plot.
 
         Returns
         -------
@@ -191,7 +204,7 @@ class Metric:
             Constructed metric map.
         """
         return self.map_class(coords, values, coords_cols=coords_cols, index=index, index_cols=index_cols, metric=self,
-                              agg=agg, bin_size=bin_size, calculate_immediately=calculate_immediately, **context)
+                              agg=agg, bin_size=bin_size, calculate_immediately=calculate_immediately)
 
 
 def is_metric(metric, metric_class=Metric):
