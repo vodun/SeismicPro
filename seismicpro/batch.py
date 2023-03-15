@@ -14,7 +14,7 @@ from .gather import Gather, CroppedGather
 from .gather.utils.crop_utils import make_origins
 from .velocity_spectrum import VerticalVelocitySpectrum, ResidualVelocitySpectrum
 from .field import Field
-from .metrics import MetricMap, define_pipeline_metric
+from .metrics import define_pipeline_metric
 from .decorators import create_batch_methods, apply_to_each_component
 from .utils import to_list, as_dict, save_figure
 

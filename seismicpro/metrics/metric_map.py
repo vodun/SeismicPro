@@ -103,7 +103,7 @@ class BaseMetricMap:  # pylint: disable=too-many-instance-attributes
             raise ValueError("Only a map with the same types of coordinates, index and metric can be appended")
         self.metric_data_list += other.metric_data_list
         self._metric = other._metric  # pylint: disable=protected-access
-        self._bound_metric = other._bound_metric
+        self._bound_metric = other._bound_metric  # pylint: disable=protected-access
         self.requires_recalculation = True
 
     def extend(self, other):
