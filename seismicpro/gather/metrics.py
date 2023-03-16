@@ -18,6 +18,7 @@ class FirstBreaksOutliers(PipelineMetric):
     name = "first_breaks_outliers"
     is_lower_better = True
     min_value = 0
+    max_value = 1
     vmin = 0
     vmax = 0.05
     views = ("plot_gather", "plot_refractor_velocity")
