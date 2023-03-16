@@ -366,20 +366,20 @@ class SeismicIndex(DatasetIndex):
         if self.is_empty:
             return "Empty index"
 
-        info_df = pd.DataFrame({"Gathers": self.n_gathers_by_part, "Traces": self.n_traces_by_part},
+        fold = (np.array(self.n_traces_by_part) / np.array(self.n_gathers_by_part)).astype(np.int32)
+        info_df = pd.DataFrame({"Traces": self.n_traces_by_part, "Gathers": self.n_gathers_by_part, "Fold": fold},
                                index=pd.RangeIndex(self.n_parts, name="Part"))
         for sur in self.survey_names:
             info_df[f"Survey {sur}"] = [os.path.basename(part.surveys_dict[sur].path) for part in self.parts]
 
         msg = f"""
-        {index_path} info:
-
         Indexed by:                {", ".join(to_list(self.indexed_by))}
-        Number of gathers:         {self.n_gathers}
         Number of traces:          {self.n_traces}
+        Number of gathers:         {self.n_gathers}
+        Mean gather fold:          {int(self.n_traces / self.n_gathers)}
         Is split:                  {self.is_split}
 
-        Index parts info:
+        Statistics of {index_path} parts:
         """
         msg = indent(dedent(msg) + info_df.to_string() + "\n", " " * indent_size)
 
