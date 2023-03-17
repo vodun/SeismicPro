@@ -9,31 +9,28 @@ from ..utils import times_to_indices, get_first_defined
 class RefractorVelocityMetric(Metric):
     views = ("plot_gather", "plot_refractor_velocity")
 
-    def __init__(self, name=None):
+    def __init__(self, name=None, first_breaks_col=HDR_FIRST_BREAK, threshold_times=50, correct_uphole=True):
         super().__init__(name=name)
         self.survey = None
         self.field = None
-        self.first_breaks_col = None
-        self.threshold_times = None
+        self.first_breaks_col = first_breaks_col
+        self.threshold_times = threshold_times
+        self.correct_uphole = correct_uphole
         
-    def bind_context(self, metric_map, survey, field, first_breaks_col, threshold_times=50):
+    def bind_context(self, metric_map, survey, field):
         _ = metric_map
         self.survey = survey
         self.field = field
-        self.first_breaks_col = first_breaks_col
-        self.threshold_times = threshold_times
-        self.correct_uphole = "SourceUpholeTime" in self.survey.available_headers and self.field.is_uphole_corrected
         
     def __call__(self, *args, **kwargs):
         return np.mean(self.calc(*args, **kwargs))
 
-    def plot_gather(self, coords, ax, index, sort_by=None, event_headers=None, mask=True, top_header=True, **kwargs):
+    def plot_gather(self, coords, ax, index, sort_by=None, mask=True, top_header=True, **kwargs):
         _ = coords
         gather = self.survey.get_gather(index).copy()
         if sort_by is not None:
             gather = gather.sort(by=sort_by)
-        if event_headers is None:
-            event_headers = {'headers': self.first_breaks_col} #event_headers = kwargs.pop('event_headers', {'headers': first_breaks_col})
+        event_headers = kwargs.pop('event_headers', {'headers': self.first_breaks_col})
         if top_header or mask:
             refractor_velocity = self.field(gather.coords)
             metric_values = self.calc(gather=gather, refractor_velocity=refractor_velocity)
@@ -51,12 +48,14 @@ class RefractorVelocityMetric(Metric):
                 kwargs['top_header'] = self.name
         gather.plot(event_headers=event_headers, ax=ax, **kwargs)
 
-    def plot_refractor_velocity(self, coords, ax, index, **kwargs): # refractor_velocity.max_offset = max(refractor_velocity.max_offset, gather["offset"].max())
+    def plot_refractor_velocity(self, coords, ax, index, **kwargs):
         refractor_velocity = self.field(coords)
         gather = self.survey.get_gather(index)
         refractor_velocity.times = gather[self.first_breaks_col]
         if self.correct_uphole:
             refractor_velocity.times += gather["SourceUpholeTime"]
+
+        refractor_velocity.max_offset = gather["offset"].max()
         refractor_velocity.offsets = gather['offset']
         refractor_velocity.plot(threshold_times=self.threshold_times, ax=ax, **kwargs)
 
@@ -82,7 +81,7 @@ class FirstBreaksOutliers(RefractorVelocityMetric):
 class FirstBreaksAmplitudes(RefractorVelocityMetric):
     name = "first_breaks_amplitudes"
     vmin = 0
-    vmax = 0.5 # mask threshold?
+    vmax = 0.5
     is_lower_better = None
 
     def calc(self, gather, refractor_velocity):
@@ -104,36 +103,34 @@ class FirstBreaksPhases(RefractorVelocityMetric): # tick labels
     vmax = np.pi / 2
     is_lower_better = True
 
-    def bind_context(self, target='max', **context):
+    def __init__(self, target='max', **kwargs):
         if isinstance(target, str):
             target = {'max': 0, 'min': np.pi, 'transition': np.pi / 2}[target]
         self.target = target
-        super().bind_context(**context)
+        super().__init__(**kwargs)
 
     def calc(self, gather, refractor_velocity):
         _ = refractor_velocity
-        # g = gather.copy()
-        ix = times_to_indices(gather[self.first_breaks_col], gather.samples).astype(np.int64)
+        ix = times_to_indices(gather[self.first_breaks_col], gather.samples).astype(np.int64), 
         phases = hilbert(gather.data, axis=1)[range(len(ix)), ix]
-        res = abs(np.angle(phases))
+        res = np.angle(phases).reshape(-1)
         return res
 
     def __call__(self, gather, refractor_velocity):
-        phases = self.calc(gather=gather, refractor_velocity=refractor_velocity)
+        phases = abs(self.calc(gather=gather, refractor_velocity=refractor_velocity))
         return np.mean(abs(phases - self.target))
     
-    def plot_gather(self, coords, ax, index, sort_by=None, event_headers=None, **kwargs):
+    def plot_gather(self, coords, ax, index, sort_by=None, **kwargs):
         _ = coords
         gather = self.survey.get_gather(index).copy()
         if sort_by is not None:
             gather = gather.sort(by=sort_by)
-        if event_headers is None:
-            event_headers = {'headers': self.first_breaks_col}
+        event_headers =  kwargs.pop('event_headers', {'headers': self.first_breaks_col})
         phases = self.calc(gather=gather, refractor_velocity=None)
         gather[self.name] = phases
         kwargs['top_header'] = self.name
 
-        metric_values = abs(phases - self.target)
+        metric_values = abs(abs(phases) - self.target)
         mask_kwargs = kwargs.get('masks', {})
         mask_threshold = get_first_defined(mask_kwargs.get('threshold', None), self.vmax)
         mask_kwargs.update({'masks': metric_values,
@@ -149,9 +146,9 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
     vmax = 1
     is_lower_better = False
     
-    def bind_context(self, win_size=20, **context):
+    def __init__(self, win_size=20, **kwargs):
         self.win_size = win_size
-        super().bind_context(**context)
+        super().__init__(**kwargs)
 
     def calc(self, gather, refractor_velocity):
         _ = refractor_velocity
@@ -195,9 +192,9 @@ class GeometryError(RefractorVelocityMetric):
     min_value = 0
     is_lower_better = True
     
-    def bind_context(self, reg=0.01, **context):
+    def __init__(self, reg=0.01, **kwargs):
         self.reg = reg
-        super().bind_context(**context)
+        super().__init__(**kwargs)
 
     @staticmethod
     def sin(x, amp, phase):
@@ -254,13 +251,15 @@ class DivergencePoint(RefractorVelocityMetric):
     name = "divergence_point"
     is_lower_better = False
       
-    def bind_context(self, threshold_times=50, step=100, **context):
-        super().bind_context(**context)
+    def __init__(self, threshold_times=50, step=100, **kwargs):
+        super().__init__(**kwargs)
         self.threshold_times = threshold_times
         self.step = step
+        
+    def bind_context(self, *args, **kwargs):
+        super().bind_context(*args, **kwargs)
         self.vmax = self.survey['offset'].max() if self.survey is not None else None
         self.vmin = self.survey['offset'].min() if self.survey is not None else None
- 
 
     def calc(self, gather, refractor_velocity):
         g = gather.copy()
