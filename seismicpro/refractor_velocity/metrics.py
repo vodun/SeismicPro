@@ -22,6 +22,11 @@ class RefractorVelocityMetric(Metric):
         self.survey = survey
         self.field = field
         
+    def calc(self, *args, **kwargs):
+        """Calculate the metric. Must be overridden in child classes."""
+        _ = args, kwargs
+        raise NotImplementedError
+        
     def __call__(self, *args, **kwargs):
         return np.mean(self.calc(*args, **kwargs))
 
@@ -97,7 +102,7 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
         return amps.mean()
 
 
-class FirstBreaksPhases(RefractorVelocityMetric): # tick labels
+class FirstBreaksPhases(RefractorVelocityMetric):
     name = 'first_breaks_phases'
     vmin = 0
     vmax = np.pi / 2
@@ -153,7 +158,7 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
     def calc(self, gather, refractor_velocity):
         _ = refractor_velocity
         g = gather.copy()
-        g.scale_standard()
+        g.scale_maxabs(clip=True)
         ix = times_to_indices(g[self.first_breaks_col], g.samples).astype(np.int64)
         mean_cols = ix.reshape(-1, 1) + np.arange(-self.win_size // g.sample_rate, self.win_size // g.sample_rate).reshape(1, -1)
         mean_cols = np.clip(mean_cols, 0, g.data.shape[1] - 1).astype(np.int64)
@@ -168,11 +173,11 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
         corrs /= np.sqrt((traces_centered**2).sum(axis=1) * (mean_trace_centered**2).sum(axis=1))
         return corrs
 
-    def plot_mean_hodograph(self, coords, ax, index, **kwargs): # time axis
+    def plot_mean_hodograph(self, coords, ax, index, **kwargs):
         _ = coords
         gather = self.survey.get_gather(index)
         g = gather.copy()
-        g.scale_standard()
+        g.scale_maxabs(clip=True)
         ix = times_to_indices(g[self.first_breaks_col], g.samples).astype(np.int64)
         mean_cols = ix.reshape(-1, 1) + np.arange(-self.win_size // g.sample_rate, self.win_size // g.sample_rate).reshape(1, -1)
         mean_cols = np.clip(mean_cols, 0, g.data.shape[1] - 1).astype(np.int64)
@@ -183,9 +188,12 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
         traces_centered = traces_windows - traces_windows.mean(axis=1).reshape(-1, 1)
         mean_trace_centered = (mean_trace - mean_trace.mean()).reshape(1, -1)
         g.data = mean_trace_centered
-        ax.get_xaxis().set_visible(False)
-        g.plot(mode='wiggle', ax=ax, **kwargs)
 
+        y_min = mean_cols[0, :].min()
+        g.plot(mode='wiggle', ax=ax, **kwargs)
+        ax.set_xlabel('Amplitude')
+        ax.set_xticks(ticks=[-1, 0, 1])
+        ax.set_yticks(ticks=np.arange(self.win_size)[::5], labels=np.arange(self.win_size)[::5] + y_min)
 
 class GeometryError(RefractorVelocityMetric):
     name = "geometry_error"
