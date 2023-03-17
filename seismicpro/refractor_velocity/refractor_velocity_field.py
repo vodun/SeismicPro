@@ -647,23 +647,14 @@ class RefractorVelocityField(SpatialField):
             chunk_results.append(gather_results)
         return chunk_results
 
-    def qc(self, survey=None, metrics=None, first_breaks_col=HDR_FIRST_BREAK, bar=True, chunk_size=250, n_workers=None):
+    def qc(self, survey=None, metrics=None, bar=True, chunk_size=250, n_workers=None):
         if survey is None:
             if not self.has_survey:
                 raise ValueError("Survey must be passed if the field is not linked with a survey.")
             survey = self.survey
 
-        metrics = REFRACTOR_VELOCITY_QC_METRICS if metrics is None else to_list(copy.deepcopy(metrics))
-
-        context = {'survey': survey, 'field': self, 'first_breaks_col': first_breaks_col}
-        metrics_classes, metrics_contexts = zip(*[(metric.pop('class'), dict(**metric, **context)) if isinstance (metric, dict)
-                                                  else (metric, context) for metric in metrics])
-        metrics_instances, is_single_metric = initialize_metrics(metrics_classes, metric_class=RefractorVelocityMetric)
-        print(metrics_instances)
-        print(is_single_metric)
-        
-        for metric_instance, metric_context in zip(metrics_instances, metrics_contexts):
-            metric_instance.bind_context(metric_map=None, **metric_context)
+        metrics = REFRACTOR_VELOCITY_QC_METRICS if metrics is None else to_list(metrics)
+        metrics_instances, is_single_metric = initialize_metrics(metrics, metric_class=RefractorVelocityMetric)
 
         coords_cols = to_list(get_coords_cols(survey.indexed_by))
         gather_change_ix = np.where(~survey.headers.index.duplicated(keep="first"))[0]
@@ -685,22 +676,21 @@ class RefractorVelocityField(SpatialField):
                     gathers_indices_chunk = survey.indices[i * chunk_size : (i + 1) * chunk_size]
                     gathers_chunk = [survey.get_gather(idx) for idx in gathers_indices_chunk]
                     chunk_coords = gather_coords[i * chunk_size : (i + 1) * chunk_size]
-                    # chunk_coords = [g.coords.coords for g in gathers_chunk]
                     rvs_chunk = self(chunk_coords)
                     future = pool.submit(self._calc_metrics, metrics_instances, gathers_chunk,
                                          rvs_chunk)
                     future.add_done_callback(lambda fut: pbar.update(len(fut.result())))
                     futures.append(future)
-
         results = sum([future.result() for future in futures], [])
-
+        
         index_cols = to_list(survey.indexed_by)
         index = None if coords_cols == index_cols else survey.indices
-
         metrics_maps = []
-        for metric, metric_values, metric_context in zip(metrics_instances, zip(*results), metrics_contexts):
-            metrics_maps.append(metric.construct_map(coords=gather_coords, index=index, index_cols=index_cols,
-                                                     values=metric_values, coords_cols=self.coords_cols, **metric_context))
+        context = {'survey': survey, 'field': self}
+        for metric, metric_values in zip(metrics_instances, zip(*results)):
+            metrics_maps.append((metric.provide_context(**context)
+                                .construct_map(coords=gather_coords, index=index, index_cols=index_cols,
+                                               values=metric_values, coords_cols=self.coords_cols)))
         if is_single_metric:
             return metrics_maps[0]
         return metrics_maps
