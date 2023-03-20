@@ -51,7 +51,7 @@ class TracewiseMetric(SurveyAttribute):
         super().__init__(name=name)
 
     def __call__(self, gather):
-        """Return an already calculated metric."""
+        """Compute metric by applying `self.preprocess`, `self.get_mask` and `self.aggregate` to provided gather."""
         gather = self.preprocess(gather)
         mask = self.get_mask(gather)
         return self.aggregate(mask)
@@ -62,7 +62,7 @@ class TracewiseMetric(SurveyAttribute):
         return self.name
 
     def preprocess(self, gather):
-        """Preprocess gather for calculating metric. Identity by default."""
+        """Preprocess gather before calculating metric. Identity by default."""
         _ = self
         return gather
 
@@ -123,7 +123,7 @@ class TracewiseMetric(SurveyAttribute):
 
 
 class MuteTracewiseMetric(TracewiseMetric):  # pylint: disable=abstract-method
-    """Base class for tracewise metric with implemented `self.preprocess` method which applies muting and standatd
+    """Base class for tracewise metric with implemented `self.preprocess` method which applies muting and standard
     scaling to the input gather. Child classes should redefine `get_mask` method."""
 
     def __init__(self, muter, name=None):
@@ -135,6 +135,7 @@ class MuteTracewiseMetric(TracewiseMetric):  # pylint: disable=abstract-method
         return f"{type(self).__name__}(name='{self.name}', muter='{self.muter}')"
 
     def preprocess(self, gather):
+        """Apply muting with np.nan as a fill value and standard scaling to provided gather."""
         return gather.copy().mute(muter=self.muter, fill_value=np.nan).scale_standard()
 
 
@@ -147,15 +148,14 @@ class Spikes(MuteTracewiseMetric):
     Parameters
     ----------
     muter : Muter
-    A muter to use.
+        A muter to use.
     name : str, optional, defaults to "spikes"
-    Metrics name.
+        Metrics name.
 
     Attributes
     ----------
     ?? Do we want to describe them ??
     """
-
     name = "spikes"
     min_value = 0
     max_value = None
@@ -163,7 +163,10 @@ class Spikes(MuteTracewiseMetric):
     threshold = 2
 
     def get_mask(self, gather):
-        """QC indicator implementation. The resulted 2d mask shows the deviation of the ampluteds of an input gather."""
+        """QC indicator implementation.
+
+        The resulted 2d mask shows the deviation of the ampluteds of an input gather.
+        """
         traces = gather.data
         self.fill_leading_nulls(traces)
 
@@ -190,9 +193,9 @@ class Autocorrelation(MuteTracewiseMetric):
     Parameters
     ----------
     muter : Muter
-    A muter to use.
+        A muter to use.
     name : str, optional, defaults to "autocorrelation"
-    Metrics name.
+        Metrics name.
     """
     name = "autocorrelation"
     min_value = -1
@@ -212,7 +215,7 @@ class TraceAbsMean(TracewiseMetric):
     Parameters
     ----------
     name : str, optional, defaults to "trace_absmean"
-    Metrics name.
+        Metrics name.
     """
     name = "trace_absmean"
     is_lower_better = True
@@ -229,7 +232,7 @@ class TraceMaxAbs(TracewiseMetric):
     Parameters
     ----------
     name : str, optional, defaults to "trace_maxabs"
-    Metrics name.
+        Metrics name.
     """
     name = "trace_maxabs"
     is_lower_better = True
@@ -269,9 +272,8 @@ class MaxClipsLen(MaxLenMetric):
     Parameters
     ----------
     name : str, optional, defaults to "max_clips_len"
-    Metrics name.
+        Metrics name.
     """
-
     name = "max_clips_len"
     min_value = 1
     max_value = None
@@ -302,9 +304,8 @@ class MaxConstLen(MaxLenMetric):
     Parameters
     ----------
     name : str, optional, defaults to "const_len"
-    Metrics name.
+        Metrics name.
     """
-
     name = "const_len"
     is_lower_better = True
     threshold = 4
@@ -323,9 +324,8 @@ class DeadTrace(TracewiseMetric):
     Parameters
     ----------
     name : str, optional, defaults to "dead_trace"
-    Metrics name.
+        Metrics name.
     """
-
     name = "dead_trace"
     min_value = 0
     max_value = 1
@@ -339,10 +339,11 @@ class DeadTrace(TracewiseMetric):
 
 class BaseWindowMetric(TracewiseMetric):
     """Base class for all window based metric that provide method for computing sum of squares of traces amplitudes in
-    provided windows defined by start and end indices and length of windows for every trace. Also, provide a method
+    provided windows defined by start and end indices, and length of windows for every trace. Also, provide a method
     `self.aggregate_headers` that is aggregating the results by passed `index_cols` or `coords_cols`."""
+
     def __call__(self, gather):
-        """Return an already calculated metric."""
+        """Compute metric by applying `self.preprocess` and `self.get_mask` to provided gather."""
         gather = self.preprocess(gather)
         return self.get_mask(gather)
 
@@ -497,7 +498,6 @@ class SinalToNoiseRMSAdaptive(BaseWindowMetric):
     name : str, optional, defaults to "adaptive_rms"
         Metrics name.
     """
-
     name = "adaptive_rms"
     is_lower_better = False
     threshold = None
@@ -554,7 +554,7 @@ class SinalToNoiseRMSAdaptive(BaseWindowMetric):
         return self.compute_stats_by_ixs(gather.data, (ssi, nsi), (sei, nei))
 
     def _calculate_metric_from_stats(self, stats):
-        return (stats[:, 0] / stats[:, 1]) / (stats[:, 2] / stats[:, 3] + 1e-10)
+        return (stats[:, 0] / stats[:, 1] + 1e-10) / (stats[:, 2] / stats[:, 3] + 1e-10)
 
     def _plot(self, ax, gather):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows."""
