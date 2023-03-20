@@ -206,7 +206,7 @@ class Gather(TraceContainer, SamplesContainer):
         """Print gather metadata including information about its survey, headers and traces."""
         # Calculate offset range
         offsets = self.headers.get('offset')
-        offset_range = f'[{np.min(offsets)} m, {np.max(offsets)} m]' if offsets is not None else None
+        offset_range = f'[{np.min(offsets)} m, {np.max(offsets)} m]' if offsets is not None else "Unknown"
 
         # Count the number of zero/constant traces
         n_dead_traces = np.isclose(np.max(self.data, axis=1), np.min(self.data, axis=1)).sum()
@@ -215,16 +215,16 @@ class Gather(TraceContainer, SamplesContainer):
         Parent survey path:          {self.survey.path}
         Parent survey name:          {self.survey.name}
 
-        Indexed by:                  {', '.join(to_list(self.indexed_by))}
-        Index value:                 {'Combined' if self.index is None else self.index}
-        Gather coordinates:          {get_first_defined(self.coords, "Unknown")}
-        Gather sorting:              {self.sort_by}
-
         Number of traces:            {self.n_traces}
         Trace length:                {self.n_samples} samples
         Sample rate:                 {self.sample_rate} ms
         Times range:                 [{min(self.samples)} ms, {max(self.samples)} ms]
         Offsets range:               {offset_range}
+
+        Indexed by:                  {', '.join(to_list(self.indexed_by))}
+        Index value:                 {get_first_defined(self.index, "Combined")}
+        Gather coordinates:          {get_first_defined(self.coords, "Unknown")}
+        Gather sorting:              {self.sort_by}
 
         Gather statistics:
         Number of dead traces:       {n_dead_traces}
