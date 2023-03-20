@@ -8,7 +8,7 @@ from numba import njit, prange
 from matplotlib import patches
 
 from ..metrics import Metric
-from ..utils import times_to_indices
+from ..utils import times_to_indices, to_list
 
 
 class SurveyAttribute(Metric):
@@ -73,17 +73,32 @@ class TracewiseMetric(SurveyAttribute):
 
     def aggregate(self, mask):
         """Aggregate input mask depending on `self.is_lower_better` to select the worst mask value for each trace"""
-        agg_fn = np.nanmax if self.is_lower_better else np.nanmin
+        if self.is_lower_better is None:
+            agg_fn = np.nanmean
+        elif self.is_lower_better:
+            agg_fn = np.nanmax
+        else:
+            agg_fn = np.nanmin
         return mask if mask.ndim == 1 else agg_fn(mask, axis=1)
 
     def binarize(self, mask, threshold=None):
         """Binarize input mask by `threshold` marking bad mask values as True. Depending on `self.is_lower_better`
         values greater or less than the `threshold` will be treated as a bad value. If `threshold` is None,
         `self.threshold` is used."""
-        bin_fn = np.greater_equal if self.is_lower_better else np.less_equal
-        if threshold is None and self.threshold is None:
-            raise ValueError("Either `threshold` or `self.threshold` must be non None.")
-        return bin_fn(mask, self.threshold if threshold is None else threshold)
+        threshold = self.threshold if threshold is None else threshold
+        if threshold is None:
+            raise ValueError("Either `threshold` or `self.threshold` must be non None")
+
+        if isinstance(threshold, (int, float, np.number)):
+            if self.is_lower_better is None:
+                raise ValueError("`threshold` cannot be single number if `is_lower_better` is None")
+            bin_fn = np.greater_equal if self.is_lower_better else np.less_equal
+            return bin_fn(mask, threshold)
+
+        if len(threshold) != 2:
+            raise ValueError(f"`threshold` should contain exactly 2 elements, not {len(threshold)}")
+
+        return (mask < threshold[0]) | (mask > threshold[1])
 
     def aggregate_headers(self, headers, index_cols, coords_cols):
         """Aggregate headers before constructing metric map. No aggregation performed by default."""
@@ -101,7 +116,7 @@ class TracewiseMetric(SurveyAttribute):
             gather = gather.sort(sort_by)
         gather = self.preprocess(gather)
 
-        # TODO: Can we do only single copy here? (first copy done in self.preprocess)
+        # TODO: Can we do only single copy here? (first copy sometimes done in self.preprocess)
         # We need to copy gather since some metrics changes gather in get_mask, but we want to plot gather unchanged
         mask = self.get_mask(gather.copy())
         metric_vals = self.aggregate(mask)
@@ -183,6 +198,8 @@ class Spikes(MuteTracewiseMetric):
                 j = nan_indices[-1] + 1
                 if j < arr.shape[1]:
                     arr[i, :j] = arr[i, j]
+                else:
+                    arr[i, :] = 0
 
 
 class Autocorrelation(MuteTracewiseMetric):
@@ -248,7 +265,7 @@ class MaxLenMetric(TracewiseMetric):  # pylint: disable=abstract-method
 
     @staticmethod
     @njit(nogil=True, parallel=True)
-    def compute_indicators_length(indicators, counter_init, old_shape):
+    def compute_indicators_length(indicators, counter_init):
         """Compute length of continuous sequence of 1 in provided `indicators` and fill the squence with its length."""
         for i in prange(len(indicators)):
             counter = counter_init
@@ -263,11 +280,12 @@ class MaxLenMetric(TracewiseMetric):  # pylint: disable=abstract-method
 
             if counter > 1:
                 indicators[i, -counter:] = counter
-        return indicators.reshape(old_shape)
+        return indicators
 
 
 class MaxClipsLen(MaxLenMetric):
     """Detecting minimum and maximun clips.
+    #TODO: describe how will look the resulted mask, either here or in `get_mask`.
 
     Parameters
     ----------
@@ -285,22 +303,20 @@ class MaxClipsLen(MaxLenMetric):
         traces = gather.data
 
         maxes = traces.max(axis=-1, keepdims=True)
+        maxes_indicators = (np.atleast_2d(traces) == maxes).astype(np.int16)
+        res_maxes = self.compute_indicators_length(maxes_indicators, 0)
+
         mins = traces.min(axis=-1, keepdims=True)
+        mins_indicators = (np.atleast_2d(traces) == mins).astype(np.int16)
+        res_mins = self.compute_indicators_length(mins_indicators, 0)
 
-        res_plus = self._get_val_subseq(traces, maxes)
-        res_minus = self._get_val_subseq(traces, mins)
-
-        return (res_plus + res_minus).astype(np.float32)
-
-    def _get_val_subseq(self, traces, val):
-        old_shape = traces.shape
-        indicators = (np.atleast_2d(traces) == val).astype(np.int16)
-        return self.compute_indicators_length(indicators, 0, old_shape)
+        return (res_maxes + res_mins).astype(np.float32).reshape(traces.shape)
 
 
 class MaxConstLen(MaxLenMetric):
     """Detecting constant subsequences.
 
+    #TODO: describe how will look the resulted mask, either here or in `get_mask`.
     Parameters
     ----------
     name : str, optional, defaults to "const_len"
@@ -315,7 +331,7 @@ class MaxConstLen(MaxLenMetric):
         traces = np.atleast_2d(gather.data)
         indicators = np.zeros_like(traces, dtype=np.int16)
         indicators[:, 1:] = (traces[:, 1:] == traces[:, :-1]).astype(np.int16)
-        return self.compute_indicators_length(indicators, 1, gather.data.shape).astype(np.float32)
+        return self.compute_indicators_length(indicators, 1).astype(np.float32).reshape(gather.data.shape)
 
 
 class DeadTrace(TracewiseMetric):
@@ -394,12 +410,15 @@ class BaseWindowMetric(TracewiseMetric):
 
         gather.plot(ax=ax, top_header=tracewise_metric, **kwargs)
         if threshold is not None:
-            ax.figure.axes[1].axhline(threshold, alpha=0.5)
-        top_ax_y_scale = self.top_ax_y_scale if top_ax_y_scale is None else top_ax_y_scale
-        ax.figure.axes[1].set_yscale(top_ax_y_scale)
+            if isinstance(threshold, (int, float, np.number)):
+                ax.figure.axes[1].axhline(threshold, alpha=0.5, color="blue")
+            else:
+                ax.figure.axes[1].fill_between(np.arange(gather.n_traces), *threshold, alpha=0.3, color="blue")
+        ax.figure.axes[1].set_yscale(self.top_ax_y_scale if top_ax_y_scale is None else top_ax_y_scale)
         self._plot(ax=ax, gather=gather)
 
-    def _calculate_metric_from_stats(self, stats):
+    @staticmethod
+    def _calculate_metric_from_stats(stats):
         raise NotImplementedError
 
     def _plot(self, ax, gather):
@@ -461,7 +480,8 @@ class WindowRMS(BaseWindowMetric):
         result[window_ixs] = self.compute_stats_by_ixs(gather.data[window_ixs], (start_ixs, ), (end_ixs, ))
         return result
 
-    def _calculate_metric_from_stats(self, stats):
+    @staticmethod
+    def _calculate_metric_from_stats(stats):
         return stats[:, 0] / stats[:, 1]
 
     def _plot(self, ax, gather):
@@ -553,7 +573,8 @@ class SinalToNoiseRMSAdaptive(BaseWindowMetric):
         ssi, sei, nsi, nei = self._get_indices(gather)
         return self.compute_stats_by_ixs(gather.data, (ssi, nsi), (sei, nei))
 
-    def _calculate_metric_from_stats(self, stats):
+    @staticmethod
+    def _calculate_metric_from_stats(stats):
         return (stats[:, 0] / stats[:, 1] + 1e-10) / (stats[:, 2] / stats[:, 3] + 1e-10)
 
     def _plot(self, ax, gather):
