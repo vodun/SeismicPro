@@ -100,7 +100,8 @@ class BaseMetricMap:  # pylint: disable=too-many-instance-attributes
         """Append metric data from `other` map to `self`."""
         if ((self.coords_cols != other.coords_cols) or (self.index_cols != other.index_cols) or
             (type(self.metric) is not type(other.metric)) or (self.metric_name != other.metric_name)):
-            raise ValueError("Only a map with the same types of coordinates, index and metric can be appended")
+            raise ValueError("Only a map with the same coordinates columns, index columns and metric type "
+                             "can be appended")
         self.metric_data_list += other.metric_data_list
         self._metric = other._metric  # pylint: disable=protected-access
         self._bound_metric = other._bound_metric  # pylint: disable=protected-access
@@ -310,7 +311,7 @@ class BaseMetricMap:  # pylint: disable=too-many-instance-attributes
             `%matplotlib widget` magic executed and `ipympl` and `ipywidgets` libraries installed.
         plot_on_click : callable or list of callable, optional, only for interactive mode
             Views called on each click to display some data representation at the click location. Each of them must
-            accept and index of an item to plot as `index` argument, its coordinates as `coords` argument and axes to
+            accept an index of an item to plot as `index` argument, its coordinates as `coords` argument and axes to
             plot on as `ax` argument.
         plot_on_click_kwargs : dict or list of dict, optional, only for interactive mode
             Any additional arguments for each view.
