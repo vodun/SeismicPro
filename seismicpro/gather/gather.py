@@ -1597,11 +1597,11 @@ class Gather(TraceContainer, SamplesContainer):
         top_ax = ax
         if top_header is not None:
             if isinstance(top_header, str):
-                header_values=self[top_header]
+                header_values = self[top_header]
             elif isinstance(top_header, np.ndarray) and top_header.shape == (self.n_traces, ):
                 header_values = top_header
             else:
-                warnings.warn("`top_header` should be `str` or `np.ndarray`")
+                warnings.warn(f"`top_header` should be `str` or `np.ndarray`, not `{type(top_header)}`")
                 header_values = None
 
             if header_values is not None:

@@ -484,6 +484,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             msg += """
         Number of bad traces after tracewise QC found by:
         """
+            # TODO: add metric paramters description after name like "clip with length 10: 100"
             n_traces = [metric.binarize(self.headers[name]).sum() for name, metric in self.qc_metrics.items()]
             msg += "\n\t".join([f"{name+':':<27}{num}" for name, num in zip(self.qc_metrics, n_traces)])
         return dedent(msg).strip()
@@ -811,10 +812,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         survey : Survey
             The survey with collected stats. Sets `has_stats` flag to `True` and updates statistics attributes inplace.
         """
-        # TODO: what to do here?
-        # if self.n_dead_traces != 0:
-        #     warnings.warn("The survey was not checked for dead traces or they were not removed. "
-        #                   "Run `remove_dead_traces` first.", RuntimeWarning)
 
         limits = self.limits if limits is None else self._process_limits(limits)
         headers = self.headers
@@ -1052,7 +1049,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     # pylint: disable=anomalous-backslash-in-string
     def load_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col=HDR_FIRST_BREAK,
                           delimiter='\s+', decimal=None, encoding="UTF-8", inplace=False, **kwargs):
-        # TODO: do we need deep_all_traces?
         """Load times of first breaks from a file and save them to a new column in headers.
 
         Each line of the file stores the first break time for a trace in the last column. The combination of all but
@@ -1194,11 +1190,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             Survey with no dead traces.
         """
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
-
         if header_name is None:
             dead_trace = DeadTrace()
             header_name = dead_trace.name
-            self.qc_tracewise(dead_trace, chunk_size=chunk_size, bar=bar)
+            if header_name not in self.headers:
+                self.qc_tracewise(dead_trace, chunk_size=chunk_size, bar=bar)
 
         self.filter_by_metric(header_name, inplace=True)
         return self
@@ -1549,19 +1545,21 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             metrics = list(self.qc_metrics.keys())
         metrics = to_list(metrics)
 
+        if not set(metrics) <= set(self.qc_metrics.keys()):
+            wrong_names = ', '.join(set(metrics) - set(self.qc_metrics.keys()))
+            raise ValueError(f"Metrics with name(s) ({wrong_names}) are(is) not calculated yet!")
+
+        index_cols, coords_cols = get_cols_from_by(self, by)
+        index_cols = to_list(coords_cols) if index_cols is None else to_list(index_cols)
+        coords_cols = to_list(coords_cols)
+        columns = set(index_cols + coords_cols + to_list(metric.header_cols))
+        sub_headers = self.get_headers(columns)
+
         mmaps = []
         for metric_name in metrics:
-            if metric_name not in self.qc_metrics:
-                warnings.warn(f"{metric_name} not calculated yet!")
-                continue
-
             metric = self.qc_metrics[metric_name]
-            index_cols, coords_cols = get_cols_from_by(self, by)
-            index_cols = to_list(coords_cols) if index_cols is None else to_list(index_cols)
-            coords_cols = to_list(coords_cols)
-            columns = set(index_cols + coords_cols + to_list(metric.header_cols))
             # TODO: Can we do it somehow differently?
-            coords, values, index = metric.aggregate_headers(self.get_headers(columns), index_cols, coords_cols)
+            coords, values, index = metric.aggregate_headers(sub_headers, index_cols, coords_cols)
             metric_mmap = metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size, survey=self)
             mmaps.append(metric_mmap)
-        return mmaps[0] if (len(mmaps) == 1 and squeeze_output) else mmaps
+        return mmaps[0] if squeeze_output else mmaps

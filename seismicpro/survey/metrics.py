@@ -206,7 +206,7 @@ class Autocorrelation(MuteTracewiseMetric):
     def get_mask(self, gather):
         """QC indicator implementation."""
         # TODO: descide what to do with almost nan traces (in 98% in trace are nan, it almost always will have -1 val)
-        return np.nanmean(gather.data[..., 1:] * gather.data[..., :-1], axis=1)
+        return np.nanmean(gather.data[:, 1:] * gather.data[:, :-1], axis=1)
 
 
 class TraceAbsMean(TracewiseMetric):
