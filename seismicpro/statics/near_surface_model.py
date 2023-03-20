@@ -501,7 +501,7 @@ class NearSurfaceModel:
 
         results = sum([future.result() for future in futures], [])
         context = {"nsm": self, "survey_list": self.survey_list, "first_breaks_col": first_breaks_col}
-        metrics_maps = [metric.construct_map(coords, values, index=index, **context)
+        metrics_maps = [metric.provide_context(**context).construct_map(coords, values, index=index)
                         for metric, values in zip(metrics, zip(*results))]
         if is_single_metric:
             return metrics_maps[0]
