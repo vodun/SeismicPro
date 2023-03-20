@@ -100,10 +100,10 @@ class TracewiseMetric(SurveyAttribute):
 
         return (mask < threshold[0]) | (mask > threshold[1])
 
-    def aggregate_headers(self, headers, index_cols, coords_cols):
+    def construct_map(self, headers, index_cols, coords_cols, **kwargs):
         """Aggregate headers before constructing metric map. No aggregation performed by default."""
         index = headers[index_cols] if index_cols is not None else None
-        return headers[coords_cols], headers[self.name], index
+        return super().construct_map(headers[coords_cols], headers[self.name], index=index, **kwargs)
 
     def plot(self, ax, coords, index, sort_by=None, threshold=None, top_ax_y_scale=None,  bad_only=False, **kwargs):
         """Gather plot where samples with indicator above/below `.threshold` are highlited."""
@@ -379,8 +379,7 @@ class BaseWindowMetric(TracewiseMetric):
                     stats[i, 2*ix+1] = len(trace[start_ix: end_ix])
         return stats
 
-    def aggregate_headers(self, headers, index_cols, coords_cols):
-        """TODO"""
+    def construct_map(self, headers, index_cols, coords_cols, **kwargs):
         groupby_cols = self.header_cols + (coords_cols if index_cols != coords_cols else [])
         groupby = headers.groupby(index_cols)[groupby_cols]
         sums_func = {sum_name: lambda x: np.sqrt(np.sum(x)) for sum_name in self.header_cols[::2]}
@@ -392,7 +391,7 @@ class BaseWindowMetric(TracewiseMetric):
         coords = aggregated_gb[coords_cols]
         value = self._calculate_metric_from_stats(aggregated_gb[self.header_cols].to_numpy())
         index = aggregated_gb[index_cols]
-        return coords, value, index
+        return SurveyAttribute.construct_map(self, coords, value, index=index, **kwargs)
 
     def plot(self, ax, coords, index, sort_by=None, threshold=None, top_ax_y_scale=None, bad_only=False, **kwargs):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""

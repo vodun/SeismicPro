@@ -1557,8 +1557,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         for metric_name in metrics:
             metric = self.qc_metrics[metric_name].provide_context(survey=self)
             columns = set(index_cols + coords_cols + to_list(metric.header_cols))
-            # TODO: Can we do it somehow differently?
-            coords, values, index = metric.aggregate_headers(self.get_headers(columns), index_cols, coords_cols)
-            metric_mmap = metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size)
+            metric_mmap = metric.construct_map(self.get_headers(columns), index_cols, coords_cols, agg=agg,
+                                               bin_size=bin_size)
             mmaps.append(metric_mmap)
         return mmaps[0] if squeeze_output else mmaps
