@@ -8,7 +8,7 @@ from numba import njit, prange
 from matplotlib import patches
 
 from ..metrics import Metric
-from ..utils import times_to_indices, to_list
+from ..utils import times_to_indices
 
 
 class SurveyAttribute(Metric):
@@ -101,7 +101,7 @@ class TracewiseMetric(SurveyAttribute):
         return (mask < threshold[0]) | (mask > threshold[1])
 
     def construct_map(self, headers, index_cols, coords_cols, **kwargs):
-        """Aggregate headers before constructing metric map. No aggregation performed by default."""
+        """Construct metric map from headers base on index or coords cols and kwargs."""
         index = headers[index_cols] if index_cols is not None else None
         return super().construct_map(headers[coords_cols], headers[self.name], index=index, **kwargs)
 
@@ -127,8 +127,18 @@ class TracewiseMetric(SurveyAttribute):
         mode = kwargs.pop("mode", "wiggle")
         masks_dict = {"masks": bin_mask, "alpha": 0.8, "label": self.name or "metric", **kwargs.pop("masks", {})}
         gather.plot(ax=ax, mode=mode, top_header=metric_vals, masks=masks_dict, **kwargs)
-        ax.figure.axes[1].axhline(threshold, alpha=0.5)
-        ax.figure.axes[1].set_yscale(top_ax_y_scale)
+        top_ax = ax.figure.axes[1]
+        if threshold is not None:
+            self._plot_threshold(ax=top_ax, threshold=threshold)
+        top_ax.set_yscale(top_ax_y_scale)
+
+    @staticmethod
+    def _plot_threshold(ax, threshold):
+        if isinstance(threshold, (int, float, np.number)):
+            ax.axhline(threshold, alpha=0.5, color="blue")
+        else:
+            start, end = ax.get_xlim()
+            ax.fill_between(np.arange(start+0.5, end+0.5), *threshold, alpha=0.3, color="blue")
 
     def get_views(self, sort_by=None, threshold=None, top_ax_y_scale=None, **kwargs):
         """Return plotters of the metric views and those `kwargs` that should be passed further to an interactive map
@@ -350,7 +360,7 @@ class DeadTrace(TracewiseMetric):
 
     def get_mask(self, gather):
         """Return QC indicator."""
-        return (np.max(gather.data, axis=1) - np.min(gather.data, axis=1) < 1e-10).astype(np.float32)
+        return np.isclose(np.max(gather.data, axis=1), np.min(gather.data, axis=1)).astype(np.float32)
 
 
 class BaseWindowMetric(TracewiseMetric):
@@ -395,7 +405,8 @@ class BaseWindowMetric(TracewiseMetric):
 
     def plot(self, ax, coords, index, sort_by=None, threshold=None, top_ax_y_scale=None, bad_only=False, **kwargs):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
-        # TODO: add mask to gather plot
+        threshold = self.threshold if threshold is None else threshold
+        top_ax_y_scale = self.top_ax_y_scale if top_ax_y_scale is None else top_ax_y_scale
         _ = coords
         gather = self.survey.get_gather(index)
         sort_by = "offset" if sort_by is None else sort_by
@@ -408,12 +419,10 @@ class BaseWindowMetric(TracewiseMetric):
             gather.data[self.aggregate(bin_mask) == 0] = np.nan
 
         gather.plot(ax=ax, top_header=tracewise_metric, **kwargs)
+        top_ax = ax.figure.axes[1]
         if threshold is not None:
-            if isinstance(threshold, (int, float, np.number)):
-                ax.figure.axes[1].axhline(threshold, alpha=0.5, color="blue")
-            else:
-                ax.figure.axes[1].fill_between(np.arange(gather.n_traces), *threshold, alpha=0.3, color="blue")
-        ax.figure.axes[1].set_yscale(self.top_ax_y_scale if top_ax_y_scale is None else top_ax_y_scale)
+            self._plot_threshold(ax=top_ax, threshold=threshold)
+        top_ax.set_yscale(top_ax_y_scale)
         self._plot(ax=ax, gather=gather)
 
     @staticmethod
@@ -438,11 +447,11 @@ class WindowRMS(BaseWindowMetric):
         Metrics name.
     """
     name = "rms"
-    is_lower_better = False # TODO: think what should it be?
+    is_lower_better = None # TODO: think what should it be?
     # What treshold to use? Leave it none?
     threshold = None
 
-    def __init__(self, offsets=None, times=None, name=None):
+    def __init__(self, offsets, times, name=None):
         super().__init__(name=name)
         self.offsets = offsets
         self.times = times
@@ -458,14 +467,13 @@ class WindowRMS(BaseWindowMetric):
 
     @staticmethod
     def _get_time_ixs(gather, times):
-        if times is None:
-            return (min(gather.samples), max(gather.samples))
         times = np.asarray([max(gather.samples[0], times[0]), min(gather.samples[-1], times[1])])
         return times_to_indices(times, gather.samples).astype(np.int16)
 
     @staticmethod
     def _get_offsets(gather, offsets):
-        return (min(gather.offsets), max(gather.offsets)) if offsets is None else offsets
+        min_offset, max_offset = min(gather.offsets), max(gather.offsets)
+        return np.asarray([max(min_offset, offsets[0]), min(max_offset, offsets[1])])
 
     def get_mask(self, gather):
         """QC indicator implementation."""
