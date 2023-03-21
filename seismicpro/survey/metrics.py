@@ -1,6 +1,6 @@
 # pylint: disable=not-an-iterable
 """Implements survey metrics"""
-
+import warnings
 from functools import partial
 
 import numpy as np
@@ -9,6 +9,9 @@ from matplotlib import patches
 
 from ..metrics import Metric
 from ..utils import times_to_indices
+
+# Ignore all warnings related to empty slices or dividing by zero
+warnings.simplefilter("ignore", category=RuntimeWarning)
 
 
 class SurveyAttribute(Metric):

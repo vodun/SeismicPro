@@ -4,6 +4,7 @@ import os
 import warnings
 from copy import copy
 from textwrap import dedent
+from concurrent.futures import ThreadPoolExecutor
 
 import cv2
 import segyio
@@ -11,7 +12,6 @@ import numpy as np
 import scipy as sp
 import pandas as pd
 from tqdm.auto import tqdm
-from tqdm.contrib.concurrent import thread_map
 from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
 
@@ -23,7 +23,7 @@ from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
 from ..containers import GatherContainer, SamplesContainer
 from ..metrics import initialize_metrics
-from ..utils import to_list, maybe_copy, get_cols, get_first_defined, get_cols_from_by
+from ..utils import to_list, maybe_copy, get_cols, get_first_defined, get_cols_from_by, ForPoolExecutor
 from ..const import ENDIANNESS, HDR_FIRST_BREAK, HDR_TRACE_POS
 
 
@@ -1362,11 +1362,16 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             raw_gather = self.load_gather(headers)
             return [metric(raw_gather) for metric in metrics]
 
-        # known issue with tqdm.notebook bar update when using `unit_scale` https://github.com/tqdm/tqdm/issues/1399
-        # note that total number of traces indicated on this bar is `n_chunks * chunk_size`
-        # which is almost always more than actual number of traces
-        results = thread_map(calc_metrics, range(n_chunks), max_workers=n_workers, disable=not bar,
-                             desc="Traces processed", unit_scale=chunk_size, unit_divisor=chunk_size, unit='traces')
+        executor_class = ForPoolExecutor if n_workers == 1 else ThreadPoolExecutor
+
+        futures = []
+        with tqdm(total=n_chunks, desc="Chunks processed", disable=not bar) as pbar:
+            with executor_class(max_workers=n_workers) as pool:
+                for i in range(n_chunks):
+                    future = pool.submit(calc_metrics, i)
+                    future.add_done_callback(lambda fut: pbar.update(int(len(fut.result()) / len(metrics))))
+                    futures.append(future)
+        results = [future.result() for future in futures]
 
         if self.qc_metrics is None:
             self.qc_metrics = {}
