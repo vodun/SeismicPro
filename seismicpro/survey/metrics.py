@@ -195,24 +195,22 @@ class Spikes(MuteTracewiseMetric):
 
         The resulted 2d mask shows the deviation of the ampluteds of an input gather.
         """
-        traces = gather.data
-        self.fill_leading_nulls(traces)
-
-        res = np.abs(traces[:, 2:] + traces[:, :-2] - 2*traces[:, 1:-1]) / 3
-        return np.pad(res, ((0, 0), (1, 1)))
+        return self.find_spikes(gather.data)
 
     @staticmethod
     @njit(parallel=True, nogil=True)
-    def fill_leading_nulls(arr):
-        """"Fill leading null values of array's row with the first non null value in a row."""
-        for i in prange(arr.shape[0]):
-            nan_indices = np.nonzero(np.isnan(arr[i]))[0]
+    def find_spikes(traces):
+        res = np.zeros_like(traces, dtype=np.float32)
+        for i in prange(traces.shape[0]):
+            nan_indices = np.nonzero(np.isnan(traces[i]))[0]
             if len(nan_indices) > 0:
                 j = nan_indices[-1] + 1
-                if j < arr.shape[1]:
-                    arr[i, :j] = arr[i, j]
+                if j < traces.shape[1]:
+                    traces[i, :j] = traces[i, j]
                 else:
-                    arr[i, :] = 0
+                    traces[i, :] = 0
+            res[i, 1: -1] = np.abs(traces[i, 2:] + traces[i, :-2] - 2*traces[i, 1:-1]) / 3
+        return res
 
 
 class Autocorrelation(MuteTracewiseMetric):
@@ -236,8 +234,15 @@ class Autocorrelation(MuteTracewiseMetric):
     def get_mask(self, gather):
         """QC indicator implementation."""
         # TODO: descide what to do with almost nan traces (in 98% in trace are nan, it almost always will have -1 val)
-        return np.nanmean(gather.data[:, 1:] * gather.data[:, :-1], axis=1)
+        return self.compute_autocorr(gather.data)
 
+    @staticmethod
+    @njit(parallel=True, nogil=True)
+    def compute_autocorr(traces):
+        res = np.zeros(traces.shape[0], dtype=np.float32)
+        for i in prange(traces.shape[0]):
+            res[i] = np.nanmean(traces[i, 1:] * traces[i, :-1])
+        return res
 
 class TraceAbsMean(TracewiseMetric):
     """Absolute value of the trace's mean scaled by trace's std.
@@ -253,7 +258,15 @@ class TraceAbsMean(TracewiseMetric):
 
     def get_mask(self, gather):
         """QC indicator implementation."""
-        return np.abs(gather.data.mean(axis=1) / (gather.data.std(axis=1) + 1e-10))
+        return self.compute_traceabsmean(gather.data)
+
+    @staticmethod
+    @njit(parallel=True, nogil=True)
+    def compute_traceabsmean(traces):
+        res = np.zeros(traces.shape[0])
+        for i in prange(traces.shape[0]):
+            res[i] = np.abs(traces[i].mean() / (traces[i].std() + 1e-10))
+        return res
 
 
 class TraceMaxAbs(TracewiseMetric):
@@ -270,33 +283,18 @@ class TraceMaxAbs(TracewiseMetric):
 
     def get_mask(self, gather):
         """QC indicator implementation."""
-        return np.max(np.abs(gather.data), axis=1) / (gather.data.std(axis=1) + 1e-10)
-
-
-class MaxLenMetric(TracewiseMetric):  # pylint: disable=abstract-method
-    """Base class for metrics that calculates length of continuous sequence of 1."""
+        return self.compute_tracemaxabs(gather.data)
 
     @staticmethod
-    @njit(nogil=True, parallel=True)
-    def compute_indicators_length(indicators, counter_init):
-        """Compute length of continuous sequence of 1 in provided `indicators` and fill the squence with its length."""
-        for i in prange(len(indicators)):
-            counter = counter_init
-            indicator = indicators[i]
-            for j in range(len(indicator)):  # pylint: disable=consider-using-enumerate
-                if indicator[j] == 1:
-                    counter += 1
-                else:
-                    if counter > 1:
-                        indicators[i, j - counter: j] = counter
-                    counter = counter_init
-
-            if counter > 1:
-                indicators[i, -counter:] = counter
-        return indicators
+    @njit(parallel=True, nogil=True)
+    def compute_tracemaxabs(traces):
+        res = np.zeros(traces.shape[0])
+        for i in prange(traces.shape[0]):
+            res[i] = np.max(np.abs(traces[i])) / (traces[i].std() + 1e-10)
+        return res
 
 
-class MaxClipsLen(MaxLenMetric):
+class MaxClipsLen(TracewiseMetric):
     """Detecting minimum and maximun clips.
     #TODO: describe how will look the resulted mask, either here or in `get_mask`.
 
@@ -313,20 +311,41 @@ class MaxClipsLen(MaxLenMetric):
 
     def get_mask(self, gather):
         """QC indicator implementation."""
-        traces = gather.data
+        return self.compute_maxclipslen(gather.data)
 
-        maxes = traces.max(axis=-1, keepdims=True)
-        maxes_indicators = (np.atleast_2d(traces) == maxes).astype(np.int16)
-        res_maxes = self.compute_indicators_length(maxes_indicators, 0)
+    @staticmethod
+    @njit(nogil=True,  parallel=True)
+    def compute_maxclipslen(traces):
+        """TODO"""
+        def _update_counters(trace, i, j, value, counter, container):
+            if trace == value:
+                counter += 1
+            else:
+                if counter > 1:
+                    container[i, j - counter: j] = counter
+                    counter = 0
+            return counter
 
-        mins = traces.min(axis=-1, keepdims=True)
-        mins_indicators = (np.atleast_2d(traces) == mins).astype(np.int16)
-        res_mins = self.compute_indicators_length(mins_indicators, 0)
+        maxes = np.zeros_like(traces, dtype=np.int32)
+        mins = np.zeros_like(traces, dtype=np.int32)
+        for i in prange(traces.shape[0]):
+            trace = traces[i]
+            max_val = max(trace)
+            max_counter = 0
+            min_val = min(trace)
+            min_counter = 0
+            for j in range(trace.shape[0]):  # pylint: disable=consider-using-enumerate
+                max_counter = _update_counters(trace[j], i, j, max_val, max_counter, maxes)
+                min_counter = _update_counters(trace[j], i, j, min_val, min_counter, mins)
 
-        return (res_maxes + res_mins).astype(np.float32).reshape(traces.shape)
+            if max_counter > 1:
+                maxes[i, -max_counter:] = max_counter
+            if min_counter > 1:
+                mins[i, -min_counter:] = min_counter
+        return (maxes + mins).astype(np.float32)
 
 
-class MaxConstLen(MaxLenMetric):
+class MaxConstLen(TracewiseMetric):
     """Detecting constant subsequences.
 
     #TODO: describe how will look the resulted mask, either here or in `get_mask`.
@@ -341,10 +360,26 @@ class MaxConstLen(MaxLenMetric):
 
     def get_mask(self, gather):
         """QC indicator implementation."""
-        traces = np.atleast_2d(gather.data)
-        indicators = np.zeros_like(traces, dtype=np.int16)
-        indicators[:, 1:] = (traces[:, 1:] == traces[:, :-1]).astype(np.int16)
-        return self.compute_indicators_length(indicators, 1).astype(np.float32).reshape(gather.data.shape)
+        return self.compute_maxconstlen(gather.data) # TODO: can gather.data be 1d?
+
+    @staticmethod
+    @njit(nogil=True, parallel=True)
+    def compute_maxconstlen(traces):
+        indicator = np.zeros_like(traces, dtype=np.float32)
+        for i in prange(traces.shape[0]):
+            trace = traces[i]
+            counter = 1
+            for j in range(1, trace.shape[0]):  # pylint: disable=consider-using-enumerate
+                if trace[j] == trace[j-1]:
+                    counter += 1
+                else:
+                    if counter > 1:
+                        indicator[i, j - counter: j] = counter
+                    counter = 1
+
+            if counter > 1:
+                indicator[i, -counter:] = counter
+        return indicator.astype(np.float32)
 
 
 class DeadTrace(TracewiseMetric):
@@ -363,7 +398,15 @@ class DeadTrace(TracewiseMetric):
 
     def get_mask(self, gather):
         """Return QC indicator."""
-        return np.isclose(np.max(gather.data, axis=1), np.min(gather.data, axis=1)).astype(np.float32)
+        return self.find_dead_traces(gather.data)
+
+    @staticmethod
+    @njit(nogil=True, parallel=True)
+    def find_dead_traces(traces):
+        res = np.zeros(traces.shape[0], dtype=np.float32)
+        for i in range(traces.shape[0]):
+            res[i] = max(traces[i]) - min(traces[i]) < 1e-10
+        return res
 
 
 class BaseWindowMetric(TracewiseMetric):
