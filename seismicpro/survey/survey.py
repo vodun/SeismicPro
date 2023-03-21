@@ -310,7 +310,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.n_dead_traces = None
 
         # calculated QC metrics
-        self.qc_metrics = None
+        self.qc_metrics = {}
 
         # Define all bin-related attributes and automatically infer them if both INLINE_3D and CROSSLINE_3D are loaded
         self.has_inferred_binning = False
@@ -480,12 +480,12 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
          q01 | q99:                {self.get_quantile(0.01):>10.2f} | {self.get_quantile(0.99):<10.2f}
         """
 
-        if self.qc_metrics is not None:
+        if self.qc_metrics:
             msg += """
         Number of bad traces after tracewise QC found by:
         """
             # TODO: add metric paramters description after name like "clip with length 10: 100"
-            n_traces = [metric.binarize(self.headers[name]).sum() for name, metric in self.qc_metrics.items()]
+            n_traces = [metric.binarize(self.headers[metric.header_cols]).sum() for metric in self.qc_metrics.values()]
             msg += "\n\t".join([f"{name+':':<27}{num}" for name, num in zip(self.qc_metrics, n_traces)])
         return dedent(msg).strip()
 
@@ -1159,7 +1159,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             Filtered survey.
         """
 
-        if self.qc_metrics is None:
+        if not self.qc_metrics:
             raise ValueError("Not a single metric has been calculated yet, call `self.qc_tracewise` to compute one")
 
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
@@ -1319,7 +1319,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.headers = headers
         return self
 
-    def qc_tracewise(self, metrics=None, chunk_size=1000, n_workers=None, bar=True):
+    def qc_tracewise(self, metrics=None, chunk_size=1000, n_workers=None, bar=True, overwrite=False):
         """Calculate tracewise QC metrics.
 
         Parameters
@@ -1349,6 +1349,12 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             metrics = DEFAULT_TRACEWISE_METRICS
         metrics, _ = initialize_metrics(metrics, metric_class=TracewiseMetric)
 
+        for metric in metrics:
+            if metric.name in self.qc_metrics:
+                if not overwrite:
+                    raise ValueError(f"{metric.name} already calculated. Use `overwrite`=True or rename it.")
+                warnings.warn(f'{metric.name} already calculated. Rewriting.')
+
         n_chunks = self.n_traces // chunk_size + (1 if self.n_traces % chunk_size else 0)
         if n_workers is None:
             n_workers = os.cpu_count()
@@ -1375,14 +1381,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                     futures.append(future)
         results = [future.result() for future in futures]
 
-        if self.qc_metrics is None:
-            self.qc_metrics = {}
-
         for metric, metric_vals in zip(metrics, zip(*results)):
             self.headers[metric.header_cols] = np.concatenate(metric_vals)[orig_idx]
-
-            if metric.name in self.qc_metrics:
-                warnings.warn(f'{metric.name} already calculated. Rewriting.')
             self.qc_metrics[metric.name] = metric
 
         return self
