@@ -1357,18 +1357,20 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         idx_sort = self['TRACE_SEQUENCE_FILE'].argsort(kind='stable')
         orig_idx = idx_sort.argsort(kind='stable')
 
-        def calc_metrics(i):
+        def calc_metrics(i, chunk_size):
             headers = self.headers.iloc[idx_sort[i * chunk_size: (i + 1) * chunk_size]]
             raw_gather = self.load_gather(headers)
             return [metric(raw_gather) for metric in metrics]
 
-        executor_class = ForPoolExecutor if n_workers == 1 else ThreadPoolExecutor
+        # Warmap metrics
+        _ = calc_metrics(0, 2)
 
+        executor_class = ForPoolExecutor if n_workers == 1 else ThreadPoolExecutor
         futures = []
         with tqdm(total=n_chunks, desc="Chunks processed", disable=not bar) as pbar:
             with executor_class(max_workers=n_workers) as pool:
                 for i in range(n_chunks):
-                    future = pool.submit(calc_metrics, i)
+                    future = pool.submit(calc_metrics, i, chunk_size)
                     future.add_done_callback(lambda fut: pbar.update(int(len(fut.result()) / len(metrics))))
                     futures.append(future)
         results = [future.result() for future in futures]
