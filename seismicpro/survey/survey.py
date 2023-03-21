@@ -1191,10 +1191,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         if header_name is None:
-            dead_trace = DeadTrace()
-            header_name = dead_trace.name
+            header_name = DeadTrace.name
             if header_name not in self.headers:
-                self.qc_tracewise(dead_trace, chunk_size=chunk_size, bar=bar)
+                self.qc_tracewise(DeadTrace, chunk_size=chunk_size, bar=bar)
 
         self.filter_by_metric(header_name, inplace=True)
         return self
@@ -1349,11 +1348,12 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             metrics = DEFAULT_TRACEWISE_METRICS
         metrics, _ = initialize_metrics(metrics, metric_class=TracewiseMetric)
 
-        for metric in metrics:
-            if metric.name in self.qc_metrics:
-                if not overwrite:
-                    raise ValueError(f"{metric.name} already calculated. Use `overwrite`=True or rename it.")
-                warnings.warn(f'{metric.name} already calculated. Rewriting.')
+        metric_names = set([metric.name for metric in metrics])
+        if metric_names <= set(self.qc_metrics.keys()):
+            msg = ', '.join(metric_names & set(self.qc_metrics.keys()))
+            if not overwrite:
+                raise ValueError(f"{msg} already calculated. Use `overwrite=True` or rename it.")
+            warnings.warn(f'{msg} already calculated and will be rewritten.')
 
         n_chunks = self.n_traces // chunk_size + (1 if self.n_traces % chunk_size else 0)
         if n_workers is None:
@@ -1371,13 +1371,12 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         # Warmap metrics to avoid hanging of the ThreadPoolExecutor during first metric call
         _ = calc_metrics(0, 1)
 
-        executor_class = ForPoolExecutor if n_workers == 1 else ThreadPoolExecutor
         futures = []
-        with tqdm(total=n_chunks, desc="Chunks processed", disable=not bar) as pbar:
-            with executor_class(max_workers=n_workers) as pool:
+        with tqdm(total=self.n_traces, desc="Traces processed", disable=not bar) as pbar:
+            with ThreadPoolExecutor(max_workers=n_workers) as pool:
                 for i in range(n_chunks):
                     future = pool.submit(calc_metrics, i, chunk_size)
-                    future.add_done_callback(lambda fut: pbar.update(int(len(fut.result()) / len(metrics))))
+                    future.add_done_callback(lambda fut: pbar.update(int(len(fut.result()[0]))))
                     futures.append(future)
         results = [future.result() for future in futures]
 
