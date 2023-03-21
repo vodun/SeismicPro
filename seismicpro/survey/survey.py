@@ -1362,8 +1362,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             raw_gather = self.load_gather(headers)
             return [metric(raw_gather) for metric in metrics]
 
-        # Warmap metrics
-        _ = calc_metrics(0, 2)
+        # Warmap metrics to avoid hanging of the ThreadPoolExecutor during first metric call
+        _ = calc_metrics(0, 1)
 
         executor_class = ForPoolExecutor if n_workers == 1 else ThreadPoolExecutor
         futures = []
