@@ -3,7 +3,6 @@
 import os
 import math
 import warnings
-from copy import copy
 from textwrap import dedent
 
 import cv2
@@ -11,15 +10,15 @@ import segyio
 import numpy as np
 import scipy as sp
 import pandas as pd
+from segfast import Loader
 from tqdm.auto import tqdm
 from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
 
-from .headers import load_headers
 from .headers_checks import validate_trace_headers, validate_source_headers, validate_receiver_headers
 from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
-from .utils import ibm_to_ieee, calculate_trace_stats
+from .utils import calculate_trace_stats
 from ..gather import Gather
 from ..containers import GatherContainer, SamplesContainer
 from ..utils import to_list, maybe_copy, get_cols, get_first_defined
@@ -189,8 +188,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     # pylint: disable-next=too-many-arguments, too-many-statements
     def __init__(self, path, header_index, header_cols=None, source_id_cols=None, receiver_id_cols=None, name=None,
-                 limits=None, validate=True, endian="big", chunk_size=25000, n_workers=None, bar=True,
-                 use_segyio_trace_loader=False):
+                 limits=None, validate=True, engine="memmap", endian="big", chunk_size=25000, n_workers=None,
+                 bar=True):
         self.path = os.path.abspath(path)
         self.name = os.path.splitext(os.path.basename(self.path))[0] if name is None else name
 
@@ -223,81 +222,37 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             headers_to_load |= set(to_list(receiver_id_cols))
         self.receiver_id_cols = receiver_id_cols
 
-        # TRACE_SEQUENCE_FILE is not loaded but reconstructed manually since sometimes it is undefined in the file but
-        # we rely on it during gather loading
-        headers_to_load = headers_to_load - {"TRACE_SEQUENCE_FILE"}
-
+        # Validate that only valid headers are being loaded
         unknown_headers = headers_to_load - allowed_headers
         if unknown_headers:
             raise ValueError(f"Unknown headers {', '.join(unknown_headers)}")
 
-        # Open the SEG-Y file and memory map it
+        # Open the SEG-Y file
         if endian not in ENDIANNESS:
             raise ValueError(f"Unknown endian, must be one of {', '.join(ENDIANNESS)}")
-        self.endian = endian
-        self.segy_handler = segyio.open(self.path, mode="r", endian=endian, ignore_geometry=True)
-        self.segy_handler.mmap()
-
-        # Get attributes from the source SEG-Y file.
-        self.file_sample_rate = self._infer_sample_rate()
-        self.file_samples = (np.arange(self.segy_handler.trace.shape) * self.file_sample_rate).astype(np.float32)
+        if engine not in {"segyio", "memmap"}:
+            raise ValueError("Unknown engine, must be either 'segyio' or 'memmap'")
+        self.loader = Loader(self.path, engine=engine, endian=endian, ignore_geometry=True)
 
         # Set samples and sample_rate according to passed `limits`.
         self.limits = None
         self.samples = None
-        self.sample_rate = None
+        self.sample_interval = None
         self.set_limits(limits)
 
-        # Load trace headers
-        file_metrics = self.segy_handler.xfd.metrics()
-        self.segy_format = file_metrics["format"]
-        self.trace_data_offset = file_metrics["trace0"]
-        self.n_file_traces = file_metrics["tracecount"]
-        headers = load_headers(path, headers_to_load, trace_data_offset=self.trace_data_offset,
-                               trace_size=file_metrics["trace_bsize"], n_traces=self.n_file_traces,
-                               endian=endian, chunk_size=chunk_size, n_workers=n_workers, bar=bar)
-
-        # Reconstruct TRACE_SEQUENCE_FILE header
-        tsf_dtype = np.int32 if len(headers) < np.iinfo(np.int32).max else np.int64
-        headers["TRACE_SEQUENCE_FILE"] = np.arange(1, self.segy_handler.tracecount+1, dtype=tsf_dtype)
-
-        # Sort headers by the required index in order to optimize further subsampling and merging. Sorting preserves
-        # trace order from the file within each gather.
-        headers.set_index(header_index, inplace=True)
-        headers.sort_index(kind="stable", inplace=True)
-
-        # Set loaded survey headers and construct its fast indexer
+        # Load trace headers and sort them by the required index in order to optimize further subsampling and merging.
+        # Sorting preserves trace order from the file within each gather.
         self._headers = None
         self._indexer = None
+        headers = self.loader.load_headers(list(headers_to_load), reconstruct_tsf=True, chunk_size=chunk_size,
+                                           max_workers=n_workers, pbar=bar)
+        headers.set_index(header_index, inplace=True)
+        headers.sort_index(kind="stable", inplace=True)
         self.headers = headers
 
         # Validate trace headers for consistency
         if validate:
             self.validate_headers()
-
-        # Data format code defined by bytes 3225–3226 of the binary header that can be conveniently loaded using numpy
-        # memmap. Currently only 3-byte integers (codes 7 and 15) and 4-byte fixed-point floats (code 4) are not
-        # supported and result in a fallback to loading using segyio.
-        endian_str = ">" if self.endian in {"big", "msb"} else "<"
-        format_to_mmap_dtype = {
-            1: np.uint8,  # IBM 4-byte float: read as 4 bytes and then manually transformed to an IEEE float32
-            2: endian_str + "i4",
-            3: endian_str + "i2",
-            5: endian_str + "f4",
-            6: endian_str + "f8",
-            8: np.int8,
-            9: endian_str + "i8",
-            10: endian_str + "u4",
-            11: endian_str + "u2",
-            12: endian_str + "u8",
-            16: np.uint8,
-        }
-
-        # Optionally create a memory map over traces data
-        self.trace_dtype = self.segy_handler.dtype  # Appropriate data type of a buffer to load a trace into
-        self.segy_trace_dtype = format_to_mmap_dtype.get(self.segy_format)  # Physical data type of traces on disc
-        self.use_segyio_trace_loader = use_segyio_trace_loader or self.segy_trace_dtype is None
-        self.traces_mmap = self._construct_traces_mmap()
 
         # Define all stats-related attributes
         self.has_stats = False
@@ -332,31 +287,27 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if {"INLINE_3D", "CROSSLINE_3D", "CDP_X", "CDP_Y"} <= headers_to_load:
             self.infer_geometry()
 
-    def _infer_sample_rate(self):
-        """Get sample rate from file headers."""
-        bin_sample_rate = self.segy_handler.bin[segyio.BinField.Interval]
-        trace_sample_rate = self.segy_handler.header[0][segyio.TraceField.TRACE_SAMPLE_INTERVAL]
-        # 0 means undefined sample rate, so it is removed from the set of sample rate values.
-        union_sample_rate = {bin_sample_rate, trace_sample_rate} - {0}
-        if len(union_sample_rate) != 1:
-            raise ValueError("Cannot infer sample rate from file headers: either both `Interval` (bytes 3217-3218 in "
-                             "the binary header) and `TRACE_SAMPLE_INTERVAL` (bytes 117-118 in the header of the "
-                             "first trace are undefined or they have different values.")
-        return union_sample_rate.pop() / 1000  # Convert sample rate from microseconds to milliseconds
+    @property
+    def file_sample_rate(self):
+        return self.loader.sample_rate
 
-    def _construct_traces_mmap(self):
-        """Memory map traces data."""
-        if self.use_segyio_trace_loader:
-            return None
-        trace_shape = self.n_file_samples if self.segy_format != 1 else (self.n_file_samples, 4)
-        mmap_trace_dtype = np.dtype([("headers", np.uint8, 240), ("trace", self.segy_trace_dtype, trace_shape)])
-        return np.memmap(filename=self.path, mode="r", shape=self.n_file_traces, dtype=mmap_trace_dtype,
-                         offset=self.trace_data_offset)["trace"]
+    @property
+    def file_sample_interval(self):
+        return self.loader.sample_interval
+
+    @property
+    def file_samples(self):
+        return self.loader.samples
 
     @property
     def n_file_samples(self):
         """int: Trace length in samples in the source SEG-Y file."""
         return len(self.file_samples)
+
+    @property
+    def sample_rate(self):
+        """float: Sample rate of seismic traces. Measured in Hz."""
+        return 1000 / self.sample_interval
 
     @property
     def n_sources(self):
@@ -395,26 +346,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         htp_dtype = np.int32 if len(headers) < np.iinfo(np.int32).max else np.int64
         self.headers[HDR_TRACE_POS] = np.arange(self.n_traces, dtype=htp_dtype)
 
-    def __del__(self):
-        """Close SEG-Y file handler on survey destruction."""
-        self.segy_handler.close()
-
-    def __getstate__(self):
-        """Create a survey's pickling state from its `__dict__` by setting SEG-Y file handler and memory mapped trace
-        data to `None`."""
-        state = copy(self.__dict__)
-        state["segy_handler"] = None
-        state["traces_mmap"] = None
-        return state
-
-    def __setstate__(self, state):
-        """Recreate a survey from unpickled state, reopen its source SEG-Y file and reconstruct a memory map over
-        traces data."""
-        self.__dict__ = state
-        self.segy_handler = segyio.open(self.path, ignore_geometry=True)
-        self.segy_handler.mmap()
-        self.traces_mmap = self._construct_traces_mmap()
-
     def __str__(self):
         """Print survey metadata including information about the source file, field geometry if it was inferred and
         trace statistics if they were calculated."""
@@ -428,7 +359,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Number of traces:          {self.n_traces}
         Trace length:              {self.n_samples} samples
-        Sample rate:               {self.sample_rate} ms
+        Sample interval:           {self.sample_interval} ms
+        Sample rate:               {self.sample_rate} Hz
         Times range:               [{min(self.samples)} ms, {max(self.samples)} ms]
         Offsets range:             {offset_range}
         Is uphole:                 {get_first_defined(self.is_uphole, "Unknown")}
@@ -814,7 +746,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             warnings.warn("The survey was not checked for dead traces or they were not removed. "
                           "Run `remove_dead_traces` first.", RuntimeWarning)
 
-        limits = self.limits if limits is None else self._process_limits(limits)
+        limits = self.process_limits(limits)
+        n_samples = len(self.file_samples[limits])
+
         headers = self.headers
         if indices is not None:
             headers = self.get_headers_by_indices(indices)
@@ -841,6 +775,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         chunk_quantile_traces_mask = np.split(quantile_traces_mask, chunk_borders)
 
         # Define buffers. chunk_mean, chunk_var and chunk_weights have float64 dtype to be numerically stable
+        chunk_buffer = np.empty((chunk_size, n_samples), dtype=self.loader.dtype)
         quantile_traces_buffer = []
         global_min, global_max = np.float32("inf"), np.float32("-inf")
         mean_buffer = np.empty(n_chunks, dtype=np.float64)
@@ -851,7 +786,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         bar_desc = f"Calculating statistics for traces in survey {self.name}"
         with tqdm(total=n_traces, desc=bar_desc, disable=not bar) as pbar:
             for i, (chunk_pos, chunk_quantile_mask) in enumerate(zip(chunk_traces_pos, chunk_quantile_traces_mask)):
-                chunk_traces = self.load_traces(chunk_pos, limits=limits)
+                chunk_traces = self.loader.load_traces(chunk_pos, limits=limits, buffer=chunk_buffer[:len(chunk_pos)])
                 if chunk_quantile_mask.any():
                     quantile_traces_buffer.append(chunk_traces[chunk_quantile_mask].ravel())
 
@@ -931,13 +866,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         survey : Survey
             The same survey with a new `DeadTrace` header created.
         """
-
-        limits = self.limits if limits is None else self._process_limits(limits)
-
         traces_pos = self["TRACE_SEQUENCE_FILE"] - 1
+        limits = self.process_limits(limits)
         n_samples = len(self.file_samples[limits])
 
-        trace = np.empty(n_samples, dtype=self.trace_dtype)
+        trace = np.empty(n_samples, dtype=self.loader.dtype)
         dead_indices = []
         for tr_index, pos in tqdm(enumerate(traces_pos), desc=f"Detecting dead traces for survey {self.name}",
                                   total=len(self.headers), disable=not bar):
@@ -956,71 +889,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     #------------------------------------------------------------------------#
     #                            Loading methods                             #
     #------------------------------------------------------------------------#
-
-    def load_trace_segyio(self, buf, index, limits, trace_length):
-        """Load a single trace from a SEG-Y file by its position.
-
-        In order to optimize trace loading process, we use `segyio`'s low-level function `xfd.gettr`. Description of
-        its arguments is given below:
-            1. A buffer to write the loaded trace to,
-            2. An index of the trace in a SEG-Y file to load,
-            3. Unknown arg (always 1),
-            4. Unknown arg (always 1),
-            5. An index of the first trace element to load,
-            6. An index of the last trace element to load,
-            7. Trace element loading step,
-            8. The overall number of samples to load.
-
-        Parameters
-        ----------
-        buf : 1d np.ndarray of self.trace_dtype
-            An empty array to save the loaded trace.
-        index : int
-            Trace position in the file.
-        limits : slice
-            Trace time range to load. Measured in samples.
-        trace_length : int
-            Total number of samples to load.
-
-        Returns
-        -------
-        trace : 1d np.ndarray of self.trace_dtype
-            Loaded trace.
-        """
-        return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
-
-    def load_traces_segyio(self, traces_pos, limits=None):
-        """Load traces by their positions in the SEG-Y file using low-level `segyio` interface."""
-        limits = self.limits if limits is None else self._process_limits(limits)
-        samples = self.file_samples[limits]
-        n_samples = len(samples)
-
-        traces = np.empty((len(traces_pos), n_samples), dtype=self.trace_dtype)
-        for i, pos in enumerate(traces_pos):
-            self.load_trace_segyio(buf=traces[i], index=pos, limits=limits, trace_length=n_samples)
-        return traces
-
-    def load_traces_mmap(self, traces_pos, limits=None):
-        """Load traces by their positions in the SEG-Y file from memory mapped trace data."""
-        limits = self.limits if limits is None else self._process_limits(limits)
-        if self.segy_format != 1:
-            return self.traces_mmap[traces_pos, limits]
-        # IBM 4-byte float case: reading from mmap with step is way more expensive
-        # than loading the whole trace with consequent slicing
-        traces = self.traces_mmap[traces_pos, limits.start:limits.stop]
-        if limits.step != 1:
-            traces = traces[:, ::limits.step]
-        traces_bytes = (traces[:, :, 0], traces[:, :, 1], traces[:, :, 2], traces[:, :, 3])
-        if self.endian in {"little", "lsb"}:
-            traces_bytes = traces_bytes[::-1]
-        return ibm_to_ieee(*traces_bytes)
-
-    def load_traces(self, traces_pos, limits=None):
-        """Load traces by their positions in the SEG-Y file."""
-        loader = self.load_traces_segyio if self.use_segyio_trace_loader else self.load_traces_mmap
-        traces = loader(traces_pos, limits=limits)
-        # Cast the result to a C-contiguous float32 array regardless of the dtype in the source file
-        return np.require(traces, dtype=np.float32, requirements="C")
 
     def load_gather(self, headers, limits=None, copy_headers=False):
         """Load a gather with given `headers`.
@@ -1043,9 +911,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if copy_headers:
             headers = headers.copy()
         traces_pos = get_cols(headers, "TRACE_SEQUENCE_FILE") - 1
-        limits = self.limits if limits is None else self._process_limits(limits)
+        limits = self.process_limits(limits)
         samples = self.file_samples[limits]
-        data = self.load_traces(traces_pos, limits=limits)
+        data = self.loader.load_traces(traces_pos, limits=limits)
         return Gather(headers=headers, data=data, samples=samples, survey=self)
 
     def get_gather(self, index, limits=None, copy_headers=False):
@@ -1165,21 +1033,14 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             If negative step of limits was passed.
             If the resulting samples length is zero.
         """
-        self.limits = self._process_limits(limits)
+        self.limits = self.loader.process_limits(limits)
         self.samples = self.file_samples[self.limits]
-        self.sample_rate = self.file_sample_rate * self.limits.step
+        self.sample_interval = self.file_sample_interval * self.limits.step
 
-    def _process_limits(self, limits):
-        """Convert given `limits` to a `slice`."""
-        if not isinstance(limits, slice):
-            limits = slice(*to_list(limits))
-        # Use .indices to avoid negative slicing range
-        limits = limits.indices(len(self.file_samples))
-        if limits[-1] < 0:
-            raise ValueError('Negative step is not allowed.')
-        if limits[1] <= limits[0]:
-            raise ValueError('Empty traces after setting limits.')
-        return slice(*limits)
+    def process_limits(self, limits=None):
+        if limits is None:
+            return self.limits
+        return self.loader.process_limits(limits)
 
     def remove_dead_traces(self, limits=None, inplace=False, bar=True):
         """ Remove dead (constant) traces from the survey.

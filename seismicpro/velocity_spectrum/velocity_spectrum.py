@@ -44,7 +44,7 @@ class BaseVelocitySpectrum:
         Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother
         the resulting velocity spectrum will be but to the detriment of small details. Measured in milliseconds.
     mode: str, defaults to `semblance`
-        The coherency measure. See the `COHERENCY_FUNCS` for avaliable options.
+        The coherency measure. See the `COHERENCY_FUNCS` for available options.
     max_stretch_factor : float, defaults to np.inf
         Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
         This mute is applied after nmo correction for each provided velocity and before coherency calculation.
@@ -65,12 +65,12 @@ class BaseVelocitySpectrum:
 
     def __init__(self, gather, window_size, mode='semblance', max_stretch_factor=np.inf):
         self.gather = gather.copy()
-        self.half_win_size_samples = math.ceil((window_size / gather.sample_rate / 2))
+        self.half_win_size_samples = math.ceil((window_size / gather.sample_interval / 2))
         self.max_stretch_factor = max_stretch_factor
 
         self.coherency_func = COHERENCY_FUNCS.get(mode)
         if self.coherency_func is None:
-            raise ValueError(f"Unknown mode {mode}, avaliable modes are {COHERENCY_FUNCS.keys()}")
+            raise ValueError(f"Unknown mode {mode}, available modes are {COHERENCY_FUNCS.keys()}")
 
     @property
     def times(self):
@@ -78,9 +78,14 @@ class BaseVelocitySpectrum:
         return self.gather.times  # ms
 
     @property
+    def sample_interval(self):
+        """"float: Sample interval of seismic traces. Measured in milliseconds."""
+        self.gather.sample_interval
+
+    @property
     def sample_rate(self):
-        """float: sample rate of seismic traces. Measured in milliseconds."""
-        return self.gather.sample_rate  # ms
+        """float: Sample rate of seismic traces. Measured in Hz."""
+        return self.gather.sample_rate
 
     @property
     def offsets(self):
@@ -102,7 +107,7 @@ class BaseVelocitySpectrum:
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def calc_single_velocity_spectrum(coherency_func, gather_data, times, offsets, velocity, sample_rate,
+    def calc_single_velocity_spectrum(coherency_func, gather_data, times, offsets, velocity, sample_interval,
                                        half_win_size_samples, t_min_ix, t_max_ix, max_stretch_factor=np.inf, out=None):
         """Calculate velocity spectrum for given velocity and time range.
 
@@ -118,8 +123,8 @@ class BaseVelocitySpectrum:
             The distance between source and receiver for each trace. Measured in meters.
         velocity : array-like
             Seismic wave velocity for velocity spectrum computation. Measured in meters/milliseconds.
-        sample_rate : float
-            Sample rate of seismic traces. Measured in milliseconds.
+        sample_interval : float
+            Sample interval of seismic traces. Measured in milliseconds.
         half_win_size_samples : int
             Half of the temporal size for smoothing the velocity spectrum. Measured in samples.
         t_min_ix : int
@@ -142,7 +147,7 @@ class BaseVelocitySpectrum:
         t_win_size_max_ix = min(len(times) - 1, t_max_ix + half_win_size_samples)
 
         corrected_gather_data = correction.apply_nmo(gather_data, times[t_win_size_min_ix: t_win_size_max_ix + 1],
-                                                     offsets, velocity, sample_rate, mute_crossover=False,
+                                                     offsets, velocity, sample_interval, mute_crossover=False,
                                                      max_stretch_factor=max_stretch_factor)
 
         numerator, denominator = coherency_func(corrected_gather_data)
@@ -187,7 +192,7 @@ class BaseVelocitySpectrum:
             If `dict`, defines extra keyword arguments for `matplotlib.figure.Figure.colorbar`.
         clip_threshold_quantile : float, optional, defaults to 0.99
             Clip the velocity spectrum values by given quantile.
-        n_levels: int, optional, defaluts to 10
+        n_levels: int, optional, defaults to 10
             The number of levels on the colorbar.
         ax : matplotlib.axes.Axes, optional, defaults to None
             Axes of the figure to plot on.
@@ -304,7 +309,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         with a step of 100 m/s.
     window_size : int, optional, defaults to 50
         Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother
-        the resulting velocity spectrum will be but to the detriment of small details. Measured in miliseconds.
+        the resulting velocity spectrum will be but to the detriment of small details. Measured in milliseconds.
     mode: str, optional, defaults to 'semblance'
         The measure for estimating hodograph coherency. 
         The available options are: 
@@ -341,17 +346,16 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
                                         DEFAULT_STACKING_VELOCITY(gather.times[-1]) * 1.2,
                                         100)
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
-        self.velocity_spectrum = self._calc_spectrum_numba(
-                                                spectrum_func=self.calc_single_velocity_spectrum,
-                                                coherency_func=self.coherency_func, gather_data=self.gather.data,
-                                                times=self.times, offsets=self.offsets, velocities=velocities_ms,
-                                                sample_rate=self.sample_rate, max_stretch_factor=max_stretch_factor,
-                                                half_win_size_samples=self.half_win_size_samples)
+        kwargs = {"spectrum_func": self.calc_single_velocity_spectrum, "coherency_func": self.coherency_func,
+                  "gather_data": self.gather.data, "times": self.times, "offsets": self.offsets,
+                  "velocities": velocities_ms, "sample_interval": self.sample_interval,
+                  "max_stretch_factor": max_stretch_factor, "half_win_size_samples": self.half_win_size_samples}
+        self.velocity_spectrum = self._calc_spectrum_numba(**kwargs)
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_spectrum_numba(spectrum_func, coherency_func, gather_data, times, offsets, velocities,
-                            sample_rate, half_win_size_samples, max_stretch_factor):
+                            sample_interval, half_win_size_samples, max_stretch_factor):
         """Parallelized and njitted method for vertical velocity spectrum calculation.
 
         Parameters
@@ -370,7 +374,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         for j in prange(len(velocities)):  # pylint: disable=consider-using-enumerate
             spectrum_func(coherency_func=coherency_func, gather_data=gather_data, times=times, offsets=offsets,
                           velocity=velocities[j], half_win_size_samples=half_win_size_samples,
-                          t_min_ix=0, t_max_ix=gather_data.shape[1], sample_rate=sample_rate,
+                          t_min_ix=0, t_max_ix=gather_data.shape[1], sample_interval=sample_interval,
                           max_stretch_factor=max_stretch_factor, out=velocity_spectrum[:, j])
         return velocity_spectrum
 
@@ -398,7 +402,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         if stacking_velocity is not None:
             stacking_times = stacking_velocity.times[stacking_velocity.times <= self.times[-1]]
             stacking_velocities = stacking_velocity(stacking_times)
-            stacking_times_ix = stacking_times / self.sample_rate
+            stacking_times_ix = stacking_times / self.sample_interval
             stacking_velocities_ix = ((stacking_velocities - self.velocities[0]) /
                                       (self.velocities[-1] - self.velocities[0]) * self.velocity_spectrum.shape[1])
 
@@ -431,7 +435,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
             If `dict`, defines extra keyword arguments for `matplotlib.figure.Figure.colorbar`.
         clip_threshold_quantile : float, optional, defaults to 0.99
             Clip the velocity spectrum values by given quantile.
-        n_levels: int, optional, defaluts to 10
+        n_levels: int, optional, defaults to 10
             The number of levels on the colorbar.
         ax : matplotlib.axes.Axes, optional, defaults to None
             Axes of the figure to plot on.
@@ -541,7 +545,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         The number of velocities to compute residual velocity spectrum for.
     window_size : int, optional, defaults to 50
         Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother
-        the resulting velocity spectrum will be but to the detriment of small details. Measured in miliseconds.
+        the resulting velocity spectrum will be but to the detriment of small details. Measured in milliseconds.
     relative_margin : float, optional, defaults to 0.2
         Relative velocity margin, that determines the velocity range for velocity spectrum calculation
         for each time `t` as `stacking_velocity(t)` * (1 +- `relative_margin`).
@@ -589,13 +593,12 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
 
         left_bound_ix, right_bound_ix = self._calc_velocity_bounds()
-        self.velocity_spectrum = self._calc_res_velocity_spectrum_numba(
-                                                self.calc_single_velocity_spectrum, coherency_func=self.coherency_func,
-                                                gather_data=self.gather.data, times=self.times,
-                                                offsets=self.offsets, velocities=velocities_ms,
-                                                left_bound_ix=left_bound_ix, right_bound_ix=right_bound_ix,
-                                                half_win_size_samples=self.half_win_size_samples,
-                                                sample_rate=self.sample_rate, max_stretch_factor=max_stretch_factor)
+        kwargs = {"spectrum_func": self.calc_single_velocity_spectrum, "coherency_func": self.coherency_func,
+                  "gather_data": self.gather.data, "times": self.times, "offsets": self.offsets,
+                  "velocities": velocities_ms, "left_bound_ix": left_bound_ix, "right_bound_ix": right_bound_ix,
+                  "half_win_size_samples": self.half_win_size_samples, "sample_interval": self.sample_interval,
+                  "max_stretch_factor": max_stretch_factor}
+        self.velocity_spectrum = self._calc_res_velocity_spectrum_numba(**kwargs)
 
     def _calc_velocity_bounds(self):
         """Calculate velocity boundaries for each time within which residual velocity spectrum will be calculated.
@@ -617,7 +620,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_res_velocity_spectrum_numba(spectrum_func, coherency_func, gather_data, times, offsets, velocities,
-                                          left_bound_ix, right_bound_ix, sample_rate, half_win_size_samples,
+                                          left_bound_ix, right_bound_ix, sample_interval, half_win_size_samples,
                                           max_stretch_factor):
         """Parallelized and njitted method for residual vertical velocity spectrum calculation.
 
@@ -648,7 +651,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
             t_max_ix = len(times) - 1 if len(t_max_ix) == 0 else t_max_ix[-1]
 
             spectrum_func(coherency_func=coherency_func, gather_data=gather_data, times=times, offsets=offsets,
-                          velocity=velocities[i], sample_rate=sample_rate,
+                          velocity=velocities[i], sample_interval=sample_interval,
                           half_win_size_samples=half_win_size_samples, t_min_ix=t_min_ix, t_max_ix=t_max_ix+1,
                           max_stretch_factor=max_stretch_factor, out=velocity_spectrum[t_min_ix : t_max_ix+1, i])
 
@@ -680,7 +683,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         x_ticklabels = np.linspace(-self.relative_margin, self.relative_margin, self.velocity_spectrum.shape[1]) * 100
 
         stacking_times = self.stacking_velocity.times[self.stacking_velocity.times <= self.times[-1]]
-        stacking_times_ix = stacking_times / self.sample_rate
+        stacking_times_ix = stacking_times / self.sample_interval
         stacking_velocities_ix = np.full_like(stacking_times_ix, self.velocity_spectrum.shape[1] / 2)
 
         super()._plot(title=title, x_label="Relative velocity margin, %",
@@ -709,7 +712,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
             If `dict`, defines extra keyword arguments for `matplotlib.figure.Figure.colorbar`.
         clip_threshold_quantile : float, optional, defaults to 0.99
             Clip the residual velocity spectrum values by given quantile.
-        n_levels: int, optional, defaluts to 10
+        n_levels: int, optional, defaults to 10
             The number of levels on the colorbar.
         ax : matplotlib.axes.Axes, optional, defaults to None
             Axes of the figure to plot on.

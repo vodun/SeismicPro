@@ -72,8 +72,6 @@ class Gather(TraceContainer, SamplesContainer):
         Trace data of the gather with (num_traces, trace_length) layout.
     samples : 1d np.ndarray of floats
         Recording time for each trace value. Measured in milliseconds.
-    sample_rate : float
-        Sample rate of seismic traces. Measured in milliseconds.
     survey : Survey
         A survey that generated the gather.
     sort_by : None or str or list of str
@@ -97,12 +95,17 @@ class Gather(TraceContainer, SamplesContainer):
         return indices[0]
 
     @property
+    def sample_interval(self):
+        """"float: Sample interval of seismic traces. Measured in milliseconds."""
+        sample_interval = np.unique(np.diff(self.samples))
+        if len(sample_interval) == 1:
+            return sample_interval.item()
+        raise ValueError("sample_interval is undefined since `samples` are irregular")
+
+    @property
     def sample_rate(self):
-        """"float: Sample rate of seismic traces. Measured in milliseconds."""
-        sample_rate = np.unique(np.diff(self.samples))
-        if len(sample_rate) == 1:
-            return sample_rate.item()
-        raise ValueError("`sample_rate` is not defined, since `samples` are not regular.")
+        """float: Sample rate of seismic traces. Measured in Hz."""
+        return 1000 / self.sample_interval
 
     @property
     def offsets(self):
@@ -211,13 +214,21 @@ class Gather(TraceContainer, SamplesContainer):
         # Count the number of zero/constant traces
         n_dead_traces = np.isclose(np.max(self.data, axis=1), np.min(self.data, axis=1)).sum()
 
+        try:
+            sample_interval_str = f"{self.sample_interval} ms"
+            sample_rate_str = f"{self.sample_rate} Hz"
+        except:
+            sample_interval_str = "Irregular"
+            sample_rate_str = "Irregular"
+
         msg = f"""
         Parent survey path:          {self.survey.path}
         Parent survey name:          {self.survey.name}
 
         Number of traces:            {self.n_traces}
         Trace length:                {self.n_samples} samples
-        Sample rate:                 {self.sample_rate} ms
+        Sample interval:             {sample_interval_str}
+        Sample rate:                 {sample_rate_str}
         Times range:                 [{min(self.samples)} ms, {max(self.samples)} ms]
         Offsets range:               {offset_range}
 
@@ -339,7 +350,7 @@ class Gather(TraceContainer, SamplesContainer):
         ValueError
             If empty `name` was specified.
         """
-        parent_handler = self.survey.segy_handler
+        parent_handler = self.survey.loader.file_handler
 
         if name is None:
             # Use the first value of gather index to handle combined case
@@ -358,7 +369,7 @@ class Gather(TraceContainer, SamplesContainer):
         spec.format = parent_handler.format
         spec.tracecount = self.n_traces
 
-        sample_rate = np.int32(self.sample_rate * 1000) # Convert to microseconds
+        sample_interval = np.int32(self.sample_interval * 1000) # Convert to microseconds
         # Remember ordinal numbers of traces in the parent SEG-Y file to further copy their headers
         trace_ids = self["TRACE_SEQUENCE_FILE"] - 1
 
@@ -373,7 +384,7 @@ class Gather(TraceContainer, SamplesContainer):
             # Copy the binary header from the parent SEG-Y file and update it with samples data of the gather.
             # TODO: Check if other bin headers matter
             dump_handler.bin = parent_handler.bin
-            dump_handler.bin[segyio.BinField.Interval] = sample_rate
+            dump_handler.bin[segyio.BinField.Interval] = sample_interval
             dump_handler.bin[segyio.BinField.Samples] = self.n_samples
             dump_handler.bin[segyio.BinField.ExtSamples] = self.n_samples
 
@@ -387,7 +398,7 @@ class Gather(TraceContainer, SamplesContainer):
                 if retain_parent_segy_headers:
                     dump_handler.header[i] = parent_handler.header[trace_ids[i]]
                 dump_handler.header[i].update({**dict(zip(used_header_bytes, trace_headers)),
-                                               segyio.TraceField.TRACE_SAMPLE_INTERVAL: sample_rate,
+                                               segyio.TraceField.TRACE_SAMPLE_INTERVAL: sample_interval,
                                                segyio.TraceField.TRACE_SEQUENCE_FILE: i + 1})
         return self
 
@@ -998,7 +1009,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
         self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms,
-                                         self.sample_rate, mute_crossover, max_stretch_factor, fill_value)
+                                         self.sample_interval, mute_crossover, max_stretch_factor, fill_value)
         return self
 
     #------------------------------------------------------------------------#
@@ -1162,44 +1173,44 @@ class Gather(TraceContainer, SamplesContainer):
         cutoffs = [cutoff for cutoff in [low, high] if cutoff is not None]
 
         # Construct the filter and flip it since opencv computes crosscorrelation instead of convolution
-        kernel = firwin(filter_size, cutoffs, pass_zero=pass_zero, fs=1000 / self.sample_rate, **kwargs)[::-1]
+        kernel = firwin(filter_size, cutoffs, pass_zero=pass_zero, fs=self.sample_rate, **kwargs)[::-1]
         cv2.filter2D(self.data, dst=self.data, ddepth=-1, kernel=kernel.reshape(1, -1))
         return self
 
     @batch_method(target="threads")
-    def resample(self, new_sample_rate, kind=3, anti_aliasing=True):
-        """Change sample rate of traces in the gather.
+    def resample(self, new_sample_interval, kind=3, anti_aliasing=True):
+        """Change sample interval of traces in the gather.
 
-        This implies increasing or decreasing the number of samples in each trace. In case new sample rate is greater
-        than the current one, anti-aliasing filter is optionally applied to avoid frequency aliasing.
+        This implies increasing or decreasing the number of samples in each trace. In case new sample interval is
+        greater than the current one, anti-aliasing filter is optionally applied to avoid frequency aliasing.
 
         Parameters
         ----------
-        new_sample_rate : float
-            New sample rate
-        kind : int or str, defaults to 3
+        new_sample_interval : float
+            New sample interval.
+        kind : int or str, optional, defaults to 3
             The interpolation method to use.
-            If `int`, use piecewise polynomial interpolation with degree `kind`;
-            if `str`, delegate interpolation to scipy.interp1d with mode `kind`.
-        anti_aliasing : bool, defaults to True
+            If `int`, use piecewise polynomial interpolation with degree `kind`.
+            If `str`, delegate interpolation to scipy.interp1d with mode `kind`.
+        anti_aliasing : bool, optional, defaults to True
             Whether to apply anti-aliasing filter or not. Ignored in case of upsampling.
 
         Returns
         -------
         self : Gather
-            `self` with new sample rate
+            Resampled gather.
         """
-        current_sample_rate = self.sample_rate
+        current_sample_interval = self.sample_interval
 
         # Anti-aliasing filter is optionally applied during downsampling to avoid frequency aliasing
-        if new_sample_rate > current_sample_rate and anti_aliasing:
+        if new_sample_interval > current_sample_interval and anti_aliasing:
             # Smoothly attenuate frequencies starting from 0.8 of the new Nyquist frequency so that all frequencies
             # above are zeroed out
-            nyquist_frequency = 1000 / (2 * new_sample_rate)
-            filter_size = int(40 * new_sample_rate / current_sample_rate)
-            self.bandpass_filter(high=0.9 * nyquist_frequency, filter_size=filter_size, window="hann")
+            nyquist_frequency = 1000 / (2 * new_sample_interval)
+            filter_size = int(40 * new_sample_interval / current_sample_interval)
+            self.bandpass_filter(high=0.9*nyquist_frequency, filter_size=filter_size, window="hann")
 
-        new_samples = np.arange(self.samples[0], self.samples[-1] + 1e-6, new_sample_rate, self.samples.dtype)
+        new_samples = np.arange(self.samples[0], self.samples[-1] + 1e-6, new_sample_interval, self.samples.dtype)
 
         if isinstance(kind, int):
             data_resampled = piecewise_polynomial(new_samples, self.samples, self.data, kind)
@@ -1226,7 +1237,7 @@ class Gather(TraceContainer, SamplesContainer):
         Raises
         ------
         ValueError
-            If window_size is less than (3 * sample_rate) milliseconds or larger than trace length.
+            If window_size is less than 2 * sample_interval milliseconds or larger than trace length.
             If mode is neither 'rms' nor 'abs'.
 
         Returns
@@ -1235,13 +1246,13 @@ class Gather(TraceContainer, SamplesContainer):
             Gather with AGC applied to its data.
         """
         # Cast window from ms to samples
-        window_size_samples = int(window_size // self.sample_rate) + 1
+        window_size_samples = int(window_size // self.sample_interval) + 1
 
         if mode not in ['abs', 'rms']:
             raise ValueError(f"mode should be either 'abs' or 'rms', but {mode} was given")
         if (window_size_samples < 3) or (window_size_samples > self.n_samples):
-            raise ValueError(f'window should be at least {3*self.sample_rate} milliseconds and'
-                             f' {(self.n_samples-1)*self.sample_rate} at most, but {window_size} was given')
+            raise ValueError(f'window_size should be at least {2*self.sample_interval} milliseconds and '
+                             f'{(self.n_samples-1)*self.sample_interval} at most, but {window_size} was given')
         self.data = gain.apply_agc(data=self.data, window_size=window_size_samples, mode=mode)
         return self
 

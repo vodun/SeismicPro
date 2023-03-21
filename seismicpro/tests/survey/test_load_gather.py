@@ -32,7 +32,7 @@ def load_segy(tmp_path_factory, request):
     path = tmp_path_factory.mktemp("load") / "load.sgy"
     make_prestack_segy(path, fmt=segy_fmt, survey_size=(4, 4), origin=(0, 0), sources_step=(3, 3),
                        receivers_step=(1, 1), bin_size=(1, 1), activation_dist=(1, 1), n_samples=n_samples,
-                       sample_rate=2000, delay=0, bar=False, trace_gen=gen_trace)
+                       sample_interval=2000, delay=0, bar=False, trace_gen=gen_trace)
     return path, trace_data
 
 
