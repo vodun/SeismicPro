@@ -2,7 +2,6 @@
 location and allows for their spatial interpolation"""
 
 import os
-import copy
 from textwrap import dedent
 from functools import partial, cached_property
 from concurrent.futures import ProcessPoolExecutor
@@ -650,6 +649,7 @@ class RefractorVelocityField(SpatialField):
             chunk_results.append(gather_results)
         return chunk_results
 
+    #pylint: disable-next=invalid-name
     def qc(self, survey=None, metrics=None, bar=True, chunk_size=250, n_workers=None):
         """Perform quality control of the refractor velocity field and specifically its first breaks.
         By default, the following metrics are calculated:
@@ -704,7 +704,7 @@ class RefractorVelocityField(SpatialField):
                     future.add_done_callback(lambda fut: pbar.update(len(fut.result())))
                     futures.append(future)
         results = sum([future.result() for future in futures], [])
-        
+
         index_cols = to_list(survey.indexed_by)
         index = None if coords_cols == index_cols else survey.indices
         metrics_maps = []
