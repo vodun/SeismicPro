@@ -638,6 +638,9 @@ class RefractorVelocityField(SpatialField):
 
     @staticmethod
     def _calc_metrics(metrics, gathers_chunk, rvs_chunk):
+        """Calculate metrics for a given chunk of seismorgams. 
+        Intended to use with pool executor, such as `~utils.ForPoolExecutor`.
+        """
         chunk_results = []
         for gather, refractor_velocity in zip(gathers_chunk, rvs_chunk):
             gather_results = []
@@ -648,6 +651,25 @@ class RefractorVelocityField(SpatialField):
         return chunk_results
 
     def qc(self, survey=None, metrics=None, bar=True, chunk_size=250, n_workers=None):
+        """Perform quality control of the refractor velocity field and specifically its first breaks.
+        By default, the following metrics are calculated:
+        * The first break outliers metric,
+        * Mean amplitude of the signal in the moment of first break,
+        * Mean absolute deviation of the signal phase from target value in the moment of first break,
+        * Mean Pearson correlation coeffitient of trace with mean hodograph in window around the first break,
+        * The divergence point metric for first breaks.
+        
+        metrics : RefractorVelocityMetric or list of RefractorVelocityMetric, optional
+            Metrics to calculate. Defaults to those defined in `~metrics.REFRACTOR_VELOCITY_QC_METRICS`.
+        n_workers : int, optional
+            The number of threads to be spawned to calculate metrics. Defaults to the number of cpu cores.
+        bar : bool, optional, defaults to True
+            Whether to show a progress bar.
+        Returns
+        -------
+        metrics_maps : MetricMap or list of MetricMap
+            Calculated metrics maps. Has the same length as `metrics`.
+        """
         if survey is None:
             if not self.has_survey:
                 raise ValueError("Survey must be passed if the field is not linked with a survey.")
