@@ -1390,7 +1390,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         results = pd.concat([future.result() for future in futures], ignore_index=True, copy=False).iloc[orig_idx]
         results[self.headers.index.names] = [to_list(index) for index in self.headers.index]
-        results.set_index(self.headers.index.names)
+        results.set_index(self.headers.index.names, inplace=True)
         self.headers[results.columns] = results
         self.qc_metrics.update({metric.name: metric for metric in metrics})
         return self

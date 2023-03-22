@@ -64,6 +64,11 @@ class TracewiseMetric(SurveyAttribute):
         """Column names in survey.headers to srote metrics results."""
         return self.name
 
+    @property
+    def description(self):
+        """String description of tracewise metric"""
+        return self.name
+
     def preprocess(self, gather):
         """Preprocess gather before calculating metric. Identity by default."""
         _ = self
@@ -71,7 +76,16 @@ class TracewiseMetric(SurveyAttribute):
 
     def get_mask(self, gather):
         """QC indicator implementation. Takes a gather as an argument and returns either a samplewise qc indicator with
-        shape equal to `gather.shape` or a tracewize indicator with shape (`gather.n_traces`,)."""
+        shape equal to `gather.shape` or a tracewize indicator with shape (`gather.n_traces`,).
+
+        Since all metrics calculated in threads, it may be more effective to call directly numba-decorated function.
+        Thus, depending on the case, implement QC indicator either here or in `self.numba_get_mask`."""
+        return self.numba_get_mask(gather.data)
+
+    @staticmethod
+    @njit(nogil=True, parallel=True)
+    def numba_get_mask(traces):
+        """Parallel QC metric implemetation. """
         raise NotImplementedError
 
     def aggregate(self, mask):
@@ -103,10 +117,10 @@ class TracewiseMetric(SurveyAttribute):
 
         return (mask < threshold[0]) | (mask > threshold[1])
 
-    def construct_map(self, headers, index_cols, coords_cols, **kwargs):
-        """Construct metric map from headers base on index or coords cols and kwargs."""
-        index = headers[index_cols] if index_cols is not None else None
-        return super().construct_map(headers[coords_cols], headers[self.name], index=index, **kwargs)
+    # def construct_map(self, headers, index_cols, coords_cols, **kwargs):
+    #     """Construct metric map from headers base on index or coords cols and kwargs."""
+    #     index = headers[index_cols] if index_cols is not None else None
+    #     return super().construct_map(headers[coords_cols], headers[self.name], index=index, **kwargs)
 
     def plot(self, ax, coords, index, sort_by=None, threshold=None, top_ax_y_scale=None,  bad_only=False, **kwargs):
         """Gather plot where samples with indicator above/below `.threshold` are highlited."""
@@ -190,18 +204,15 @@ class Spikes(MuteTracewiseMetric):
     is_lower_better = True
     threshold = 2
 
-    def get_mask(self, gather):
+    @staticmethod
+    @njit(nogil=True)
+    def numba_get_mask(traces):
         """QC indicator implementation.
 
         The resulted 2d mask shows the deviation of the ampluteds of an input gather.
         """
-        return self.find_spikes(gather.data)
-
-    @staticmethod
-    @njit(parallel=True, nogil=True)
-    def find_spikes(traces):
         res = np.zeros_like(traces, dtype=np.float32)
-        for i in prange(traces.shape[0]):
+        for i in range(traces.shape[0]):
             nan_indices = np.nonzero(np.isnan(traces[i]))[0]
             if len(nan_indices) > 0:
                 j = nan_indices[-1] + 1
@@ -231,16 +242,13 @@ class Autocorrelation(MuteTracewiseMetric):
     is_lower_better = False
     threshold = 0.8
 
-    def get_mask(self, gather):
+    @staticmethod
+    @njit(nogil=True)
+    def numba_get_mask(traces):
         """QC indicator implementation."""
         # TODO: descide what to do with almost nan traces (in 98% in trace are nan, it almost always will have -1 val)
-        return self.compute_autocorr(gather.data)
-
-    @staticmethod
-    @njit(parallel=True, nogil=True)
-    def compute_autocorr(traces):
-        res = np.zeros(traces.shape[0], dtype=np.float32)
-        for i in prange(traces.shape[0]):
+        res = np.empty(traces.shape[0], dtype=np.float32)
+        for i in range(traces.shape[0]):
             res[i] = np.nanmean(traces[i, 1:] * traces[i, :-1])
         return res
 
@@ -256,15 +264,12 @@ class TraceAbsMean(TracewiseMetric):
     is_lower_better = True
     threshold = 0.1
 
-    def get_mask(self, gather):
-        """QC indicator implementation."""
-        return self.compute_traceabsmean(gather.data)
-
     @staticmethod
-    @njit(parallel=True, nogil=True)
-    def compute_traceabsmean(traces):
-        res = np.zeros(traces.shape[0])
-        for i in prange(traces.shape[0]):
+    @njit(nogil=True)
+    def numba_get_mask(traces):
+        """QC indicator implementation."""
+        res = np.empty(traces.shape[0])
+        for i in range(traces.shape[0]):
             res[i] = np.abs(traces[i].mean() / (traces[i].std() + 1e-10))
         return res
 
@@ -281,15 +286,12 @@ class TraceMaxAbs(TracewiseMetric):
     is_lower_better = True
     threshold = 15
 
-    def get_mask(self, gather):
-        """QC indicator implementation."""
-        return self.compute_tracemaxabs(gather.data)
-
     @staticmethod
-    @njit(parallel=True, nogil=True)
-    def compute_tracemaxabs(traces):
-        res = np.zeros(traces.shape[0])
-        for i in prange(traces.shape[0]):
+    @njit(nogil=True)
+    def numba_get_mask(traces):
+        """QC indicator implementation."""
+        res = np.empty(traces.shape[0])
+        for i in range(traces.shape[0]):
             res[i] = np.max(np.abs(traces[i])) / (traces[i].std() + 1e-10)
         return res
 
@@ -309,14 +311,15 @@ class MaxClipsLen(TracewiseMetric):
     is_lower_better = True
     threshold = 3
 
-    def get_mask(self, gather):
-        """QC indicator implementation."""
-        return self.compute_maxclipslen(gather.data)
+    @property
+    def description(self):
+        """String description of tracewise metric"""
+        return self.name + f"with {self.threshold} clips in a row"
 
     @staticmethod
-    @njit(nogil=True,  parallel=True)
-    def compute_maxclipslen(traces):
-        """TODO"""
+    @njit(nogil=True)
+    def numba_get_mask(traces):
+        """QC indicator implementation."""
         def _update_counters(trace, i, j, value, counter, container):
             if trace == value:
                 counter += 1
@@ -328,7 +331,7 @@ class MaxClipsLen(TracewiseMetric):
 
         maxes = np.zeros_like(traces, dtype=np.int32)
         mins = np.zeros_like(traces, dtype=np.int32)
-        for i in prange(traces.shape[0]):
+        for i in range(traces.shape[0]):
             trace = traces[i]
             max_val = max(trace)
             max_counter = 0
@@ -358,19 +361,21 @@ class MaxConstLen(TracewiseMetric):
     is_lower_better = True
     threshold = 4
 
-    def get_mask(self, gather):
-        """QC indicator implementation."""
-        return self.compute_maxconstlen(gather.data) # TODO: can gather.data be 1d?
+    @property
+    def description(self):
+        """String description of tracewise metric"""
+        return self.name + f"with {self.threshold} const value in a row"
 
     @staticmethod
-    @njit(nogil=True, parallel=True)
-    def compute_maxconstlen(traces):
+    @njit(nogil=True)
+    def numba_get_mask(traces): # TODO: can gather.data be 1d?
+        """QC indicator implementation."""
         indicator = np.zeros_like(traces, dtype=np.float32)
-        for i in prange(traces.shape[0]):
+        for i in range(traces.shape[0]):
             trace = traces[i]
             counter = 1
             for j in range(1, trace.shape[0]):  # pylint: disable=consider-using-enumerate
-                if trace[j] == trace[j-1]:
+                if trace[j] == trace[j-1]: # TODO: or should we do here smth like abs(trace[j] - trace[j-1]) < 1e-10?
                     counter += 1
                 else:
                     if counter > 1:
@@ -396,14 +401,11 @@ class DeadTrace(TracewiseMetric):
     is_lower_better = True
     threshold = 0.5
 
-    def get_mask(self, gather):
-        """Return QC indicator."""
-        return self.find_dead_traces(gather.data)
-
     @staticmethod
-    @njit(nogil=True, parallel=True)
-    def find_dead_traces(traces):
-        res = np.zeros(traces.shape[0], dtype=np.float32)
+    @njit(nogil=True)
+    def numba_get_mask(traces):
+        """QC indicator implementation."""
+        res = np.empty(traces.shape[0], dtype=np.float32)
         for i in range(traces.shape[0]):
             res[i] = max(traces[i]) - min(traces[i]) < 1e-10
         return res
@@ -414,16 +416,24 @@ class BaseWindowMetric(TracewiseMetric):
     provided windows defined by start and end indices, and length of windows for every trace. Also, provide a method
     `self.aggregate_headers` that is aggregating the results by passed `index_cols` or `coords_cols`."""
 
-    def __call__(self, gather):
+    def __call__(self, gather, return_rms=True):
         """Compute metric by applying `self.preprocess` and `self.get_mask` to provided gather."""
         gather = self.preprocess(gather)
-        return self.get_mask(gather)
+        squares, nums = self.get_mask(gather)
+        if return_rms:
+            return self.compute_rms(squares, nums)
+        return squares, nums
+
+    @staticmethod
+    def compute_rms(squares, nums):
+        return np.sqrt(np.sum(squares) / np.sum(nums))
 
     @staticmethod
     @njit(nogil=True, parallel=True)
     def compute_stats_by_ixs(data, start_ixs_list, end_ixs_list):
         """TODO"""
-        stats = np.full((data.shape[0], 2 * len(start_ixs_list)), fill_value=0, dtype=np.float32)
+        sum_squares = np.empty(data.shape[0], dtype=np.float32)
+        nums = np.empty(data.shape[0], dtype=np.float32)
 
         for i in prange(data.shape[0]):
             trace = data[i]
@@ -431,11 +441,33 @@ class BaseWindowMetric(TracewiseMetric):
                 start_ix = start_ixs_list[ix][i]
                 end_ix = end_ixs_list[ix][i]
                 if start_ix >= 0 and end_ix >= 0:
-                    stats[i, 2*ix] = sum(trace[start_ix: end_ix] ** 2)
-                    stats[i, 2*ix+1] = len(trace[start_ix: end_ix])
-        return stats
+                    sum_squares[i] = sum(trace[start_ix: end_ix] ** 2)
+                    nums[i] = len(trace[start_ix: end_ix])
+        return sum_squares, nums
 
     def construct_map(self, headers, index_cols, coords_cols, **kwargs):
+        groupby_cols = self.header_cols + (coords_cols if index_cols != coords_cols else [])
+        groupby = headers.groupby(index_cols)[groupby_cols]
+        sums_func = {sum_name: lambda x: np.sqrt(np.sum(x)) for sum_name in self.header_cols[::2]}
+        nums_func = {num_name: "sum" for num_name in self.header_cols[1::2]}
+        coords_func = {coord_name: "mean" for coord_name in groupby_cols[len(self.header_cols):]}
+
+        aggregated_gb = groupby.agg({**sums_func, **nums_func, **coords_func})
+        aggregated_gb.reset_index(inplace=True)
+        coords = aggregated_gb[coords_cols]
+        value = self._calculate_metric_from_stats(aggregated_gb[self.header_cols].to_numpy())
+        index = aggregated_gb[index_cols]
+        return SurveyAttribute.construct_map(self, coords, value, index=index, **kwargs)
+
+    def construct_map(self, coords, values, index=None, **kwargs):
+        sum_sq = values.iloc[:, 0]
+        n = values.iloc[:, 1]
+        sum_sq_map = super().construct_map(coords, squm_sq, index=index, agg="sum")
+        n_map = super().construct_map(coords, n, index=index, agg="sum")
+        sum_sq_map.index_data.merge(n.index_data, on=squm_sq_map.index_cols)
+        div
+        sqrt
+
         groupby_cols = self.header_cols + (coords_cols if index_cols != coords_cols else [])
         groupby = headers.groupby(index_cols)[groupby_cols]
         sums_func = {sum_name: lambda x: np.sqrt(np.sum(x)) for sum_name in self.header_cols[::2]}
@@ -485,9 +517,9 @@ class WindowRMS(BaseWindowMetric):
 
     Parameters
     ----------
-    offsets : tuple of 2 ints, optional, defaults to gather length
+    offsets : tuple of 2 ints
         Offset range to use for calcualtion.
-    times : tuple of 2 ints, optional, defaults to gather length
+    times : tuple of 2 ints
         Time range to use for calcualtion, measured in ms.
     name : str, optional, defaults to "rms"
         Metrics name.
@@ -498,9 +530,15 @@ class WindowRMS(BaseWindowMetric):
     threshold = None
 
     def __init__(self, offsets, times, name=None):
+        if len(offsets) != 2:
+            raise ValueError(f"`offsets` must contain 2 elements, not {len(offsets)}")
+
+        if len(times) != 2:
+            raise ValueError(f"`times` must contain 2 elements, not {len(times)}")
+
         super().__init__(name=name)
-        self.offsets = offsets
-        self.times = times
+        self.offsets = np.array(offsets)
+        self.times = np.array(times)
 
     def __repr__(self):
         """String representation of the metric."""
@@ -512,25 +550,37 @@ class WindowRMS(BaseWindowMetric):
         return [self.name+"_sum", self.name+"_n"]
 
     @staticmethod
-    def _get_time_ixs(gather, times):
-        times = np.asarray([max(gather.samples[0], times[0]), min(gather.samples[-1], times[1])])
-        return times_to_indices(times, gather.samples).astype(np.int16)
+    @njit(nogil=True)
+    def _get_time_ixs(gather_samples, times):
+        # Deleete!
+        times = np.asarray([max(gather_samples[0], times[0]), min(gather_samples[-1], times[1])])
+        return times_to_indices(times, gather_samples).astype(np.int16)
 
     @staticmethod
-    def _get_offsets(gather, offsets):
-        min_offset, max_offset = min(gather.offsets), max(gather.offsets)
+    @njit(nogil=True)
+    def _get_offsets(gather_offsets, offsets):
+        # delete!
+        min_offset, max_offset = min(gather_offsets), max(gather_offsets)
         return np.asarray([max(min_offset, offsets[0]), min(max_offset, offsets[1])])
 
     def get_mask(self, gather):
         """QC indicator implementation."""
-        times = self._get_time_ixs(gather, self.times)
-        offsets = self._get_offsets(gather, self.offsets)
+        return self.numba_get_mask(gather.data, gather.samples, gather.offsets, self.times, self.offsets,
+                                   self._get_time_ixs, self._get_offsets, self.compute_stats_by_ixs)
 
-        window_ixs = np.nonzero((gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1]))[0]
+    @staticmethod
+    @njit(nogil=True, parallel=True)
+    def numba_get_mask(traces, gather_samples, gather_offests, times, offsets, _get_time_ixs, _get_offsets,
+                       compute_stats_by_ixs):
+        """QC indicator implementation."""
+        times = _get_time_ixs(gather_samples, times)
+        offsets = _get_offsets(gather_offests, offsets)
+
+        window_ixs = np.nonzero((gather_offests >= offsets[0]) & (gather_offests <= offsets[1]))[0]
         start_ixs = np.full(len(window_ixs), fill_value=times[0])
         end_ixs = np.full(len(window_ixs), fill_value=times[1])
-        result = np.full((gather.data.shape[0], 2), fill_value=np.nan)
-        result[window_ixs] = self.compute_stats_by_ixs(gather.data[window_ixs], (start_ixs, ), (end_ixs, ))
+        result = np.full((traces.shape[0], 2), fill_value=np.nan)
+        result[window_ixs] = compute_stats_by_ixs(traces[window_ixs], (start_ixs, ), (end_ixs, ))
         return result
 
     @staticmethod
@@ -548,7 +598,7 @@ class WindowRMS(BaseWindowMetric):
             ax.add_patch(patches.Rectangle(*n_rec, linewidth=2, edgecolor='magenta', facecolor='none'))
 
 
-class SinalToNoiseRMSAdaptive(BaseWindowMetric):
+class SignalToNoiseRMSAdaptive(BaseWindowMetric):
     """Signal to Noise RMS ratio computed in sliding windows along provided refractor velocity.
     RMS will be computed in two windows for every gather:
     1. Window shifted up from refractor velocity by `shift_up` ms. RMS in this window represents the noise value.
@@ -593,24 +643,24 @@ class SinalToNoiseRMSAdaptive(BaseWindowMetric):
         """Column names in survey.headers to srote metrics results."""
         return [self.name + postfix for postfix in ["_signal_sum", "_signal_n", "_noise_sum", "_noise_n"]]
 
-    def _get_indices(self, gather):
+    @njit(nogil=True, parallel=True)
+    def _get_indices(self, win_size, shift_up, shift_down, samples, fbp_times, times_to_indices):
         """Convert times to use for noise and signal windows into indices"""
-        fbp = self.refractor_velocity(gather.offsets)
 
-        signal_start_times = fbp + self.shift_down
-        signal_end_times = np.clip(signal_start_times + self.win_size, None, gather.samples[-1])
+        signal_start_times = fbp_times + shift_down
+        signal_end_times = np.clip(signal_start_times + win_size, None, samples[-1])
 
-        noise_end_times = fbp - self.shift_up
-        noise_start_times = np.clip(noise_end_times - self.win_size, 0, None)
+        noise_end_times = fbp_times - shift_up
+        noise_start_times = np.clip(noise_end_times - win_size, 0, None)
 
-        signal_mask = signal_start_times > gather.samples[-1]
+        signal_mask = signal_start_times > samples[-1]
         noise_mask = noise_end_times < 0
         mask = signal_mask | noise_mask
 
-        signal_start_ixs = times_to_indices(signal_start_times, gather.samples).astype(np.int16)
-        signal_end_ixs = times_to_indices(signal_end_times, gather.samples).astype(np.int16)
-        noise_start_ixs = times_to_indices(noise_start_times, gather.samples).astype(np.int16)
-        noise_end_ixs = times_to_indices(noise_end_times, gather.samples).astype(np.int16)
+        signal_start_ixs = times_to_indices(signal_start_times, samples).astype(np.int16)
+        signal_end_ixs = times_to_indices(signal_end_times, samples).astype(np.int16)
+        noise_start_ixs = times_to_indices(noise_start_times, samples).astype(np.int16)
+        noise_end_ixs = times_to_indices(noise_end_times, samples).astype(np.int16)
 
         # Avoiding dividing signal rms by zero and optimize computations a little
         signal_start_ixs[mask] = -1
@@ -623,8 +673,17 @@ class SinalToNoiseRMSAdaptive(BaseWindowMetric):
 
     def get_mask(self, gather):
         """QC indicator implementation. See `plot` docstring for parameters descriptions."""
-        ssi, sei, nsi, nei = self._get_indices(gather)
-        return self.compute_stats_by_ixs(gather.data, (ssi, nsi), (sei, nei))
+        fbp_times = self.refractor_velocity(gather.offsets)
+        return self.numba_get_mask(gather.data, self._get_indices, self.compute_stats_by_ixs, win_size=self.win_size,
+                                   shift_up=self.shift_up, shift_down=self.shift_down, samples=gather.samples,
+                                   fbp_times=fbp_times, times_to_indices=times_to_indices)
+
+    @staticmethod
+    @njit(nogil=True)
+    def numba_get_mask(traces, _get_indices, compute_stats_by_ixs, win_size, shift_up, shift_down, samples, fbp_times,
+                       times_to_indices):
+        ssi, sei, nsi, nei = _get_indices(traces, win_size, shift_up, shift_down, samples, fbp_times, times_to_indices)
+        return compute_stats_by_ixs(traces, (ssi, nsi), (sei, nei))
 
     @staticmethod
     def _calculate_metric_from_stats(stats):
