@@ -4,6 +4,7 @@ import os
 import math
 import warnings
 from textwrap import dedent
+from concurrent.futures import ThreadPoolExecutor
 
 import cv2
 import segyio
@@ -705,7 +706,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     # pylint: disable-next=too-many-statements
     def collect_stats(self, indices=None, n_quantile_traces=100000, quantile_precision=2, limits=None,
-                      chunk_size=10000, bar=True):
+                      chunk_size=10000, n_workers=None, bar=True):
         """Collect the following statistics by iterating over survey traces:
         1. Min and max amplitude,
         2. Mean amplitude and trace standard deviation,
@@ -747,7 +748,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                           "Run `remove_dead_traces` first.", RuntimeWarning)
 
         limits = self.process_limits(limits)
-        n_samples = len(self.file_samples[limits])
 
         headers = self.headers
         if indices is not None:
@@ -774,30 +774,37 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         chunk_traces_pos = np.split(traces_pos, chunk_borders)
         chunk_quantile_traces_mask = np.split(quantile_traces_mask, chunk_borders)
 
+        if n_workers is None:
+            n_workers = os.cpu_count()
+        n_workers = min(n_chunks, n_workers)
+
         # Define buffers. chunk_mean, chunk_var and chunk_weights have float64 dtype to be numerically stable
-        chunk_buffer = np.empty((chunk_size, n_samples), dtype=self.loader.dtype)
-        quantile_traces_buffer = []
-        global_min, global_max = np.float32("inf"), np.float32("-inf")
+        quantile_traces_buffer = [[] for _ in range(n_chunks)]
+        min_buffer = np.empty(n_chunks, dtype=np.float32)
+        max_buffer = np.empty(n_chunks, dtype=np.float32)
         mean_buffer = np.empty(n_chunks, dtype=np.float64)
         var_buffer = np.empty(n_chunks, dtype=np.float64)
         chunk_weights = np.array(chunk_sizes, dtype=np.float64) / n_traces
 
+        def collect_chuck_stats(i):
+            chunk = self.loader.load_traces(chunk_traces_pos[i], limits=limits)
+            chunk_quantile_mask = chunk_quantile_traces_mask[i]
+            if chunk_quantile_mask.any():
+                quantile_traces_buffer[i] = chunk[chunk_quantile_mask].ravel()
+            min_buffer[i], max_buffer[i], mean_buffer[i], var_buffer[i] = calculate_trace_stats(chunk.ravel())
+            return len(chunk)
+
         # Accumulate min, max, mean and var values of traces chunks
         bar_desc = f"Calculating statistics for traces in survey {self.name}"
         with tqdm(total=n_traces, desc=bar_desc, disable=not bar) as pbar:
-            for i, (chunk_pos, chunk_quantile_mask) in enumerate(zip(chunk_traces_pos, chunk_quantile_traces_mask)):
-                chunk_traces = self.loader.load_traces(chunk_pos, limits=limits, buffer=chunk_buffer[:len(chunk_pos)])
-                if chunk_quantile_mask.any():
-                    quantile_traces_buffer.append(chunk_traces[chunk_quantile_mask].ravel())
+            with ThreadPoolExecutor(max_workers=n_workers) as pool:
+                for i in range(n_chunks):
+                    future = pool.submit(collect_chuck_stats, i)
+                    future.add_done_callback(lambda fut: pbar.update(fut.result()))
 
-                chunk_min, chunk_max, chunk_mean, chunk_var = calculate_trace_stats(chunk_traces.ravel())
-                global_min = min(chunk_min, global_min)
-                global_max = max(chunk_max, global_max)
-                mean_buffer[i] = chunk_mean
-                var_buffer[i] = chunk_var
-                pbar.update(len(chunk_traces))
-
-        # Calculate global survey mean and variance by its values in chunks
+        # Calculate global survey statistics by individual chunks
+        global_min = np.min(min_buffer)
+        global_max = np.max(max_buffer)
         global_mean = np.average(mean_buffer, weights=chunk_weights)
         global_var = np.average(var_buffer + (mean_buffer - global_mean)**2, weights=chunk_weights)
 
