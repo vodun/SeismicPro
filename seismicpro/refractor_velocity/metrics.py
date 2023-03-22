@@ -143,7 +143,7 @@ class FirstBreaksOutliers(RefractorVelocityMetric):
         g = gather.copy()
         rv_times = refractor_velocity(gather['offset'])
         gather_times = g[self.first_breaks_col]
-        correct_uphole = self.correct_uphole (if self.correct_uphole is not None
+        correct_uphole = (self.correct_uphole if self.correct_uphole is not None
                                               else g.survey.is_uphole and refractor_velocity.is_uphole_corrected)
         if correct_uphole:
             gather_times += g["SourceUpholeTime"]
@@ -340,7 +340,7 @@ class DivergencePoint(RefractorVelocityMetric):
         """
         g = gather.copy()
         times = g[self.first_breaks_col]
-        correct_uphole = self.correct_uphole (if self.correct_uphole is not None
+        correct_uphole = (self.correct_uphole if self.correct_uphole is not None
                                               else g.survey.is_uphole and refractor_velocity.is_uphole_corrected)
         if correct_uphole:
             times += g["SourceUpholeTime"]
