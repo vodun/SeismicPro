@@ -4,6 +4,7 @@ import os
 import warnings
 from copy import copy
 from textwrap import dedent
+from functools import partial
 from concurrent.futures import ThreadPoolExecutor
 
 import cv2
@@ -17,13 +18,13 @@ from sklearn.linear_model import LinearRegression
 
 from .headers import load_headers
 from .headers_checks import validate_trace_headers, validate_source_headers, validate_receiver_headers
-from .metrics import SurveyAttribute, TracewiseMetric, DeadTrace, DEFAULT_TRACEWISE_METRICS
+from .metrics import SurveyAttribute, TracewiseMetric, BaseWindowMetric, DeadTrace, DEFAULT_TRACEWISE_METRICS
 from .plot_geometry import SurveyGeometryPlot
 from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
 from ..containers import GatherContainer, SamplesContainer
 from ..metrics import initialize_metrics
-from ..utils import to_list, maybe_copy, get_cols, get_first_defined, get_cols_from_by, ForPoolExecutor
+from ..utils import to_list, maybe_copy, get_cols, get_first_defined, get_cols_from_by
 from ..const import ENDIANNESS, HDR_FIRST_BREAK, HDR_TRACE_POS
 
 
@@ -484,9 +485,12 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             msg += """
         Number of bad traces after tracewise QC found by:
         """
-            # TODO: add metric paramters description after name like "clip with length 10: 100"
-            n_traces = [metric.binarize(self.headers[metric.header_cols]).sum() for metric in self.qc_metrics.values()]
-            msg += "\n\t".join([f"{name+':':<27}{num}" for name, num in zip(self.qc_metrics, n_traces)])
+            for metric in self.qc_metrics.values():
+                metric_value = self.headers[metric.header_cols]
+                if issubclass(metric, BaseWindowMetric):
+                    metric_value = metric.compute_rm(*self[metric.header_cols].T)
+                msg += f"\n\t{metric.description+':':<27}{sum(metric.binarize(metric_value))}"
+
         return dedent(msg).strip()
 
     def info(self):
@@ -1348,7 +1352,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             metrics = DEFAULT_TRACEWISE_METRICS
         metrics, _ = initialize_metrics(metrics, metric_class=TracewiseMetric)
 
-        metric_names = set([metric.name for metric in metrics])
+        metric_names = {metric.name for metric in metrics}
         if metric_names <= set(self.qc_metrics.keys()):
             msg = ', '.join(metric_names & set(self.qc_metrics.keys()))
             if not overwrite:
@@ -1365,10 +1369,15 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         def calc_metrics(i, chunk_size):
             headers = self.headers.iloc[idx_sort[i * chunk_size: (i + 1) * chunk_size]]
-            raw_gather = self.load_gather(headers)
-            return [metric(raw_gather) for metric in metrics]
+            gather = self.load_gather(headers)
+            results = {}
+            for metric in metrics:
+                if isinstance(metric, BaseWindowMetric):
+                    metric = partial(metric, return_rms=False)
+                results[metric.header_cols] = metric(gather)
+            return pd.DataFrame(results)
 
-        # Warmap metrics to avoid hanging of the ThreadPoolExecutor during first metric call
+        # Precompile all numba decorated metrics to avoid hanging of the ThreadPoolExecutor during first metrics call
         _ = calc_metrics(0, 1)
 
         futures = []
@@ -1376,14 +1385,14 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             with ThreadPoolExecutor(max_workers=n_workers) as pool:
                 for i in range(n_chunks):
                     future = pool.submit(calc_metrics, i, chunk_size)
-                    future.add_done_callback(lambda fut: pbar.update(int(len(fut.result()[0]))))
+                    future.add_done_callback(lambda fut: pbar.update(len(fut.result())))
                     futures.append(future)
-        results = [future.result() for future in futures]
 
-        for metric, metric_vals in zip(metrics, zip(*results)):
-            self.headers[metric.header_cols] = np.concatenate(metric_vals)[orig_idx]
-            self.qc_metrics[metric.name] = metric
-
+        results = pd.concat([future.result() for future in futures], ignore_index=True, copy=False).iloc[orig_idx]
+        results[self.headers.index.names] = [to_list(index) for index in self.headers.index]
+        results.set_index(self.headers.index.names)
+        self.headers[results.columns] = results
+        self.qc_metrics.update({metric.name: metric for metric in metrics})
         return self
 
     #------------------------------------------------------------------------#
@@ -1556,14 +1565,14 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             raise ValueError(f"Metrics with name(s) ({wrong_names}) are(is) not calculated yet!")
 
         index_cols, coords_cols = get_cols_from_by(self, by)
-        index_cols = to_list(coords_cols) if index_cols is None else to_list(index_cols)
         coords_cols = to_list(coords_cols)
+        coords = self[coords_cols]
+        index = self[index_cols] if index_cols is not None else index_cols
 
         mmaps = []
         for metric_name in metrics:
             metric = self.qc_metrics[metric_name].provide_context(survey=self)
-            columns = set(index_cols + coords_cols + to_list(metric.header_cols))
-            metric_mmap = metric.construct_map(self.get_headers(columns), index_cols, coords_cols, agg=agg,
+            metric_mmap = metric.construct_map(coords, self.get_headers(metric.header_cols), index=index, agg=agg,
                                                bin_size=bin_size)
             mmaps.append(metric_mmap)
         return mmaps[0] if squeeze_output else mmaps
