@@ -2,7 +2,6 @@
 particularly focused on estimated times of first breaks examination."""
 import numpy as np
 from scipy.signal import hilbert
-from scipy.optimize import minimize
 
 from ..metrics import Metric
 from ..const import HDR_FIRST_BREAK
@@ -307,7 +306,7 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
 
 class DivergencePoint(RefractorVelocityMetric):
     """The divergence point metric for first breaks.
-    Find offset after that first breaks are most likely to diverge from expected time.
+    Find an offset after that first breaks are most likely to diverge from expected time.
     Such an offset is defined as one with the maximum number of outliers in window of `step` times after it.
     
     Parameters
