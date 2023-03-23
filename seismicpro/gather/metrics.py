@@ -7,6 +7,7 @@ import numpy as np
 from ..const import HDR_FIRST_BREAK
 from ..metrics import PipelineMetric
 from ..refractor_velocity import RefractorVelocity, RefractorVelocityField
+from ..utils import get_first_defined
 
 
 class FirstBreaksOutliers(PipelineMetric):
@@ -18,6 +19,7 @@ class FirstBreaksOutliers(PipelineMetric):
     name = "first_breaks_outliers"
     is_lower_better = True
     min_value = 0
+    max_value = 1
     vmin = 0
     vmax = 0.05
     views = ("plot_gather", "plot_refractor_velocity")
@@ -88,9 +90,11 @@ class FirstBreaksOutliers(PipelineMetric):
             refractor_velocity = copy(refractor_velocity)
         else:
             raise ValueError("refractor_velocity must be of RefractorVelocity or RefractorVelocityField type")
+
+        max_offset = max(get_first_defined(refractor_velocity.max_offset, 0), gather["offset"].max())
         refractor_velocity.offsets = gather["offset"]
         refractor_velocity.times = fb_times
-        refractor_velocity.max_offset = max(refractor_velocity.max_offset, gather["offset"].max())
+        refractor_velocity.max_offset = max_offset
         refractor_velocity.plot(ax=ax, threshold_times=threshold_times, **kwargs)
 
 
