@@ -305,6 +305,7 @@ class MaxClipsLen(TracewiseMetric):
     name : str, optional, defaults to "max_clips_len"
         Metrics name.
     """
+    ## TODO: PROBABLY WE HAVE AN ERROR HERE!!!!!!!!!!!!!!!!
     name = "max_clips_len"
     min_value = 1
     max_value = None
@@ -482,6 +483,68 @@ class BaseWindowMetric(TracewiseMetric):
     def _plot(self, ax, gather):
         """Add any additional metric related graphs on plot"""
         pass
+
+
+class MetricsRatio(TracewiseMetric):
+    is_lower_better = False
+    threshold = None
+
+    # TODO: RENAME. names are begging to be distinguishable
+    def __init__(self, deivider_metric, divisible_metric, name=None):
+        for metric in [deivider_metric, divisible_metric]:
+            if not isinstance(metric, BaseWindowMetric):
+                raise ValueError()
+
+        name = f"{deivider_metric.name} and {divisible_metric.name} ratio" if name is None else name
+        super().__init__(name=name)
+
+        self.deivider_metric = deivider_metric
+        self.divisible_metric = divisible_metric
+
+    @property
+    def header_cols(self):
+        return self.deivider_metric.header_cols + self.divisible_metric.header_cols
+
+    def construct_map(self, coords, values, index=None, **kwargs):
+        mmaps_1 = self.deivider_metric.construct_map(coords, values[self.deivider_metric.header_cols], index=index)
+        mmaps_2 = self.divisible_metric.construct_map(coords, values[self.divisible_metric.header_cols], index=index)
+
+        cols_on = list(coords.columns.union(index.columns)) if index is not None else list(coords.columns)
+        ratio_df = mmaps_1.index_data.merge(mmaps_2.index_data, on=cols_on)
+        ratio_df[self.name] = ratio_df[self.deivider_metric.name] / ratio_df[self.divisible_metric.name]
+        coords = ratio_df[coords.columns]
+        values = ratio_df[self.name]
+        index = ratio_df[index.columns]
+        return super().construct_map(coords, values, index=index, **kwargs)
+
+    def plot(self, ax, coords, index, sort_by=None, threshold=None, top_ax_y_scale=None, bad_only=False, **kwargs):
+        threshold = self.threshold if threshold is None else threshold
+        top_ax_y_scale = self.top_ax_y_scale if top_ax_y_scale is None else top_ax_y_scale
+        _ = coords
+        gather = self.survey.get_gather(index)
+        sort_by = "offset" if sort_by is None else sort_by
+        gather = gather.sort(sort_by)
+
+        squares_deivider, nums_deivider = self.deivider_metric(gather, return_rms=False)
+        squares_divisible, nums_divisible = self.divisible_metric(gather, return_rms=False)
+
+        tracewise_deivider_metric = np.sqrt(squares_deivider / nums_deivider)
+        tracewise_divisible_metric = np.sqrt(squares_divisible / nums_divisible)
+        tracewise_metric = tracewise_deivider_metric / tracewise_divisible_metric
+        tracewise_metric[tracewise_metric==0] = np.nan
+
+        if bad_only:
+            bin_mask = self.binarize(tracewise_metric, threshold)
+            gather.data[self.aggregate(bin_mask) == 0] = np.nan
+
+        gather.plot(ax=ax, top_header=tracewise_metric, **kwargs)
+        top_ax = ax.figure.axes[1]
+        if threshold is not None:
+            self._plot_threshold(ax=top_ax, threshold=threshold)
+        top_ax.set_yscale(top_ax_y_scale)
+
+        self.deivider_metric._plot(ax=ax, gather=gather, color="lime", legend="deivider window")
+        self.divisible_metric._plot(ax=ax, gather=gather, color="magenta", legend="divisible window")
 
 
 class WindowRMS(BaseWindowMetric):

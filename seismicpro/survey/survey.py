@@ -18,7 +18,8 @@ from sklearn.linear_model import LinearRegression
 
 from .headers import load_headers
 from .headers_checks import validate_trace_headers, validate_source_headers, validate_receiver_headers
-from .metrics import SurveyAttribute, TracewiseMetric, BaseWindowMetric, DeadTrace, DEFAULT_TRACEWISE_METRICS
+from .metrics import (SurveyAttribute, TracewiseMetric, BaseWindowMetric, MetricsRatio, DeadTrace,
+                      DEFAULT_TRACEWISE_METRICS)
 from .plot_geometry import SurveyGeometryPlot
 from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
@@ -1367,14 +1368,21 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         idx_sort = self['TRACE_SEQUENCE_FILE'].argsort(kind='stable')
         orig_idx = idx_sort.argsort(kind='stable')
 
+        # TODO: try to preallocate all memory before compliting the metrics calculation
         def calc_metrics(i, chunk_size):
             headers = self.headers.iloc[idx_sort[i * chunk_size: (i + 1) * chunk_size]]
             gather = self.load_gather(headers)
             results = {}
+            # TODO: Rewrite!
             for metric in metrics:
+                header_cols = metric.header_cols
                 if isinstance(metric, BaseWindowMetric):
                     metric = partial(metric, return_rms=False)
-                results[metric.header_cols] = metric(gather)
+                metric_res = metric(gather)
+                if not isinstance(header_cols, str):
+                    results.update(zip(to_list(header_cols), metric_res))
+                else:
+                    results[header_cols] = metric_res
             return pd.DataFrame(results)
 
         # Precompile all numba decorated metrics to avoid hanging of the ThreadPoolExecutor during first metrics call
@@ -1389,8 +1397,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                     futures.append(future)
 
         results = pd.concat([future.result() for future in futures], ignore_index=True, copy=False).iloc[orig_idx]
-        results[self.headers.index.names] = [to_list(index) for index in self.headers.index]
-        results.set_index(self.headers.index.names, inplace=True)
+        results.index = self.headers.index
         self.headers[results.columns] = results
         self.qc_metrics.update({metric.name: metric for metric in metrics})
         return self
@@ -1534,7 +1541,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         values = tmp_map.index_data[tmp_map.metric_name]
         return tmp_map.metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size)
 
-    def construct_qc_maps(self, by, metrics=None, agg=None, bin_size=None):
+    def construct_qc_maps(self, by, metric_names=None, id_cols=None, agg=None, bin_size=None):
         """Construct a map of tracewise metric aggregated by gathers.
 
         Parameters
@@ -1554,24 +1561,29 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         BaseMetricMap
             Constructed metric map.
         """
+        squeeze_output = isinstance(metric_names, str)
+        if metric_names is None:
+            metric_names = list(self.qc_metrics.keys())
+        metric_names = to_list(metric_names)
 
-        squeeze_output = isinstance(metrics, str)
-        if metrics is None:
-            metrics = list(self.qc_metrics.keys())
-        metrics = to_list(metrics)
-
-        if not set(metrics) <= set(self.qc_metrics.keys()):
-            wrong_names = ', '.join(set(metrics) - set(self.qc_metrics.keys()))
-            raise ValueError(f"Metrics with name(s) ({wrong_names}) are(is) not calculated yet!")
+        metrics = []
+        for metric_name in metric_names:
+            if metric_name not in self.qc_metric:
+                raise ValueError(f"Metric with name {metric_name} is not calculated yet!")
+            if "/" in metric_name:
+                metric_list = [self.qc_metrics[name.strip()] for name in metric_name.split("/")]
+                metric = MetricsRatio(*metric_list)
+            else:
+                metric = self.qc_metrics[metric_name]
+            metrics.append(metric.provide_context(survey=self))
 
         index_cols, coords_cols = get_cols_from_by(self, by)
-        coords_cols = to_list(coords_cols)
-        coords = self[coords_cols]
-        index = self[index_cols] if index_cols is not None else index_cols
+        index_cols = get_first_defined(id_cols, index_cols)
+        coords = self.get_headers(coords_cols)
+        index = self.get_headers(index_cols) if index_cols is not None else index_cols
 
         mmaps = []
-        for metric_name in metrics:
-            metric = self.qc_metrics[metric_name].provide_context(survey=self)
+        for metric in metrics:
             metric_mmap = metric.construct_map(coords, self.get_headers(metric.header_cols), index=index, agg=agg,
                                                bin_size=bin_size)
             mmaps.append(metric_mmap)
