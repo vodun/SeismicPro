@@ -483,15 +483,18 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
 
         if self.qc_metrics:
-            msg += """
-        Number of bad traces after tracewise QC found by:
-        """
+            metric_msg = ""
             for metric in self.qc_metrics.values():
+                if metric.threshold is None:
+                    continue
                 metric_value = self.headers[metric.header_cols]
-                if issubclass(metric, BaseWindowMetric):
-                    metric_value = metric.compute_rm(*self[metric.header_cols].T)
-                msg += f"\n\t{metric.description+':':<27}{sum(metric.binarize(metric_value))}"
-
+                if isinstance(metric, BaseWindowMetric):
+                    metric_value = metric.compute_rms(*self[metric.header_cols].T)
+                metric_msg += f"\n\t{metric.description+':':<27}{sum(metric.binarize(metric_value))}"
+            if metric_msg:
+                msg += """
+        Number of bad traces after tracewise QC found by:
+        """ + metric_msg
         return dedent(msg).strip()
 
     def info(self):
