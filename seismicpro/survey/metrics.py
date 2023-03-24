@@ -300,7 +300,6 @@ class MaxClipsLen(TracewiseMetric):
     name : str, optional, defaults to "max_clips_len"
         Metrics name.
     """
-    ## TODO: PROBABLY WE HAVE AN ERROR HERE!!!!!!!!!!!!!!!!
     name = "max_clips_len"
     min_value = 1
     max_value = None
@@ -322,7 +321,7 @@ class MaxClipsLen(TracewiseMetric):
             else:
                 if counter > 1:
                     container[i, j - counter: j] = counter
-                    counter = 0
+                counter = 0
             return counter
 
         maxes = np.zeros_like(traces, dtype=np.int32)
