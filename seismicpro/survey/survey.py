@@ -490,7 +490,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                 metric_value = self.headers[metric.header_cols]
                 if isinstance(metric, BaseWindowMetric):
                     metric_value = metric.compute_rms(*self[metric.header_cols].T)
-                metric_msg += f"\n\t{metric.description+':':<27}{sum(metric.binarize(metric_value))}"
+                metric_msg += f"\n\t{metric.description+':':<50}{sum(metric.binarize(metric_value))}"
             if metric_msg:
                 msg += """
         Number of bad traces after tracewise QC found by:
@@ -1376,16 +1376,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             headers = self.headers.iloc[idx_sort[i * chunk_size: (i + 1) * chunk_size]]
             gather = self.load_gather(headers)
             results = {}
-            # TODO: Rewrite!
             for metric in metrics:
                 header_cols = metric.header_cols
                 if isinstance(metric, BaseWindowMetric):
                     metric = partial(metric, return_rms=False)
-                metric_res = metric(gather)
-                if not isinstance(header_cols, str):
-                    results.update(zip(to_list(header_cols), metric_res))
-                else:
-                    results[header_cols] = metric_res
+                results.update(zip(to_list(header_cols), np.atleast_2d(metric(gather))))
             return pd.DataFrame(results)
 
         # Precompile all numba decorated metrics to avoid hanging of the ThreadPoolExecutor during first metrics call
@@ -1571,11 +1566,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         metrics = []
         for metric_name in metric_names:
-            if metric_name not in self.qc_metric:
-                raise ValueError(f"Metric with name {metric_name} is not calculated yet!")
             if "/" in metric_name:
                 metric_list = [self.qc_metrics[name.strip()] for name in metric_name.split("/")]
                 metric = MetricsRatio(*metric_list)
+            elif metric_name not in self.qc_metrics:
+                raise ValueError(f'Metric with name "{metric_name}" is not calculated yet!')
             else:
                 metric = self.qc_metrics[metric_name]
             metrics.append(metric.provide_context(survey=self))
@@ -1583,7 +1578,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         index_cols, coords_cols = get_cols_from_by(self, by)
         index_cols = get_first_defined(id_cols, index_cols)
         coords = self.get_headers(coords_cols)
-        index = self.get_headers(index_cols) if index_cols is not None else index_cols
+        index = self.get_headers(index_cols) if index_cols is not None else coords
 
         mmaps = []
         for metric in metrics:

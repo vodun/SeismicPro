@@ -67,7 +67,7 @@ class TracewiseMetric(SurveyAttribute):
     @property
     def description(self):
         """String description of tracewise metric"""
-        return self.name
+        return f"{self.name} with threshold={self.threshold}"
 
     def preprocess(self, gather):
         """Preprocess gather before calculating metric. Identity by default."""
@@ -116,11 +116,6 @@ class TracewiseMetric(SurveyAttribute):
             raise ValueError(f"`threshold` should contain exactly 2 elements, not {len(threshold)}")
 
         return (mask < threshold[0]) | (mask > threshold[1])
-
-    # def construct_map(self, headers, index_cols, coords_cols, **kwargs):
-    #     """Construct metric map from headers base on index or coords cols and kwargs."""
-    #     index = headers[index_cols] if index_cols is not None else None
-    #     return super().construct_map(headers[coords_cols], headers[self.name], index=index, **kwargs)
 
     def plot(self, ax, coords, index, sort_by=None, threshold=None, top_ax_y_scale=None,  bad_only=False, **kwargs):
         """Gather plot where samples with indicator above/below `.threshold` are highlited."""
@@ -449,7 +444,8 @@ class BaseWindowMetric(TracewiseMetric):
             nums[i] = len(trace[start_ix: end_ix])
         return sum_squares, nums
 
-    def construct_map(self, coords, values, index=None, **kwargs):
+    def construct_map(self, coords, values, index, **kwargs):
+        """TODO"""
         sum_square_map = super().construct_map(coords, values.iloc[:, 0], index=index, agg="sum")
         nums_map = super().construct_map(coords, values.iloc[:, 1], index=index, agg="sum")
         cols_on = list(coords.columns.union(index.columns))
@@ -505,11 +501,11 @@ class MetricsRatio(TracewiseMetric):
     def header_cols(self):
         return self.deivider_metric.header_cols + self.divisible_metric.header_cols
 
-    def construct_map(self, coords, values, index=None, **kwargs):
+    def construct_map(self, coords, values, index, **kwargs):
         mmaps_1 = self.deivider_metric.construct_map(coords, values[self.deivider_metric.header_cols], index=index)
         mmaps_2 = self.divisible_metric.construct_map(coords, values[self.divisible_metric.header_cols], index=index)
 
-        cols_on = list(coords.columns.union(index.columns)) if index is not None else list(coords.columns)
+        cols_on = list(coords.columns.union(index.columns))
         ratio_df = mmaps_1.index_data.merge(mmaps_2.index_data, on=cols_on)
         ratio_df[self.name] = ratio_df[self.deivider_metric.name] / ratio_df[self.divisible_metric.name]
         coords = ratio_df[coords.columns]
@@ -545,6 +541,7 @@ class MetricsRatio(TracewiseMetric):
 
         self.deivider_metric._plot(ax=ax, gather=gather, color="lime", legend="deivider window")
         self.divisible_metric._plot(ax=ax, gather=gather, color="magenta", legend="divisible window")
+        ax.legend()
 
 
 class WindowRMS(BaseWindowMetric):
