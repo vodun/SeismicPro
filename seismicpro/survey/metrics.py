@@ -4,7 +4,7 @@ import warnings
 from functools import partial
 
 import numpy as np
-from numba import njit, prange
+from numba import njit
 from matplotlib import patches
 
 from ..metrics import Metric
@@ -424,64 +424,40 @@ class BaseWindowMetric(TracewiseMetric):
             return self.compute_rms(squares, nums)
         return squares, nums
 
+    @property
+    def header_cols(self):
+        """Column names in survey.headers to srote metrics results."""
+        return [self.name+"_sum", self.name+"_n"]
+
     @staticmethod
     def compute_rms(squares, nums):
         return np.sqrt(np.sum(squares) / np.sum(nums))
 
     @staticmethod
-    @njit(nogil=True, parallel=True)
-    def compute_stats_by_ixs(data, start_ixs_list, end_ixs_list):
+    @njit(nogil=True)
+    def compute_stats_by_ixs(data, start_ixs, end_ixs):
         """TODO"""
         sum_squares = np.empty(data.shape[0], dtype=np.float32)
         nums = np.empty(data.shape[0], dtype=np.float32)
 
-        for i in prange(data.shape[0]):
+        for i in range(data.shape[0]):
             trace = data[i]
-            for ix in prange(len(start_ixs_list)):
-                start_ix = start_ixs_list[ix][i]
-                end_ix = end_ixs_list[ix][i]
-                if start_ix >= 0 and end_ix >= 0:
-                    sum_squares[i] = sum(trace[start_ix: end_ix] ** 2)
-                    nums[i] = len(trace[start_ix: end_ix])
+            start_ix = start_ixs[i]
+            end_ix = end_ixs[i]
+            sum_squares[i] = sum(trace[start_ix: end_ix] ** 2)
+            nums[i] = len(trace[start_ix: end_ix])
         return sum_squares, nums
 
-    def construct_map(self, headers, index_cols, coords_cols, **kwargs):
-        groupby_cols = self.header_cols + (coords_cols if index_cols != coords_cols else [])
-        groupby = headers.groupby(index_cols)[groupby_cols]
-        sums_func = {sum_name: lambda x: np.sqrt(np.sum(x)) for sum_name in self.header_cols[::2]}
-        nums_func = {num_name: "sum" for num_name in self.header_cols[1::2]}
-        coords_func = {coord_name: "mean" for coord_name in groupby_cols[len(self.header_cols):]}
-
-        aggregated_gb = groupby.agg({**sums_func, **nums_func, **coords_func})
-        aggregated_gb.reset_index(inplace=True)
-        coords = aggregated_gb[coords_cols]
-        value = self._calculate_metric_from_stats(aggregated_gb[self.header_cols].to_numpy())
-        index = aggregated_gb[index_cols]
-        return SurveyAttribute.construct_map(self, coords, value, index=index, **kwargs)
-
     def construct_map(self, coords, values, index=None, **kwargs):
-        sum_sq = values.iloc[:, 0]
-        n = values.iloc[:, 1]
-        sum_sq_map = super().construct_map(coords, squm_sq, index=index, agg="sum")
-        n_map = super().construct_map(coords, n, index=index, agg="sum")
-        sum_sq_map.index_data.merge(n.index_data, on=squm_sq_map.index_cols)
-        div
-        sqrt
+        sum_square_map = super().construct_map(coords, values.iloc[:, 0], index=index, agg="sum")
+        nums_map = super().construct_map(coords, values.iloc[:, 1], index=index, agg="sum")
+        cols_on = list(coords.columns.union(index.columns))
+        sum_df = sum_square_map.index_data.merge(nums_map.index_data, on=cols_on)
+        sum_df[self.name] = np.sqrt(sum_df[self.name+"_x"] / sum_df[self.name+"_y"])
+        return super().construct_map(sum_df[coords.columns], sum_df[self.name], index=sum_df[index.columns], **kwargs)
 
-        groupby_cols = self.header_cols + (coords_cols if index_cols != coords_cols else [])
-        groupby = headers.groupby(index_cols)[groupby_cols]
-        sums_func = {sum_name: lambda x: np.sqrt(np.sum(x)) for sum_name in self.header_cols[::2]}
-        nums_func = {num_name: "sum" for num_name in self.header_cols[1::2]}
-        coords_func = {coord_name: "mean" for coord_name in groupby_cols[len(self.header_cols):]}
-
-        aggregated_gb = groupby.agg({**sums_func, **nums_func, **coords_func})
-        aggregated_gb.reset_index(inplace=True)
-        coords = aggregated_gb[coords_cols]
-        value = self._calculate_metric_from_stats(aggregated_gb[self.header_cols].to_numpy())
-        index = aggregated_gb[index_cols]
-        return SurveyAttribute.construct_map(self, coords, value, index=index, **kwargs)
-
-    def plot(self, ax, coords, index, sort_by=None, threshold=None, top_ax_y_scale=None, bad_only=False, **kwargs):
+    def plot(self, ax, coords, index, sort_by=None, threshold=None, top_ax_y_scale=None, bad_only=False, color="lime",
+             **kwargs):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
         threshold = self.threshold if threshold is None else threshold
         top_ax_y_scale = self.top_ax_y_scale if top_ax_y_scale is None else top_ax_y_scale
@@ -489,8 +465,8 @@ class BaseWindowMetric(TracewiseMetric):
         gather = self.survey.get_gather(index)
         sort_by = "offset" if sort_by is None else sort_by
         gather = gather.sort(sort_by)
-        stats = self.get_mask(gather)
-        tracewise_metric = self._calculate_metric_from_stats(stats)
+        squares, nums = self(gather, return_rms=False)
+        tracewise_metric = np.sqrt(squares / nums)
         tracewise_metric[tracewise_metric==0] = np.nan
         if bad_only:
             bin_mask = self.binarize(tracewise_metric, threshold)
@@ -501,11 +477,7 @@ class BaseWindowMetric(TracewiseMetric):
         if threshold is not None:
             self._plot_threshold(ax=top_ax, threshold=threshold)
         top_ax.set_yscale(top_ax_y_scale)
-        self._plot(ax=ax, gather=gather)
-
-    @staticmethod
-    def _calculate_metric_from_stats(stats):
-        raise NotImplementedError
+        self._plot(ax=ax, gather=gather, color=color)
 
     def _plot(self, ax, gather):
         """Add any additional metric related graphs on plot"""
@@ -525,8 +497,7 @@ class WindowRMS(BaseWindowMetric):
         Metrics name.
     """
     name = "rms"
-    is_lower_better = None # TODO: think what should it be?
-    # What treshold to use? Leave it none?
+    is_lower_better = None
     threshold = None
 
     def __init__(self, offsets, times, name=None):
@@ -544,61 +515,45 @@ class WindowRMS(BaseWindowMetric):
         """String representation of the metric."""
         return f"{type(self).__name__}(name='{self.name}', offsets='{self.offsets}', times='{self.times}')"
 
-    @property
-    def header_cols(self):
-        """Column names in survey.headers to srote metrics results."""
-        return [self.name+"_sum", self.name+"_n"]
+    def get_mask(self, gather):
+        """QC indicator implementation."""
+        return self.numba_get_mask(gather.data, gather.samples, gather.offsets, self.times, self.offsets,
+                                   self._get_time_ixs, self.compute_stats_by_ixs)
+
+    @staticmethod
+    @njit(nogil=True)
+    def numba_get_mask(traces, gather_samples, gather_offests, times, offsets, _get_time_ixs,
+                       compute_stats_by_ixs):
+        """QC indicator implementation."""
+        times = _get_time_ixs(gather_samples, times)
+
+        window_ixs = (gather_offests >= offsets[0]) & (gather_offests <= offsets[1])
+        start_ixs = np.full(sum(window_ixs), fill_value=times[0], dtype=np.int16)
+        end_ixs = np.full(sum(window_ixs), fill_value=times[1], dtype=np.int16)
+        squares = np.zeros(traces.shape[0], dtype=np.float32)
+        nums = np.zeros(traces.shape[0], dtype=np.float32)
+        window_squares, window_nums = compute_stats_by_ixs(traces[window_ixs], start_ixs, end_ixs)
+        squares[window_ixs] = window_squares
+        nums[window_ixs] = window_nums
+        return squares, nums
 
     @staticmethod
     @njit(nogil=True)
     def _get_time_ixs(gather_samples, times):
-        # Deleete!
         times = np.asarray([max(gather_samples[0], times[0]), min(gather_samples[-1], times[1])])
         return times_to_indices(times, gather_samples).astype(np.int16)
 
-    @staticmethod
-    @njit(nogil=True)
-    def _get_offsets(gather_offsets, offsets):
-        # delete!
-        min_offset, max_offset = min(gather_offsets), max(gather_offsets)
-        return np.asarray([max(min_offset, offsets[0]), min(max_offset, offsets[1])])
-
-    def get_mask(self, gather):
-        """QC indicator implementation."""
-        return self.numba_get_mask(gather.data, gather.samples, gather.offsets, self.times, self.offsets,
-                                   self._get_time_ixs, self._get_offsets, self.compute_stats_by_ixs)
-
-    @staticmethod
-    @njit(nogil=True, parallel=True)
-    def numba_get_mask(traces, gather_samples, gather_offests, times, offsets, _get_time_ixs, _get_offsets,
-                       compute_stats_by_ixs):
-        """QC indicator implementation."""
-        times = _get_time_ixs(gather_samples, times)
-        offsets = _get_offsets(gather_offests, offsets)
-
-        window_ixs = np.nonzero((gather_offests >= offsets[0]) & (gather_offests <= offsets[1]))[0]
-        start_ixs = np.full(len(window_ixs), fill_value=times[0])
-        end_ixs = np.full(len(window_ixs), fill_value=times[1])
-        result = np.full((traces.shape[0], 2), fill_value=np.nan)
-        result[window_ixs] = compute_stats_by_ixs(traces[window_ixs], (start_ixs, ), (end_ixs, ))
-        return result
-
-    @staticmethod
-    def _calculate_metric_from_stats(stats):
-        return stats[:, 0] / stats[:, 1]
-
-    def _plot(self, ax, gather):
+    def _plot(self, ax, gather, color="lime", legend=None):
         # TODO: do we want to plot this metric with sort_by != 'offset'?
-        times = self._get_time_ixs(gather, self.times)
-        offsets = self._get_offsets(gather, self.offsets)
+        times = self._get_time_ixs(gather.samples, self.times)
 
-        offs_ind = np.nonzero((gather.offsets >= offsets[0]) & (gather.offsets <= offsets[1]))[0]
+        offs_ind = np.nonzero((gather.offsets >= self.offsets[0]) & (gather.offsets <= self.offsets[1]))[0]
         if len(offs_ind) > 0:
             n_rec = (offs_ind[0], times[0]), len(offs_ind), (times[1] - times[0])
-            ax.add_patch(patches.Rectangle(*n_rec, linewidth=2, edgecolor='magenta', facecolor='none'))
+            ax.add_patch(patches.Rectangle(*n_rec, linewidth=2, edgecolor=color, facecolor='none', label=legend))
 
 
-class SignalToNoiseRMSAdaptive(BaseWindowMetric):
+class AdaptiveWindowRMS(BaseWindowMetric):
     """Signal to Noise RMS ratio computed in sliding windows along provided refractor velocity.
     RMS will be computed in two windows for every gather:
     1. Window shifted up from refractor velocity by `shift_up` ms. RMS in this window represents the noise value.
@@ -625,78 +580,58 @@ class SignalToNoiseRMSAdaptive(BaseWindowMetric):
     is_lower_better = False
     threshold = None
 
-    def __init__(self, win_size, shift_up, shift_down, refractor_velocity, name=None):
+    def __init__(self, win_size, shift, refractor_velocity, name=None):
         super().__init__(name=name)
         self.win_size = win_size
-        self.shift_up = shift_up
-        self.shift_down = shift_down
+        self.shift = shift
         self.refractor_velocity = refractor_velocity
 
     def __repr__(self):
         """String representation of the metric."""
-        repr_str = f"(name='{self.name}', win_size='{self.win_size}', shift_up='{self.shift_up}', "\
-                   f"shift_down='{self.shift_down}', refractor_velocity='{self.refractor_velocity}')"
+        repr_str = f"(name='{self.name}', win_size='{self.win_size}', shift='{self.shift}', "\
+                   f"refractor_velocity='{self.refractor_velocity}')"
         return f"{type(self).__name__}" + repr_str
-
-    @property
-    def header_cols(self):
-        """Column names in survey.headers to srote metrics results."""
-        return [self.name + postfix for postfix in ["_signal_sum", "_signal_n", "_noise_sum", "_noise_n"]]
-
-    @njit(nogil=True, parallel=True)
-    def _get_indices(self, win_size, shift_up, shift_down, samples, fbp_times, times_to_indices):
-        """Convert times to use for noise and signal windows into indices"""
-
-        signal_start_times = fbp_times + shift_down
-        signal_end_times = np.clip(signal_start_times + win_size, None, samples[-1])
-
-        noise_end_times = fbp_times - shift_up
-        noise_start_times = np.clip(noise_end_times - win_size, 0, None)
-
-        signal_mask = signal_start_times > samples[-1]
-        noise_mask = noise_end_times < 0
-        mask = signal_mask | noise_mask
-
-        signal_start_ixs = times_to_indices(signal_start_times, samples).astype(np.int16)
-        signal_end_ixs = times_to_indices(signal_end_times, samples).astype(np.int16)
-        noise_start_ixs = times_to_indices(noise_start_times, samples).astype(np.int16)
-        noise_end_ixs = times_to_indices(noise_end_times, samples).astype(np.int16)
-
-        # Avoiding dividing signal rms by zero and optimize computations a little
-        signal_start_ixs[mask] = -1
-        signal_end_ixs[mask] = -1
-
-        noise_start_ixs[mask] = -1
-        noise_end_ixs[mask] = -1
-
-        return signal_start_ixs, signal_end_ixs, noise_start_ixs, noise_end_ixs
 
     def get_mask(self, gather):
         """QC indicator implementation. See `plot` docstring for parameters descriptions."""
         fbp_times = self.refractor_velocity(gather.offsets)
         return self.numba_get_mask(gather.data, self._get_indices, self.compute_stats_by_ixs, win_size=self.win_size,
-                                   shift_up=self.shift_up, shift_down=self.shift_down, samples=gather.samples,
-                                   fbp_times=fbp_times, times_to_indices=times_to_indices)
+                                   shift=self.shift, samples=gather.samples, fbp_times=fbp_times,
+                                   times_to_indices=times_to_indices)
 
     @staticmethod
     @njit(nogil=True)
-    def numba_get_mask(traces, _get_indices, compute_stats_by_ixs, win_size, shift_up, shift_down, samples, fbp_times,
+    def numba_get_mask(traces, _get_indices, compute_stats_by_ixs, win_size, shift, samples, fbp_times,
                        times_to_indices):
-        ssi, sei, nsi, nei = _get_indices(traces, win_size, shift_up, shift_down, samples, fbp_times, times_to_indices)
-        return compute_stats_by_ixs(traces, (ssi, nsi), (sei, nei))
+        start_ixs, end_ixs = _get_indices(win_size, shift, samples, fbp_times, times_to_indices)
+        return compute_stats_by_ixs(traces, start_ixs, end_ixs)
 
     @staticmethod
-    def _calculate_metric_from_stats(stats):
-        return (stats[:, 0] / stats[:, 1] + 1e-10) / (stats[:, 2] / stats[:, 3] + 1e-10)
+    @njit(nogil=True)
+    def _get_indices(win_size, shift, samples, fbp_times, times_to_indices):
+        """Convert times to use for noise and signal windows into indices"""
+        first_bound = np.clip(fbp_times + shift, 0, samples[-1])
+        second_bound = np.clip(first_bound + (win_size * np.sign(shift)), 0, samples[-1])
 
-    def _plot(self, ax, gather):
+        if shift > 0:
+            start_times = first_bound
+            end_times = second_bound
+        else:
+            start_times = second_bound
+            end_times = first_bound
+
+        start_ixs = times_to_indices(start_times, samples).astype(np.int16)
+        end_ixs = times_to_indices(end_times, samples).astype(np.int16)
+        return start_ixs, end_ixs
+
+    def _plot(self, ax, gather, color="lime", legend=None):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows."""
-        indices = self._get_indices(gather)
-        indices = np.where(np.asarray(indices) == -1, np.nan, indices)
+        fbp_times = self.refractor_velocity(gather.offsets)
+        indices = self._get_indices(self.win_size, self.shift, gather.samples, fbp_times, times_to_indices)
+        indices = np.where(np.asarray(indices) == 0, np.nan, indices)
+        indices = np.where(np.asarray(indices) == np.max(indices), np.nan, indices)
 
-        ax.plot(np.arange(gather.n_traces), indices[0], color='lime')
-        ax.plot(np.arange(gather.n_traces), indices[1], color='lime')
-        ax.plot(np.arange(gather.n_traces), indices[2], color='magenta')
-        ax.plot(np.arange(gather.n_traces), indices[3], color='magenta')
+        ax.plot(np.arange(gather.n_traces), indices[0], color=color, label=legend)
+        ax.plot(np.arange(gather.n_traces), indices[1], color=color)
 
-DEFAULT_TRACEWISE_METRICS = [TraceAbsMean, TraceMaxAbs, MaxClipsLen, MaxConstLen, DeadTrace, WindowRMS]
+DEFAULT_TRACEWISE_METRICS = [TraceAbsMean, TraceMaxAbs, MaxClipsLen, MaxConstLen, DeadTrace]
