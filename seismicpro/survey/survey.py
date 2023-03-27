@@ -490,10 +490,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                 metric_value = self.headers[metric.header_cols]
                 if isinstance(metric, BaseWindowMetric):
                     metric_value = metric.compute_rms(*self[metric.header_cols].T)
-                metric_msg += f"\n\t{metric.description+':':<50}{sum(metric.binarize(metric_value))}"
+                metric_msg += f"\n\t{metric.description+':':<55}{sum(metric.binarize(metric_value))}"
             if metric_msg:
                 msg += """
-        Number of bad traces after tracewise QC found by:
+        Number of possible bad traces found by tracewise QC:
         """ + metric_msg
         return dedent(msg).strip()
 
@@ -1166,7 +1166,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Survey
             Filtered survey.
         """
-
         if not self.qc_metrics:
             raise ValueError("Not a single metric has been calculated yet, call `self.qc_tracewise` to compute one")
 
@@ -1176,6 +1175,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             avalible_metrics = ', '.join(self.qc_metrics.keys())
             raise ValueError(f"`metric_name` must be one of {avalible_metrics}, but {metric_name} was given")
         self.filter(lambda metric_value: ~metric.binarize(metric_value, threshold) , cols=metric_name, inplace=True)
+        return self
 
     def remove_dead_traces(self, header_name=None, chunk_size=1000, inplace=False, bar=True):
         """ Remove dead (constant) traces from the survey.

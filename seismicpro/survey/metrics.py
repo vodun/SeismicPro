@@ -60,7 +60,7 @@ class TracewiseMetric(SurveyAttribute):
     @property
     def description(self):
         """String description of tracewise metric"""
-        return f"{self.name} with threshold={self.threshold}"
+        return NotImplementedError
 
     def preprocess(self, gather):
         """Preprocess gather before calculating metric. Identity by default."""
@@ -192,6 +192,11 @@ class Spikes(MuteTracewiseMetric):
     is_lower_better = True
     threshold = 2
 
+    @property
+    def description(self):
+        """String description of tracewise metric"""
+        return "Traces with spikes"
+
     @staticmethod
     @njit(nogil=True)
     def numba_get_mask(traces):
@@ -230,6 +235,11 @@ class Autocorrelation(MuteTracewiseMetric):
     is_lower_better = False
     threshold = 0.8
 
+    @property
+    def description(self):
+        """String description of tracewise metric"""
+        return f"Traces with autocorrelation less than {self.threshold}"
+
     @staticmethod
     @njit(nogil=True)
     def numba_get_mask(traces):
@@ -252,6 +262,11 @@ class TraceAbsMean(TracewiseMetric):
     is_lower_better = True
     threshold = 0.1
 
+    @property
+    def description(self):
+        """String description of tracewise metric"""
+        return f"Traces with inverce CV bigger than {self.threshold}"
+
     @staticmethod
     @njit(nogil=True)
     def numba_get_mask(traces):
@@ -263,7 +278,7 @@ class TraceAbsMean(TracewiseMetric):
 
 
 class TraceMaxAbs(TracewiseMetric):
-    """Maximun absolute amplitude value scaled by trace's std.
+    """Maximum absolute amplitude value scaled by trace's std.
 
     Parameters
     ----------
@@ -273,6 +288,11 @@ class TraceMaxAbs(TracewiseMetric):
     name = "trace_maxabs"
     is_lower_better = True
     threshold = 15
+
+    @property
+    def description(self):
+        """String description of tracewise metric"""
+        return f"Traces with max abs to std ratio bigger than {self.threshold}"
 
     @staticmethod
     @njit(nogil=True)
@@ -302,7 +322,7 @@ class MaxClipsLen(TracewiseMetric):
     @property
     def description(self):
         """String description of tracewise metric"""
-        return self.name + f"with {self.threshold} clips in a row"
+        return f"Traces with more than {self.threshold} clips in a row"
 
     @staticmethod
     @njit(nogil=True)
@@ -352,7 +372,7 @@ class MaxConstLen(TracewiseMetric):
     @property
     def description(self):
         """String description of tracewise metric"""
-        return self.name + f"with {self.threshold} const value in a row"
+        return f"Traces with more than {self.threshold} identical values in a row"
 
     @staticmethod
     @njit(nogil=True)
@@ -389,6 +409,7 @@ class DeadTrace(TracewiseMetric):
     is_lower_better = True
     threshold = 0.5
 
+    @property
     def description(self):
         return "Number of dead traces"
 
@@ -523,11 +544,11 @@ class MetricsRatio(TracewiseMetric):
         _ = coords
         gather = self.survey.get_gather(index).sort("offset")
 
-        squares_deivider, nums_deivider = self.numerator(gather, return_rms=False)
-        squares_divisible, nums_divisible = self.denominator(gather, return_rms=False)
+        squares_numerator, nums_numerator = self.numerator(gather, return_rms=False)
+        squares_denominator, nums_denominator = self.denominator(gather, return_rms=False)
 
-        tracewise_numerator = np.sqrt(squares_deivider / nums_deivider)
-        tracewise_denominator = np.sqrt(squares_divisible / nums_divisible)
+        tracewise_numerator = np.sqrt(squares_numerator / nums_numerator)
+        tracewise_denominator = np.sqrt(squares_denominator / nums_denominator)
         tracewise_metric = tracewise_numerator / tracewise_denominator
         tracewise_metric[tracewise_metric==0] = np.nan
 
@@ -541,8 +562,8 @@ class MetricsRatio(TracewiseMetric):
             self._plot_threshold(ax=top_ax, threshold=threshold)
         top_ax.set_yscale(top_ax_y_scale)
 
-        self.numerator._plot(ax=ax, gather=gather, color="lime", legend="deivider window")
-        self.denominator._plot(ax=ax, gather=gather, color="magenta", legend="divisible window")
+        self.numerator._plot(ax=ax, gather=gather, color="lime", legend="numerator window")
+        self.denominator._plot(ax=ax, gather=gather, color="magenta", legend="denominator window")
         ax.legend()
 
     def get_views(self, threshold=None, top_ax_y_scale=None, **kwargs):
