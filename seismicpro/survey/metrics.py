@@ -8,6 +8,7 @@ from numba import njit
 from matplotlib import patches
 
 from ..metrics import Metric
+from .utils import isclose
 from ..utils import times_to_indices
 
 # Ignore all warnings related to empty slices or dividing by zero
@@ -329,7 +330,7 @@ class MaxClipsLen(TracewiseMetric):
     def numba_get_mask(traces):
         """QC indicator implementation."""
         def _update_counters(trace, i, j, value, counter, container):
-            if trace == value:
+            if isclose(trace, value):
                 counter += 1
             else:
                 if counter > 1:
@@ -383,7 +384,7 @@ class MaxConstLen(TracewiseMetric):
             trace = traces[i]
             counter = 1
             for j in range(1, trace.shape[0]):  # pylint: disable=consider-using-enumerate
-                if trace[j] == trace[j-1]: # TODO: or should we do here smth like abs(trace[j] - trace[j-1]) < 1e-10?
+                if isclose(trace[j], trace[j-1]):
                     counter += 1
                 else:
                     if counter > 1:
@@ -419,7 +420,7 @@ class DeadTrace(TracewiseMetric):
         """QC indicator implementation."""
         res = np.empty_like(traces[:, 0])
         for i in range(traces.shape[0]):
-            res[i] = max(traces[i]) - min(traces[i]) < 1e-10
+            res[i] = isclose(max(traces[i]), min(traces[i]))
         return res
 
 
@@ -481,7 +482,7 @@ class BaseWindowMetric(TracewiseMetric):
         gather = self.survey.get_gather(index).sort("offset")
         squares, nums = self(gather, return_rms=False)
         tracewise_metric = np.sqrt(squares / nums)
-        tracewise_metric[tracewise_metric==0] = np.nan
+        tracewise_metric[tracewise_metric == 0] = np.nan
         if bad_only:
             bin_mask = self.binarize(tracewise_metric, threshold)
             gather.data[self.aggregate(bin_mask) == 0] = np.nan
@@ -550,7 +551,7 @@ class MetricsRatio(TracewiseMetric):
         tracewise_numerator = np.sqrt(squares_numerator / nums_numerator)
         tracewise_denominator = np.sqrt(squares_denominator / nums_denominator)
         tracewise_metric = tracewise_numerator / tracewise_denominator
-        tracewise_metric[tracewise_metric==0] = np.nan
+        tracewise_metric[tracewise_metric == 0] = np.nan
 
         if bad_only:
             bin_mask = self.binarize(tracewise_metric, threshold)

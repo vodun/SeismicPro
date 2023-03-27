@@ -39,3 +39,8 @@ def ibm_to_ieee(hh, hl, lh, ll):
             exp16 = (np.int8(hh[i, j]) & np.int8(0x7f)) - 70
             res[i, j] = mant * 16.0**exp16
     return res
+
+@njit(nogil=True)
+def isclose(x, y, atol=1e-5, rtol=1e-8):
+    """check isclose"""
+    return np.less_equal(np.abs(x - y), atol + rtol * np.abs(y))
