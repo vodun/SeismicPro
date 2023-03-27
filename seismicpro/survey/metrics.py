@@ -1,5 +1,6 @@
 # pylint: disable=not-an-iterable
 """Implements survey metrics"""
+
 import warnings
 from functools import partial
 
@@ -377,7 +378,7 @@ class MaxConstLen(TracewiseMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def numba_get_mask(traces): # TODO: can gather.data be 1d?
+    def numba_get_mask(traces):
         """QC indicator implementation."""
         indicator = np.zeros_like(traces)
         for i in range(traces.shape[0]):
@@ -509,7 +510,6 @@ class MetricsRatio(TracewiseMetric):
     is_lower_better = False
     threshold = None
 
-    # TODO: RENAME. names are begging to be distinguishable
     def __init__(self, numerator, denominator, name=None):
         for metric in [numerator, denominator]:
             if not isinstance(metric, BaseWindowMetric):
@@ -633,7 +633,6 @@ class WindowRMS(BaseWindowMetric):
         return times_to_indices(times, gather_samples).astype(np.int16)
 
     def _plot(self, ax, gather, color="lime", legend=None):
-        # TODO: do we want to plot this metric with sort_by != 'offset'?
         times = self._get_time_ixs(gather.samples, self.times)
 
         offs_ind = np.nonzero((gather.offsets >= self.offsets[0]) & (gather.offsets <= self.offsets[1]))[0]

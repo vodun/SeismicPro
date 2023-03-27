@@ -1568,7 +1568,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             if "/" in metric_name:
                 metric_list = list(map(lambda name: name.strip(), metric_name.split("/")))
                 if len(metric_list) != 2:
-                    raise ValueError("Single division ")
+                    raise ValueError(f"Exactly two metrics shouldbe used for division, not {len(metric_list)}")
                 for metric in metric_list:
                     if metric not in self.qc_metrics:
                         raise ValueError(f'Metric with name "{metric_name}" is not calculated yet')
