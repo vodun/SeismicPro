@@ -444,7 +444,8 @@ class BaseWindowMetric(TracewiseMetric):
         """TODO"""
         sum_square_map = super().construct_map(coords, values.iloc[:, 0], index=index, agg="sum")
         nums_map = super().construct_map(coords, values.iloc[:, 1], index=index, agg="sum")
-        sum_df = sum_square_map.index_data.merge(nums_map.index_data, on=nums_map.index_cols)
+        cols_on = list(set(nums_map.coords_cols + nums_map.index_cols))
+        sum_df = sum_square_map.index_data.merge(nums_map.index_data, on=cols_on)
         sum_df[self.name] = np.sqrt(sum_df[self.name+"_x"] / sum_df[self.name+"_y"])
         return super().construct_map(sum_df[coords.columns], sum_df[self.name], coords_cols=coords_cols,
                                      index=sum_df[index.columns], index_cols=index_cols, agg=agg, bin_size=bin_size,
