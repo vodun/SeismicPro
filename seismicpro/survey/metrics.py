@@ -43,15 +43,8 @@ class SurveyAttribute(Metric):
 class TracewiseMetric(SurveyAttribute):
     """Base class for tracewise metrics with addidional plotters and aggregations. Child classes should redefine
     `get_mask` method, and optionnaly `preprocess`."""
-
-    min_value = None
-    max_value = None
-    is_lower_better = None
     threshold = None
     top_ax_y_scale = "linear"
-
-    def __init__(self, name=None):
-        super().__init__(name=name)
 
     def __call__(self, gather):
         """Compute metric by applying `self.preprocess`, `self.get_mask` and `self.aggregate` to provided gather."""
@@ -83,7 +76,7 @@ class TracewiseMetric(SurveyAttribute):
         return self.numba_get_mask(gather.data)
 
     @staticmethod
-    @njit(nogil=True, parallel=True)
+    @njit(nogil=True)
     def numba_get_mask(traces):
         """Parallel QC metric implemetation. """
         raise NotImplementedError
@@ -115,7 +108,7 @@ class TracewiseMetric(SurveyAttribute):
         if len(threshold) != 2:
             raise ValueError(f"`threshold` should contain exactly 2 elements, not {len(threshold)}")
 
-        return (mask < threshold[0]) | (mask > threshold[1])
+        return (mask <= threshold[0]) | (mask >= threshold[1])
 
     def plot(self, ax, coords, index, sort_by=None, threshold=None, top_ax_y_scale=None,  bad_only=False, **kwargs):
         """Gather plot where samples with indicator above/below `.threshold` are highlited."""
@@ -206,7 +199,7 @@ class Spikes(MuteTracewiseMetric):
 
         The resulted 2d mask shows the deviation of the ampluteds of an input gather.
         """
-        res = np.zeros_like(traces, dtype=np.float32)
+        res = np.zeros_like(traces)
         for i in range(traces.shape[0]):
             nan_indices = np.nonzero(np.isnan(traces[i]))[0]
             if len(nan_indices) > 0:
@@ -242,7 +235,7 @@ class Autocorrelation(MuteTracewiseMetric):
     def numba_get_mask(traces):
         """QC indicator implementation."""
         # TODO: descide what to do with almost nan traces (in 98% in trace are nan, it almost always will have -1 val)
-        res = np.empty(traces.shape[0], dtype=np.float32)
+        res = np.empty_like(traces[:, 0])
         for i in range(traces.shape[0]):
             res[i] = np.nanmean(traces[i, 1:] * traces[i, :-1])
         return res
@@ -263,7 +256,7 @@ class TraceAbsMean(TracewiseMetric):
     @njit(nogil=True)
     def numba_get_mask(traces):
         """QC indicator implementation."""
-        res = np.empty(traces.shape[0])
+        res = np.empty_like(traces[:, 0])
         for i in range(traces.shape[0]):
             res[i] = np.abs(traces[i].mean() / (traces[i].std() + 1e-10))
         return res
@@ -285,7 +278,7 @@ class TraceMaxAbs(TracewiseMetric):
     @njit(nogil=True)
     def numba_get_mask(traces):
         """QC indicator implementation."""
-        res = np.empty(traces.shape[0])
+        res = np.empty_like(traces[:, 0])
         for i in range(traces.shape[0]):
             res[i] = np.max(np.abs(traces[i])) / (traces[i].std() + 1e-10)
         return res
@@ -324,8 +317,8 @@ class MaxClipsLen(TracewiseMetric):
                 counter = 0
             return counter
 
-        maxes = np.zeros_like(traces, dtype=np.int32)
-        mins = np.zeros_like(traces, dtype=np.int32)
+        maxes = np.zeros_like(traces)
+        mins = np.zeros_like(traces)
         for i in range(traces.shape[0]):
             trace = traces[i]
             max_val = max(trace)
@@ -340,7 +333,7 @@ class MaxClipsLen(TracewiseMetric):
                 maxes[i, -max_counter:] = max_counter
             if min_counter > 1:
                 mins[i, -min_counter:] = min_counter
-        return (maxes + mins).astype(np.float32)
+        return (maxes + mins)
 
 
 class MaxConstLen(TracewiseMetric):
@@ -365,7 +358,7 @@ class MaxConstLen(TracewiseMetric):
     @njit(nogil=True)
     def numba_get_mask(traces): # TODO: can gather.data be 1d?
         """QC indicator implementation."""
-        indicator = np.zeros_like(traces, dtype=np.float32)
+        indicator = np.zeros_like(traces)
         for i in range(traces.shape[0]):
             trace = traces[i]
             counter = 1
@@ -379,7 +372,7 @@ class MaxConstLen(TracewiseMetric):
 
             if counter > 1:
                 indicator[i, -counter:] = counter
-        return indicator.astype(np.float32)
+        return indicator
 
 
 class DeadTrace(TracewiseMetric):
@@ -396,11 +389,14 @@ class DeadTrace(TracewiseMetric):
     is_lower_better = True
     threshold = 0.5
 
+    def description(self):
+        return "Number of dead traces"
+
     @staticmethod
     @njit(nogil=True)
     def numba_get_mask(traces):
         """QC indicator implementation."""
-        res = np.empty(traces.shape[0], dtype=np.float32)
+        res = np.empty_like(traces[:, 0])
         for i in range(traces.shape[0]):
             res[i] = max(traces[i]) - min(traces[i]) < 1e-10
         return res
@@ -432,8 +428,8 @@ class BaseWindowMetric(TracewiseMetric):
     @njit(nogil=True)
     def compute_stats_by_ixs(data, start_ixs, end_ixs):
         """TODO"""
-        sum_squares = np.empty(data.shape[0], dtype=np.float32)
-        nums = np.empty(data.shape[0], dtype=np.float32)
+        sum_squares = np.empty_like(data[:, 0])
+        nums = np.empty_like(data[:, 0])
 
         for i in range(data.shape[0]):
             trace = data[i]
@@ -443,24 +439,24 @@ class BaseWindowMetric(TracewiseMetric):
             nums[i] = len(trace[start_ix: end_ix])
         return sum_squares, nums
 
-    def construct_map(self, coords, values, index, **kwargs):
+    def construct_map(self, coords, values, *, coords_cols=None, index=None, index_cols=None, agg=None, bin_size=None,
+                      calculate_immediately=True):
         """TODO"""
         sum_square_map = super().construct_map(coords, values.iloc[:, 0], index=index, agg="sum")
         nums_map = super().construct_map(coords, values.iloc[:, 1], index=index, agg="sum")
-        cols_on = list(coords.columns.union(index.columns))
-        sum_df = sum_square_map.index_data.merge(nums_map.index_data, on=cols_on)
+        sum_df = sum_square_map.index_data.merge(nums_map.index_data, on=nums_map.index_cols)
         sum_df[self.name] = np.sqrt(sum_df[self.name+"_x"] / sum_df[self.name+"_y"])
-        return super().construct_map(sum_df[coords.columns], sum_df[self.name], index=sum_df[index.columns], **kwargs)
+        return super().construct_map(sum_df[coords.columns], sum_df[self.name], coords_cols=coords_cols,
+                                     index=sum_df[index.columns], index_cols=index_cols, agg=agg, bin_size=bin_size,
+                                     calculate_immediately=calculate_immediately)
 
-    def plot(self, ax, coords, index, sort_by=None, threshold=None, top_ax_y_scale=None, bad_only=False, color="lime",
+    def plot(self, ax, coords, index, threshold=None, top_ax_y_scale=None, bad_only=False, color="lime",
              **kwargs):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows"""
         threshold = self.threshold if threshold is None else threshold
         top_ax_y_scale = self.top_ax_y_scale if top_ax_y_scale is None else top_ax_y_scale
         _ = coords
-        gather = self.survey.get_gather(index)
-        sort_by = "offset" if sort_by is None else sort_by
-        gather = gather.sort(sort_by)
+        gather = self.survey.get_gather(index).sort("offset")
         squares, nums = self(gather, return_rms=False)
         tracewise_metric = np.sqrt(squares / nums)
         tracewise_metric[tracewise_metric==0] = np.nan
@@ -479,53 +475,59 @@ class BaseWindowMetric(TracewiseMetric):
         """Add any additional metric related graphs on plot"""
         pass
 
+    def get_views(self, threshold=None, top_ax_y_scale=None, **kwargs):
+        """Return plotters of the metric views and those `kwargs` that should be passed further to an interactive map
+        plotter."""
+        plot_kwargs = {"threshold": threshold, "top_ax_y_scale": top_ax_y_scale}
+        return [partial(self.plot, **plot_kwargs), partial(self.plot, bad_only=True, **plot_kwargs)], kwargs
+
 
 class MetricsRatio(TracewiseMetric):
     is_lower_better = False
     threshold = None
 
     # TODO: RENAME. names are begging to be distinguishable
-    def __init__(self, deivider_metric, divisible_metric, name=None):
-        for metric in [deivider_metric, divisible_metric]:
+    def __init__(self, numerator, denominator, name=None):
+        for metric in [numerator, denominator]:
             if not isinstance(metric, BaseWindowMetric):
                 raise ValueError()
 
-        name = f"{deivider_metric.name} and {divisible_metric.name} ratio" if name is None else name
+        name = f"{numerator.name} and {denominator.name} ratio" if name is None else name
         super().__init__(name=name)
 
-        self.deivider_metric = deivider_metric
-        self.divisible_metric = divisible_metric
+        self.numerator = numerator
+        self.denominator = denominator
 
     @property
     def header_cols(self):
-        return self.deivider_metric.header_cols + self.divisible_metric.header_cols
+        return self.numerator.header_cols + self.denominator.header_cols
 
-    def construct_map(self, coords, values, index, **kwargs):
-        mmaps_1 = self.deivider_metric.construct_map(coords, values[self.deivider_metric.header_cols], index=index)
-        mmaps_2 = self.divisible_metric.construct_map(coords, values[self.divisible_metric.header_cols], index=index)
+    def construct_map(self, coords, values, *, coords_cols=None, index=None, index_cols=None, agg=None, bin_size=None,
+                      calculate_immediately=True):
+        mmaps_1 = self.numerator.construct_map(coords, values[self.numerator.header_cols], index=index)
+        mmaps_2 = self.denominator.construct_map(coords, values[self.denominator.header_cols], index=index)
 
         cols_on = list(coords.columns.union(index.columns))
         ratio_df = mmaps_1.index_data.merge(mmaps_2.index_data, on=cols_on)
-        ratio_df[self.name] = ratio_df[self.deivider_metric.name] / ratio_df[self.divisible_metric.name]
+        ratio_df[self.name] = ratio_df[self.numerator.name] / ratio_df[self.denominator.name]
         coords = ratio_df[coords.columns]
         values = ratio_df[self.name]
         index = ratio_df[index.columns]
-        return super().construct_map(coords, values, index=index, **kwargs)
+        return super().construct_map(coords, values, coords_cols=coords_cols, index=index, index_cols=index_cols,
+                                     agg=agg, bin_size=bin_size, calculate_immediately=calculate_immediately)
 
-    def plot(self, ax, coords, index, sort_by=None, threshold=None, top_ax_y_scale=None, bad_only=False, **kwargs):
+    def plot(self, ax, coords, index, threshold=None, top_ax_y_scale=None, bad_only=False, **kwargs):
         threshold = self.threshold if threshold is None else threshold
         top_ax_y_scale = self.top_ax_y_scale if top_ax_y_scale is None else top_ax_y_scale
         _ = coords
-        gather = self.survey.get_gather(index)
-        sort_by = "offset" if sort_by is None else sort_by
-        gather = gather.sort(sort_by)
+        gather = self.survey.get_gather(index).sort("offset")
 
-        squares_deivider, nums_deivider = self.deivider_metric(gather, return_rms=False)
-        squares_divisible, nums_divisible = self.divisible_metric(gather, return_rms=False)
+        squares_deivider, nums_deivider = self.numerator(gather, return_rms=False)
+        squares_divisible, nums_divisible = self.denominator(gather, return_rms=False)
 
-        tracewise_deivider_metric = np.sqrt(squares_deivider / nums_deivider)
-        tracewise_divisible_metric = np.sqrt(squares_divisible / nums_divisible)
-        tracewise_metric = tracewise_deivider_metric / tracewise_divisible_metric
+        tracewise_numerator = np.sqrt(squares_deivider / nums_deivider)
+        tracewise_denominator = np.sqrt(squares_divisible / nums_divisible)
+        tracewise_metric = tracewise_numerator / tracewise_denominator
         tracewise_metric[tracewise_metric==0] = np.nan
 
         if bad_only:
@@ -538,10 +540,15 @@ class MetricsRatio(TracewiseMetric):
             self._plot_threshold(ax=top_ax, threshold=threshold)
         top_ax.set_yscale(top_ax_y_scale)
 
-        self.deivider_metric._plot(ax=ax, gather=gather, color="lime", legend="deivider window")
-        self.divisible_metric._plot(ax=ax, gather=gather, color="magenta", legend="divisible window")
+        self.numerator._plot(ax=ax, gather=gather, color="lime", legend="deivider window")
+        self.denominator._plot(ax=ax, gather=gather, color="magenta", legend="divisible window")
         ax.legend()
 
+    def get_views(self, threshold=None, top_ax_y_scale=None, **kwargs):
+        """Return plotters of the metric views and those `kwargs` that should be passed further to an interactive map
+        plotter."""
+        plot_kwargs = {"threshold": threshold, "top_ax_y_scale": top_ax_y_scale}
+        return [partial(self.plot, **plot_kwargs), partial(self.plot, bad_only=True, **plot_kwargs)], kwargs
 
 class WindowRMS(BaseWindowMetric):
     """Computes traces RMS for provided window by offsets and times.
@@ -589,8 +596,8 @@ class WindowRMS(BaseWindowMetric):
         window_ixs = (gather_offests >= offsets[0]) & (gather_offests <= offsets[1])
         start_ixs = np.full(sum(window_ixs), fill_value=times[0], dtype=np.int16)
         end_ixs = np.full(sum(window_ixs), fill_value=times[1], dtype=np.int16)
-        squares = np.zeros(traces.shape[0], dtype=np.float32)
-        nums = np.zeros(traces.shape[0], dtype=np.float32)
+        squares = np.zeros_like(traces[:, 0])
+        nums = np.zeros_like(traces[:, 0])
         window_squares, window_nums = compute_stats_by_ixs(traces[window_ixs], start_ixs, end_ixs)
         squares[window_ixs] = window_squares
         nums[window_ixs] = window_nums

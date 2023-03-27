@@ -1371,7 +1371,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         idx_sort = self['TRACE_SEQUENCE_FILE'].argsort(kind='stable')
         orig_idx = idx_sort.argsort(kind='stable')
 
-        # TODO: try to preallocate all memory before compliting the metrics calculation
         def calc_metrics(i, chunk_size):
             headers = self.headers.iloc[idx_sort[i * chunk_size: (i + 1) * chunk_size]]
             gather = self.load_gather(headers)
@@ -1567,10 +1566,15 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         metrics = []
         for metric_name in metric_names:
             if "/" in metric_name:
-                metric_list = [self.qc_metrics[name.strip()] for name in metric_name.split("/")]
-                metric = MetricsRatio(*metric_list)
+                metric_list = list(map(lambda name: name.strip(), metric_name.split("/")))
+                if len(metric_list) != 2:
+                    raise ValueError("Single division ")
+                for metric in metric_list:
+                    if metric not in self.qc_metrics:
+                        raise ValueError(f'Metric with name "{metric_name}" is not calculated yet')
+                metric = MetricsRatio(*[self.qc_metrics[metric] for metric in metric_list])
             elif metric_name not in self.qc_metrics:
-                raise ValueError(f'Metric with name "{metric_name}" is not calculated yet!')
+                raise ValueError(f'Metric with name "{metric_name}" is not calculated yet')
             else:
                 metric = self.qc_metrics[metric_name]
             metrics.append(metric.provide_context(survey=self))
