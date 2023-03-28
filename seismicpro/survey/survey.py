@@ -487,10 +487,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             for metric in self.qc_metrics.values():
                 if metric.threshold is None:
                     continue
-                metric_value = self.headers[metric.header_cols]
+                metric_value = self[metric.header_cols]
                 if isinstance(metric, BaseWindowMetric):
-                    metric_value = metric.compute_rms(*self[metric.header_cols].T)
-                metric_msg += f"\n\t{metric.description+':':<55}{sum(metric.binarize(metric_value))}"
+                    metric_value = metric.compute_rms(*metric_value.T)
+                metric_msg += f"\n\t{metric.description+':':<55}{metric.binarize(metric_value).sum()}"
             if metric_msg:
                 msg += """
         Number of possible bad traces found by tracewise QC:
@@ -1356,9 +1356,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             metrics = DEFAULT_TRACEWISE_METRICS
         metrics, _ = initialize_metrics(metrics, metric_class=TracewiseMetric)
 
-        metric_names = {metric.name for metric in metrics}
-        if metric_names <= set(self.qc_metrics.keys()):
-            msg = ', '.join(metric_names & set(self.qc_metrics.keys()))
+        overwrite_metric = {metric.name for metric in metrics} & self.qc_metrics.keys()
+        if overwrite_metric:
+            msg = ', '.join(overwrite_metric)
             if not overwrite:
                 raise ValueError(f"{msg} already calculated. Use `overwrite=True` or rename it.")
             warnings.warn(f'{msg} already calculated and will be rewritten.')
@@ -1368,8 +1368,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             n_workers = os.cpu_count()
         n_workers = min(n_chunks, n_workers)
 
-        idx_sort = self['TRACE_SEQUENCE_FILE'].argsort(kind='stable')
-        orig_idx = idx_sort.argsort(kind='stable')
+        _, idx_sort, orig_idx = np.unique(self['TRACE_SEQUENCE_FILE'], return_index=True, return_inverse=True)
 
         def calc_metrics(i, chunk_size):
             headers = self.headers.iloc[idx_sort[i * chunk_size: (i + 1) * chunk_size]]
@@ -1560,7 +1559,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         squeeze_output = isinstance(metric_names, str)
         if metric_names is None:
-            metric_names = list(self.qc_metrics.keys())
+            metric_names = list(self.qc_metrics)
         metric_names = to_list(metric_names)
 
         metrics = []
@@ -1568,7 +1567,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             if "/" in metric_name:
                 metric_list = list(map(lambda name: name.strip(), metric_name.split("/")))
                 if len(metric_list) != 2:
-                    raise ValueError(f"Exactly two metrics shouldbe used for division, not {len(metric_list)}")
+                    raise ValueError(f"Exactly two metrics should be used for division, not {len(metric_list)}")
                 for metric in metric_list:
                     if metric not in self.qc_metrics:
                         raise ValueError(f'Metric with name "{metric_name}" is not calculated yet')

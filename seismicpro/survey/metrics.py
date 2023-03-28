@@ -267,7 +267,7 @@ class TraceAbsMean(TracewiseMetric):
     @property
     def description(self):
         """String description of tracewise metric"""
-        return f"Traces with inverce CV bigger than {self.threshold}"
+        return f"Traces with mean divided by std greater than {self.threshold}"
 
     @staticmethod
     @njit(nogil=True)
@@ -294,7 +294,7 @@ class TraceMaxAbs(TracewiseMetric):
     @property
     def description(self):
         """String description of tracewise metric"""
-        return f"Traces with max abs to std ratio bigger than {self.threshold}"
+        return f"Traces with max abs to std ratio greater than {self.threshold}"
 
     @staticmethod
     @njit(nogil=True)
@@ -324,7 +324,7 @@ class MaxClipsLen(TracewiseMetric):
     @property
     def description(self):
         """String description of tracewise metric"""
-        return f"Traces with more than {self.threshold} clips in a row"
+        return f"Traces with more than {self.threshold} clipped samples in a row"
 
     @staticmethod
     @njit(nogil=True)
@@ -465,14 +465,15 @@ class BaseWindowMetric(TracewiseMetric):
     def construct_map(self, coords, values, *, coords_cols=None, index=None, index_cols=None, agg=None, bin_size=None,
                       calculate_immediately=True):
         """TODO"""
-        sum_square_map = super().construct_map(coords, values.iloc[:, 0], index=index, agg="sum")
-        nums_map = super().construct_map(coords, values.iloc[:, 1], index=index, agg="sum")
-        cols_on = list(set(nums_map.coords_cols + nums_map.index_cols))
-        sum_df = sum_square_map.index_data.merge(nums_map.index_data, on=cols_on)
+        sum_square_map = super().construct_map(coords, values.iloc[:, 0], coords_cols=coords_cols, index=index,
+                                               index_cols=index_cols, agg="sum")
+        nums_map = super().construct_map(coords, values.iloc[:, 1], coords_cols=coords_cols, index=index,
+                                         index_cols=index_cols, agg="sum")
+        sum_square_map.index_data.drop(columns=sum_square_map.coords_cols, inplace=True)
+        sum_df = sum_square_map.index_data.merge(nums_map.index_data, on=nums_map.index_cols)
         sum_df[self.name] = np.sqrt(sum_df[self.name+"_x"] / sum_df[self.name+"_y"])
-        return super().construct_map(sum_df[coords.columns], sum_df[self.name], coords_cols=coords_cols,
-                                     index=sum_df[index.columns], index_cols=index_cols, agg=agg, bin_size=bin_size,
-                                     calculate_immediately=calculate_immediately)
+        return super().construct_map(sum_df[coords.columns], sum_df[self.name], index=sum_df[index.columns], agg=agg,
+                                     bin_size=bin_size, calculate_immediately=calculate_immediately)
 
     def plot(self, ax, coords, index, threshold=None, top_ax_y_scale=None, bad_only=False, color="lime",
              **kwargs):
@@ -515,7 +516,7 @@ class MetricsRatio(TracewiseMetric):
             if not isinstance(metric, BaseWindowMetric):
                 raise ValueError()
 
-        name = f"{numerator.name} and {denominator.name} ratio" if name is None else name
+        name = f"{numerator.name} to {denominator.name} ratio" if name is None else name
         super().__init__(name=name)
 
         self.numerator = numerator
@@ -527,17 +528,19 @@ class MetricsRatio(TracewiseMetric):
 
     def construct_map(self, coords, values, *, coords_cols=None, index=None, index_cols=None, agg=None, bin_size=None,
                       calculate_immediately=True):
-        mmaps_1 = self.numerator.construct_map(coords, values[self.numerator.header_cols], index=index)
-        mmaps_2 = self.denominator.construct_map(coords, values[self.denominator.header_cols], index=index)
+        mmaps_1 = self.numerator.construct_map(coords, values[self.numerator.header_cols], coords_cols=coords_cols,
+                                               index=index, index_cols=index_cols)
+        mmaps_2 = self.denominator.construct_map(coords, values[self.denominator.header_cols], coords_cols=coords_cols,
+                                                 index=index, index_cols=index_cols)
 
-        cols_on = list(coords.columns.union(index.columns))
-        ratio_df = mmaps_1.index_data.merge(mmaps_2.index_data, on=cols_on)
+        mmaps_1.index_data.drop(columns=mmaps_1.coords_cols, inplace=True)
+        ratio_df = mmaps_1.index_data.merge(mmaps_2.index_data, on=mmaps_1.index_cols)
         ratio_df[self.name] = ratio_df[self.numerator.name] / ratio_df[self.denominator.name]
         coords = ratio_df[coords.columns]
         values = ratio_df[self.name]
         index = ratio_df[index.columns]
-        return super().construct_map(coords, values, coords_cols=coords_cols, index=index, index_cols=index_cols,
-                                     agg=agg, bin_size=bin_size, calculate_immediately=calculate_immediately)
+        return super().construct_map(coords, values, index=index, agg=agg, bin_size=bin_size,
+                                     calculate_immediately=calculate_immediately)
 
     def plot(self, ax, coords, index, threshold=None, top_ax_y_scale=None, bad_only=False, **kwargs):
         threshold = self.threshold if threshold is None else threshold
