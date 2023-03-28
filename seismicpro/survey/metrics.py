@@ -236,19 +236,28 @@ class Autocorrelation(MuteTracewiseMetric):
     is_lower_better = False
     threshold = 0.8
 
+    def __init__(self, muter, name=None, nan_ratio=0.95):
+        super().__init__(muter=muter, name=name)
+        self.nan_ratio = nan_ratio
+
     @property
     def description(self):
         """String description of tracewise metric"""
         return f"Traces with autocorrelation less than {self.threshold}"
 
+    def get_mask(self, gather):
+        return self.numba_get_mask(gather.data, nan_ratio=self.nan_ratio)
+
     @staticmethod
     @njit(nogil=True)
-    def numba_get_mask(traces):
+    def numba_get_mask(traces, nan_ratio):
         """QC indicator implementation."""
-        # TODO: descide what to do with almost nan traces (in 98% in trace are nan, it almost always will have -1 val)
         res = np.empty_like(traces[:, 0])
         for i in range(traces.shape[0]):
-            res[i] = np.nanmean(traces[i, 1:] * traces[i, :-1])
+            if np.isnan(traces[i]).sum() > nan_ratio*len(traces[i]):
+                res[i] = np.nan
+            else:
+                res[i] = np.nanmean(traces[i, 1:] * traces[i, :-1])
         return res
 
 class TraceAbsMean(TracewiseMetric):
@@ -655,7 +664,7 @@ class AdaptiveWindowRMS(BaseWindowMetric):
 
     Parameters
     ----------
-    win_size : int
+    window_size : int
         Length of the windows for computing signam and noise RMS amplitudes measured in ms.
     shift_up : int
         The delta between noise window end and first breaks, measured in ms.
@@ -670,56 +679,49 @@ class AdaptiveWindowRMS(BaseWindowMetric):
     is_lower_better = False
     threshold = None
 
-    def __init__(self, win_size, shift, refractor_velocity, name=None):
+    def __init__(self, window_size, shift, refractor_velocity, name=None):
         super().__init__(name=name)
-        self.win_size = win_size
+        self.window_size = window_size
         self.shift = shift
         self.refractor_velocity = refractor_velocity
 
     def __repr__(self):
         """String representation of the metric."""
-        repr_str = f"(name='{self.name}', win_size='{self.win_size}', shift='{self.shift}', "\
+        repr_str = f"(name='{self.name}', window_size='{self.window_size}', shift='{self.shift}', "\
                    f"refractor_velocity='{self.refractor_velocity}')"
         return f"{type(self).__name__}" + repr_str
 
     def get_mask(self, gather):
         """QC indicator implementation. See `plot` docstring for parameters descriptions."""
         fbp_times = self.refractor_velocity(gather.offsets)
-        return self.numba_get_mask(gather.data, self._get_indices, self.compute_stats_by_ixs, win_size=self.win_size,
-                                   shift=self.shift, samples=gather.samples, fbp_times=fbp_times,
-                                   times_to_indices=times_to_indices)
+        return self.numba_get_mask(gather.data, self._get_indices, self.compute_stats_by_ixs,
+                                   window_size=self.window_size, shift=self.shift, samples=gather.samples,
+                                   fbp_times=fbp_times, times_to_indices=times_to_indices)
 
     @staticmethod
     @njit(nogil=True)
-    def numba_get_mask(traces, _get_indices, compute_stats_by_ixs, win_size, shift, samples, fbp_times,
+    def numba_get_mask(traces, _get_indices, compute_stats_by_ixs, window_size, shift, samples, fbp_times,
                        times_to_indices):
-        start_ixs, end_ixs = _get_indices(win_size, shift, samples, fbp_times, times_to_indices)
+        start_ixs, end_ixs = _get_indices(window_size, shift, samples, fbp_times, times_to_indices)
         return compute_stats_by_ixs(traces, start_ixs, end_ixs)
 
     @staticmethod
     @njit(nogil=True)
-    def _get_indices(win_size, shift, samples, fbp_times, times_to_indices):
+    def _get_indices(window_size, shift, samples, fbp_times, times_to_indices):
         """Convert times to use for noise and signal windows into indices"""
-        first_bound = np.clip(fbp_times + shift, 0, samples[-1])
-        second_bound = np.clip(first_bound + (win_size * np.sign(shift)), 0, samples[-1])
+        mid_samples = times_to_indices(fbp_times + shift, samples, round=True).astype(np.int16)
+        window_size = int(times_to_indices(np.array([window_size]), samples, round=True)[0])
 
-        if shift > 0:
-            start_times = first_bound
-            end_times = second_bound
-        else:
-            start_times = second_bound
-            end_times = first_bound
-
-        start_ixs = times_to_indices(start_times, samples).astype(np.int16)
-        end_ixs = times_to_indices(end_times, samples).astype(np.int16)
+        start_ixs = np.clip(mid_samples - (window_size - window_size // 2), 0, len(samples))
+        end_ixs = np.clip(mid_samples + (window_size // 2), 0, len(samples))
         return start_ixs, end_ixs
 
     def _plot(self, ax, gather, color="lime", legend=None):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows."""
         fbp_times = self.refractor_velocity(gather.offsets)
-        indices = self._get_indices(self.win_size, self.shift, gather.samples, fbp_times, times_to_indices)
+        indices = self._get_indices(self.window_size, self.shift, gather.samples, fbp_times, times_to_indices)
         indices = np.where(np.asarray(indices) == 0, np.nan, indices)
-        indices = np.where(np.asarray(indices) == np.max(indices), np.nan, indices)
+        indices = np.where(np.asarray(indices) == np.nanmax(indices), np.nan, indices)
 
         ax.plot(np.arange(gather.n_traces), indices[0], color=color, label=legend)
         ax.plot(np.arange(gather.n_traces), indices[1], color=color)
