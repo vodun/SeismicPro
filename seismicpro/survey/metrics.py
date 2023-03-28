@@ -25,6 +25,11 @@ class SurveyAttribute(Metric):
         # Attributes set after context binding
         self.survey = None
 
+    @property
+    def header_cols(self):
+        """Column names in survey.headers to srote metrics results."""
+        return self.name
+
     def bind_context(self, metric_map, survey):
         """Process metric evaluation context: memorize the parent survey, reindexed by `index_cols`."""
         self.survey = survey.reindex(metric_map.index_cols)
@@ -53,11 +58,6 @@ class TracewiseMetric(SurveyAttribute):
         gather = self.preprocess(gather)
         mask = self.get_mask(gather)
         return self.aggregate(mask)
-
-    @property
-    def header_cols(self):
-        """Column names in survey.headers to srote metrics results."""
-        return self.name
 
     @property
     def description(self):
@@ -123,9 +123,7 @@ class TracewiseMetric(SurveyAttribute):
             gather = gather.sort(sort_by)
         gather = self.preprocess(gather)
 
-        # TODO: Can we do only single copy here? (first copy sometimes done in self.preprocess)
-        # We need to copy gather since some metrics changes gather in get_mask, but we want to plot gather unchanged
-        mask = self.get_mask(gather.copy())
+        mask = self.get_mask(gather)
         metric_vals = self.aggregate(mask)
         bin_mask = self.binarize(mask, threshold)
         if bad_only:
@@ -206,6 +204,7 @@ class Spikes(MuteTracewiseMetric):
 
         The resulted 2d mask shows the deviation of the ampluteds of an input gather.
         """
+        traces = traces.copy()
         res = np.zeros_like(traces)
         for i in range(traces.shape[0]):
             nan_indices = np.nonzero(np.isnan(traces[i]))[0]

@@ -25,7 +25,7 @@ from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
 from ..containers import GatherContainer, SamplesContainer
 from ..metrics import initialize_metrics
-from ..utils import to_list, maybe_copy, get_cols, get_first_defined, get_cols_from_by
+from ..utils import to_list, maybe_copy, get_cols, get_first_defined
 from ..const import ENDIANNESS, HDR_FIRST_BREAK, HDR_TRACE_POS
 
 
@@ -1368,11 +1368,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             n_workers = os.cpu_count()
         n_workers = min(n_chunks, n_workers)
 
-        _, idx_sort, orig_idx = np.unique(self['TRACE_SEQUENCE_FILE'], return_index=True, return_inverse=True)
+        _, idx_sort, idx_orig = np.unique(self['TRACE_SEQUENCE_FILE'], return_index=True, return_inverse=True)
 
-        def calc_metrics(i, chunk_size):
-            headers = self.headers.iloc[idx_sort[i * chunk_size: (i + 1) * chunk_size]]
-            gather = self.load_gather(headers)
+        def calc_metrics(ixs):
+            gather = self.load_gather(self.headers.iloc[ixs])
             results = {}
             for metric in metrics:
                 header_cols = metric.header_cols
@@ -1382,17 +1381,17 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             return pd.DataFrame(results)
 
         # Precompile all numba decorated metrics to avoid hanging of the ThreadPoolExecutor during first metrics call
-        _ = calc_metrics(0, 1)
+        _ = calc_metrics([0])
 
         futures = []
         with tqdm(total=self.n_traces, desc="Traces processed", disable=not bar) as pbar:
             with ThreadPoolExecutor(max_workers=n_workers) as pool:
                 for i in range(n_chunks):
-                    future = pool.submit(calc_metrics, i, chunk_size)
+                    future = pool.submit(calc_metrics, idx_sort[i * chunk_size: (i + 1) * chunk_size])
                     future.add_done_callback(lambda fut: pbar.update(len(fut.result())))
                     futures.append(future)
 
-        results = pd.concat([future.result() for future in futures], ignore_index=True, copy=False).iloc[orig_idx]
+        results = pd.concat([future.result() for future in futures], ignore_index=True, copy=False).iloc[idx_orig]
         results.index = self.headers.index
         self.headers[results.columns] = results
         self.qc_metrics.update({metric.name: metric for metric in metrics})
@@ -1448,23 +1447,37 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         SurveyGeometryPlot(self, **kwargs).plot()
 
-    def _construct_map(self, values, name, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
+    def _construct_map(self, values, metric, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
         """Construct a metric map of `values` aggregated by gather, whose type is defined by `by`."""
-        index_cols, coords_cols = get_cols_from_by(self, by)
+        by_to_cols = {
+            "source": (self.source_id_cols, ["SourceX", "SourceY"]),
+            "shot": (self.source_id_cols, ["SourceX", "SourceY"]),
+            "receiver": (self.receiver_id_cols, ["GroupX", "GroupY"]),
+            "rec": (self.receiver_id_cols, ["GroupX", "GroupY"]),
+            "cdp": (None, ["CDP_X", "CDP_Y"]),
+            "cmp": (None, ["CDP_X", "CDP_Y"]),
+            "midpoint": (None, ["CDP_X", "CDP_Y"]),
+            "bin": (None, ["INLINE_3D", "CROSSLINE_3D"]),
+            "supergather": (None, ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]),
+        }
+        index_cols, coords_cols = by_to_cols.get(by.lower())
+        if coords_cols is None:
+            raise ValueError(f"by must be one of {', '.join(by_to_cols.keys())} but {by} given.")
         index_cols = get_first_defined(id_cols, index_cols)
 
+        metric = SurveyAttribute(name=metric) if isinstance(metric, str) else metric
         metric_data = self.get_headers(coords_cols)
         if index_cols is not None:
             index_cols = to_list(index_cols)
             metric_data[index_cols] = self[index_cols]
-        metric_data[name] = values
+        metric_data[metric.header_cols] = values
         if drop_duplicates:
             metric_data.drop_duplicates(inplace=True)
         index = metric_data[index_cols] if index_cols is not None else None
         coords = metric_data[coords_cols]
-        values = metric_data[name]
+        values = metric_data[metric.header_cols]
 
-        metric = SurveyAttribute(name=name).provide_context(survey=self)
+        metric = metric.provide_context(survey=self)
         return metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size)
 
     def construct_header_map(self, col, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
@@ -1501,7 +1514,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         header_map : BaseMetricMap
             Constructed header map.
         """
-        return self._construct_map(self[col], name=col, by=by, id_cols=id_cols, drop_duplicates=drop_duplicates,
+        return self._construct_map(self[col], metric=col, by=by, id_cols=id_cols, drop_duplicates=drop_duplicates,
                                    agg=agg, bin_size=bin_size)
 
     def construct_fold_map(self, by, id_cols=None, agg=None, bin_size=None):
@@ -1531,13 +1544,13 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         fold_map : BaseMetricMap
             Constructed fold map.
         """
-        tmp_map = self._construct_map(np.ones(self.n_traces), name="fold", by=by, id_cols=id_cols, agg="sum")
+        tmp_map = self._construct_map(np.ones(self.n_traces), metric="fold", by=by, id_cols=id_cols, agg="sum")
         index = tmp_map.index_data[tmp_map.index_cols]
         coords = tmp_map.index_data[tmp_map.coords_cols]
         values = tmp_map.index_data[tmp_map.metric_name]
         return tmp_map.metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size)
 
-    def construct_qc_maps(self, by, metric_names=None, id_cols=None, agg=None, bin_size=None):
+    def construct_qc_maps(self, by, metric_names=None, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
         """Construct a map of tracewise metric aggregated by gathers.
 
         Parameters
@@ -1578,14 +1591,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                 metric = self.qc_metrics[metric_name]
             metrics.append(metric.provide_context(survey=self))
 
-        index_cols, coords_cols = get_cols_from_by(self, by)
-        index_cols = get_first_defined(id_cols, index_cols)
-        coords = self.get_headers(coords_cols)
-        index = self.get_headers(index_cols) if index_cols is not None else coords
-
         mmaps = []
         for metric in metrics:
-            metric_mmap = metric.construct_map(coords, self.get_headers(metric.header_cols), index=index, agg=agg,
-                                               bin_size=bin_size)
+            metric_mmap = self._construct_map(self.get_headers(metric.header_cols), metric=metric, by=by,
+                                              id_cols=id_cols, drop_duplicates=drop_duplicates, agg=agg,
+                                              bin_size=bin_size)
             mmaps.append(metric_mmap)
         return mmaps[0] if squeeze_output else mmaps
