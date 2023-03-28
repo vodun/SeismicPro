@@ -5,6 +5,8 @@ from concurrent.futures import Future, Executor
 
 import numpy as np
 
+from numba import njit
+
 
 def to_list(obj):
     """Cast an object to a list. Almost identical to `list(obj)` for 1-D objects, except for `str`, which won't be
@@ -72,6 +74,12 @@ def get_cols(df, cols):
     if is_single_col:
         return res[0]
     return np.column_stack(res)
+
+
+@njit(nogil=True)
+def isclose(x, y, atol=1e-5, rtol=1e-8):
+    """Numba implemetation of numpy.isclose."""
+    return np.less_equal(np.abs(x - y), atol + rtol * np.abs(y))
 
 
 class MissingModule:

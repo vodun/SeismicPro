@@ -9,8 +9,7 @@ from numba import njit
 from matplotlib import patches
 
 from ..metrics import Metric
-from .utils import isclose
-from ..utils import times_to_indices
+from ..utils import times_to_indices, isclose
 
 # Ignore all warnings related to empty slices or dividing by zero
 warnings.simplefilter("ignore", category=RuntimeWarning)
