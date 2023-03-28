@@ -100,16 +100,18 @@ class TracewiseMetric(SurveyAttribute):
         if threshold is None:
             raise ValueError("Either `threshold` or `self.threshold` must be non None")
 
+        nan_ixs = np.isnan(mask)
         if isinstance(threshold, (int, float, np.number)):
             if self.is_lower_better is None:
                 raise ValueError("`threshold` cannot be single number if `is_lower_better` is None")
             bin_fn = np.greater_equal if self.is_lower_better else np.less_equal
-            return bin_fn(mask, threshold)
-
-        if len(threshold) != 2:
+            bin_mask = bin_fn(mask, threshold)
+        elif len(threshold) != 2:
             raise ValueError(f"`threshold` should contain exactly 2 elements, not {len(threshold)}")
-
-        return (mask <= threshold[0]) | (mask >= threshold[1])
+        else:
+            bin_mask = (mask <= threshold[0]) | (mask >= threshold[1])
+        bin_mask[nan_ixs] = False
+        return bin_mask
 
     def plot(self, ax, coords, index, sort_by=None, threshold=None, top_ax_y_scale=None,  bad_only=False, **kwargs):
         """Gather plot where samples with indicator above/below `.threshold` are highlited."""
@@ -362,7 +364,7 @@ class MaxClipsLen(TracewiseMetric):
                 maxes[i, -max_counter:] = max_counter
             if min_counter > 1:
                 mins[i, -min_counter:] = min_counter
-        return (maxes + mins)
+        return maxes + mins
 
 
 class MaxConstLen(TracewiseMetric):
@@ -452,6 +454,7 @@ class BaseWindowMetric(TracewiseMetric):
 
     @staticmethod
     def compute_rms(squares, nums):
+        """TODO"""
         return np.sqrt(np.sum(squares) / np.sum(nums))
 
     @staticmethod
@@ -501,9 +504,9 @@ class BaseWindowMetric(TracewiseMetric):
         if threshold is not None:
             self._plot_threshold(ax=top_ax, threshold=threshold)
         top_ax.set_yscale(top_ax_y_scale)
-        self._plot(ax=ax, gather=gather, color=color)
+        self.add_mask_on_plot(ax=ax, gather=gather, color=color)
 
-    def _plot(self, ax, gather):
+    def add_mask_on_plot(self, ax, gather, color=None):
         """Add any additional metric related graphs on plot"""
         pass
 
@@ -515,6 +518,7 @@ class BaseWindowMetric(TracewiseMetric):
 
 
 class MetricsRatio(TracewiseMetric):
+    """TODO"""
     is_lower_better = False
     threshold = None
 
@@ -573,8 +577,8 @@ class MetricsRatio(TracewiseMetric):
             self._plot_threshold(ax=top_ax, threshold=threshold)
         top_ax.set_yscale(top_ax_y_scale)
 
-        self.numerator._plot(ax=ax, gather=gather, color="lime", legend="numerator window")
-        self.denominator._plot(ax=ax, gather=gather, color="magenta", legend="denominator window")
+        self.numerator.add_mask_on_plot(ax=ax, gather=gather, color="lime", legend="numerator window")
+        self.denominator.add_mask_on_plot(ax=ax, gather=gather, color="magenta", legend="denominator window")
         ax.legend()
 
     def get_views(self, threshold=None, top_ax_y_scale=None, **kwargs):
@@ -642,7 +646,7 @@ class WindowRMS(BaseWindowMetric):
         times = np.asarray([max(gather_samples[0], times[0]), min(gather_samples[-1], times[1])])
         return times_to_indices(times, gather_samples).astype(np.int16)
 
-    def _plot(self, ax, gather, color="lime", legend=None):
+    def add_mask_on_plot(self, ax, gather, color="lime", legend=None):
         times = self._get_time_ixs(gather.samples, self.times)
 
         offs_ind = np.nonzero((gather.offsets >= self.offsets[0]) & (gather.offsets <= self.offsets[1]))[0]
@@ -715,7 +719,7 @@ class AdaptiveWindowRMS(BaseWindowMetric):
         end_ixs = np.clip(mid_samples + (window_size // 2), 0, len(samples))
         return start_ixs, end_ixs
 
-    def _plot(self, ax, gather, color="lime", legend=None):
+    def add_mask_on_plot(self, ax, gather, color="lime", legend=None):
         """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows."""
         fbp_times = self.refractor_velocity(gather.offsets)
         indices = self._get_indices(self.window_size, self.shift, gather.samples, fbp_times, times_to_indices)

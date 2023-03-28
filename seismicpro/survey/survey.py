@@ -1149,7 +1149,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             raise ValueError('Empty traces after setting limits.')
         return slice(*limits)
 
-    def filter_by_metric(self, metric_name, threshold=None, inplace=False):
+    def filter_by_metric(self, metric_name, threshold=None, inplace=False, keep_bad_only=False):
         """"Filter traces using metric with name `metric_name` and passed `threshold`.
 
         Parameters
@@ -1160,6 +1160,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             Threshold to use during filtration. If None, theshold defined in metric will be used.
         inplace : bool, optional, defaults to False
             Whether to remove traces inplace or return a new survey instance.
+        keep_bad_only : bool, optional, defaults to False
+            If True, keep only traces that marked as `bad` by the metric,
+            Otherwise, keep traces approved by the metric.
 
         Returns
         -------
@@ -1174,7 +1177,12 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if metric is None:
             avalible_metrics = ', '.join(self.qc_metrics.keys())
             raise ValueError(f"`metric_name` must be one of {avalible_metrics}, but {metric_name} was given")
-        self.filter(lambda metric_value: ~metric.binarize(metric_value, threshold) , cols=metric_name, inplace=True)
+
+        def binarize(metric_value):
+            min_mask = metric.binarize(metric_value, threshold)
+            return min_mask if keep_bad_only else ~min_mask
+
+        self.filter(binarize, cols=metric_name, inplace=True)
         return self
 
     def remove_dead_traces(self, header_name=None, chunk_size=1000, inplace=False, bar=True):
@@ -1203,6 +1211,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             if header_name not in self.headers:
                 self.qc_tracewise(DeadTrace, chunk_size=chunk_size, bar=bar)
 
+        if header_name not in self.headers:
+            raise ValueError(f"Missing dead trace column with name {header_name} in survey headers")
         self.filter_by_metric(header_name, inplace=True)
         return self
 
