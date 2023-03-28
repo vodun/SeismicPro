@@ -42,25 +42,6 @@ def get_coords_cols(index_cols, source_id_cols=None, receiver_id_cols=None):
     raise KeyError(f"Unknown coordinates columns for {index_cols} index")
 
 
-def get_cols_from_by(survey, by):
-    """Return sensor id columns and coords columns based on `by`"""
-    by_to_cols = {
-        "source": (survey.source_id_cols, ["SourceX", "SourceY"]),
-        "shot": (survey.source_id_cols, ["SourceX", "SourceY"]),
-        "receiver": (survey.receiver_id_cols, ["GroupX", "GroupY"]),
-        "rec": (survey.receiver_id_cols, ["GroupX", "GroupY"]),
-        "cdp": (None, ["CDP_X", "CDP_Y"]),
-        "cmp": (None, ["CDP_X", "CDP_Y"]),
-        "midpoint": (None, ["CDP_X", "CDP_Y"]),
-        "bin": (None, ["INLINE_3D", "CROSSLINE_3D"]),
-        "supergather": (None, ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]),
-    }
-    index_cols, coords_cols = by_to_cols.get(by.lower())
-    if coords_cols is None:
-        raise ValueError(f"by must be one of {', '.join(by_to_cols.keys())} but {by} given.")
-    return index_cols, coords_cols
-
-
 GEOGRAPHIC_COORDS = {("X", "Y"), ("SourceX", "SourceY"), ("GroupX", "GroupY"), ("CDP_X", "CDP_Y")}
 LINE_COORDS = {("INLINE_3D", "CROSSLINE_3D"), ("SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D")}
 ALLOWED_COORDS = GEOGRAPHIC_COORDS | LINE_COORDS
