@@ -628,11 +628,11 @@ class WindowRMS(BaseWindowMetric):
     def numba_get_mask(traces, gather_samples, gather_offests, times, offsets, _get_time_ixs,
                        compute_stats_by_ixs):
         """QC indicator implementation."""
-        times = _get_time_ixs(gather_samples, times)
+        time_ixs = _get_time_ixs(times, gather_samples)
 
         window_ixs = (gather_offests >= offsets[0]) & (gather_offests <= offsets[1])
-        start_ixs = np.full(sum(window_ixs), fill_value=times[0], dtype=np.int16)
-        end_ixs = np.full(sum(window_ixs), fill_value=times[1], dtype=np.int16)
+        start_ixs = np.full(sum(window_ixs), fill_value=time_ixs[0], dtype=np.int16)
+        end_ixs = np.full(sum(window_ixs), fill_value=time_ixs[1], dtype=np.int16)
         squares = np.zeros_like(traces[:, 0])
         nums = np.zeros_like(traces[:, 0])
         window_squares, window_nums = compute_stats_by_ixs(traces[window_ixs], start_ixs, end_ixs)
@@ -642,12 +642,15 @@ class WindowRMS(BaseWindowMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def _get_time_ixs(gather_samples, times):
+    def _get_time_ixs(times, gather_samples):
         times = np.asarray([max(gather_samples[0], times[0]), min(gather_samples[-1], times[1])])
-        return times_to_indices(times, gather_samples).astype(np.int16)
+        time_ixs = times_to_indices(times, gather_samples, round=True).astype(np.int16)
+        # Include the next index to mimic the behavior of traditional software
+        time_ixs[1] += 1
+        return time_ixs
 
     def add_mask_on_plot(self, ax, gather, color="lime", legend=None):
-        times = self._get_time_ixs(gather.samples, self.times)
+        times = self._get_time_ixs(self.times, gather.samples)
 
         offs_ind = np.nonzero((gather.offsets >= self.offsets[0]) & (gather.offsets <= self.offsets[1]))[0]
         if len(offs_ind) > 0:
