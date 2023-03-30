@@ -6,8 +6,8 @@ from ..metrics import Metric
 
 
 class SurveyAttribute(Metric):
-    """A utility metric class that reindexes given survey by `coords_cols` and allows for plotting gathers by their
-    coordinates. Does not implement any calculation logic."""
+    """A utility metric class that reindexes given survey by `index_cols` and allows for plotting gathers by their
+    indices. Does not implement any calculation logic."""
     def __init__(self, name=None):
         super().__init__(name=name)
 
@@ -15,13 +15,13 @@ class SurveyAttribute(Metric):
         self.survey = None
 
     def bind_context(self, metric_map, survey):
-        """Process metric evaluation context: memorize the parent survey, reindexed by `coords_cols`."""
-        self.survey = survey.reindex(metric_map.coords_cols)
+        """Process metric evaluation context: memorize the parent survey, reindexed by `index_cols`."""
+        self.survey = survey.reindex(metric_map.index_cols)
 
     def plot(self, ax, coords, index, sort_by=None, **kwargs):
-        """Plot a gather by given `coords`. Optionally sort it."""
-        _ = index
-        gather = self.survey.get_gather(coords)
+        """Plot a gather by its `index`. Optionally sort it."""
+        _ = coords
+        gather = self.survey.get_gather(index)
         if sort_by is not None:
             gather = gather.sort(by=sort_by)
         gather.plot(ax=ax, **kwargs)

@@ -19,8 +19,8 @@ from .cropped_gather import CroppedGather
 from .plot_corrections import NMOCorrectionPlot, LMOCorrectionPlot
 from .utils import correction, normalization, gain
 from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
-from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_yticklabels, set_text_formatting,
-                     add_colorbar, piecewise_polynomial, Coordinates)
+from ..utils import (to_list, get_coords_cols, get_first_defined, set_ticks, format_subplot_yticklabels,
+                     set_text_formatting, add_colorbar, piecewise_polynomial, Coordinates)
 from ..containers import TraceContainer, SamplesContainer
 from ..muter import Muter, MuterField
 from ..velocity_spectrum import VerticalVelocitySpectrum, ResidualVelocitySpectrum
@@ -119,9 +119,9 @@ class Gather(TraceContainer, SamplesContainer):
         """Coordinates or None: Spatial coordinates of the gather. Headers to extract coordinates from are determined
         automatically by the `indexed_by` attribute of the gather. `None` if the gather is indexed by unsupported
         headers or required coords headers were not loaded or coordinates are non-unique for traces of the gather."""
-        try:
-            coords_cols = get_coords_cols(self.indexed_by)  # Possibly unknown coordinates for indexed_by
-            coords = self[coords_cols]  # Required coords headers may not be loaded
+        try:  # Possibly unknown coordinates for indexed_by, required coords headers may be not loaded
+            coords_cols = get_coords_cols(self.indexed_by, self.survey.source_id_cols, self.survey.receiver_id_cols)
+            coords = self[coords_cols]
         except KeyError:
             return None
         if (coords != coords[0]).any():  # Non-unique coordinates
@@ -206,11 +206,7 @@ class Gather(TraceContainer, SamplesContainer):
         """Print gather metadata including information about its survey, headers and traces."""
         # Calculate offset range
         offsets = self.headers.get('offset')
-        offset_range = f'[{np.min(offsets)} m, {np.max(offsets)} m]' if offsets is not None else None
-
-        # Format gather coordinates
-        coords = self.coords
-        coords_str = "Unknown" if coords is None else str(coords)
+        offset_range = f'[{np.min(offsets)} m, {np.max(offsets)} m]' if offsets is not None else "Unknown"
 
         # Count the number of zero/constant traces
         n_dead_traces = np.isclose(np.max(self.data, axis=1), np.min(self.data, axis=1)).sum()
@@ -219,16 +215,16 @@ class Gather(TraceContainer, SamplesContainer):
         Parent survey path:          {self.survey.path}
         Parent survey name:          {self.survey.name}
 
-        Indexed by:                  {', '.join(to_list(self.indexed_by))}
-        Index value:                 {'Combined' if self.index is None else self.index}
-        Gather coordinates:          {coords_str}
-        Gather sorting:              {self.sort_by}
-
         Number of traces:            {self.n_traces}
         Trace length:                {self.n_samples} samples
         Sample rate:                 {self.sample_rate} ms
         Times range:                 [{min(self.samples)} ms, {max(self.samples)} ms]
         Offsets range:               {offset_range}
+
+        Indexed by:                  {', '.join(to_list(self.indexed_by))}
+        Index value:                 {get_first_defined(self.index, "Combined")}
+        Gather coordinates:          {get_first_defined(self.coords, "Unknown")}
+        Gather sorting:              {self.sort_by}
 
         Gather statistics:
         Number of dead traces:       {n_dead_traces}
