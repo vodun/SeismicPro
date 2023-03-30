@@ -47,43 +47,48 @@ class SurveyAttribute(Metric):
 
 
 class TracewiseMetric(SurveyAttribute):
-    """Base class for tracewise metrics with addidional plotters and aggregations. Child classes should redefine
-    `get_mask` method, and optionnaly `preprocess`."""
+    """Base class for tracewise metrics with additional plotters and aggregations. Child classes should redefine
+    `get_mask` or `numba_get_mask` methods, and optionally `preprocess`. """
     threshold = None
     top_ax_y_scale = "linear"
 
     def __call__(self, gather):
-        """Compute metric by applying `self.preprocess`, `self.get_mask` and `self.aggregate` to provided gather."""
+        """Compute qc metric by applying `self.preprocess`, `self.get_mask` and `self.aggregate` to provided gather."""
         gather = self.preprocess(gather)
         mask = self.get_mask(gather)
         return self.aggregate(mask)
 
     @property
     def description(self):
-        """String description of tracewise metric"""
+        """String description of the tracewise metric. Mainly used in `survey.info` when describing the number of bad
+        traces detected by the metric."""
         return NotImplementedError
 
     def preprocess(self, gather):
-        """Preprocess gather before calculating metric. Identity by default."""
+        """Preprocess gather before either calling `self.get_mask` method to calculate metric or to plot the gather.
+        Identity by default."""
         _ = self
         return gather
 
     def get_mask(self, gather):
-        """QC indicator implementation. Takes a gather as an argument and returns either a samplewise qc indicator with
-        shape equal to `gather.shape` or a tracewize indicator with shape (`gather.n_traces`,).
+        """Compute QC indicator.
 
-        Since all metrics calculated in threads, it may be more effective to call directly numba-decorated function.
-        Thus, depending on the case, implement QC indicator either here or in `self.numba_get_mask`."""
+        For a provided gather returns either a samplewise qc indicator with shape equal to `gather.shape` or a
+        tracewize indicator with shape (`gather.n_traces`,).
+
+        The method redirects the call to njitted static `numba_get_mask` method. Either this method or `numba_get_mask`
+        must be overridden in child classes.
+        """
         return self.numba_get_mask(gather.data)
 
     @staticmethod
     @njit(nogil=True)
     def numba_get_mask(traces):
-        """Parallel QC metric implemetation. """
+        """Compute QC indicator in parallel."""
         raise NotImplementedError
 
     def aggregate(self, mask):
-        """Aggregate input mask depending on `self.is_lower_better` to select the worst mask value for each trace"""
+        """Columnwise `mask` aggregation depending on `self.is_lower_better` to select the worst values."""
         if self.is_lower_better is None:
             agg_fn = np.nanmean
         elif self.is_lower_better:
@@ -93,9 +98,30 @@ class TracewiseMetric(SurveyAttribute):
         return mask if mask.ndim == 1 else agg_fn(mask, axis=1)
 
     def binarize(self, mask, threshold=None):
-        """Binarize input mask by `threshold` marking bad mask values as True. Depending on `self.is_lower_better`
-        values greater or less than the `threshold` will be treated as a bad value. If `threshold` is None,
-        `self.threshold` is used."""
+        """Binarize a given mask by a `threshold`.
+
+        Parameters
+        ----------
+        mask : 1d ndarray or 2d ndarray
+            Array with computed metric values to be converted to a binary mask.
+        threshold : int, float, array-like with 2 elements, optional, defaults to None
+            Threshold used to binarize the mask.
+            If int or float, depending on `self.is_lower_better` values greater or less than the `threshold` will be
+            treated as a bad value and marked as True. If array, two numbers indicate the boundaries within which the
+            metric values are treated as False, outside inclusive - as True. If None, self.threshold will be used.
+
+        Returns
+        -------
+        bin_mask : 1d ndarray or 2d ndarray
+            Binary mask obtained by comparing the mask with threshold.
+
+        Raises
+        ------
+        ValueError
+            If threshold is not provided and self.threshold is None.
+            If threshold is a single number and self.is_lower_better is None.
+            If threshold is iterable but does not contain exactly 2 elements.
+        """
         threshold = self.threshold if threshold is None else threshold
         if threshold is None:
             raise ValueError("Either `threshold` or `self.threshold` must be non None")
@@ -114,7 +140,30 @@ class TracewiseMetric(SurveyAttribute):
         return bin_mask
 
     def plot(self, ax, coords, index, sort_by=None, threshold=None, top_ax_y_scale=None,  bad_only=False, **kwargs):
-        """Gather plot where samples with indicator above/below `.threshold` are highlited."""
+        """Plot gather by its `index` with highlighted traces with metric value above or below the `self.threshold`.
+
+        Tracewise metric values with a threshold line will be shown on top of the gather plot.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes
+            Axes of the figure to plot on.
+        coords : array-like with 2 elements
+            Gather coordinates.
+        index : array-like with 2 elements
+            Gather index.
+        sort_by : str or array-like, optional, defaults to None
+            Headers names to sort the gather by.
+        threshold : int, float, array-like with 2 elements, optional, defaults to None
+            Threshold used to binarize the metric values.
+            If None, `self.threshold` will be used. See `self.binarize` for more details.
+        top_ax_scale : str, optional, defaults to None
+            Scale type for top header plot, see `matplotlib.axes.Axes.set_yscale` for avalible options.
+        bad_only : bool, optional, defaults to False
+            Show only traces that are considered as bad based on provided threshold and `self.is_lower_better`.
+        kwargs : misc, optional
+            Additional keyword arguments to the `gather.plot`.
+        """
         threshold = self.threshold if threshold is None else threshold
         top_ax_y_scale = self.top_ax_y_scale if top_ax_y_scale is None else top_ax_y_scale
         _ = coords
@@ -156,7 +205,6 @@ class TracewiseMetric(SurveyAttribute):
 class MuteTracewiseMetric(TracewiseMetric):  # pylint: disable=abstract-method
     """Base class for tracewise metric with implemented `self.preprocess` method which applies muting and standard
     scaling to the input gather. Child classes should redefine `get_mask` method."""
-
     def __init__(self, muter, name=None):
         super().__init__(name=name)
         self.muter = muter

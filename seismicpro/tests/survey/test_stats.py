@@ -1,4 +1,4 @@
-"""Test Survey collect_stats and dead_traces-related methods"""
+"""Test Survey collect_stats method"""
 
 # pylint: disable=redefined-outer-name
 import pytest
