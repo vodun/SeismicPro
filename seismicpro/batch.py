@@ -160,6 +160,14 @@ class SeismicBatch(Batch):
         return self
 
     @action
+    def evaluate_field(self, field, src, dst):
+        _ = self.init_component(dst=dst)
+        field_items = field([item.coords for item in getattr(self, src)])
+        for i, item in enumerate(field_items):
+            setattr(self[i], dst, item)
+        return self
+
+    @action
     def make_model_inputs(self, src, dst, mode='c', axis=0, expand_dims_axis=None):
         """Transform data to be used for model training.
 
