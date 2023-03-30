@@ -697,7 +697,7 @@ class RefractorVelocityField(SpatialField):
                 for i in range(n_chunks):
                     gathers_indices_chunk = survey.indices[i * chunk_size : (i + 1) * chunk_size]
                     gathers_chunk = [survey.get_gather(idx) for idx in gathers_indices_chunk]
-                    chunk_coords = gather_coords[i * chunk_size : (i + 1) * chunk_size]
+                    chunk_coords = [gather.coords for gather in gathers_chunk]
                     rvs_chunk = self(chunk_coords)
                     future = pool.submit(self._calc_metrics, metrics_instances, gathers_chunk,
                                          rvs_chunk)
