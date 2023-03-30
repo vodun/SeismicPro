@@ -2,5 +2,5 @@
 
 from .refractor_velocity import RefractorVelocity
 from .refractor_velocity_field import RefractorVelocityField
-from .metrics import (RefractorVelocityMetric, FirstBreaksOutliers, DivergencePoint, FirstBreaksAmplitudes,
+from .metrics import (FirstBreaksOutliers, DivergencePoint, FirstBreaksAmplitudes,
                       FirstBreaksPhases, FirstBreaksCorrelations)

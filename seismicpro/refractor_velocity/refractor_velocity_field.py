@@ -637,32 +637,31 @@ class RefractorVelocityField(SpatialField):
 
     @staticmethod
     def _calc_metrics(metrics, gathers_chunk, rvs_chunk):
-        """Calculate metrics for a given chunk of gathers.
+        """Calculate metrics for a given chunk of seismorgams. 
         Intended to use with pool executor, such as `~utils.ForPoolExecutor`.
         """
         chunk_results = []
         for gather, refractor_velocity in zip(gathers_chunk, rvs_chunk):
-            gather_results = []
-            for metric in metrics:
-                metric_val = metric(gather=gather, refractor_velocity=refractor_velocity)
-                gather_results.append(metric_val)
+            gather_results = [metric(gather=gather, refractor_velocity=refractor_velocity) for metric in metrics]
             chunk_results.append(gather_results)
         return chunk_results
 
     #pylint: disable-next=invalid-name
     def qc(self, survey=None, metrics=None, bar=True, chunk_size=250, n_workers=None):
-        """Perform quality control of the refractor velocity field and specifically its first breaks.
+        """Perform quality control of the refractor velocity field and specifically first breaks.
         By default, the following metrics are calculated:
-        * The first break outliers metric,
+        * The first break outliers metric. A first break time is considered to be an outlier if it differs from the
+        expected arrival time defined by an offset-traveltime curve by more than a given threshold.
         * Mean amplitude of the signal in the moment of first break,
         * Mean absolute deviation of the signal phase from target value in the moment of first break,
         * Mean Pearson correlation coeffitient of trace with mean hodograph in window around the first break,
-        * The divergence point metric for first breaks.
+        * The divergence point metric for first breaks. Intended to find an offset after that first breaks are most
+        likely to diverge from expected time.
         
         metrics : RefractorVelocityMetric or list of RefractorVelocityMetric, optional
             Metrics to calculate. Defaults to those defined in `~metrics.REFRACTOR_VELOCITY_QC_METRICS`.
         n_workers : int, optional
-            The number of processes to be spawned to calculate metrics. Defaults to the number of cpu cores.
+            The number of threads to be spawned to calculate metrics. Defaults to the number of cpu cores.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
         Returns
@@ -675,13 +674,13 @@ class RefractorVelocityField(SpatialField):
                 raise ValueError("Survey must be passed if the field is not linked with a survey.")
             survey = self.survey
 
-        metrics = REFRACTOR_VELOCITY_QC_METRICS if metrics is None else to_list(metrics)
+        metrics = REFRACTOR_VELOCITY_QC_METRICS if metrics is None else metrics
         metrics_instances, is_single_metric = initialize_metrics(metrics, metric_class=RefractorVelocityMetric)
 
         coords_cols = to_list(get_coords_cols(survey.indexed_by))
-        gather_change_ix = np.where(~survey.headers.index.duplicated(keep="first"))[0]
-        gather_coords = survey[coords_cols][gather_change_ix]
-        n_gathers = len(gather_coords)
+        # gather_change_ix = np.where(~survey.headers.index.duplicated(keep="first"))[0]
+        # gather_coords = survey[coords_cols][gather_change_ix]
+        n_gathers = survey.n_gathers
 
         n_chunks, mod = divmod(n_gathers, chunk_size)
         if mod:
@@ -692,15 +691,16 @@ class RefractorVelocityField(SpatialField):
         executor_class = ForPoolExecutor if n_workers == 1 else ProcessPoolExecutor
 
         futures = []
+        gather_coords = np.array([], dtype=np.int64).reshape(0, 2)
         with tqdm(total=n_gathers, desc="Gathers processed", disable=not bar) as pbar:
             with executor_class(max_workers=n_workers) as pool:
                 for i in range(n_chunks):
                     gathers_indices_chunk = survey.indices[i * chunk_size : (i + 1) * chunk_size]
                     gathers_chunk = [survey.get_gather(idx) for idx in gathers_indices_chunk]
-                    chunk_coords = gather_coords[i * chunk_size : (i + 1) * chunk_size]
+                    chunk_coords = [gather.coords for gather in gathers_chunk]
+                    gather_coords = np.concatenate((gather_coords, chunk_coords), axis=0)
                     rvs_chunk = self(chunk_coords)
-                    future = pool.submit(self._calc_metrics, metrics_instances, gathers_chunk,
-                                         rvs_chunk)
+                    future = pool.submit(self._calc_metrics, metrics_instances, gathers_chunk, rvs_chunk)
                     future.add_done_callback(lambda fut: pbar.update(len(fut.result())))
                     futures.append(future)
         results = sum([future.result() for future in futures], [])
@@ -709,10 +709,13 @@ class RefractorVelocityField(SpatialField):
         index = None if coords_cols == index_cols else survey.indices
         metrics_maps = []
         context = {'survey': survey, 'field': self}
-        for metric, metric_values in zip(metrics_instances, zip(*results)):
-            metrics_maps.append((metric.provide_context(**context)
-                                .construct_map(coords=gather_coords, index=index, index_cols=index_cols,
-                                               values=metric_values, coords_cols=self.coords_cols)))
+        metrics_instances = [metric.provide_context(survey=survey, field=self) for metric in metrics_instances]
+        metrics_maps = [metric.construct_map(coords=gather_coords, index=index, index_cols=index_cols,
+                                              values=metric_values) for metric, metric_values in zip(metrics_instances, zip(*results))]
+        # for metric, metric_values in zip(metrics_instances, zip(*results)):
+        #     metrics_maps.append((metric.provide_context(**context)
+        #                         .construct_map(coords=gather_coords, index=index, index_cols=index_cols,
+        #                                        values=metric_values)))
         if is_single_metric:
             return metrics_maps[0]
         return metrics_maps
