@@ -662,7 +662,7 @@ class RefractorVelocityField(SpatialField):
         metrics : RefractorVelocityMetric or list of RefractorVelocityMetric, optional
             Metrics to calculate. Defaults to those defined in `~metrics.REFRACTOR_VELOCITY_QC_METRICS`.
         n_workers : int, optional
-            The number of threads to be spawned to calculate metrics. Defaults to the number of cpu cores.
+            The number of processes to be spawned to calculate metrics. Defaults to the number of cpu cores.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
         Returns
