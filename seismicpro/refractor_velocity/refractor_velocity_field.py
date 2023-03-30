@@ -712,7 +712,7 @@ class RefractorVelocityField(SpatialField):
         for metric, metric_values in zip(metrics_instances, zip(*results)):
             metrics_maps.append((metric.provide_context(**context)
                                 .construct_map(coords=gather_coords, index=index, index_cols=index_cols,
-                                               values=metric_values, coords_cols=self.coords_cols)))
+                                               values=metric_values))
         if is_single_metric:
             return metrics_maps[0]
         return metrics_maps
