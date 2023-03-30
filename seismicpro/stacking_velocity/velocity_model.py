@@ -5,7 +5,6 @@ import networkit as nk
 from numba import njit
 
 from .stacking_velocity import StackingVelocity
-from ..const import DEFAULT_STACKING_VELOCITY
 from ..utils import to_list, interpolate
 from ..utils.interpolation.univariate import _times_to_indices
 
@@ -87,8 +86,6 @@ def calculate_stacking_velocity(spectrum, init=None, bounds=None, relative_margi
         min_vel_bound = bounds[0](node_times)
         max_vel_bound = bounds[1](node_times)
     else:
-        if init is None:
-            init = DEFAULT_STACKING_VELOCITY
         if not isinstance(init, StackingVelocity):
             raise ValueError
         center_vel = init(node_times)
