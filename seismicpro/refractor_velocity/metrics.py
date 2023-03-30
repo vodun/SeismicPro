@@ -83,8 +83,7 @@ class RefractorVelocityMetric(Metric):
                 mask_threshold = get_first_defined(mask_kwargs.get('threshold', None),
                                                    self.vmax if invert_mask==1 else self.vmin,
                                                    metric_values.mean())
-                mask_kwargs.update({'masks': metric_values * invert_mask,
-                                    "threshold": mask_threshold})
+                mask_kwargs.update({'masks': metric_values * invert_mask, "threshold": mask_threshold})
                 kwargs['masks'] = mask_kwargs
             if top_header:
                 gather[self.name] = metric_values
