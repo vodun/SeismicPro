@@ -637,7 +637,7 @@ class RefractorVelocityField(SpatialField):
 
     @staticmethod
     def _calc_metrics(metrics, gathers_chunk, rvs_chunk):
-        """Calculate metrics for a given chunk of seismorgams. 
+        """Calculate metrics for a given chunk of gathers.
         Intended to use with pool executor, such as `~utils.ForPoolExecutor`.
         """
         chunk_results = []
