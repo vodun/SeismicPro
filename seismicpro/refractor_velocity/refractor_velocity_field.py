@@ -678,8 +678,6 @@ class RefractorVelocityField(SpatialField):
         metrics_instances, is_single_metric = initialize_metrics(metrics, metric_class=RefractorVelocityMetric)
 
         coords_cols = to_list(get_coords_cols(survey.indexed_by))
-        # gather_change_ix = np.where(~survey.headers.index.duplicated(keep="first"))[0]
-        # gather_coords = survey[coords_cols][gather_change_ix]
         n_gathers = survey.n_gathers
 
         n_chunks, mod = divmod(n_gathers, chunk_size)
@@ -712,10 +710,6 @@ class RefractorVelocityField(SpatialField):
         metrics_instances = [metric.provide_context(survey=survey, field=self) for metric in metrics_instances]
         metrics_maps = [metric.construct_map(coords=gather_coords, index=index, index_cols=index_cols,
                                               values=metric_values) for metric, metric_values in zip(metrics_instances, zip(*results))]
-        # for metric, metric_values in zip(metrics_instances, zip(*results)):
-        #     metrics_maps.append((metric.provide_context(**context)
-        #                         .construct_map(coords=gather_coords, index=index, index_cols=index_cols,
-        #                                        values=metric_values)))
         if is_single_metric:
             return metrics_maps[0]
         return metrics_maps
