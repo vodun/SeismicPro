@@ -1,5 +1,9 @@
 """Implements metrics for quality control of stacking velocities.
 
+These metrics are supposed to be used in :func:`~stacking_velocity_field.StackingVelocityField.qc` method which
+iterates over groups of neighboring stacking velocities and automatically provides metrics with all required context
+for interactive plotting.
+
 In order to define your own metric you need to inherit a new class from `StackingVelocityMetric` and do the following:
 * Set an `is_window_metric` class attribute to `True` or `False` depending on whether your metric needs all stacking
   velocities in a spatial window or only the central one in its `calc` method. In the first case, the central velocity
