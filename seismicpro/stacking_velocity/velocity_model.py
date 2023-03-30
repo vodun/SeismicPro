@@ -68,7 +68,7 @@ def create_edges(spectrum_data, spectrum_times, spectrum_velocities, node_times_
 
 
 def calculate_stacking_velocity(spectrum, init=None, bounds=None, relative_margin=0.2, acceleration_bounds="auto",
-                                times_step=100, max_offset=5000, hodograph_correction_step=1, min_n_velocities=5,
+                                times_step=100, max_offset=5000, hodograph_correction_step=5, min_n_velocities=5,
                                 max_n_skips=2):
     spectrum_data = spectrum.velocity_spectrum
     spectrum_times = np.asarray(spectrum.times, dtype=np.float32)
