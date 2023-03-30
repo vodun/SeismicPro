@@ -744,7 +744,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         ValueError
             If survey geometry was not inferred.
         """
-        if self.geographic_contours is None:
+        if not self.has_inferred_geometry:
             raise ValueError("Survey geometry was not inferred, call `infer_geometry` method first.")
         return self._dist_to_contours(coords, self.geographic_contours)
 
@@ -773,7 +773,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         ValueError
             If properties of survey binning were not inferred.
         """
-        if self.bin_contours is None:
+        if not self.has_inferred_binning:
             raise ValueError("Properties of survey binning were not inferred, call `infer_binning` method first.")
         return self._dist_to_contours(bins, self.bin_contours)
 
@@ -1285,10 +1285,13 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         line_cols = ["INLINE_3D", "CROSSLINE_3D"]
         super_line_cols = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
-        if not self.has_inferred_binning:
-            raise KeyError("INLINE_3D and CROSSLINE_3D headers must be loaded")
         if set(super_line_cols) <= self.available_headers:
             raise ValueError("Supergathers have already been generated")
+        if not self.has_inferred_binning:
+            if set(line_cols) <= self.available_headers:
+                self.infer_binning()
+            else:
+                raise KeyError("INLINE_3D and CROSSLINE_3D headers must be loaded")
 
         self = maybe_copy(self, inplace, ignore="headers")  # pylint: disable=self-cls-assignment
         size = np.broadcast_to(size, 2)
@@ -1510,7 +1513,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         by : {"source", "shot", "receiver", "rec", "cdp", "cmp", "midpoint", "bin", "supergather"}
             Gather type to aggregate header values over.
         id_cols : str or list of str, optional
-            Trace headers that uniquely identify a gather of the chosen type. Acts as an index of the resulting map.
+            Trace headers that uniquely identify a gather of the chosen type. Acts as an index of the resulting map. If
+            not given and `by` represents either a common source or common receiver gather, `self.source_id_cols` or
+            `self.receiver_id_cols` are used respectively.
         drop_duplicates : bool, optional, defaults to False
             Whether to drop duplicated entries of (index, coordinates, metric value). Useful when dealing with a header
             defined for a shot or receiver, not a trace (e.g. constructing a map of elevations by shots).
@@ -1543,7 +1548,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         by : {"source", "shot", "receiver", "rec", "cdp", "cmp", "midpoint", "bin", "supergather"}
             Gather type to aggregate header values over.
         id_cols : str or list of str, optional
-            Trace headers that uniquely identify a gather of the chosen type. Acts as an index of the resulting map.
+            Trace headers that uniquely identify a gather of the chosen type. Acts as an index of the resulting map. If
+            not given and `by` represents either a common source or common receiver gather, `self.source_id_cols` or
+            `self.receiver_id_cols` are used respectively.
         agg : str or callable, optional, defaults to "mean"
             An aggregation function. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
         bin_size : int, float or array-like with length 2, optional
