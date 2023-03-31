@@ -18,7 +18,7 @@ from sklearn.linear_model import LinearRegression
 
 from .headers import load_headers
 from .headers_checks import validate_trace_headers, validate_source_headers, validate_receiver_headers
-from .metrics import (SurveyAttribute, TracewiseMetric, BaseWindowMetric, MetricsRatio, DeadTrace,
+from .metrics import (SurveyAttribute, TracewiseMetric, BaseWindowRMSMetric, MetricsRatio, DeadTrace,
                       DEFAULT_TRACEWISE_METRICS)
 from .plot_geometry import SurveyGeometryPlot
 from .utils import ibm_to_ieee, calculate_trace_stats
@@ -488,7 +488,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                 if metric.threshold is None:
                     continue
                 metric_value = self[metric.header_cols]
-                if isinstance(metric, BaseWindowMetric):
+                if isinstance(metric, BaseWindowRMSMetric):
                     metric_value = metric.compute_rms(*metric_value.T)
                 metric_msg += f"\n\t{metric.description+':':<55}{metric.binarize(metric_value).sum()}"
             if metric_msg:
@@ -1388,7 +1388,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             results = {}
             for metric in metrics:
                 header_cols = metric.header_cols
-                if isinstance(metric, BaseWindowMetric):
+                if isinstance(metric, BaseWindowRMSMetric):
                     metric = partial(metric, return_rms=False)
                 results.update(zip(to_list(header_cols), np.atleast_2d(metric(gather))))
             return pd.DataFrame(results)
