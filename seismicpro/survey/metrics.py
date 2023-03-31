@@ -142,8 +142,9 @@ class TracewiseMetric(SurveyAttribute):
     def plot(self, ax, coords, index, sort_by=None, threshold=None, top_ax_y_scale=None,  bad_only=False, **kwargs):
         """Plot gather by its `index` with highlighted traces with metric value above or below the `self.threshold`.
 
-        Tracewise metric values will be shown on top of the gather plot. Also, if theshold is a single number, blue
-        line will be added to the top plot, if theshold is an array, the area between will be filled with blue color.
+        Tracewise metric values will be shown on top of the gather plot. Also, the area with `good` metric values based
+        on threshold values and `self.is_lower_better` will be highlighted in blue. If `self.is_lower_better` is None
+        and threshold is a number, only the threshold line will be displayed.
 
         Parameters
         ----------
@@ -177,24 +178,29 @@ class TracewiseMetric(SurveyAttribute):
         mask = self.get_mask(gather)
         metric_vals = self.aggregate(mask)
         bin_mask = self.binarize(mask, threshold)
-        if bad_only:
-            gather.data[self.aggregate(bin_mask) == 0] = np.nan
 
         mode = kwargs.pop("mode", "wiggle")
         masks_dict = {"masks": bin_mask, "alpha": 0.8, "label": self.name or "metric", **kwargs.pop("masks", {})}
+
+        if bad_only:
+            gather.data[self.aggregate(bin_mask) == 0] = np.nan
+            masks_dict = {}  # Don't need to plot the mask since only bad traces will be plotted.
+
         gather.plot(ax=ax, mode=mode, top_header=metric_vals, masks=masks_dict, **kwargs)
         top_ax = ax.figure.axes[1]
+        top_ax.set_yscale(top_ax_y_scale)
         if threshold is not None:
             self._plot_threshold(ax=top_ax, threshold=threshold)
-        top_ax.set_yscale(top_ax_y_scale)
 
-    @staticmethod
-    def _plot_threshold(ax, threshold):
+    def _plot_threshold(self, ax, threshold):
+        x_min, x_max = ax.get_xlim()
+        y_min, y_max = ax.get_ylim()
         if isinstance(threshold, (int, float, np.number)):
-            ax.axhline(threshold, alpha=0.5, color="blue")
-        else:
-            start, end = ax.get_xlim()
-            ax.fill_between(np.arange(start+0.5, end+0.5), *threshold, alpha=0.3, color="blue")
+            if self.is_lower_better is None:
+                ax.axhline(threshold, alpha=0.5, color="blue")
+                return
+            threshold = [threshold, y_max] if self.is_lower_better else [y_min, threshold]
+        ax.fill_between(np.arange(x_min, x_max), *threshold, alpha=0.3, color="blue")
 
     def get_views(self, sort_by=None, threshold=None, top_ax_y_scale=None, **kwargs):
         """Return two plotters of the metric views. Each view plots a gather sorted by `sort_by` with a metric values
