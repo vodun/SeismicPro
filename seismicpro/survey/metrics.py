@@ -1,5 +1,27 @@
 # pylint: disable=not-an-iterable
-"""Implements survey metrics"""
+"""Implements metrics for quality control of the survey.
+
+These metrics are supposed to be used in :func:`~survey.qc_tracewise` method, which iterates over a group of traces and
+automatically provides metrics with all required context for interactive plotting.
+
+To defune your own metric, you need to inherit a new class from either `TracewiseMetric` or
+`MuteTracewiseMetric`, or `BaseWindowRMSMetric` depending on the purpose, and do the following:
+* Redefine `get_mask` or `get_numba_mask` method. The `get_mask` method must accept only a signle argument - gather -
+  while the `get_numba_mask` method must accept only the gather's data.
+* Redefine `description` method, which describes what traces were detected by the metric.
+* Set a `threshold` class attribute to a number above or below which the trace will be considered bad. If an
+  `is_lower_better` class attribute is `True`, the values greater or equal to the `threshold` will be considered bad
+  and lower or equal otherwise.
+* Optionally redefine `preprocess` method, which accepts the gather and applies any preprocess procedures such as
+  muting or scaling. This gather will later used in `get_mask` and showed on the left side of the interactive plot.
+* Optionally define all other class attributes of `Metric` for future convenience.
+* Optionally redefine `plot` method which will be used to plot gather with tracewise metric on top on click on a metric
+  map in interactive mode. It should accept an instance of `matplotlib.axes.Axes` to plot on and the same arguments
+  that were passed to `calc` during metric calculation. By default it plots gather with tracewise metric on top.
+
+If you want the created metric to be calculated by :func:`~survey.qc_tracewise` method by default, it should also be
+appended to a `DEFAULT_TRACEWISE_METRICS` list.
+"""
 
 import warnings
 from functools import partial
@@ -98,17 +120,20 @@ class TracewiseMetric(SurveyAttribute):
         return mask if mask.ndim == 1 else agg_fn(mask, axis=1)
 
     def binarize(self, mask, threshold=None):
-        """Binarize a given mask by a `threshold`.
+        """Binarize a given mask based on the provided threshold.
 
         Parameters
         ----------
         mask : 1d ndarray or 2d ndarray
             Array with computed metric values to be converted to a binary mask.
         threshold : int, float, array-like with 2 elements, optional, defaults to None
-            Threshold used to binarize the mask.
-            If int or float, depending on `self.is_lower_better` values greater or less than the `threshold` will be
-            treated as a bad value and marked as True. If array, two numbers indicate the boundaries within which the
-            metric values are treated as False, outside inclusive - as True. If None, self.threshold will be used.
+            Value to use as a threshold for binarizing the mask.
+            If a single number and `self.is_lower_better` is True, mask values greater or equal than the `threshold`
+            will be treated as bad and marked as True, otherwise, if `self.is_lower_better` is False, mask values lower
+            or equal then the `threshold` will be treated as bad and marked as True.
+            If array, two numbers indicate the boundaries within which the metric values are treated as False, outside
+            inclusive - as True.
+            If None, self.threshold will be used.
 
         Returns
         -------
@@ -162,7 +187,7 @@ class TracewiseMetric(SurveyAttribute):
         top_ax_scale : str, optional, defaults to None
             Scale type for top header plot, see `matplotlib.axes.Axes.set_yscale` for avalible options.
         bad_only : bool, optional, defaults to False
-            Show only traces that are considered as bad based on provided threshold and `self.is_lower_better`.
+            Show only traces that are considered bad based on provided threshold and `self.is_lower_better`.
         kwargs : misc, optional
             Additional keyword arguments to the `gather.plot`.
         """
@@ -558,7 +583,7 @@ class BaseWindowRMSMetric(TracewiseMetric):
 
     def add_mask_on_plot(self, ax, gather, color=None):
         """Plot any additional metric related graphs over the gather plot."""
-        _ = ax, gather, color
+        _ = self, ax, gather, color
         pass
 
     def get_views(self, threshold=None, top_ax_y_scale=None, **kwargs):
@@ -578,10 +603,12 @@ class MetricsRatio(TracewiseMetric):
 
     Parameters
     ----------
-    numerator : subclass of BaseWindowRMSMetric
+    numerator : BaseWindowRMSMetric or its subclass
         Metric instance whose values will be divided by the `denominator` metirc values.
-    denominator : subclass of BaseWindowRMSMetric
+    denominator : BaseWindowRMSMetric or its subclass
         Metric instance whose values will be used as a divisor for a `numerator` metric.
+    name : str, optional, defaults to "numerator.name to denominator.name ratio"
+        A metric name.
     """
     is_lower_better = False
     threshold = None
@@ -623,9 +650,9 @@ class MetricsRatio(TracewiseMetric):
 
     def plot(self, ax, coords, index, threshold=None, top_ax_y_scale=None, bad_only=False, **kwargs):
         """Plot the gather sorted by offset with two masks over the gather plot. The lime-colored mask represents the
-        window where `self.numerator` metric was calculated, while the magenta-colored mask is intended for a
-        `self.denominator` window. Additionally, tracewise ratio of `self.numerator` by `self.denominator` indicators
-        values is displayed on the top of the gather plot."""
+        window where the `self.numerator` metric was calculated, while the magenta-colored mask represents the
+        `self.denominator` window. Additionally, tracewise ratio of `self.numerator` by `self.denominator` is displayed
+        on the top of the gather plot."""
         threshold = self.threshold if threshold is None else threshold
         top_ax_y_scale = self.top_ax_y_scale if top_ax_y_scale is None else top_ax_y_scale
         _ = coords
@@ -672,7 +699,7 @@ class WindowRMS(BaseWindowRMSMetric):
     times : array-like with 2 int
         Time range to use for calcualtion, measured in ms.
     name : str, optional, defaults to "window_rms"
-        Metrics name.
+        A metric name.
     """
     name = "window_rms"
     is_lower_better = None
@@ -726,7 +753,7 @@ class WindowRMS(BaseWindowRMSMetric):
         return squares, nums
 
     def add_mask_on_plot(self, ax, gather, color="lime", legend=None):
-        """Plot a rectangle path over the gather plot in a place where metric was computed."""
+        """Plot a rectangle path over the gather plot in a place where RMS was computed."""
         times = self._get_time_ixs(self.times, gather.samples)
 
         offs_ind = np.nonzero((gather.offsets >= self.offsets[0]) & (gather.offsets <= self.offsets[1]))[0]
@@ -736,27 +763,24 @@ class WindowRMS(BaseWindowRMSMetric):
 
 
 class AdaptiveWindowRMS(BaseWindowRMSMetric):
-    """TODO: rewrite Signal to Noise RMS ratio computed in sliding windows along provided refractor velocity.
-    RMS will be computed in two windows for every gather:
-    1. Window shifted up from refractor velocity by `shift_up` ms. RMS in this window represents the noise value.
-    2. WIndow shifted down from refractor velocity by `shift_down` ms`. RMS in this window represents the signal value.
+    """Compute traces RMS in sliding window along provided refractor velocity.
 
-    Only traces that contain noise and signal windows of the provided `window_size` are considered,
-    the metric is 0 for other traces.
+    For each gather, the RMS value will be calculated wihtin a window of size `window_size` centered around the
+    refractor velocity shifted by `shift`.
 
+    Only the traces that contain at least signle amplitute in the provided window are considered, otherwise the metric
+    is nan.
 
     Parameters
     ----------
     window_size : int
-        Length of the windows for computing signam and noise RMS amplitudes measured in ms.
-    shift_up : int
-        The delta between noise window end and first breaks, measured in ms.
-    shift_down : int
-        The delta between signal window beginning and first breaks, measured in ms.
+        Length of the window for computing RMS amplitudes, measured in ms.
+    shift : int
+        The distance to shift the sliding window from the refractor velocity, measured in ms.
     refractor_velocity: RefractorVelocity
-        Refractor velocity object to find times along witch
+        Refractor velocity object to find times along witch the RMS will be calculated.
     name : str, optional, defaults to "adaptive_rms"
-        Metrics name.
+        A metric name.
     """
     name = "adaptive_rms"
     is_lower_better = False
@@ -792,7 +816,8 @@ class AdaptiveWindowRMS(BaseWindowRMSMetric):
     @staticmethod
     @njit(nogil=True)
     def _get_indices(window_size, shift, samples, fbp_times, times_to_indices):
-        """Convert times to use for noise and signal windows into indices"""
+        """Calculates the start and end indices of a window of size `window_size` centered around the refractor
+        velocity shifted by `shift`."""
         mid_samples = times_to_indices(fbp_times + shift, samples, round=True).astype(np.int16)
         window_size = int(times_to_indices(np.array([window_size]), samples, round=True)[0])
 
@@ -801,7 +826,7 @@ class AdaptiveWindowRMS(BaseWindowRMSMetric):
         return start_ixs, end_ixs
 
     def add_mask_on_plot(self, ax, gather, color="lime", legend=None):
-        """Gather plot sorted by offset with tracewise indicator on a separate axis and signal and noise windows."""
+        """Plot two parallel lines over the gather plot along the window where RMS was computed."""
         fbp_times = self.refractor_velocity(gather.offsets)
         indices = self._get_indices(self.window_size, self.shift, gather.samples, fbp_times, times_to_indices)
         indices = np.where(np.asarray(indices) == 0, np.nan, indices)
