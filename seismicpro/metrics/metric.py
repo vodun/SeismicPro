@@ -40,7 +40,7 @@ class Metric:
     * Optionally redefine `__init__` to store some additional metric parameters,
     * Optionally implement one or more views and list them in the `views` attribute,
     * Optionally redefine `bind_context` method which accepts a parent metric map and the provided calculation context
-      as its parameters and transforms them to be further be used by views,
+      as its parameters and transforms them to be further used by views,
     * Optionally set other metric attributes for future convenience.
 
     Parameters
