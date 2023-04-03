@@ -44,13 +44,6 @@ def stat_segy(tmp_path_factory, request):
 class TestStats:
     """Test `collect_stats` method."""
 
-    # def test_no_mark_dead_warning(self, segy_path):
-    #     """Check that a warning is emitted when `collect_stats` is run before `mark_dead_races`"""
-    #     survey = Survey(segy_path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset")
-
-    #     with pytest.warns(RuntimeWarning):
-    #         survey.collect_stats()
-
     @pytest.mark.parametrize("init_limits", [slice(None), slice(8), slice(-4, None)])
     @pytest.mark.parametrize("n_quantile_traces", [0, 10, 100])
     @pytest.mark.parametrize("quantile_precision", [1, 2])
@@ -62,10 +55,6 @@ class TestStats:
         path, trace_data = stat_segy
         survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset", limits=init_limits,
                         use_segyio_trace_loader=use_segyio_trace_loader, bar=False)
-        # survey.mark_dead_traces(bar=False)
-
-        # if remove_dead:
-        #     survey.remove_dead_traces(inplace=True)
 
         survey_copy = survey.copy()
         survey.collect_stats(n_quantile_traces=n_quantile_traces, quantile_precision=quantile_precision,
@@ -74,9 +63,6 @@ class TestStats:
         # stats_limits take priority over init_limits
         stats_limits = init_limits if stats_limits is None else stats_limits
         trace_data = trace_data[:, stats_limits]
-        # if remove_dead:
-        #     is_dead = np.isclose(trace_data.min(axis=1), trace_data.max(axis=1))
-        #     trace_data = trace_data[~is_dead].ravel()
 
         # Perform basic tests of estimated quantiles since fair comparison of interpolators is complicated
         quantiles = survey.quantile_interpolator(np.linspace(0, 1, 11))
@@ -115,59 +101,3 @@ class TestStats:
         survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset")
         with pytest.raises(ValueError):
             survey.get_quantile(0.5)
-
-
-# @pytest.mark.parametrize("header_index", ["TRACE_SEQUENCE_FILE", "CDP", ["CDP", "FieldRecord"]])
-# class TestDeadTraces:
-#     """Test dead traces processing"""
-#     @pytest.mark.parametrize("inplace", [True, False])
-#     @pytest.mark.parametrize("pre_mark_dead", [True, False])
-#     def test_remove(self, stat_segy, header_index, inplace, pre_mark_dead):
-#         """Check that `remove_dead_traces` properly updates survey `headers` and sets `n_dead_traces` counter to 0."""
-
-#         path, trace_data = stat_segy
-#         survey = Survey(path, header_index=header_index, header_cols="offset")
-
-#         traces_pos = survey.headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
-#         trace_data = trace_data[np.argsort(traces_pos)]
-
-#         survey_copy = survey.copy()
-
-#         if pre_mark_dead:
-#             survey.mark_dead_traces()
-
-#         survey_filtered = survey.remove_dead_traces(inplace=inplace)
-
-#         is_dead = np.isclose(trace_data.min(axis=1), trace_data.max(axis=1))
-#         survey_copy.headers = survey_copy.headers.loc[~is_dead]
-#         survey_copy.n_dead_traces = 0
-#         survey_copy.headers["dead_trace"] = False
-
-#         # Validate that dead traces are not present
-#         assert survey_filtered.n_dead_traces == 0
-#         assert survey_filtered.headers.index.is_monotonic_increasing
-#         assert_surveys_equal(survey_filtered, survey_copy)
-#         assert_survey_processed_inplace(survey, survey_filtered, inplace)
-
-#     @pytest.mark.parametrize("detection_limits", [None, slice(5), slice(2, 8)])
-#     def test_mark(self, stat_segy, header_index, detection_limits):
-#         """Check that `mark_dead_traces` properly updates survey `headers` and sets `n_dead_traces` counter."""
-
-#         path, trace_data = stat_segy
-#         survey = Survey(path, header_index=header_index, header_cols="offset")
-
-#         traces_pos = survey.headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
-#         trace_data = trace_data[np.argsort(traces_pos)]
-
-#         survey_copy = survey.copy()
-
-#         survey.mark_dead_traces(limits=detection_limits, bar=False)
-
-#         if detection_limits:
-#             trace_data = trace_data[:, detection_limits]
-
-#         is_dead = np.isclose(trace_data.min(axis=1), trace_data.max(axis=1))
-#         survey_copy.headers["dead_trace"] = is_dead
-#         survey_copy.n_dead_traces = np.sum(is_dead)
-
-#         assert_surveys_equal(survey, survey_copy)
