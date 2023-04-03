@@ -236,6 +236,162 @@ class TracewiseMetric(SurveyAttribute):
         return [partial(self.plot, **plot_kwargs), partial(self.plot, bad_only=True, **plot_kwargs)], kwargs
 
 
+class DeadTrace(TracewiseMetric):
+    """Detect constant traces.
+
+    `get_mask` returns 1d binary mask where each dead trace is marked with one.
+    """
+    name = "dead_trace"
+    min_value = 0
+    max_value = 1
+    is_lower_better = True
+    threshold = 0.5
+
+    @property
+    def description(self):
+        return "Number of dead traces"
+
+    @staticmethod
+    @njit(nogil=True)
+    def numba_get_mask(traces):
+        """Compute QC indicator in parallel."""
+        res = np.empty_like(traces[:, 0])
+        for i in range(traces.shape[0]):
+            res[i] = isclose(max(traces[i]), min(traces[i]))
+        return res
+
+
+class TraceAbsMean(TracewiseMetric):
+    """Calculate absolute value of the trace's mean scaled by trace's std.
+
+    `get_mask` returns 1d array wtih computed metric values for the gather.
+    """
+    name = "trace_absmean"
+    is_lower_better = True
+    threshold = 0.1
+
+    @property
+    def description(self):
+        """String description of tracewise metric."""
+        return f"Traces with mean divided by std greater than {self.threshold}"
+
+    @staticmethod
+    @njit(nogil=True)
+    def numba_get_mask(traces):
+        """Compute QC indicator in parallel."""
+        res = np.empty_like(traces[:, 0])
+        for i in range(traces.shape[0]):
+            res[i] = np.abs(traces[i].mean() / (traces[i].std() + 1e-10))
+        return res
+
+
+class TraceMaxAbs(TracewiseMetric):
+    """Find a maximum absolute amplitude value scaled by trace's std.
+
+    `get_mask` returns 1d array wtih computed metric values for the gather.
+    """
+    name = "trace_maxabs"
+    is_lower_better = True
+    threshold = 15
+
+    @property
+    def description(self):
+        """String description of tracewise metric"""
+        return f"Traces with max abs to std ratio greater than {self.threshold}"
+
+    @staticmethod
+    @njit(nogil=True)
+    def numba_get_mask(traces):
+        """Compute QC indicator in parallel."""
+        res = np.empty_like(traces[:, 0])
+        for i in range(traces.shape[0]):
+            res[i] = np.max(np.abs(traces[i])) / (traces[i].std() + 1e-10)
+        return res
+
+
+class MaxClipsLen(TracewiseMetric):
+    """Calculate the length of consecutive amplitudes equals to trace minimum or maximun amplitudes.
+
+    `get_mask` returns 2d mask indicating the length of consecutive maximum or minimum amplitudes for each trace in the
+    input gather.
+    """
+    name = "max_clips_len"
+    min_value = 1
+    max_value = None
+    is_lower_better = True
+    threshold = 3
+
+    @property
+    def description(self):
+        """String description of tracewise metric."""
+        return f"Traces with more than {self.threshold} clipped samples in a row"
+
+    @staticmethod
+    @njit(nogil=True)
+    def numba_get_mask(traces):
+        def _update_counters(trace, i, j, value, counter, container):
+            if isclose(trace, value):
+                counter += 1
+            else:
+                if counter > 1:
+                    container[i, j - counter: j] = counter
+                counter = 0
+            return counter
+
+        maxes = np.zeros_like(traces)
+        mins = np.zeros_like(traces)
+        for i in range(traces.shape[0]):
+            trace = traces[i]
+            max_val = max(trace)
+            max_counter = 0
+            min_val = min(trace)
+            min_counter = 0
+            for j in range(trace.shape[0]):  # pylint: disable=consider-using-enumerate
+                max_counter = _update_counters(trace[j], i, j, max_val, max_counter, maxes)
+                min_counter = _update_counters(trace[j], i, j, min_val, min_counter, mins)
+
+            if max_counter > 1:
+                maxes[i, -max_counter:] = max_counter
+            if min_counter > 1:
+                mins[i, -min_counter:] = min_counter
+        return maxes + mins
+
+
+class MaxConstLen(TracewiseMetric):
+    """Calcualte the number of consecutive identical amplitudes.
+
+    `get_mask` returns 2d mask indicating the length of consecutive identical values in each trace in the input gather.
+    """
+    name = "const_len"
+    is_lower_better = True
+    threshold = 4
+
+    @property
+    def description(self):
+        """String description of tracewise metric"""
+        return f"Traces with more than {self.threshold} identical values in a row"
+
+    @staticmethod
+    @njit(nogil=True)
+    def numba_get_mask(traces):
+        """Compute QC indicator in parallel."""
+        indicator = np.zeros_like(traces)
+        for i in range(traces.shape[0]):
+            trace = traces[i]
+            counter = 1
+            for j in range(1, trace.shape[0]):  # pylint: disable=consider-using-enumerate
+                if isclose(trace[j], trace[j-1]):
+                    counter += 1
+                else:
+                    if counter > 1:
+                        indicator[i, j - counter: j] = counter
+                    counter = 1
+
+            if counter > 1:
+                indicator[i, -counter:] = counter
+        return indicator
+
+
 class MuteTracewiseMetric(TracewiseMetric):  # pylint: disable=abstract-method
     """Base class for tracewise metric with implemented `self.preprocess` method which applies muting and standard
     scaling to the input gather. Child classes should redefine `get_mask` or `numba_get_mask` methods.
@@ -344,162 +500,6 @@ class Autocorrelation(MuteTracewiseMetric):
                 res[i] = np.nan
             else:
                 res[i] = np.nanmean(traces[i, 1:] * traces[i, :-1])
-        return res
-
-class TraceAbsMean(TracewiseMetric):
-    """Calculate absolute value of the trace's mean scaled by trace's std.
-
-    `get_mask` returns 1d array wtih computed metric values for the gather.
-    """
-    name = "trace_absmean"
-    is_lower_better = True
-    threshold = 0.1
-
-    @property
-    def description(self):
-        """String description of tracewise metric."""
-        return f"Traces with mean divided by std greater than {self.threshold}"
-
-    @staticmethod
-    @njit(nogil=True)
-    def numba_get_mask(traces):
-        """Compute QC indicator in parallel."""
-        res = np.empty_like(traces[:, 0])
-        for i in range(traces.shape[0]):
-            res[i] = np.abs(traces[i].mean() / (traces[i].std() + 1e-10))
-        return res
-
-
-class TraceMaxAbs(TracewiseMetric):
-    """Find a maximum absolute amplitude value scaled by trace's std.
-
-    `get_mask` returns 1d array wtih computed metric values for the gather.
-    """
-    name = "trace_maxabs"
-    is_lower_better = True
-    threshold = 15
-
-    @property
-    def description(self):
-        """String description of tracewise metric"""
-        return f"Traces with max abs to std ratio greater than {self.threshold}"
-
-    @staticmethod
-    @njit(nogil=True)
-    def numba_get_mask(traces):
-        """Compute QC indicator in parallel."""
-        res = np.empty_like(traces[:, 0])
-        for i in range(traces.shape[0]):
-            res[i] = np.max(np.abs(traces[i])) / (traces[i].std() + 1e-10)
-        return res
-
-
-class MaxClipsLen(TracewiseMetric):
-    """Calculate the length of consecutive minimum or maximun ampliuteds clips.
-
-    `get_mask` returns 2d mask indicating the length of consecutive maximum or minimum amplitudes for each trace in the
-    input gather.
-    """
-    name = "max_clips_len"
-    min_value = 1
-    max_value = None
-    is_lower_better = True
-    threshold = 3
-
-    @property
-    def description(self):
-        """String description of tracewise metric."""
-        return f"Traces with more than {self.threshold} clipped samples in a row"
-
-    @staticmethod
-    @njit(nogil=True)
-    def numba_get_mask(traces):
-        """Compute QC indicator in parallel."""
-        def _update_counters(trace, i, j, value, counter, container):
-            if isclose(trace, value):
-                counter += 1
-            else:
-                if counter > 1:
-                    container[i, j - counter: j] = counter
-                counter = 0
-            return counter
-
-        maxes = np.zeros_like(traces)
-        mins = np.zeros_like(traces)
-        for i in range(traces.shape[0]):
-            trace = traces[i]
-            max_val = max(trace)
-            max_counter = 0
-            min_val = min(trace)
-            min_counter = 0
-            for j in range(trace.shape[0]):  # pylint: disable=consider-using-enumerate
-                max_counter = _update_counters(trace[j], i, j, max_val, max_counter, maxes)
-                min_counter = _update_counters(trace[j], i, j, min_val, min_counter, mins)
-
-            if max_counter > 1:
-                maxes[i, -max_counter:] = max_counter
-            if min_counter > 1:
-                mins[i, -min_counter:] = min_counter
-        return maxes + mins
-
-
-class MaxConstLen(TracewiseMetric):
-    """Calcualte the number of consecutive identical amplitudes.
-
-    `get_mask` returns 2d mask indicating the length of consecutive identical values in each trace in the input gather.
-    """
-    name = "const_len"
-    is_lower_better = True
-    threshold = 4
-
-    @property
-    def description(self):
-        """String description of tracewise metric"""
-        return f"Traces with more than {self.threshold} identical values in a row"
-
-    @staticmethod
-    @njit(nogil=True)
-    def numba_get_mask(traces):
-        """Compute QC indicator in parallel."""
-        indicator = np.zeros_like(traces)
-        for i in range(traces.shape[0]):
-            trace = traces[i]
-            counter = 1
-            for j in range(1, trace.shape[0]):  # pylint: disable=consider-using-enumerate
-                if isclose(trace[j], trace[j-1]):
-                    counter += 1
-                else:
-                    if counter > 1:
-                        indicator[i, j - counter: j] = counter
-                    counter = 1
-
-            if counter > 1:
-                indicator[i, -counter:] = counter
-        return indicator
-
-
-class DeadTrace(TracewiseMetric):
-    """Detect constant traces.
-
-    `get_mask` returns 1d binary mask where each dead trace is marked with one.
-    """
-    name = "dead_trace"
-    min_value = 0
-    max_value = 1
-    is_lower_better = True
-    threshold = 0.5
-
-    @property
-    def description(self):
-        return "Number of dead traces"
-
-    @staticmethod
-    @njit(nogil=True)
-    def numba_get_mask(traces):
-        """Compute QC indicator in parallel."""
-        res = np.empty_like(traces[:, 0])
-        for i in range(traces.shape[0]):
-            res[i] = isclose(max(traces[i]), min(traces[i]))
         return res
 
 
@@ -835,4 +835,4 @@ class AdaptiveWindowRMS(BaseWindowRMSMetric):
         ax.plot(np.arange(gather.n_traces), indices[0], color=color, label=legend)
         ax.plot(np.arange(gather.n_traces), indices[1], color=color)
 
-DEFAULT_TRACEWISE_METRICS = [TraceAbsMean, TraceMaxAbs, MaxClipsLen, MaxConstLen, DeadTrace]
+DEFAULT_TRACEWISE_METRICS = [DeadTrace, TraceAbsMean, TraceMaxAbs, MaxClipsLen, MaxConstLen]
