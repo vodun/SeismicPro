@@ -9,6 +9,7 @@ from seismicpro.survey.metrics import (DeadTrace, TraceAbsMean, TraceMaxAbs, Max
                                        Autocorrelation, WindowRMS, AdaptiveWindowRMS, DEFAULT_TRACEWISE_METRICS)
 from seismicpro.utils import to_list
 from . import assert_surveys_equal, assert_survey_processed_inplace
+from .test_stats import stat_segy
 
 
 rv = RefractorVelocity(t0=0, v1=1600)
@@ -86,6 +87,7 @@ class TestTracewise:
 @pytest.mark.parametrize("inplace", [True, False])
 class TestFilterMetrics:
     """Test survey filter by metric"""
+
     @pytest.mark.parametrize("metric, threshold", [[MaxClipsLen, None], [MaxConstLen, 2]])
     def test_filter_metrics(self, stat_segy, header_index, metric, threshold, inplace):
         """Check that `filter_by_metric` properly updates survey `headers`."""
@@ -104,7 +106,9 @@ class TestFilterMetrics:
         metric_instance = survey.qc_metrics[metric.name]
         n_bad = metric_instance.binarize(metric_instance(gather), threshold=threshold).sum()
 
+        # Validate that only bad traces were removed from the survey
         assert gather.n_traces - n_bad == survey_filtered.headers.shape[0]
+        assert all(~metric_instance.binarize(survey_filtered[metric_instance.header_cols]))
         assert_survey_processed_inplace(survey, survey_filtered, inplace)
 
     def test_remove_dead_traces(self, stat_segy, header_index, inplace):
@@ -118,6 +122,8 @@ class TestFilterMetrics:
 
         survey_copy = survey.copy()
         survey_filtered = survey.remove_dead_traces(inplace=inplace)
+        # Check that remove_dead_traces is not affected on the survey, don't need to store dead trace metric.
+        survey_filtered.qc_metrics = {}
 
         is_dead = np.isclose(trace_data.min(axis=1), trace_data.max(axis=1))
         survey_copy.headers = survey_copy.headers.loc[~is_dead]
