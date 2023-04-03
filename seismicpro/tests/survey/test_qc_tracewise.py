@@ -9,7 +9,6 @@ from seismicpro.survey.metrics import (DeadTrace, TraceAbsMean, TraceMaxAbs, Max
                                        Autocorrelation, WindowRMS, AdaptiveWindowRMS, DEFAULT_TRACEWISE_METRICS)
 from seismicpro.utils import to_list
 from . import assert_surveys_equal, assert_survey_processed_inplace
-from .test_stats import stat_segy
 
 
 rv = RefractorVelocity(t0=0, v1=1600)
