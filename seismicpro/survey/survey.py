@@ -153,8 +153,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Standard deviation of trace values. `None` until trace statistics are calculated.
     quantile_interpolator : scipy.interpolate.interp1d or None
         Interpolator of trace values quantiles. `None` until trace statistics are calculated.
-    n_dead_traces : int or None
-        The number of traces with constant value (dead traces). `None` until `mark_dead_traces` method is called.
     has_inferred_binning : bool
         Whether properties of survey binning have been inferred. `True` if `INLINE_3D` and `CROSSLINE_3D` trace headers
         are loaded on survey instantiation or `infer_binning` method is explicitly called.
@@ -309,7 +307,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.mean = None
         self.std = None
         self.quantile_interpolator = None
-        self.n_dead_traces = None
 
         # calculated QC metrics
         self.qc_metrics = {}
@@ -1381,7 +1378,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         ValueError
             If `overwrite` is False and given metric was calculated before.
         """
-
         if metrics is None:
             metrics = DEFAULT_TRACEWISE_METRICS
         metrics, _ = initialize_metrics(metrics, metric_class=TracewiseMetric)
