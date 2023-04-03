@@ -1340,11 +1340,27 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return self
 
     def qc_tracewise(self, metrics=None, chunk_size=1000, n_workers=None, bar=True, overwrite=False):
-        """Calculate tracewise QC metrics.
+        """Perform quality control of the traces in the survey.
+
+        For each trace, the metric is calculated independently and the result is stored in the `self.headers` in a
+        column with name `metrics.header_cols`. The only exeption is for window-based metrics, which cannot be
+        calculated independently by traces. These metrics store some itermediate results in more than one column. In
+        this case, the actual metric value is computed during the metric map construction in `self.construct_qc_map`.
+
+        For example, the metric that computes window-based RMS - :class:`~metric.WindowRMS` or
+        :class:`~metric.AdaptiveWindowRMS` - saves results in two columns: first one with the  sum of squares of
+        amplitudes and second is the number of amplitudes in the window for each trace.
+
+        By default the following metrics are calculated:
+        * Detection of constant traces,
+        * Absolute value of the trace's mean scaled by trace's std deviation,
+        * Maximum absolute amplitude value scaled by trace's std deviation,
+        * Length of consecutive amplitudes equals to trace minimum or maximun amplitudes,
+        * Number of consecutive identical amplitudes.
 
         Parameters
         ----------
-        metrics : :class:`~metrics.TracewiseMetric`, or list of :class:`~metrics.TracewiseMetric` objects, optional
+         metrics : :class:`~metrics.TracewiseMetric`, or list of :class:`~metrics.TracewiseMetric` objects, optional
             Metric objects or instances that define metrics to calculate. If None, all metrics that can be initialized
             with reasonable default parameters are calculated.
         chunk_size : int, optional, defaults to 1000
@@ -1361,8 +1377,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Raises
         ------
-        TypeError
-            If provided metrics are not  :class:`~metrics.TracewiseMetric` subclasses
+        ValueError
+            If `overwrite` is False and given metric was calculated before.
         """
 
         if metrics is None:
@@ -1570,13 +1586,29 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     def construct_qc_maps(self, by, metric_names=None, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
         """Construct a map of tracewise metric aggregated by gathers.
 
+        Examples
+        --------
+        Construct a map of metric with name `trace_maxabs` by shots with `max` aggregation:
+        >>> max_offset_map = survey.construct_header_map("trace_maxabs", by="shot", agg="max")
+        >>> max_offset_map.plot()
+
+        The map allows for interactive plotting: a gather type defined by `by` with a tracewise metric value on top of
+        the gather plot will be displayed on click on the map. Depending on the metric, other arguments may be passed
+        to the gather plot. See `metric.plot()` for more. In this example, the gather will be sorted by `offset` and
+        the default threshold for the metric will be changed to 20:
+        >>> max_offset_map.plot(interactive=True, threshold=20, sort_by="offset")
+
         Parameters
         ----------
         by : {"source", "shot", "receiver", "rec", "cdp", "cmp", "midpoint", "bin", "supergather"}
             Gather type to aggregate header values over.
-        metric : str or list of str, optional
-            name(s) of metrics to build metrics maps. If None, maps for all metrics that were calculated for this
+        metric_names : str or list of str, optional
+            The name(s) of metrics to build metrics maps. If None, maps for all metrics that were calculated for this
             survey are built.
+        id_cols : str or list of str, optional
+            Trace headers that uniquely identify a gather of the chosen type. Acts as an index of the resulting map. If
+            not given and `by` represents either a common source or common receiver gather, `self.source_id_cols` or
+            `self.receiver_id_cols` are used respectively.
         agg : str or callable, optional, defaults to "mean"
             An aggregation function. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
         bin_size : int, float or array-like with length 2, optional
@@ -1584,8 +1616,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Returns
         -------
-        BaseMetricMap
-            Constructed metric map.
+        metrics_maps : BaseMetricMap or list of BaseMetricMap
+            Calculated metrics maps. Has the same shape as `metric_names`.
         """
         squeeze_output = isinstance(metric_names, str)
         if metric_names is None:
