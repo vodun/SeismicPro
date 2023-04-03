@@ -1343,12 +1343,13 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """Perform quality control of the traces in the survey.
 
         For each trace, the metric is calculated independently and the result is stored in the `self.headers` in a
-        column with name `metrics.header_cols`. The only exeption is for window-based metrics, which cannot be
-        calculated independently by traces. These metrics store some itermediate results in more than one column. In
-        this case, the actual metric value is computed during the metric map construction in `self.construct_qc_map`.
+        column with name `metrics.header_cols`. The only exeption is for the metrics that cannot be calculated
+        independently by traces, for example - window-based metrics. These metrics store some itermediate results in
+        more than one column. For them, the actual metric value will be computed during the metric map construction in
+        `self.construct_qc_map`.
 
         For example, the metric that computes window-based RMS - :class:`~metric.WindowRMS` or
-        :class:`~metric.AdaptiveWindowRMS` - saves results in two columns: first one with the  sum of squares of
+        :class:`~metric.AdaptiveWindowRMS` - saves results in two columns: first one with the sum of squares of
         amplitudes and second is the number of amplitudes in the window for each trace.
 
         By default the following metrics are calculated:
@@ -1586,17 +1587,23 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     def construct_qc_maps(self, by, metric_names=None, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
         """Construct a map of tracewise metric aggregated by gathers.
 
+        It is allowed to compute the ratio of two :class:`~metics.BaseWindowRMSMetric` instances. To do this, specify
+        the names of two metrics in the `metric_names` separated by `\`.
+
         Examples
         --------
         Construct a map of metric with name `trace_maxabs` by shots with `max` aggregation:
-        >>> max_offset_map = survey.construct_header_map("trace_maxabs", by="shot", agg="max")
-        >>> max_offset_map.plot()
+        >>> qc_map = survey.construct_qc_maps(by="shot", metric_names="trace_maxabs", agg="max")
+        >>> qc_map.plot()
 
         The map allows for interactive plotting: a gather type defined by `by` with a tracewise metric value on top of
         the gather plot will be displayed on click on the map. Depending on the metric, other arguments may be passed
         to the gather plot. See `metric.plot()` for more. In this example, the gather will be sorted by `offset` and
         the default threshold for the metric will be changed to 20:
-        >>> max_offset_map.plot(interactive=True, threshold=20, sort_by="offset")
+        >>> qc_map.plot(interactive=True, threshold=20, sort_by="offset")
+
+        Construct a map of the ratio of metrics with name `signal_rms` and the metric with name `noise_rms`:
+        >>> ratio_map = survey.construct_qc_maps(by="shot", metric_names="signal_rms/noise_rms")
 
         Parameters
         ----------

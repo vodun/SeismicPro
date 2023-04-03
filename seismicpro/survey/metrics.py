@@ -4,9 +4,9 @@
 These metrics are supposed to be used in :func:`~survey.qc_tracewise` method, which iterates over a group of traces and
 automatically provides metrics with all required context for interactive plotting.
 
-To defune your own metric, you need to inherit a new class from either `TracewiseMetric` or
+To define your own metric, you need to inherit a new class from either `TracewiseMetric` or
 `MuteTracewiseMetric`, or `BaseWindowRMSMetric` depending on the purpose, and do the following:
-* Redefine `get_mask` or `get_numba_mask` method. The `get_mask` method must accept only a signle argument - gather -
+* Redefine `get_mask` or `get_numba_mask` method. The `get_mask` method must accept only a single argument - gather -
   while the `get_numba_mask` method must accept only the gather's data.
 * Redefine `description` method, which describes what traces were detected by the metric.
 * Set a `threshold` class attribute to a number above or below which the trace will be considered bad. If an
@@ -48,7 +48,7 @@ class SurveyAttribute(Metric):
 
     @property
     def header_cols(self):
-        """Column names in survey.headers to store the metrics results in."""
+        """Column names in `survey.headers` to store the metrics results in."""
         return self.name
 
     def bind_context(self, metric_map, survey):
@@ -239,7 +239,7 @@ class TracewiseMetric(SurveyAttribute):
 class DeadTrace(TracewiseMetric):
     """Detect constant traces.
 
-    `get_mask` returns 1d binary mask where each dead trace is marked with one.
+    `get_mask` returns 1d binary mask where each constant trace is marked with one.
     """
     name = "dead_trace"
     min_value = 0
@@ -458,7 +458,7 @@ class Autocorrelation(MuteTracewiseMetric):
     """Trace correlation with itself shifted by 1.
 
     `get_mask` returns 1d mask with mean trace autocorrelation. If proportion of nans in the trace is greater than
-    `nan_ratio`, then the metric value for the trace will be nan.
+    `nan_ratio`, then the metric value for this trace will be nan.
 
     The metric is highly dependent on the muter being used; if muter is not strong enough, the metric will overreact
     to the first breaks.
@@ -503,8 +503,8 @@ class Autocorrelation(MuteTracewiseMetric):
         return res
 
 
-class BaseWindowRMSMetric(TracewiseMetric):
-    """Base class for the tracewise metrics that computes RMS in windows defined by two arrays with start and end
+class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
+    """Base class for the tracewise metrics that computes RMS in window defined by two arrays with start and end
     indices for each trace in provided gather. Child classes should redefine `get_mask` or `numba_get_mask` methods."""
 
     def __call__(self, gather, return_rms=True):
@@ -522,7 +522,7 @@ class BaseWindowRMSMetric(TracewiseMetric):
 
     @property
     def header_cols(self):
-        """Column names in survey.headers to store the metrics results in."""
+        """Column names in `survey.headers` to store the metrics results in."""
         return [self.name+"_sum", self.name+"_n"]
 
     @staticmethod
@@ -559,8 +559,7 @@ class BaseWindowRMSMetric(TracewiseMetric):
         return super().construct_map(sum_df[coords.columns], sum_df[self.name], index=sum_df[index.columns], agg=agg,
                                      bin_size=bin_size, calculate_immediately=calculate_immediately)
 
-    def plot(self, ax, coords, index, threshold=None, top_ax_y_scale=None, bad_only=False, color="lime",
-             **kwargs):
+    def plot(self, ax, coords, index, threshold=None, top_ax_y_scale=None, bad_only=False, color="lime", **kwargs):  # pylint: disable=arguments-renamed
         """Plot the gather sorted by offset with tracewise indicator on the top of the gather plot. Any mask can be
         displayied over the gather plot using `self.add_mask_on_plot`."""
         threshold = self.threshold if threshold is None else threshold
@@ -587,15 +586,15 @@ class BaseWindowRMSMetric(TracewiseMetric):
         pass
 
     def get_views(self, threshold=None, top_ax_y_scale=None, **kwargs):
-        """Return two plotters of the metric views. Each view plots a gather with a metric values shown on top of the
-        gather plot. The y-axis of the metric plot is scaled by `top_ax_y_scale`. The first view plots full gather with
-        bad traces highlighted based on the `threshold` and the `self.is_lower_better` attribute. The second view only
-        displays the traces defined by the metric as bad ones."""
+        """Return two plotters of the metric views. Each view plots a gather sorted by `offset` with a metric values
+        shown on top of the gather plot. The y-axis of the metric plot is scaled by `top_ax_y_scale`. The first view
+        plots full gather with bad traces highlighted based on the `threshold` and the `self.is_lower_better`
+        attribute. The second view only displays the traces defined by the metric as bad ones."""
         plot_kwargs = {"threshold": threshold, "top_ax_y_scale": top_ax_y_scale}
         return [partial(self.plot, **plot_kwargs), partial(self.plot, bad_only=True, **plot_kwargs)], kwargs
 
 
-class MetricsRatio(TracewiseMetric):
+class MetricsRatio(TracewiseMetric):  # pylint: disable=abstract-method
     """Calculate the ratio of two window RMS metircs.
 
     In the metric map, the displayed values are obtained by dividing the  value of `self.numerator` metric by the
@@ -628,7 +627,7 @@ class MetricsRatio(TracewiseMetric):
 
     @property
     def header_cols(self):
-        """Column names in survey.headers to store the metrics results in."""
+        """Column names in `survey.headers` to store the metrics results in."""
         return self.numerator.header_cols + self.denominator.header_cols
 
     def construct_map(self, coords, values, *, coords_cols=None, index=None, index_cols=None, agg=None, bin_size=None,
@@ -681,10 +680,10 @@ class MetricsRatio(TracewiseMetric):
         ax.legend()
 
     def get_views(self, threshold=None, top_ax_y_scale=None, **kwargs):
-        """Return two plotters of the metric views. Each view plots a gather with a metric values shown on top of the
-        gather plot. The y-axis of the metric plot is scaled by `top_ax_y_scale`. The first view plots full gather with
-        bad traces highlighted based on the `threshold` and the `self.is_lower_better` attribute. The second view only
-        displays the traces defined by the metric as bad ones."""
+        """Return two plotters of the metric views. Each view plots a gather sorted by `offset` with a metric values
+        shown on top of the gather plot. The y-axis of the metric plot is scaled by `top_ax_y_scale`. The first view
+        plots full gather with bad traces highlighted based on the `threshold` and the `self.is_lower_better`
+        attribute. The second view only displays the traces defined by the metric as bad ones."""
         plot_kwargs = {"threshold": threshold, "top_ax_y_scale": top_ax_y_scale}
         return [partial(self.plot, **plot_kwargs), partial(self.plot, bad_only=True, **plot_kwargs)], kwargs
 
@@ -694,9 +693,9 @@ class WindowRMS(BaseWindowRMSMetric):
 
     Parameters
     ----------
-    offsets : array-like with 2 int
+    offsets : array-like with 2 ints
         Offset range to use for calcualtion, measured in meters.
-    times : array-like with 2 int
+    times : array-like with 2 ints
         Time range to use for calcualtion, measured in ms.
     name : str, optional, defaults to "window_rms"
         A metric name.
@@ -808,14 +807,14 @@ class AdaptiveWindowRMS(BaseWindowRMSMetric):
     @staticmethod
     @njit(nogil=True)
     def numba_get_mask(traces, _get_indices, compute_stats_by_ixs, window_size, shift, samples, fbp_times,
-                       times_to_indices):
+                       times_to_indices):  # pylint: disable=redefined-outer-name
         """Compute QC indicator in parallel."""
         start_ixs, end_ixs = _get_indices(window_size, shift, samples, fbp_times, times_to_indices)
         return compute_stats_by_ixs(traces, start_ixs, end_ixs)
 
     @staticmethod
     @njit(nogil=True)
-    def _get_indices(window_size, shift, samples, fbp_times, times_to_indices):
+    def _get_indices(window_size, shift, samples, fbp_times, times_to_indices):  # pylint: disable=redefined-outer-name
         """Calculates the start and end indices of a window of size `window_size` centered around the refractor
         velocity shifted by `shift`."""
         mid_samples = times_to_indices(fbp_times + shift, samples, round=True).astype(np.int16)
