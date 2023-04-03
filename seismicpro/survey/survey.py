@@ -4,6 +4,7 @@ import os
 import math
 import warnings
 from textwrap import dedent
+from functools import partial
 from concurrent.futures import ThreadPoolExecutor
 
 import cv2
@@ -23,7 +24,7 @@ from .utils import calculate_trace_stats
 from ..gather import Gather
 from ..containers import GatherContainer, SamplesContainer
 from ..utils import to_list, maybe_copy, get_cols, get_first_defined
-from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK, HDR_TRACE_POS
+from ..const import HDR_DEAD_TRACE, HDR_FIRST_BREAK, HDR_TRACE_POS
 
 
 class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-instance-attributes
@@ -229,10 +230,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             raise ValueError(f"Unknown headers {', '.join(unknown_headers)}")
 
         # Open the SEG-Y file
-        if endian not in ENDIANNESS:
-            raise ValueError(f"Unknown endian, must be one of {', '.join(ENDIANNESS)}")
-        if engine not in {"segyio", "memmap"}:
-            raise ValueError("Unknown engine, must be either 'segyio' or 'memmap'")
         self.loader = Loader(self.path, engine=engine, endian=endian, ignore_geometry=True)
 
         # Set samples and sample_rate according to passed `limits`.
@@ -243,12 +240,13 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         # Load trace headers and sort them by the required index in order to optimize further subsampling and merging.
         # Sorting preserves trace order from the file within each gather.
-        self._headers = None
-        self._indexer = None
-        headers = self.loader.load_headers(list(headers_to_load), reconstruct_tsf=True, chunk_size=chunk_size,
-                                           max_workers=n_workers, pbar=bar)
+        pbar = partial(tqdm, desc="Trace headers loaded") if bar else False
+        headers = self.loader.load_headers(list(headers_to_load), reconstruct_tsf=True, sort_columns=True,
+                                           chunk_size=chunk_size, max_workers=n_workers, pbar=pbar)
         headers.set_index(header_index, inplace=True)
         headers.sort_index(kind="stable", inplace=True)
+        self._headers = None
+        self._indexer = None
         self.headers = headers
 
         # Validate trace headers for consistency
@@ -706,7 +704,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     # pylint: disable-next=too-many-statements
     def collect_stats(self, indices=None, n_quantile_traces=100000, quantile_precision=2, limits=None,
-                      chunk_size=10000, n_workers=None, bar=True):
+                      chunk_size=1000, n_workers=None, bar=True):
         """Collect the following statistics by iterating over survey traces:
         1. Min and max amplitude,
         2. Mean amplitude and trace standard deviation,
@@ -747,12 +745,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             warnings.warn("The survey was not checked for dead traces or they were not removed. "
                           "Run `remove_dead_traces` first.", RuntimeWarning)
 
-        limits = self.process_limits(limits)
-
         headers = self.headers
         if indices is not None:
             headers = self.get_headers_by_indices(indices)
         n_traces = len(headers)
+        limits = get_first_defined(limits, self.limits)
 
         if n_quantile_traces < 0:
             raise ValueError("n_quantile_traces must be non-negative")
@@ -874,14 +871,14 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             The same survey with a new `DeadTrace` header created.
         """
         traces_pos = self["TRACE_SEQUENCE_FILE"] - 1
-        limits = self.process_limits(limits)
+        limits = self.loader.process_limits(get_first_defined(limits, self.limits))
         n_samples = len(self.file_samples[limits])
 
-        trace = np.empty(n_samples, dtype=self.loader.dtype)
+        buffer = np.empty(n_samples, dtype=self.loader.dtype)
         dead_indices = []
         for tr_index, pos in tqdm(enumerate(traces_pos), desc=f"Detecting dead traces for survey {self.name}",
                                   total=len(self.headers), disable=not bar):
-            self.load_trace_segyio(buf=trace, index=pos, limits=limits, trace_length=n_samples)
+            trace = self.loader.load_traces([pos], limits=limits, buffer=buffer)
             trace_min, trace_max, *_ = calculate_trace_stats(trace)
 
             if math.isclose(trace_min, trace_max):
@@ -918,9 +915,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if copy_headers:
             headers = headers.copy()
         traces_pos = get_cols(headers, "TRACE_SEQUENCE_FILE") - 1
-        limits = self.process_limits(limits)
-        samples = self.file_samples[limits]
-        data = self.loader.load_traces(traces_pos, limits=limits)
+        limits = get_first_defined(limits, self.limits)
+        data, samples = self.loader.load_traces(traces_pos, limits=limits, return_samples=True)
         return Gather(headers=headers, data=data, samples=samples, survey=self)
 
     def get_gather(self, index, limits=None, copy_headers=False):
@@ -1043,11 +1039,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.limits = self.loader.process_limits(limits)
         self.samples = self.file_samples[self.limits]
         self.sample_interval = self.file_sample_interval * self.limits.step
-
-    def process_limits(self, limits=None):
-        if limits is None:
-            return self.limits
-        return self.loader.process_limits(limits)
 
     def remove_dead_traces(self, limits=None, inplace=False, bar=True):
         """ Remove dead (constant) traces from the survey.
