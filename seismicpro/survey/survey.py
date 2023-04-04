@@ -490,7 +490,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                 metric_msg += f"\n\t{metric.description+':':<55}{metric.binarize(metric_value).sum()}"
             if metric_msg:
                 msg += """
-        Number of possible bad traces found by tracewise QC:
+        Tracewise QC summary:
         """ + metric_msg
         return dedent(msg).strip()
 
@@ -1154,7 +1154,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         metric_name : str
             Name of metric that stores in `self.qc_metrics`.
         threshold : int, optional, defaults to None
-            Threshold to use during filtration. If None, theshold defined in metric will be used.
+            Threshold to use during filtration, see :func:`~metric.TracewiseMetric.binarize` docs for more info.
+            If None, threshold defined in metric will be used.
         inplace : bool, optional, defaults to False
             Whether to remove traces inplace or return a new survey instance.
         keep_bad_only : bool, optional, defaults to False
@@ -1166,19 +1167,15 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Survey
             Filtered survey.
         """
-        if not self.qc_metrics:
-            raise ValueError("Not a single metric has been calculated yet, call `self.qc_tracewise` to compute one")
+        if metric_name not in self.qc_metrics:
+            raise ValueError(f"Metric with name {metric_name} has not been calculated yet.")
+
+        metric = self.qc_metrics[metric_name]
+        def binarize(metric_value):
+            bin_mask = metric.binarize(metric_value, threshold)
+            return bin_mask if keep_bad_only else ~bin_mask
 
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
-        metric = self.qc_metrics.get(metric_name)
-        if metric is None:
-            avalible_metrics = ', '.join(self.qc_metrics.keys())
-            raise ValueError(f"`metric_name` must be one of {avalible_metrics}, but {metric_name} was given")
-
-        def binarize(metric_value):
-            min_mask = metric.binarize(metric_value, threshold)
-            return min_mask if keep_bad_only else ~min_mask
-
         self.filter(binarize, cols=metric_name, inplace=True)
         return self
 
@@ -1202,14 +1199,15 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Survey
             Survey with no dead traces.
         """
+        if header_name is not None and header_name not in self.headers:
+            raise ValueError(f"Missing dead trace column with name {header_name} in survey headers")
+
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         if header_name is None:
             header_name = DeadTrace.name
             if header_name not in self.headers:
                 self.qc_tracewise(DeadTrace, chunk_size=chunk_size, bar=bar)
 
-        if header_name not in self.headers:
-            raise ValueError(f"Missing dead trace column with name {header_name} in survey headers")
         self.filter_by_metric(header_name, inplace=True)
         return self
 
@@ -1340,8 +1338,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """Perform quality control of the traces in the survey.
 
         For each trace, the metric is calculated independently and the result is stored in the `self.headers` in a
-        column with name `metrics.header_cols`. The only exeption is for the metrics that cannot be calculated
-        independently by traces, for example - window-based metrics. These metrics store some itermediate results in
+        column with name `metrics.header_cols`. The only exception is for the metrics that cannot be calculated
+        independently by traces, for example - window-based metrics. These metrics store some intermediate results in
         more than one column. For them, the actual metric value will be computed during the metric map construction in
         `self.construct_qc_map`.
 
@@ -1353,7 +1351,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         * Detection of constant traces,
         * Absolute value of the trace's mean scaled by trace's std deviation,
         * Maximum absolute amplitude value scaled by trace's std deviation,
-        * Length of consecutive amplitudes equals to trace minimum or maximun amplitudes,
+        * Length of consecutive amplitudes equals to trace minimum or maximum amplitudes,
         * Number of consecutive identical amplitudes.
 
         Parameters
@@ -1400,6 +1398,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             gather = self.load_gather(self.headers.iloc[ixs])
             results = {}
             for metric in metrics:
+                # Save header_cols since the metric might became partial and the attribute will be unreachable
                 header_cols = metric.header_cols
                 if isinstance(metric, BaseWindowRMSMetric):
                     metric = partial(metric, return_rms=False)
@@ -1580,7 +1579,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         values = tmp_map.index_data[tmp_map.metric_name]
         return tmp_map.metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size)
 
-    def construct_qc_maps(self, by, metric_names=None, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
+    def construct_qc_maps(self, by, metric_names=None, id_cols=None, agg=None, bin_size=None):
         """Construct a map of tracewise metric aggregated by gathers.
 
         It is allowed to compute the ratio of two :class:`~metics.BaseWindowRMSMetric` instances. To do this, specify
@@ -1641,12 +1640,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                 raise ValueError(f'Metric with name "{metric_name}" is not calculated yet')
             else:
                 metric = self.qc_metrics[metric_name]
-            metrics.append(metric.provide_context(survey=self))
+            metrics.append(metric)
 
         mmaps = []
         for metric in metrics:
             metric_mmap = self._construct_map(self.get_headers(metric.header_cols), metric=metric, by=by,
-                                              id_cols=id_cols, drop_duplicates=drop_duplicates, agg=agg,
-                                              bin_size=bin_size)
+                                              id_cols=id_cols, agg=agg, bin_size=bin_size)
             mmaps.append(metric_mmap)
         return mmaps[0] if squeeze_output else mmaps

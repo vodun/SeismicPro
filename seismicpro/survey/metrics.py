@@ -70,7 +70,7 @@ class SurveyAttribute(Metric):
 
 class TracewiseMetric(SurveyAttribute):
     """Base class for tracewise metrics with additional plotters and aggregations. Child classes should redefine
-    `get_mask` or `numba_get_mask` methods, and optionally `preprocess` and `description`."""
+    `get_mask` or `numba_get_mask` and `description` methods, and optionally `preprocess`."""
     threshold = None
     top_ax_y_scale = "linear"
 
@@ -95,8 +95,9 @@ class TracewiseMetric(SurveyAttribute):
     def get_mask(self, gather):
         """Compute QC indicator.
 
-        For a provided gather returns either a samplewise qc indicator with the same shape as `gather` or a tracewize
-        indicator with a shape of (`gather.n_traces`,).
+        There are two possible outputs for the provided gather:
+            1. Samplewise indicator with the same shape as `gather`.
+            2. Tracewise indicator with a shape of (`gather.n_traces`,).
 
         The method redirects the call to njitted static `numba_get_mask` method. Either this method or `numba_get_mask`
         must be overridden in child classes.
@@ -106,7 +107,7 @@ class TracewiseMetric(SurveyAttribute):
     @staticmethod
     @njit(nogil=True)
     def numba_get_mask(traces):
-        """Compute QC indicator in parallel."""
+        """Compute njitted QC indicator."""
         raise NotImplementedError
 
     def aggregate(self, mask):
@@ -151,7 +152,6 @@ class TracewiseMetric(SurveyAttribute):
         if threshold is None:
             raise ValueError("Either `threshold` or `self.threshold` must be non None")
 
-        nan_ixs = np.isnan(mask)
         if isinstance(threshold, (int, float, np.number)):
             if self.is_lower_better is None:
                 raise ValueError("`threshold` cannot be single number if `is_lower_better` is None")
@@ -161,15 +161,14 @@ class TracewiseMetric(SurveyAttribute):
             raise ValueError(f"`threshold` should contain exactly 2 elements, not {len(threshold)}")
         else:
             bin_mask = (mask <= threshold[0]) | (mask >= threshold[1])
-        bin_mask[nan_ixs] = False
+        bin_mask[np.isnan(mask)] = False
         return bin_mask
 
     def plot(self, ax, coords, index, sort_by=None, threshold=None, top_ax_y_scale=None,  bad_only=False, **kwargs):
         """Plot gather by its `index` with highlighted traces with metric value above or below the `self.threshold`.
 
         Tracewise metric values will be shown on top of the gather plot. Also, the area with `good` metric values based
-        on threshold values and `self.is_lower_better` will be highlighted in blue. If `self.is_lower_better` is None
-        and threshold is a number, only the threshold line will be displayed.
+        on threshold values and `self.is_lower_better` will be highlighted in blue.
 
         Parameters
         ----------
@@ -222,8 +221,7 @@ class TracewiseMetric(SurveyAttribute):
         y_min, y_max = ax.get_ylim()
         if isinstance(threshold, (int, float, np.number)):
             if self.is_lower_better is None:
-                ax.axhline(threshold, alpha=0.5, color="blue")
-                return
+                raise ValueError("`threshold` cannot be single number if `is_lower_better` is None")
             threshold = [threshold, y_max] if self.is_lower_better else [y_min, threshold]
         ax.fill_between(np.arange(x_min, x_max), *threshold, alpha=0.3, color="blue")
 
@@ -254,7 +252,7 @@ class DeadTrace(TracewiseMetric):
     @staticmethod
     @njit(nogil=True)
     def numba_get_mask(traces):
-        """Compute QC indicator in parallel."""
+        """Compute njitted QC indicator."""
         res = np.empty_like(traces[:, 0])
         for i in range(traces.shape[0]):
             res[i] = isclose(max(traces[i]), min(traces[i]))
@@ -264,7 +262,7 @@ class DeadTrace(TracewiseMetric):
 class TraceAbsMean(TracewiseMetric):
     """Calculate absolute value of the trace's mean scaled by trace's std.
 
-    `get_mask` returns 1d array wtih computed metric values for the gather.
+    `get_mask` returns 1d array with computed metric values for the gather.
     """
     name = "trace_absmean"
     is_lower_better = True
@@ -278,7 +276,7 @@ class TraceAbsMean(TracewiseMetric):
     @staticmethod
     @njit(nogil=True)
     def numba_get_mask(traces):
-        """Compute QC indicator in parallel."""
+        """Compute njitted QC indicator."""
         res = np.empty_like(traces[:, 0])
         for i in range(traces.shape[0]):
             res[i] = np.abs(traces[i].mean() / (traces[i].std() + 1e-10))
@@ -288,7 +286,7 @@ class TraceAbsMean(TracewiseMetric):
 class TraceMaxAbs(TracewiseMetric):
     """Find a maximum absolute amplitude value scaled by trace's std.
 
-    `get_mask` returns 1d array wtih computed metric values for the gather.
+    `get_mask` returns 1d array with computed metric values for the gather.
     """
     name = "trace_maxabs"
     is_lower_better = True
@@ -302,7 +300,7 @@ class TraceMaxAbs(TracewiseMetric):
     @staticmethod
     @njit(nogil=True)
     def numba_get_mask(traces):
-        """Compute QC indicator in parallel."""
+        """Compute njitted QC indicator."""
         res = np.empty_like(traces[:, 0])
         for i in range(traces.shape[0]):
             res[i] = np.max(np.abs(traces[i])) / (traces[i].std() + 1e-10)
@@ -310,7 +308,7 @@ class TraceMaxAbs(TracewiseMetric):
 
 
 class MaxClipsLen(TracewiseMetric):
-    """Calculate the length of consecutive amplitudes equals to trace minimum or maximun amplitudes.
+    """Calculate the length of consecutive amplitudes equals to trace minimum or maximum amplitudes.
 
     `get_mask` returns 2d mask indicating the length of consecutive maximum or minimum amplitudes for each trace in the
     input gather.
@@ -329,12 +327,12 @@ class MaxClipsLen(TracewiseMetric):
     @staticmethod
     @njit(nogil=True)
     def numba_get_mask(traces):
-        def _update_counters(trace, i, j, value, counter, container):
-            if isclose(trace, value):
+        def _update_counters(sample, counter, container, value):
+            if isclose(sample, value):
                 counter += 1
             else:
                 if counter > 1:
-                    container[i, j - counter: j] = counter
+                    container[:] = counter
                 counter = 0
             return counter
 
@@ -347,8 +345,8 @@ class MaxClipsLen(TracewiseMetric):
             min_val = min(trace)
             min_counter = 0
             for j in range(trace.shape[0]):  # pylint: disable=consider-using-enumerate
-                max_counter = _update_counters(trace[j], i, j, max_val, max_counter, maxes)
-                min_counter = _update_counters(trace[j], i, j, min_val, min_counter, mins)
+                max_counter = _update_counters(trace[j], max_counter, maxes[i, j - max_counter: j], max_val)
+                min_counter = _update_counters(trace[j], min_counter, mins[i, j - min_counter: j], min_val)
 
             if max_counter > 1:
                 maxes[i, -max_counter:] = max_counter
@@ -358,7 +356,7 @@ class MaxClipsLen(TracewiseMetric):
 
 
 class MaxConstLen(TracewiseMetric):
-    """Calcualte the number of consecutive identical amplitudes.
+    """Calculate the number of consecutive identical amplitudes.
 
     `get_mask` returns 2d mask indicating the length of consecutive identical values in each trace in the input gather.
     """
@@ -374,7 +372,7 @@ class MaxConstLen(TracewiseMetric):
     @staticmethod
     @njit(nogil=True)
     def numba_get_mask(traces):
-        """Compute QC indicator in parallel."""
+        """Compute njitted QC indicator."""
         indicator = np.zeros_like(traces)
         for i in range(traces.shape[0]):
             trace = traces[i]
@@ -401,7 +399,7 @@ class MuteTracewiseMetric(TracewiseMetric):  # pylint: disable=abstract-method
     muter : Muter
         A muter to use.
     name : str, optional, defaults to None
-        A metirc name.
+        A metric name.
     """
     def __init__(self, muter, name=None):
         super().__init__(name=name)
@@ -417,10 +415,10 @@ class MuteTracewiseMetric(TracewiseMetric):  # pylint: disable=abstract-method
 
 
 class Spikes(MuteTracewiseMetric):
-    """Spikes detection. The metric reacts to drastic changes in traces ampliutes within a 1-width window around each
+    """Spikes detection. The metric reacts to drastic changes in traces amplitudes within a 1-width window around each
     amplitude value.
 
-    `get_mask` returns 2d mask that shows the deviation of the ampluteds of an input gather.
+    `get_mask` returns 2d mask that shows the deviation of the amplitudes of an input gather.
 
     The metric is highly dependent on the muter being used; if muter is not strong enough, the metric will overreact
     to the first breaks.
@@ -439,18 +437,12 @@ class Spikes(MuteTracewiseMetric):
     @staticmethod
     @njit(nogil=True)
     def numba_get_mask(traces):
-        """Compute QC indicator in parallel."""
-        traces = traces.copy()
+        """Compute njitted QC indicator."""
         res = np.zeros_like(traces)
         for i in range(traces.shape[0]):
             nan_indices = np.nonzero(np.isnan(traces[i]))[0]
-            if len(nan_indices) > 0:
-                j = nan_indices[-1] + 1
-                if j < traces.shape[1]:
-                    traces[i, :j] = traces[i, j]
-                else:
-                    traces[i, :] = 0
-            res[i, 1: -1] = np.abs(traces[i, 2:] + traces[i, :-2] - 2*traces[i, 1:-1]) / 3
+            j = nan_indices[-1] + 1 if len(nan_indices) > 0 else 0
+            res[i, j+1: -1] = np.abs(traces[i, j+2:] + traces[i, j:-2] - 2*traces[i, j+1:-1]) / 3
         return res
 
 
@@ -482,6 +474,10 @@ class Autocorrelation(MuteTracewiseMetric):
         super().__init__(muter=muter, name=name)
         self.nan_ratio = nan_ratio
 
+    def __repr__(self):
+        """String representation of the metric."""
+        return f"{type(self).__name__}(name='{self.name}', muter='{self.muter}', nan_ratio='{self.nan_ratio}')"
+
     @property
     def description(self):
         """String description of tracewise metric."""
@@ -493,7 +489,7 @@ class Autocorrelation(MuteTracewiseMetric):
     @staticmethod
     @njit(nogil=True)
     def numba_get_mask(traces, nan_ratio):
-        """Compute QC indicator in parallel."""
+        """Compute njitted QC indicator."""
         res = np.empty_like(traces[:, 0])
         for i in range(traces.shape[0]):
             if np.isnan(traces[i]).sum() > nan_ratio*len(traces[i]):
@@ -527,21 +523,17 @@ class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
 
     @staticmethod
     def compute_rms(squares, nums):
-        """Compute RMS using provided squares of amplitues and the number of amplitudes used for square calculation."""
+        """Compute the RMS using provided squares of amplitudes and the number of amplitudes used for square
+        calculation."""
         return np.sqrt(np.sum(squares) / np.sum(nums))
 
     @staticmethod
     @njit(nogil=True)
     def compute_stats_by_ixs(data, start_ixs, end_ixs):
-        """Compute the sum of squares and the number of elements in a window specified by `start_ixs` and `end_ixs`
-        for each trace in provided data."""
         sum_squares = np.empty_like(data[:, 0])
         nums = np.empty_like(data[:, 0])
 
-        for i in range(data.shape[0]):
-            trace = data[i]
-            start_ix = start_ixs[i]
-            end_ix = end_ixs[i]
+        for i, (trace, start_ix, end_ix) in enumerate(zip(data, start_ixs, end_ixs)):
             sum_squares[i] = sum(trace[start_ix: end_ix] ** 2)
             nums[i] = len(trace[start_ix: end_ix])
         return sum_squares, nums
@@ -553,15 +545,17 @@ class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
                                                index_cols=index_cols, agg="sum")
         nums_map = super().construct_map(coords, values.iloc[:, 1], coords_cols=coords_cols, index=index,
                                          index_cols=index_cols, agg="sum")
-        sum_square_map.index_data.drop(columns=sum_square_map.coords_cols, inplace=True)
+        if sum_square_map.index_cols != sum_square_map.coords_cols:
+            sum_square_map.index_data.drop(columns=sum_square_map.coords_cols, inplace=True)
         sum_df = sum_square_map.index_data.merge(nums_map.index_data, on=nums_map.index_cols)
         sum_df[self.name] = np.sqrt(sum_df[self.name+"_x"] / sum_df[self.name+"_y"])
-        return super().construct_map(sum_df[coords.columns], sum_df[self.name], index=sum_df[index.columns], agg=agg,
-                                     bin_size=bin_size, calculate_immediately=calculate_immediately)
+        return super().construct_map(sum_df[nums_map.coords_cols], sum_df[self.name],
+                                     index=sum_df[nums_map.index_cols], agg=agg, bin_size=bin_size,
+                                     calculate_immediately=calculate_immediately)
 
     def plot(self, ax, coords, index, threshold=None, top_ax_y_scale=None, bad_only=False, color="lime", **kwargs):  # pylint: disable=arguments-renamed
         """Plot the gather sorted by offset with tracewise indicator on the top of the gather plot. Any mask can be
-        displayied over the gather plot using `self.add_mask_on_plot`."""
+        displayed over the gather plot using `self.add_mask_on_plot`."""
         threshold = self.threshold if threshold is None else threshold
         top_ax_y_scale = self.top_ax_y_scale if top_ax_y_scale is None else top_ax_y_scale
         _ = coords
@@ -595,7 +589,7 @@ class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
 
 
 class MetricsRatio(TracewiseMetric):  # pylint: disable=abstract-method
-    """Calculate the ratio of two window RMS metircs.
+    """Calculate the ratio of two window RMS metrics.
 
     In the metric map, the displayed values are obtained by dividing the  value of `self.numerator` metric by the
     value of `self.denominator` metric for each gather independently.
@@ -603,7 +597,7 @@ class MetricsRatio(TracewiseMetric):  # pylint: disable=abstract-method
     Parameters
     ----------
     numerator : BaseWindowRMSMetric or its subclass
-        Metric instance whose values will be divided by the `denominator` metirc values.
+        Metric instance whose values will be divided by the `denominator` metric values.
     denominator : BaseWindowRMSMetric or its subclass
         Metric instance whose values will be used as a divisor for a `numerator` metric.
     name : str, optional, defaults to "numerator.name to denominator.name ratio"
@@ -625,6 +619,11 @@ class MetricsRatio(TracewiseMetric):  # pylint: disable=abstract-method
         self.numerator = numerator
         self.denominator = denominator
 
+    def __repr__(self):
+        """String representation of the metric."""
+        kwargs_str = f"(name='{self.name}', numerator='{self.numerator}', denominator='{self.denominator}')"
+        return f"{type(self).__name__}" + kwargs_str
+
     @property
     def header_cols(self):
         """Column names in `survey.headers` to store the metrics results in."""
@@ -637,13 +636,13 @@ class MetricsRatio(TracewiseMetric):  # pylint: disable=abstract-method
                                                index=index, index_cols=index_cols)
         mmaps_2 = self.denominator.construct_map(coords, values[self.denominator.header_cols], coords_cols=coords_cols,
                                                  index=index, index_cols=index_cols)
-
-        mmaps_1.index_data.drop(columns=mmaps_1.coords_cols, inplace=True)
-        ratio_df = mmaps_1.index_data.merge(mmaps_2.index_data, on=mmaps_1.index_cols)
+        if mmaps_1.index_cols != mmaps_1.coords_cols:
+            mmaps_1.index_data.drop(columns=mmaps_1.coords_cols, inplace=True)
+        ratio_df = mmaps_1.index_data.merge(mmaps_2.index_data, on=mmaps_2.index_cols)
         ratio_df[self.name] = ratio_df[self.numerator.name] / ratio_df[self.denominator.name]
-        coords = ratio_df[coords.columns]
+        coords = ratio_df[mmaps_1.coords_cols]
         values = ratio_df[self.name]
-        index = ratio_df[index.columns]
+        index = ratio_df[mmaps_1.index_cols]
         return super().construct_map(coords, values, index=index, agg=agg, bin_size=bin_size,
                                      calculate_immediately=calculate_immediately)
 
@@ -675,8 +674,9 @@ class MetricsRatio(TracewiseMetric):  # pylint: disable=abstract-method
             self._plot_threshold(ax=top_ax, threshold=threshold)
         top_ax.set_yscale(top_ax_y_scale)
 
-        self.numerator.add_mask_on_plot(ax=ax, gather=gather, color="lime", legend="numerator window")
-        self.denominator.add_mask_on_plot(ax=ax, gather=gather, color="magenta", legend="denominator window")
+        self.numerator.add_mask_on_plot(ax=ax, gather=gather, color="lime", legend=f"{self.numerator.name} window")
+        self.denominator.add_mask_on_plot(ax=ax, gather=gather, color="magenta",
+                                          legend=f"{self.denominator.name} window")
         ax.legend()
 
     def get_views(self, threshold=None, top_ax_y_scale=None, **kwargs):
@@ -694,9 +694,9 @@ class WindowRMS(BaseWindowRMSMetric):
     Parameters
     ----------
     offsets : array-like with 2 ints
-        Offset range to use for calcualtion, measured in meters.
+        Offset range to use for calculation, measured in meters.
     times : array-like with 2 ints
-        Time range to use for calcualtion, measured in ms.
+        Time range to use for calculation, measured in ms.
     name : str, optional, defaults to "window_rms"
         A metric name.
     """
@@ -730,18 +730,18 @@ class WindowRMS(BaseWindowRMSMetric):
         """Convert times into indices using samples from provided gather."""
         times = np.asarray([max(gather_samples[0], times[0]), min(gather_samples[-1], times[1])])
         time_ixs = times_to_indices(times, gather_samples, round=True).astype(np.int16)
-        # Include the next index to mimic the behavior of traditional software
+        # Include the next index to mimic the behavior of conventional software
         time_ixs[1] += 1
         return time_ixs
 
     @staticmethod
     @njit(nogil=True)
-    def numba_get_mask(traces, gather_samples, gather_offests, times, offsets, _get_time_ixs,
+    def numba_get_mask(traces, gather_samples, gather_offsets, times, offsets, _get_time_ixs,
                        compute_stats_by_ixs):
-        """Compute QC indicator in parallel."""
+        """Compute njitted QC indicator."""
         time_ixs = _get_time_ixs(times, gather_samples)
 
-        window_ixs = (gather_offests >= offsets[0]) & (gather_offests <= offsets[1])
+        window_ixs = (gather_offsets >= offsets[0]) & (gather_offsets <= offsets[1])
         start_ixs = np.full(sum(window_ixs), fill_value=time_ixs[0], dtype=np.int16)
         end_ixs = np.full(sum(window_ixs), fill_value=time_ixs[1], dtype=np.int16)
         squares = np.zeros_like(traces[:, 0])
@@ -764,10 +764,10 @@ class WindowRMS(BaseWindowRMSMetric):
 class AdaptiveWindowRMS(BaseWindowRMSMetric):
     """Compute traces RMS in sliding window along provided refractor velocity.
 
-    For each gather, the RMS value will be calculated wihtin a window of size `window_size` centered around the
+    For each gather, the RMS value will be calculated within a window of size `window_size` centered around the
     refractor velocity shifted by `shift`.
 
-    Only the traces that contain at least signle amplitute in the provided window are considered, otherwise the metric
+    Only the traces that contain at least single amplitude in the provided window are considered, otherwise the metric
     is nan.
 
     Parameters
@@ -808,7 +808,7 @@ class AdaptiveWindowRMS(BaseWindowRMSMetric):
     @njit(nogil=True)
     def numba_get_mask(traces, _get_indices, compute_stats_by_ixs, window_size, shift, samples, fbp_times,
                        times_to_indices):  # pylint: disable=redefined-outer-name
-        """Compute QC indicator in parallel."""
+        """Compute njitted QC indicator."""
         start_ixs, end_ixs = _get_indices(window_size, shift, samples, fbp_times, times_to_indices)
         return compute_stats_by_ixs(traces, start_ixs, end_ixs)
 
@@ -817,11 +817,12 @@ class AdaptiveWindowRMS(BaseWindowRMSMetric):
     def _get_indices(window_size, shift, samples, fbp_times, times_to_indices):  # pylint: disable=redefined-outer-name
         """Calculates the start and end indices of a window of size `window_size` centered around the refractor
         velocity shifted by `shift`."""
-        mid_samples = times_to_indices(fbp_times + shift, samples, round=True).astype(np.int16)
-        window_size = int(times_to_indices(np.array([window_size]), samples, round=True)[0])
+        mid_times = fbp_times + shift
+        start_times = np.clip(mid_times - (window_size - window_size // 2), 0, samples[-1])
+        end_times = np.clip(mid_times + (window_size // 2), 0, samples[-1])
 
-        start_ixs = np.clip(mid_samples - (window_size - window_size // 2), 0, len(samples))
-        end_ixs = np.clip(mid_samples + (window_size // 2), 0, len(samples))
+        start_ixs = times_to_indices(start_times, samples, round=True).astype(np.int32)
+        end_ixs = times_to_indices(end_times, samples, round=True).astype(np.int32)
         return start_ixs, end_ixs
 
     def add_mask_on_plot(self, ax, gather, color="lime", legend=None):
