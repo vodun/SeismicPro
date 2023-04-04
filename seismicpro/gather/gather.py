@@ -983,9 +983,9 @@ class Gather(TraceContainer, SamplesContainer):
             May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
         mute_crossover: bool, optional, defaults to False
             Whether to mute areas where the time reversal occurred after nmo corrections.
-        max_stretch_factor : float, defaults to np.inf
+        max_stretch_factor : float, optional, defaults to np.inf
             Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
-            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
+            The lower the value, the stronger the mute. In case np.inf (default) no mute is applied. 
             Reasonably good value is 0.65
         fill_value : float, optional, defaults to np.nan
             Value used to fill the amplitudes outside the gather bounds after moveout.

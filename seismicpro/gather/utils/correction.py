@@ -12,7 +12,7 @@ def get_hodograph(gather_data, offsets, hodograph_times, sample_interval, interp
                   max_offset=np.inf, out=None):
     """Retrieve hodograph amplitudes from the `gather_data`.
 
-    Hodograph is defined by `hodograph_times`: the event time for each trace of the gather.
+    Hodograph is defined by `hodograph_times`: an array of event times for each trace of the gather.
 
     Parameters
     ----------
@@ -21,7 +21,7 @@ def get_hodograph(gather_data, offsets, hodograph_times, sample_interval, interp
     offsets : 1d np.ndarray
         The distance between source and receiver for each trace. Measured in meters.
     hodograph_times : 1d np.array
-        Event time for each trace of the hodograph. Must match the length of `gather_data`. Measured in milliseconds.
+        Event time for each gather trace. Must match the length of `gather_data`. Measured in milliseconds.
     sample_interval : float
         Sample interval of seismic traces. Measured in milliseconds.
     interpolate: bool, optional, defaults to True
@@ -57,7 +57,7 @@ def get_hodograph(gather_data, offsets, hodograph_times, sample_interval, interp
 
 @njit(nogil=True, parallel=True)
 def compute_hodograph_times(offsets, times, velocities):
-    """Calculate the times of hyperbolic hodographs for each time of the gather with given stacking velocities.
+    """Calculate times of hyperbolic hodographs for each start time, corresponding stacking velocity and all offsets.
     Offsets and times are 1d `np.ndarray`s. Velocities are either a 1d `np.ndarray` or a scalar.
     The result is a 2d `np.ndarray` with shape `(len(times), len(offsets))`."""
     # Explicit broadcasting velocities, in case it's scalar. Required for `parallel=True` flag
@@ -73,7 +73,8 @@ def compute_crossover_offsets(hodograph_times, times, offsets):
     Parameters
     ----------
     hodograph_times : 2d np.ndarray
-        Array storing the times of nmo corrected hodographs for the gather with shape `(len(times), len(offsets))`.
+        Array storing the times of hyperbolic hodographs for gather NMO correction. Has shape
+        `(len(times), len(offsets))`.
     times : 1d np.ndarray
         Gather timestamps.
     offsets : 1d np.ndarray
@@ -82,7 +83,7 @@ def compute_crossover_offsets(hodograph_times, times, offsets):
     Returns
     -------
     crossover_offsets : 1d np.array
-        The array with length gather.n_times. Stores the offsets where crossover events occur for each timestamp.
+        An array of offsets where crossover events occur for each timestamp. Has shape `(len(times),)`.
     """
     n = len(hodograph_times) - 1
     crossover_times = np.zeros(hodograph_times.shape[1])
@@ -118,13 +119,13 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_interval,
         l - seismic trace offset,
         v - seismic wave velocity.
 
-    If stacking velocity was picked correctly, the reflection events of a CDP gather are mostly flattened across the
-    offset range.
+    If stacking velocity was properly picked, the reflection events on a corrected CDP gather are mostly flattened
+    across the offset range.
 
     Parameters
     ----------
     gather_data : 2d np.ndarray
-        Gather data to apply NMO correction to with an ordinary shape of (num_traces, trace_length).
+        Gather data to apply NMO correction to with an ordinary shape of (n_traces, n_samples).
     times : 1d np.ndarray
         Recording time for each trace value. Measured in milliseconds.
     offsets : 1d np.ndarray
@@ -136,10 +137,10 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_interval,
         Sample interval of seismic traces. Measured in milliseconds.
     mute_crossover: bool, optional, defaults to False
         Whether to mute areas where the time reversal occurred after nmo corrections.
-    max_stretch_factor : float, defaults to np.inf
+    max_stretch_factor : float, optional, defaults to np.inf
         Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
         This mute is applied after nmo correction for each provided velocity and before coherency calculation.
-        The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
+        The lower the value, the stronger the mute. In case np.inf (default) no mute is applied. 
         Reasonably good value is 0.65
     fill_value : float, optional, defaults to np.nan
         Value used to fill the amplitudes outside the gather bounds after moveout.
