@@ -331,6 +331,7 @@ class MaxClipsLen(TracewiseMetric):
     @staticmethod
     @njit(nogil=True)
     def numba_get_mask(traces):
+        """Compute njitted QC indicator."""
         def _update_counters(sample, counter, container, value):
             if isclose(sample, value):
                 counter += 1
@@ -534,6 +535,8 @@ class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
     @staticmethod
     @njit(nogil=True)
     def compute_stats_by_ixs(data, start_ixs, end_ixs):
+        """Compute the sum of squares and the number of elements in a window specified by `start_ixs` and `end_ixs`
+        for each trace in provided data."""
         sum_squares = np.empty_like(data[:, 0])
         nums = np.empty_like(data[:, 0])
 
