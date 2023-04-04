@@ -52,7 +52,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     `UnassignedInt2` since they are treated differently from all other headers by `segyio`. Also, `TRACE_SEQUENCE_FILE`
     header is not loaded from the file but always automatically reconstructed.
 
-    The survey sample rate is calculated by two values stored in:
+    Sample interval of the survey is calculated by two values stored in:
     - bytes 3217-3218 of the binary header, called `Interval` in `segyio`,
     - bytes 117-118 of the trace header of the first trace in the file, called `TRACE_SAMPLE_INTERVAL` in `segyio`.
     If both of them are present and equal or only one of them is well-defined (non-zero), it is used as a sample rate.
@@ -88,14 +88,13 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     header_cols : str or list of str or "all", optional
         Extra trace headers to load. Must be any of those specified in
         https://segyio.readthedocs.io/en/latest/segyio.html#trace-header-keys except for `UnassignedInt1` and
-        `UnassignedInt2`.
-        If not given, only headers from `header_index` are loaded and `TRACE_SEQUENCE_FILE` header is reconstructed
-        automatically if not in the index.
+        `UnassignedInt2`. `TRACE_SEQUENCE_FILE` header is automatically reconstructed and always present in `headers`.
+        If not given, only headers from `header_index`, `source_id_cols` and `receiver_id_cols` are loaded.
         If "all", all available headers are loaded.
     source_id_cols : str or list of str, optional
         Trace headers that uniquely identify a seismic source. If not given, set in the following way (in order of
         priority):
-        - `FieldRecord` if it loaded,
+        - `FieldRecord` if it is loaded,
         - [`SourceX`, `SourceY`] if they are loaded,
         - `None` otherwise.
     receiver_id_cols : str or list of str, optional
@@ -108,6 +107,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         used as arguments to init a `slice` object. If not given, whole traces are used. Measured in samples.
     validate : bool, optional, defaults to True
         Whether to perform validation of trace headers consistency.
+    engine : {"segyio", "memmap"}, optional, defaults to "memmap"
+        SEG-Y file loading engine. Two options are supported:
+        - "segyio" - directly uses `segyio` library interface,
+        - "memmap" - optimizes data fetching using `numpy` memory mapping. Generally provides up to 10x speedup
+          compared to "segyio" and thus set as default.
     endian : {"big", "msb", "little", "lsb"}, optional, defaults to "big"
         SEG-Y file endianness.
     chunk_size : int, optional, defaults to 25000
@@ -116,10 +120,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         The maximum number of simultaneously spawned processes to load trace headers. Defaults to the number of cpu
         cores.
     bar : bool, optional, defaults to True
-        Whether to show survey loading progress bar.
-    use_segyio_trace_loader : bool, optional, defaults to False
-        Whether to use `segyio` trace loading methods or try optimizing data fetching using `numpy` memory mapping. May
-        degrade performance if enabled.
+        Whether to show trace headers loading progress bar.
 
     Attributes
     ----------
@@ -129,16 +130,16 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Survey name.
     samples : 1d np.ndarray of floats
         Recording time for each trace value. Measured in milliseconds.
-    sample_rate : float
-        Sample rate of seismic traces. Measured in milliseconds.
+    sample_interval : float
+        Sample interval of seismic traces. Measured in milliseconds.
     limits : slice
         Default time limits to be used during trace loading and survey statistics calculation. Measured in samples.
     source_id_cols : str or list of str or None
         Trace headers that uniquely identify a seismic source.
     receiver_id_cols : str or list of str or None
         Trace headers that uniquely identify a receiver.
-    segy_handler : segyio.segy.SegyFile
-        Source SEG-Y file handler.
+    loader : segfast.SegyioLoader or segfast.MemmapLoader
+        SEG-Y file loader. Its type depends on the `engine` passed during survey instantiation.
     has_stats : bool
         Whether the survey has trace statistics calculated. `False` until `collect_stats` method is called.
     min : np.float32 or None
@@ -161,8 +162,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     is_stacked : bool or None
         Whether the survey is stacked. `None` until properties of survey binning are inferred.
     field_mask : 2d np.ndarray or None
-        A binary mask of the field with ones set for bins with at least one trace and zeros otherwise. `None` until
-        properties of survey binning are inferred.
+        A binary mask of the field with ones set for bins with at least one trace and zeros otherwise. The origin of
+        the mask is stored in the `field_mask_origin` attribute. `None` until properties of survey binning are
+        inferred.
     field_mask_origin : np.ndarray with 2 elements
         Minimum values of inline and crossline over the field. `None` until properties of survey binning are inferred.
     bin_contours : tuple of np.ndarray or None
@@ -173,16 +175,16 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         headers are loaded on survey instantiation or `infer_geometry` method is explicitly called.
     is_2d : bool or None
         Whether the survey is 2D. `None` until survey geometry is inferred.
+    area : float or None
+        Field area in squared meters. `None` until survey geometry is inferred.
+    perimeter : float or None
+        Field perimeter in meters. `None` until survey geometry is inferred.
     bin_size : np.ndarray with 2 elements or None
         Bin sizes in meters along inline and crossline directions. `None` until survey geometry is inferred.
     inline_length : float or None
         Maximum field length along inline direction in meters. `None` until survey geometry is inferred.
     crossline_length : float or None
         Maximum field length along crossline direction in meters. `None` until survey geometry is inferred.
-    area : float or None
-        Field area in squared meters. `None` until survey geometry is inferred.
-    perimeter : float or None
-        Field perimeter in meters. `None` until survey geometry is inferred.
     geographic_contours : tuple of np.ndarray or None
         Contours of all connected components of the field in geographic coordinates. `None` until survey geometry is
         inferred.
@@ -288,14 +290,18 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     @property
     def file_sample_rate(self):
+        """float: Sample rate of seismic traces in the source SEG-Y file. Measured in Hz."""
         return self.loader.sample_rate
 
     @property
     def file_sample_interval(self):
+        """float: Sample interval of seismic traces in the source SEG-Y file. Measured in milliseconds."""
         return self.loader.sample_interval
 
     @property
     def file_samples(self):
+        """1d np.ndarray of floats: Recording time for each trace value in the source SEG-Y file. Measured in
+        milliseconds."""
         return self.loader.samples
 
     @property
@@ -731,7 +737,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         limits : int or tuple or slice, optional
             Time limits to be used for statistics calculation. `int` or `tuple` are used as arguments to init a `slice`
             object. If not given, `limits` passed to `__init__` are used. Measured in samples.
-        chunk_size : int, optional, defaults to 10000
+        chunk_size : int, optional, defaults to 1000
             The number of traces to be processed at once.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
@@ -783,7 +789,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         var_buffer = np.empty(n_chunks, dtype=np.float64)
         chunk_weights = np.array(chunk_sizes, dtype=np.float64) / n_traces
 
-        def collect_chuck_stats(i):
+        def collect_chunk_stats(i):
             chunk = self.loader.load_traces(chunk_traces_pos[i], limits=limits)
             chunk_quantile_mask = chunk_quantile_traces_mask[i]
             if chunk_quantile_mask.any():
@@ -796,7 +802,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         with tqdm(total=n_traces, desc=bar_desc, disable=not bar) as pbar:
             with ThreadPoolExecutor(max_workers=n_workers) as pool:
                 for i in range(n_chunks):
-                    future = pool.submit(collect_chuck_stats, i)
+                    future = pool.submit(collect_chunk_stats, i)
                     future.add_done_callback(lambda fut: pbar.update(fut.result()))
 
         # Calculate global survey statistics by individual chunks
@@ -1028,7 +1034,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         limits : int or tuple or slice
             Default time limits to be used during trace loading and survey statistics calculation. `int` or `tuple` are
             used as arguments to init a `slice`. The resulting object is stored in `self.limits` attribute and used to
-            recalculate `self.samples` and `self.sample_rate`. Measured in samples.
+            recalculate `self.samples` and `self.sample_interval`. Measured in samples.
 
         Raises
         ------
