@@ -34,9 +34,9 @@ from ..velocity_spectrum.utils.coherency_funcs import stacked_amplitude
 class Gather(TraceContainer, SamplesContainer):
     """A class representing a single seismic gather.
 
-    A gather is a collection of seismic traces that share some common acquisition parameter (same index value of the
-    generating survey header in our case). Unlike `Survey`, `Gather` instance stores loaded seismic traces along with
-    a corresponding subset of its parent survey header.
+    A gather is a collection of seismic traces that share some common acquisition parameter (usually common values of
+    trace headers used as an index in their survey). Unlike `Survey`, `Gather` instances store loaded seismic traces
+    along with the corresponding subset of the parent survey trace headers.
 
     `Gather` instance is generally created by calling one of the following methods of a `Survey`, `SeismicIndex` or
     `SeismicDataset`:
@@ -44,11 +44,11 @@ class Gather(TraceContainer, SamplesContainer):
     2. `get_gather` - to get a particular gather by its index value.
 
     Most of the methods change gather data inplace, thus `Gather.copy` may come in handy to keep the original gather
-    available.
+    intact.
 
     Examples
     --------
-    Let's load a randomly selected common source gather, sort it by offset and plot:
+    Load a randomly selected common source gather, sort it by offset and plot:
     >>> survey = Survey(path, header_index="FieldRecord", header_cols=["TraceNumber", "offset"], name="survey")
     >>> gather = survey.sample_gather().sort(by="offset")
     >>> gather.plot()
@@ -56,9 +56,9 @@ class Gather(TraceContainer, SamplesContainer):
     Parameters
     ----------
     headers : pd.DataFrame
-        A subset of parent survey header with common index value defining the gather.
+        Headers of gather traces. Must be a subset of parent survey trace headers.
     data : 2d np.ndarray
-        Trace data of the gather with (num_traces, trace_length) layout.
+        Trace data of the gather with (n_traces, n_samples) layout.
     samples : 1d np.ndarray of floats
         Recording time for each trace value. Measured in milliseconds.
     survey : Survey
@@ -67,9 +67,9 @@ class Gather(TraceContainer, SamplesContainer):
     Attributes
     ----------
     headers : pd.DataFrame
-        A subset of parent survey header with common index value defining the gather.
+        Headers of gather traces.
     data : 2d np.ndarray
-        Trace data of the gather with (num_traces, trace_length) layout.
+        Trace data of the gather with (n_traces, n_samples) layout.
     samples : 1d np.ndarray of floats
         Recording time for each trace value. Measured in milliseconds.
     survey : Survey
@@ -217,7 +217,7 @@ class Gather(TraceContainer, SamplesContainer):
         try:
             sample_interval_str = f"{self.sample_interval} ms"
             sample_rate_str = f"{self.sample_rate} Hz"
-        except:
+        except ValueError:
             sample_interval_str = "Irregular"
             sample_rate_str = "Irregular"
 
@@ -333,7 +333,7 @@ class Gather(TraceContainer, SamplesContainer):
         Parameters
         ----------
         path : str
-            The directory to dump the gather in.
+            A directory to dump the gather in.
         name : str, optional, defaults to None
             The name of the file. If `None`, the concatenation of the survey name and the value of gather index will
             be used.
@@ -928,7 +928,7 @@ class Gather(TraceContainer, SamplesContainer):
         delay : float, optional, defaults to 100
             An extra delay in milliseconds introduced in each trace, positive values result in shifting gather traces
             down. Used to center the first breaks hodograph around the delay value instead of 0.
-        fill_value : float, optional, defaults to 0
+        fill_value : float, optional, defaults to np.nan
             Value used to fill the amplitudes outside the gather bounds after moveout.
         event_headers : str, list, or None, optional, defaults to None
             Headers columns which will be LMO-corrected inplace.
@@ -1133,8 +1133,8 @@ class Gather(TraceContainer, SamplesContainer):
     def bandpass_filter(self, low=None, high=None, filter_size=81, **kwargs):
         """Filter frequency spectrum of the gather.
 
-        Can act as a lowpass, bandpass or highpass filter. `low` and `high` serve as the range for the remaining
-        frequencies and can be passed either solely or together.
+        `low` and `high` define the range of the remaining signal frequencies. If both of them are given, acts as a
+        bandpass filter. If only one of them is given, acts as a highpass or lowpass filter respectively.
 
         Examples
         --------
@@ -1154,14 +1154,14 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        low : int, optional
-            Lower bound for the remaining frequencies
-        high : int, optional
-            Upper bound for the remaining frequencies
-        filter_size : int, defaults to 81
-            The length of the filter
+        low : float, optional
+            Lower bound for the remaining frequencies.
+        high : float, optional
+            Upper bound for the remaining frequencies.
+        filter_size : int, optional, defaults to 81
+            The length of the filter.
         kwargs : misc, optional
-            Additional keyword arguments to the `scipy.firwin`
+            Additional keyword arguments to the `scipy.firwin`.
 
         Returns
         -------
@@ -1178,21 +1178,22 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target="threads")
-    def resample(self, new_sample_interval, kind=3, anti_aliasing=True):
+    def resample(self, new_sample_interval, kind=3, enable_anti_aliasing=True):
         """Change sample interval of traces in the gather.
 
-        This implies increasing or decreasing the number of samples in each trace. In case new sample interval is
-        greater than the current one, anti-aliasing filter is optionally applied to avoid frequency aliasing.
+        This method changes the number of samples in each trace if the new sample interval differs from the current
+        one. If downsampling is performed, an anti-aliasing filter can optionally be applied to avoid frequency
+        aliasing.
 
         Parameters
         ----------
         new_sample_interval : float
-            New sample interval.
+            New sample interval of seismic traces.
         kind : int or str, optional, defaults to 3
             The interpolation method to use.
             If `int`, use piecewise polynomial interpolation with degree `kind`.
             If `str`, delegate interpolation to scipy.interp1d with mode `kind`.
-        anti_aliasing : bool, optional, defaults to True
+        enable_anti_aliasing : bool, optional, defaults to True
             Whether to apply anti-aliasing filter or not. Ignored in case of upsampling.
 
         Returns
@@ -1203,9 +1204,9 @@ class Gather(TraceContainer, SamplesContainer):
         current_sample_interval = self.sample_interval
 
         # Anti-aliasing filter is optionally applied during downsampling to avoid frequency aliasing
-        if new_sample_interval > current_sample_interval and anti_aliasing:
+        if enable_anti_aliasing and new_sample_interval > current_sample_interval:
             # Smoothly attenuate frequencies starting from 0.8 of the new Nyquist frequency so that all frequencies
-            # above are zeroed out
+            # above the new Nyquist frequency are zeroed out
             nyquist_frequency = 1000 / (2 * new_sample_interval)
             filter_size = int(40 * new_sample_interval / current_sample_interval)
             self.bandpass_filter(high=0.9*nyquist_frequency, filter_size=filter_size, window="hann")
@@ -1237,7 +1238,7 @@ class Gather(TraceContainer, SamplesContainer):
         Raises
         ------
         ValueError
-            If window_size is less than 2 * sample_interval milliseconds or larger than trace length.
+            If window_size is less than 2 * `sample_interval` milliseconds or larger than trace length.
             If mode is neither 'rms' nor 'abs'.
 
         Returns
