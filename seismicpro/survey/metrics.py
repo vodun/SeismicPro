@@ -207,8 +207,12 @@ class TracewiseMetric(SurveyAttribute):
         masks_dict = {"masks": bin_mask, "alpha": 0.8, "label": self.name or "metric", **kwargs.pop("masks", {})}
 
         if bad_only:
-            gather.data[self.aggregate(bin_mask) == 0] = np.nan
-            masks_dict = {}  # Don't need to plot the mask since only bad traces will be plotted.
+            bad_mask = self.aggregate(bin_mask) == 0
+            gather.data[bad_mask] = np.nan
+            metric_vals[bad_mask] = np.nan
+            # Don't need to plot 1d mask if only bad traces will be plotted.
+            if bin_mask.ndim == 1:
+                masks_dict = None
 
         gather.plot(ax=ax, mode=mode, top_header=metric_vals, masks=masks_dict, **kwargs)
         top_ax = ax.figure.axes[1]
