@@ -243,7 +243,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         # Load trace headers and sort them by the required index in order to optimize further subsampling and merging.
         # Sorting preserves trace order from the file within each gather.
         pbar = partial(tqdm, desc="Trace headers loaded") if bar else False
-        headers = self.loader.load_headers(list(headers_to_load), reconstruct_tsf=True, sort_columns=True,
+        headers = self.loader.load_headers(headers_to_load, reconstruct_tsf=True, sort_columns=True,
                                            chunk_size=chunk_size, max_workers=n_workers, pbar=pbar)
         headers.set_index(header_index, inplace=True)
         headers.sort_index(kind="stable", inplace=True)
