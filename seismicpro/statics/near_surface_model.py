@@ -83,7 +83,7 @@ class NearSurfaceModel:
         # Fit nearest neighbors
         self.tree = KDTree(unique_coords)
         self.n_intermediate_points = n_intermediate_points
-        intermediate_indices = self._get_intermediate_indices(shots_coords[:, :2], receivers_coords[:, :2])
+        intermediate_indices = self._get_intermediate_indices(shots_coords[:, :2], receivers_coords[:, :2], workers=-1)
         # TODO: handle n_smoothing_neighbors == 0
         neighbors_dists, neighbors_indices = self.tree.query(unique_coords, k=np.arange(2, n_smoothing_neighbors + 2), workers=-1)
         neighbors_dists **= 2
@@ -185,10 +185,10 @@ class NearSurfaceModel:
         field_params[refractor_velocity_field.param_names] = rvf_params
         return field_params
 
-    def _get_intermediate_indices(self, shots, receivers):
+    def _get_intermediate_indices(self, shots, receivers, workers=1):
         alpha_range = np.linspace(0, 1, 2 + self.n_intermediate_points)
         intermediate_coords = np.concatenate([(1 - alpha) * shots + alpha * receivers for alpha in alpha_range])
-        return self.tree.query(intermediate_coords, workers=-1)[1].reshape(2 + self.n_intermediate_points, -1).T
+        return self.tree.query(intermediate_coords, workers=workers)[1].reshape(2 + self.n_intermediate_points, -1).T
 
     def _describe_rays(self, coords, slownesses, elevations, dips_cos, dips_tan):
         batch_size = len(coords)
@@ -319,7 +319,7 @@ class NearSurfaceModel:
         receivers, is_1d_receivers = self._process_coords(receivers)
         receivers = np.require(receivers, dtype=np.float32)
         shots, receivers = np.broadcast_arrays(shots, receivers)
-        intermediate_indices = self._get_intermediate_indices(shots[:, :2], receivers[:, :2])
+        intermediate_indices = self._get_intermediate_indices(shots[:, :2], receivers[:, :2], workers=1)
 
         shots = torch.from_numpy(shots)
         receivers = torch.from_numpy(receivers)

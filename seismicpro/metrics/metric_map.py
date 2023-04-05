@@ -225,6 +225,30 @@ class BaseMetricMap:  # pylint: disable=too-many-instance-attributes
             return self.map_data.idxmax()
         return self.map_data.idxmin()
 
+    def select_by_thresholds(self, lower_thr=-np.inf, upper_thr=np.inf):
+        """ Create a new metric map with `map_data` that contains
+        only the points with metric value within provided thesholds.
+
+        Parameters
+        ----------
+        lower_thr, upper_thr : float
+            Lower and upper thresholds for metric values.
+        Returns
+        -------
+        BaseMetricMap
+            New metric map instance.
+        """
+        metric_values = self.metric_data[self.metric_name]
+        new_metric_data = self.metric_data[(metric_values >= lower_thr) & (metric_values <= upper_thr)]
+
+        bin_size = getattr(self, "bin_size", None)
+        new_metric_map = self.map_class(new_metric_data[self.coords_cols], new_metric_data[self.metric_name], 
+                                        index=new_metric_data[self.index_cols], agg=self.agg, bin_size=bin_size, metric=self.metric)
+                                
+        if not new_metric_map._metric.has_bound_context:
+            new_metric_map._metric = new_metric_map._metric.bind_metric_map(new_metric_map)
+        return new_metric_map
+
     def get_centered_norm(self, clip_threshold_quantile):
         """Return a matplotlib norm to center map data around its mean value."""
         global_mean = self.map_data.mean()
