@@ -16,7 +16,7 @@ def calculate_trace_stats(trace):
     trace_sum_sq = np.float64(0)
 
     # min, max and += are supported numba reductions and can be safely used in a prange
-    for i in prange(len(trace)):
+    for i in prange(len(trace)):  # pylint: disable=not-an-iterable
         sample = trace[i]
         sample64 = np.float64(sample)
         trace_min = min(sample, trace_min)
