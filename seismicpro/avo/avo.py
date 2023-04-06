@@ -4,8 +4,7 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-from .utils import aggregate_by_bins_numba
-from .. import SeismicDataset
+# from .. import SeismicDataset
 from ..utils import to_list, save_figure
 
 
@@ -17,50 +16,49 @@ class AmplitudeOffsetDistribution:
         self.indexed_by = indexed_by
         self.name = name
 
-        self.bins_df = headers.groupby("bin", as_index=False)[avo_column].mean()
+        self.bins_df = stats_df.groupby("bin", as_index=False)[avo_column].mean()
 
         # Metrics
         self.metrics = {}
-
-    @classmethod
-    def from_survey(cls, survey, avo_column, bin_size, indexed_by=None, name=None):
-        name = name if name is not None else survey.name
-        indexed_by = indexed_by if indexed_by is not None else survey.indexed_by
-        return cls.from_headers(headers=survey.headers, avo_column=avo_column, bin_size=bin_size, indexed_by=indexed_by,
-                                name=name)
-
-    def regroup(self, bin_size=None, indexed_by=None, name=None):
-        """Create new instance of AmplitudeOffsetDistribution with different bin_size or indexed by different header"""
-        name = name if name is not None else self.name
-        bin_size = self.bin_bounds if bin_size is None else bin_size
-        indexed_by = self.indexed_by if indexed_by is None else indexed_by
-        return cls.from_headers(headers=self.headers, avo_column=self.avo_column, bin_size=bin_size,
-                                indexed_by=indexed_by, name=name)
 
     @classmethod
     def from_headers(cls, headers, avo_column, bin_size, indexed_by, name=None):
         if "offset" not in headers:
             raise ValueError("Missing offset header")
         headers = headers.copy(deep=False)
-        bin_bounds = cls._get_bin_bounds(bin_size, headers["offset"].max())
-        headers["bin"] = bin_bounds[np.searchsorted(bin_bounds, headers["offset"], side='right')]
-        indexed_by = to_list(indexed_by)
 
+        if isinstance(bin_size, (int, np.integer)):
+            bin_bounds = np.arange(0, headers["offset"].max()+bin_size, bin_size)
+        else:
+            bin_bounds = np.cumsum([0, *bin_size])
+
+        indexed_by = to_list(indexed_by)
+        headers["bin"] = bin_bounds[np.searchsorted(bin_bounds, headers["offset"], side='right')]
         stats_df = headers.groupby([*indexed_by, "bin"], as_index=False)[avo_column].mean()
         return cls(stats_df=stats_df, avo_column=avo_column, headers=headers, indexed_by=indexed_by, name=name)
+
+    @classmethod
+    def from_survey(cls, survey, avo_column, bin_size, indexed_by=None, name=None):
+        name = name if name is not None else survey.name
+        indexed_by = indexed_by if indexed_by is not None else survey.indexed_by
+        return cls.from_headers(headers=survey.headers, avo_column=avo_column, bin_size=bin_size,
+                                indexed_by=indexed_by, name=name)
 
     @classmethod
     def from_file(cls):
         return cls
 
-    @staticmethod
-    def _get_bin_bounds(bin_size, max_offset):
-        if isinstance(bin_size, (int, np.integer)):
-            return np.arange(0, max_offset+bin_size, bin_size)
-        return np.cumsum([0, *bin_size])
+    def regroup(self, bin_size=None, indexed_by=None, name=None):
+        """Create new instance of AmplitudeOffsetDistribution with different bin_size or indexed by different header"""
+        if bin_size is None and indexed_by is None:
+            raise ValueError()
+        name = name if name is not None else self.name
+        bin_size = self.bin_bounds if bin_size is None else bin_size
+        indexed_by = self.indexed_by if indexed_by is None else indexed_by
+        return self.from_headers(headers=self.headers, avo_column=self.avo_column, bin_size=bin_size,
+                                 indexed_by=indexed_by, name=name)
 
-    def qc(self, names=None, pol_degree=3):
-
+    def qc(self, names=None, **kwargs):
         metrics_dict = {
             "std": self._calculate_std,
             "corr": self._calculate_corr
@@ -70,14 +68,12 @@ class AmplitudeOffsetDistribution:
             metric_func = metrics_dict.get(name)
             if metric_func is None:
                 raise ValueError("")
-            # TODO: figure out how to pass kwargs to metric func normally
-            kwargs = {"pol_degree" : pol_degree} if name == "corr" else {}
             self.metrics[name] = metric_func(**kwargs)
 
     def _calculate_std(self):
         return self.stats_df.groupby("bin")[self.avo_column].apply(np.nanstd).mean()
 
-    def _calculate_corr(self, pol_degree):
+    def _calculate_corr(self, pol_degree=3):
         mask = ~self.bins_df[self.avo_column].isna()
         not_nan_bins = self.bins_df[mask]
         poly = np.polyfit(not_nan_bins["bin"], not_nan_bins[self.avo_column], deg=pol_degree)
@@ -90,6 +86,7 @@ class AmplitudeOffsetDistribution:
     def plot(self, show_qc=False, show_poly=False, title=None, figsize=(12, 7), dot_size=2, avg_size=50, dpi=100,
              save_to=None):
         fig, ax = plt.subplots(figsize=figsize)
+        # TODO: add legend
         self.stats_df.plot(x='bin', y=self.avo_column, kind='scatter', ax=ax, s=dot_size)
         self.bins_df.plot(x='bin', y=self.avo_column, kind='scatter', ax=ax, s=avg_size, marker='v', color='r',
                             grid=True)
@@ -100,7 +97,7 @@ class AmplitudeOffsetDistribution:
             ax.plot(self.bins_df["bin"], self.bins_df["bins_approx"], '--', c='g', zorder=3)
         self._finalize_plot(fig, ax, show_qc, title, save_to, dpi)
 
-    def plot_std(self, *args, align=False, title=None, figsize=(12, 7), dpi=100, save_to=None):
+    def plot_std(self, *args, align=False, title=None, figsize=(15, 7), dpi=100, save_to=None):
         avos = [self, *args]
         if align:
             global_mean = np.nanmean([avo.stats_df[avo.avo_column] for avo in avos])
