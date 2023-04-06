@@ -184,7 +184,7 @@ class TracewiseMetric(SurveyAttribute):
             Threshold used to binarize the metric values.
             If None, `self.threshold` will be used. See `self.binarize` for more details.
         top_ax_scale : str, optional, defaults to None
-            Scale type for top header plot, see `matplotlib.axes.Axes.set_yscale` for avalible options.
+            Scale type for top header plot, see `matplotlib.axes.Axes.set_yscale` for available options.
         bad_only : bool, optional, defaults to False
             Show only traces that are considered bad based on provided threshold and `self.is_lower_better`.
         kwargs : misc, optional
@@ -513,7 +513,7 @@ class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
         If `return_rms` is True, the RMS value for provided gather will be returned.
         Otherwise, two 1d arrays will be returned:
             1. Sum of squares of amplitudes in the defined window for each trace,
-            2. Number of amplitues in a specified window for each trace.
+            2. Number of amplitudes in a specified window for each trace.
         """
         gather = self.preprocess(gather)
         squares, nums = self.get_mask(gather)
