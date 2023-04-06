@@ -46,7 +46,7 @@ class TestStats:
     """Test `collect_stats` method."""
 
     def test_no_mark_dead_warning(self, segy_path):
-        """Check that a warning is emitted when `collect_stats` is run before `mark_dead_races`"""
+        """Check that a warning is emitted when `collect_stats` is run before `mark_dead_traces`"""
         survey = Survey(segy_path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset")
 
         with pytest.warns(RuntimeWarning):
@@ -57,17 +57,17 @@ class TestStats:
     @pytest.mark.parametrize("n_quantile_traces", [0, 10, 100])
     @pytest.mark.parametrize("quantile_precision", [1, 2])
     @pytest.mark.parametrize("stats_limits", [None, slice(5), slice(2, 8)])
-    @pytest.mark.parametrize("use_segyio_trace_loader", [True, False])
+    @pytest.mark.parametrize("engine", ["segyio", "memmap"])
     def test_collect_stats(self, stat_segy, init_limits, remove_dead, n_quantile_traces, quantile_precision,
-                           stats_limits, use_segyio_trace_loader):
+                           stats_limits, engine):
         """Compare stats obtained by running `collect_stats` with the actual ones."""
         path, trace_data = stat_segy
         survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset", limits=init_limits,
-                        use_segyio_trace_loader=use_segyio_trace_loader, bar=False)
-        survey.mark_dead_traces(bar=False)
-
+                        engine=engine, bar=False)
         if remove_dead:
             survey.remove_dead_traces(inplace=True)
+            is_dead = np.isclose(trace_data[:, init_limits].ptp(axis=1), 0)
+            trace_data = trace_data[~is_dead]
 
         survey_copy = survey.copy()
         survey.collect_stats(n_quantile_traces=n_quantile_traces, quantile_precision=quantile_precision,
@@ -75,10 +75,7 @@ class TestStats:
 
         # stats_limits take priority over init_limits
         stats_limits = init_limits if stats_limits is None else stats_limits
-        trace_data = trace_data[:, stats_limits]
-        if remove_dead:
-            is_dead = np.isclose(trace_data.min(axis=1), trace_data.max(axis=1))
-            trace_data = trace_data[~is_dead].ravel()
+        trace_data = trace_data[:, stats_limits].ravel()
 
         # Perform basic tests of estimated quantiles since fair comparison of interpolators is complicated
         quantiles = survey.quantile_interpolator(np.linspace(0, 1, 11))

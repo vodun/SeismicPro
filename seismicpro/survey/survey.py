@@ -880,11 +880,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         limits = self.loader.process_limits(get_first_defined(limits, self.limits))
         n_samples = len(self.file_samples[limits])
 
-        buffer = np.empty(n_samples, dtype=self.loader.dtype)
+        buffer = np.empty((1, n_samples), dtype=self.loader.dtype)
         dead_indices = []
         for tr_index, pos in tqdm(enumerate(traces_pos), desc=f"Detecting dead traces for survey {self.name}",
                                   total=len(self.headers), disable=not bar):
-            trace = self.loader.load_traces([pos], limits=limits, buffer=buffer)
+            trace = self.loader.load_traces([pos], limits=limits, buffer=buffer).ravel()
             trace_min, trace_max, *_ = calculate_trace_stats(trace)
 
             if math.isclose(trace_min, trace_max):

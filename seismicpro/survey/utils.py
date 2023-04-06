@@ -7,8 +7,8 @@ from numba import njit, prange
 @njit(nogil=True, parallel=True)
 def calculate_trace_stats(trace):
     """Calculate min, max, mean and var of trace amplitudes."""
-    trace_min = np.float32(0)
-    trace_max = np.float32(0)
+    trace_min = np.float32(np.inf)
+    trace_max = np.float32(-np.inf)
 
     # Traces are generally centered around zero so variance is calculated in a single pass by accumulating sum and
     # sum of squares of trace amplitudes as float64 for numerical stability
