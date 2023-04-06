@@ -627,7 +627,7 @@ class Gather(TraceContainer, SamplesContainer):
         gather.data = mask
         return gather
 
-    @batch_method(target='for', args_to_unpack='save_to')
+    @batch_method(target='threads', args_to_unpack='save_to')
     def mask_to_pick(self, threshold=0.5, first_breaks_col=HDR_FIRST_BREAK, save_to=None):
         """Convert a first break mask saved in `data` into times of first arrivals.
 
@@ -798,7 +798,7 @@ class Gather(TraceContainer, SamplesContainer):
     #             Vertical Velocity Spectrum calculation methods             #
     #------------------------------------------------------------------------#
 
-    @batch_method(target="threads", copy_src=False)
+    @batch_method(target="for", copy_src=False)
     def calculate_vertical_velocity_spectrum(self, velocities=None, window_size=50, mode="semblance",
                                              max_stretch_factor=np.inf):
         """Calculate vertical velocity spectrum for the gather.
@@ -852,7 +852,7 @@ class Gather(TraceContainer, SamplesContainer):
         return VerticalVelocitySpectrum(gather=self, velocities=velocities, window_size=window_size, mode=mode,
                                         max_stretch_factor=max_stretch_factor)
 
-    @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
+    @batch_method(target="for", args_to_unpack="stacking_velocity", copy_src=False)
     def calculate_residual_velocity_spectrum(self, stacking_velocity, n_velocities=140, relative_margin=0.2,
                                              window_size=50, mode="semblance", max_stretch_factor=np.inf):
         """Calculate residual velocity spectrum for the gather and provided stacking velocity.
