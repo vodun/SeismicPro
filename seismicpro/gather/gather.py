@@ -1399,9 +1399,10 @@ class Gather(TraceContainer, SamplesContainer):
             - Any additional arguments for `matplotlib.axes.Axes.scatter`.
             If some dictionary value is array-like, each its element will be associated with the corresponding header.
             Otherwise, the single value will be used for all the scatter plots.
-        top_header : str, optional, defaults to None
+        top_header : str or array-like, optional, defaults to None
             Valid only for "seismogram" and "wiggle" modes.
-            The name of a header whose values will be plotted on top of the gather plot.
+            If str, the name of a header whose values will be plotted on top of the gather plot.
+            If array-like, a vector containing self.n_traces elements.
         masks : array-like, str, dict or Gather, optional, defaults to None
             Valid only for "seismogram" and "wiggle" modes.
             Mask or list of masks to plot on top of the gather plot.
@@ -1600,7 +1601,8 @@ class Gather(TraceContainer, SamplesContainer):
         # Add a top subplot for given header if needed and set plot title
         top_ax = ax
         if top_header is not None:
-            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=self[top_header], y_ticker=y_ticker)
+            header_values = self[top_header] if isinstance(top_header, str) else top_header
+            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=header_values, y_ticker=y_ticker)
 
         # Set axis ticks.
         self._set_x_ticks(ax, tick_src=x_tick_src, ticker=x_ticker)

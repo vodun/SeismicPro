@@ -4,7 +4,7 @@ location and allows for their spatial interpolation"""
 import os
 from textwrap import dedent
 from functools import partial, cached_property
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
 import numpy as np
 import pandas as pd
@@ -636,15 +636,15 @@ class RefractorVelocityField(SpatialField):
         FieldPlot(self, **kwargs).plot()
 
     @staticmethod
-    def _calc_metrics(metrics, gathers_chunk, rvs_chunk):
-        """Calculate metrics for a given chunk of seismorgams. 
-        Intended to use with pool executor, such as `~utils.ForPoolExecutor`.
-        """
-        chunk_results = []
-        for gather, refractor_velocity in zip(gathers_chunk, rvs_chunk):
-            gather_results = [metric(gather=gather, refractor_velocity=refractor_velocity) for metric in metrics]
-            chunk_results.append(gather_results)
-        return chunk_results
+    def _calc_metrics(metrics, survey, field, gather_indices_chunk, coords_chunk):
+        """Calculate metrics for a given gather index and refractor velocity."""
+        refractor_velocities = field(coords_chunk)
+        results = []
+        for idx, rv in zip(gather_indices_chunk, refractor_velocities):
+            gather = survey.get_gather(idx)
+            gather_results = [metric(gather, refractor_velocity=rv) for metric in metrics]
+            results.append(gather_results)
+        return results
 
     #pylint: disable-next=invalid-name
     def qc(self, survey=None, metrics=None, bar=True, chunk_size=250, n_workers=None):
@@ -654,7 +654,7 @@ class RefractorVelocityField(SpatialField):
         expected arrival time defined by an offset-traveltime curve by more than a given threshold.
         * Mean amplitude of the signal in the moment of first break,
         * Mean absolute deviation of the signal phase from target value in the moment of first break,
-        * Mean Pearson correlation coeffitient of trace with mean hodograph in window around the first break,
+        * Mean Pearson correlation coefficient of trace with mean hodograph in window around the first break,
         * The divergence point metric for first breaks. Intended to find an offset after that first breaks are most
         likely to diverge from expected time.
         
@@ -678,27 +678,24 @@ class RefractorVelocityField(SpatialField):
         metrics_instances, is_single_metric = initialize_metrics(metrics, metric_class=RefractorVelocityMetric)
 
         coords_cols = to_list(get_coords_cols(survey.indexed_by))
-        n_gathers = survey.n_gathers
+        gather_change_ix = np.where(~survey.headers.index.duplicated(keep="first"))[0]
+        gather_coords = survey[coords_cols][gather_change_ix]
 
-        n_chunks, mod = divmod(n_gathers, chunk_size)
+        n_chunks, mod = divmod(survey.n_gathers, chunk_size)
         if mod:
             n_chunks += 1
         if n_workers is None:
             n_workers = os.cpu_count()
         n_workers = min(n_chunks, n_workers)
-        executor_class = ForPoolExecutor if n_workers == 1 else ProcessPoolExecutor
 
+        executor_class = ForPoolExecutor if n_workers == 1 else ThreadPoolExecutor
         futures = []
-        gather_coords = np.array([], dtype=np.int64).reshape(0, 2)
-        with tqdm(total=n_gathers, desc="Gathers processed", disable=not bar) as pbar:
+        with tqdm(total=survey.n_gathers, desc="Gathers processed", disable=not bar) as pbar:
             with executor_class(max_workers=n_workers) as pool:
                 for i in range(n_chunks):
                     gathers_indices_chunk = survey.indices[i * chunk_size : (i + 1) * chunk_size]
-                    gathers_chunk = [survey.get_gather(idx) for idx in gathers_indices_chunk]
-                    chunk_coords = [gather.coords for gather in gathers_chunk]
-                    gather_coords = np.concatenate((gather_coords, chunk_coords), axis=0)
-                    rvs_chunk = self(chunk_coords)
-                    future = pool.submit(self._calc_metrics, metrics_instances, gathers_chunk, rvs_chunk)
+                    coords_chunk = gather_coords[i * chunk_size : (i + 1) * chunk_size]
+                    future = pool.submit(self._calc_metrics, metrics_instances, survey, self, gathers_indices_chunk, coords_chunk)
                     future.add_done_callback(lambda fut: pbar.update(len(fut.result())))
                     futures.append(future)
         results = sum([future.result() for future in futures], [])
@@ -706,7 +703,6 @@ class RefractorVelocityField(SpatialField):
         index_cols = to_list(survey.indexed_by)
         index = None if coords_cols == index_cols else survey.indices
         metrics_maps = []
-        context = {'survey': survey, 'field': self}
         metrics_instances = [metric.provide_context(survey=survey, field=self) for metric in metrics_instances]
         metrics_maps = [metric.construct_map(coords=gather_coords, index=index, index_cols=index_cols,
                                               values=metric_values) for metric, metric_values in zip(metrics_instances, zip(*results))]
