@@ -118,6 +118,7 @@ class NearSurfaceModel:
         self.scheduler = ReduceLROnPlateau(self.optimizer, mode="min", factor=0.5, threshold=0.01, patience=25)
 
         # Define history-related attributes
+        self.loss_total = None
         self.loss_hist = []
         self.velocities_reg_hist = []
         self.elevations_reg_hist = []
@@ -356,7 +357,12 @@ class NearSurfaceModel:
         loader = TensorDataLoader(self.shots_coords, self.receivers_coords, self.intermediate_indices,
                                   batch_size=batch_size, shuffle=False, drop_last=False, device=self.device)
         pred_traveltimes = self._estimate_traveltimes_by_loader(loader, bar=bar)
-        return torch.abs(pred_traveltimes - self.traveltimes).mean().item()
+        self.loss_total = torch.abs(pred_traveltimes - self.traveltimes).mean().item()
+        return self.loss_total
+
+    @property
+    def loss(self):
+        return self.loss_total or self.loss_hist[-1]
 
     def fit(self, batch_size=250000, n_epochs=5, elevations_reg_coef=0.5, thicknesses_reg_coef=0.5,
             velocities_reg_coef=1, bar=True):
@@ -425,7 +431,7 @@ class NearSurfaceModel:
             receivers_coords = gather_data[["GroupX", "GroupY"]].to_numpy()
             true_traveltimes = gather_data["True"].to_numpy()
             pred_traveltimes = gather_data["Pred"].to_numpy()
-            metric_values = [metric(shots_coords, receivers_coords, true_traveltimes, pred_traveltimes)
+            metric_values = [metric._calc(shots_coords, receivers_coords, true_traveltimes, pred_traveltimes)
                              for metric in metrics]
             res.append(metric_values)
         return res

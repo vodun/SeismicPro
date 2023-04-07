@@ -128,6 +128,48 @@ class Gather(TraceContainer, SamplesContainer):
             return None
         return Coordinates(coords[0], names=coords_cols)
 
+    @coords.setter
+    def coords(self, coords):
+        """Set coordinates headers(if exist) of the gather."""
+        try:  # Possibly unknown coordinates for indexed_by, required coords headers may be not loaded
+            coords_cols = get_coords_cols(self.indexed_by, self.survey.source_id_cols, self.survey.receiver_id_cols)
+            self[list(coords_cols)] = coords
+        except KeyError:
+            raise 'Gather can not have spatial coordinates.'
+
+    @property
+    def is_shot(self):
+        """ Whether the gather is shot."""
+        return self.indexed_by == self.survey.source_id_cols
+
+    @property
+    def is_receiver(self):
+        """ Whether the gather is receiever."""
+        return self.indexed_by == self.survey.receiver_id_cols
+
+    @property
+    def elevation(self):
+        """ The gather elevation."""
+        if self.is_shot and 'SourceSurfaceElevation' in self.headers:
+            elevation =  self['SourceSurfaceElevation']
+        elif self.is_receiver and 'ReceiverGroupElevation' in self.headers:
+            elevation = self['ReceiverGroupElevation']
+        else:
+            return None
+        if (elevation != elevation[0]).any():  # Non-unique elevation
+            return None
+        return elevation[0]
+
+    @elevation.setter
+    def elevation(self, elevation):
+        """ The gather elevation. """
+        if self.is_shot:
+            self['SourceSurfaceElevation'] = elevation
+        elif self.is_receiver:
+            self['ReceiverGroupElevation'] = elevation
+        else:
+            raise ValueError('Either shot or receiver gathers can have elevation')
+
     def __getitem__(self, key):
         """Either select gather headers values by their names or create a new `Gather` with specified traces and
         samples depending on the key type.
