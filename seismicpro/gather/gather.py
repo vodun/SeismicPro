@@ -399,30 +399,6 @@ class Gather(TraceContainer, SamplesContainer):
     #                         Normalization methods                          #
     #------------------------------------------------------------------------#
 
-    def _apply_agg_func(self, func, tracewise, **kwargs):
-        """Apply a `func` either to entire gather's data or to each trace independently.
-
-        Notes
-        -----
-        `func` must accept an `axis` argument.
-
-        Parameters
-        ----------
-        func : callable
-            Function to be applied to the gather's data.
-        tracewise : bool
-            If `True`, the `func` is applied to each trace independently, otherwise to the entire gather's data.
-        kwargs : misc, optional
-            Additional keyword arguments to `func`.
-
-        Returns
-        -------
-        result : misc
-            The result of the application of the `func` to the gather's data.
-        """
-        axis = 1 if tracewise else None
-        return func(self.data, axis=axis, **kwargs)
-
     def get_quantile(self, q, tracewise=False, use_global=False):
         """Calculate the `q`-th quantile of the gather or fetch the global quantile from the parent survey.
 
@@ -441,7 +417,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         Returns
         -------
-        q : float or array-like of floats
+        q : float or np.ndarray of floats
             The `q`-th quantile values.
 
         Raises
@@ -451,9 +427,16 @@ class Gather(TraceContainer, SamplesContainer):
         """
         if use_global:
             return self.survey.get_quantile(q)
-        quantiles = self._apply_agg_func(func=np.nanquantile, tracewise=tracewise, q=q).astype(np.float32)
-        # return the same type as q in case of global calculation: either single float or array-like
-        return quantiles.item() if not tracewise and quantiles.ndim == 0 else quantiles
+        q = np.array(q, dtype=np.float32)
+        quantiles = normalization.get_quantile(self.data, q=q, tracewise=tracewise).astype(np.float32)
+        # return the same type as q in case of non-global calculation: either single float or array-like
+        if quantiles.size == 1:
+            return quantiles[0][0]
+        if not tracewise:
+            return quantiles[0]
+        if q.size == 1:
+            return quantiles[:, 0]
+        return quantiles
 
     @batch_method(target='threads')
     def scale_standard(self, tracewise=True, use_global=False, eps=1e-10):
@@ -494,12 +477,11 @@ class Gather(TraceContainer, SamplesContainer):
         if use_global:
             if not self.survey.has_stats:
                 raise ValueError('Global statistics were not calculated, call `Survey.collect_stats` first.')
-            mean = self.survey.mean
-            std = self.survey.std
+            mean = np.asarray(self.survey.mean).reshape(1, 1)
+            std = np.asarray(self.survey.std).reshape(1, 1)
         else:
-            mean = self._apply_agg_func(func=np.mean, tracewise=tracewise, keepdims=True)
-            std = self._apply_agg_func(func=np.std, tracewise=tracewise, keepdims=True)
-        self.data = normalization.scale_standard(self.data, mean, std, np.float32(eps))
+            mean, std = None, None
+        self.data = normalization.scale_standard(self.data, mean, std, tracewise, np.float32(eps))
         return self
 
     @batch_method(target='for')
@@ -547,8 +529,12 @@ class Gather(TraceContainer, SamplesContainer):
         ValueError
             If `use_global` is `True` but global statistics were not calculated.
         """
-        min_value, max_value = self.get_quantile([q_min, q_max], tracewise=tracewise, use_global=use_global)
-        self.data = normalization.scale_maxabs(self.data, min_value, max_value, clip, np.float32(eps))
+        if use_global:
+            min_value, max_value = self.survey.get_quantile([q_min, q_max])
+        else:
+            min_value, max_value = None, None
+        self.data = normalization.scale_maxabs(self.data, min_value, max_value, q_min, q_max,
+                                               tracewise, clip, np.float32(eps))
         return self
 
     @batch_method(target='for')
@@ -592,8 +578,12 @@ class Gather(TraceContainer, SamplesContainer):
         ValueError
             If `use_global` is `True` but global statistics were not calculated.
         """
-        min_value, max_value = self.get_quantile([q_min, q_max], tracewise=tracewise, use_global=use_global)
-        self.data = normalization.scale_minmax(self.data, min_value, max_value, clip, np.float32(eps))
+        if use_global:
+            min_value, max_value = self.survey.get_quantile([q_min, q_max])
+        else:
+            min_value, max_value = None, None
+        self.data = normalization.scale_minmax(self.data, min_value, max_value, q_min, q_max,
+                                               tracewise, clip, np.float32(eps))
         return self
 
     #------------------------------------------------------------------------#

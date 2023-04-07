@@ -8,7 +8,7 @@ from scipy.signal import hilbert
 from ..metrics import Metric
 from ..const import HDR_FIRST_BREAK
 from ..gather.utils.normalization import scale_maxabs
-from ..utils import times_to_indices, get_first_defined
+from ..utils import get_first_defined
 
 class RefractorVelocityMetric(Metric):
     """Base metric class for quality control of refractor velocity field.
@@ -165,7 +165,13 @@ class FirstBreaksOutliers(RefractorVelocityMetric):
 
 
 class FirstBreaksAmplitudes(RefractorVelocityMetric):
-    """Mean amplitude of the signal in the moment of first break after gather scaling."""
+    """Mean amplitude of the signal in the moment of first break after gather scaling.
+
+    Parameters
+    ----------
+    first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`.
+        Column name from `gather.headers` where times of first breaks are stored.
+    """
     name = "first_breaks_amplitudes"
     vmin = 0
     vmax = 0.5
@@ -174,15 +180,8 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
     @staticmethod
     @njit(nogil=True)
     def _calc(gather_data, gather_times, sample_rate):
-        n_traces = len(gather_data)
-        min_values = np.empty(n_traces, dtype=np.float64)
-        max_values = np.empty(n_traces, dtype=np.float64)
-        for i in range(n_traces):
-            min_value, max_value = np.nanquantile(gather_data[i], q=[0, 1])
-            min_values[i] = min_value
-            max_values[i] = max_value
-        gather_data = scale_maxabs(gather_data, min_values, max_values, clip=False, eps=1e-10)
-
+        gather_data = scale_maxabs(gather_data, min_value=None, max_value=None,
+                                    q_min=0, q_max=1, tracewise=True, clip=True, eps=1e-10)
         ix = gather_times / sample_rate
         res = np.empty_like(ix, dtype=np.float32)
         for i in range(len(ix)):
@@ -209,6 +208,8 @@ class FirstBreaksPhases(RefractorVelocityMetric):
     
     Parameters
     ----------
+    first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+        Column name from `gather.headers` where times of first breaks are stored.
     target : float in range (-pi, pi] or str from {'max', 'min', 'transition'}, optional, defaults to 'max'
         Target phase value in the moment of first break, see `np.angle`.
     """
@@ -276,7 +277,9 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
     
     Parameters
     ----------
-    win_size : int, optional, defaults to 40.
+    first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+        Column name from `gather.headers` where times of first breaks are stored.
+    win_size : int, optional, defaults to 40
         Size of the window to calculate the correlation coefficient in. Measured in milliseconds.
     """
     name = "first_breaks_correlations"
@@ -356,9 +359,11 @@ class DivergencePoint(RefractorVelocityMetric):
     
     Parameters
     ----------
-    threshold_times: float, optional, defaults to 50.
+    first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+        Column name from `gather.headers` where times of first breaks are stored.
+    threshold_times: float, optional, defaults to 50
         Threshold to define the first breaks outliers with, see `FirstBreaksOutliers`. Measured in milliseconds.
-    step : int, optional, defaults to 100.
+    step : int, optional, defaults to 100
         Size of the offset window to count outliers in. Measured in meters.
     """
     name = "divergence_point"
