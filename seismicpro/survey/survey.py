@@ -474,6 +474,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
 
         if self.has_stats:
+            # msg += self.get_stats_summary() # TODO
             msg += f"""
         Survey statistics:
         mean | std:                {self.mean:>10.2f} | {self.std:<10.2f}
@@ -482,18 +483,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
 
         if self.qc_metrics:
-            metric_msg = ""
-            for metric in self.qc_metrics.values():
-                if metric.threshold is None:
-                    continue
-                metric_value = self[metric.header_cols]
-                if isinstance(metric, BaseWindowRMSMetric):
-                    metric_value = metric.compute_rms(*metric_value.T)
-                metric_msg += f"\n\t{metric.description+':':<55}{metric.binarize(metric_value).sum()}"
-            if metric_msg:
-                msg += """
-        Tracewise QC summary:
-        """ + metric_msg
+            msg += self.get_qc_summary()
         return dedent(msg).strip()
 
     def info(self):
@@ -1208,7 +1198,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if header_name is None:
             header_name = DeadTrace.name
             if header_name not in self.headers:
-                self.qc_tracewise(DeadTrace, chunk_size=chunk_size, bar=bar)
+                self.qc(DeadTrace, chunk_size=chunk_size, bar=bar)
 
         self.filter_by_metric(header_name, inplace=True)
         return self
@@ -1336,7 +1326,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.headers = headers
         return self
 
-    def qc_tracewise(self, metrics=None, chunk_size=1000, n_workers=None, bar=True, overwrite=False):
+    def qc(self, metrics=None, chunk_size=1000, n_workers=None, bar=True, overwrite=False, verbose=False):  # pylint: disable=invalid-name
         """Perform quality control of the traces in the survey. The quality control procedure is performed in parallel
         threads in chunks of size no more than `chunk_size`.
 
@@ -1422,7 +1412,16 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         results.index = self.headers.index
         self.headers[results.columns] = results
         self.qc_metrics.update({metric.name: metric for metric in metrics})
+        if verbose:
+            print(self.get_qc_summary())
         return self
+
+    def get_qc_summary(self):
+        """LACK OF DOCS"""
+        summary = [metric.describe(self[metric.header_cols]) for metric in self.qc_metrics.values()]
+        if summary:
+            return """\n\tTracewise QC summary:\n""" + "\n".join(summary)
+        return ""
 
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #

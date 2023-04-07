@@ -1,4 +1,4 @@
-"""Test qc_tracewise and construct_qc_map methods"""
+"""Test qc and construct_qc_map methods"""
 
 import pytest
 import numpy as np
@@ -53,10 +53,10 @@ class TestTracewise:
     """Test tracewise QC metrics."""
 
     @pytest.mark.parametrize("metrics, names", METRICS_TO_COMPUTE)
-    def test_qc_tracewise(self, survey, metrics, names):
-        """Test `survey.qc_tracewise`."""
+    def test_qc(self, survey, metrics, names):
+        """Test `survey.qc`."""
         _ = self
-        survey.qc_tracewise(metrics=metrics, bar=False)
+        survey.qc(metrics=metrics, bar=False)
         for name in to_list(names):
             assert name in survey.qc_metrics
             header_cols = to_list(survey.qc_metrics[name].header_cols)
@@ -66,7 +66,7 @@ class TestTracewise:
     def test_construct_qc_map(self, survey, metrics, metric_names):
         """Test `survey.construct_qc_map`."""
         _ = self
-        survey.qc_tracewise(metrics=metrics, bar=False)
+        survey.qc(metrics=metrics, bar=False)
         mmaps = survey.construct_qc_maps(metric_names=metric_names, by='shot')
         if metric_names is None:
             assert len(mmaps) == len(DEFAULT_TRACEWISE_METRICS)
@@ -99,7 +99,7 @@ class TestFilterMetrics:
         trace_data = trace_data[sorted_ixs]
         gather = Gather(survey.headers.iloc[sorted_ixs], trace_data, survey.samples, survey)
 
-        survey.qc_tracewise(metrics=metric, bar=False)
+        survey.qc(metrics=metric, bar=False)
         survey_filtered = survey.filter_by_metric(metric_name=metric.name, threshold=threshold, inplace=inplace)
 
         metric_instance = survey.qc_metrics[metric.name]

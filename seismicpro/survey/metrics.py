@@ -1,21 +1,21 @@
 # pylint: disable=not-an-iterable
 """Implements metrics for quality control of the survey.
 
-These metrics are supposed to be used in :func:`~survey.qc_tracewise` method, which iterates over traces or group of
-traces and automatically provides metrics with all required context for interactive plotting.
+These metrics are supposed to be used in :func:`~survey.qc` method, which iterates over traces or group of traces and
+automatically provides metrics with all required context for interactive plotting.
 
 To define your own metric, you need to inherit a new class from either `TracewiseMetric` or
 `MuteTracewiseMetric`, or `BaseWindowRMSMetric` depending on the purpose, and do the following:
-* Redefine `get_mask` or `numba_get_mask` method. Since all metrics are calculated in threads, it is important to
-  release GIL as early as possible. Try not to use `get_mask` at all, or only use it to calculate the part that cannot
-  be done without releasing the GIL. The main part should be implemented in `numba_get_mask` with njit decorator and
+* Redefine `get_values` or `numba_get_values` method. Since all metrics are calculated in threads, it is important to
+  release GIL as early as possible. Try not to use `get_values` at all, or only use it to calculate the part that can't
+  be done without releasing the GIL. The main part should be implemented in `numba_get_values` with njit decorator and
   flag `nogil=True`.
 * Redefine `description` method, which describes what traces were detected by the metric.
 * Set a `threshold` class attribute to a number above or below which the trace will be considered bad. If an
   `is_lower_better` class attribute is `True`, the values greater or equal to the `threshold` will be considered bad
   and lower or equal otherwise.
 * Optionally redefine `preprocess` method, which accepts the gather and applies any preprocess procedures such as
-  muting or scaling. This gather will later used in `get_mask` and showed on the right side of the interactive plot.
+  muting or scaling. This gather will later used in `get_values` and showed on the right side of the interactive plot.
 * Optionally define all other class attributes of `Metric` for future convenience.
 * Optionally redefine `plot` method which will be used to plot gather with tracewise metric on top when a metric map is
   clicked in interactive mode. It should accept an instance of `matplotlib.axes.Axes` to plot on, `coords` and `index`
@@ -23,8 +23,8 @@ To define your own metric, you need to inherit a new class from either `Tracewis
   method plots the gather with tracewise metric on top and a red mask on top of the gather plot, highlighted bad parts
   of the gather according to the metric.
 
-If you want the created metric to be calculated by :func:`~survey.qc_tracewise` method by default, it should also be
-appended to a `DEFAULT_TRACEWISE_METRICS` list.
+If you want the created metric to be calculated by :func:`~survey.qc` method by default, it should also be appended to
+a `DEFAULT_TRACEWISE_METRICS` list.
 """
 
 import warnings
@@ -73,15 +73,16 @@ class SurveyAttribute(Metric):
 
 
 class TracewiseMetric(SurveyAttribute):
-    """Base class for tracewise metrics with plotters and aggregations. Child classes should redefine `get_mask` or
-    `numba_get_mask` and `description` methods, and optionally `preprocess`."""
+    """Base class for tracewise metrics with plotters and aggregations. Child classes should redefine `get_values` or
+    `numba_get_values` and `description` methods, and optionally `preprocess`."""
     threshold = None
-    plot_y_scale = "linear"
+    top_y_ax_scale = "linear"
 
     def __call__(self, gather):
-        """Compute qc metric by applying `self.preprocess`, `self.get_mask` and `self.aggregate` to provided gather."""
+        """Compute qc metric by applying sequentially `self.preprocess`, `self.get_values` and `self.aggregate` to
+        provided gather."""
         gather = self.preprocess(gather)
-        mask = self.get_mask(gather)
+        mask = self.get_values(gather)
         return self.aggregate(mask)
 
     @property
@@ -90,27 +91,35 @@ class TracewiseMetric(SurveyAttribute):
         traces detected by the metric."""
         return NotImplementedError
 
+    def describe(self, values):
+        """LACK OF DOCS HERE"""
+        bin_values = self.binarize(values)
+        # Process multiline descriptions and set the minimum distance from the last line to the result to 55 symbols.
+        *parts, last = (self.description + ":").split("\n")
+        description = "\n".join(parts) + "\n" + f"{last:<55}" if parts else f"{last:<55}"
+        return f"\t{description}{bin_values.sum()} ({100 * bin_values.mean():.3f}%)"
+
     def preprocess(self, gather):
-        """Preprocess gather before either calling `self.get_mask` method to calculate metric or to plot the gather.
+        """Preprocess gather before either calling `self.get_values` method to calculate metric or to plot the gather.
         Identity by default."""
         _ = self
         return gather
 
-    def get_mask(self, gather):
+    def get_values(self, gather):  # get_values, compute_metric
         """Compute QC indicator.
 
         There are two possible outputs for the provided gather:
             1. Samplewise indicator with the same shape as `gather`.
             2. Tracewise indicator with a shape of (`gather.n_traces`,).
 
-        The method redirects the call to njitted static `numba_get_mask` method. Either this method or `numba_get_mask`
-        must be overridden in child classes.
+        The method redirects the call to njitted static `numba_get_values` method. Either this method or
+        `numba_get_values` must be overridden in child classes.
         """
-        return self.numba_get_mask(gather.data)
+        return self.numba_get_values(gather.data)
 
     @staticmethod
     @njit(nogil=True)
-    def numba_get_mask(traces):
+    def numba_get_values(traces):
         """Compute njitted QC indicator."""
         raise NotImplementedError
 
@@ -168,7 +177,7 @@ class TracewiseMetric(SurveyAttribute):
         bin_mask[np.isnan(mask)] = False
         return bin_mask
 
-    def plot(self, ax, coords, index, sort_by=None, threshold=None, plot_y_scale=None,  bad_only=False, **kwargs):
+    def plot(self, ax, coords, index, sort_by=None, threshold=None, top_y_ax_scale=None,  bad_only=False, **kwargs):
         """Plot gather by its `index` with highlighted traces with metric value above or below the `self.threshold`.
 
         Tracewise metric values will be shown on top of the gather plot. Also, the area with `good` metric values based
@@ -195,7 +204,7 @@ class TracewiseMetric(SurveyAttribute):
             Additional keyword arguments to the `gather.plot`.
         """
         threshold = self.threshold if threshold is None else threshold
-        plot_y_scale = self.plot_y_scale if plot_y_scale is None else plot_y_scale
+        top_y_ax_scale = self.top_y_ax_scale if top_y_ax_scale is None else top_y_ax_scale
         _ = coords
 
         gather = self.survey.get_gather(index)
@@ -203,24 +212,24 @@ class TracewiseMetric(SurveyAttribute):
             gather = gather.sort(sort_by)
         gather = self.preprocess(gather)
 
-        mask = self.get_mask(gather)
-        metric_vals = self.aggregate(mask)
-        bin_mask = self.binarize(mask, threshold)
+        metric_res = self.get_values(gather)
+        metric_vals = self.aggregate(metric_res)
+        mask = self.binarize(metric_res, threshold)
 
         mode = kwargs.pop("mode", "wiggle")
-        masks_dict = {"masks": bin_mask, "alpha": 0.8, "label": self.name or "metric", **kwargs.pop("masks", {})}
+        masks_dict = {"masks": mask, "alpha": 0.8, "label": self.name or "metric", **kwargs.pop("masks", {})}
 
         if bad_only:
-            bad_mask = self.aggregate(bin_mask) == 0
+            bad_mask = self.aggregate(mask) == 0
             gather.data[bad_mask] = np.nan
             metric_vals[bad_mask] = np.nan
             # Don't need to plot 1d mask if only bad traces will be plotted.
-            if bin_mask.ndim == 1:
+            if mask.ndim == 1:
                 masks_dict = None
 
         gather.plot(ax=ax, mode=mode, top_header=metric_vals, masks=masks_dict, **kwargs)
         top_ax = ax.figure.axes[1]
-        top_ax.set_yscale(plot_y_scale)
+        top_ax.set_yscale(top_y_ax_scale)
         if threshold is not None:
             self._plot_threshold(ax=top_ax, threshold=threshold)
 
@@ -233,19 +242,19 @@ class TracewiseMetric(SurveyAttribute):
             threshold = [threshold, y_max] if self.is_lower_better else [y_min, threshold]
         ax.fill_between(np.arange(x_min, x_max), *threshold, alpha=0.3, color="blue")
 
-    def get_views(self, sort_by=None, threshold=None, plot_y_scale=None, **kwargs):
+    def get_views(self, sort_by=None, threshold=None, top_y_ax_scale=None, **kwargs):
         """Return two plotters of the metric views. Each view plots a gather sorted by `sort_by` with a metric values
-        shown on top of the gather plot. The y-axis of the metric plot is scaled by `plot_y_scale`. The first view
+        shown on top of the gather plot. The y-axis of the metric plot is scaled by `top_y_ax_scale`. The first view
         plots full gather with bad traces highlighted based on the `threshold` and the `self.is_lower_better`
         attribute. The second view only displays the traces defined by the metric as bad ones."""
-        plot_kwargs = {"sort_by": sort_by, "threshold": threshold, "plot_y_scale": plot_y_scale}
+        plot_kwargs = {"sort_by": sort_by, "threshold": threshold, "top_y_ax_scale": top_y_ax_scale}
         return [partial(self.plot, **plot_kwargs), partial(self.plot, bad_only=True, **plot_kwargs)], kwargs
 
 
 class DeadTrace(TracewiseMetric):
     """Detect constant traces.
 
-    `get_mask` returns 1d binary mask where each constant trace is marked with one.
+    `get_values` returns 1d binary mask where each constant trace is marked with one.
     """
     name = "dead_trace"
     min_value = 0
@@ -255,11 +264,12 @@ class DeadTrace(TracewiseMetric):
 
     @property
     def description(self):
+        """String description of the tracewise metric."""
         return "Number of dead traces"
 
     @staticmethod
     @njit(nogil=True)
-    def numba_get_mask(traces):
+    def numba_get_values(traces):
         """Compute njitted QC indicator."""
         res = np.empty_like(traces[:, 0])
         for i in range(traces.shape[0]):
@@ -270,7 +280,7 @@ class DeadTrace(TracewiseMetric):
 class TraceAbsMean(TracewiseMetric):
     """Calculate absolute value of the trace's mean scaled by trace's std.
 
-    `get_mask` returns 1d array with computed metric values for the gather.
+    `get_values` returns 1d array with computed metric values for the gather.
     """
     name = "trace_absmean"
     is_lower_better = True
@@ -278,12 +288,12 @@ class TraceAbsMean(TracewiseMetric):
 
     @property
     def description(self):
-        """String description of tracewise metric."""
+        """String description of the tracewise metric."""
         return f"Traces with mean divided by std greater than {self.threshold}"
 
     @staticmethod
     @njit(nogil=True)
-    def numba_get_mask(traces):
+    def numba_get_values(traces):
         """Compute njitted QC indicator."""
         res = np.empty_like(traces[:, 0])
         for i in range(traces.shape[0]):
@@ -294,7 +304,7 @@ class TraceAbsMean(TracewiseMetric):
 class TraceMaxAbs(TracewiseMetric):
     """Find a maximum absolute amplitude value scaled by trace's std.
 
-    `get_mask` returns 1d array with computed metric values for the gather.
+    `get_values` returns 1d array with computed metric values for the gather.
     """
     name = "trace_maxabs"
     is_lower_better = True
@@ -307,7 +317,7 @@ class TraceMaxAbs(TracewiseMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def numba_get_mask(traces):
+    def numba_get_values(traces):
         """Compute njitted QC indicator."""
         res = np.empty_like(traces[:, 0])
         for i in range(traces.shape[0]):
@@ -318,8 +328,8 @@ class TraceMaxAbs(TracewiseMetric):
 class MaxClipsLen(TracewiseMetric):
     """Calculate the length of consecutive amplitudes equals to trace minimum or maximum amplitudes.
 
-    `get_mask` returns 2d mask indicating the length of consecutive maximum or minimum amplitudes for each trace in the
-    input gather.
+    `get_values` returns 2d array with values indicating the length of consecutive maximum or minimum amplitudes for
+    each trace in the input gather.
     """
     name = "max_clips_len"
     min_value = 1
@@ -334,7 +344,7 @@ class MaxClipsLen(TracewiseMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def numba_get_mask(traces):
+    def numba_get_values(traces):
         """Compute njitted QC indicator."""
         def _update_counters(sample, counter, container, value):
             if isclose(sample, value):
@@ -367,7 +377,8 @@ class MaxClipsLen(TracewiseMetric):
 class MaxConstLen(TracewiseMetric):
     """Calculate the number of consecutive identical amplitudes.
 
-    `get_mask` returns 2d mask indicating the length of consecutive identical values in each trace in the input gather.
+    `get_values` returns a 2d array with values indicating the length of consecutive identical values in each trace in
+    the input gather.
     """
     name = "const_len"
     is_lower_better = True
@@ -380,7 +391,7 @@ class MaxConstLen(TracewiseMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def numba_get_mask(traces):
+    def numba_get_values(traces):
         """Compute njitted QC indicator."""
         indicator = np.zeros_like(traces)
         for i in range(traces.shape[0]):
@@ -401,7 +412,7 @@ class MaxConstLen(TracewiseMetric):
 
 class MuteTracewiseMetric(TracewiseMetric):  # pylint: disable=abstract-method
     """Base class for tracewise metric with implemented `self.preprocess` method which applies muting and standard
-    scaling to the input gather. Child classes should redefine `get_mask` or `numba_get_mask` methods.
+    scaling to the input gather. Child classes should redefine `get_values` or `numba_get_values` methods.
 
     Parameters
     ----------
@@ -427,7 +438,7 @@ class Spikes(MuteTracewiseMetric):
     """Spikes detection. The metric reacts to drastic changes in traces amplitudes within a 1-width window around each
     amplitude value.
 
-    `get_mask` returns 2d mask that shows the deviation of the amplitudes of an input gather.
+    `get_values` returns 2d array with values that show the deviation of the amplitudes of an input gather.
 
     The metric is highly dependent on the muter being used; if muter is not strong enough, the metric will overreact
     to the first breaks.
@@ -445,7 +456,7 @@ class Spikes(MuteTracewiseMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def numba_get_mask(traces):
+    def numba_get_values(traces):
         """Compute njitted QC indicator."""
         res = np.zeros_like(traces)
         for i in range(traces.shape[0]):
@@ -458,8 +469,8 @@ class Spikes(MuteTracewiseMetric):
 class Autocorrelation(MuteTracewiseMetric):
     """Trace correlation with itself shifted by 1.
 
-    `get_mask` returns 1d mask with mean trace autocorrelation. If proportion of nans in the trace is greater than
-    `nan_ratio`, then the metric value for this trace will be nan.
+    `get_values` returns 1d array with values that show mean trace autocorrelation. If proportion of nans in the trace
+    is greater than `nan_ratio`, then the metric value for this trace will be nan.
 
     The metric is highly dependent on the muter being used; if muter is not strong enough, the metric will overreact
     to the first breaks.
@@ -492,12 +503,12 @@ class Autocorrelation(MuteTracewiseMetric):
         """String description of tracewise metric."""
         return f"Traces with autocorrelation less than {self.threshold}"
 
-    def get_mask(self, gather):
-        return self.numba_get_mask(gather.data, nan_ratio=self.nan_ratio)
+    def get_values(self, gather):
+        return self.numba_get_values(gather.data, nan_ratio=self.nan_ratio)
 
     @staticmethod
     @njit(nogil=True)
-    def numba_get_mask(traces, nan_ratio):
+    def numba_get_values(traces, nan_ratio):
         """Compute njitted QC indicator."""
         res = np.empty_like(traces[:, 0])
         for i in range(traces.shape[0]):
@@ -510,20 +521,31 @@ class Autocorrelation(MuteTracewiseMetric):
 
 class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
     """Base class for the tracewise metrics that computes RMS in window defined by two arrays with start and end
-    indices for each trace in provided gather. Child classes should redefine `get_mask` or `numba_get_mask` methods."""
+    indices for each trace in provided gather.
+
+    Child classes should redefine `get_values` or `numba_get_values` methods.
+    """
 
     def __call__(self, gather, return_rms=True):
-        """Compute the metric by applying `self.preprocess` and `self.get_mask` to provided gather.
+        """Compute the metric by applying `self.preprocess` and `self.get_values` to provided gather.
         If `return_rms` is True, the RMS value for provided gather will be returned.
         Otherwise, two 1d arrays will be returned:
             1. Sum of squares of amplitudes in the defined window for each trace,
             2. Number of amplitudes in a specified window for each trace.
         """
         gather = self.preprocess(gather)
-        squares, nums = self.get_mask(gather)
+        squares, nums = self.get_values(gather)
         if return_rms:
             return self.compute_rms(squares, nums)
         return squares, nums
+
+    def _get_description_bundle(self):
+        if isinstance(self.threshold, (int, float, np.number)):
+            if self.is_lower_better is None:
+                raise ValueError("`threshold` cannot be single number if `is_lower_better` is None")
+            bundle = "greater or equal then" if self.is_lower_better else "less or equal then"
+            return bundle + f" {self.threshold}"
+        return f"between {self.threshold[0]} and {self.threshold[1]}"
 
     @property
     def header_cols(self):
@@ -564,11 +586,11 @@ class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
                                      index=sum_df[nums_map.index_cols], agg=agg, bin_size=bin_size,
                                      calculate_immediately=calculate_immediately)
 
-    def plot(self, ax, coords, index, threshold=None, plot_y_scale=None, bad_only=False, color="lime", **kwargs):  # pylint: disable=arguments-renamed
+    def plot(self, ax, coords, index, threshold=None, top_y_ax_scale=None, bad_only=False, color="lime", **kwargs):  # pylint: disable=arguments-renamed
         """Plot the gather sorted by offset with tracewise indicator on the top of the gather plot. Any mask can be
         displayed over the gather plot using `self.add_mask_on_plot`."""
         threshold = self.threshold if threshold is None else threshold
-        plot_y_scale = self.plot_y_scale if plot_y_scale is None else plot_y_scale
+        top_y_ax_scale = self.top_y_ax_scale if top_y_ax_scale is None else top_y_ax_scale
         _ = coords
         gather = self.survey.get_gather(index).sort("offset")
         squares, nums = self(gather, return_rms=False)
@@ -582,7 +604,7 @@ class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
         top_ax = ax.figure.axes[1]
         if threshold is not None:
             self._plot_threshold(ax=top_ax, threshold=threshold)
-        top_ax.set_yscale(plot_y_scale)
+        top_ax.set_yscale(top_y_ax_scale)
         self.add_mask_on_plot(ax=ax, gather=gather, color=color)
 
     def add_mask_on_plot(self, ax, gather, color=None):
@@ -590,12 +612,12 @@ class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
         _ = self, ax, gather, color
         pass
 
-    def get_views(self, threshold=None, plot_y_scale=None, **kwargs):
+    def get_views(self, threshold=None, top_y_ax_scale=None, **kwargs):
         """Return two plotters of the metric views. Each view plots a gather sorted by `offset` with a metric values
-        shown on top of the gather plot. The y-axis of the metric plot is scaled by `plot_y_scale`. The first view
+        shown on top of the gather plot. The y-axis of the metric plot is scaled by `top_y_ax_scale`. The first view
         plots full gather with bad traces highlighted based on the `threshold` and the `self.is_lower_better`
         attribute. The second view only displays the traces defined by the metric as bad ones."""
-        plot_kwargs = {"threshold": threshold, "plot_y_scale": plot_y_scale}
+        plot_kwargs = {"threshold": threshold, "top_y_ax_scale": top_y_ax_scale}
         return [partial(self.plot, **plot_kwargs), partial(self.plot, bad_only=True, **plot_kwargs)], kwargs
 
 
@@ -657,13 +679,13 @@ class MetricsRatio(TracewiseMetric):  # pylint: disable=abstract-method
         return super().construct_map(coords, values, index=index, agg=agg, bin_size=bin_size,
                                      calculate_immediately=calculate_immediately)
 
-    def plot(self, ax, coords, index, threshold=None, plot_y_scale=None, bad_only=False, **kwargs):
+    def plot(self, ax, coords, index, threshold=None, top_y_ax_scale=None, bad_only=False, **kwargs):
         """Plot the gather sorted by offset with two masks over the gather plot. The lime-colored mask represents the
         window where the `self.numerator` metric was calculated, while the magenta-colored mask represents the
         `self.denominator` window. Additionally, tracewise ratio of `self.numerator` by `self.denominator` is displayed
         on the top of the gather plot."""
         threshold = self.threshold if threshold is None else threshold
-        plot_y_scale = self.plot_y_scale if plot_y_scale is None else plot_y_scale
+        top_y_ax_scale = self.top_y_ax_scale if top_y_ax_scale is None else top_y_ax_scale
         _ = coords
         gather = self.survey.get_gather(index).sort("offset")
 
@@ -683,19 +705,19 @@ class MetricsRatio(TracewiseMetric):  # pylint: disable=abstract-method
         top_ax = ax.figure.axes[1]
         if threshold is not None:
             self._plot_threshold(ax=top_ax, threshold=threshold)
-        top_ax.set_yscale(plot_y_scale)
+        top_ax.set_yscale(top_y_ax_scale)
 
         self.numerator.add_mask_on_plot(ax=ax, gather=gather, color="lime", legend=f"{self.numerator.name} window")
         self.denominator.add_mask_on_plot(ax=ax, gather=gather, color="magenta",
                                           legend=f"{self.denominator.name} window")
         ax.legend()
 
-    def get_views(self, threshold=None, plot_y_scale=None, **kwargs):
+    def get_views(self, threshold=None, top_y_ax_scale=None, **kwargs):
         """Return two plotters of the metric views. Each view plots a gather sorted by `offset` with a metric values
-        shown on top of the gather plot. The y-axis of the metric plot is scaled by `plot_y_scale`. The first view
+        shown on top of the gather plot. The y-axis of the metric plot is scaled by `top_y_ax_scale`. The first view
         plots full gather with bad traces highlighted based on the `threshold` and the `self.is_lower_better`
         attribute. The second view only displays the traces defined by the metric as bad ones."""
-        plot_kwargs = {"threshold": threshold, "plot_y_scale": plot_y_scale}
+        plot_kwargs = {"threshold": threshold, "top_y_ax_scale": top_y_ax_scale}
         return [partial(self.plot, **plot_kwargs), partial(self.plot, bad_only=True, **plot_kwargs)], kwargs
 
 
@@ -730,9 +752,24 @@ class WindowRMS(BaseWindowRMSMetric):
         """String representation of the metric."""
         return f"{type(self).__name__}(name='{self.name}', offsets='{self.offsets}', times='{self.times}')"
 
-    def get_mask(self, gather):
+    @property
+    def description(self):
+        """String description of the tracewise metric."""
+        bundle = self._get_description_bundle()
+        return f"Traces within a window by offsets {self.offsets}\n\tand times {self.times} with RMS {bundle}"
+
+    def describe(self, values):
+        """LACK OF DOCS HERE"""
+        metric_value = np.sqrt(values[:, 0] / values[:, 1])
+        if self.threshold is None:
+            description = f"\tMean of traces RMS within a window by\n\t"\
+                          f"{f'offsets {self.offsets} and times {self.times}:':<55}{np.nanmean(metric_value):<.3f}"
+            return description
+        return super().describe(metric_value)
+
+    def get_values(self, gather):
         """Compute QC indicator."""
-        return self.numba_get_mask(gather.data, gather.samples, gather.offsets, self.times, self.offsets,
+        return self.numba_get_values(gather.data, gather.samples, gather.offsets, self.times, self.offsets,
                                    self._get_time_ixs, self.compute_stats_by_ixs)
 
     @staticmethod
@@ -747,7 +784,7 @@ class WindowRMS(BaseWindowRMSMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def numba_get_mask(traces, gather_samples, gather_offsets, times, offsets, _get_time_ixs,
+    def numba_get_values(traces, gather_samples, gather_offsets, times, offsets, _get_time_ixs,
                        compute_stats_by_ixs):
         """Compute njitted QC indicator."""
         time_ixs = _get_time_ixs(times, gather_samples)
@@ -808,16 +845,32 @@ class AdaptiveWindowRMS(BaseWindowRMSMetric):
                    f"refractor_velocity='{self.refractor_velocity}')"
         return f"{type(self).__name__}" + repr_str
 
-    def get_mask(self, gather):
+    @property
+    def description(self):
+        """String description of the tracewise metric."""
+        bundle = self._get_description_bundle()
+        return f"Traces with a RMS computed along a RV with shift {self.shift}\n\t"\
+               f"and window size {self.window_size} {bundle}"
+
+    def describe(self, values):
+        """LACK OF DOCS HERE"""
+        metric_value = np.sqrt(values[:, 0] / values[:, 1])
+        if self.threshold is None:
+            description = f"\tMean of traces RMS computed along a RV with shift {self.shift}\n\t"\
+                          f"{f'and window size {self.window_size}:':<55}{np.nanmean(metric_value):<.3f}"
+            return description
+        return super().describe(metric_value)
+
+    def get_values(self, gather):
         """Compute QC indicator."""
         fbp_times = self.refractor_velocity(gather.offsets)
-        return self.numba_get_mask(gather.data, self._get_indices, self.compute_stats_by_ixs,
+        return self.numba_get_values(gather.data, self._get_indices, self.compute_stats_by_ixs,
                                    window_size=self.window_size, shift=self.shift, samples=gather.samples,
                                    fbp_times=fbp_times, times_to_indices=times_to_indices)
 
     @staticmethod
     @njit(nogil=True)
-    def numba_get_mask(traces, _get_indices, compute_stats_by_ixs, window_size, shift, samples, fbp_times,
+    def numba_get_values(traces, _get_indices, compute_stats_by_ixs, window_size, shift, samples, fbp_times,
                        times_to_indices):  # pylint: disable=redefined-outer-name
         """Compute njitted QC indicator."""
         start_ixs, end_ixs = _get_indices(window_size, shift, samples, fbp_times, times_to_indices)
