@@ -67,7 +67,7 @@ class TestTracewise:
         """Test `survey.construct_qc_map`."""
         _ = self
         survey.qc_tracewise(metrics=metrics, bar=False)
-        mmaps = survey.construct_qc_maps(by='shot', metric_names=metric_names)
+        mmaps = survey.construct_qc_maps(metric_names=metric_names, by='shot')
         if metric_names is None:
             assert len(mmaps) == len(DEFAULT_TRACEWISE_METRICS)
             return

@@ -1395,9 +1395,10 @@ class Gather(TraceContainer, SamplesContainer):
             - Any additional arguments for `matplotlib.axes.Axes.scatter`.
             If some dictionary value is array-like, each its element will be associated with the corresponding header.
             Otherwise, the single value will be used for all the scatter plots.
-        top_header : str, optional, defaults to None
+        top_header : str, array-like, optional, defaults to None
             Valid only for "seismogram" and "wiggle" modes.
-            The name of a header whose values will be plotted on top of the gather plot.
+            If str, the name of a header whose values will be plotted on top of the gather plot.
+            If array-like, the value for each trace that will be plotted on top of the gather plot.
         masks : array-like, str, dict or Gather, optional, defaults to None
             Valid only for "seismogram" and "wiggle" modes.
             Mask or list of masks to plot on top of the gather plot.
@@ -1598,10 +1599,11 @@ class Gather(TraceContainer, SamplesContainer):
         if top_header is not None:
             if isinstance(top_header, str):
                 header_values = self[top_header]
-            elif isinstance(top_header, np.ndarray) and top_header.shape == (self.n_traces, ):
+            elif isinstance(top_header, (np.ndarray, list, tuple)) and len(top_header) == self.n_traces:
                 header_values = top_header
             else:
-                warnings.warn(f"`top_header` should be `str` or `np.ndarray`, not `{type(top_header)}`")
+                msg = f"`top_header` should be `str`, `np.ndarray`, `list` or `tuple` not `{type(top_header)}`"
+                warnings.warn(msg)
                 header_values = None
 
             if header_values is not None:

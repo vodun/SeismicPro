@@ -153,6 +153,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Standard deviation of trace values. `None` until trace statistics are calculated.
     quantile_interpolator : scipy.interpolate.interp1d or None
         Interpolator of trace values quantiles. `None` until trace statistics are calculated.
+    qc_metrics : dict
+        Storage for tracewise metrics results with metric's name as a key and metric's instance as a value.
     has_inferred_binning : bool
         Whether properties of survey binning have been inferred. `True` if `INLINE_3D` and `CROSSLINE_3D` trace headers
         are loaded on survey instantiation or `infer_binning` method is explicitly called.
@@ -1147,17 +1149,17 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return slice(*limits)
 
     def filter_by_metric(self, metric_name, threshold=None, inplace=False, keep_bad_only=False):
-        """"Filter traces using metric with name `metric_name` and passed `threshold`.
+        """Filter traces using metric with name `metric_name` and passed `threshold`.
 
         Parameters
         ----------
         metric_name : str
-            Name of metric that stores in `self.qc_metrics`.
-        threshold : int, optional, defaults to None
+            Name of the metric that is stored in `self.qc_metrics`.
+        threshold : int, float, array-like with 2 elements, optional, defaults to None
             Threshold to use during filtration, see :func:`~metric.TracewiseMetric.binarize` docs for more info.
             If None, threshold defined in metric will be used.
         inplace : bool, optional, defaults to False
-            Whether to remove traces inplace or return a new survey instance.
+            Whether to transform the survey inplace or process its copy.
         keep_bad_only : bool, optional, defaults to False
             If True, keep only traces that marked as `bad` by the metric,
             Otherwise, keep traces approved by the metric.
@@ -1181,16 +1183,16 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     def remove_dead_traces(self, header_name=None, chunk_size=1000, inplace=False, bar=True):
         """ Remove dead (constant) traces from the survey.
-        Calculates :class:`~survey.metrics.DeadTrace` if `header_name` is not passed.
+        Calculates :class:`~survey.metrics.DeadTrace` if it was not calculated.
 
         Parameters
         ----------
         header_name : str, optional, defaults to None
-            Name of header column with marked dead traces.
+            Name of the header column with marked dead traces.
         chunk_size : int, optional, defaults to 1000
             Number of traces loaded on each iteration.
         inplace : bool, optional, defaults to False
-            Whether to remove traces inplace or return a new survey instance.
+            Whether to transform the survey inplace or process its copy.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
 
@@ -1335,32 +1337,32 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return self
 
     def qc_tracewise(self, metrics=None, chunk_size=1000, n_workers=None, bar=True, overwrite=False):
-        """Perform quality control of the traces in the survey.
+        """Perform quality control of the traces in the survey. The quality control procedure is performed in parallel
+        threads in chunks of size no more than `chunk_size`.
+
+        By default the following metrics are calculated:
+        * Detection of constant traces,
+        * Absolute value of the trace's mean scaled by trace's std,
+        * Maximum absolute amplitude value scaled by trace's std,
+        * Length of consecutive amplitudes equals either to trace's minimum or maximum amplitude,
+        * Number of consecutive identical amplitudes.
 
         For each trace, the metric is calculated independently and the result is stored in the `self.headers` in a
-        column with name `metrics.header_cols`. The only exception is for the metrics that cannot be calculated
-        independently by traces, for example - window-based metrics. These metrics store some intermediate results in
-        more than one column. For them, the actual metric value will be computed during the metric map construction in
+        column with name `metrics.header_cols`. The only exception is the metrics that cannot be calculated
+        independently by traces, such as window-based metrics. These metrics store some intermediate results in more
+        than one column. For them, the actual metric value will be computed during the metric map construction in
         `self.construct_qc_map`.
 
         For example, the metric that computes window-based RMS - :class:`~metric.WindowRMS` or
         :class:`~metric.AdaptiveWindowRMS` - saves results in two columns: first one with the sum of squares of
         amplitudes and second is the number of amplitudes in the window for each trace.
 
-        By default the following metrics are calculated:
-        * Detection of constant traces,
-        * Absolute value of the trace's mean scaled by trace's std deviation,
-        * Maximum absolute amplitude value scaled by trace's std deviation,
-        * Length of consecutive amplitudes equals to trace minimum or maximum amplitudes,
-        * Number of consecutive identical amplitudes.
-
         Parameters
         ----------
-         metrics : :class:`~metrics.TracewiseMetric`, or list of :class:`~metrics.TracewiseMetric` objects, optional
-            Metric objects or instances that define metrics to calculate. If None, all metrics that can be initialized
-            with reasonable default parameters are calculated.
+         metrics : :class:`~metrics.TracewiseMetric`, or list of :class:`~metrics.TracewiseMetric` instances, optional
+            Metrics to calculate. If None, all the metrics the from `DEFAULT_TRACEWISE_METRICS` are calculated.
         chunk_size : int, optional, defaults to 1000
-            Number of traces loaded on each iteration.
+            Number of traces processed in one thread.
         n_workers : int, optional
             The number of threads to be spawned to calculate metrics. Defaults to the number of cpu cores.
         bar : bool, optional, defaults to True
@@ -1579,16 +1581,16 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         values = tmp_map.index_data[tmp_map.metric_name]
         return tmp_map.metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size)
 
-    def construct_qc_maps(self, by, metric_names=None, id_cols=None, agg=None, bin_size=None):
+    def construct_qc_maps(self, metric_names=None, by=None, id_cols=None, agg=None, bin_size=None):
         """Construct a map of tracewise metric aggregated by gathers.
 
         It is allowed to compute the ratio of two :class:`~metics.BaseWindowRMSMetric` instances. To do this, specify
-        the names of two metrics in the `metric_names` separated by `\`.
+        the names of two metrics in the `metric_names` separated by `/`.
 
         Examples
         --------
         Construct a map of metric with name `trace_maxabs` by shots with `max` aggregation:
-        >>> qc_map = survey.construct_qc_maps(by="shot", metric_names="trace_maxabs", agg="max")
+        >>> qc_map = survey.construct_qc_maps(metric_names="trace_maxabs", by="shot", agg="max")
         >>> qc_map.plot()
 
         The map allows for interactive plotting: a gather type defined by `by` with a tracewise metric value on top of
@@ -1598,15 +1600,16 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         >>> qc_map.plot(interactive=True, threshold=20, sort_by="offset")
 
         Construct a map of the ratio of metrics with name `signal_rms` and the metric with name `noise_rms`:
-        >>> ratio_map = survey.construct_qc_maps(by="shot", metric_names="signal_rms/noise_rms")
+        >>> ratio_map = survey.construct_qc_maps(metric_names="signal_rms/noise_rms", by="shot")
 
         Parameters
         ----------
-        by : {"source", "shot", "receiver", "rec", "cdp", "cmp", "midpoint", "bin", "supergather"}
-            Gather type to aggregate header values over.
         metric_names : str or list of str, optional
-            The name(s) of metrics to build metrics maps. If None, maps for all metrics that were calculated for this
-            survey are built.
+            The name(s) of metrics to construct metrics maps. If None, maps for all metrics that were calculated for
+            this survey are built.
+        by : {"source", "shot", "receiver", "rec", "cdp", "cmp", "midpoint", "bin", "supergather"}
+            Gather type to aggregate metric values over. Note that this argument cannot be None and should be defined.
+            It is optional to preserve arguments order along all construct maps methods in the Survey.
         id_cols : str or list of str, optional
             Trace headers that uniquely identify a gather of the chosen type. Acts as an index of the resulting map. If
             not given and `by` represents either a common source or common receiver gather, `self.source_id_cols` or
@@ -1619,9 +1622,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Returns
         -------
         metrics_maps : BaseMetricMap or list of BaseMetricMap
-            Calculated metrics maps. Has the same shape as `metric_names`.
+            Calculated metrics maps. Has the same length as `metric_names`.
         """
-        squeeze_output = isinstance(metric_names, str)
+        is_single_metric  = isinstance(metric_names, str)
         if metric_names is None:
             metric_names = list(self.qc_metrics)
         metric_names = to_list(metric_names)
@@ -1636,15 +1639,15 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                     if metric not in self.qc_metrics:
                         raise ValueError(f'Metric with name "{metric_name}" is not calculated yet')
                 metric = MetricsRatio(*[self.qc_metrics[metric] for metric in metric_list])
-            elif metric_name not in self.qc_metrics:
-                raise ValueError(f'Metric with name "{metric_name}" is not calculated yet')
-            else:
+            elif metric_name in self.qc_metrics:
                 metric = self.qc_metrics[metric_name]
+            else:
+                raise ValueError(f'Metric with name "{metric_name}" is not calculated yet')
             metrics.append(metric)
 
-        mmaps = []
+        metric_maps = []
         for metric in metrics:
-            metric_mmap = self._construct_map(self.get_headers(metric.header_cols), metric=metric, by=by,
-                                              id_cols=id_cols, agg=agg, bin_size=bin_size)
-            mmaps.append(metric_mmap)
-        return mmaps[0] if squeeze_output else mmaps
+            metric_map = self._construct_map(self.get_headers(metric.header_cols), metric=metric, by=by,
+                                             id_cols=id_cols, agg=agg, bin_size=bin_size)
+            metric_maps.append(metric_map)
+        return metric_maps[0] if is_single_metric  else metric_maps

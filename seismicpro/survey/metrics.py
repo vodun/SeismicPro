@@ -1,23 +1,27 @@
 # pylint: disable=not-an-iterable
 """Implements metrics for quality control of the survey.
 
-These metrics are supposed to be used in :func:`~survey.qc_tracewise` method, which iterates over a group of traces and
-automatically provides metrics with all required context for interactive plotting.
+These metrics are supposed to be used in :func:`~survey.qc_tracewise` method, which iterates over traces or group of
+traces and automatically provides metrics with all required context for interactive plotting.
 
 To define your own metric, you need to inherit a new class from either `TracewiseMetric` or
 `MuteTracewiseMetric`, or `BaseWindowRMSMetric` depending on the purpose, and do the following:
-* Redefine `get_mask` or `get_numba_mask` method. The `get_mask` method must accept only a single argument - gather -
-  while the `get_numba_mask` method must accept only the gather's data.
+* Redefine `get_mask` or `numba_get_mask` method. Since all metrics are calculated in threads, it is important to
+  release GIL as early as possible. Try not to use `get_mask` at all, or only use it to calculate the part that cannot
+  be done without releasing the GIL. The main part should be implemented in `numba_get_mask` with njit decorator and
+  flag `nogil=True`.
 * Redefine `description` method, which describes what traces were detected by the metric.
 * Set a `threshold` class attribute to a number above or below which the trace will be considered bad. If an
   `is_lower_better` class attribute is `True`, the values greater or equal to the `threshold` will be considered bad
   and lower or equal otherwise.
 * Optionally redefine `preprocess` method, which accepts the gather and applies any preprocess procedures such as
-  muting or scaling. This gather will later used in `get_mask` and showed on the left side of the interactive plot.
+  muting or scaling. This gather will later used in `get_mask` and showed on the right side of the interactive plot.
 * Optionally define all other class attributes of `Metric` for future convenience.
-* Optionally redefine `plot` method which will be used to plot gather with tracewise metric on top on click on a metric
-  map in interactive mode. It should accept an instance of `matplotlib.axes.Axes` to plot on and the same arguments
-  that were passed to `calc` during metric calculation. By default it plots gather with tracewise metric on top.
+* Optionally redefine `plot` method which will be used to plot gather with tracewise metric on top when a metric map is
+  clicked in interactive mode. It should accept an instance of `matplotlib.axes.Axes` to plot on, `coords` and `index`
+  for gather that will be plotted, all arguments defined in `self.get_views` and kwargs for gather.plot. By default the
+  method plots the gather with tracewise metric on top and a red mask on top of the gather plot, highlighted bad parts
+  of the gather according to the metric.
 
 If you want the created metric to be calculated by :func:`~survey.qc_tracewise` method by default, it should also be
 appended to a `DEFAULT_TRACEWISE_METRICS` list.
@@ -48,7 +52,7 @@ class SurveyAttribute(Metric):
 
     @property
     def header_cols(self):
-        """Column names in `survey.headers` to store the metrics results in."""
+        """Column names in `survey.headers` for which metric was created."""
         return self.name
 
     def bind_context(self, metric_map, survey):
@@ -69,10 +73,10 @@ class SurveyAttribute(Metric):
 
 
 class TracewiseMetric(SurveyAttribute):
-    """Base class for tracewise metrics with additional plotters and aggregations. Child classes should redefine
-    `get_mask` or `numba_get_mask` and `description` methods, and optionally `preprocess`."""
+    """Base class for tracewise metrics with plotters and aggregations. Child classes should redefine `get_mask` or
+    `numba_get_mask` and `description` methods, and optionally `preprocess`."""
     threshold = None
-    top_ax_y_scale = "linear"
+    plot_y_scale = "linear"
 
     def __call__(self, gather):
         """Compute qc metric by applying `self.preprocess`, `self.get_mask` and `self.aggregate` to provided gather."""
@@ -164,7 +168,7 @@ class TracewiseMetric(SurveyAttribute):
         bin_mask[np.isnan(mask)] = False
         return bin_mask
 
-    def plot(self, ax, coords, index, sort_by=None, threshold=None, top_ax_y_scale=None,  bad_only=False, **kwargs):
+    def plot(self, ax, coords, index, sort_by=None, threshold=None, plot_y_scale=None,  bad_only=False, **kwargs):
         """Plot gather by its `index` with highlighted traces with metric value above or below the `self.threshold`.
 
         Tracewise metric values will be shown on top of the gather plot. Also, the area with `good` metric values based
@@ -191,7 +195,7 @@ class TracewiseMetric(SurveyAttribute):
             Additional keyword arguments to the `gather.plot`.
         """
         threshold = self.threshold if threshold is None else threshold
-        top_ax_y_scale = self.top_ax_y_scale if top_ax_y_scale is None else top_ax_y_scale
+        plot_y_scale = self.plot_y_scale if plot_y_scale is None else plot_y_scale
         _ = coords
 
         gather = self.survey.get_gather(index)
@@ -216,7 +220,7 @@ class TracewiseMetric(SurveyAttribute):
 
         gather.plot(ax=ax, mode=mode, top_header=metric_vals, masks=masks_dict, **kwargs)
         top_ax = ax.figure.axes[1]
-        top_ax.set_yscale(top_ax_y_scale)
+        top_ax.set_yscale(plot_y_scale)
         if threshold is not None:
             self._plot_threshold(ax=top_ax, threshold=threshold)
 
@@ -229,12 +233,12 @@ class TracewiseMetric(SurveyAttribute):
             threshold = [threshold, y_max] if self.is_lower_better else [y_min, threshold]
         ax.fill_between(np.arange(x_min, x_max), *threshold, alpha=0.3, color="blue")
 
-    def get_views(self, sort_by=None, threshold=None, top_ax_y_scale=None, **kwargs):
+    def get_views(self, sort_by=None, threshold=None, plot_y_scale=None, **kwargs):
         """Return two plotters of the metric views. Each view plots a gather sorted by `sort_by` with a metric values
-        shown on top of the gather plot. The y-axis of the metric plot is scaled by `top_ax_y_scale`. The first view
+        shown on top of the gather plot. The y-axis of the metric plot is scaled by `plot_y_scale`. The first view
         plots full gather with bad traces highlighted based on the `threshold` and the `self.is_lower_better`
         attribute. The second view only displays the traces defined by the metric as bad ones."""
-        plot_kwargs = {"sort_by": sort_by, "threshold": threshold, "top_ax_y_scale": top_ax_y_scale}
+        plot_kwargs = {"sort_by": sort_by, "threshold": threshold, "plot_y_scale": plot_y_scale}
         return [partial(self.plot, **plot_kwargs), partial(self.plot, bad_only=True, **plot_kwargs)], kwargs
 
 
@@ -560,11 +564,11 @@ class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
                                      index=sum_df[nums_map.index_cols], agg=agg, bin_size=bin_size,
                                      calculate_immediately=calculate_immediately)
 
-    def plot(self, ax, coords, index, threshold=None, top_ax_y_scale=None, bad_only=False, color="lime", **kwargs):  # pylint: disable=arguments-renamed
+    def plot(self, ax, coords, index, threshold=None, plot_y_scale=None, bad_only=False, color="lime", **kwargs):  # pylint: disable=arguments-renamed
         """Plot the gather sorted by offset with tracewise indicator on the top of the gather plot. Any mask can be
         displayed over the gather plot using `self.add_mask_on_plot`."""
         threshold = self.threshold if threshold is None else threshold
-        top_ax_y_scale = self.top_ax_y_scale if top_ax_y_scale is None else top_ax_y_scale
+        plot_y_scale = self.plot_y_scale if plot_y_scale is None else plot_y_scale
         _ = coords
         gather = self.survey.get_gather(index).sort("offset")
         squares, nums = self(gather, return_rms=False)
@@ -578,7 +582,7 @@ class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
         top_ax = ax.figure.axes[1]
         if threshold is not None:
             self._plot_threshold(ax=top_ax, threshold=threshold)
-        top_ax.set_yscale(top_ax_y_scale)
+        top_ax.set_yscale(plot_y_scale)
         self.add_mask_on_plot(ax=ax, gather=gather, color=color)
 
     def add_mask_on_plot(self, ax, gather, color=None):
@@ -586,12 +590,12 @@ class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
         _ = self, ax, gather, color
         pass
 
-    def get_views(self, threshold=None, top_ax_y_scale=None, **kwargs):
+    def get_views(self, threshold=None, plot_y_scale=None, **kwargs):
         """Return two plotters of the metric views. Each view plots a gather sorted by `offset` with a metric values
-        shown on top of the gather plot. The y-axis of the metric plot is scaled by `top_ax_y_scale`. The first view
+        shown on top of the gather plot. The y-axis of the metric plot is scaled by `plot_y_scale`. The first view
         plots full gather with bad traces highlighted based on the `threshold` and the `self.is_lower_better`
         attribute. The second view only displays the traces defined by the metric as bad ones."""
-        plot_kwargs = {"threshold": threshold, "top_ax_y_scale": top_ax_y_scale}
+        plot_kwargs = {"threshold": threshold, "plot_y_scale": plot_y_scale}
         return [partial(self.plot, **plot_kwargs), partial(self.plot, bad_only=True, **plot_kwargs)], kwargs
 
 
@@ -653,13 +657,13 @@ class MetricsRatio(TracewiseMetric):  # pylint: disable=abstract-method
         return super().construct_map(coords, values, index=index, agg=agg, bin_size=bin_size,
                                      calculate_immediately=calculate_immediately)
 
-    def plot(self, ax, coords, index, threshold=None, top_ax_y_scale=None, bad_only=False, **kwargs):
+    def plot(self, ax, coords, index, threshold=None, plot_y_scale=None, bad_only=False, **kwargs):
         """Plot the gather sorted by offset with two masks over the gather plot. The lime-colored mask represents the
         window where the `self.numerator` metric was calculated, while the magenta-colored mask represents the
         `self.denominator` window. Additionally, tracewise ratio of `self.numerator` by `self.denominator` is displayed
         on the top of the gather plot."""
         threshold = self.threshold if threshold is None else threshold
-        top_ax_y_scale = self.top_ax_y_scale if top_ax_y_scale is None else top_ax_y_scale
+        plot_y_scale = self.plot_y_scale if plot_y_scale is None else plot_y_scale
         _ = coords
         gather = self.survey.get_gather(index).sort("offset")
 
@@ -679,19 +683,19 @@ class MetricsRatio(TracewiseMetric):  # pylint: disable=abstract-method
         top_ax = ax.figure.axes[1]
         if threshold is not None:
             self._plot_threshold(ax=top_ax, threshold=threshold)
-        top_ax.set_yscale(top_ax_y_scale)
+        top_ax.set_yscale(plot_y_scale)
 
         self.numerator.add_mask_on_plot(ax=ax, gather=gather, color="lime", legend=f"{self.numerator.name} window")
         self.denominator.add_mask_on_plot(ax=ax, gather=gather, color="magenta",
                                           legend=f"{self.denominator.name} window")
         ax.legend()
 
-    def get_views(self, threshold=None, top_ax_y_scale=None, **kwargs):
+    def get_views(self, threshold=None, plot_y_scale=None, **kwargs):
         """Return two plotters of the metric views. Each view plots a gather sorted by `offset` with a metric values
-        shown on top of the gather plot. The y-axis of the metric plot is scaled by `top_ax_y_scale`. The first view
+        shown on top of the gather plot. The y-axis of the metric plot is scaled by `plot_y_scale`. The first view
         plots full gather with bad traces highlighted based on the `threshold` and the `self.is_lower_better`
         attribute. The second view only displays the traces defined by the metric as bad ones."""
-        plot_kwargs = {"threshold": threshold, "top_ax_y_scale": top_ax_y_scale}
+        plot_kwargs = {"threshold": threshold, "plot_y_scale": plot_y_scale}
         return [partial(self.plot, **plot_kwargs), partial(self.plot, bad_only=True, **plot_kwargs)], kwargs
 
 
