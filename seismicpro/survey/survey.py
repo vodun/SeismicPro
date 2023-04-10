@@ -1204,7 +1204,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         if header_name is None:
-            header_name = DeadTrace.name
+            header_name = DeadTrace.__name__
             if header_name not in self.headers:
                 self.qc(DeadTrace, chunk_size=chunk_size, bar=bar)
 

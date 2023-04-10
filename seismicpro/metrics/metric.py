@@ -46,7 +46,7 @@ class Metric:
     Parameters
     ----------
     name : str, optional
-        Metric name, overrides default name if given.
+        Metric name, overrides default name if given. By default name corresponds to the name of the metric class.
 
     Attributes
     ----------
@@ -92,6 +92,8 @@ class Metric:
             if not isinstance(name, str):
                 raise TypeError("Metric name name must be a string")
             self.name = name
+        else:
+            self.name = type(self).__name__
         self.context = {}
         self.has_bound_context = False
 
@@ -221,7 +223,8 @@ def initialize_metrics(metrics, metric_class=Metric):
         raise ValueError("At least one metric should be passed")
     if not all(is_metric(metric, metric_class=metric_class) for metric in metrics):
         raise TypeError(f"All passed metrics must be either instances or subclasses of {metric_class.__name__}")
-    if len({metric.name for metric in metrics}) != len(metrics):
+    metric_names = {metric.__name__ if isinstance(metric, type) else metric.name for metric in metrics}
+    if len(metric_names) != len(metrics):
         raise ValueError("Passed metrics must have different names")
     metrics = [metric() if isinstance(metric, type) else metric for metric in metrics]
     return metrics, is_single_metric

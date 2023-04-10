@@ -16,7 +16,6 @@ class FirstBreaksOutliers(PipelineMetric):
     A first break time is considered to be an outlier if it differs from the expected arrival time defined by
     an offset-traveltime curve by more than a given threshold.
     """
-    name = "first_breaks_outliers"
     is_lower_better = True
     min_value = 0
     max_value = 1
@@ -104,7 +103,6 @@ class SignalLeakage(PipelineMetric):
     The metric is based on the assumption that a vertical velocity spectrum calculated for the difference between
     processed and source gathers should not have pronounced energy maxima.
     """
-    name = "signal_leakage"
     is_lower_better = True
     min_value = 0
     max_value = None

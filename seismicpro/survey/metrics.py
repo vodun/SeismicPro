@@ -79,10 +79,6 @@ class TracewiseMetric(SurveyAttribute):
     threshold = None
     top_y_ax_scale = "linear"
 
-    def __init__(self, name=None):
-        name =  self.__class__.__name__ if name is None else name
-        super().__init__(name=name)
-
     def __call__(self, gather):
         """Compute qc metric by applying sequentially `self.preprocess`, `self.get_values` and `self.aggregate` to
         provided gather."""
