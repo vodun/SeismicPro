@@ -79,6 +79,10 @@ class TracewiseMetric(SurveyAttribute):
     threshold = None
     top_y_ax_scale = "linear"
 
+    def __init__(self, name=None):
+        name =  self.__class__.__name__ if name is None else name
+        super().__init__(name=name)
+
     def __call__(self, gather):
         """Compute qc metric by applying sequentially `self.preprocess`, `self.get_values` and `self.aggregate` to
         provided gather."""
@@ -259,7 +263,6 @@ class DeadTrace(TracewiseMetric):
 
     `get_values` returns 1d binary mask where each constant trace is marked with one.
     """
-    name = "dead_trace"
     min_value = 0
     max_value = 1
     is_lower_better = True
@@ -285,7 +288,6 @@ class TraceAbsMean(TracewiseMetric):
 
     `get_values` returns 1d array with computed metric values for the gather.
     """
-    name = "trace_absmean"
     is_lower_better = True
     threshold = 0.1
 
@@ -309,7 +311,6 @@ class TraceMaxAbs(TracewiseMetric):
 
     `get_values` returns 1d array with computed metric values for the gather.
     """
-    name = "trace_maxabs"
     is_lower_better = True
     threshold = 15
 
@@ -334,7 +335,6 @@ class MaxClipsLen(TracewiseMetric):
     `get_values` returns 2d array with values indicating the length of consecutive maximum or minimum amplitudes for
     each trace in the input gather.
     """
-    name = "max_clips_len"
     min_value = 1
     max_value = None
     is_lower_better = True
@@ -383,7 +383,6 @@ class MaxConstLen(TracewiseMetric):
     `get_values` returns a 2d array with values indicating the length of consecutive identical values in each trace in
     the input gather.
     """
-    name = "const_len"
     is_lower_better = True
     threshold = 4
 
@@ -446,7 +445,6 @@ class Spikes(MuteTracewiseMetric):
     The metric is highly dependent on the muter being used; if muter is not strong enough, the metric will overreact
     to the first breaks.
     """
-    name = "spikes"
     min_value = 0
     max_value = None
     is_lower_better = True
@@ -482,12 +480,11 @@ class Autocorrelation(MuteTracewiseMetric):
     ----------
     muter : Muter
         A muter to use.
-    name : str, optional, defaults to "autocorrelation"
+    name : str, optional, defaults to "Autocorrelation"
         A metric name.
     nan_ratio : float, optional, defaults to 0.95
         The maximum proportion of nan values allowed in a trace.
     """
-    name = "autocorrelation"
     min_value = -1
     max_value = 1
     is_lower_better = False
@@ -733,10 +730,9 @@ class WindowRMS(BaseWindowRMSMetric):
         Offset range to use for calculation, measured in meters.
     times : array-like with 2 ints
         Time range to use for calculation, measured in ms.
-    name : str, optional, defaults to "window_rms"
+    name : str, optional, defaults to "WindowRMS"
         A metric name.
     """
-    name = "window_rms"
     is_lower_better = None
     threshold = None
 
@@ -831,10 +827,9 @@ class AdaptiveWindowRMS(BaseWindowRMSMetric):
         The distance to shift the sliding window from the refractor velocity, measured in ms.
     refractor_velocity: RefractorVelocity
         Refractor velocity object to find times along witch the RMS will be calculated.
-    name : str, optional, defaults to "adaptive_rms"
+    name : str, optional, defaults to "AdaptiveWindowRMS"
         A metric name.
     """
-    name = "adaptive_rms"
     is_lower_better = False
     threshold = None
 
