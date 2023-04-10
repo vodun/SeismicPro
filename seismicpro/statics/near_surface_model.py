@@ -333,6 +333,13 @@ class NearSurfaceModel:
             return traveltimes[0]
         return traveltimes
 
+    def estimate_gather_traveltimes(self, gather):
+        uphole_correction_method = self._get_uphole_correction_method(self.survey_list[0])
+        source_coords, receiver_coords, correction = self._get_predict_traveltime_data(gather, uphole_correction_method)
+        pred_traveltimes = self.estimate_traveltimes(source_coords, receiver_coords) - correction
+        gather["Predicted " + self.first_breaks_col] = pred_traveltimes
+        return gather
+
     def estimate_delays(self, coords, intermediate_datum=None, intermediate_datum_refractor=None, final_datum=None, replacement_velocity=None):
         coords, is_1d = self._process_coords(coords)
         indices = self.tree.query(coords[:, :2], workers=-1)[1]
@@ -357,12 +364,8 @@ class NearSurfaceModel:
         loader = TensorDataLoader(self.shots_coords, self.receivers_coords, self.intermediate_indices,
                                   batch_size=batch_size, shuffle=False, drop_last=False, device=self.device)
         pred_traveltimes = self._estimate_traveltimes_by_loader(loader, bar=bar)
-        self.loss_total = torch.abs(pred_traveltimes - self.traveltimes).mean().item()
-        return self.loss_total
-
-    @property
-    def loss(self):
-        return self.loss_total or self.loss_hist[-1]
+        self.loss = torch.abs(pred_traveltimes - self.traveltimes).mean().item()
+        return self.loss
 
     def fit(self, batch_size=250000, n_epochs=5, elevations_reg_coef=0.5, thicknesses_reg_coef=0.5,
             velocities_reg_coef=1, bar=True):
@@ -506,6 +509,10 @@ class NearSurfaceModel:
                     futures.append(future)
 
         results = sum([future.result() for future in futures], [])
+
+        if self.loss is None:
+            self.estimate_loss()
+    
         context = {"nsm": self, "survey_list": self.survey_list, "first_breaks_col": first_breaks_col}
         metrics_maps = [metric.provide_context(**context).construct_map(coords, values, index=index)
                         for metric, values in zip(metrics, zip(*results))]
