@@ -766,7 +766,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     # pylint: disable-next=too-many-statements
     def collect_stats(self, indices=None, n_quantile_traces=100000, quantile_precision=2, limits=None,
-                      chunk_size=10000, bar=True):
+                      chunk_size=10000, bar=True, verbose=False):
         """Collect the following statistics by iterating over survey traces:
         1. Min and max amplitude,
         2. Mean amplitude and trace standard deviation,
@@ -797,6 +797,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             The number of traces to be processed at once.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
+        verbose : bool, optional, defaults to False
+            Whether to print collected statistics.
 
         Returns
         -------
@@ -874,6 +876,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.quantile_interpolator = interp1d(q, quantiles)
 
         self.has_stats = True
+
+        if verbose:
+            print(dedent(self.get_stats_summary()))
         return self
 
     def get_stats_summary(self):
@@ -1360,6 +1365,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             The number of threads to be spawned to calculate metrics. Defaults to the number of cpu cores.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
+        verbose : bool, optional, defaults to False
+            Whether to print QC results.
 
         Returns
         -------
@@ -1415,8 +1422,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         results.index = self.headers.index
         self.headers[results.columns] = results
         self.qc_metrics.update({metric.name: metric for metric in metrics})
+
         if verbose:
-            print(self.get_qc_summary())
+            print(dedent(self.get_qc_summary()))
         return self
 
     def get_qc_summary(self):
