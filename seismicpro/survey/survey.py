@@ -474,13 +474,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
 
         if self.has_stats:
-            # msg += self.get_stats_summary() # TODO
-            msg += f"""
-        Survey statistics:
-        mean | std:                {self.mean:>10.2f} | {self.std:<10.2f}
-         min | max:                {self.min:>10.2f} | {self.max:<10.2f}
-         q01 | q99:                {self.get_quantile(0.01):>10.2f} | {self.get_quantile(0.99):<10.2f}
-        """
+            msg += self.get_stats_summary()
 
         if self.qc_metrics:
             msg += self.get_qc_summary()
@@ -881,6 +875,14 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         self.has_stats = True
         return self
+
+    def get_stats_summary(self):
+        return f"""
+        Survey statistics:
+        mean | std:                {self.mean:>10.2f} | {self.std:<10.2f}
+         min | max:                {self.min:>10.2f} | {self.max:<10.2f}
+         q01 | q99:                {self.get_quantile(0.01):>10.2f} | {self.get_quantile(0.99):<10.2f}
+        """
 
     def get_quantile(self, q):
         """Calculate an approximation of the `q`-th quantile of the survey data.
@@ -1417,10 +1419,14 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return self
 
     def get_qc_summary(self):
-        """LACK OF DOCS"""
-        summary = [metric.describe(self[metric.header_cols]) for metric in self.qc_metrics.values()]
+        """Provide a description about the number of bad values for the passed metric values in a string format."""
+        # Use separator with 8 spaces to preserve the same length of leading whitespaces for dedent used in `self.info`
+        summary = [metric.describe(self[metric.header_cols], separator="\n" + " " * 8)
+                   for metric in self.qc_metrics.values()]
         if summary:
-            return """\n\tTracewise QC summary:\n""" + "\n".join(summary)
+            return """
+        Tracewise QC summary:
+        """ + "\n        ".join(summary)
         return ""
 
     #------------------------------------------------------------------------#

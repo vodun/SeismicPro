@@ -28,6 +28,7 @@ a `DEFAULT_TRACEWISE_METRICS` list.
 """
 
 import warnings
+from textwrap import wrap
 from functools import partial
 
 import numpy as np
@@ -87,17 +88,19 @@ class TracewiseMetric(SurveyAttribute):
 
     @property
     def description(self):
-        """String description of the tracewise metric. Mainly used in `survey.info` when describing the number of bad
+        """String description of the tracewise metric. Mainly used in `self.describe` when describing the number of bad
         traces detected by the metric."""
         return NotImplementedError
 
-    def describe(self, values):
-        """LACK OF DOCS HERE"""
-        bin_values = self.binarize(values)
-        # Process multiline descriptions and set the minimum distance from the last line to the result to 55 symbols.
-        *parts, last = (self.description + ":").split("\n")
-        description = "\n".join(parts) + "\n" + f"{last:<55}" if parts else f"{last:<55}"
-        return f"\t{description}{bin_values.sum()} ({100 * bin_values.mean():.3f}%)"
+    def describe(self, metric_values, line_width=55, separator="\n"):
+        """Provide a description about the number of bad values for the passed metric values in a string format. Each
+        line in the resulting string will not exceed `line_width` and will be separated by `separator`."""
+        bin_values = self.binarize(metric_values)
+        # Process multiline descriptions and set the distance from the last line to the result to `line_width` symbols
+        desc_list = wrap(self.description, width=line_width-1)
+        last_line = "{:<{line_width}}".format(desc_list[-1]+":", line_width=line_width)
+        description = separator.join(desc_list[:-1]) + separator + last_line if len(desc_list) > 1 else last_line
+        return f"{description}{bin_values.sum()} ({100 * bin_values.mean():.3f}%)"
 
     def preprocess(self, gather):
         """Preprocess gather before either calling `self.get_values` method to calculate metric or to plot the gather.
@@ -756,16 +759,19 @@ class WindowRMS(BaseWindowRMSMetric):
     def description(self):
         """String description of the tracewise metric."""
         bundle = self._get_description_bundle()
-        return f"Traces within a window by offsets {self.offsets}\n\tand times {self.times} with RMS {bundle}"
+        return f"Traces within a window by offsets {self.offsets} and times {self.times} with RMS {bundle}"
 
-    def describe(self, values):
-        """LACK OF DOCS HERE"""
-        metric_value = np.sqrt(values[:, 0] / values[:, 1])
+    def describe(self, metric_values, line_width=55, separator="\n"):
+        """Provide a description about the number of bad values for the passed metric values in a string format. Each
+        line in the resulting string will not exceed `line_width` and will be separated by `separator`.
+        If `self.threshold` is None, the average RMS for the passed values will be showed."""
+        metric_value = np.sqrt(metric_values[:, 0] / metric_values[:, 1])
         if self.threshold is None:
-            description = f"\tMean of traces RMS within a window by\n\t"\
-                          f"{f'offsets {self.offsets} and times {self.times}:':<55}{np.nanmean(metric_value):<.3f}"
-            return description
-        return super().describe(metric_value)
+            description = f"Mean of traces RMS within a window by" + separator
+            description += "{:<{width}}".format(f"offsets {self.offsets} and times {self.times}:", width=line_width)
+            stats_str = f"{np.nanmean(metric_value):<.3f}"
+            return description + stats_str
+        return super().describe(metric_value, line_width=line_width, separator=separator)
 
     def get_values(self, gather):
         """Compute QC indicator."""
@@ -849,17 +855,20 @@ class AdaptiveWindowRMS(BaseWindowRMSMetric):
     def description(self):
         """String description of the tracewise metric."""
         bundle = self._get_description_bundle()
-        return f"Traces with a RMS computed along a RV with shift {self.shift}\n\t"\
+        return f"Traces with a RMS computed along a RV with shift {self.shift} "\
                f"and window size {self.window_size} {bundle}"
 
-    def describe(self, values):
-        """LACK OF DOCS HERE"""
-        metric_value = np.sqrt(values[:, 0] / values[:, 1])
+    def describe(self, metric_values, line_width=55, separator="\n"):
+        """Provide a description about the number of bad values for the passed metric values in a string format. Each
+        line in the resulting string will not exceed `line_width` and will be separated by `separator`.
+        If `self.threshold` is None, the average RMS for the passed values will be showed."""
+        metric_value = np.sqrt(metric_values[:, 0] / metric_values[:, 1])
         if self.threshold is None:
-            description = f"\tMean of traces RMS computed along a RV with shift {self.shift}\n\t"\
-                          f"{f'and window size {self.window_size}:':<55}{np.nanmean(metric_value):<.3f}"
-            return description
-        return super().describe(metric_value)
+            description = f"Mean of traces RMS computed along a RV with shift {self.shift}" + separator
+            description += "{:<{width}}".format(f"and window size {self.window_size}:", width=line_width)
+            stats_str = f"{np.nanmean(metric_value):<.3f}"
+            return description + stats_str
+        return super().describe(metric_value, line_width=line_width, separator=separator)
 
     def get_values(self, gather):
         """Compute QC indicator."""
