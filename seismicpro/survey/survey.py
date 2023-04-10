@@ -877,6 +877,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return self
 
     def get_stats_summary(self):
+        """Provide a description about the survey statistics in a string format."""
         return f"""
         Survey statistics:
         mean | std:                {self.mean:>10.2f} | {self.std:<10.2f}

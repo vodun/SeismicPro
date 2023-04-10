@@ -98,7 +98,7 @@ class TracewiseMetric(SurveyAttribute):
         bin_values = self.binarize(metric_values)
         # Process multiline descriptions and set the distance from the last line to the result to `line_width` symbols
         desc_list = wrap(self.description, width=line_width-1)
-        last_line = "{:<{line_width}}".format(desc_list[-1]+":", line_width=line_width)
+        last_line = f"{desc_list[-1]+':':<{line_width}}"
         description = separator.join(desc_list[:-1]) + separator + last_line if len(desc_list) > 1 else last_line
         return f"{description}{bin_values.sum()} ({100 * bin_values.mean():.3f}%)"
 
@@ -767,10 +767,9 @@ class WindowRMS(BaseWindowRMSMetric):
         If `self.threshold` is None, the average RMS for the passed values will be showed."""
         metric_value = np.sqrt(metric_values[:, 0] / metric_values[:, 1])
         if self.threshold is None:
-            description = f"Mean of traces RMS within a window by" + separator
-            description += "{:<{width}}".format(f"offsets {self.offsets} and times {self.times}:", width=line_width)
-            stats_str = f"{np.nanmean(metric_value):<.3f}"
-            return description + stats_str
+            description = "Mean of traces RMS within a window by" + separator
+            description += f"{f'offsets {self.offsets} and times {self.times}:':<{line_width}}"
+            return description + f"{np.nanmean(metric_value):<.3f}"
         return super().describe(metric_value, line_width=line_width, separator=separator)
 
     def get_values(self, gather):
@@ -865,9 +864,8 @@ class AdaptiveWindowRMS(BaseWindowRMSMetric):
         metric_value = np.sqrt(metric_values[:, 0] / metric_values[:, 1])
         if self.threshold is None:
             description = f"Mean of traces RMS computed along a RV with shift {self.shift}" + separator
-            description += "{:<{width}}".format(f"and window size {self.window_size}:", width=line_width)
-            stats_str = f"{np.nanmean(metric_value):<.3f}"
-            return description + stats_str
+            description += f"{f'and window size {self.window_size}:':<{line_width}}"
+            return description + f"{np.nanmean(metric_value):<.3f}"
         return super().describe(metric_value, line_width=line_width, separator=separator)
 
     def get_values(self, gather):
