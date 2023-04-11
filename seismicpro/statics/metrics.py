@@ -90,7 +90,7 @@ class BaseGeometryError(TravelTimeMetric):
                         [-damp, 0, diff.mean() -dt], 
                     ])
         fit_result = minimize(cls.loss, x0=[0, 0, diff.mean()], args=(azimuth, diff, reg), method="Nelder-Mead", 
-                              bounds=((None, None), (-np.pi, np.pi), (None, None)), tol=1e-2,
+                              bounds=((None, None), (None, None), (None, None)), tol=1e-2,
                               options=dict(initial_simplex=initial_simplex))
         
         return fit_result.x
@@ -120,7 +120,7 @@ class BaseGeometryError(TravelTimeMetric):
 
     def diff_by_azimuth(self, gather):
         return self._diff_by_azimuth(gather['SourceX', 'SourceY'], gather['GroupX', 'GroupY'],
-                                     gather[self.first_breaks_col], gather['Predicted ' + self.first_breaks_col])
+                                    gather[self.first_breaks_col], gather['Predicted ' + self.first_breaks_col])
 
     @staticmethod
     def _diff_by_azimuth(shots_coords, receivers_coords, true_traveltimes, pred_traveltimes):
@@ -212,17 +212,24 @@ class GeometryErrorMs(BaseGeometryError):
     name = "geometry_error_ms"
     corrected_views = False
 
+    def estimate_correction_velocity(self, coords):
+        rv = self.nsm.rvf_list[0](coords)
+        return np.array(list(rv.params.values()))[rv.n_refractors:].mean() / 1000
+    
     def correct_gather(self, gather):
         gather = gather.copy()
         gather = self.nsm.estimate_gather_traveltimes(gather)
         diff, azimuth = self.diff_by_azimuth(gather)
         params = self.fit(azimuth, diff)
 
-        v = self.nsm.rvf_list[0](gather.coords).v1 / 1000
-        dx = -v * params[0] * np.sin(params[1])
-        dy = -v * params[0] * np.cos(params[1])
+        v = self.estimate_correction_velocity(gather.coords)
+        dx = -v * abs(params[0]) * np.sin(params[1]) * np.sign(params[0])
+        dy = -v * abs(params[0]) * np.cos(params[1]) * np.sign(params[0])
 
-        gather.coords += np.array([dx, dy])
+        if gather.is_shot:
+            gather.coords += np.array([dx, dy])
+        elif gather.is_receiver:
+            gather.coords -= np.array([dx, dy])
         gather.elevation = self.nsm.surface_elevation_interpolator(gather.coords)
         return gather
 
@@ -232,7 +239,7 @@ class GeometryErrorMs(BaseGeometryError):
         return abs(params[0])
 
     def __call__(self, gather):
-        gather = self.nsm.estimate_traveltimes(gather)
+        gather = self.nsm.estimate_gather_traveltimes(gather)
         return self._calc(gather['SourceX', 'SourceY'], gather['GroupX', 'GroupY'],
                           gather[self.first_breaks_col], gather['Predicted ' + self.first_breaks_col])
 
@@ -257,9 +264,9 @@ class GeometryErrorMeters(BaseGeometryError):
         x0 = raw_corrected.coords
         initial_simplex = [(x0[0] + r * np.cos(alpha), x0[1] + r * np.sin(alpha)) for alpha in [0, 2*np.pi/3, 4*np.pi/3]]
         
-        minimize(self.mean_diff, x0=gather.coords, args=(gather, ), method='Nelder-Mead', 
-                 options=dict(xatol=1, fatol=self.nsm.loss, initial_simplex=initial_simplex))
-        return gather
+        minimize(self.mean_diff, x0=gather.coords, args=(raw_corrected, ), method='Nelder-Mead', 
+                 options=dict(xatol=1e-1, fatol=1e-1, initial_simplex=initial_simplex))
+        return raw_corrected
 
     def __call__(self, gather):
         return np.sqrt(((np.array(gather.coords) - self.correct_gather(gather).coords) ** 2).sum())

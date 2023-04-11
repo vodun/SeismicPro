@@ -118,7 +118,7 @@ class NearSurfaceModel:
         self.scheduler = ReduceLROnPlateau(self.optimizer, mode="min", factor=0.5, threshold=0.01, patience=25)
 
         # Define history-related attributes
-        self.loss_total = None
+        self.model_loss = None
         self.loss_hist = []
         self.velocities_reg_hist = []
         self.elevations_reg_hist = []
@@ -364,8 +364,7 @@ class NearSurfaceModel:
         loader = TensorDataLoader(self.shots_coords, self.receivers_coords, self.intermediate_indices,
                                   batch_size=batch_size, shuffle=False, drop_last=False, device=self.device)
         pred_traveltimes = self._estimate_traveltimes_by_loader(loader, bar=bar)
-        self.loss = torch.abs(pred_traveltimes - self.traveltimes).mean().item()
-        return self.loss
+        return torch.abs(pred_traveltimes - self.traveltimes).mean().item()
 
     def fit(self, batch_size=250000, n_epochs=5, elevations_reg_coef=0.5, thicknesses_reg_coef=0.5,
             velocities_reg_coef=1, bar=True):
@@ -473,6 +472,8 @@ class NearSurfaceModel:
         traveltimes = np.concatenate([sur[first_breaks_col] for sur in survey_list])
         pred_traveltimes = self.estimate_traveltimes(shots_coords, receivers_coords, bar=bar) - traveltime_corrections
 
+        self.model_loss = np.abs(traveltimes - pred_traveltimes).mean()
+
         qc_df_list = [sur.get_headers(id_cols) for sur in survey_list]
         if len(survey_list) > 1:
             id_cols = ["Part"] + id_cols
@@ -509,9 +510,6 @@ class NearSurfaceModel:
                     futures.append(future)
 
         results = sum([future.result() for future in futures], [])
-
-        if self.loss is None:
-            self.estimate_loss()
     
         context = {"nsm": self, "survey_list": self.survey_list, "first_breaks_col": first_breaks_col}
         metrics_maps = [metric.provide_context(**context).construct_map(coords, values, index=index)
