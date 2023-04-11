@@ -568,8 +568,12 @@ class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
         return sum_squares, nums
 
     def construct_map(self, coords, values, *, coords_cols=None, index=None, index_cols=None, agg=None, bin_size=None,
-                      calculate_immediately=True):
+                      calculate_immediately=True, agg_tracewise=False):
         """Construct a metric map with computed RMS values for gathers indexed by `index`."""
+        if agg_tracewise:
+            return super().construct_map(coords, np.sqrt(values.iloc[:, 0] / values.iloc[:, 1]),
+                                         coords_cols=coords_cols, index=index, index_cols=index_cols, agg=agg,
+                                         bin_size=bin_size, calculate_immediately=calculate_immediately)
         sum_square_map = super().construct_map(coords, values.iloc[:, 0], coords_cols=coords_cols, index=index,
                                                index_cols=index_cols, agg="sum")
         nums_map = super().construct_map(coords, values.iloc[:, 1], coords_cols=coords_cols, index=index,
@@ -659,12 +663,12 @@ class MetricsRatio(TracewiseMetric):  # pylint: disable=abstract-method
         return self.numerator.header_cols + self.denominator.header_cols
 
     def construct_map(self, coords, values, *, coords_cols=None, index=None, index_cols=None, agg=None, bin_size=None,
-                      calculate_immediately=True):
+                      calculate_immediately=True, agg_tracewise=False):
         """Construct a metric map with `self.numerator` and `self.denominator` ratio for gathers indexed by `index`."""
         mmaps_1 = self.numerator.construct_map(coords, values[self.numerator.header_cols], coords_cols=coords_cols,
-                                               index=index, index_cols=index_cols)
+                                               index=index, index_cols=index_cols, agg_tracewise=agg_tracewise)
         mmaps_2 = self.denominator.construct_map(coords, values[self.denominator.header_cols], coords_cols=coords_cols,
-                                                 index=index, index_cols=index_cols)
+                                                 index=index, index_cols=index_cols, agg_tracewise=agg_tracewise)
         if mmaps_1.index_cols != mmaps_1.coords_cols:
             mmaps_1.index_data.drop(columns=mmaps_1.coords_cols, inplace=True)
         ratio_df = mmaps_1.index_data.merge(mmaps_2.index_data, on=mmaps_2.index_cols)

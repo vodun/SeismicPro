@@ -1488,7 +1488,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         SurveyGeometryPlot(self, **kwargs).plot()
 
-    def _construct_map(self, values, metric, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
+    def _construct_map(self, values, metric, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None,
+                       **kwargs):
         """Construct a metric map of `values` aggregated by gather, whose type is defined by `by`."""
         by_to_cols = {
             "source": (self.source_id_cols, ["SourceX", "SourceY"]),
@@ -1519,7 +1520,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         values = metric_data[metric.header_cols]
 
         metric = metric.provide_context(survey=self)
-        return metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size)
+        return metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size, **kwargs)
 
     def construct_header_map(self, col, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
         """Construct a metric map of trace header values aggregated by gather.
@@ -1638,13 +1639,14 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         metrics_maps : BaseMetricMap or list of BaseMetricMap
             Calculated metrics maps. Has the same length as `metric_names`.
         """
-        is_single_metric  = isinstance(metric_names, str)
         if metric_names is None:
             metric_names = list(self.qc_metrics)
-        metric_names = to_list(metric_names)
+        metrics_list = Gather._parse_headers_kwargs(metric_names, "names")
+        is_single_metric  = len(metrics_list) == 1
 
-        metrics = []
-        for metric_name in metric_names:
+        metric_maps = []
+        for metric_dict in metrics_list:
+            metric_name = metric_dict.pop("names")
             if "/" in metric_name:
                 metric_list = list(map(lambda name: name.strip(), metric_name.split("/")))
                 if len(metric_list) != 2:
@@ -1657,11 +1659,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                 metric = self.qc_metrics[metric_name]
             else:
                 raise ValueError(f'Metric with name "{metric_name}" is not calculated yet')
-            metrics.append(metric)
-
-        metric_maps = []
-        for metric in metrics:
             metric_map = self._construct_map(self.get_headers(metric.header_cols), metric=metric, by=by,
-                                             id_cols=id_cols, agg=agg, bin_size=bin_size)
+                                             id_cols=id_cols, agg=agg, bin_size=bin_size, **metric_dict)
             metric_maps.append(metric_map)
         return metric_maps[0] if is_single_metric  else metric_maps
