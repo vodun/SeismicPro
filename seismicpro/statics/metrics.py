@@ -100,13 +100,18 @@ class BaseGeometryError(TravelTimeMetric):
 
     def correct(self, metric_map, path=None):
         res = []
-        indices = metric_map.metric_data.set_index(metric_map.index_cols).index
+    
+        if len(metric_map.index_cols) == 1:
+            indices = pd.Index(metric_data[metric_map.index_cols])
+        else:
+            indices = pd.MultiIndex(metric_data[metric_map.index_cols])
+        
         for index in tqdm(indices):
             gather = self.get_gather(index)
             corrected_gather = self.correct_gather(gather)
             before, after = np.array(gather.coords), np.array(corrected_gather.coords)
         
-            if metric_map.index_cols == metric_map.index_cols:
+            if metric_map.index_cols != metric_map.coords_cols:
                 cols = [*metric_map.index_cols, *metric_map.coords_cols, 'dx', 'dy', 'dxy']
                 res.append([*to_list(index), *before, *(before - after), np.sqrt(np.sum((before - after) ** 2))])
             else:
@@ -277,7 +282,11 @@ class GeometryErrorMeters(BaseGeometryError):
         self.has_bound_context = True
         self.metric_ms = metric_map.metric
 
-        indices = metric_map.metric_data.set_index(metric_map.index_cols).index
+        if len(metric_map.index_cols) == 1:
+            indices = pd.Index(metric_data[metric_map.index_cols])
+        else:
+            indices = pd.MultiIndex(metric_data[metric_map.index_cols])
+
         values = [self(self.get_gather(index)) for index in tqdm(indices)]
 
         return self.construct_map(metric_map.metric_data[metric_map.coords_cols], values, 
