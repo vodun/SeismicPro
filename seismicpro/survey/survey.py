@@ -1656,7 +1656,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         for metric in metrics_list:
             if isinstance(metric, dict) and "metric" not in metric:
                 raise ValueError("Missed key `metric` for one of the passed metrics in `metric_names`")
-        metrics_list = [{"metric": metric} if isinstance(metric, str) else metric for metric in metrics_list]
+        # Copy dicts to prevent deleting keys from passed objects during metric map constructing
+        metrics_list = [{"metric": metric} if isinstance(metric, str) else metric.copy() for metric in metrics_list]
 
         metric_maps = []
         for metric_dict in metrics_list:
