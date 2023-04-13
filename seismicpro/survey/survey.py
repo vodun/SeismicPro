@@ -1619,14 +1619,14 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Construct a map of metric with name `signal_rms` and additional argument `agg_tracewise` for
         `signal_rms.construct_map` method by shots.
-        >>> tracewise_qc_map = survey.construct_qc_maps(metric_names={"metric": "singal_rms", "agg_tracewise":True},
+        >>> tracewise_qc_map = survey.construct_qc_maps(metric_names={"metric": "signal_rms", "agg_tracewise":True},
                                                         by="shot")
 
         Parameters
         ----------
         metric_names : str, dict or array-like, optional, defaults to None
             Metrics names to construct metrics maps for.
-            If `dict`, allows passing any kwargs to construct_map method of the passed metric.
+            If `dict`, allows passing any kwargs to `construct_map` method of the specified metric.
             The following keys are supported:
             - `metric`: metric name,
             - Any additional arguments for `metric.construct_map`.
