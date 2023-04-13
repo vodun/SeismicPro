@@ -1599,7 +1599,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     def construct_qc_maps(self, metric_names=None, by=None, id_cols=None, agg=None, bin_size=None):
         """Construct a map of tracewise metric aggregated by gathers.
 
-        It is allowed to compute the ratio of two :class:`~metics.BaseWindowRMSMetric` instances. To do this, specify
+        It is allowed to compute the ratio of two :class:`~metics.BaseWindowRMSMetric` instances. For this, specify
         the names of two metrics in the `metric_names` separated by `/`.
 
         Examples
@@ -1617,11 +1617,21 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Construct a map of the ratio of metrics with name `signal_rms` and the metric with name `noise_rms`:
         >>> ratio_map = survey.construct_qc_maps(metric_names="signal_rms/noise_rms", by="shot")
 
+        Construct a map of metric with name `signal_rms` and additional argument `agg_tracewise` for
+        `signal_rms.construct_map` method by shots.
+        >>> tracewise_qc_map = survey.construct_qc_maps(metric_names={"metric": "singal_rms", "agg_tracewise":True},
+                                                        by="shot")
+
         Parameters
         ----------
-        metric_names : str or list of str, optional
-            The name(s) of metrics to construct metrics maps. If None, maps for all metrics that were calculated for
-            this survey are built.
+        metric_names : str, dict or array-like, optional, defaults to None
+            Metrics names to construct metrics maps for.
+            If `dict`, allows passing any kwargs to construct_map method of the passed metric.
+            The following keys are supported:
+            - `metric`: metric name,
+            - Any additional arguments for `metric.construct_map`.
+            If array-like, each element should be `str` or `dict`.
+            If None, maps for all metrics that were calculated for this survey are built.
         by : {"source", "shot", "receiver", "rec", "cdp", "cmp", "midpoint", "bin", "supergather"}
             Gather type to aggregate metric values over. Note that this argument cannot be None and should be defined.
             It is optional to preserve arguments order along all construct maps methods in the Survey.
@@ -1639,21 +1649,25 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         metrics_maps : BaseMetricMap or list of BaseMetricMap
             Calculated metrics maps. Has the same length as `metric_names`.
         """
+        is_single_metric = isinstance(metric_names, (str, dict))
         if metric_names is None:
             metric_names = list(self.qc_metrics)
-        metrics_list = Gather._parse_headers_kwargs(metric_names, "names")
-        is_single_metric  = len(metrics_list) == 1
+        metrics_list = to_list(metric_names)
+        for metric in metrics_list:
+            if isinstance(metric, dict) and "metric" not in metric:
+                raise ValueError("Missed key `metric` for one of the passed metrics in `metric_names`")
+        metrics_list = [{"metric": metric} if isinstance(metric, str) else metric for metric in metrics_list]
 
         metric_maps = []
         for metric_dict in metrics_list:
-            metric_name = metric_dict.pop("names")
+            metric_name = metric_dict.pop("metric")
             if "/" in metric_name:
                 metric_list = list(map(lambda name: name.strip(), metric_name.split("/")))
                 if len(metric_list) != 2:
                     raise ValueError(f"Exactly two metrics should be used for division, not {len(metric_list)}")
                 for metric in metric_list:
                     if metric not in self.qc_metrics:
-                        raise ValueError(f'Metric with name "{metric_name}" is not calculated yet')
+                        raise ValueError(f'Metric with name "{metric}" is not calculated yet')
                 metric = MetricsRatio(*[self.qc_metrics[metric] for metric in metric_list])
             elif metric_name in self.qc_metrics:
                 metric = self.qc_metrics[metric_name]
@@ -1662,4 +1676,4 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             metric_map = self._construct_map(self.get_headers(metric.header_cols), metric=metric, by=by,
                                              id_cols=id_cols, agg=agg, bin_size=bin_size, **metric_dict)
             metric_maps.append(metric_map)
-        return metric_maps[0] if is_single_metric  else metric_maps
+        return metric_maps[0] if is_single_metric else metric_maps
