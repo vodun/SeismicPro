@@ -1242,41 +1242,47 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target="for")
-    def calculate_avo(self, window=None, horizon_header=None, horizon_window=None, mode='rms', avo_col="avo_stats"):
-        data = self.data.copy()
-        data[data == 0] = np.nan
+    def calculate_avo(self, window=None, horizon_header=None, horizon_window_size=None, mode="rms", avo_col="avo_stats"):
         limits = [0, self.n_samples]
+        start_ixs = np.zeros(self.n_traces, dtype=np.int32)
+        end_ixs = np.full(self.n_traces, fill_value=self.n_samples, dtype=np.int32)
 
         if window is not None:
-            # TODO: Do we want to maintain backward compatibility here? In previous version when you write
-            # window=[0, 50] with sample_rate=2, we took indices=[0, 26] not [0, 25].
-            # Do we want to do it here? If yes, how to provide the same behavior when passing limits via load?
-            if len(to_list(window)) != 2:
-                raise ValueError()
+            if len(window) != 2:
+                raise ValueError("`window` must have exact two elements")
             limits = times_to_indices(np.array(window), self.samples, round=True).astype(np.int32)
             limits[1] += 1
+            start_ixs = np.full(self.n_traces, fill_value=limits[0], dtype=np.int32)
+            end_ixs = np.full(self.n_traces, fill_value=limits[1], dtype=np.int32)
+
         elif horizon_header is not None:
             # TODO: Add horizon header loading procedure
             centers = self[horizon_header]
-            if (centers != centers[0]).any():
-                raise ValueError("Horizon should have unique value per gather")
-
-            if horizon_window is None:
-                raise ValueError("`horizon_window` must be specified if `horizon_header` was given")
-            if len(horizon_window) != 2:
-                raise ValueError("`horizon_window` must have exact two elements")
-            limits = [centers[0] + horizon_window[0], centers[0] - horizon_window[1]]
+            if horizon_window_size is None:
+                raise ValueError("`horizon_window_size` must be specified if `horizon_header` was given")
+            if isinstance(horizon_window_size, (int, np.integer)):
+                horizon_window_size = [horizon_window_size // 2, horizon_window_size - horizon_window_size // 2]
+            elif not isinstance(horizon_window_size, (tuple, list, np.ndarray)):
+                raise ValueError("`horizon_window_size` should be either int or array-like with 2 ints, not "\
+                                 f"{type(horizon_window_size)}")
+            if len(horizon_window_size) != 2:
+                raise ValueError("If `horizon_window_size` is array-like, it must have exact two elements, not "\
+                                 f"{len(horizon_window_size)}")
+            start_times = np.clip(centers - horizon_window_size[1], 0, self.samples[-1])
+            start_ixs = times_to_indices(start_times, self.samples, round=True).astype(np.int32)
+            end_times = np.clip(centers + horizon_window_size[0], 0, self.samples[-1])
+            end_ixs = times_to_indices(end_times, self.samples, round=True).astype(np.int32)
 
         func_dict = {
-            'rms': stats.numba_rms,
-            'abs': stats.numba_abs
+            "rms": stats.numba_rms,
+            "abs": stats.numba_abs
         }
 
-        method = func_dict.get(mode, None)
+        method = func_dict.get(mode)
         if method is None:
-            raise ValueError(f"mode should be either 'abs' or 'rms', but {mode} was given")
-
-        self[avo_col] = method(data[:, limits[0]: limits[1]])
+            raise ValueError(f"`mode` should be either `abs` or `rms`, not {mode}")
+        data = np.where(self.data != 0, self.data, np.nan)
+        self[avo_col] = method(data, start_ixs, end_ixs)
         return self
 
     #------------------------------------------------------------------------#
