@@ -682,7 +682,12 @@ class MetricsRatio(TracewiseMetric):  # pylint: disable=abstract-method
             denominator_values = values[self.denominator.header_cols].to_numpy()
             numerator_rms = np.sqrt(numerator_values[:, 0] / numerator_values[:, 1])
             denominator_rms = np.sqrt(denominator_values[:, 0] / denominator_values[:, 1])
-            return super().construct_map(coords, numerator_rms / denominator_rms, coords_cols=coords_cols, index=index,
+            rms = numerator_rms / denominator_rms
+            if np.isnan(rms).sum() == len(rms):
+                msg = f"The ratio of `{self.numerator.name}` and `{self.denominator.name}` cannot be computed since,"\
+                       " they were calculated in disjoint windows"
+                raise ValueError(msg)
+            return super().construct_map(coords, rms, coords_cols=coords_cols, index=index,
                                          index_cols=index_cols, agg=agg, bin_size=bin_size,
                                          calculate_immediately=calculate_immediately)
 
