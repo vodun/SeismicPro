@@ -30,10 +30,11 @@ class AmplitudeOffsetDistribution:
         self.qc(names=["std", "corr"], pol_degree=pol_degree)
 
     @classmethod
-    def from_survey(cls, survey, avo_column, bin_size, indexed_by=None, name=None):
-        name = name if name is not None else survey.name
+    def from_survey(cls, survey, avo_column, bin_size, indexed_by=None, name=None, pol_degree=3):
         indexed_by = indexed_by if indexed_by is not None else survey.indexed_by
-        return cls(headers=survey.headers, avo_column=avo_column, bin_size=bin_size, indexed_by=indexed_by, name=name)
+        name = name if name is not None else survey.name
+        return cls(headers=survey.headers, avo_column=avo_column, bin_size=bin_size, indexed_by=indexed_by, name=name,
+                   pol_degree=pol_degree)
 
     def qc(self, names=None, **kwargs):
         metrics_dict = {
