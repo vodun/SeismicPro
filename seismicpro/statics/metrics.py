@@ -56,9 +56,14 @@ class MeanAbsoluteError(TravelTimeMetric):
     min_value = 0
     is_lower_better = True
 
-    def __call__(self, shots_coords, receivers_coords, true_traveltimes, pred_traveltimes):
+
+    def _calc(self, shots_coords, receivers_coords, true_traveltimes, pred_traveltimes):
         _ = shots_coords, receivers_coords
         return np.abs(true_traveltimes - pred_traveltimes).mean()
+
+    def __call__(self, gather):
+        return self._calc(gather['SourceX', 'SourceY'], gather['GroupX', 'GroupY'],
+                          gather[self.first_breaks_col], gather['Predicted ' + self.first_breaks_col])
 
 
 class BaseGeometryError(TravelTimeMetric):
@@ -75,21 +80,23 @@ class BaseGeometryError(TravelTimeMetric):
 
     @classmethod
     def fit(cls, azimuth, diff):
-        N = 18
-        a, b = np.histogram(azimuth, bins=np.linspace(-np.pi, np.pi, N + 1))
-        mean = len(azimuth) / N
-        reg = np.mean(a < mean * 0.2) * 0.25
+
+        N = 18 # number of discrete azimuths
+        n, _ = np.histogram(azimuth, bins=np.linspace(-np.pi, np.pi, N + 1))
+        mean = len(azimuth) / N # mean number of points per azimuth
+        reg = np.mean(n < mean * 0.2)  # azimuth is dead if there are 5 times less points then average
                 
+        # Estimate initial simplex for better and faster convergence
         damp = 5
         dphase = np.pi
         dt = 5
         initial_simplex = np.array([
-                        [damp, dphase, diff.mean() + dt], 
-                        [damp, -dphase / 2, diff.mean() + dt], 
-                        [-damp, dphase / 2, diff.mean() + dt], 
-                        [-damp, 0, diff.mean() -dt], 
+                        [damp, dphase, dt], 
+                        [damp, -dphase / 2, dt], 
+                        [-damp, dphase / 2, dt], 
+                        [-damp, 0, -dt], 
                     ])
-        fit_result = minimize(cls.loss, x0=[0, 0, diff.mean()], args=(azimuth, diff, reg), method="Nelder-Mead", 
+        fit_result = minimize(cls.loss, x0=[0, 0, 0], args=(azimuth, diff, reg * 0.25), method="Nelder-Mead", 
                               bounds=((None, None), (None, None), (None, None)), tol=1e-2,
                               options=dict(initial_simplex=initial_simplex))
         
@@ -102,9 +109,9 @@ class BaseGeometryError(TravelTimeMetric):
         res = []
     
         if len(metric_map.index_cols) == 1:
-            indices = pd.Index(metric_data[metric_map.index_cols])
+            indices = pd.Index(metric_map.metric_data[metric_map.index_cols[0]])
         else:
-            indices = pd.MultiIndex(metric_data[metric_map.index_cols])
+            indices = pd.MultiIndex.from_frame(metric_map.metric_data[metric_map.index_cols])
         
         for index in tqdm(indices):
             gather = self.get_gather(index)
@@ -116,7 +123,7 @@ class BaseGeometryError(TravelTimeMetric):
                 res.append([*to_list(index), *before, *(before - after), np.sqrt(np.sum((before - after) ** 2))])
             else:
                 cols = [*metric_map.coords_cols, 'dx', 'dy', 'dxy']
-                res.append([*before, *(before - after), np.sqrt(np.sum((before - after) ** 2))])
+                res.append([*before, *(after - before), np.sqrt(np.sum((before - after) ** 2))])
         
         info = pd.DataFrame(res, columns=cols).sort_values('dxy', ascending=False)
         if path is not None:
@@ -214,10 +221,11 @@ class BaseGeometryError(TravelTimeMetric):
 
 
 class GeometryErrorMs(BaseGeometryError):
-    name = "geometry_error_ms"
+    name = 'geometry_error_ms'
     corrected_views = False
 
     def estimate_correction_velocity(self, coords):
+        """ Raw velocity estimation used to transform sin's amplitude(ms) into meters"""
         rv = self.nsm.rvf_list[0](coords)
         return np.array(list(rv.params.values()))[rv.n_refractors:].mean() / 1000
     
@@ -228,8 +236,8 @@ class GeometryErrorMs(BaseGeometryError):
         params = self.fit(azimuth, diff)
 
         v = self.estimate_correction_velocity(gather.coords)
-        dx = -v * abs(params[0]) * np.sin(params[1]) * np.sign(params[0])
-        dy = -v * abs(params[0]) * np.cos(params[1]) * np.sign(params[0])
+        dx = -v * params[0] * np.sin(params[1])
+        dy = -v * params[0] * np.cos(params[1])
 
         if gather.is_shot:
             gather.coords += np.array([dx, dy])
@@ -251,8 +259,7 @@ class GeometryErrorMs(BaseGeometryError):
 
 
 class GeometryErrorMeters(BaseGeometryError):
-
-    name = 'geometry_error_meters'
+    name = "geometry_error_meters"
     vmax = 30
     corrected_views = True
 
@@ -283,9 +290,9 @@ class GeometryErrorMeters(BaseGeometryError):
         self.metric_ms = metric_map.metric
 
         if len(metric_map.index_cols) == 1:
-            indices = pd.Index(metric_data[metric_map.index_cols])
+            indices = pd.Index(metric_map.metric_data[metric_map.index_cols[0]])
         else:
-            indices = pd.MultiIndex(metric_data[metric_map.index_cols])
+            indices = pd.MultiIndex.from_frame(metric_map.metric_data[metric_map.index_cols])
 
         values = [self(self.get_gather(index)) for index in tqdm(indices)]
 

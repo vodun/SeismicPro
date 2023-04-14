@@ -225,9 +225,8 @@ class BaseMetricMap:  # pylint: disable=too-many-instance-attributes
             return self.map_data.idxmax()
         return self.map_data.idxmin()
 
-    def select_by_thresholds(self, lower_thr=-np.inf, upper_thr=np.inf):
-        """ Create a new metric map with `map_data` that contains
-        only the points with metric value within provided thesholds.
+    def select_by_thresholds(self, lower_thd=-np.inf, upper_thd=np.inf):
+        """ Create a new metric map with only the items with metric value within provided thresholds.
 
         Parameters
         ----------
@@ -235,7 +234,7 @@ class BaseMetricMap:  # pylint: disable=too-many-instance-attributes
             Lower and upper thresholds for metric values.
         Returns
         -------
-        BaseMetricMap
+        new_metric_map: BaseMetricMap
             New metric map instance.
         """
         metric_values = self.metric_data[self.metric_name]
