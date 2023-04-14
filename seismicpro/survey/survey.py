@@ -411,9 +411,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """Recreate a survey from unpickled state, reopen its source SEG-Y file and reconstruct a memory map over
         traces data."""
         self.__dict__ = state
-        # self.segy_handler = segyio.open(self.path, ignore_geometry=True)
-        # self.segy_handler.mmap()
-        # self.traces_mmap = self._construct_traces_mmap()
+        self.segy_handler = segyio.open(self.path, ignore_geometry=True)
+        self.segy_handler.mmap()
+        self.traces_mmap = self._construct_traces_mmap()
 
     def __str__(self):
         """Print survey metadata including information about the source file, field geometry if it was inferred and
@@ -1479,13 +1479,3 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         coords = tmp_map.index_data[tmp_map.coords_cols]
         values = tmp_map.index_data[tmp_map.metric_name]
         return tmp_map.metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size)
-
-
-class SurveyP(Survey):
-    def __setstate__(self, state):
-        """Recreate a survey from unpickled state, reopen its source SEG-Y file and reconstruct a memory map over
-        traces data."""
-        self.__dict__ = state
-        self.segy_handler = segyio.open(self.path, ignore_geometry=True)
-        self.segy_handler.mmap()
-        self.traces_mmap = self._construct_traces_mmap()
