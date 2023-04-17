@@ -6,29 +6,45 @@ from itertools import cycle
 from textwrap import dedent
 
 import cv2
+import numpy as np
 import scipy
 import segyio
-import numpy as np
-from scipy.signal import firwin
-from matplotlib.path import Path
-from matplotlib.patches import Polygon, PathPatch
 from matplotlib.colors import ListedColormap
+from matplotlib.patches import PathPatch, Polygon
+from matplotlib.path import Path
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from scipy.signal import firwin
 
-from .cropped_gather import CroppedGather
-from .plot_corrections import NMOCorrectionPlot, LMOCorrectionPlot
-from .utils import correction, normalization, gain
-from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
-from ..utils import (to_list, get_coords_cols, set_ticks, format_subplot_yticklabels, set_text_formatting,
-                     add_colorbar, piecewise_polynomial, Coordinates)
-from ..containers import TraceContainer, SamplesContainer
-from ..muter import Muter, MuterField
-from ..velocity_spectrum import VerticalVelocitySpectrum, ResidualVelocitySpectrum
-from ..stacking_velocity import StackingVelocity, StackingVelocityField
-from ..refractor_velocity import RefractorVelocity, RefractorVelocityField
+from ..const import DEFAULT_STACKING_VELOCITY, HDR_FIRST_BREAK, HDR_TRACE_POS
+from ..containers import SamplesContainer, TraceContainer
 from ..decorators import batch_method, plotter
-from ..const import HDR_FIRST_BREAK, HDR_TRACE_POS, DEFAULT_STACKING_VELOCITY
+from ..muter import Muter, MuterField
+from ..refractor_velocity import RefractorVelocity, RefractorVelocityField
+from ..stacking_velocity import StackingVelocity, StackingVelocityField
+from ..utils import (
+    Coordinates,
+    add_colorbar,
+    format_subplot_yticklabels,
+    get_coords_cols,
+    piecewise_polynomial,
+    set_text_formatting,
+    set_ticks,
+    to_list,
+)
+from ..velocity_spectrum import ResidualVelocitySpectrum, VerticalVelocitySpectrum
 from ..velocity_spectrum.utils.coherency_funcs import stacked_amplitude
+from .cropped_gather import CroppedGather
+from .plot_corrections import LMOCorrectionPlot, NMOCorrectionPlot
+from .utils import (
+    convert_mask_to_pick,
+    convert_times_to_mask,
+    correction,
+    gain,
+    make_origins,
+    mute_gather,
+    normalization,
+    times_to_indices,
+)
 
 
 class Gather(TraceContainer, SamplesContainer):
@@ -79,6 +95,7 @@ class Gather(TraceContainer, SamplesContainer):
     sort_by : None or str or list of str
         Headers that were used for gather sorting. If `None`, no sorting was performed.
     """
+
     def __init__(self, headers, data, samples, survey):
         self.headers = headers
         self.data = data
@@ -98,11 +115,13 @@ class Gather(TraceContainer, SamplesContainer):
 
     @property
     def sample_rate(self):
-        """"float: Sample rate of seismic traces. Measured in milliseconds."""
+        """ "float: Sample rate of seismic traces. Measured in milliseconds."""
         sample_rate = np.unique(np.diff(self.samples))
         if len(sample_rate) == 1:
             return sample_rate.item()
-        raise ValueError("`sample_rate` is not defined, since `samples` are not regular.")
+        raise ValueError(
+            "`sample_rate` is not defined, since `samples` are not regular."
+        )
 
     @property
     def offsets(self):
@@ -118,9 +137,12 @@ class Gather(TraceContainer, SamplesContainer):
     def coords(self):
         """Coordinates or None: Spatial coordinates of the gather. Headers to extract coordinates from are determined
         automatically by the `indexed_by` attribute of the gather. `None` if the gather is indexed by unsupported
-        headers or required coords headers were not loaded or coordinates are non-unique for traces of the gather."""
+        headers or required coords headers were not loaded or coordinates are non-unique for traces of the gather.
+        """
         try:
-            coords_cols = get_coords_cols(self.indexed_by)  # Possibly unknown coordinates for indexed_by
+            coords_cols = get_coords_cols(
+                self.indexed_by
+            )  # Possibly unknown coordinates for indexed_by
             coords = self[coords_cols]  # Required coords headers may not be loaded
         except KeyError:
             return None
@@ -164,29 +186,31 @@ class Gather(TraceContainer, SamplesContainer):
             return super().__getitem__(key)
 
         # Perform traces and samples selection
-        key = (key, ) if not isinstance(key, tuple) else key
-        key = key + (slice(None), ) if len(key) == 1 else key
+        key = (key,) if not isinstance(key, tuple) else key
+        key = key + (slice(None),) if len(key) == 1 else key
         indices = ()
         for axis_indexer, axis_shape in zip(key, self.shape):
             if isinstance(axis_indexer, (int, np.integer)):
                 # Convert negative array index to a corresponding positive one
                 axis_indexer %= axis_shape
                 # Switch from simple indexing to a slice to keep array dims
-                axis_indexer = slice(axis_indexer, axis_indexer+1)
+                axis_indexer = slice(axis_indexer, axis_indexer + 1)
             elif isinstance(axis_indexer, tuple):
                 # Force advanced indexing for `samples`
                 axis_indexer = list(axis_indexer)
-            indices = indices + (axis_indexer, )
+            indices = indices + (axis_indexer,)
 
         data = self.data[indices]
         if data.ndim != 2:
-            raise ValueError("Data ndim is not preserved or joint indexation of gather attributes becomes ambiguous "
-                             "after indexation")
+            raise ValueError(
+                "Data ndim is not preserved or joint indexation of gather attributes becomes ambiguous "
+                "after indexation"
+            )
         if data.size == 0:
             raise ValueError("Empty gather after indexation")
 
         # Set indexed data attribute. Make it C-contiguous since otherwise some numba functions may fail
-        new_self = self.copy(ignore=['data', 'headers', 'samples'])
+        new_self = self.copy(ignore=["data", "headers", "samples"])
         new_self.data = np.ascontiguousarray(data, dtype=self.data.dtype)
 
         # The two-element `indices` tuple describes indices of traces and samples to be obtained respectively
@@ -196,24 +220,34 @@ class Gather(TraceContainer, SamplesContainer):
         # If the gather was sorted, verify that getitem does not break sorting
         if new_self.sort_by is not None:
             if isinstance(indices[0], slice):
-                if indices[0].step is not None and indices[0].step < 0: # Slice with negative step breaks sorting
+                if (
+                    indices[0].step is not None and indices[0].step < 0
+                ):  # Slice with negative step breaks sorting
                     new_self.sort_by = None
-            elif (np.diff(indices[0]) < 0).any(): # Decreasing sequence of indices breaks sorting
+            elif (
+                np.diff(indices[0]) < 0
+            ).any():  # Decreasing sequence of indices breaks sorting
                 new_self.sort_by = None
         return new_self
 
     def __str__(self):
         """Print gather metadata including information about its survey, headers and traces."""
         # Calculate offset range
-        offsets = self.headers.get('offset')
-        offset_range = f'[{np.min(offsets)} m, {np.max(offsets)} m]' if offsets is not None else None
+        offsets = self.headers.get("offset")
+        offset_range = (
+            f"[{np.min(offsets)} m, {np.max(offsets)} m]"
+            if offsets is not None
+            else None
+        )
 
         # Format gather coordinates
         coords = self.coords
         coords_str = "Unknown" if coords is None else str(coords)
 
         # Count the number of zero/constant traces
-        n_dead_traces = np.isclose(np.max(self.data, axis=1), np.min(self.data, axis=1)).sum()
+        n_dead_traces = np.isclose(
+            np.max(self.data, axis=1), np.min(self.data, axis=1)
+        ).sum()
 
         msg = f"""
         Parent survey path:          {self.survey.path}
@@ -242,7 +276,7 @@ class Gather(TraceContainer, SamplesContainer):
         """Print gather metadata including information about its survey, headers and traces."""
         print(self)
 
-    @batch_method(target='threads', copy_src=False)
+    @batch_method(target="threads", copy_src=False)
     def copy(self, ignore=None):
         """Perform a deepcopy of all gather attributes except for `survey` and those specified in ignore, which are
         kept unchanged.
@@ -260,7 +294,7 @@ class Gather(TraceContainer, SamplesContainer):
         ignore = set() if ignore is None else set(to_list(ignore))
         return super().copy(ignore | {"survey"})
 
-    @batch_method(target='for')
+    @batch_method(target="for")
     def get_item(self, *args):
         """An interface for `self.__getitem__` method."""
         return self[args if len(args) > 1 else args[0]]
@@ -270,7 +304,7 @@ class Gather(TraceContainer, SamplesContainer):
         self.data = self.data[mask]
 
     # Target set to `for` to avoid race condition when the same trace appears in two gathers (ex. supergathers)
-    @batch_method(target='for', use_lock=True)
+    @batch_method(target="for", use_lock=True)
     def store_headers_to_survey(self, columns):
         """Save given headers from the gather to its survey.
 
@@ -293,7 +327,9 @@ class Gather(TraceContainer, SamplesContainer):
         headers = self.survey.headers
         pos = self[HDR_TRACE_POS]
         for column in columns:
-            column_data = self[column] # Here we also check that column is in self.headers
+            column_data = self[
+                column
+            ]  # Here we also check that column is in self.headers
             if column not in headers:
                 headers[column] = np.nan
 
@@ -305,11 +341,11 @@ class Gather(TraceContainer, SamplesContainer):
             headers[column].array[pos] = column_data
         return self
 
-    #------------------------------------------------------------------------#
+    # ------------------------------------------------------------------------#
     #                              Dump methods                              #
-    #------------------------------------------------------------------------#
+    # ------------------------------------------------------------------------#
 
-    @batch_method(target='for', force=True)
+    @batch_method(target="for", force=True)
     def dump(self, path, name=None, retain_parent_segy_headers=True):
         """Save the gather to a `.sgy` file.
 
@@ -347,7 +383,9 @@ class Gather(TraceContainer, SamplesContainer):
 
         if name is None:
             # Use the first value of gather index to handle combined case
-            name = "_".join(map(str, [self.survey.name] + to_list(self.headers.index.values[0])))
+            name = "_".join(
+                map(str, [self.survey.name] + to_list(self.headers.index.values[0]))
+            )
         if name == "":
             raise ValueError("Argument `name` can not be empty.")
         if not os.path.splitext(name)[1]:
@@ -362,7 +400,7 @@ class Gather(TraceContainer, SamplesContainer):
         spec.format = parent_handler.format
         spec.tracecount = self.n_traces
 
-        sample_rate = np.int32(self.sample_rate * 1000) # Convert to microseconds
+        sample_rate = np.int32(self.sample_rate * 1000)  # Convert to microseconds
         # Remember ordinal numbers of traces in the parent SEG-Y file to further copy their headers
         trace_ids = self["TRACE_SEQUENCE_FILE"] - 1
 
@@ -371,7 +409,9 @@ class Gather(TraceContainer, SamplesContainer):
         used_header_names = to_list(used_header_names)
 
         # Transform header's names into byte number based on the SEG-Y standard.
-        used_header_bytes = [segyio.tracefield.keys[header_name] for header_name in used_header_names]
+        used_header_bytes = [
+            segyio.tracefield.keys[header_name] for header_name in used_header_names
+        ]
 
         with segyio.create(full_path, spec) as dump_handler:
             # Copy the binary header from the parent SEG-Y file and update it with samples data of the gather.
@@ -390,14 +430,18 @@ class Gather(TraceContainer, SamplesContainer):
             for i, trace_headers in enumerate(self[used_header_names]):
                 if retain_parent_segy_headers:
                     dump_handler.header[i] = parent_handler.header[trace_ids[i]]
-                dump_handler.header[i].update({**dict(zip(used_header_bytes, trace_headers)),
-                                               segyio.TraceField.TRACE_SAMPLE_INTERVAL: sample_rate,
-                                               segyio.TraceField.TRACE_SEQUENCE_FILE: i + 1})
+                dump_handler.header[i].update(
+                    {
+                        **dict(zip(used_header_bytes, trace_headers)),
+                        segyio.TraceField.TRACE_SAMPLE_INTERVAL: sample_rate,
+                        segyio.TraceField.TRACE_SEQUENCE_FILE: i + 1,
+                    }
+                )
         return self
 
-    #------------------------------------------------------------------------#
+    # ------------------------------------------------------------------------#
     #                         Normalization methods                          #
-    #------------------------------------------------------------------------#
+    # ------------------------------------------------------------------------#
 
     def get_quantile(self, q, tracewise=False, use_global=False):
         """Calculate the `q`-th quantile of the gather or fetch the global quantile from the parent survey.
@@ -427,18 +471,16 @@ class Gather(TraceContainer, SamplesContainer):
         """
         if use_global:
             return self.survey.get_quantile(q)
-        q = np.array(q, dtype=np.float32)
-        quantiles = normalization.get_quantile(self.data, q=q, tracewise=tracewise).astype(np.float32)
+        q = np.atleast_1d(q).astype(np.float32)
+        quantiles = normalization.get_quantile(self.data, q=q, tracewise=tracewise)
         # return the same type as q in case of non-global calculation: either single float or array-like
-        if quantiles.size == 1:
-            return quantiles[0][0]
         if not tracewise:
-            return quantiles[0]
+            quantiles = quantiles[:, 0]
         if q.size == 1:
-            return quantiles[:, 0]
+            quantiles = quantiles[0]
         return quantiles
 
-    @batch_method(target='threads')
+    @batch_method(target="threads")
     def scale_standard(self, tracewise=True, use_global=False, eps=1e-10):
         r"""Standardize the gather by removing the mean and scaling to unit variance.
 
@@ -476,16 +518,22 @@ class Gather(TraceContainer, SamplesContainer):
         """
         if use_global:
             if not self.survey.has_stats:
-                raise ValueError('Global statistics were not calculated, call `Survey.collect_stats` first.')
-            mean = np.asarray(self.survey.mean).reshape(1, 1)
-            std = np.asarray(self.survey.std).reshape(1, 1)
+                raise ValueError(
+                    "Global statistics were not calculated, call `Survey.collect_stats` first."
+                )
+            mean = np.array(self.survey.mean, ndmin=2)
+            std = np.array(self.survey.std, ndmin=2)
         else:
             mean, std = None, None
-        self.data = normalization.scale_standard(self.data, mean, std, tracewise, np.float32(eps))
+        self.data = normalization.scale_standard(
+            self.data, mean, std, tracewise, np.float32(eps)
+        )
         return self
 
-    @batch_method(target='for')
-    def scale_maxabs(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
+    @batch_method(target="for")
+    def scale_maxabs(
+        self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10
+    ):
         r"""Scale the gather by its maximum absolute value.
 
         Maxabs scale of the gather `g` is calculated as:
@@ -531,14 +579,27 @@ class Gather(TraceContainer, SamplesContainer):
         """
         if use_global:
             min_value, max_value = self.survey.get_quantile([q_min, q_max])
+            min_value, max_value = np.array(min_value, ndmin=1), np.array(
+                max_value, ndmin=1
+            )
         else:
             min_value, max_value = None, None
-        self.data = normalization.scale_maxabs(self.data, min_value, max_value, q_min, q_max,
-                                               tracewise, clip, np.float32(eps))
+        self.data = normalization.scale_maxabs(
+            self.data,
+            min_value,
+            max_value,
+            q_min,
+            q_max,
+            tracewise,
+            clip,
+            np.float32(eps),
+        )
         return self
 
-    @batch_method(target='for')
-    def scale_minmax(self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10):
+    @batch_method(target="for")
+    def scale_minmax(
+        self, q_min=0, q_max=1, tracewise=True, use_global=False, clip=False, eps=1e-10
+    ):
         r"""Linearly scale the gather to a [0, 1] range.
 
         The transformation of the gather `g` is given by:
@@ -580,15 +641,26 @@ class Gather(TraceContainer, SamplesContainer):
         """
         if use_global:
             min_value, max_value = self.survey.get_quantile([q_min, q_max])
+            min_value, max_value = np.array(min_value, ndmin=1), np.array(
+                max_value, ndmin=1
+            )
         else:
             min_value, max_value = None, None
-        self.data = normalization.scale_minmax(self.data, min_value, max_value, q_min, q_max,
-                                               tracewise, clip, np.float32(eps))
+        self.data = normalization.scale_minmax(
+            self.data,
+            min_value,
+            max_value,
+            q_min,
+            q_max,
+            tracewise,
+            clip,
+            np.float32(eps),
+        )
         return self
 
-    #------------------------------------------------------------------------#
+    # ------------------------------------------------------------------------#
     #                    First-breaks processing methods                     #
-    #------------------------------------------------------------------------#
+    # ------------------------------------------------------------------------#
 
     @batch_method(target="threads", copy_src=False)
     def pick_to_mask(self, first_breaks_col=HDR_FIRST_BREAK):
@@ -605,13 +677,17 @@ class Gather(TraceContainer, SamplesContainer):
         gather : Gather
             A new `Gather` with calculated first breaks mask in its `data` attribute.
         """
-        mask = convert_times_to_mask(times=self[first_breaks_col], samples=self.samples).astype(np.int32)
-        gather = self.copy(ignore='data')
+        mask = convert_times_to_mask(
+            times=self[first_breaks_col], samples=self.samples
+        ).astype(np.int32)
+        gather = self.copy(ignore="data")
         gather.data = mask
         return gather
 
-    @batch_method(target='for', args_to_unpack='save_to')
-    def mask_to_pick(self, threshold=0.5, first_breaks_col=HDR_FIRST_BREAK, save_to=None):
+    @batch_method(target="for", args_to_unpack="save_to")
+    def mask_to_pick(
+        self, threshold=0.5, first_breaks_col=HDR_FIRST_BREAK, save_to=None
+    ):
         """Convert a first break mask saved in `data` into times of first arrivals.
 
         For a given trace each value of the mask represents the probability that the corresponding index is greater
@@ -639,16 +715,24 @@ class Gather(TraceContainer, SamplesContainer):
         self : Gather
             A gather with first break times in headers column defined by `first_breaks_col`.
         """
-        picking_times = convert_mask_to_pick(mask=self.data, samples=self.samples, threshold=threshold)
+        picking_times = convert_mask_to_pick(
+            mask=self.data, samples=self.samples, threshold=threshold
+        )
         self[first_breaks_col] = picking_times
         if save_to is not None:
             save_to[first_breaks_col] = picking_times
         return self
 
-    @batch_method(target='for', use_lock=True)
-    def dump_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col=HDR_FIRST_BREAK,
-                          col_space=8, encoding="UTF-8"):
-        """ Save first break picking times to a file.
+    @batch_method(target="for", use_lock=True)
+    def dump_first_breaks(
+        self,
+        path,
+        trace_id_cols=("FieldRecord", "TraceNumber"),
+        first_breaks_col=HDR_FIRST_BREAK,
+        col_space=8,
+        encoding="UTF-8",
+    ):
+        """Save first break picking times to a file.
 
         Each line in the resulting file corresponds to one trace, where all columns but
         the last one store values from `trace_id_cols` headers and identify the trace
@@ -675,18 +759,32 @@ class Gather(TraceContainer, SamplesContainer):
         rows = self[to_list(trace_id_cols) + [first_breaks_col]]
 
         # SEG-Y specification states that all headers values are integers, but first break values can be float
-        row_fmt = '{:{col_space}.0f}' * (rows.shape[1] - 1) + '{:{col_space}.2f}\n'
+        row_fmt = "{:{col_space}.0f}" * (rows.shape[1] - 1) + "{:{col_space}.2f}\n"
         fmt = row_fmt * len(rows)
         rows_as_str = fmt.format(*rows.ravel(), col_space=col_space)
 
-        with open(path, 'a', encoding=encoding) as f:
+        with open(path, "a", encoding=encoding) as f:
             f.write(rows_as_str)
         return self
 
-    @batch_method(target="for", copy_src=False)  # pylint: disable-next=too-many-arguments
-    def calculate_refractor_velocity(self, init=None, bounds=None, n_refractors=None, max_offset=None,
-                                     min_velocity_step=1, min_refractor_size=1, loss="L1", huber_coef=20, tol=1e-5,
-                                     first_breaks_col=HDR_FIRST_BREAK, correct_uphole=None, **kwargs):
+    @batch_method(
+        target="for", copy_src=False
+    )  # pylint: disable-next=too-many-arguments
+    def calculate_refractor_velocity(
+        self,
+        init=None,
+        bounds=None,
+        n_refractors=None,
+        max_offset=None,
+        min_velocity_step=1,
+        min_refractor_size=1,
+        loss="L1",
+        huber_coef=20,
+        tol=1e-5,
+        first_breaks_col=HDR_FIRST_BREAK,
+        correct_uphole=None,
+        **kwargs,
+    ):
         """Fit a near-surface velocity model by offsets of traces and times of their first breaks.
 
         Notes
@@ -742,13 +840,26 @@ class Gather(TraceContainer, SamplesContainer):
             correct_uphole = "SourceUpholeTime" in self.available_headers
         if correct_uphole:
             times = times + self["SourceUpholeTime"]
-        return RefractorVelocity.from_first_breaks(self.offsets, times, init, bounds, n_refractors, max_offset,
-                                                   min_velocity_step, min_refractor_size, loss, huber_coef, tol,
-                                                   coords=self.coords, is_uphole_corrected=correct_uphole, **kwargs)
+        return RefractorVelocity.from_first_breaks(
+            self.offsets,
+            times,
+            init,
+            bounds,
+            n_refractors,
+            max_offset,
+            min_velocity_step,
+            min_refractor_size,
+            loss,
+            huber_coef,
+            tol,
+            coords=self.coords,
+            is_uphole_corrected=correct_uphole,
+            **kwargs,
+        )
 
-    #------------------------------------------------------------------------#
+    # ------------------------------------------------------------------------#
     #                         Gather muting methods                          #
-    #------------------------------------------------------------------------#
+    # ------------------------------------------------------------------------#
 
     @batch_method(target="threads", args_to_unpack="muter")
     def mute(self, muter, fill_value=np.nan):
@@ -773,17 +884,26 @@ class Gather(TraceContainer, SamplesContainer):
             muter = muter(self.coords)
         if not isinstance(muter, Muter):
             raise ValueError("muter must be of Muter or MuterField type")
-        self.data = mute_gather(gather_data=self.data, muting_times=muter(self.offsets), samples=self.samples,
-                                fill_value=fill_value)
+        self.data = mute_gather(
+            gather_data=self.data,
+            muting_times=muter(self.offsets),
+            samples=self.samples,
+            fill_value=fill_value,
+        )
         return self
 
-    #------------------------------------------------------------------------#
+    # ------------------------------------------------------------------------#
     #             Vertical Velocity Spectrum calculation methods             #
-    #------------------------------------------------------------------------#
+    # ------------------------------------------------------------------------#
 
     @batch_method(target="threads", copy_src=False)
-    def calculate_vertical_velocity_spectrum(self, velocities=None, window_size=50, mode="semblance",
-                                             max_stretch_factor=np.inf):
+    def calculate_vertical_velocity_spectrum(
+        self,
+        velocities=None,
+        window_size=50,
+        mode="semblance",
+        max_stretch_factor=np.inf,
+    ):
         """Calculate vertical velocity spectrum for the gather.
 
         Notes
@@ -796,11 +916,11 @@ class Gather(TraceContainer, SamplesContainer):
         Calculate vertical velocity spectrum with default parameters: velocities evenly spaces around default stacking
         velocity, 50 ms temporal window size, semblance coherency measure and no muting of hodograph stretching:
         >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum()
-    
+
         Calculate vertical velocity spectrum for 200 velocities from 2000 to 6000 m/s, temporal window size of 128 ms,
         crosscorrelation coherency measure and muting stretching effects greater than 0.65:
         >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum(
-                                                                velocities=np.linspace(2000, 6000, 200), 
+                                                                velocities=np.linspace(2000, 6000, 200),
                                                                 window_size=128, mode='CC', max_stretch_factor=0.65)
 
         Parameters
@@ -814,8 +934,8 @@ class Gather(TraceContainer, SamplesContainer):
             Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother
             the resulting velocity spectrum will be but to the detriment of small details. Measured in ms.
         mode: str, optional, defaults to 'semblance'
-            The measure for estimating hodograph coherency. 
-            The available options are: 
+            The measure for estimating hodograph coherency.
+            The available options are:
                 `semblance` or `NE`,
                 `stacked_amplitude` or `S`,
                 `normalized_stacked_amplitude` or `NS`,
@@ -824,7 +944,7 @@ class Gather(TraceContainer, SamplesContainer):
         max_stretch_factor : float, defaults to np.inf
             Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
             This mute is applied after nmo correction for each provided velocity and before coherency calculation.
-            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
+            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied.
             Reasonably good value is 0.65
 
         Returns
@@ -832,12 +952,24 @@ class Gather(TraceContainer, SamplesContainer):
         vertical_velocity_spectrum : VerticalVelocitySpectrum
             Calculated vertical velocity spectrum.
         """
-        return VerticalVelocitySpectrum(gather=self, velocities=velocities, window_size=window_size, mode=mode,
-                                        max_stretch_factor=max_stretch_factor)
+        return VerticalVelocitySpectrum(
+            gather=self,
+            velocities=velocities,
+            window_size=window_size,
+            mode=mode,
+            max_stretch_factor=max_stretch_factor,
+        )
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity", copy_src=False)
-    def calculate_residual_velocity_spectrum(self, stacking_velocity, n_velocities=140, relative_margin=0.2,
-                                             window_size=50, mode="semblance", max_stretch_factor=np.inf):
+    def calculate_residual_velocity_spectrum(
+        self,
+        stacking_velocity,
+        n_velocities=140,
+        relative_margin=0.2,
+        window_size=50,
+        mode="semblance",
+        max_stretch_factor=np.inf,
+    ):
         """Calculate residual velocity spectrum for the gather and provided stacking velocity.
 
         Notes
@@ -855,22 +987,22 @@ class Gather(TraceContainer, SamplesContainer):
         Parameters
         ----------
         stacking_velocity : StackingVelocity or StackingVelocityField or str
-            Stacking velocity around which residual velocity spectrum is calculated. 
-            `StackingVelocity` instance is used directly. If `StackingVelocityField` instance is passed, 
+            Stacking velocity around which residual velocity spectrum is calculated.
+            `StackingVelocity` instance is used directly. If `StackingVelocityField` instance is passed,
             a `StackingVelocity` corresponding to gather coordinates is fetched from it.
             May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
         n_velocities : int, optional, defaults to 140
             The number of velocities to compute residual velocity spectrum for.
         relative_margin : float, optional, defaults to 0.2
-            Relative velocity margin, that determines the velocity range for residual spectrum calculation 
+            Relative velocity margin, that determines the velocity range for residual spectrum calculation
             for each time `t` as `stacking_velocity(t)` * (1 +- `relative_margin`).
         window_size : int, optional, defaults to 50
             Temporal window size used for residual velocity spectrum calculation. Measured in ms.
             The higher the `window_size` is, the smoother the resulting spectrum will be but to the
             detriment of small details.
         mode: str, optional, defaults to 'semblance'
-            The measure for estimating hodograph coherency. 
-            The available options are: 
+            The measure for estimating hodograph coherency.
+            The available options are:
                 `semblance` or `NE`,
                 `stacked_amplitude` or `S`,
                 `normalized_stacked_amplitude` or `NS`,
@@ -879,7 +1011,7 @@ class Gather(TraceContainer, SamplesContainer):
         max_stretch_factor : float, defaults to np.inf
             Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
             This mute is applied after nmo correction for each provided velocity and before coherency calculation.
-            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
+            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied.
             Reasonably good value is 0.65
 
         Returns
@@ -889,16 +1021,29 @@ class Gather(TraceContainer, SamplesContainer):
         """
         if isinstance(stacking_velocity, StackingVelocityField):
             stacking_velocity = stacking_velocity(self.coords)
-        return ResidualVelocitySpectrum(gather=self, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
-                                        window_size=window_size, relative_margin=relative_margin, mode=mode,
-                                        max_stretch_factor=max_stretch_factor)
+        return ResidualVelocitySpectrum(
+            gather=self,
+            stacking_velocity=stacking_velocity,
+            n_velocities=n_velocities,
+            window_size=window_size,
+            relative_margin=relative_margin,
+            mode=mode,
+            max_stretch_factor=max_stretch_factor,
+        )
 
-    #------------------------------------------------------------------------#
+    # ------------------------------------------------------------------------#
     #                           Gather corrections                           #
-    #------------------------------------------------------------------------#
+    # ------------------------------------------------------------------------#
 
     @batch_method(target="threads", args_to_unpack="refractor_velocity")
-    def apply_lmo(self, refractor_velocity, delay=100, fill_value=np.nan, event_headers=None, correct_uphole=None):
+    def apply_lmo(
+        self,
+        refractor_velocity,
+        delay=100,
+        fill_value=np.nan,
+        event_headers=None,
+        correct_uphole=None,
+    ):
         """Perform gather linear moveout correction using the given near-surface velocity model.
 
         Parameters
@@ -931,26 +1076,41 @@ class Gather(TraceContainer, SamplesContainer):
             If wrong type of `refractor_velocity` is passed.
         """
         if isinstance(refractor_velocity, (int, float)):
-            refractor_velocity = RefractorVelocity.from_constant_velocity(refractor_velocity)
+            refractor_velocity = RefractorVelocity.from_constant_velocity(
+                refractor_velocity
+            )
         if isinstance(refractor_velocity, RefractorVelocityField):
             refractor_velocity = refractor_velocity(self.coords)
         if not isinstance(refractor_velocity, RefractorVelocity):
-            raise ValueError("refractor_velocity must be of int, float, RefractorVelocity or RefractorVelocityField "
-                             "type")
+            raise ValueError(
+                "refractor_velocity must be of int, float, RefractorVelocity or RefractorVelocityField "
+                "type"
+            )
 
         trace_delays = delay - refractor_velocity(self.offsets)
         if correct_uphole is None:
-            correct_uphole = "SourceUpholeTime" in self.available_headers and refractor_velocity.is_uphole_corrected
+            correct_uphole = (
+                "SourceUpholeTime" in self.available_headers
+                and refractor_velocity.is_uphole_corrected
+            )
         if correct_uphole:
             trace_delays += self["SourceUpholeTime"]
-        trace_delays_samples = times_to_indices(trace_delays, self.samples, round=True).astype(int)
+        trace_delays_samples = times_to_indices(
+            trace_delays, self.samples, round=True
+        ).astype(int)
         self.data = correction.apply_lmo(self.data, trace_delays_samples, fill_value)
         if event_headers is not None:
             self[to_list(event_headers)] += trace_delays.reshape(-1, 1)
         return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
-    def apply_nmo(self, stacking_velocity, mute_crossover=False, max_stretch_factor=np.inf, fill_value=np.nan):
+    def apply_nmo(
+        self,
+        stacking_velocity,
+        mute_crossover=False,
+        max_stretch_factor=np.inf,
+        fill_value=np.nan,
+    ):
         """Perform gather normal moveout correction using the given stacking velocity.
 
         Notes
@@ -968,7 +1128,7 @@ class Gather(TraceContainer, SamplesContainer):
             Whether to mute areas where the time reversal occurred after nmo corrections.
         max_stretch_factor : float, defaults to np.inf
             Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
-            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
+            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied.
             Reasonably good value is 0.65
         fill_value : float, optional, defaults to np.nan
             Value used to fill the amplitudes outside the gather bounds after moveout.
@@ -984,20 +1144,32 @@ class Gather(TraceContainer, SamplesContainer):
             If wrong type of `stacking_velocity` is passed.
         """
         if isinstance(stacking_velocity, (int, float)):
-            stacking_velocity = StackingVelocity.from_constant_velocity(stacking_velocity)
+            stacking_velocity = StackingVelocity.from_constant_velocity(
+                stacking_velocity
+            )
         if isinstance(stacking_velocity, StackingVelocityField):
             stacking_velocity = stacking_velocity(self.coords)
         if not isinstance(stacking_velocity, StackingVelocity):
-            raise ValueError("stacking_velocity must be of int, float, StackingVelocity or StackingVelocityField type")
+            raise ValueError(
+                "stacking_velocity must be of int, float, StackingVelocity or StackingVelocityField type"
+            )
 
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
-        self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms,
-                                         self.sample_rate, mute_crossover, max_stretch_factor, fill_value)
+        self.data = correction.apply_nmo(
+            self.data,
+            self.times,
+            self.offsets,
+            velocities_ms,
+            self.sample_rate,
+            mute_crossover,
+            max_stretch_factor,
+            fill_value,
+        )
         return self
 
-    #------------------------------------------------------------------------#
+    # ------------------------------------------------------------------------#
     #                       General processing methods                       #
-    #------------------------------------------------------------------------#
+    # ------------------------------------------------------------------------#
 
     @batch_method(target="threads")
     def sort(self, by):
@@ -1014,7 +1186,7 @@ class Gather(TraceContainer, SamplesContainer):
             Gather sorted by given headers. Sets `sort_by` attribute to `by`.
         """
         by = to_list(by)
-        if by == to_list(self.sort_by)[:len(by)]:
+        if by == to_list(self.sort_by)[: len(by)]:
             return self
 
         order = np.lexsort(self[by[::-1]].T)
@@ -1036,7 +1208,12 @@ class Gather(TraceContainer, SamplesContainer):
         self : Gather
             `self` with only traces from the central CDP gather kept. Updates `self.headers` and `self.data` inplace.
         """
-        line_cols = self["INLINE_3D", "CROSSLINE_3D", "SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
+        line_cols = self[
+            "INLINE_3D",
+            "CROSSLINE_3D",
+            "SUPERGATHER_INLINE_3D",
+            "SUPERGATHER_CROSSLINE_3D",
+        ]
         mask = (line_cols[:, :2] == line_cols[:, 2:]).all(axis=1)
         self.headers = self.headers.loc[mask]
         self.data = self.data[mask]
@@ -1053,9 +1230,9 @@ class Gather(TraceContainer, SamplesContainer):
         ----------
         amplify_factor : float in range [0, 1], optional, defaults to 0
             Amplifying factor which affects the normalization of the sum of hodographs amplitudes.
-            The amplitudes sum is multiplied by amplify_factor/sqrt(N) + (1 - amplify_factor)/N, 
+            The amplitudes sum is multiplied by amplify_factor/sqrt(N) + (1 - amplify_factor)/N,
             where N is the number of live(non muted) amplitudes. Acts as the coherency amplifier for long hodographs.
-            Note that in case amplify_factor=0 (default), sum of trace amplitudes is simply divided by N, 
+            Note that in case amplify_factor=0 (default), sum of trace amplitudes is simply divided by N,
             so that stack amplitude is the average of ensemble amplitudes. Must be in [0, 1] range.
 
         Returns
@@ -1075,7 +1252,9 @@ class Gather(TraceContainer, SamplesContainer):
         self.data = self.data.reshape(1, -1)
         return self
 
-    def crop(self, origins, crop_shape, n_crops=1, stride=None, pad_mode='constant', **kwargs):
+    def crop(
+        self, origins, crop_shape, n_crops=1, stride=None, pad_mode="constant", **kwargs
+    ):
         """Crop gather data.
 
         Parameters
@@ -1156,7 +1335,13 @@ class Gather(TraceContainer, SamplesContainer):
         cutoffs = [cutoff for cutoff in [low, high] if cutoff is not None]
 
         # Construct the filter and flip it since opencv computes crosscorrelation instead of convolution
-        kernel = firwin(filter_size, cutoffs, pass_zero=pass_zero, fs=1000 / self.sample_rate, **kwargs)[::-1]
+        kernel = firwin(
+            filter_size,
+            cutoffs,
+            pass_zero=pass_zero,
+            fs=1000 / self.sample_rate,
+            **kwargs,
+        )[::-1]
         cv2.filter2D(self.data, dst=self.data, ddepth=-1, kernel=kernel.reshape(1, -1))
         return self
 
@@ -1191,21 +1376,32 @@ class Gather(TraceContainer, SamplesContainer):
             # above are zeroed out
             nyquist_frequency = 1000 / (2 * new_sample_rate)
             filter_size = int(40 * new_sample_rate / current_sample_rate)
-            self.bandpass_filter(high=0.9 * nyquist_frequency, filter_size=filter_size, window="hann")
+            self.bandpass_filter(
+                high=0.9 * nyquist_frequency, filter_size=filter_size, window="hann"
+            )
 
-        new_samples = np.arange(self.samples[0], self.samples[-1] + 1e-6, new_sample_rate, self.samples.dtype)
+        new_samples = np.arange(
+            self.samples[0],
+            self.samples[-1] + 1e-6,
+            new_sample_rate,
+            self.samples.dtype,
+        )
 
         if isinstance(kind, int):
-            data_resampled = piecewise_polynomial(new_samples, self.samples, self.data, kind)
+            data_resampled = piecewise_polynomial(
+                new_samples, self.samples, self.data, kind
+            )
         elif isinstance(kind, str):
-            data_resampled = scipy.interpolate.interp1d(self.samples, self.data, kind=kind)(new_samples)
+            data_resampled = scipy.interpolate.interp1d(
+                self.samples, self.data, kind=kind
+            )(new_samples)
 
         self.data = data_resampled
         self.samples = new_samples
         return self
 
     @batch_method(target="threads")
-    def apply_agc(self, window_size=250, mode='rms'):
+    def apply_agc(self, window_size=250, mode="rms"):
         """Calculate instantaneous or RMS amplitude AGC coefficients and apply them to gather data.
 
         Parameters
@@ -1231,12 +1427,18 @@ class Gather(TraceContainer, SamplesContainer):
         # Cast window from ms to samples
         window_size_samples = int(window_size // self.sample_rate) + 1
 
-        if mode not in ['abs', 'rms']:
-            raise ValueError(f"mode should be either 'abs' or 'rms', but {mode} was given")
+        if mode not in ["abs", "rms"]:
+            raise ValueError(
+                f"mode should be either 'abs' or 'rms', but {mode} was given"
+            )
         if (window_size_samples < 3) or (window_size_samples > self.n_samples):
-            raise ValueError(f'window should be at least {3*self.sample_rate} milliseconds and'
-                             f' {(self.n_samples-1)*self.sample_rate} at most, but {window_size} was given')
-        self.data = gain.apply_agc(data=self.data, window_size=window_size_samples, mode=mode)
+            raise ValueError(
+                f"window should be at least {3*self.sample_rate} milliseconds and"
+                f" {(self.n_samples-1)*self.sample_rate} at most, but {window_size} was given"
+            )
+        self.data = gain.apply_agc(
+            data=self.data, window_size=window_size_samples, mode=mode
+        )
         return self
 
     @batch_method(target="threads")
@@ -1261,8 +1463,12 @@ class Gather(TraceContainer, SamplesContainer):
         if velocity is None:
             velocity = DEFAULT_STACKING_VELOCITY
         if not isinstance(velocity, StackingVelocity):
-            raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
-        self.data = gain.apply_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
+            raise ValueError(
+                "Only StackingVelocity instance or None can be passed as velocity"
+            )
+        self.data = gain.apply_sdc(
+            self.data, v_pow, velocity(self.times), t_pow, self.times
+        )
         return self
 
     @batch_method(target="for")
@@ -1287,16 +1493,29 @@ class Gather(TraceContainer, SamplesContainer):
         if velocity is None:
             velocity = DEFAULT_STACKING_VELOCITY
         if not isinstance(velocity, StackingVelocity):
-            raise ValueError("Only StackingVelocity instance or None can be passed as velocity")
-        self.data = gain.undo_sdc(self.data, v_pow, velocity(self.times), t_pow, self.times)
+            raise ValueError(
+                "Only StackingVelocity instance or None can be passed as velocity"
+            )
+        self.data = gain.undo_sdc(
+            self.data, v_pow, velocity(self.times), t_pow, self.times
+        )
         return self
 
-    #------------------------------------------------------------------------#
+    # ------------------------------------------------------------------------#
     #                         Visualization methods                          #
-    #------------------------------------------------------------------------#
+    # ------------------------------------------------------------------------#
 
     @plotter(figsize=(10, 7), args_to_unpack="masks")
-    def plot(self, mode="seismogram", *, title=None, x_ticker=None, y_ticker=None, ax=None, **kwargs):
+    def plot(
+        self,
+        mode="seismogram",
+        *,
+        title=None,
+        x_ticker=None,
+        y_ticker=None,
+        ax=None,
+        **kwargs,
+    ):
         """Plot gather traces.
 
         The traces can be displayed in a number of representations, depending on the `mode` provided. Currently, the
@@ -1435,7 +1654,9 @@ class Gather(TraceContainer, SamplesContainer):
             If `x_ticker` or `y_ticker` has the wrong format.
         """
         # Cast text-related parameters to dicts and add text formatting parameters from kwargs to each of them
-        (title, x_ticker, y_ticker), kwargs = set_text_formatting(title, x_ticker, y_ticker, **kwargs)
+        (title, x_ticker, y_ticker), kwargs = set_text_formatting(
+            title, x_ticker, y_ticker, **kwargs
+        )
 
         # Plot the gather depending on the mode passed
         plotters_dict = {
@@ -1446,59 +1667,127 @@ class Gather(TraceContainer, SamplesContainer):
         if mode not in plotters_dict:
             raise ValueError(f"Unknown mode {mode}")
 
-        plotters_dict[mode](ax, title=title, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs)
+        plotters_dict[mode](
+            ax, title=title, x_ticker=x_ticker, y_ticker=y_ticker, **kwargs
+        )
         return self
 
-    def _plot_histogram(self, ax, title, x_ticker, y_ticker, x_tick_src="amplitude", bins=None,
-                        log=False, grid=True, **kwargs):
+    def _plot_histogram(
+        self,
+        ax,
+        title,
+        x_ticker,
+        y_ticker,
+        x_tick_src="amplitude",
+        bins=None,
+        log=False,
+        grid=True,
+        **kwargs,
+    ):
         """Plot histogram of the data specified by x_tick_src."""
-        if x_tick_src.title() == 'Amplitude':
-            x_tick_src = 'Amplitude'
+        if x_tick_src.title() == "Amplitude":
+            x_tick_src = "Amplitude"
             data = self.data.ravel()
         else:
             data = self[x_tick_src]
 
         _ = ax.hist(data, bins=bins, **kwargs)
-        set_ticks(ax, "x", **{"label": x_tick_src, 'round_to': None, **x_ticker})
+        set_ticks(ax, "x", **{"label": x_tick_src, "round_to": None, **x_ticker})
         set_ticks(ax, "y", **{"label": "Counts", **y_ticker})
 
         ax.grid(grid)
         if log:
             ax.set_yscale("log")
-        ax.set_title(**{'label': None, **title})
+        ax.set_title(**{"label": None, **title})
 
     # pylint: disable=too-many-arguments
-    def _plot_seismogram(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src='time', colorbar=False,
-                         q_vmin=0.1, q_vmax=0.9, event_headers=None, top_header=None, masks=None, **kwargs):
+    def _plot_seismogram(
+        self,
+        ax,
+        title,
+        x_ticker,
+        y_ticker,
+        x_tick_src=None,
+        y_tick_src="time",
+        colorbar=False,
+        q_vmin=0.1,
+        q_vmax=0.9,
+        event_headers=None,
+        top_header=None,
+        masks=None,
+        **kwargs,
+    ):
         """Plot the gather as a 2d grayscale image of seismic traces."""
         # Make the axis divisible to further plot colorbar and header subplot
         divider = make_axes_locatable(ax)
         vmin, vmax = self.get_quantile([q_vmin, q_vmax])
-        kwargs = {"cmap": "gray", "aspect": "auto", "vmin": vmin, "vmax": vmax, **kwargs}
+        kwargs = {
+            "cmap": "gray",
+            "aspect": "auto",
+            "vmin": vmin,
+            "vmax": vmax,
+            **kwargs,
+        }
         img = ax.imshow(self.data.T, **kwargs)
         if masks is not None:
-            default_mask_kwargs = {"aspect": "auto", "alpha": 0.5, "interpolation": "none"}
+            default_mask_kwargs = {
+                "aspect": "auto",
+                "alpha": 0.5,
+                "interpolation": "none",
+            }
             for mask_kwargs in self._process_masks(masks):
                 mask_kwargs = {**default_mask_kwargs, **mask_kwargs}
                 mask = mask_kwargs.pop("masks")
                 cmap = ListedColormap(mask_kwargs.pop("color"))
                 label = mask_kwargs.pop("label")
                 # Add an invisible artist to display mask label on the legend since imshow does not support it
-                ax.add_patch(Polygon([[0, 0]], color=cmap(1), label=label, alpha=mask_kwargs["alpha"]))
+                ax.add_patch(
+                    Polygon(
+                        [[0, 0]], color=cmap(1), label=label, alpha=mask_kwargs["alpha"]
+                    )
+                )
                 ax.imshow(mask.T, cmap=cmap, **mask_kwargs)
         add_colorbar(ax, img, colorbar, divider, y_ticker)
-        self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
+        self._finalize_plot(
+            ax,
+            title,
+            divider,
+            event_headers,
+            top_header,
+            x_ticker,
+            y_ticker,
+            x_tick_src,
+            y_tick_src,
+        )
 
-    #pylint: disable=invalid-name
-    def _plot_wiggle(self, ax, title, x_ticker, y_ticker, x_tick_src=None, y_tick_src="time", norm_tracewise=True,
-                     std=0.5, event_headers=None, top_header=None, masks=None, lw=None, alpha=None, color="black",
-                     **kwargs):
+    # pylint: disable=invalid-name
+    def _plot_wiggle(
+        self,
+        ax,
+        title,
+        x_ticker,
+        y_ticker,
+        x_tick_src=None,
+        y_tick_src="time",
+        norm_tracewise=True,
+        std=0.5,
+        event_headers=None,
+        top_header=None,
+        masks=None,
+        lw=None,
+        alpha=None,
+        color="black",
+        **kwargs,
+    ):
         """Plot the gather as an amplitude vs time plot for each trace."""
+
         def _get_start_end_ixs(ixs):
             """Return arrays with indices of beginnings and ends of polygons defined by continuous subsequences in
             `ixs`."""
-            start_ix = np.argwhere((np.diff(ixs[:, 0], prepend=ixs[0, 0]) != 0) |
-                                   (np.diff(ixs[:, 1], prepend=ixs[0, 1]) != 1)).ravel()
+            start_ix = np.argwhere(
+                (np.diff(ixs[:, 0], prepend=ixs[0, 0]) != 0)
+                | (np.diff(ixs[:, 1], prepend=ixs[0, 1]) != 1)
+            ).ravel()
             end_ix = start_ix + np.diff(start_ix, append=len(ixs)) - 1
             return start_ix, end_ix
 
@@ -1507,26 +1796,44 @@ class Gather(TraceContainer, SamplesContainer):
 
         # The default parameters lw = 1 and alpha = 1 are fine for 150 traces gather being plotted on 7.75 inches width
         # axes(by default created by gather.plot()). Scale this parameters linearly for bigger gathers or smaller axes.
-        axes_width = ax.get_window_extent().transformed(ax.figure.dpi_scale_trans.inverted()).width
+        axes_width = (
+            ax.get_window_extent()
+            .transformed(ax.figure.dpi_scale_trans.inverted())
+            .width
+        )
 
         MAX_TRACE_DENSITY = 150 / 7.75
-        BOUNDS = [[0.25, 1], [0, 1.5]] # The clip limits for parameters after linear scale.
+        BOUNDS = [
+            [0.25, 1],
+            [0, 1.5],
+        ]  # The clip limits for parameters after linear scale.
 
-        alpha, lw = [np.clip(MAX_TRACE_DENSITY * (axes_width / self.n_traces), *val_bounds) if val is None else val
-                     for val, val_bounds in zip([alpha, lw], BOUNDS)]
+        alpha, lw = [
+            np.clip(MAX_TRACE_DENSITY * (axes_width / self.n_traces), *val_bounds)
+            if val is None
+            else val
+            for val, val_bounds in zip([alpha, lw], BOUNDS)
+        ]
 
         std_axis = 1 if norm_tracewise else None
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
-            traces = std * ((self.data - np.nanmean(self.data, axis=1, keepdims=True)) /
-                            (np.nanstd(self.data, axis=std_axis, keepdims=True) + 1e-10))
+            traces = std * (
+                (self.data - np.nanmean(self.data, axis=1, keepdims=True))
+                / (np.nanstd(self.data, axis=std_axis, keepdims=True) + 1e-10)
+            )
 
         # Shift trace amplitudes according to the trace index in the gather
         amps = traces + np.arange(traces.shape[0]).reshape(-1, 1)
         # Plot all the traces as one Line, then hide transitions between adjacent traces
         amps = np.concatenate([amps, np.full((len(amps), 1), np.nan)], axis=1)
-        ax.plot(amps.ravel(), np.broadcast_to(np.arange(amps.shape[1]), amps.shape).ravel(),
-                color=color, lw=lw, **kwargs)
+        ax.plot(
+            amps.ravel(),
+            np.broadcast_to(np.arange(amps.shape[1]), amps.shape).ravel(),
+            color=color,
+            lw=lw,
+            **kwargs,
+        )
 
         # Find polygons bodies: indices of target amplitudes, start and end
         poly_amp_ix = np.argwhere(traces > 0)
@@ -1542,10 +1849,14 @@ class Gather(TraceContainer, SamplesContainer):
         verts[end_ix + shift + 2] = poly_amp_ix[end_ix]
         verts[end_ix + shift + 3] = poly_amp_ix[start_ix]
 
-        body_ix = np.setdiff1d(np.arange(len(verts)),
-                               np.concatenate([start_ix + shift, end_ix + shift + 2, end_ix + shift + 3]),
-                               assume_unique=True)
-        verts[body_ix] = np.column_stack([amps[tuple(poly_amp_ix.T)], poly_amp_ix[:, 1]])
+        body_ix = np.setdiff1d(
+            np.arange(len(verts)),
+            np.concatenate([start_ix + shift, end_ix + shift + 2, end_ix + shift + 3]),
+            assume_unique=True,
+        )
+        verts[body_ix] = np.column_stack(
+            [amps[tuple(poly_amp_ix.T)], poly_amp_ix[:, 1]]
+        )
 
         # Fill the array representing the nodes codes: either start, intermediate or end code.
         codes = np.full(len(verts), Path.LINETO)
@@ -1561,28 +1872,56 @@ class Gather(TraceContainer, SamplesContainer):
                 mask_ix = np.argwhere(mask > 0)
                 start_ix, end_ix = _get_start_end_ixs(mask_ix)
                 # Compute the polygon bodies, that represent mask coordinates with a small indent
-                up_verts = mask_ix[start_ix].reshape(-1, 1, 2) + np.array([[0.5, -0.5], [-0.5, -0.5]])
-                down_verts = mask_ix[end_ix].reshape(-1, 1, 2) + np.array([[-0.5, 0.5], [0.5, 0.5]])
+                up_verts = mask_ix[start_ix].reshape(-1, 1, 2) + np.array(
+                    [[0.5, -0.5], [-0.5, -0.5]]
+                )
+                down_verts = mask_ix[end_ix].reshape(-1, 1, 2) + np.array(
+                    [[-0.5, 0.5], [0.5, 0.5]]
+                )
                 # Combine upper and lower vertices and add plaсeholders for Path.CLOSEPOLY code with coords [0, 0]
                 # after each polygon.
-                verts = np.hstack((up_verts, down_verts, np.zeros((len(up_verts), 1, 2)))).reshape(-1, 2)
+                verts = np.hstack(
+                    (up_verts, down_verts, np.zeros((len(up_verts), 1, 2)))
+                ).reshape(-1, 2)
 
                 # Fill the array representing the nodes codes: either start, intermediate or end code.
                 codes = np.full(len(verts), Path.LINETO)
                 codes[::5] = Path.MOVETO
                 codes[4::5] = Path.CLOSEPOLY
 
-                default_mask_kwargs = {"alpha": alpha*0.7, "lw": 0}
-                mask_patch = PathPatch(Path(verts, codes), **{**default_mask_kwargs, **mask_kwargs})
+                default_mask_kwargs = {"alpha": alpha * 0.7, "lw": 0}
+                mask_patch = PathPatch(
+                    Path(verts, codes), **{**default_mask_kwargs, **mask_kwargs}
+                )
                 ax.add_artist(mask_patch)
 
         ax.update_datalim([(0, 0), traces.shape])
         if not ax.yaxis_inverted():
             ax.invert_yaxis()
-        self._finalize_plot(ax, title, divider, event_headers, top_header, x_ticker, y_ticker, x_tick_src, y_tick_src)
+        self._finalize_plot(
+            ax,
+            title,
+            divider,
+            event_headers,
+            top_header,
+            x_ticker,
+            y_ticker,
+            x_tick_src,
+            y_tick_src,
+        )
 
-    def _finalize_plot(self, ax, title, divider, event_headers, top_header,
-                       x_ticker, y_ticker, x_tick_src, y_tick_src):
+    def _finalize_plot(
+        self,
+        ax,
+        title,
+        divider,
+        event_headers,
+        top_header,
+        x_ticker,
+        y_ticker,
+        x_tick_src,
+        y_tick_src,
+    ):
         """Plot optional artists and set ticks on the `ax`. Utility method for 'seismogram' and 'wiggle' modes."""
         # Add headers scatter plot if needed
         if event_headers is not None:
@@ -1591,23 +1930,39 @@ class Gather(TraceContainer, SamplesContainer):
         # Add a top subplot for given header if needed and set plot title
         top_ax = ax
         if top_header is not None:
-            header_values = self[top_header] if isinstance(top_header, str) else top_header
-            top_ax = self._plot_top_subplot(ax=ax, divider=divider, header_values=header_values, y_ticker=y_ticker)
+            header_values = (
+                self[top_header] if isinstance(top_header, str) else top_header
+            )
+            top_ax = self._plot_top_subplot(
+                ax=ax, divider=divider, header_values=header_values, y_ticker=y_ticker
+            )
 
         # Set axis ticks.
         self._set_x_ticks(ax, tick_src=x_tick_src, ticker=x_ticker)
         self._set_y_ticks(ax, tick_src=y_tick_src, ticker=y_ticker)
 
-        top_ax.set_title(**{'label': None, **title})
+        top_ax.set_title(**{"label": None, **title})
 
         if len(ax.get_legend_handles_labels()[0]):
             ax.legend()
 
     def _process_masks(self, masks):
-        colors_iterator = cycle(['tab:red', 'tab:blue', 'tab:orange', 'tab:green', 'tab:purple', 'tab:pink',
-                                 'tab:olive', 'tab:cyan'])
+        colors_iterator = cycle(
+            [
+                "tab:red",
+                "tab:blue",
+                "tab:orange",
+                "tab:green",
+                "tab:purple",
+                "tab:pink",
+                "tab:olive",
+                "tab:cyan",
+            ]
+        )
         masks_list = self._parse_headers_kwargs(masks, "masks")
-        for ix, (mask_dict, default_color) in enumerate(zip(masks_list, colors_iterator)):
+        for ix, (mask_dict, default_color) in enumerate(
+            zip(masks_list, colors_iterator)
+        ):
             mask = mask_dict["masks"]
             if isinstance(mask, Gather):
                 mask = mask.data
@@ -1619,10 +1974,16 @@ class Gather(TraceContainer, SamplesContainer):
             if mask.ndim == 1:
                 mask = mask.reshape(-1, 1)
             threshold = mask_dict.pop("threshold", 0.5)
-            mask_dict["masks"] = np.broadcast_to(np.where(mask < threshold, np.nan, 1), self.shape)
+            mask_dict["masks"] = np.broadcast_to(
+                np.where(mask < threshold, np.nan, 1), self.shape
+            )
             mask_dict["label"] = mask_dict.get("label", f"Mask {ix+1}")
             mask_dict["color"] = mask_dict.get("color", default_color)
-        return [mask_dict for mask_dict in masks_list if not np.isnan(mask_dict["masks"]).all()]
+        return [
+            mask_dict
+            for mask_dict in masks_list
+            if not np.isnan(mask_dict["masks"]).all()
+        ]
 
     @staticmethod
     def _parse_headers_kwargs(headers_kwargs, headers_key):
@@ -1644,14 +2005,20 @@ class Gather(TraceContainer, SamplesContainer):
          {'headers': 'FirstBreakPred', 's': 5, 'c': 'red'}]
         """
         if not isinstance(headers_kwargs, dict):
-            headers_kwargs = headers_kwargs if isinstance(headers_kwargs, (list, tuple)) else [headers_kwargs]
+            headers_kwargs = (
+                headers_kwargs
+                if isinstance(headers_kwargs, (list, tuple))
+                else [headers_kwargs]
+            )
             return [{headers_key: header} for header in headers_kwargs]
 
         if headers_key not in headers_kwargs:
-            raise KeyError(f'Missing {headers_key} key in passed kwargs')
+            raise KeyError(f"Missing {headers_key} key in passed kwargs")
 
-        headers_kwargs = {key: value if isinstance(value, (list, tuple)) else [value]
-                          for key, value in headers_kwargs.items()}
+        headers_kwargs = {
+            key: value if isinstance(value, (list, tuple)) else [value]
+            for key, value in headers_kwargs.items()
+        }
         n_headers = len(headers_kwargs[headers_key])
 
         kwargs_list = [{} for _ in range(n_headers)]
@@ -1659,7 +2026,9 @@ class Gather(TraceContainer, SamplesContainer):
             if len(values) == 1:
                 values = values * n_headers
             elif len(values) != n_headers:
-                raise ValueError(f"Incompatible length of {key} array: {n_headers} expected but {len(values)} given.")
+                raise ValueError(
+                    f"Incompatible length of {key} array: {n_headers} expected but {len(values)} given."
+                )
             for ix, value in enumerate(values):
                 kwargs_list[ix][key] = value
         return kwargs_list
@@ -1669,7 +2038,10 @@ class Gather(TraceContainer, SamplesContainer):
         x_coords = np.arange(self.n_traces)
         kwargs_list = self._parse_headers_kwargs(headers_kwargs, "headers")
         for kwargs in kwargs_list:
-            kwargs = {"zorder": 10, **kwargs}  # Increase zorder to plot headers on top of gather
+            kwargs = {
+                "zorder": 10,
+                **kwargs,
+            }  # Increase zorder to plot headers on top of gather
             header = kwargs.pop("headers")
             label = kwargs.pop("label", header)
             process_outliers = kwargs.pop("process_outliers", "none")
@@ -1677,7 +2049,9 @@ class Gather(TraceContainer, SamplesContainer):
             if process_outliers == "clip":
                 y_coords = np.clip(y_coords, 0, self.n_samples - 1)
             elif process_outliers == "discard":
-                y_coords = np.where((y_coords >= 0) & (y_coords <= self.n_samples - 1), y_coords, np.nan)
+                y_coords = np.where(
+                    (y_coords >= 0) & (y_coords <= self.n_samples - 1), y_coords, np.nan
+                )
             elif process_outliers != "none":
                 raise ValueError(f"Unknown outlier processing mode {process_outliers}")
             ax.scatter(x_coords, y_coords, label=label, **kwargs)
@@ -1685,7 +2059,11 @@ class Gather(TraceContainer, SamplesContainer):
     def _plot_top_subplot(self, ax, divider, header_values, y_ticker, **kwargs):
         """Add a scatter plot of given header values on top of the main gather plot."""
         top_ax = divider.append_axes("top", sharex=ax, size="12%", pad=0.05)
-        top_ax.scatter(np.arange(self.n_traces), header_values, **{"s": 5, "color": "black", **kwargs})
+        top_ax.scatter(
+            np.arange(self.n_traces),
+            header_values,
+            **{"s": 5, "color": "black", **kwargs},
+        )
         top_ax.xaxis.set_visible(False)
         top_ax.yaxis.tick_right()
         top_ax.invert_yaxis()
@@ -1693,13 +2071,13 @@ class Gather(TraceContainer, SamplesContainer):
         return top_ax
 
     def _set_x_ticks(self, ax, tick_src, ticker):
-        """Infer and set ticks for x axis. """
-        tick_src = to_list(tick_src or self.sort_by or 'index')[:2]
+        """Infer and set ticks for x axis."""
+        tick_src = to_list(tick_src or self.sort_by or "index")[:2]
         if tick_src[0].title() == "Index":
             tick_src[0] = "Index"
             major_labels, minor_labels = np.arange(self.n_traces), None
         elif len(tick_src) == 1:
-            major_labels, minor_labels =  self[tick_src[0]], None
+            major_labels, minor_labels = self[tick_src[0]], None
         else:
             major_labels, minor_labels = self[tick_src[0]], self[tick_src[1]]
 
@@ -1708,23 +2086,33 @@ class Gather(TraceContainer, SamplesContainer):
             "offset": ", m",
         }
 
-        tick_src = [ix_tick_src + UNITS.get(ix_tick_src, '') for ix_tick_src in tick_src]
-        axis_label = '\n'.join(tick_src)
+        tick_src = [
+            ix_tick_src + UNITS.get(ix_tick_src, "") for ix_tick_src in tick_src
+        ]
+        axis_label = "\n".join(tick_src)
 
-        set_ticks(ax, 'x', major_labels=major_labels, minor_labels=minor_labels, **{"label": axis_label, **ticker})
+        set_ticks(
+            ax,
+            "x",
+            major_labels=major_labels,
+            minor_labels=minor_labels,
+            **{"label": axis_label, **ticker},
+        )
 
     def _set_y_ticks(self, ax, tick_src, ticker):
-        """Infer and set ticks for y axis. """
+        """Infer and set ticks for y axis."""
         tick_src = tick_src.title()
         if tick_src == "Time":
             tick_src = "Time, ms"
-            major_labels =  self.samples
+            major_labels = self.samples
         if tick_src == "Samples":
             major_labels = np.arange(self.n_samples)
 
-        set_ticks(ax, 'y', major_labels=major_labels, **{"label": tick_src, **ticker})
+        set_ticks(ax, "y", major_labels=major_labels, **{"label": tick_src, **ticker})
 
-    def plot_nmo_correction(self, min_vel=1500, max_vel=6000, figsize=(6, 4.5), show_grid=True, **kwargs):
+    def plot_nmo_correction(
+        self, min_vel=1500, max_vel=6000, figsize=(6, 4.5), show_grid=True, **kwargs
+    ):
         """Perform interactive NMO correction of the gather with selected constant velocity.
 
         The plot provides 2 views:
@@ -1748,10 +2136,18 @@ class Gather(TraceContainer, SamplesContainer):
         kwargs : misc, optional
             Additional keyword arguments to `Gather.plot`.
         """
-        NMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, show_grid=show_grid,
-                          **kwargs).plot()
+        NMOCorrectionPlot(
+            self,
+            min_vel=min_vel,
+            max_vel=max_vel,
+            figsize=figsize,
+            show_grid=show_grid,
+            **kwargs,
+        ).plot()
 
-    def plot_lmo_correction(self, min_vel=500, max_vel=3000, figsize=(6, 4.5), show_grid=True, **kwargs):
+    def plot_lmo_correction(
+        self, min_vel=500, max_vel=3000, figsize=(6, 4.5), show_grid=True, **kwargs
+    ):
         """Perform interactive LMO correction of the gather with the selected velocity.
 
         The plot provides 2 views:
@@ -1775,5 +2171,11 @@ class Gather(TraceContainer, SamplesContainer):
         kwargs : misc, optional
             Additional keyword arguments to `Gather.plot`.
         """
-        LMOCorrectionPlot(self, min_vel=min_vel, max_vel=max_vel, figsize=figsize, show_grid=show_grid,
-                          **kwargs).plot()
+        LMOCorrectionPlot(
+            self,
+            min_vel=min_vel,
+            max_vel=max_vel,
+            figsize=figsize,
+            show_grid=show_grid,
+            **kwargs,
+        ).plot()
