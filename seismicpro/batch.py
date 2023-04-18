@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from batchflow import save_data_to, Batch, DatasetIndex, NamedExpression
 from batchflow.decorators import action, inbatch_parallel
 
+from .config import config
 from .index import SeismicIndex
 from .gather import Gather, CroppedGather
 from .gather.utils.crop_utils import make_origins
@@ -69,6 +70,13 @@ class SeismicBatch(Batch):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._num_calculated_metrics = 0
+
+    def __getstate__(self):
+        state = super().__getstate__()
+        if config["enable_fast_pickling"]:
+            state["_dataset"] = None
+            state["pipeline"] = None
+        return state
 
     def init_component(self, *args, dst=None, **kwargs):
         """Create and preallocate new attributes with names listed in `dst` if they don't exist and return ordinal
