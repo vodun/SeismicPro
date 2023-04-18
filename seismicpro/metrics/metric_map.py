@@ -238,7 +238,7 @@ class BaseMetricMap:  # pylint: disable=too-many-instance-attributes
             New metric map instance.
         """
         metric_values = self.metric_data[self.metric_name]
-        new_metric_data = self.metric_data[(metric_values >= lower_thr) & (metric_values <= upper_thr)]
+        new_metric_data = self.metric_data[(metric_values >= lower_thd) & (metric_values <= upper_thd)]
 
         bin_size = getattr(self, "bin_size", None)
         new_metric_map = self.map_class(new_metric_data[self.coords_cols], new_metric_data[self.metric_name], 
