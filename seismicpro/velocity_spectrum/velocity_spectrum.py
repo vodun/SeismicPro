@@ -474,7 +474,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
             title = f"Vertical Velocity Spectrum \n Coherency func: {self.coherency_func.__name__}"
         return super().plot(stacking_velocity=stacking_velocity, interactive=interactive, title=title, **kwargs)
 
-    @batch_method(target="for", copy_src=False)
+    @batch_method(target="for", args_to_unpack="init", copy_src=False)
     def calculate_stacking_velocity(self, init=None, bounds=None, relative_margin=None, acceleration_bounds="auto",
                                     times_step=100, max_offset=5000, hodograph_correction_step=1, min_n_velocities=5,
                                     max_n_skips=2):
