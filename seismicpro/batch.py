@@ -147,6 +147,31 @@ class SeismicBatch(Batch):
         getattr(self, dst)[pos] = survey.load_gather(headers, **kwargs)
 
     @action
+    def combine_gathers(self, src, dst=None):
+        if not isinstance(self.index, SeismicIndex):
+            return self  # gathers are already combined
+
+        src_list = to_list(src)
+        dst_list = to_list(dst) if dst is not None else src_list
+        if len(src_list) != len(dst_list):
+            raise ValueError("src and dst should have the same length.")
+
+        non_empty_parts = [i for i, n_gathers in enumerate(self.index.n_gathers_by_part) if n_gathers]
+        split_pos = np.cumsum([n_gathers for n_gathers in self.index.n_gathers_by_part if n_gathers][:-1])
+        combined_batch = type(self)(DatasetIndex(non_empty_parts), dataset=self.dataset, pipeline=self.pipeline)
+        for src, dst in zip(src_list, dst_list):
+            gathers = getattr(self, src)
+            if not all(isinstance(gather, Gather) for gather in gathers):
+                raise ValueError(f"{src} component contains items that are not instances of Gather class")
+            combined_gathers = []
+            for gather_chunk in np.split(gathers, split_pos):
+                headers = pd.concat([gather.headers for gather in gather_chunk])
+                data = np.concatenate([gather.data for gather in gather_chunk])
+                combined_gathers.append(Gather(headers, data, gather_chunk[0].samples, gather_chunk[0].survey))
+            combined_batch.add_components(dst, init=np.array(combined_gathers))
+        return combined_batch
+
+    @action
     def update_field(self, field, src):
         """Update a field with objects from `src` component.
 
