@@ -302,7 +302,6 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         If not provided, the velocity range is inferred from const.DEFAULT_STACKING_VELOCITY evaluated for gather times
         and then additionally extended by 20%. Spectrum velocities are evenly sampled from this range with a step of
         100 m/s.
-<<<<<<< HEAD
     stacking_velocity : StackingVelocity, optional, defaults to DEFAULT_STACKING_VELOCITY
         Stacking velocity around which vertical velocity spectrum is calculated if `velocities` are not given.
     relative_margin : float, optional, defaults to 0.2
@@ -311,8 +310,6 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     velocity_step : float, optional, defaults to 50
         Step between two adjacent velocities for which vertical velocity spectrum is calculated. Measured in
         meters/seconds.
-=======
->>>>>>> fast_stack
     window_size : int, optional, defaults to 50
         Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother the
         resulting velocity spectrum will be but to the detriment of small details. Measured in milliseconds.
@@ -327,11 +324,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     max_stretch_factor : float, defaults to np.inf
         Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction. This
         mute is applied after nmo correction for each provided velocity and before coherency calculation. The lower the
-<<<<<<< HEAD
-        value, the stronger the mute. In case np.inf(default) no mute is applied. Reasonably good value is 0.65.
-=======
         value, the stronger the mute. In case np.inf (default) no mute is applied. Reasonably good value is 0.65.
->>>>>>> fast_stack
 
     Attributes
     ----------
@@ -573,12 +566,6 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     window_size : int, optional, defaults to 50
         Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother
         the resulting velocity spectrum will be but to the detriment of small details. Measured in milliseconds.
-<<<<<<< HEAD
-=======
-    relative_margin : float, optional, defaults to 0.2
-        Relative velocity margin, that determines the velocity range for velocity spectrum calculation
-        for each time `t` as `stacking_velocity(t)` * (1 +- `relative_margin`).
->>>>>>> fast_stack
     mode: str, optional, defaults to 'semblance'
         The measure for estimating hodograph coherency.
         The available options are:
@@ -590,11 +577,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     max_stretch_factor : float, defaults to np.inf
         Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction. This
         mute is applied after nmo correction for each provided velocity and before coherency calculation. The lower the
-<<<<<<< HEAD
-        value, the stronger the mute. In case np.inf(default) no mute is applied. Reasonably good value is 0.65.
-=======
         value, the stronger the mute. In case np.inf (default) no mute is applied. Reasonably good value is 0.65.
->>>>>>> fast_stack
 
     Attributes
     ----------
@@ -613,11 +596,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     max_stretch_factor: float
         Max allowable factor for stretch muter.
     """
-<<<<<<< HEAD
     def __init__(self, gather, stacking_velocity, relative_margin=0.2, velocity_step=50, window_size=50,
-=======
-    def __init__(self, gather, stacking_velocity, n_velocities=140, window_size=50, relative_margin=0.2,
->>>>>>> fast_stack
                  mode='semblance', max_stretch_factor=np.inf):
         super().__init__(gather, window_size, mode, max_stretch_factor)
         self.stacking_velocity = stacking_velocity
