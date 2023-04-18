@@ -28,7 +28,7 @@ class Config:
     def use_options(self, **kwargs):
         self.options.update(kwargs)
         yield
-        self.reset_options(kwargs.keys())
+        self.reset_options(*kwargs.keys())
 
 
 config = Config(_DEFAULT_CONFIG)
