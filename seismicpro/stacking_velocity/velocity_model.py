@@ -1,8 +1,15 @@
 import math
 
 import numpy as np
-import networkit as nk
 from numba import njit
+
+# sys.stdout, sys.stderr = os.devnull, os.devnull
+# import contextlib
+# with contextlib.redirect_stdout(None):
+import matplotlib as mpl
+mpl_params = mpl.rcParams.copy()
+import networkit as nk
+mpl.rcParams.update(mpl_params)
 
 from .stacking_velocity import StackingVelocity
 from ..utils import to_list, interpolate
