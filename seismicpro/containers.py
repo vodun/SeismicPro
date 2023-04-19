@@ -273,6 +273,52 @@ class TraceContainer:
         self.headers[res_cols] = res
         return self
 
+    
+    def load_headers(self, path, names=None, index_col=None, usecols=None, format="fwf", delimiter=None, decimal=None,
+                     engine="pyarrow", skiprows=None, encoding="UTF-8", keep_all_headers=False, inplace=False,
+                     **kwargs):
+        self = maybe_copy(self, inplace, ignore="headers")  # pylint: disable=self-cls-assignment
+        # TODO: can be infered from file as decimal if needed
+        if delimiter is None:
+            if format == "fwf":
+                delimiter = "\s+"
+                engine = None
+            elif format == "csv":
+                delimiter = ","
+            else:
+                raise ValueError()
+
+        # If decimal is not provided, try inferring it from the first line
+        if decimal is None:
+            with open(path, 'r', encoding=encoding) as f:
+                row = f.readline()
+            decimal = '.' if '.' in row else ','
+
+        if names is not None and index_col is not None:
+            names = list(set(to_list(index_col) + to_list(names)))
+
+        loaded_df = pd.read_csv(path, delimiter=delimiter, names=names, index_col=index_col, usecols=usecols,
+                                decimal=decimal, engine=engine, skiprows=skiprows, encoding=encoding, **kwargs)
+
+        how = "left" if keep_all_headers else "inner"
+        self.headers = self.headers.join(loaded_df, on=index_col, how=how, rsuffix="_loaded")
+
+        if self.is_empty:
+            warnings.warn("Empty headers after first breaks loading", RuntimeWarning)
+        return self
+
+    def dump_headers(self, path, columns, format="fwf", col_space=8, sep=',', dump_col_names=True, encoding="UTF-8",
+                 **kwargs):
+        dump_df = self.get_headers(columns)
+        if format == "fwf":
+            dump_df.to_string(path, columns=dump_df.columns, col_space=col_space, header=dump_col_names, index=False,
+                              encoding=encoding, **kwargs)
+        elif format == "csv":
+            dump_df.to_csv(path, sep=sep, columns=dump_df.columns, header=dump_col_names, index=False,
+                           encoding=encoding, **kwargs)
+        else:
+            raise ValueError()
+
 
 class GatherContainer(TraceContainer):
     """A mixin class that implements extra properties and processing methods for concrete subclasses with defined
