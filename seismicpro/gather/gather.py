@@ -1242,8 +1242,7 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target="for")
-    def calculate_avo(self, window=None, horizon_header=None, horizon_window_size=None, mode="rms", avo_col="avo_stats"):
-        limits = [0, self.n_samples]
+    def calculate_avo(self, window=None, horizon_header=None, horizon_window_size=20, mode="rms", avo_col="avo_stats"):
         start_ixs = np.zeros(self.n_traces, dtype=np.int32)
         end_ixs = np.full(self.n_traces, fill_value=self.n_samples, dtype=np.int32)
 
@@ -1258,19 +1257,17 @@ class Gather(TraceContainer, SamplesContainer):
         elif horizon_header is not None:
             # TODO: Add horizon header loading procedure
             centers = self[horizon_header]
-            if horizon_window_size is None:
-                raise ValueError("`horizon_window_size` must be specified if `horizon_header` was given")
             if isinstance(horizon_window_size, (int, np.integer)):
-                horizon_window_size = [horizon_window_size // 2, horizon_window_size - horizon_window_size // 2]
+                horizon_window_size = [horizon_window_size, horizon_window_size]
             elif not isinstance(horizon_window_size, (tuple, list, np.ndarray)):
                 raise ValueError("`horizon_window_size` should be either int or array-like with 2 ints, not "\
                                  f"{type(horizon_window_size)}")
             if len(horizon_window_size) != 2:
                 raise ValueError("If `horizon_window_size` is array-like, it must have exact two elements, not "\
                                  f"{len(horizon_window_size)}")
-            start_times = np.clip(centers - horizon_window_size[1], 0, self.samples[-1])
+            start_times = np.clip(centers - horizon_window_size[0], 0, self.samples[-1])
             start_ixs = times_to_indices(start_times, self.samples, round=True).astype(np.int32)
-            end_times = np.clip(centers + horizon_window_size[0], 0, self.samples[-1])
+            end_times = np.clip(centers + horizon_window_size[1], 0, self.samples[-1])
             end_ixs = times_to_indices(end_times, self.samples, round=True).astype(np.int32)
 
         func_dict = {
