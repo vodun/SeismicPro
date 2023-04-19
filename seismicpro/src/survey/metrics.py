@@ -7,7 +7,7 @@ from ..metrics import Metric
 
 class SurveyAttribute(Metric):
     """A utility metric class that reindexes given survey by `coords_cols` and allows for plotting gathers by their
-    coordinates. Does not implement any calculation logic."""
+    coordinates. Does not implement any calculation logic"""
     def __init__(self, survey, coords_cols, **kwargs):
         super().__init__(**kwargs)
         self.survey = survey.reindex(coords_cols)
