@@ -15,14 +15,14 @@ from tqdm.auto import tqdm
 from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
 
-from .headers import load_headers, validate_headers
+from .headers import load_headers
+from .headers_checks import validate_trace_headers, validate_source_headers, validate_receiver_headers
 from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
 from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
-from ..metrics import PartialMetric
 from ..containers import GatherContainer, SamplesContainer
-from ..utils import to_list, maybe_copy, get_cols
+from ..utils import to_list, maybe_copy, get_cols, get_first_defined
 from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK, HDR_TRACE_POS
 
 
@@ -43,7 +43,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     - ['INLINE_3D', 'CROSSLINE_3D'] - to get common midpoint gathers.
 
     `header_cols` argument specifies all other trace headers to load to further be available in gather processing
-    pipelines. All loaded headers are stored in a `headers` attribute as a `pd.DataFrame` with `header_index` columns
+    pipelines. All loaded headers are stored in the `headers` attribute as a `pd.DataFrame` with `header_index` columns
     set as its index.
 
     Values of both `header_index` and `header_cols` must be any of those specified in
@@ -57,12 +57,18 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     If both of them are present and equal or only one of them is well-defined (non-zero), it is used as a sample rate.
     Otherwise, an error is raised.
 
-    If `INLINE_3D`, `CROSSLINE_3D`, `CDP_X` and `CDP_Y` trace headers are loaded, field geometry is automatically
-    inferred on survey construction which allows accessing:
-    - Some geometry-related attributes of a survey, such as `area`, `perimeter` and `bin_size`,
+    If `INLINE_3D` and `CROSSLINE_3D` trace headers are loaded, properties of survey binning are automatically inferred
+    on survey construction which allows accessing:
+    - Some bin-related attributes of the survey, such as `n_bins`,
+    - `dist_to_bin_contours` method which calculates distances from points to a contour of the survey in bin
+      coordinates.
+
+    If `CDP_X` and `CDP_Y` headers are loaded together with `INLINE_3D` and `CROSSLINE_3D`, field geometry is also
+    inferred which allows accessing:
+    - Some geometry-related attributes of the survey, such as `area`, `perimeter` and `bin_size`,
     - `coords_to_bins` and `bins_to_coords` methods which convert geographic coordinates to bins and back respectively,
-    - `dist_to_bin_contours` and `dist_to_geographic_contours` methods which calculate distances from points to a
-      contour of the survey in bin and geographic coordinates respectively.
+    - `dist_to_geographic_contours` method which calculates distances from points to a contour of the survey in
+      geographic coordinates.
 
     Examples
     --------
@@ -85,6 +91,14 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         If not given, only headers from `header_index` are loaded and `TRACE_SEQUENCE_FILE` header is reconstructed
         automatically if not in the index.
         If "all", all available headers are loaded.
+    source_id_cols : str or list of str, optional
+        Trace headers that uniquely identify a seismic source. If not given, set in the following way (in order of
+        priority):
+        - `FieldRecord` if it loaded,
+        - [`SourceX`, `SourceY`] if they are loaded,
+        - `None` otherwise.
+    receiver_id_cols : str or list of str, optional
+        Trace headers that uniquely identify a receiver. If not given, set to [`GroupX`, `GroupY`] if they are loaded.
     name : str, optional
         Survey name. If not given, source file name is used. This name is mainly used to identify the survey when it is
         added to an index, see :class:`~index.SeismicIndex` docs for more info.
@@ -92,7 +106,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Default time limits to be used during trace loading and survey statistics calculation. `int` or `tuple` are
         used as arguments to init a `slice` object. If not given, whole traces are used. Measured in samples.
     validate : bool, optional, defaults to True
-        Whether to perform trace headers validation.
+        Whether to perform validation of trace headers consistency.
     endian : {"big", "msb", "little", "lsb"}, optional, defaults to "big"
         SEG-Y file endianness.
     chunk_size : int, optional, defaults to 25000
@@ -118,6 +132,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Sample rate of seismic traces. Measured in milliseconds.
     limits : slice
         Default time limits to be used during trace loading and survey statistics calculation. Measured in samples.
+    source_id_cols : str or list of str or None
+        Trace headers that uniquely identify a seismic source.
+    receiver_id_cols : str or list of str or None
+        Trace headers that uniquely identify a receiver.
     segy_handler : segyio.segy.SegyFile
         Source SEG-Y file handler.
     has_stats : bool
@@ -134,15 +152,26 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Interpolator of trace values quantiles. `None` until trace statistics are calculated.
     n_dead_traces : int or None
         The number of traces with constant value (dead traces). `None` until `mark_dead_traces` method is called.
+    has_inferred_binning : bool
+        Whether properties of survey binning have been inferred. `True` if `INLINE_3D` and `CROSSLINE_3D` trace headers
+        are loaded on survey instantiation or `infer_binning` method is explicitly called.
+    n_bins : int or None
+        The number of bins in the survey. `None` until properties of survey binning are inferred.
+    is_stacked : bool or None
+        Whether the survey is stacked. `None` until properties of survey binning are inferred.
+    field_mask : 2d np.ndarray or None
+        A binary mask of the field with ones set for bins with at least one trace and zeros otherwise. `None` until
+        properties of survey binning are inferred.
+    field_mask_origin : np.ndarray with 2 elements
+        Minimum values of inline and crossline over the field. `None` until properties of survey binning are inferred.
+    bin_contours : tuple of np.ndarray or None
+        Contours of all connected components of the field in bin coordinates. `None` until properties of survey binning
+        are inferred.
     has_inferred_geometry : bool
         Whether the survey has inferred geometry. `True` if `INLINE_3D`, `CROSSLINE_3D`, `CDP_X` and `CDP_Y` trace
         headers are loaded on survey instantiation or `infer_geometry` method is explicitly called.
     is_2d : bool or None
         Whether the survey is 2D. `None` until survey geometry is inferred.
-    is_stacked : bool or None
-        Whether the survey is stacked. `None` until survey geometry is inferred.
-    n_bins : int or None
-        The number of bins in the survey. `None` until survey geometry is inferred.
     bin_size : np.ndarray with 2 elements or None
         Bin sizes in meters along inline and crossline directions. `None` until survey geometry is inferred.
     inline_length : float or None
@@ -153,23 +182,21 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Field area in squared meters. `None` until survey geometry is inferred.
     perimeter : float or None
         Field perimeter in meters. `None` until survey geometry is inferred.
-    bin_contours : tuple of np.ndarray or None
-        Contours of all connected components of the field in bin coordinates. `None` until survey geometry is inferred.
     geographic_contours : tuple of np.ndarray or None
         Contours of all connected components of the field in geographic coordinates. `None` until survey geometry is
         inferred.
     """
 
     # pylint: disable-next=too-many-arguments, too-many-statements
-    def __init__(self, path, header_index, header_cols=None, name=None, limits=None, validate=True, endian="big",
-                 chunk_size=25000, n_workers=None, bar=True, use_segyio_trace_loader=False):
+    def __init__(self, path, header_index, header_cols=None, source_id_cols=None, receiver_id_cols=None, name=None,
+                 limits=None, validate=True, endian="big", chunk_size=25000, n_workers=None, bar=True,
+                 use_segyio_trace_loader=False):
         self.path = os.path.abspath(path)
         self.name = os.path.splitext(os.path.basename(self.path))[0] if name is None else name
 
         # Forbid loading UnassignedInt1 and UnassignedInt2 headers since they are treated differently from all other
         # headers by `segyio`
         allowed_headers = set(segyio.tracefield.keys.keys()) - {"UnassignedInt1", "UnassignedInt2"}
-
         header_index = to_list(header_index)
         if header_cols is None:
             header_cols = set()
@@ -177,10 +204,28 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             header_cols = allowed_headers
         else:
             header_cols = set(to_list(header_cols))
+        headers_to_load = set(header_index) | header_cols
+
+        # Parse source and receiver id cols and set defaults if needed
+        if source_id_cols is None:
+            if "FieldRecord" in headers_to_load:
+                source_id_cols = "FieldRecord"
+            elif {"SourceX", "SourceY"} <= headers_to_load:
+                source_id_cols = ["SourceX", "SourceY"]
+        else:
+            headers_to_load |= set(to_list(source_id_cols))
+        self.source_id_cols = source_id_cols
+
+        if receiver_id_cols is None:
+            if {"GroupX", "GroupY"} <= headers_to_load:
+                receiver_id_cols = ["GroupX", "GroupY"]
+        else:
+            headers_to_load |= set(to_list(receiver_id_cols))
+        self.receiver_id_cols = receiver_id_cols
 
         # TRACE_SEQUENCE_FILE is not loaded but reconstructed manually since sometimes it is undefined in the file but
         # we rely on it during gather loading
-        headers_to_load = (set(header_index) | header_cols) - {"TRACE_SEQUENCE_FILE"}
+        headers_to_load = headers_to_load - {"TRACE_SEQUENCE_FILE"}
 
         unknown_headers = headers_to_load - allowed_headers
         if unknown_headers:
@@ -263,20 +308,27 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.quantile_interpolator = None
         self.n_dead_traces = None
 
+        # Define all bin-related attributes and automatically infer them if both INLINE_3D and CROSSLINE_3D are loaded
+        self.has_inferred_binning = False
+        self.n_bins = None
+        self.is_stacked = None
+        self.field_mask = None
+        self.field_mask_origin = None
+        self.bin_contours = None
+        if {"INLINE_3D", "CROSSLINE_3D"} <= headers_to_load:
+            self.infer_binning()
+
         # Define all geometry-related attributes and automatically infer field geometry if required headers are loaded
         self.has_inferred_geometry = False
         self._bins_to_coords_reg = None
         self._coords_to_bins_reg = None
-        self.n_bins = None
-        self.is_stacked = None
-        self.bin_size = None  # m
-        self.inline_length = None  # m
-        self.crossline_length = None  # m
+        self.is_2d = None
         self.area = None  # m^2
         self.perimeter = None  # m
-        self.bin_contours = None
+        self.bin_size = None  # (m, m)
+        self.inline_length = None  # m
+        self.crossline_length = None  # m
         self.geographic_contours = None
-        self.is_2d = None
         if {"INLINE_3D", "CROSSLINE_3D", "CDP_X", "CDP_Y"} <= headers_to_load:
             self.infer_geometry()
 
@@ -305,6 +357,20 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     def n_file_samples(self):
         """int: Trace length in samples in the source SEG-Y file."""
         return len(self.file_samples)
+
+    @property
+    def n_sources(self):
+        """int: The number of sources."""
+        if self.source_id_cols is None:
+            return None
+        return len(self.get_headers(self.source_id_cols).drop_duplicates())
+
+    @property
+    def n_receivers(self):
+        """int: The number of receivers."""
+        if self.receiver_id_cols is None:
+            return None
+        return len(self.get_headers(self.receiver_id_cols).drop_duplicates())
 
     @property
     def dead_traces_marked(self):
@@ -353,28 +419,52 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """Print survey metadata including information about the source file, field geometry if it was inferred and
         trace statistics if they were calculated."""
         offsets = self.headers.get('offset')
-        offset_range = f'[{np.min(offsets)} m, {np.max(offsets)} m]' if offsets is not None else None
+        offset_range = f"[{np.min(offsets)} m, {np.max(offsets)} m]" if offsets is not None else "Unknown"
+
         msg = f"""
         Survey path:               {self.path}
         Survey name:               {self.name}
         Survey size:               {os.path.getsize(self.path) / (1024**3):4.3f} GB
 
-        Indexed by:                {', '.join(to_list(self.indexed_by))}
-        Number of gathers:         {self.n_gathers}
         Number of traces:          {self.n_traces}
         Trace length:              {self.n_samples} samples
         Sample rate:               {self.sample_rate} ms
         Times range:               [{min(self.samples)} ms, {max(self.samples)} ms]
         Offsets range:             {offset_range}
-        Is uphole:                 {"Unknown" if self.is_uphole is None else self.is_uphole}
+        Is uphole:                 {get_first_defined(self.is_uphole, "Unknown")}
+
+        Indexed by:                {", ".join(to_list(self.indexed_by))}
+        Number of gathers:         {self.n_gathers}
+        Mean gather fold:          {int(self.n_traces / self.n_gathers)}
+        """
+
+        if self.has_inferred_binning:
+            msg += f"""
+        Is stacked:                {self.is_stacked}
+        Number of bins:            {self.n_bins}
+        Mean bin fold:             {int(self.n_traces / self.n_bins)}
+        """
+
+        if self.source_id_cols is not None:
+            n_sources = self.n_sources  # Run possibly time-consuming calculation once
+            msg += f"""
+        Source ID headers:         {", ".join(to_list(self.source_id_cols))}
+        Number of sources:         {n_sources}
+        Mean source fold:          {int(self.n_traces / n_sources)}
+        """
+
+        if self.receiver_id_cols is not None:
+            n_receivers = self.n_receivers  # Run possibly time-consuming calculation once
+            msg += f"""
+        Receiver ID headers:       {", ".join(to_list(self.receiver_id_cols))}
+        Number of receivers:       {n_receivers}
+        Mean receiver fold:        {int(self.n_traces / n_receivers)}
         """
 
         if self.has_inferred_geometry:
             msg += f"""
         Field geometry:
         Dimensionality:            {"2D" if self.is_2d else "3D"}
-        Is stacked:                {self.is_stacked}
-        Number of bins:            {self.n_bins}
         Area:                      {(self.area / 1000**2):.2f} km^2
         Perimeter:                 {(self.perimeter / 1000):.2f} km
         Inline bin size:           {self.bin_size[0]:.1f} m
@@ -402,48 +492,91 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         trace statistics if they were calculated."""
         print(self)
 
-    def validate_headers(self, offset_atol=10, cdp_atol=10, elev_atol=5, elev_radius=50):
-        """Validate trace headers by checking that:
-        - All headers are not empty,
-        - Trace identifier (FieldRecord, TraceNumber) has no duplicates,
-        - Traces with the same shot index (FieldRecord) do not have different coordinates (SourceX, SourceY),
-        - Traces do not have signed offsets,
-        - Offsets in trace headers coincide with distances between shots (SourceX, SourceY) and receivers (GroupX,
-        GroupY),
-        - Mapping from geographic (CDP_X, CDP_Y) to line-based (INLINE_3D/CROSSLINE_3D) coordinates and back is unique,
-        - Coordinates of a midpoint (CDP_X, CDP_Y) matches those of the corresponding shot (SourceX, SourceY) and
-        receiver (GroupX, GroupY),
-        - Surface elevation of a shot (SourceSurfaceElevation) or receiver (ReceiverGroupElevation) is the same for all
-        its traces,
-        - Elevation-related headers (ReceiverGroupElevation, SourceSurfaceElevation) have consistent ranges.
+    def set_source_id_cols(self, cols, validate=True):
+        """Set new trace headers that uniquely identify a seismic source and optionally validate consistency of
+        source-related trace headers by checking that each source has unique coordinates, surface elevation, uphole
+        time and depth."""
+        if set(to_list(cols)) - self.available_headers:
+            raise ValueError("Required headers were not loaded")
+        if validate:
+            headers = self.headers.copy(deep=False)
+            headers.reset_index(inplace=True)
+            validate_source_headers(headers, cols)
+        self.source_id_cols = cols
+
+    def set_receiver_id_cols(self, cols, validate=True):
+        """Set new trace headers that uniquely identify a receiver and optionally validate consistency of
+        receiver-related trace headers by checking that each receiver has unique coordinates and surface elevation."""
+        if set(to_list(cols)) - self.available_headers:
+            raise ValueError("Required headers were not loaded")
+        if validate:
+            headers = self.headers.copy(deep=False)
+            headers.reset_index(inplace=True)
+            validate_receiver_headers(headers, cols)
+        self.receiver_id_cols = cols
+
+    def validate_headers(self, offset_atol=10, cdp_atol=10, elevation_atol=5, elevation_radius=50):
+        """Check trace headers for consistency.
+
+        1. Validate trace headers by checking that:
+           - All headers are not empty,
+           - Trace identifier (FieldRecord, TraceNumber) has no duplicates,
+           - Source uphole times and depths are non-negative,
+           - Source uphole time is zero if and only if source depth is also zero,
+           - Traces do not have signed offsets,
+           - Offsets in trace headers coincide with distances between sources (SourceX, SourceY) and receivers (GroupX,
+             GroupY),
+           - Coordinates of a midpoint (CDP_X, CDP_Y) matches those of the corresponding source (SourceX, SourceY) and
+             receiver (GroupX, GroupY),
+           - Surface elevation is unique for a given spatial location,
+           - Elevation-related headers (ReceiverGroupElevation, SourceSurfaceElevation) have consistent ranges,
+           - Mapping from geographic (CDP_X, CDP_Y) to line-based (INLINE_3D, CROSSLINE_3D) coordinates and back is
+             unique.
+
+        2. Validate consistency of source-related trace headers by checking that each source has unique coordinates,
+           surface elevation, uphole time and depth.
+
+        3. Validate consistency of receiver-related trace headers by checking that each receiver has unique coordinates
+           and surface elevation.
 
         If any of the checks fail, a warning is displayed.
 
         Parameters
         ----------
         offset_atol : int, optional, defaults to 10
-            Maximum allowed difference between a trace offset and the distance between its shot and receiver.
+            Maximum allowed difference between a trace offset and the distance between its source and receiver.
         cdp_atol : int, optional, defaults to 10
-            Maximum allowed difference between coordinates of a trace CDP and the midpoint between its shot and
+            Maximum allowed difference between coordinates of a trace CDP and the midpoint between its source and
             receiver.
-        elev_atol : int, optional, defaults to 5
-            Maximum allowed difference between surface elevation at a given shot/receiver location and mean elevation
-            of all shots and receivers within a radius defined by `elev_radius`.
-        elev_radius : int, optional, defaults to 50
+        elevation_atol : int, optional, defaults to 5
+            Maximum allowed difference between surface elevation at a given source/receiver location and mean elevation
+            of all sources and receivers within a radius defined by `elevation_radius`.
+        elevation_radius : int, optional, defaults to 50
             Radius of the neighborhood to estimate mean surface elevation.
         """
-        validate_headers(self.headers, offset_atol=offset_atol, cdp_atol=cdp_atol, elev_atol=elev_atol,
-                         elev_radius=elev_radius)
+        headers = self.headers.copy(deep=False)
+        headers.reset_index(inplace=True)
+        validate_trace_headers(headers, offset_atol=offset_atol, cdp_atol=cdp_atol, elevation_atol=elevation_atol,
+                               elevation_radius=elevation_radius)
+        validate_source_headers(headers, self.source_id_cols)
+        validate_receiver_headers(headers, self.receiver_id_cols)
 
     #------------------------------------------------------------------------#
     #                        Geometry-related methods                        #
     #------------------------------------------------------------------------#
 
-    def _get_field_mask(self):
-        """Get a binary mask of the field with ones set for bins with at least one trace and zeros otherwise. Mask
-        origin corresponds to a bin with minimum inline and crossline over the field and is also returned."""
+    def infer_binning(self):
+        """Infer properties of survey binning by estimating the following entities:
+        1. Number of bins,
+        2. Pre- or post-stack flag,
+        3. Binary mask of the field and its origin,
+        4. Field contours in bin coordinate system.
+
+        After the method is executed `has_inferred_binning` flag is set to `True` and all the calculated values can be
+        obtained via corresponding attributes.
+        """
         # Find unique pairs of inlines and crosslines, drop_duplicates is way faster than np.unique
-        lines = pd.DataFrame(self[["INLINE_3D", "CROSSLINE_3D"]]).drop_duplicates().values
+        lines = self.get_headers(["INLINE_3D", "CROSSLINE_3D"]).drop_duplicates().to_numpy()
 
         # Construct a binary mask of a field where True value is set for bins containing at least one trace
         # and False otherwise
@@ -451,61 +584,55 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         normed_lines = lines - origin
         field_mask = np.zeros(normed_lines.max(axis=0) + 1, dtype=np.uint8)
         field_mask[normed_lines[:, 0], normed_lines[:, 1]] = 1
-        return field_mask, origin
+        bin_contours = cv2.findContours(field_mask.T, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE, offset=origin)[0]
+
+        # Set all bin-related attributes
+        self.has_inferred_binning = True
+        self.n_bins = len(lines)
+        self.is_stacked = self.n_traces == self.n_bins
+        self.field_mask = field_mask
+        self.field_mask_origin = origin
+        self.bin_contours = bin_contours
 
     def infer_geometry(self):
         """Infer survey geometry by estimating the following entities:
         1. Survey dimensionality (2D/3D),
-        2. Pre- or post-stack flag,
-        3. Number of bins and bin size,
-        4. Lengths along inline and crossline directions,
-        5. Area and perimeter,
-        6. Field contours in geographic and bin coordinate systems,
-        7. Mappings from geographic coordinates to bins and back.
+        2. Bin sizes along inline and crossline directions,
+        3. Survey lengths along inline and crossline directions,
+        4. Survey area and perimeter,
+        5. Field contours in geographic coordinate system,
+        6. Mappings from geographic coordinates to bins and back.
 
         After the method is executed `has_inferred_geometry` flag is set to `True` and all the calculated values can be
         obtained via corresponding attributes.
-
-        Returns
-        -------
-        survey : Survey
-            The survey with inferred geometry. Sets `has_inferred_geometry` flag to `True` and updates geometry-related
-            attributes inplace.
         """
         coords_cols = ["CDP_X", "CDP_Y"]
         bins_cols = ["INLINE_3D", "CROSSLINE_3D"]
-        cols = coords_cols + bins_cols
 
         # Construct a mapping from bins to their coordinates and back
-        bins_to_coords = pd.DataFrame(self[cols], columns=cols)
+        bins_to_coords = self.get_headers(coords_cols + bins_cols)
         bins_to_coords = bins_to_coords.groupby(bins_cols, sort=False, as_index=False).agg("mean")
         bins_to_coords_reg = LinearRegression(copy_X=False, n_jobs=-1)
-        bins_to_coords_reg.fit(bins_to_coords[bins_cols], bins_to_coords[coords_cols])
+        bins_to_coords_reg.fit(bins_to_coords[bins_cols].to_numpy(), bins_to_coords[coords_cols].to_numpy())
         coords_to_bins_reg = LinearRegression(copy_X=False, n_jobs=-1)
-        coords_to_bins_reg.fit(bins_to_coords[coords_cols], bins_to_coords[bins_cols])
+        coords_to_bins_reg.fit(bins_to_coords[coords_cols].to_numpy(), bins_to_coords[bins_cols].to_numpy())
 
-        # Compute field contour
-        field_mask, origin = self._get_field_mask()
-        bin_contours = cv2.findContours(field_mask.T, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE, offset=origin)[0]
+        # Compute geographic field contour
         geographic_contours = tuple(bins_to_coords_reg.predict(contour[:, 0])[:, None].astype(np.float32)
-                                    for contour in bin_contours)
+                                    for contour in self.bin_contours)
         perimeter = sum(cv2.arcLength(contour, closed=True) for contour in geographic_contours)
 
         # Set all geometry-related attributes
         self.has_inferred_geometry = True
         self._bins_to_coords_reg = bins_to_coords_reg
         self._coords_to_bins_reg = coords_to_bins_reg
-        self.n_bins = len(bins_to_coords)
-        self.is_stacked = self.n_traces == self.n_bins
         self.bin_size = np.diag(sp.linalg.polar(bins_to_coords_reg.coef_)[1])
         self.inline_length = (np.ptp(bins_to_coords["INLINE_3D"]) + 1) * self.bin_size[0]
         self.crossline_length = (np.ptp(bins_to_coords["CROSSLINE_3D"]) + 1) * self.bin_size[1]
         self.area = self.n_bins * np.prod(self.bin_size)
         self.perimeter = perimeter
-        self.bin_contours = bin_contours
         self.geographic_contours = geographic_contours
         self.is_2d = np.isclose(self.area, 0)
-        return self
 
     @staticmethod
     def _cast_coords(coords, transformer):
@@ -571,8 +698,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     @staticmethod
     def _dist_to_contours(coords, contours):
         """Calculate minimum signed distance from points in `coords` to each contour in `contours`."""
-        if contours is None:
-            raise ValueError("Survey geometry was not inferred, call `infer_geometry` method first.")
         coords = np.array(coords, dtype=np.float32)
         is_coords_1d = coords.ndim == 1
         coords = np.atleast_2d(coords)
@@ -609,6 +734,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         ValueError
             If survey geometry was not inferred.
         """
+        if not self.has_inferred_geometry:
+            raise ValueError("Survey geometry was not inferred, call `infer_geometry` method first.")
         return self._dist_to_contours(coords, self.geographic_contours)
 
     def dist_to_bin_contours(self, bins):
@@ -618,7 +745,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Notes
         -----
-        Before calling this method, survey geometry must be inferred using :func:`~Survey.infer_geometry`.
+        Before calling this method, properties of survey binning must be inferred using :func:`~Survey.infer_binning`.
 
         Parameters
         ----------
@@ -634,8 +761,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Raises
         ------
         ValueError
-            If survey geometry was not inferred.
+            If properties of survey binning were not inferred.
         """
+        if not self.has_inferred_binning:
+            raise ValueError("Properties of survey binning were not inferred, call `infer_binning` method first.")
         return self._dist_to_contours(bins, self.bin_contours)
 
     #------------------------------------------------------------------------#
@@ -1101,7 +1230,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Supergather generation is usually performed as a first step of velocity analysis. A substantially larger number
         of traces processed at once leads to increased signal-to-noise ratio: seismic wave reflections are much more
         clearly visible than on single CDP gathers and the velocity spectra calculated using
-        :func:`~Gather.calculate_semblance` are more coherent which allows for more accurate stacking velocity picking.
+        :func:`~Gather.calculate_vertical_velocity_spectrum` are more coherent
+        which allows for more accurate stacking velocity picking.
 
         The method creates two new `headers` columns called `SUPERGATHER_INLINE_3D` and `SUPERGATHER_CROSSLINE_3D`
         equal to `INLINE_3D` and `CROSSLINE_3D` of the central CDP gather. Note, that some gathers may be assigned to
@@ -1142,18 +1272,27 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         ------
         KeyError
             If `INLINE_3D` and `CROSSLINE_3D` headers were not loaded.
+        ValueError
+            If supergathers have already been generated.
         """
+        line_cols = ["INLINE_3D", "CROSSLINE_3D"]
+        super_line_cols = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
+        if set(super_line_cols) <= self.available_headers:
+            raise ValueError("Supergathers have already been generated")
+        if not self.has_inferred_binning:
+            if set(line_cols) <= self.available_headers:
+                self.infer_binning()
+            else:
+                raise KeyError("INLINE_3D and CROSSLINE_3D headers must be loaded")
+
         self = maybe_copy(self, inplace, ignore="headers")  # pylint: disable=self-cls-assignment
         size = np.broadcast_to(size, 2)
         step = np.broadcast_to(step, 2)
-        line_cols = ["INLINE_3D", "CROSSLINE_3D"]
-        super_line_cols = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
 
         if centers is None:
-            # Construct a field mask and erode it according to border_indent and strict flag
-            field_mask, field_mask_origin = self._get_field_mask()
+            # Erode the field mask according to border_indent and strict flags
             kernel = cv2.getStructuringElement(cv2.MORPH_RECT, np.broadcast_to(border_indent, 2) * 2 + 1).T
-            field_mask = cv2.erode(field_mask, kernel, borderType=cv2.BORDER_CONSTANT, borderValue=0)
+            field_mask = cv2.erode(self.field_mask, kernel, borderType=cv2.BORDER_CONSTANT, borderValue=0)
             if strict:
                 kernel = cv2.getStructuringElement(cv2.MORPH_RECT, size).T
                 field_mask = cv2.erode(field_mask, kernel, borderType=cv2.BORDER_CONSTANT, borderValue=0)
@@ -1161,7 +1300,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
             # Calculate origins of the supergather grid along inline and crossline directions
             if origin is not None:
-                origin_i, origin_x = (np.broadcast_to(origin, 2) - field_mask_origin) % step
+                origin_i, origin_x = (np.broadcast_to(origin, 2) - self.field_mask_origin) % step
             else:
                 origin_i = self._get_optimal_origin(field_mask.sum(axis=1), step[0])
                 origin_x = self._get_optimal_origin(field_mask.sum(axis=0), step[1])
@@ -1171,7 +1310,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             grid_x = np.arange(origin_x, field_mask.shape[1], step[1])
             centers = np.stack(np.meshgrid(grid_i, grid_x), -1).reshape(-1, 2)
             is_valid = field_mask[centers[:, 0], centers[:, 1]].astype(bool)
-            centers = centers[is_valid] + field_mask_origin
+            centers = centers[is_valid] + self.field_mask_origin
 
         centers = np.array(centers)
         if centers.ndim != 2 or centers.shape[1] != 2:
@@ -1214,87 +1353,136 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             Whether to display a field contour if survey geometry was inferred.
         keep_aspect : bool, optional, defaults to False
             Whether to keep aspect ratio of the map plot.
+        source_id_cols : str or list of str, optional
+            Trace headers that uniquely identify a seismic source. If not given, `self.source_id_cols` is used.
+        source_sort_by : str or list of str, optional
+            Header names to sort the displayed common source gathers by. If not given, passed `sort_by` value is used.
+        receiver_id_cols : str or list of str, optional
+            Trace headers that uniquely identify a receiver. If not given, `self.receiver_id_cols` is used.
+        receiver_sort_by : str or list of str, optional
+            Header names to sort the displayed common receiver gathers by. If not given, passed `sort_by` value is
+            used.
+        sort_by : str or list of str, optional
+            Default header names to sort the displayed gather by. If not given, no sorting is performed.
+        gather_plot_kwargs : dict, optional
+            Additional arguments to pass to `Gather.plot`.
         x_ticker : str or dict, optional
             Parameters to control `x` axis tick formatting and layout of the map plot. See `.utils.set_ticks` for more
             details.
         y_ticker : dict, optional
             Parameters to control `y` axis tick formatting and layout of the map plot. See `.utils.set_ticks` for more
             details.
-        sort_by : str, optional
-            Header name to sort the displayed gather by.
-        gather_plot_kwargs : dict, optional
-            Additional arguments to pass to `Gather.plot`.
         figsize : tuple with 2 elements, optional, defaults to (4.5, 4.5)
             Size of created map and gather figures. Measured in inches.
+        orientation : {"horizontal", "vertical"}, optional, defaults to "horizontal"
+            Defines whether to stack the main and auxiliary plots horizontally or vertically.
         kwargs : misc, optional
             Additional keyword arguments to pass to `matplotlib.axes.Axes.scatter` when plotting the map.
         """
         SurveyGeometryPlot(self, **kwargs).plot()
 
-    def construct_attribute_map(self, attribute, by, drop_duplicates=False, agg=None, bin_size=None, **kwargs):
-        """Construct a map of trace attributes aggregated by gathers.
+    def _construct_map(self, values, name, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
+        """Construct a metric map of `values` aggregated by gather, whose type is defined by `by`."""
+        by_to_cols = {
+            "source": (self.source_id_cols, ["SourceX", "SourceY"]),
+            "shot": (self.source_id_cols, ["SourceX", "SourceY"]),
+            "receiver": (self.receiver_id_cols, ["GroupX", "GroupY"]),
+            "rec": (self.receiver_id_cols, ["GroupX", "GroupY"]),
+            "cdp": (None, ["CDP_X", "CDP_Y"]),
+            "cmp": (None, ["CDP_X", "CDP_Y"]),
+            "midpoint": (None, ["CDP_X", "CDP_Y"]),
+            "bin": (None, ["INLINE_3D", "CROSSLINE_3D"]),
+            "supergather": (None, ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]),
+        }
+        index_cols, coords_cols = by_to_cols.get(by.lower())
+        if coords_cols is None:
+            raise ValueError(f"by must be one of {', '.join(by_to_cols.keys())} but {by} given.")
+        index_cols = get_first_defined(id_cols, index_cols)
+
+        metric_data = self.get_headers(coords_cols)
+        if index_cols is not None:
+            index_cols = to_list(index_cols)
+            metric_data[index_cols] = self[index_cols]
+        metric_data[name] = values
+        if drop_duplicates:
+            metric_data.drop_duplicates(inplace=True)
+        index = metric_data[index_cols] if index_cols is not None else None
+        coords = metric_data[coords_cols]
+        values = metric_data[name]
+
+        metric = SurveyAttribute(name=name).provide_context(survey=self)
+        return metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size)
+
+    def construct_header_map(self, col, by, id_cols=None, drop_duplicates=False, agg=None, bin_size=None):
+        """Construct a metric map of trace header values aggregated by gather.
 
         Examples
         --------
-        Construct a map of maximum offsets by shots:
-        >>> max_offset_map = survey.construct_attribute_map("offset", by="shot", agg="max")
+        Construct a map of maximum offset by shots:
+        >>> max_offset_map = survey.construct_header_map("offset", by="shot", agg="max")
         >>> max_offset_map.plot()
 
         The map allows for interactive plotting: a gather type defined by `by` will be displayed on click on the map.
-        The gather may be optionally sorted if `sort_by` argument if passed to the `plot` method:
+        The gather may optionally be sorted if `sort_by` argument is passed to the `plot` method:
         >>> max_offset_map.plot(interactive=True, sort_by="offset")
-
-        Generate supergathers and calculate the number of traces in each of them (fold):
-        >>> supergather_columns = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
-        >>> supergather_survey = survey.generate_supergathers(size=(7, 7), step=(7, 7))
-        >>> fold_map = supergather_survey.construct_attribute_map("fold", by=supergather_columns)
-        >>> fold_map.plot()
 
         Parameters
         ----------
-        attribute : str
-            If "fold", calculates the number of traces in gathers defined by `by`. Otherwise defines a survey header
-            name to construct a map for.
-        by : tuple with 2 elements or {"shot", "receiver", "midpoint", "bin"}
-            If `tuple`, survey headers names to get coordinates from.
-            If `str`, gather type to aggregate header values over.
+        col : str
+            Headers column to extract values from.
+        by : {"source", "shot", "receiver", "rec", "cdp", "cmp", "midpoint", "bin", "supergather"}
+            Gather type to aggregate header values over.
+        id_cols : str or list of str, optional
+            Trace headers that uniquely identify a gather of the chosen type. Acts as an index of the resulting map. If
+            not given and `by` represents either a common source or common receiver gather, `self.source_id_cols` or
+            `self.receiver_id_cols` are used respectively.
         drop_duplicates : bool, optional, defaults to False
-            Whether to drop duplicated (coordinates, value) pairs. Useful when dealing with an attribute defined for a
-            shot or receiver, not a trace (e.g. constructing a map of elevations by shots).
+            Whether to drop duplicated entries of (index, coordinates, metric value). Useful when dealing with a header
+            defined for a shot or receiver, not a trace (e.g. constructing a map of elevations by shots).
         agg : str or callable, optional, defaults to "mean"
             An aggregation function. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
         bin_size : int, float or array-like with length 2, optional
             Bin size for X and Y axes. If single `int` or `float`, the same bin size will be used for both axes.
-        kwargs : misc, optional
-            Additional keyword arguments to pass to `Metric.__init__`.
 
         Returns
         -------
-        attribute_map : BaseMetricMap
-            Constructed attribute map.
+        header_map : BaseMetricMap
+            Constructed header map.
         """
-        if isinstance(by, str):
-            by_to_coords_cols = {
-                "shot": ["SourceX", "SourceY"],
-                "receiver": ["GroupX", "GroupY"],
-                "midpoint": ["CDP_X", "CDP_Y"],
-                "bin": ["INLINE_3D", "CROSSLINE_3D"],
-            }
-            coords_cols = by_to_coords_cols.get(by)
-            if coords_cols is None:
-                raise ValueError(f"by must be one of {', '.join(by_to_coords_cols.keys())} but {by} given.")
-        else:
-            coords_cols = to_list(by)
-        if len(coords_cols) != 2:
-            raise ValueError("Exactly 2 coordinates headers must be passed")
+        return self._construct_map(self[col], name=col, by=by, id_cols=id_cols, drop_duplicates=drop_duplicates,
+                                   agg=agg, bin_size=bin_size)
 
-        if attribute == "fold":
-            map_data = self.headers.groupby(coords_cols, as_index=False).size().rename(columns={"size": "Fold"})
-        else:
-            data_cols = coords_cols + [attribute]
-            map_data = pd.DataFrame(self[data_cols], columns=data_cols)
-            if drop_duplicates:
-                map_data.drop_duplicates(inplace=True)
+    def construct_fold_map(self, by, id_cols=None, agg=None, bin_size=None):
+        """Construct a metric map which stores the number of traces for each gather (fold).
 
-        metric = PartialMetric(SurveyAttribute, survey=self, name=attribute, **kwargs)
-        return metric.map_class(map_data.iloc[:, :2], map_data.iloc[:, 2], metric=metric, agg=agg, bin_size=bin_size)
+        Examples
+        --------
+        Generate supergathers and calculate their fold:
+        >>> supergather_columns = ["SUPERGATHER_INLINE_3D", "SUPERGATHER_CROSSLINE_3D"]
+        >>> supergather_survey = survey.generate_supergathers(size=7, step=7)
+        >>> fold_map = supergather_survey.construct_fold_map(by="supergather")
+        >>> fold_map.plot()
+
+        Parameters
+        ----------
+        by : {"source", "shot", "receiver", "rec", "cdp", "cmp", "midpoint", "bin", "supergather"}
+            Gather type to aggregate header values over.
+        id_cols : str or list of str, optional
+            Trace headers that uniquely identify a gather of the chosen type. Acts as an index of the resulting map. If
+            not given and `by` represents either a common source or common receiver gather, `self.source_id_cols` or
+            `self.receiver_id_cols` are used respectively.
+        agg : str or callable, optional, defaults to "mean"
+            An aggregation function. Passed directly to `pandas.core.groupby.DataFrameGroupBy.agg`.
+        bin_size : int, float or array-like with length 2, optional
+            Bin size for X and Y axes. If single `int` or `float`, the same bin size will be used for both axes.
+
+        Returns
+        -------
+        fold_map : BaseMetricMap
+            Constructed fold map.
+        """
+        tmp_map = self._construct_map(np.ones(self.n_traces), name="fold", by=by, id_cols=id_cols, agg="sum")
+        index = tmp_map.index_data[tmp_map.index_cols]
+        coords = tmp_map.index_data[tmp_map.coords_cols]
+        values = tmp_map.index_data[tmp_map.metric_name]
+        return tmp_map.metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size)

@@ -28,13 +28,18 @@ INDEX_TO_COORDS = {
 INDEX_TO_COORDS = {frozenset(to_list(key)): val for key, val in INDEX_TO_COORDS.items()}
 
 
-def get_coords_cols(index_cols):
+def get_coords_cols(index_cols, source_id_cols=None, receiver_id_cols=None):
     """Return headers columns to get coordinates from depending on the type of headers index. See the mapping in
     `INDEX_TO_COORDS`."""
-    coords_cols = INDEX_TO_COORDS.get(frozenset(to_list(index_cols)))
-    if coords_cols is None:
-        raise KeyError(f"Unknown coordinates columns for {index_cols} index")
-    return coords_cols
+    index_cols = frozenset(to_list(index_cols))
+    coords_cols = INDEX_TO_COORDS.get(index_cols)
+    if coords_cols is not None:
+        return coords_cols
+    if source_id_cols is not None and index_cols == frozenset(to_list(source_id_cols)):
+        return ("SourceX", "SourceY")
+    if receiver_id_cols is not None and index_cols == frozenset(to_list(receiver_id_cols)):
+        return ("GroupX", "GroupY")
+    raise KeyError(f"Unknown coordinates columns for {index_cols} index")
 
 
 GEOGRAPHIC_COORDS = {("X", "Y"), ("SourceX", "SourceY"), ("GroupX", "GroupY"), ("CDP_X", "CDP_Y")}
