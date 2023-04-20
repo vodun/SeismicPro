@@ -273,7 +273,6 @@ class TraceContainer:
         self.headers[res_cols] = res
         return self
 
-    
     def load_headers(self, path, names=None, index_col=None, usecols=None, format="fwf", delimiter=None, decimal=None,
                      engine="pyarrow", skiprows=None, encoding="UTF-8", keep_all_headers=False, inplace=False,
                      **kwargs):
@@ -294,8 +293,12 @@ class TraceContainer:
                 row = f.readline()
             decimal = '.' if '.' in row else ','
 
-        if names is not None and index_col is not None:
-            names = list(set(to_list(index_col) + to_list(names)))
+        usecols = np.asarray(usecols)
+        if any(usecols < 0):
+            sep = delimiter if format == "csv" else None
+            with open(path, 'r', encoding=encoding) as f:
+                n_cols = len(f.readline().split(sep))
+            usecols[usecols < 0] = n_cols + usecols[usecols < 0]
 
         loaded_df = pd.read_csv(path, delimiter=delimiter, names=names, index_col=index_col, usecols=usecols,
                                 decimal=decimal, engine=engine, skiprows=skiprows, encoding=encoding, **kwargs)
