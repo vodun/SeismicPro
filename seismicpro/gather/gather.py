@@ -802,11 +802,11 @@ class Gather(TraceContainer, SamplesContainer):
         Calculate vertical velocity spectrum with default parameters: velocities evenly spaces around default stacking
         velocity, 50 ms temporal window size, semblance coherency measure and no muting of hodograph stretching:
         >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum()
-    
+
         Calculate vertical velocity spectrum for 200 velocities from 2000 to 6000 m/s, temporal window size of 128 ms,
         crosscorrelation coherency measure and muting stretching effects greater than 0.65:
         >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum(
-                                                                velocities=np.linspace(2000, 6000, 200), 
+                                                                velocities=np.linspace(2000, 6000, 200),
                                                                 window_size=128, mode='CC', max_stretch_factor=0.65)
 
         Parameters
@@ -820,8 +820,8 @@ class Gather(TraceContainer, SamplesContainer):
             Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother
             the resulting velocity spectrum will be but to the detriment of small details. Measured in ms.
         mode: str, optional, defaults to 'semblance'
-            The measure for estimating hodograph coherency. 
-            The available options are: 
+            The measure for estimating hodograph coherency.
+            The available options are:
                 `semblance` or `NE`,
                 `stacked_amplitude` or `S`,
                 `normalized_stacked_amplitude` or `NS`,
@@ -830,7 +830,7 @@ class Gather(TraceContainer, SamplesContainer):
         max_stretch_factor : float, defaults to np.inf
             Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
             This mute is applied after nmo correction for each provided velocity and before coherency calculation.
-            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
+            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied.
             Reasonably good value is 0.65
 
         Returns
@@ -861,22 +861,22 @@ class Gather(TraceContainer, SamplesContainer):
         Parameters
         ----------
         stacking_velocity : StackingVelocity or StackingVelocityField or str
-            Stacking velocity around which residual velocity spectrum is calculated. 
-            `StackingVelocity` instance is used directly. If `StackingVelocityField` instance is passed, 
+            Stacking velocity around which residual velocity spectrum is calculated.
+            `StackingVelocity` instance is used directly. If `StackingVelocityField` instance is passed,
             a `StackingVelocity` corresponding to gather coordinates is fetched from it.
             May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
         n_velocities : int, optional, defaults to 140
             The number of velocities to compute residual velocity spectrum for.
         relative_margin : float, optional, defaults to 0.2
-            Relative velocity margin, that determines the velocity range for residual spectrum calculation 
+            Relative velocity margin, that determines the velocity range for residual spectrum calculation
             for each time `t` as `stacking_velocity(t)` * (1 +- `relative_margin`).
         window_size : int, optional, defaults to 50
             Temporal window size used for residual velocity spectrum calculation. Measured in ms.
             The higher the `window_size` is, the smoother the resulting spectrum will be but to the
             detriment of small details.
         mode: str, optional, defaults to 'semblance'
-            The measure for estimating hodograph coherency. 
-            The available options are: 
+            The measure for estimating hodograph coherency.
+            The available options are:
                 `semblance` or `NE`,
                 `stacked_amplitude` or `S`,
                 `normalized_stacked_amplitude` or `NS`,
@@ -885,7 +885,7 @@ class Gather(TraceContainer, SamplesContainer):
         max_stretch_factor : float, defaults to np.inf
             Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
             This mute is applied after nmo correction for each provided velocity and before coherency calculation.
-            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
+            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied.
             Reasonably good value is 0.65
 
         Returns
@@ -974,7 +974,7 @@ class Gather(TraceContainer, SamplesContainer):
             Whether to mute areas where the time reversal occurred after nmo corrections.
         max_stretch_factor : float, defaults to np.inf
             Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
-            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
+            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied.
             Reasonably good value is 0.65
         fill_value : float, optional, defaults to np.nan
             Value used to fill the amplitudes outside the gather bounds after moveout.
@@ -1059,9 +1059,9 @@ class Gather(TraceContainer, SamplesContainer):
         ----------
         amplify_factor : float in range [0, 1], optional, defaults to 0
             Amplifying factor which affects the normalization of the sum of hodographs amplitudes.
-            The amplitudes sum is multiplied by amplify_factor/sqrt(N) + (1 - amplify_factor)/N, 
+            The amplitudes sum is multiplied by amplify_factor/sqrt(N) + (1 - amplify_factor)/N,
             where N is the number of live(non muted) amplitudes. Acts as the coherency amplifier for long hodographs.
-            Note that in case amplify_factor=0 (default), sum of trace amplitudes is simply divided by N, 
+            Note that in case amplify_factor=0 (default), sum of trace amplitudes is simply divided by N,
             so that stack amplitude is the average of ensemble amplitudes. Must be in [0, 1] range.
 
         Returns
@@ -1303,23 +1303,25 @@ class Gather(TraceContainer, SamplesContainer):
         end_ixs = np.full(self.n_traces, fill_value=self.n_samples, dtype=np.int32)
 
         if window is not None:
+            if isinstance(window, (tuple, list, np.ndarray)):
+                raise ValueError(f"`window` should be an array-like, not {type(horizon_window_size)}")
             if len(window) != 2:
-                raise ValueError("`window` must have exact two elements")
+                raise ValueError(f"`window` must have exact two elements, not {len(window)}")
             limits = times_to_indices(np.array(window), self.samples, round=True).astype(np.int32)
+            # Include the next index to mimic the behavior of conventional software
             limits[1] += 1
             start_ixs = np.full(self.n_traces, fill_value=limits[0], dtype=np.int32)
             end_ixs = np.full(self.n_traces, fill_value=limits[1], dtype=np.int32)
 
         elif horizon_header is not None:
-            # TODO: Add horizon header loading procedure
             centers = self[horizon_header]
             if isinstance(horizon_window_size, (int, np.integer)):
                 horizon_window_size = [horizon_window_size, horizon_window_size]
             elif not isinstance(horizon_window_size, (tuple, list, np.ndarray)):
-                raise ValueError("`horizon_window_size` should be either int or array-like with 2 ints, not "\
+                raise ValueError("`horizon_window_size` should be either int or array-like, not "\
                                  f"{type(horizon_window_size)}")
             if len(horizon_window_size) != 2:
-                raise ValueError("If `horizon_window_size` is array-like, it must have exact two elements, not "\
+                raise ValueError("If `horizon_window_size` is array-like, it must have exactly two elements, not "\
                                  f"{len(horizon_window_size)}")
             start_times = np.clip(centers - horizon_window_size[0], 0, self.samples[-1])
             start_ixs = times_to_indices(start_times, self.samples, round=True).astype(np.int32)

@@ -87,7 +87,7 @@ class AmplitudeOffsetDistribution:
             if align:
                 stats[avo.avo_column] = stats[avo.avo_column] + global_mean - np.nanmean(stats[avo.avo_column])
             # TODO: Do we need checks on the same bin_size and indexed_by?
-            sns.lineplot(data=stats, x="bin", y=avo.avo_column, ci="sd", ax=ax, label=avo.name)
+            sns.lineplot(data=stats, x="bin", y=avo.avo_column, errorbar='sd', ax=ax, label=avo.name)
         self._finalize_plot(fig, ax, False, title, save_to, dpi)
         sns.set_style("ticks")
 
