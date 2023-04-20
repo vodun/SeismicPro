@@ -277,15 +277,15 @@ class TraceContainer:
     def load_headers(self, path, names=None, index_col=None, format="fwf", sep=None, usecols=None, skiprows=None, # pylint: disable=too-many-arguments
                      engine="pyarrow", decimal=None, encoding="UTF-8", keep_all_headers=False, inplace=False,
                      **kwargs):
-        """"""
+        """docs"""
         self = maybe_copy(self, inplace, ignore="headers")  # pylint: disable=self-cls-assignment
         # TODO: can be infered from file as decimal if needed
         if sep is None:
             if format == "fwf":
-                sep = r"\s+"
+                sep = r'\s+'
                 engine = None
             elif format == "csv":
-                sep = ","
+                sep = ','
             else:
                 raise ValueError()
 
@@ -305,15 +305,15 @@ class TraceContainer:
 
         loaded_df = pd.read_csv(path, sep=sep, names=names, index_col=index_col, usecols=usecols, decimal=decimal,
                                 engine=engine, skiprows=skiprows, encoding=encoding, **kwargs)
-        return loaded_df
         how = "left" if keep_all_headers else "inner"
-        self.headers = self.headers.join(loaded_df, on=index_col, how=how, rsuffix="_loaded")
+        self.headers = self.headers.join(loaded_df, on=index_col, how=how, rsuffix="_loaded")  # pylint: disable=attribute-defined-outside-init
 
         if self.is_empty:
             warnings.warn("Empty headers after headers loading", RuntimeWarning)
         return self
 
     def dump_headers(self, path, columns, format="fwf", sep=',', col_space=8, dump_col_names=True, **kwargs):
+        """docs"""
         dump_df = self.get_headers(columns)
         if format == "fwf":
             dump_df.to_string(path, col_space=col_space, header=dump_col_names, index=False, **kwargs)
