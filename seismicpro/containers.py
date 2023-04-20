@@ -274,8 +274,8 @@ class TraceContainer:
         self.headers[res_cols] = res
         return self
 
-    def load_headers(self, path, names=None, index_col=None, usecols=None, format="fwf", sep=None, decimal=None,
-                     engine="pyarrow", skiprows=None, encoding="UTF-8", keep_all_headers=False, inplace=False,
+    def load_headers(self, path, names=None, index_col=None, format="fwf", sep=None, usecols=None, skiprows=None, # pylint: disable=too-many-arguments
+                     engine="pyarrow", decimal=None, encoding="UTF-8", keep_all_headers=False, inplace=False,
                      **kwargs):
         """"""
         self = maybe_copy(self, inplace, ignore="headers")  # pylint: disable=self-cls-assignment
@@ -289,22 +289,23 @@ class TraceContainer:
             else:
                 raise ValueError()
 
-        # If decimal is not provided, try inferring it from the first line
+        # If decimal is not provided, try inferring it from the file
         if decimal is None:
             with open(path, 'r', encoding=encoding) as f:
-                row = f.readline()
+                row = f.readline() if skiprows is None else [next(f) for _ in range(skiprows+1)][-1]
             decimal = '.' if '.' in row else ','
 
-        usecols = np.asarray(usecols)
-        if any(usecols < 0):
-            sep = sep if format == "csv" else None
-            with open(path, 'r', encoding=encoding) as f:
-                n_cols = len(f.readline().split(sep))
-            usecols[usecols < 0] = n_cols + usecols[usecols < 0]
+        if usecols is not None:
+            usecols = np.asarray(usecols)
+            if any(usecols < 0):
+                sep = sep if format == "csv" else None
+                with open(path, 'r', encoding=encoding) as f:
+                    n_cols = len(f.readline().split(sep))
+                usecols[usecols < 0] = n_cols + usecols[usecols < 0]
 
         loaded_df = pd.read_csv(path, sep=sep, names=names, index_col=index_col, usecols=usecols, decimal=decimal,
                                 engine=engine, skiprows=skiprows, encoding=encoding, **kwargs)
-
+        return loaded_df
         how = "left" if keep_all_headers else "inner"
         self.headers = self.headers.join(loaded_df, on=index_col, how=how, rsuffix="_loaded")
 
@@ -312,7 +313,7 @@ class TraceContainer:
             warnings.warn("Empty headers after headers loading", RuntimeWarning)
         return self
 
-    def dump_headers(self, path, columns, format="fwf", col_space=8, sep=',', dump_col_names=True, **kwargs):
+    def dump_headers(self, path, columns, format="fwf", sep=',', col_space=8, dump_col_names=True, **kwargs):
         dump_df = self.get_headers(columns)
         if format == "fwf":
             dump_df.to_string(path, col_space=col_space, header=dump_col_names, index=False, **kwargs)
