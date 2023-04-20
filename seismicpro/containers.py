@@ -10,6 +10,7 @@ from copy import deepcopy
 
 import numpy as np
 import pandas as pd
+import polars as pl
 
 from .decorators import batch_method
 from .utils import to_list, get_cols, create_indexer, maybe_copy
@@ -273,17 +274,18 @@ class TraceContainer:
         self.headers[res_cols] = res
         return self
 
-    def load_headers(self, path, names=None, index_col=None, usecols=None, format="fwf", delimiter=None, decimal=None,
+    def load_headers(self, path, names=None, index_col=None, usecols=None, format="fwf", sep=None, decimal=None,
                      engine="pyarrow", skiprows=None, encoding="UTF-8", keep_all_headers=False, inplace=False,
                      **kwargs):
+        """"""
         self = maybe_copy(self, inplace, ignore="headers")  # pylint: disable=self-cls-assignment
         # TODO: can be infered from file as decimal if needed
-        if delimiter is None:
+        if sep is None:
             if format == "fwf":
-                delimiter = "\s+"
+                sep = r"\s+"
                 engine = None
             elif format == "csv":
-                delimiter = ","
+                sep = ","
             else:
                 raise ValueError()
 
@@ -295,32 +297,30 @@ class TraceContainer:
 
         usecols = np.asarray(usecols)
         if any(usecols < 0):
-            sep = delimiter if format == "csv" else None
+            sep = sep if format == "csv" else None
             with open(path, 'r', encoding=encoding) as f:
                 n_cols = len(f.readline().split(sep))
             usecols[usecols < 0] = n_cols + usecols[usecols < 0]
 
-        loaded_df = pd.read_csv(path, delimiter=delimiter, names=names, index_col=index_col, usecols=usecols,
-                                decimal=decimal, engine=engine, skiprows=skiprows, encoding=encoding, **kwargs)
+        loaded_df = pd.read_csv(path, sep=sep, names=names, index_col=index_col, usecols=usecols, decimal=decimal,
+                                engine=engine, skiprows=skiprows, encoding=encoding, **kwargs)
 
         how = "left" if keep_all_headers else "inner"
         self.headers = self.headers.join(loaded_df, on=index_col, how=how, rsuffix="_loaded")
 
         if self.is_empty:
-            warnings.warn("Empty headers after first breaks loading", RuntimeWarning)
+            warnings.warn("Empty headers after headers loading", RuntimeWarning)
         return self
 
-    def dump_headers(self, path, columns, format="fwf", col_space=8, sep=',', dump_col_names=True, encoding="UTF-8",
-                 **kwargs):
+    def dump_headers(self, path, columns, format="fwf", col_space=8, sep=',', dump_col_names=True, **kwargs):
         dump_df = self.get_headers(columns)
         if format == "fwf":
-            dump_df.to_string(path, columns=dump_df.columns, col_space=col_space, header=dump_col_names, index=False,
-                              encoding=encoding, **kwargs)
+            dump_df.to_string(path, col_space=col_space, header=dump_col_names, index=False, **kwargs)
         elif format == "csv":
-            dump_df.to_csv(path, sep=sep, columns=dump_df.columns, header=dump_col_names, index=False,
-                           encoding=encoding, **kwargs)
+            dump_df = pl.from_pandas(dump_df)
+            dump_df.write_csv(path, has_header=dump_col_names, separator=sep, **kwargs)
         else:
-            raise ValueError()
+            raise ValueError(f"Unknown format {format}, avaliable formats are ['fwf', 'csv']")
 
 
 class GatherContainer(TraceContainer):
