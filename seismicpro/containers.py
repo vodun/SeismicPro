@@ -277,9 +277,51 @@ class TraceContainer:
     def load_headers(self, path, names=None, index_col=None, format="fwf", sep=None, usecols=None, skiprows=None, # pylint: disable=too-many-arguments
                      engine="pyarrow", decimal=None, encoding="UTF-8", keep_all_headers=False, inplace=False,
                      **kwargs):
-        """docs"""
+        """Load headers from a file and join them with the existing `self.headers`.
+
+        Parameters:
+        -----------
+        path : str
+            Path to the file with headers.
+        names : list of str, optional, defaults to None
+            List of column names to use for headers. If not provided, column names will be inferred from the file.
+            Passed directly to `pandas.read_csv`.
+        index_col : int, str or array-like, optional, defaults to None
+            Column(s) to use as index. If not provided, default index will be used.
+            Passed directly to `pandas.read_csv`.
+        format : "fwf" or "csv", optional, defaults to "fwf"
+            Format of the file with headers. Only "fwf" (fixed-width format) and "csv" format with single-character
+            separator are supported.
+        sep : str, optional, defaults to None
+            Delimiter to use. If not provided, it will be inferred base on the `format`.
+        usecols : list-like or callable, optional, defaults to None
+            Columns to read from the file. If not provided, all columns will be read.
+        skiprows : int, optional, defaults to None
+            Number of rows to skip from the beginning of the file.
+        engine : str, optional, defaults to "pyarrow"
+            Parser engine to use for the "csv" format.
+        decimal : str, optional, defaults to None
+            Decimal point character. If not provided, it will be inferred from the file.
+        encoding : str, optional, defaults to "UTF-8"
+            Encoding to use for the file.
+        keep_all_headers : bool, optional, defaults to False
+            Whether to keep headers for traces that were missed in the loaded file.
+        inplace : bool, optional, defaults to False
+            Whether to load headers inplace or to a copy.
+        **kwargs : misc, optional
+            Additional arguments to pass to the pandas `read_csv` function.
+
+        Returns
+        -------
+        result : same type as self
+            `self` with the loaded headers.
+
+        Raises:
+        -------
+        ValueError
+            If the `format` argument is not one of the supported formats ('fwf', 'csv').
+        """
         self = maybe_copy(self, inplace, ignore="headers")  # pylint: disable=self-cls-assignment
-        # TODO: can be infered from file as decimal if needed
         if sep is None:
             if format == "fwf":
                 sep = r'\s+'
@@ -287,7 +329,7 @@ class TraceContainer:
             elif format == "csv":
                 sep = ','
             else:
-                raise ValueError()
+                raise ValueError(f"Unknown format {format}, available formats are ('fwf', 'csv')")
 
         # If decimal is not provided, try inferring it from the file
         if decimal is None:
@@ -313,7 +355,37 @@ class TraceContainer:
         return self
 
     def dump_headers(self, path, columns, format="fwf", sep=',', col_space=8, dump_col_names=True, **kwargs):
-        """docs"""
+        """Save the selected columns from headers into a file.
+
+        Parameters
+        ----------
+        path : str
+            The path to the output file.
+        columns : str or array-like of str
+            The column names from `self.headers` to be included in the output file.
+        format : "fwf" or "csv", optional, defaults to "fwf"
+            The output file format. If "fwf", use fixed-width format with a width defined by `col_space`. If "csv", use
+            single-separated values format with a separator `sep`.
+        sep : str, optional, defaults to ','
+            The separator used in the output file. It is only used when `format="csv"`.
+        col_space : int, optional, defaults to 8
+            The column width in characters when `format="fwf"`.
+        dump_col_names : bool, optional, defaults to True
+            Whether to include the column names in the output file.
+        kwargs : misc, optional
+            Additional arguments for dumping function. If `format="fwf"`, passed to `pandas.to_string`.
+            If `format="csv"`, passed to `polars.write_csv`.
+
+        Returns
+        -------
+        result : same type as self
+            `self` unchanged.
+
+        Raises
+        ------
+        ValueError
+            If the `format` argument is not one of the supported formats ('fwf', 'csv').
+        """
         dump_df = self.get_headers(columns)
         if format == "fwf":
             dump_df.to_string(path, col_space=col_space, header=dump_col_names, index=False, **kwargs)
@@ -321,7 +393,8 @@ class TraceContainer:
             dump_df = pl.from_pandas(dump_df)
             dump_df.write_csv(path, has_header=dump_col_names, separator=sep, **kwargs)
         else:
-            raise ValueError(f"Unknown format {format}, avaliable formats are ['fwf', 'csv']")
+            raise ValueError(f"Unknown format {format}, available formats are ('fwf', 'csv')")
+        return self
 
 
 class GatherContainer(TraceContainer):
