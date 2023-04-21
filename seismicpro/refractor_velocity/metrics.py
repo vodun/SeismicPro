@@ -13,8 +13,8 @@ from ..utils import get_first_defined
 
 class RefractorVelocityMetric(Metric):
     """Base metric class for quality control of refractor velocity field.
-    In most cases, implements the following logic: `calc` method returns either iterable of trase-wise metric values
-    or single metric value for the whole gather. Then `__call__` is used for gather-wise metric aggregation.
+    Implements the following logic: `calc` method returns iterable of tracewise metric values,
+    then `__call__` is used for gatherwise metric aggregation.
     `plot_gather` view is adjustable for plotting metric values on top of gather plot
     if `calc` implements trase-wise calculation.
     Parameters needed for metric calculation and view plotting should be set as attributes, e.g. `first_breaks_col`.
@@ -38,10 +38,8 @@ class RefractorVelocityMetric(Metric):
         self.max_offset = survey["offset"].max() if survey is not None else None
         self.first_breaks_col = first_breaks_col
         if correct_uphole is None:
-            self.correct_uphole = (
-                "SourceUpholeTime" in self.survey.available_headers
-                and self.field.is_uphole_corrected
-            )
+            self.correct_uphole = ("SourceUpholeTime" in self.survey.available_headers
+                                    and self.field.is_uphole_corrected)
         else:
             self.correct_uphole = correct_uphole
 
@@ -55,8 +53,7 @@ class RefractorVelocityMetric(Metric):
         return np.mean(self.calc(*args, **kwargs))
 
     def plot_gather(
-        self, coords, ax, index, sort_by=None, mask=True, top_header=True, **kwargs
-    ):
+        self, coords, ax, index, sort_by=None, mask=True, top_header=True, **kwargs):
         """Base view for gather plotting. Plot the gather by its index in bounded survey and its first breaks.
         By default also recalculates metric in order to display `top_header` with metric values above gather traces
         and mark trases with metric greater than threshold. Threshold is either aquired from `kwargs` if given,
@@ -80,26 +77,16 @@ class RefractorVelocityMetric(Metric):
         event_headers = kwargs.pop("event_headers", {"headers": self.first_breaks_col})
         if top_header or mask:
             refractor_velocity = self.field(gather.coords)
-            metric_values = self.calc(
-                gather=gather,
-                refractor_velocity=refractor_velocity,
-                first_breaks_col=self.first_breaks_col,
-                correct_uphole=self.correct_uphole,
-            )
+            metric_values = self.calc(gather=gather, refractor_velocity=refractor_velocity,
+                                      first_breaks_col=self.first_breaks_col, correct_uphole=self.correct_uphole)
             if mask:
                 mask_kwargs = kwargs.get("masks", {})
                 invert_mask = -1 if self.is_lower_better is False else 1
-                mask_threshold = get_first_defined(
-                    mask_kwargs.get("threshold", None),
-                    self.vmax if invert_mask == 1 else self.vmin,
-                    metric_values.mean(),
-                )
-                mask_kwargs.update(
-                    {
-                        "masks": metric_values * invert_mask,
-                        "threshold": mask_threshold * invert_mask,
-                    }
-                )
+                mask_threshold = get_first_defined(mask_kwargs.get("threshold", None),
+                                                   self.vmax if invert_mask == 1 else self.vmin,
+                                                   metric_values.mean())
+                mask_kwargs.update({"masks": metric_values * invert_mask,
+                                    "threshold": mask_threshold * invert_mask})
                 kwargs["masks"] = mask_kwargs
             if top_header:
                 kwargs["top_header"] = metric_values
@@ -160,14 +147,9 @@ class FirstBreaksOutliers(RefractorVelocityMetric):
         """
         rv_times = refractor_velocity(gather["offset"])
         gather_times = gather[first_breaks_col]
-        correct_uphole = (
-            correct_uphole
-            if correct_uphole is not None
-            else (
-                "SourceUpholeTime" in gather.available_headers
-                and refractor_velocity.is_uphole_corrected
-            )
-        )
+        correct_uphole = (correct_uphole if correct_uphole is not None
+                          else ("SourceUpholeTime" in gather.available_headers 
+                                and refractor_velocity.is_uphole_corrected))
         if correct_uphole:
             gather_times = gather_times + gather["SourceUpholeTime"]
         return self._calc(rv_times, gather_times, self.threshold_times)
@@ -179,8 +161,7 @@ class FirstBreaksOutliers(RefractorVelocityMetric):
     def plot_refractor_velocity(self, coords, ax, index, **kwargs):
         threshold_times = kwargs.get("threshold_times", self.threshold_times)
         return super().plot_refractor_velocity(
-            coords, ax, index, threshold_times=threshold_times, **kwargs
-        )
+            coords, ax, index, threshold_times=threshold_times, **kwargs)
 
 
 class FirstBreaksAmplitudes(RefractorVelocityMetric):
@@ -194,16 +175,8 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
     @staticmethod
     @njit(nogil=True)
     def _calc(gather_data, gather_times, sample_rate):
-        gather_data = scale_maxabs(
-            gather_data,
-            min_value=None,
-            max_value=None,
-            q_min=0,
-            q_max=1,
-            clip=False,
-            tracewise=True,
-            eps=1e-10,
-        )
+        gather_data = scale_maxabs(gather_data, min_value=None, max_value=None, q_min=0, q_max=1,
+                                   clip=False, tracewise=True, eps=1e-10)
         ix = gather_times / sample_rate
         if np.any(gather_data.shape[1] < ix) or np.any(ix < 0):
             raise (IndexError, "First breaks are out of bounds")
@@ -211,9 +184,7 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
         for i in range(len(ix)):
             prev_ix, next_ix = floor(ix[i]), ceil(ix[i])
             weight = next_ix - ix[i]
-            res[i] = gather_data[i, prev_ix] * weight + gather_data[i, next_ix] * (
-                1 - weight
-            )
+            res[i] = gather_data[i, prev_ix] * weight + gather_data[i, next_ix] * (1 - weight)
         return res
 
     def calc(self, gather, refractor_velocity, first_breaks_col, correct_uphole):
@@ -225,9 +196,7 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
             Signal amplitudes for each trace in the gather.
         """
         _ = refractor_velocity, correct_uphole
-        res = self._calc(
-            gather.data.copy(), gather[first_breaks_col], gather.sample_rate
-        )
+        res = self._calc(gather.data.copy(), gather[first_breaks_col], gather.sample_rate)
         return res
 
 
@@ -248,10 +217,7 @@ class FirstBreaksPhases(RefractorVelocityMetric):
     def __init__(self, target="max", **kwargs):
         if isinstance(target, str):
             if target not in {"max", "min", "transition"}:
-                raise (
-                    KeyError,
-                    "target should be one of {'max', 'min', 'transition'} or float.",
-                )
+                raise (KeyError, "target should be one of {'max', 'min', 'transition'} or float.")
             target = {"max": 0, "min": np.pi, "transition": np.pi / 2}[target]
         self.target = target
         super().__init__(**kwargs)
@@ -272,13 +238,9 @@ class FirstBreaksPhases(RefractorVelocityMetric):
         angles = np.angle(phases)
         # Map angles to range (target - pi, target + pi]
         if self.target > 0:
-            angles = np.where(
-                angles > self.target - np.pi, angles, angles + (2 * np.pi)
-            )
+            angles = np.where(angles > self.target - np.pi, angles, angles + (2 * np.pi))
         else:
-            angles = np.where(
-                angles < self.target + np.pi, angles, angles - (2 * np.pi)
-            )
+            angles = np.where(angles < self.target + np.pi, angles, angles - (2 * np.pi))
         res = angles - self.target
         return res
 
@@ -297,19 +259,13 @@ class FirstBreaksPhases(RefractorVelocityMetric):
         if sort_by is not None:
             gather = gather.copy().sort(by=sort_by)
         event_headers = kwargs.pop("event_headers", {"headers": self.first_breaks_col})
-        signed_deltas = self.calc(
-            gather=gather,
-            refractor_velocity=None,
-            first_breaks_col=self.first_breaks_col,
-            correct_uphole=self.correct_uphole,
-        )
+        signed_deltas = self.calc(gather=gather, refractor_velocity=None, first_breaks_col=self.first_breaks_col,
+                                  correct_uphole=self.correct_uphole)
         kwargs["top_header"] = signed_deltas
 
         metric_values = np.abs(signed_deltas)
         mask_kwargs = kwargs.get("masks", {})
-        mask_threshold = get_first_defined(
-            mask_kwargs.get("threshold", None), self.vmax
-        )
+        mask_threshold = get_first_defined(mask_kwargs.get("threshold", None), self.vmax)
         mask_kwargs.update({"masks": metric_values, "threshold": mask_threshold})
         kwargs["masks"] = mask_kwargs
         gather.plot(event_headers=event_headers, ax=ax, **kwargs)
@@ -340,9 +296,7 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
         ix = (times / sample_rate).astype(np.int64).reshape(-1, 1)
         if np.any(data.shape[1] < ix) or np.any(ix < 0):
             raise (IndexError, "First breaks are out of bounds")
-        mean_cols = ix + np.arange(
-            -window_size // sample_rate, window_size // sample_rate
-        ).reshape(1, -1)
+        mean_cols = ix + np.arange(-window_size // sample_rate, window_size // sample_rate).reshape(1, -1)
         mean_cols = np.clip(mean_cols, 0, data.shape[1] - 1).astype(np.int64)
 
         trace_len = mean_cols.shape[1]
@@ -352,27 +306,13 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
             traces_windows[i] = data[i][mean_cols[i]]
 
         mean_hodograph = np.sum(traces_windows, axis=0) / n_traces
-        mean_hodograph_centered = (mean_hodograph - np.mean(mean_hodograph)) / np.std(
-            mean_hodograph
-        )
+        mean_hodograph_centered = (mean_hodograph - np.mean(mean_hodograph)) / np.std(mean_hodograph)
 
         mean_amplitudes = np.sum(traces_windows, axis=1) / trace_len
-        std_amplitudes = np.sqrt(
-            np.sum(
-                ((traces_windows - mean_amplitudes.reshape(-1, 1)) ** 2) / trace_len,
-                axis=1,
-            )
-        )
-        traces_windows_centered = (
-            traces_windows - mean_amplitudes.reshape(-1, 1)
-        ) / std_amplitudes.reshape(-1, 1)
+        std_amplitudes = np.sqrt(np.sum(((traces_windows - mean_amplitudes.reshape(-1, 1)) ** 2) / trace_len, axis=1))
+        traces_windows_centered = (traces_windows - mean_amplitudes.reshape(-1, 1)) / std_amplitudes.reshape(-1, 1)
 
-        corrs = (
-            np.sum(
-                traces_windows_centered * mean_hodograph_centered.reshape(1, -1), axis=1
-            )
-            / trace_len
-        )
+        corrs = (np.sum(traces_windows_centered * mean_hodograph_centered.reshape(1, -1), axis=1)/ trace_len)
         return corrs
 
     def calc(self, gather, refractor_velocity, first_breaks_col, correct_uphole):
@@ -385,9 +325,7 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
             Window correlation with mean hodograph for each trace in the gather.
         """
         _ = refractor_velocity, correct_uphole
-        res = self._calc(
-            gather[first_breaks_col], gather.data, self.window_size, gather.sample_rate
-        )
+        res = self._calc(gather[first_breaks_col], gather.data, self.window_size, gather.sample_rate)
         return res
 
     def plot_mean_hodograph(self, coords, ax, index, **kwargs):
@@ -397,28 +335,21 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
         g = gather.copy()
         g.scale_maxabs(clip=True)
         ix = (g[self.first_breaks_col] / g.sample_rate).astype(np.int64).reshape(-1, 1)
-        mean_cols = ix + np.arange(
-            -self.window_size // g.sample_rate, self.window_size // g.sample_rate
-        ).reshape(1, -1)
+        mean_cols = ix + np.arange(-self.window_size // g.sample_rate, self.window_size // g.sample_rate).reshape(1, -1)
         mean_cols = np.clip(mean_cols, 0, g.data.shape[1] - 1).astype(np.int64)
 
         n_traces = len(g.data)
         traces_windows = g.data[np.arange(n_traces).reshape(-1, 1), mean_cols]
         mean_hodograph = traces_windows.mean(axis=0)
 
-        mean_hodograph_centered = (
-            (mean_hodograph - mean_hodograph.mean()) / mean_hodograph.std()
-        ).reshape(1, -1)
+        mean_hodograph_centered = ((mean_hodograph - mean_hodograph.mean()) / mean_hodograph.std()).reshape(1, -1)
         g.data = mean_hodograph_centered
 
         y_min = mean_cols[0, :].min()
         g.plot(mode="wiggle", ax=ax, **kwargs)
         ax.set_xlabel("Amplitude")
         ax.set_xticks(ticks=[-1, 0, 1])
-        ax.set_yticks(
-            ticks=np.arange(self.window_size)[::5],
-            labels=np.arange(self.window_size)[::5] + y_min,
-        )
+        ax.set_yticks(ticks=np.arange(self.window_size)[::5],labels=np.arange(self.window_size)[::5] + y_min)
 
 
 class DivergencePoint(RefractorVelocityMetric):
@@ -460,9 +391,7 @@ class DivergencePoint(RefractorVelocityMetric):
 
         split_idxs = np.arange(step, len(offsets) - len(offsets) % step, step)
         outliers_splits = np.split(outliers, split_idxs)
-        outliers_fractions = np.array(
-            [outliers_window.mean() for outliers_window in outliers_splits]
-        )
+        outliers_fractions = np.array([outliers_window.mean() for outliers_window in outliers_splits])
         return offsets[split_idxs[np.argmax(outliers_fractions) - 1]]
 
     def calc(self, gather, refractor_velocity, first_breaks_col, correct_uphole):
@@ -474,14 +403,9 @@ class DivergencePoint(RefractorVelocityMetric):
             Metric value. Set to be the maximum offset when the overall fraction of outliers is close to zero.
         """
         times = gather[first_breaks_col]
-        correct_uphole = (
-            correct_uphole
-            if correct_uphole is not None
-            else (
-                "SourceUpholeTime" in gather.available_headers
-                and refractor_velocity.is_uphole_corrected
-            )
-        )
+        correct_uphole = (correct_uphole if correct_uphole is not None 
+                          else ("SourceUpholeTime" in gather.available_headers
+                          and refractor_velocity.is_uphole_corrected))
         if correct_uphole:
             times = times + gather["SourceUpholeTime"]
         offsets = gather["offset"]
@@ -497,24 +421,13 @@ class DivergencePoint(RefractorVelocityMetric):
         and threshold area used for metric calculation."""
         gather = self.survey.get_gather(index)
         rv = self.field(coords)
-        divergence_offset = self.calc(
-            gather,
-            rv,
-            first_breaks_col=self.first_breaks_col,
-            correct_uphole=self.correct_uphole,
-        )
+        divergence_offset = self.calc(gather, rv, first_breaks_col=self.first_breaks_col,
+                                      correct_uphole=self.correct_uphole)
         ax.axvline(x=divergence_offset, color="k", linestyle="--")
         threshold_times = kwargs.get("threshold_times", self.threshold_times)
         title = f"Divergence point: {divergence_offset}m"
-        super().plot_refractor_velocity(
-            coords, ax, index, title=title, threshold_times=threshold_times, **kwargs
-        )
+        super().plot_refractor_velocity(coords, ax, index, title=title, threshold_times=threshold_times, **kwargs)
 
 
-REFRACTOR_VELOCITY_QC_METRICS = [
-    FirstBreaksOutliers,
-    FirstBreaksAmplitudes,
-    FirstBreaksPhases,
-    FirstBreaksCorrelations,
-    DivergencePoint,
-]
+REFRACTOR_VELOCITY_QC_METRICS = [FirstBreaksOutliers, FirstBreaksAmplitudes, FirstBreaksPhases,
+                                 FirstBreaksCorrelations, DivergencePoint]
