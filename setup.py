@@ -29,6 +29,7 @@ setup(
         'scipy>=1.7',
         'numba>=0.55',
         'pandas>=1.3',
+        'polars>=0.17.5',
         'scikit-learn>=0.23.2',
         'opencv_python>=4.5.1',
         'networkx>=2.5',

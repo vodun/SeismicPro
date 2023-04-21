@@ -23,7 +23,7 @@ from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
 from ..containers import GatherContainer, SamplesContainer
 from ..utils import to_list, maybe_copy, get_cols, get_first_defined
-from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK, HDR_TRACE_POS
+from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_TRACE_POS
 
 
 class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-instance-attributes
