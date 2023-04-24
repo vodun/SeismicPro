@@ -150,6 +150,25 @@ class SeismicBatch(Batch):
 
     @action
     def combine_gathers(self, src, dst=None):
+        """Combine all gathers produced by the same survey into a single gather for each component in `src`.
+
+        This method allows for more efficient subsequent gather `dump` since:
+        1. Text and bin headers are stored only once for the whole combined gather, which especially matters when
+           dumping a single stacked trace,
+        2. Total number of gathers passed to `aggregate_segys` is reduced.
+
+        Parameters
+        ----------
+        src : str or list of str
+            Batch components to combine.
+        dst : str or list of str, optional
+            Batch components to store the combined gathers in. Equals to `src` if not given.
+
+        Returns
+        -------
+        batch : SeismicBatch
+            A batch with combined gathers.
+        """
         if not isinstance(self.index, SeismicIndex):
             return self  # gathers are already combined
 
@@ -161,7 +180,7 @@ class SeismicBatch(Batch):
         non_empty_parts = [i for i, n_gathers in enumerate(self.index.n_gathers_by_part) if n_gathers]
         split_pos = np.cumsum([n_gathers for n_gathers in self.index.n_gathers_by_part if n_gathers][:-1])
         combined_batch = type(self)(DatasetIndex(non_empty_parts), dataset=self.dataset, pipeline=self.pipeline)
-        for src, dst in zip(src_list, dst_list):
+        for src, dst in zip(src_list, dst_list):  # pylint: disable=redefined-argument-from-local
             gathers = getattr(self, src)
             if not all(isinstance(gather, Gather) for gather in gathers):
                 raise ValueError(f"{src} component contains items that are not instances of Gather class")
