@@ -87,7 +87,7 @@ class TraceContainer:
         """
         self.headers[key] = value
 
-    def get_headers(self, cols):
+    def get_headers(self, cols, preserve_dtype=False):
         """Select values of trace headers by their names and return them as a `pandas.DataFrame`. Unlike `pandas`
         indexing allows for selection of headers the container is indexed by.
 
@@ -101,7 +101,14 @@ class TraceContainer:
         result : pandas.DataFrame
             Headers values.
         """
-        return pd.DataFrame(self[cols], columns=to_list(cols))
+        if isinstance(self.headers.index, pd.MultiIndex):
+            index_dtype = self.headers.index.dtypes
+        else:
+            index_dtype = pd.Series({self.headers.index.name: self.headers.index.dtype})
+        dtypes = pd.concat((self.headers.dtypes, index_dtype))
+
+        headers = pd.DataFrame(self[cols], columns=to_list(cols))
+        return headers.astype(dtypes[cols]) if preserve_dtype else headers
 
     def copy(self, ignore=None):
         """Perform a deepcopy of all attributes of `self` except for those specified in `ignore`, which are kept
@@ -274,11 +281,11 @@ class TraceContainer:
         self.headers[res_cols] = res
         return self
 
-    def load_headers(self, path, names=None, index_col=None, format="fwf", sep=None, usecols=None, skiprows=None, # pylint: disable=too-many-arguments
-                     engine="pyarrow", decimal=None, encoding="UTF-8", keep_all_headers=False, inplace=False,
+    def load_headers(self, path, headers=None, join_on_headers=None, format="fwf", has_header=False, usecols=None,  # pylint: disable=too-many-arguments
+                     sep=None, skiprows=None, decimal=None, encoding="UTF-8", keep_all_headers=False, inplace=False,
                      **kwargs):
         """Load headers from a file and join them with the existing `self.headers`.
-
+        TODO: REWRITE
         Parameters:
         -----------
         path : str
@@ -321,40 +328,63 @@ class TraceContainer:
         ValueError
             If the `format` argument is not one of the supported formats ('fwf', 'csv').
         """
+        if format not in ["fwf", "csv"]:
+            raise ValueError(f"Unknown format `{format}`, available formats are ('fwf', 'csv')")
+
         self = maybe_copy(self, inplace, ignore="headers")  # pylint: disable=self-cls-assignment
-        if sep is None:
-            if format == "fwf":
-                sep = r'\s+'
-                engine = None
-            elif format == "csv":
-                sep = ','
-            else:
-                raise ValueError(f"Unknown format {format}, available formats are ('fwf', 'csv')")
 
-        # If decimal is not provided, try inferring it from the file
-        if decimal is None:
-            with open(path, 'r', encoding=encoding) as f:
-                row = f.readline() if skiprows is None else [next(f) for _ in range(skiprows+1)][-1]
-            decimal = '.' if '.' in row else ','
-
+        # Processing negative usecols
         if usecols is not None:
             usecols = np.asarray(usecols)
             if any(usecols < 0):
-                sep = sep if format == "csv" else None
+                sep = sep or ',' if format == "csv" else None
                 with open(path, 'r', encoding=encoding) as f:
                     n_cols = len(f.readline().split(sep))
                 usecols[usecols < 0] = n_cols + usecols[usecols < 0]
 
-        loaded_df = pd.read_csv(path, sep=sep, names=names, index_col=index_col, usecols=usecols, decimal=decimal,
-                                engine=engine, skiprows=skiprows, encoding=encoding, **kwargs)
+        if format == "fwf":
+            # If decimal is not provided, try inferring it from the file
+            if decimal is None:
+                with open(path, 'r', encoding=encoding) as f:
+                    n_skip = has_header + 1
+                    if skiprows is not None:
+                        n_skip += skiprows
+                    row = [next(f) for _ in range(n_skip)][-1]
+                decimal = '.' if '.' in row else ','
+            header = 0 if has_header else None
+            loaded_headers = pd.read_csv(path, sep=r'\s+', header=header, names=headers, usecols=usecols,
+                                         decimal=decimal, skiprows=skiprows, encoding=encoding, **kwargs)
+            loaded_headers = pl.from_pandas(loaded_headers)
+        else:
+            sep = ',' if sep is None else sep
+            if decimal == ",":
+                raise ValueError("Unable to use comma as decimal for 'csv' format")
+
+            columns = headers if has_header else None
+            new_columns = None if has_header else headers
+            if usecols is not None:
+                columns = usecols.tolist()
+                new_columns = headers
+            skiprows = 0 if skiprows is None else skiprows
+            loaded_headers = pl.read_csv(path, has_header=has_header, columns=columns, new_columns=new_columns,
+                                         separator=sep, skip_rows=skiprows, encoding=encoding, **kwargs)
+
         how = "left" if keep_all_headers else "inner"
-        self.headers = self.headers.join(loaded_df, on=index_col, how=how, rsuffix="_loaded")  # pylint: disable=attribute-defined-outside-init
+        index_cols = self.headers.index.names  # pylint: disable=access-member-before-definition
+        headers = pl.from_pandas(self.headers.reset_index())  # pylint: disable=access-member-before-definition
+        if join_on_headers is None:
+            # Use intersection of columns from file and self.headers as join columns
+            join_on_headers = list(set(headers.columns) & set(loaded_headers.columns))
+        casts = [loaded_headers[column].cast(headers[column].dtype) for column in to_list(join_on_headers)]
+        loaded_headers = loaded_headers.with_columns(*casts)
+        headers = headers.join(loaded_headers, on=join_on_headers, how=how, suffix="_loaded")
+        self.headers = headers.to_pandas().set_index(index_cols)  # pylint: disable=attribute-defined-outside-init
 
         if self.is_empty:
             warnings.warn("Empty headers after headers loading", RuntimeWarning)
         return self
 
-    def dump_headers(self, path, columns, format="fwf", sep=',', col_space=8, dump_col_names=True, **kwargs):
+    def dump_headers(self, path, columns, format="fwf", sep=',', col_space=8, dump_col_names=False, **kwargs):
         """Save the selected columns from headers into a file.
 
         Parameters
@@ -370,7 +400,7 @@ class TraceContainer:
             The separator used in the output file. It is only used when `format="csv"`.
         col_space : int, optional, defaults to 8
             The column width in characters when `format="fwf"`.
-        dump_col_names : bool, optional, defaults to True
+        dump_col_names : bool, optional, defaults to False
             Whether to include the column names in the output file.
         kwargs : misc, optional
             Additional arguments for dumping function. If `format="fwf"`, passed to `pandas.to_string`.
@@ -386,7 +416,7 @@ class TraceContainer:
         ValueError
             If the `format` argument is not one of the supported formats ('fwf', 'csv').
         """
-        dump_df = self.get_headers(columns)
+        dump_df = self.get_headers(columns, preserve_dtype=True)
         if format == "fwf":
             dump_df.to_string(path, col_space=col_space, header=dump_col_names, index=False, **kwargs)
         elif format == "csv":
