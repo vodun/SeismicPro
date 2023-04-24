@@ -28,7 +28,9 @@ COHERENCY_FUNCS = {
     'crosscorrelation': coherency_funcs.crosscorrelation,
     'CC': coherency_funcs.crosscorrelation,
     'ENCC': coherency_funcs.energy_normalized_crosscorrelation,
-    'energy_normalized_crosscorrelation': coherency_funcs.energy_normalized_crosscorrelation
+    'energy_normalized_crosscorrelation': coherency_funcs.energy_normalized_crosscorrelation,
+    
+    "SS": coherency_funcs.stacked_amplituded_sum
 }
 
 
@@ -734,3 +736,61 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         if title is None:
             title = f"Residual Velocity Spectrum \n Coherency func: {self.coherency_func.__name__}"
         return super().plot(interactive=interactive, title=title, **kwargs)
+
+
+
+class SlantStack(VerticalVelocitySpectrum):
+
+    @staticmethod
+    @njit(nogil=True, fastmath=True, parallel=True)
+    def calc_single_velocity_spectrum(coherency_func, gather_data, times, offsets, velocity, sample_rate,
+                                       half_win_size_samples, t_min_ix, t_max_ix, max_stretch_factor=np.inf, out=None):
+        t_win_size_min_ix = max(0, t_min_ix - half_win_size_samples)
+        t_win_size_max_ix = min(len(times) - 1, t_max_ix + half_win_size_samples)
+
+        corrected_gather_data = apply_lmo(gather_data, times[t_win_size_min_ix: t_win_size_max_ix + 1], offsets, velocity, sample_rate)
+
+        numerator, denominator = coherency_func(corrected_gather_data)
+
+        if out is None:
+            out = np.empty(t_max_ix - t_min_ix, dtype=np.float32)
+
+        for t in prange(t_min_ix, t_max_ix):
+            t_rel = t - t_win_size_min_ix
+            ix_from = max(0, t_rel - half_win_size_samples)
+            ix_to = min(corrected_gather_data.shape[1] - 1, t_rel + half_win_size_samples)
+            out[t - t_min_ix] = np.sum(numerator[ix_from : ix_to]) / (np.sum(denominator[ix_from : ix_to]) + 1e-8)
+        return out
+
+    def plot(self, *args, interactive=False, **kwargs):
+        """Plot velocity spectrum in interactive or non-interactive mode."""
+        if not interactive:
+            return self._plot(*args, **kwargs)
+        from .interactive_plot import SlantStackPlot
+        return SlantStackPlot(self, *args, **kwargs).plot()
+
+
+@njit(nogil=True, parallel=True)
+def compute_linear_hodograph_times(offsets, times, velocities):
+    velocities = np.ascontiguousarray(np.broadcast_to(velocities, times.shape))
+    return times.reshape(-1, 1) + (offsets / velocities.reshape(-1, 1))
+
+from ..gather.utils.correction import get_hodograph
+@njit(nogil=True, parallel=True)
+def apply_lmo(gather_data, times, offsets, stacking_velocities, sample_rate, fill_value=np.nan):
+    corrected_gather_data = np.full_like(gather_data, fill_value=fill_value)
+    hodograph_times = compute_linear_hodograph_times(offsets, times, stacking_velocities)
+    for i in prange(times.shape[0]):
+        get_hodograph(gather_data, offsets, hodograph_times[i], sample_rate, fill_value=fill_value, out=corrected_gather_data[:, i])
+    return corrected_gather_data
+
+
+ALL_FASTMATH_FLAGS  = {'nnan', 'ninf', 'nsz', 'arcp', 'contract', 'afn', 'reassoc'}
+@njit(nopython=True, nogil=True, parallel=True, fastmath=ALL_FASTMATH_FLAGS - {'nnan'})
+def stacked_amplitude_sum(corrected_gather):
+    numerator = np.empty_like(corrected_gather[0])
+    denominator = np.ones_like(corrected_gather[0])
+    for i in prange(corrected_gather.shape[1]):
+        numerator[i] = np.nansum(corrected_gather[:, i])
+    return numerator, denominator
+

@@ -899,6 +899,12 @@ class Gather(TraceContainer, SamplesContainer):
                                         window_size=window_size, relative_margin=relative_margin, mode=mode,
                                         max_stretch_factor=max_stretch_factor)
 
+
+    @batch_method(target="threads", copy_src=False)
+    def calculate_slant_stack(self, velocities, window_size=1, mode='SS'):
+        from ..velocity_spectrum.velocity_spectrum import SlantStack
+        return SlantStack(gather=self, velocities=velocities, window_size=window_size, mode=mode)
+
     #------------------------------------------------------------------------#
     #                           Gather corrections                           #
     #------------------------------------------------------------------------#
