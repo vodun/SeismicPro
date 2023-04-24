@@ -710,7 +710,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     # pylint: disable-next=too-many-statements
     def collect_stats(self, indices=None, n_quantile_traces=100000, quantile_precision=2, limits=None,
-                      chunk_size=1000, n_workers=None, bar=True):
+                      chunk_size=10000, n_workers=None, bar=True):
         """Collect the following statistics by iterating over survey traces:
         1. Min and max amplitude,
         2. Mean amplitude and trace standard deviation,
@@ -796,6 +796,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                 quantile_traces_buffer[i] = chunk[chunk_quantile_mask].ravel()
             min_buffer[i], max_buffer[i], mean_buffer[i], var_buffer[i] = calculate_trace_stats(chunk.ravel())
             return len(chunk)
+
+        # Precompile njitted function to correctly initialize TBB from the main thread
+        _ = calculate_trace_stats(self.loader.load_traces([0], limits=limits).ravel())
 
         # Accumulate min, max, mean and var values of traces chunks
         bar_desc = f"Calculating statistics for traces in survey {self.name}"
