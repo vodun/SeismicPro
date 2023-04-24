@@ -1,27 +1,25 @@
 """Implements SeismicBatch class for processing a small subset of seismic gathers"""
 
-from functools import partial
 from string import Formatter
+from functools import partial
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from batchflow import Batch, DatasetIndex, NamedExpression, save_data_to
+import matplotlib.pyplot as plt
+from batchflow import save_data_to, Batch, DatasetIndex, NamedExpression
 from batchflow.decorators import action, inbatch_parallel
 
-from .decorators import apply_to_each_component, create_batch_methods
-from .field import Field
-from .gather import CroppedGather, Gather
-from .gather.utils.crop_utils import make_origins
 from .index import SeismicIndex
+from .gather import Gather, CroppedGather
+from .gather.utils.crop_utils import make_origins
+from .velocity_spectrum import VerticalVelocitySpectrum, ResidualVelocitySpectrum
+from .field import Field
 from .metrics import define_pipeline_metric
-from .utils import as_dict, save_figure, to_list
-from .velocity_spectrum import ResidualVelocitySpectrum, VerticalVelocitySpectrum
+from .decorators import create_batch_methods, apply_to_each_component
+from .utils import to_list, as_dict, save_figure
 
 
-@create_batch_methods(
-    Gather, CroppedGather, VerticalVelocitySpectrum, ResidualVelocitySpectrum
-)
+@create_batch_methods(Gather, CroppedGather, VerticalVelocitySpectrum, ResidualVelocitySpectrum)
 class SeismicBatch(Batch):
     """A batch class for seismic data that allows for joint and simultaneous processing of small subsets of seismic
     gathers in a parallel way.
@@ -68,7 +66,6 @@ class SeismicBatch(Batch):
     components : tuple of str or None
         Names of the created components. Each of them can be accessed as a usual attribute.
     """
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._num_calculated_metrics = 0
@@ -122,37 +119,23 @@ class SeismicBatch(Batch):
         if isinstance(fmt, str) and fmt.lower() in {"sgy", "segy"}:
             if not combined:
                 return self.load_gather(src=src, dst=dst, **kwargs)
-            non_empty_parts = [
-                i
-                for i, n_gathers in enumerate(self.index.n_gathers_by_part)
-                if n_gathers
-            ]
-            combined_batch = type(self)(
-                DatasetIndex(non_empty_parts),
-                dataset=self.dataset,
-                pipeline=self.pipeline,
-            )
-            return combined_batch.load_combined_gather(
-                src=src, dst=dst, parent_index=self.index, **kwargs
-            )
+            non_empty_parts = [i for i, n_gathers in enumerate(self.index.n_gathers_by_part) if n_gathers]
+            combined_batch = type(self)(DatasetIndex(non_empty_parts), dataset=self.dataset, pipeline=self.pipeline)
+            return combined_batch.load_combined_gather(src=src, dst=dst, parent_index=self.index, **kwargs)
         return super().load(src=src, fmt=fmt, dst=dst, **kwargs)
 
     @apply_to_each_component(target="threads", fetch_method_target=False)
     def load_gather(self, pos, src, dst, **kwargs):
         """Load a gather with ordinal number `pos` in the batch from a survey `src`."""
         index, part = self.index.index_by_pos(pos)
-        getattr(self, dst)[pos] = self.index.get_gather(
-            index, part=part, survey_name=src, **kwargs
-        )
+        getattr(self, dst)[pos] = self.index.get_gather(index, part=part, survey_name=src, **kwargs)
 
     @apply_to_each_component(target="for", fetch_method_target=False)
     def load_combined_gather(self, pos, src, dst, parent_index, **kwargs):
         """Load all batch traces from a given part and survey into a single gather."""
         part = parent_index.parts[self.indices[pos]]
         survey = part.surveys_dict[src]
-        headers = part.headers.get(
-            src, part.headers[[]]
-        )  # Handle the case when no headers were loaded for a survey
+        headers = part.headers.get(src, part.headers[[]])  # Handle the case when no headers were loaded for a survey
         getattr(self, dst)[pos] = survey.load_gather(headers, **kwargs)
 
     @action
@@ -164,7 +147,7 @@ class SeismicBatch(Batch):
         field : Field
             A field to update.
         src : str
-            A component of instances to update the field with. Each of them must have well-defined coordinates.
+            A component of instances to update the cube with. Each of them must have well-defined coordinates.
 
         Returns
         -------
@@ -197,7 +180,7 @@ class SeismicBatch(Batch):
         return self
 
     @action
-    def make_model_inputs(self, src, dst, mode="c", axis=0, expand_dims_axis=None):
+    def make_model_inputs(self, src, dst, mode='c', axis=0, expand_dims_axis=None):
         """Transform data to be used for model training.
 
         The method performs two-stage data processing:
@@ -249,7 +232,7 @@ class SeismicBatch(Batch):
             If unknown `mode` was passed.
         """
         data = getattr(self, src) if isinstance(src, str) else src
-        func = {"c": np.concatenate, "s": np.stack}.get(mode)
+        func = {'c': np.concatenate, 's': np.stack}.get(mode)
         if func is None:
             raise ValueError(f"Unknown mode '{mode}', must be either 'c' or 's'")
         data = func(data, axis=axis)
@@ -259,7 +242,7 @@ class SeismicBatch(Batch):
         setattr(self, dst, data)
         return self
 
-    @action(no_eval="dst")
+    @action(no_eval='dst')
     def split_model_outputs(self, src, dst, shapes):
         """Split data into multiple sub-arrays whose shapes along zero axis are defined by `shapes`.
 
@@ -329,25 +312,12 @@ class SeismicBatch(Batch):
         elif isinstance(dst, NamedExpression):
             dst.set(value=split_data)
         else:
-            raise ValueError(
-                f"dst must be either `str` or `NamedExpression`, not {type(dst)}."
-            )
+            raise ValueError(f"dst must be either `str` or `NamedExpression`, not {type(dst)}.")
         return self
 
     @action
-    @inbatch_parallel(init="init_component", target="threads")
-    def crop(
-        self,
-        pos,
-        src,
-        origins,
-        crop_shape,
-        dst=None,
-        joint=True,
-        n_crops=1,
-        stride=None,
-        **kwargs,
-    ):
+    @inbatch_parallel(init='init_component', target='threads')
+    def crop(self, pos, src, origins, crop_shape, dst=None, joint=True, n_crops=1, stride=None, **kwargs):
         """Crop batch components.
 
         Parameters
@@ -410,19 +380,13 @@ class SeismicBatch(Batch):
                 src_shapes.add(src_obj.shape)
 
             if len(src_types) > 1:
-                raise TypeError(
-                    "If joint is True, all src components must be of the same type."
-                )
+                raise TypeError("If joint is True, all src components must be of the same type.")
             if len(src_shapes) > 1:
-                raise ValueError(
-                    "If joint is True, all src components must have the same shape."
-                )
+                raise ValueError("If joint is True, all src components must have the same shape.")
             data_shape = src_shapes.pop()
             origins = make_origins(origins, data_shape, crop_shape, n_crops, stride)
 
-        for src, dst in zip(
-            src_list, dst_list
-        ):  # pylint: disable=redefined-argument-from-local
+        for src, dst in zip(src_list, dst_list):  # pylint: disable=redefined-argument-from-local
             src_obj = getattr(self, src)[pos]
             src_cropped = src_obj.crop(origins, crop_shape, n_crops, stride, **kwargs)
             setattr(self[pos], dst, src_cropped)
@@ -430,15 +394,7 @@ class SeismicBatch(Batch):
         return self
 
     @action(no_eval="save_to")
-    def calculate_metric(
-        self,
-        metric,
-        *args,
-        metric_name=None,
-        coords_component=None,
-        save_to=None,
-        **kwargs,
-    ):
+    def calculate_metric(self, metric, *args, metric_name=None, coords_component=None, save_to=None, **kwargs):
         """Calculate a metric for each batch element and store the results into a metric map.
 
         The passed metric must be either an instance or a subclass of `PipelineMetric` or a `callable`. In the latter
@@ -514,9 +470,7 @@ class SeismicBatch(Batch):
 
         # Calculate metric values and their coordinates
         values = [metric(*args, **kwargs) for args, kwargs in unpacked_args]
-        coords_items = (
-            first_arg if coords_component is None else getattr(self, coords_component)
-        )
+        coords_items = first_arg if coords_component is None else getattr(self, coords_component)
         coords = [item.coords for item in coords_items]
         if None in coords:
             raise ValueError("All batch items must have well-defined coordinates")
@@ -531,12 +485,8 @@ class SeismicBatch(Batch):
         index = pd.concat(part_indices, ignore_index=True, copy=False)
 
         # Construct and save the map
-        metric = metric.provide_context(
-            pipeline=self.pipeline, calculate_metric_index=self._num_calculated_metrics
-        )
-        metric_map = metric.construct_map(
-            coords, values, index=index, calculate_immediately=False
-        )
+        metric = metric.provide_context(pipeline=self.pipeline, calculate_metric_index=self._num_calculated_metrics)
+        metric_map = metric.construct_map(coords, values, index=index, calculate_immediately=False)
         if save_to is not None:
             save_data_to(data=metric_map, dst=save_to, batch=self)
         self._num_calculated_metrics += 1
@@ -544,30 +494,18 @@ class SeismicBatch(Batch):
 
     @staticmethod
     def _unpack_args(args, batch_item):
-        """Replace all names of batch components in `args` with corresponding values from `batch_item`."""
+        """Replace all names of batch components in `args` with corresponding values from `batch_item`. """
         if not isinstance(args, (list, tuple, str)):
             return args
 
-        unpacked_args = [
-            getattr(batch_item, val)
-            if isinstance(val, str) and val in batch_item.components
-            else val
-            for val in to_list(args)
-        ]
+        unpacked_args = [getattr(batch_item, val) if isinstance(val, str) and val in batch_item.components else val
+                         for val in to_list(args)]
         if isinstance(args, str):
             return unpacked_args[0]
         return unpacked_args
 
     @action
-    def plot(
-        self,
-        src,
-        src_kwargs=None,
-        max_width=20,
-        title="{src}: {index}",
-        save_to=None,
-        **common_kwargs,
-    ):  # pylint: disable=too-many-statements
+    def plot(self, src, src_kwargs=None, max_width=20, title="{src}: {index}", save_to=None, **common_kwargs):  # pylint: disable=too-many-statements
         """Plot batch components on a grid constructed as follows:
         1. If a single batch component is passed, its objects are plotted side by side on a single line.
         2. Otherwise, each batch element is drawn on a separate line, its components are plotted in the order they
@@ -632,36 +570,21 @@ class SeismicBatch(Batch):
         if src_kwargs is None:
             src_kwargs = [{} for _ in range(len(src_list))]
         elif isinstance(src_kwargs, dict):
-            src_kwargs = {
-                src: src_kwargs[keys] for keys in src_kwargs for src in to_list(keys)
-            }
+            src_kwargs = {src: src_kwargs[keys] for keys in src_kwargs for src in to_list(keys)}
             src_kwargs = [src_kwargs.get(src, {}) for src in src_list]
         else:
             src_kwargs = to_list(src_kwargs)
             if len(src_list) != len(src_kwargs):
-                raise ValueError(
-                    "The length of src_kwargs must match the length of src"
-                )
+                raise ValueError("The length of src_kwargs must match the length of src")
 
         # Construct a grid of plotters with shape (len(self), len(src_list)) for each of the subplots
         plotters = [[] for _ in range(len(self))]
-        for src, kwargs in zip(
-            src_list, src_kwargs
-        ):  # pylint: disable=redefined-argument-from-local
+        for src, kwargs in zip(src_list, src_kwargs):  # pylint: disable=redefined-argument-from-local
             # Merge src kwargs with common kwargs and defaults
-            plotter_params = getattr(
-                getattr(self, src)[0].plot, "method_params", {}
-            ).get("plotter")
+            plotter_params = getattr(getattr(self, src)[0].plot, "method_params", {}).get("plotter")
             if plotter_params is None:
-                raise ValueError(
-                    "plot method of each component in src must be decorated with plotter"
-                )
-            kwargs = {
-                "figsize": plotter_params["figsize"],
-                "title": title,
-                **common_kwargs,
-                **kwargs,
-            }
+                raise ValueError("plot method of each component in src must be decorated with plotter")
+            kwargs = {"figsize": plotter_params["figsize"], "title": title, **common_kwargs, **kwargs}
 
             # Scale subplot figsize if its width is greater than max_width
             width, height = kwargs.pop("figsize")
@@ -678,37 +601,23 @@ class SeismicBatch(Batch):
                 for arg_name in args_to_unpack & kwargs.keys():
                     arg_val = kwargs[arg_name]
                     if isinstance(arg_val, dict) and arg_name in arg_val:
-                        arg_val[arg_name] = self._unpack_args(
-                            arg_val[arg_name], self[i]
-                        )
+                        arg_val[arg_name] = self._unpack_args(arg_val[arg_name], self[i])
                     else:
                         arg_val = self._unpack_args(arg_val, self[i])
                     unpacked_args[arg_name] = arg_val
 
                 # Format subplot title
                 if title_template is not None:
-                    src_title = as_dict(title_template, key="label")
+                    src_title = as_dict(title_template, key='label')
                     label = src_title.pop("label")
-                    format_names = {
-                        name
-                        for _, name, _, _ in Formatter().parse(label)
-                        if name is not None
-                    }
-                    format_kwargs = {
-                        name: src_title.pop(name)
-                        for name in format_names
-                        if name in src_title
-                    }
-                    src_title["label"] = label.format(
-                        src=src, index=index, **format_kwargs
-                    )
+                    format_names = {name for _, name, _, _ in Formatter().parse(label) if name is not None}
+                    format_kwargs = {name: src_title.pop(name) for name in format_names if name in src_title}
+                    src_title["label"] = label.format(src=src, index=index, **format_kwargs)
                     kwargs["title"] = src_title
 
                 # Create subplotter config
                 subplot_config = {
-                    "plotter": partial(
-                        getattr(self, src)[i].plot, **{**kwargs, **unpacked_args}
-                    ),
+                    "plotter": partial(getattr(self, src)[i].plot, **{**kwargs, **unpacked_args}),
                     "height": height,
                     "width": width,
                 }
@@ -726,19 +635,11 @@ class SeismicBatch(Batch):
             if curr_width > max_width:
                 split_pos.append(i)
                 curr_width = plotter["width"]
-        plotters = sum(
-            [np.split(plotters_row, split_pos) for plotters_row in plotters], []
-        )
+        plotters = sum([np.split(plotters_row, split_pos) for plotters_row in plotters], [])
 
         # Define axes layout and perform plotting
-        fig_width = max(
-            sum(plotter["width"] for plotter in plotters_row)
-            for plotters_row in plotters
-        )
-        row_heights = [
-            max(plotter["height"] for plotter in plotters_row)
-            for plotters_row in plotters
-        ]
+        fig_width = max(sum(plotter["width"] for plotter in plotters_row) for plotters_row in plotters)
+        row_heights = [max(plotter["height"] for plotter in plotters_row) for plotters_row in plotters]
         fig = plt.figure(figsize=(fig_width, sum(row_heights)), tight_layout=True)
         gridspecs = fig.add_gridspec(len(plotters), 1, height_ratios=row_heights)
 
@@ -752,9 +653,7 @@ class SeismicBatch(Batch):
                 n_cols += 1
 
             # Create a gridspec for the current row
-            gridspecs_col = gridspecs_row.subgridspec(
-                1, n_cols, width_ratios=col_widths
-            )
+            gridspecs_col = gridspecs_row.subgridspec(1, n_cols, width_ratios=col_widths)
             for gridspec, plotter in zip(gridspecs_col, plotters_row):
                 plotter["plotter"](ax=fig.add_subplot(gridspec))
 

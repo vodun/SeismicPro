@@ -62,15 +62,12 @@ def scale_standard(data, mean, std, tracewise, eps):
         else:
             trace_len = data.shape[1]
             mean = np.sum(data, axis=1).reshape(-1, 1) / trace_len
-            std = np.sqrt(np.sum(((data - mean) ** 2) / trace_len, axis=1)).reshape(
-                -1, 1
-            )
+            std = np.sqrt(np.sum(((data - mean.reshape(-1, 1)) ** 2) / trace_len, axis=1)).reshape(-1, 1)
     return (data - mean) / (std + eps)
-
 
 @njit(nogil=True)
 def get_quantile(data, q, tracewise):
-    """Compute the `q`-th quantile of the data along the axis.
+    r""" Compute the `q`-th quantile of the data along the axis.
 
     Parameters
     ----------
@@ -80,7 +77,7 @@ def get_quantile(data, q, tracewise):
         Quantiles to compute, which must be between 0 and 1 inclusive.
     tracewise : bool
         If `True`, the quantiles are computed for each trace independently, otherwise for the entire gather.
-
+    
     Returns
     -------
     q : 2d np.ndarray of floats
@@ -135,7 +132,7 @@ def scale_maxabs(data, min_value, max_value, q_min, q_max, tracewise, clip, eps)
     max_abs += eps
     # Use np.atleast_2d(array).T to make the array 2-dimensional by adding dummy trailing axes
     # for further broadcasting to work tracewise
-    data /= np.atleast_2d(max_abs).T
+    data /= np.atleast_2d(np.asarray(max_abs)).T
     if clip:
         data = clip_inplace(data, np.float32(-1), np.float32(1))
     return data
@@ -176,10 +173,7 @@ def scale_minmax(data, min_value, max_value, q_min, q_max, tracewise, clip, eps)
     if min_value is None and max_value is None:
         q = np.array([q_min, q_max], dtype=np.float32)
         quantiles = get_quantile(data, q, tracewise)
-        min_value, max_value = (
-            np.asarray(quantiles[0, :]).T,
-            np.asarray(quantiles[1, :]).T,
-        )
+        min_value, max_value = (np.asarray(quantiles[0, :]).T, np.asarray(quantiles[1, :]).T)
     # Use np.atleast_2d(array).T to make the array 2-dimensional by adding dummy trailing axes
     # for further broadcasting to work tracewise
     min_value = np.atleast_2d(min_value).T
