@@ -139,6 +139,12 @@ class FirstBreaksOutliers(RefractorVelocityMetric):
             A seismic gather to get offsets and times of first breaks from.
         refractor_velocity : RefractorVelocity
             Near-surface velocity model to estimate the expected first break times at `gather` offsets.
+        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+            Column name from `survey.headers` where times of first break are stored.
+        correct_uphole : bool, optional
+            Whether to perform uphole correction by adding values of "SourceUpholeTime" header to times of first breaks
+            emulating the case when sources are located on the surface. If not given, correction is performed if
+            "SourceUpholeTime" header is loaded.
 
         Returns
         -------
@@ -194,6 +200,8 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
         -------
         metric : np.ndarray of float
             Signal amplitudes for each trace in the gather.
+        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+            Column name from `survey.headers` where times of first break are stored.
         """
         _ = refractor_velocity, correct_uphole
         res = self._calc(gather.data.copy(), gather[first_breaks_col], gather.sample_rate)
@@ -229,6 +237,8 @@ class FirstBreaksPhases(RefractorVelocityMetric):
         -------
         metric : np.ndarray of float
             Signal phase value at first break time for each trace in the gather.
+        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+            Column name from `survey.headers` where times of first break are stored.
         """
         _ = refractor_velocity, correct_uphole
         ix = (gather[first_breaks_col] / gather.sample_rate).astype(np.int64)
@@ -323,6 +333,8 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
         -------
         metric : np.ndarray of float
             Window correlation with mean hodograph for each trace in the gather.
+        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+            Column name from `survey.headers` where times of first break are stored.
         """
         _ = refractor_velocity, correct_uphole
         res = self._calc(gather[first_breaks_col], gather.data, self.window_size, gather.sample_rate)
@@ -401,6 +413,12 @@ class DivergencePoint(RefractorVelocityMetric):
         -------
         metric : int
             Metric value. Set to be the maximum offset when the overall fraction of outliers is close to zero.
+        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+            Column name from `survey.headers` where times of first break are stored.
+        correct_uphole : bool, optional
+            Whether to perform uphole correction by adding values of "SourceUpholeTime" header to times of first breaks
+            emulating the case when sources are located on the surface. If not given, correction is performed if
+            "SourceUpholeTime" header is loaded.
         """
         times = gather[first_breaks_col]
         correct_uphole = (correct_uphole if correct_uphole is not None 

@@ -662,19 +662,18 @@ class RefractorVelocityField(SpatialField):
         * The divergence point metric for first breaks. Intended to find an offset after that first breaks are most
         likely to diverge from expected time.
 
-        metrics : RefractorVelocityMetric or list of RefractorVelocityMetric, optional
-            Metrics to calculate. Defaults to those defined in `~metrics.REFRACTOR_VELOCITY_QC_METRICS`.
-        n_workers : int, optional
-            The number of threads to be spawned to calculate metrics. Defaults to the number of cpu cores.
-        bar : bool, optional, defaults to True
-            Whether to show a progress bar.
-
         Parameters
         ----------
         survey : Survey
             Survey to load traces from.
         metrics : instance or subclass of RefractorVelocityMetric of list of them, optional.
             Defaults to those defined in `~metrics.REFRACTOR_VELOCITY_QC_METRICS`.
+        first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
+            Column name from `survey.headers` where times of first break are stored.
+        correct_uphole : bool, optional
+            Whether to perform uphole correction by adding values of "SourceUpholeTime" header to times of first breaks
+            emulating the case when sources are located on the surface. If not given, correction is performed if
+            "SourceUpholeTime" header is loaded.
         n_workers : int, optional
             The number of threads to be spawned to calculate metrics. Defaults to the number of cpu cores.
         bar : bool, optional, defaults to True

@@ -62,12 +62,12 @@ def scale_standard(data, mean, std, tracewise, eps):
         else:
             trace_len = data.shape[1]
             mean = np.sum(data, axis=1).reshape(-1, 1) / trace_len
-            std = np.sqrt(np.sum(((data - mean.reshape(-1, 1)) ** 2) / trace_len, axis=1)).reshape(-1, 1)
+            std = np.sqrt(np.sum(((data - mean) ** 2) / trace_len, axis=1)).reshape(-1, 1)
     return (data - mean) / (std + eps)
 
 @njit(nogil=True)
 def get_quantile(data, q, tracewise):
-    r""" Compute the `q`-th quantile of the data along the axis.
+    """Compute the `q`-th quantile of the data along the axis.
 
     Parameters
     ----------
