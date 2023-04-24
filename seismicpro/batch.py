@@ -72,6 +72,8 @@ class SeismicBatch(Batch):
         self._num_calculated_metrics = 0
 
     def __getstate__(self):
+        """Create pickling state of a batch from its `__dict__`. Don't pickle `dataset` and `pipeline` if
+        `enable_fast_pickling` config option is set."""
         state = super().__getstate__()
         if config["enable_fast_pickling"]:
             state["_dataset"] = None

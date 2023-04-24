@@ -353,6 +353,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.headers[HDR_TRACE_POS] = np.arange(self.n_traces, dtype=htp_dtype)
 
     def __getstate__(self):
+        """Create pickling state of a survey from its `__dict__`. Don't pickle `headers` and `indexer` if
+        `enable_fast_pickling` config option is set."""
         state = self.__dict__.copy()
         if config["enable_fast_pickling"]:
             state["_headers"] = None
