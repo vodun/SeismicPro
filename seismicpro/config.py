@@ -27,7 +27,7 @@ Reset an option to its default value:
 >>> print(config)
 {'enable_fast_pickling': False}
 
-Temporary change given options within a context manager:
+Temporarily change given options within a context manager:
 >>> with config.use_options(enable_fast_pickling=True):
 >>>     print(config)
 >>> print(config)
@@ -69,7 +69,7 @@ class Config:
 
     @contextmanager
     def use_options(self, **options):
-        """Enter a context manager that temporary changes given options and reverts them back upon exit."""
+        """Enter a context manager that temporarily changes given options and reverts them back upon exit."""
         self.options.update(options)
         yield
         self.reset_options(*options.keys())
