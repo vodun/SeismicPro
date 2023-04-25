@@ -42,9 +42,9 @@ def test_dump_single_gather(segy_path, tmp_path, name, retain_parent_segy_header
         full_exp_headers = full_exp_headers.loc[dump_index:dump_index].reset_index()
         full_dump_headers = Survey(files[0], header_index=header_index, header_cols='all', validate=False).headers
         full_dump_headers = full_dump_headers.reset_index()
-        sample_rates = full_dump_headers['TRACE_SAMPLE_INTERVAL']
-        assert np.unique(sample_rates) > 1
-        assert np.allclose(sample_rates[0] / 1000, expected_survey.sample_rate)
+        sample_intervals = full_dump_headers['TRACE_SAMPLE_INTERVAL']
+        assert np.unique(sample_intervals) > 1
+        assert np.allclose(sample_intervals[0] / 1000, expected_survey.sample_interval)
         drop_cols = ["TRACE_SEQUENCE_FILE", "TRACE_SAMPLE_INTERVAL", HDR_TRACE_POS]
         full_exp_headers.drop(columns=drop_cols, inplace=True)
         full_dump_headers.drop(columns=drop_cols, inplace=True)

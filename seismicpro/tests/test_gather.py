@@ -158,21 +158,22 @@ def test_gather_getitem_sort_by(gather, key):
     assert result_getitem.sort_by is None
 
 
-@pytest.mark.parametrize('key, sample_rate', [(slice(None), 2),
-                                              (slice(0, 8, 2), 4),
-                                              ([1, 2, 3], 2),
-                                              ([1, 3, 5], 4),
-                                              ([1, 2, 5], None),
-                                              (0, None),
-                                              ])
-def test_gather_getitem_sample_rate_changes(gather, key, sample_rate):
+@pytest.mark.parametrize('key, sample_interval', [
+    (slice(None), 2),
+    (slice(0, 8, 2), 4),
+    ([1, 2, 3], 2),
+    ([1, 3, 5], 4),
+    ([1, 2, 5], None),
+    (0, None),
+])
+def test_gather_getitem_sample_rate_changes(gather, key, sample_interval):
     """test_gather_getitem_sample_rate_changes"""
     result_getitem = gather[slice(None), key]
-    if sample_rate is not None:
-        assert result_getitem.sample_rate == sample_rate
+    if sample_interval is not None:
+        assert result_getitem.sample_interval == sample_interval
     else:
         with pytest.raises(ValueError):
-            _ = result_getitem.sample_rate
+            _ = result_getitem.sample_interval
 
 
 ignore =  [None] + COPY_IGNORE_ATTRS + sum([list(combinations(COPY_IGNORE_ATTRS, r=i)) for i in range(1, 4)], [])
