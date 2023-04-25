@@ -1,11 +1,8 @@
 """Test Survey methods for dump and load headers"""
-import os
-from copy import copy
 
 import pytest
 import numpy as np
 
-from seismicpro.utils import to_list
 from . import assert_surveys_equal
 
 
@@ -50,8 +47,8 @@ def dump_load_headers(survey, tmp_path, format, new_cols, columns_to_dump, colum
 @pytest.mark.parametrize("decimal", ['.', ','])
 @pytest.mark.parametrize("new_cols", [["float"], ["int"], ["float", "int"]])
 @pytest.mark.parametrize("columns_to_dump,columns_to_load,usecols,dump_col_names", ARGS)
-def test_dump_load_headers(survey, tmp_path, new_cols, columns_to_dump, columns_to_load, usecols, dump_col_names,
-                           decimal, **kwargs):
+def test_fwf_dump_load_headers(survey, tmp_path, new_cols, columns_to_dump, columns_to_load, usecols, dump_col_names,
+                               decimal):
     """Test dump and load headers in fwf format"""
     dump_load_headers(survey=survey, tmp_path=tmp_path, format="fwf", new_cols=new_cols,
                       columns_to_dump=columns_to_dump, columns_to_load=columns_to_load, usecols=usecols,
@@ -61,8 +58,8 @@ def test_dump_load_headers(survey, tmp_path, new_cols, columns_to_dump, columns_
 @pytest.mark.parametrize("sep", [',', ';'])
 @pytest.mark.parametrize("new_cols", [["float"], ["int"], ["float", "int"]])
 @pytest.mark.parametrize("columns_to_dump,columns_to_load,usecols,dump_col_names", ARGS)
-def test_dump_load_headers(survey, tmp_path, new_cols, columns_to_dump, columns_to_load, usecols, dump_col_names,
-                           sep, **kwargs):
+def test_csv_dump_load_headers(survey, tmp_path, new_cols, columns_to_dump, columns_to_load, usecols, dump_col_names,
+                               sep):
     """Test dump and load headers in csv format"""
     dump_load_headers(survey=survey, tmp_path=tmp_path, format="csv", new_cols=new_cols,
                       columns_to_dump=columns_to_dump, columns_to_load=columns_to_load, usecols=usecols,
