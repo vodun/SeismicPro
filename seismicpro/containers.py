@@ -95,6 +95,8 @@ class TraceContainer:
         ----------
         cols : str or list of str
             Names of headers to get values for.
+        preserve_dtype : bool, optional, defaults to False
+            Whether to preserve columns dtypes in the resulted `pandas.DataFrame`.
 
         Returns
         -------
@@ -291,11 +293,11 @@ class TraceContainer:
         path : str
             A path to the file with headers.
         headers : array-like of str, optional, defaults to None
-            Array with column names to use as header names. If None and `has_header` is True, header names will be
-            inferred from file. Also, if `has_header` is True, then `headers` specifies which columns will be loaded
+            Array with column names to use as header names. If `None` and `has_header` is `True`, header names will be
+            inferred from file. Also, if `has_header` is `True`, then `headers` specifies which columns will be loaded
             from the file.
         join_on_headers : str, array-like of str or None, optional, defaults to None
-            Column(s) base on witch loaded headers will be join to `self.headers`. If None, intersection of headers
+            Column(s) base on witch loaded headers will be join to `self.headers`. If `None`, intersection of headers
             from `headers` and `self.headers.columns` will be used.
         format : "fwf" or "csv", optional, defaults to "fwf"
             Format of the file with headers. Currently, the following options are supported:
@@ -312,7 +314,7 @@ class TraceContainer:
         decimal : str, optional, defaults to None
             Decimal point character. If not provided, it will be inferred from the file.
         encoding : str, optional, defaults to "UTF-8"
-            Encoding to use for the file.
+            File encoding.
         keep_all_headers : bool, optional, defaults to False
             Whether to keep headers for traces that were missed in the loaded file.
         inplace : bool, optional, defaults to False
@@ -395,14 +397,14 @@ class TraceContainer:
         columns : str or array-like of str
             `self.headers` columns to be included in the output file.
         format : "fwf" or "csv", optional, defaults to "fwf"
-            The output file format. If "fwf", use fixed-width format with a width defined by `col_space`. If "csv", use
+            Output file format. If "fwf", use fixed-width format with a width defined by `col_space`. If "csv", use
             single-separated values format with a separator `sep`.
         sep : str, optional, defaults to ','
-            The separator used in the output file. It is only used when `format="csv"`.
+            Separator used in the output file. It is only used when `format="csv"`.
         col_space : int, optional, defaults to 8
-            The column width in characters when `format="fwf"`.
+            Column width in characters when `format="fwf"`.
         decimal : str, optional, defaults to '.'
-            The decimal point character.  It is only used when `format="fwf"`.
+            Decimal point character.  It is only used when `format="fwf"`.
         dump_col_names : bool, optional, defaults to False
             Whether to include the column names in the output file.
         kwargs : misc, optional
