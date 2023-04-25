@@ -641,13 +641,12 @@ class RefractorVelocityField(SpatialField):
         refractor_velocities = field(coords_chunk)
         results = []
         for idx, rv in zip(gather_indices_chunk, refractor_velocities):
-            gather = survey.get_gather(idx)  # limits?
+            gather = survey.get_gather(idx) 
             gather_results = [metric(gather, refractor_velocity=rv, 
                                      first_breaks_col=first_breaks_col, correct_uphole=correct_uphole)
                               for metric in metrics]
             results.append(gather_results)
         return results
-
 
     #pylint: disable-next=invalid-name
     def qc(self, survey=None, metrics=None, first_breaks_col=HDR_FIRST_BREAK, correct_uphole=None,
