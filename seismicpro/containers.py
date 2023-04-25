@@ -301,7 +301,7 @@ class TraceContainer:
             separator are supported.
         sep : str, optional, defaults to None
             Delimiter to use. If not provided, it will be inferred base on the `format`.
-        usecols : list-like or callable, optional, defaults to None
+        usecols : array-like, optional, defaults to None
             Columns to read from the file. If not provided, all columns will be read.
         skiprows : int, optional, defaults to None
             Number of rows to skip from the beginning of the file.
@@ -341,14 +341,13 @@ class TraceContainer:
                 with open(path, 'r', encoding=encoding) as f:
                     n_cols = len(f.readline().split(sep))
                 usecols[usecols < 0] = n_cols + usecols[usecols < 0]
+            usecols = usecols.tolist()
 
         if format == "fwf":
             # If decimal is not provided, try inferring it from the file
             if decimal is None:
                 with open(path, 'r', encoding=encoding) as f:
-                    n_skip = has_header + 1
-                    if skiprows is not None:
-                        n_skip += skiprows
+                    n_skip = has_header + 1 + (0 if skiprows is None else skiprows)
                     row = [next(f) for _ in range(n_skip)][-1]
                 decimal = '.' if '.' in row else ','
             header = 0 if has_header else None
@@ -357,13 +356,11 @@ class TraceContainer:
             loaded_headers = pl.from_pandas(loaded_headers)
         else:
             sep = ',' if sep is None else sep
-            if decimal == ",":
-                raise ValueError("Unable to use comma as decimal for 'csv' format")
-
-            columns = headers if has_header else None
-            new_columns = None if has_header else headers
-            if usecols is not None:
-                columns = usecols.tolist()
+            if has_header:
+                columns = headers
+                new_columns = None
+            else:
+                columns = usecols
                 new_columns = headers
             skiprows = 0 if skiprows is None else skiprows
             loaded_headers = pl.read_csv(path, has_header=has_header, columns=columns, new_columns=new_columns,
@@ -372,8 +369,8 @@ class TraceContainer:
         how = "left" if keep_all_headers else "inner"
         index_cols = self.headers.index.names  # pylint: disable=access-member-before-definition
         headers = pl.from_pandas(self.headers.reset_index())  # pylint: disable=access-member-before-definition
+        # Use intersection of columns from file and self.headers as join columns by default
         if join_on_headers is None:
-            # Use intersection of columns from file and self.headers as join columns
             join_on_headers = list(set(headers.columns) & set(loaded_headers.columns))
         casts = [loaded_headers[column].cast(headers[column].dtype) for column in to_list(join_on_headers)]
         loaded_headers = loaded_headers.with_columns(*casts)
@@ -390,7 +387,7 @@ class TraceContainer:
         Parameters
         ----------
         path : str
-            The path to the output file.
+            Path to the output file.
         columns : str or array-like of str
             The column names from `self.headers` to be included in the output file.
         format : "fwf" or "csv", optional, defaults to "fwf"

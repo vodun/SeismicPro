@@ -23,7 +23,7 @@ from .utils import ibm_to_ieee, calculate_trace_stats
 from ..gather import Gather
 from ..containers import GatherContainer, SamplesContainer
 from ..utils import to_list, maybe_copy, get_cols, get_first_defined
-from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_TRACE_POS
+from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK, HDR_TRACE_POS
 
 
 class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-instance-attributes
@@ -1086,6 +1086,43 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         return self.get_gather(index=np.random.choice(self.indices), limits=limits, copy_headers=copy_headers)
 
+    def load_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col=HDR_FIRST_BREAK,
+                          format="fwf", decimal=None, inplace=False, **kwargs):
+        """Load times of first breaks from a file and save them to a new column in headers.
+
+        Each line of the file stores the first break time for a trace in the last column. The combination of all but
+        the last columns should act as a unique trace identifier and is used to match the trace from the file with the
+        corresponding trace in `self.headers`.
+        The file can have any format that can be read by `pd.read_csv`, by default, it's expected to have
+        whitespace-separated values.
+
+        Parameters
+        ----------
+        path : str
+            A path to the file with first break times in milliseconds.
+        trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
+            Headers, whose values are stored in all but the last columns of the file.
+        first_breaks_col : str, optional, defaults to 'FirstBreak'
+            Column name in `self.headers` where loaded first break times will be stored.
+        format : "fwf" or "csv", optional, defaults to "fwf"
+            Format of the file with first breaks. If "fwf", file treated as fixed-width format. If "csv", file treated
+            as a table with single-character separator.
+        decimal : str, defaults to None
+            Character to recognize as decimal point. If `None`, it is inferred from the first line of the file.
+        inplace : bool, optional, defaults to False
+            Whether to load first break times inplace or to a survey copy.
+        kwargs : misc, optional
+            Additional keyword arguments to pass to :func:`TraceContainer.load_headers`.
+
+        Returns
+        -------
+        self : Survey
+            A survey with loaded times of first breaks.
+        """
+        headers = to_list(trace_id_cols) + to_list(first_breaks_col)
+        return self.load_headers(path=path, headers=headers, join_on_headers=trace_id_cols, format=format,
+                                 decimal=decimal, inplace=inplace, **kwargs)
+
     #------------------------------------------------------------------------#
     #                       Survey processing methods                        #
     #------------------------------------------------------------------------#
@@ -1271,6 +1308,36 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             headers.sort_index(kind="stable", inplace=True)
         self.headers = headers
         return self
+    #------------------------------------------------------------------------#
+    #                            Dumping methods                             #
+    #------------------------------------------------------------------------#
+
+    def dump_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col=HDR_FIRST_BREAK,
+                          format="fwf", **kwargs):
+        """ Save first break picking times to a file.
+
+        Each line in the resulting file corresponds to one trace, where all columns but the last one store values from
+        `trace_id_cols` headers and identify the trace while the last column stores first break time from
+        `first_breaks_col` header.
+
+        Parameters
+        ----------
+        path : str
+            Path to the file.
+        trace_id_cols : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
+            Columns names from `self.headers` that act as trace id. These would be present in the file.
+        first_breaks_col : str, defaults to :const:`~const.HDR_FIRST_BREAK`
+            Column name from `self.headers` where first break times are stored.
+        kwargs : misc, optional
+            Additional keyword arguments to pass to :func:`TraceContainer.dump_headers`.
+
+        Returns
+        -------
+        self : Survey
+            A Survey unchanged
+        """
+        columns = to_list(trace_id_cols) + to_list(first_breaks_col)
+        return self.dump_headers(path=path, columns=columns, format=format, **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #
