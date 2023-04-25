@@ -381,7 +381,8 @@ class TraceContainer:
             warnings.warn("Empty headers after headers loading", RuntimeWarning)
         return self
 
-    def dump_headers(self, path, columns, format="fwf", sep=',', col_space=8, dump_col_names=False, **kwargs):
+    def dump_headers(self, path, columns, format="fwf", sep=',', col_space=8, decimal='.', dump_col_names=False,
+                     **kwargs):
         """Save the selected columns from headers into a file.
 
         Parameters
@@ -397,6 +398,8 @@ class TraceContainer:
             The separator used in the output file. It is only used when `format="csv"`.
         col_space : int, optional, defaults to 8
             The column width in characters when `format="fwf"`.
+        decimal : str, optional, defaults to '.'
+            Decimal point character.
         dump_col_names : bool, optional, defaults to False
             Whether to include the column names in the output file.
         kwargs : misc, optional
@@ -415,7 +418,7 @@ class TraceContainer:
         """
         dump_df = self.get_headers(columns, preserve_dtype=True)
         if format == "fwf":
-            dump_df.to_string(path, col_space=col_space, header=dump_col_names, index=False, **kwargs)
+            dump_df.to_string(path, col_space=col_space, header=dump_col_names, index=False, decimal=decimal, **kwargs)
         elif format == "csv":
             dump_df = pl.from_pandas(dump_df)
             dump_df.write_csv(path, has_header=dump_col_names, separator=sep, **kwargs)
