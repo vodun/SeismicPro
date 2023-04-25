@@ -285,28 +285,30 @@ class TraceContainer:
                      sep=None, skiprows=None, decimal=None, encoding="UTF-8", keep_all_headers=False, inplace=False,
                      **kwargs):
         """Load headers from a file and join them with the existing `self.headers`.
-        TODO: REWRITE
+
         Parameters:
         -----------
         path : str
-            Path to the file with headers.
-        names : list of str, optional, defaults to None
-            List of column names to use for headers. If not provided, column names will be inferred from the file.
-            Passed directly to `pandas.read_csv`.
-        index_col : int, str or array-like, optional, defaults to None
-            Column(s) to use as index. If not provided, default index will be used.
-            Passed directly to `pandas.read_csv`.
+            A path to the file with headers.
+        headers : array-like of str, optional, defaults to None
+            Array with column names to use as header names. If None and `has_header` is True, header names will be
+            inferred from file. Also, if `has_header` is True, then `headers` specifies which columns will be loaded
+            from the file.
+        join_on_headers : str, array-like of str or None, optional, defaults to None
+            Column(s) base on witch loaded headers will be join to `self.headers`. If None, intersection of headers
+            from `headers` and `self.headers.columns` will be used.
         format : "fwf" or "csv", optional, defaults to "fwf"
-            Format of the file with headers. Only "fwf" (fixed-width format) and "csv" format with single-character
-            separator are supported.
-        sep : str, optional, defaults to None
-            Delimiter to use. If not provided, it will be inferred base on the `format`.
-        usecols : array-like, optional, defaults to None
-            Columns to read from the file. If not provided, all columns will be read.
-        skiprows : int, optional, defaults to None
+            Format of the file with headers. Currently, the following options are supported:
+            * "fwf" - fixed-width format,
+            * "csv" - comma-separated values format.
+        has_header : bool, optional, defaults to False
+            Indicate if the first row of dataset is a header or not.
+        usecols : array-like of int or None, optional, defaults to None
+            Columns indices to be selected from file. Should be always passed in ascending order.
+        sep : str, defaults to None
+              Delimiter to use. If not provided, it will be inferred base on the `format`.
+       skiprows : int, optional, defaults to None
             Number of rows to skip from the beginning of the file.
-        engine : str, optional, defaults to "pyarrow"
-            Parser engine to use for the "csv" format.
         decimal : str, optional, defaults to None
             Decimal point character. If not provided, it will be inferred from the file.
         encoding : str, optional, defaults to "UTF-8"
@@ -316,7 +318,8 @@ class TraceContainer:
         inplace : bool, optional, defaults to False
             Whether to load headers inplace or to a copy.
         **kwargs : misc, optional
-            Additional arguments to pass to the pandas `read_csv` function.
+            Additional arguments for loading function. If `format="fwf"`, passed to `pandas.read_csv`.
+            If `format="csv"`, passed to `polars.read_csv`.
 
         Returns
         -------
@@ -390,7 +393,7 @@ class TraceContainer:
         path : str
             Path to the output file.
         columns : str or array-like of str
-            The column names from `self.headers` to be included in the output file.
+            `self.headers` columns to be included in the output file.
         format : "fwf" or "csv", optional, defaults to "fwf"
             The output file format. If "fwf", use fixed-width format with a width defined by `col_space`. If "csv", use
             single-separated values format with a separator `sep`.
@@ -399,7 +402,7 @@ class TraceContainer:
         col_space : int, optional, defaults to 8
             The column width in characters when `format="fwf"`.
         decimal : str, optional, defaults to '.'
-            Decimal point character.
+            The decimal point character.  It is only used when `format="fwf"`.
         dump_col_names : bool, optional, defaults to False
             Whether to include the column names in the output file.
         kwargs : misc, optional
