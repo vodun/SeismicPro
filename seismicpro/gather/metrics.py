@@ -1,6 +1,5 @@
 """Implements gather quality control metrics."""
 
-from copy import copy
 import numpy as np
 from ..metrics import PipelineMetric
 
