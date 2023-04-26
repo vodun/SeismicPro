@@ -59,10 +59,11 @@ class MetricMapPlot(PairedPlot):  # pylint: disable=abstract-method
     """Base class for interactive metric map visualization.
 
     Two methods should be redefined in a concrete plotter child class:
-    * `construct_aux_plot` - construct an interactive plot which displays map contents at click location. Must
-      implement `process_map_click` method which should accept `coords`, `indices` and `titles` lists with coordinates
-      of items at click location, their indices and titles of the auxiliary plot.
     * `preprocess_click_coords` - transform coordinates of a click into coordinates of the metric map data.
+    * `construct_aux_plot` - construct an interactive plot which displays map contents at click location. Must be an
+      instance of a subclass of `InteractivePlot` and implement `process_map_click` method which should accept
+      `coords`, `indices` and `titles` lists with coordinates of items at click location, their indices and titles of
+      the auxiliary plot.
     """
     def __init__(self, metric_map, plot_on_click=None, plot_on_click_kwargs=None, title=None, is_lower_better=None,
                  figsize=(4.5, 4.5), fontsize=8, orientation="horizontal", **kwargs):

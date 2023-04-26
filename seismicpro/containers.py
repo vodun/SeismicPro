@@ -58,8 +58,9 @@ class TraceContainer:
         return len(self.headers)
 
     def __getitem__(self, key):
-        """Select values of trace headers by their names. Unlike `pandas` indexing allows for selection of headers the
-        container is indexed by. The returned array will be 1d if a single header is selected and 2d otherwise.
+        """Select values of trace headers by their names and return them as a `np.ndarray`. Unlike `pandas` indexing
+        allows for selection of headers the container is indexed by. The returned array will be 1d if a single header
+        is selected and 2d otherwise.
 
         Parameters
         ----------
@@ -84,6 +85,22 @@ class TraceContainer:
             Headers values to set.
         """
         self.headers[key] = value
+
+    def get_headers(self, cols):
+        """Select values of trace headers by their names and return them as a `pandas.DataFrame`. Unlike `pandas`
+        indexing allows for selection of headers the container is indexed by.
+
+        Parameters
+        ----------
+        cols : str or list of str
+            Names of headers to get values for.
+
+        Returns
+        -------
+        result : pandas.DataFrame
+            Headers values.
+        """
+        return pd.DataFrame(self[cols], columns=to_list(cols))
 
     def copy(self, ignore=None):
         """Perform a deepcopy of all attributes of `self` except for those specified in `ignore`, which are kept
@@ -196,7 +213,7 @@ class TraceContainer:
         """
         self = maybe_copy(self, inplace, ignore="headers")  # pylint: disable=self-cls-assignment
         cols = to_list(cols)
-        headers = pd.DataFrame(self[cols], columns=cols)
+        headers = self.get_headers(cols)
         mask = self._apply(cond, headers, axis=axis, unpack_args=unpack_args, **kwargs)
         if (mask.ndim != 2) or (mask.shape[1] != 1):
             raise ValueError("cond must return a single value for each header row")
@@ -250,7 +267,7 @@ class TraceContainer:
         """
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         cols = to_list(cols)
-        headers = pd.DataFrame(self[cols], columns=cols)
+        headers = self.get_headers(cols)
         res_cols = cols if res_cols is None else to_list(res_cols)
         res = self._apply(func, headers, axis=axis, unpack_args=unpack_args, **kwargs)
         self.headers[res_cols] = res

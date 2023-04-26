@@ -269,7 +269,7 @@ class RefractorVelocityField(SpatialField):
             raise ValueError("Survey must be indexed by gathers, not individual traces")
 
         # Extract required headers from the survey
-        coords_cols = get_coords_cols(survey.indexed_by)
+        coords_cols = get_coords_cols(survey.indexed_by, survey.source_id_cols, survey.receiver_id_cols)
         survey_coords = survey[coords_cols]
         survey_offsets = survey["offset"]
         survey_times = survey[first_breaks_col]
