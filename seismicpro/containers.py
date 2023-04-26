@@ -283,7 +283,7 @@ class TraceContainer:
         self.headers[res_cols] = res
         return self
 
-    def load_headers(self, path, headers=None, join_on=None, format="fwf", has_header=False, usecols=None, sep=',',
+    def load_headers(self, path, headers=None, join_on=None, format="fwf", has_header=False, usecols=None, sep=',',  # pylint: disable=too-many-arguments
                      skiprows=None, decimal=None, encoding="UTF-8", keep_all_headers=False, inplace=False, **kwargs):
         """Load headers from a file and join them with the existing `self.headers`.
 
