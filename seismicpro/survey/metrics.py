@@ -80,11 +80,11 @@ class TracewiseMetric(SurveyAttribute):
     top_y_ax_scale = "linear"
 
     def __call__(self, gather):
-        """Compute qc metric by applying sequentially `self.preprocess`, `self.get_values` and `self.aggregate` to
-        provided gather."""
+        """Compute metric value for each trace of the gather by sequentially applying `self.preprocess`,
+        `self.get_values` and `self.aggregate` methods."""
         gather = self.preprocess(gather)
-        mask = self.get_values(gather)
-        return self.aggregate(mask)
+        values = self.get_values(gather)
+        return self.aggregate(values)
 
     @property
     def description(self):
@@ -126,36 +126,36 @@ class TracewiseMetric(SurveyAttribute):
         """Compute njitted QC indicator."""
         raise NotImplementedError
 
-    def aggregate(self, mask):
-        """Columnwise `mask` aggregation depending on `self.is_lower_better` to select the worst values."""
+    def aggregate(self, values):
+        """Row-wise `values` aggregation depending on `self.is_lower_better` to select the worst values."""
         if self.is_lower_better is None:
             agg_fn = np.nanmean
         elif self.is_lower_better:
             agg_fn = np.nanmax
         else:
             agg_fn = np.nanmin
-        return mask if mask.ndim == 1 else agg_fn(mask, axis=1)
+        return values if values.ndim == 1 else agg_fn(values, axis=1)
 
-    def binarize(self, mask, threshold=None):
-        """Binarize a given mask based on the provided threshold.
+    def binarize(self, values, threshold=None):
+        """Binarize a given `values` based on the provided threshold.
 
         Parameters
         ----------
-        mask : 1d ndarray or 2d ndarray
+        values : 1d ndarray or 2d ndarray
             Array with computed metric values to be converted to a binary mask.
         threshold : int, float, array-like with 2 elements, optional, defaults to None
-            Value to use as a threshold for binarizing the mask.
-            If a single number and `self.is_lower_better` is True, mask values greater or equal than the `threshold`
-            will be treated as bad and marked as True, otherwise, if `self.is_lower_better` is False, mask values lower
-            or equal then the `threshold` will be treated as bad and marked as True.
-            If array, two numbers indicate the boundaries within which the metric values are treated as False, outside
-            inclusive - as True.
-            If None, self.threshold will be used.
+            Value to use as a threshold for binarizing the input `values`.
+            If a single number and `self.is_lower_better` is `True`, `values` greater or equal than the `threshold`
+            will be treated as bad and marked as `True`, otherwise, if `self.is_lower_better` is `False`, values lower
+            or equal then the `threshold` will be treated as bad and marked as `True`.
+            If array, two numbers indicate the boundaries within which the metric values are treated as `False`,
+            outside inclusive - as `True`.
+            If `None`, self.threshold will be used.
 
         Returns
         -------
         bin_mask : 1d ndarray or 2d ndarray
-            Binary mask obtained by comparing the mask with threshold.
+            Binary mask obtained by comparing the `values` with threshold.
 
         Raises
         ------
@@ -172,12 +172,12 @@ class TracewiseMetric(SurveyAttribute):
             if self.is_lower_better is None:
                 raise ValueError("`threshold` cannot be single number if `is_lower_better` is None")
             bin_fn = np.greater_equal if self.is_lower_better else np.less_equal
-            bin_mask = bin_fn(mask, threshold)
+            bin_mask = bin_fn(values, threshold)
         elif len(threshold) != 2:
             raise ValueError(f"`threshold` should contain exactly 2 elements, not {len(threshold)}")
         else:
-            bin_mask = (mask <= threshold[0]) | (mask >= threshold[1])
-        bin_mask[np.isnan(mask)] = False
+            bin_mask = (values <= threshold[0]) | (values >= threshold[1])
+        bin_mask[np.isnan(values)] = False
         return bin_mask
 
     def plot(self, ax, coords, index, sort_by=None, threshold=None, top_y_ax_scale=None,  bad_only=False, **kwargs):
@@ -199,7 +199,7 @@ class TracewiseMetric(SurveyAttribute):
         threshold : int, float, array-like with 2 elements, optional, defaults to None
             Threshold used to binarize the metric values.
             If None, `self.threshold` will be used. See `self.binarize` for more details.
-        top_ax_scale : str, optional, defaults to None
+        top_y_ax_scale : str, optional, defaults to None
             Scale type for top header plot, see `matplotlib.axes.Axes.set_yscale` for available options.
         bad_only : bool, optional, defaults to False
             Show only traces that are considered bad based on provided threshold and `self.is_lower_better`.
@@ -246,10 +246,10 @@ class TracewiseMetric(SurveyAttribute):
         ax.fill_between(np.arange(x_min, x_max), *threshold, alpha=0.3, color="blue")
 
     def get_views(self, sort_by=None, threshold=None, top_y_ax_scale=None, **kwargs):
-        """Return two plotters of the metric views. Each view plots a gather sorted by `sort_by` with a metric values
-        shown on top of the gather plot. The y-axis of the metric plot is scaled by `top_y_ax_scale`. The first view
-        plots full gather with bad traces highlighted based on the `threshold` and the `self.is_lower_better`
-        attribute. The second view only displays the traces defined by the metric as bad ones."""
+        """Return two plotters of the metric views. Each view plots a gather sorted by `sort_by` with tracewise metric
+        values shown on top of the gather plot. The y-axis of the metric plot is scaled by `top_y_ax_scale`. The first
+        view plots full gather with bad traces highlighted based on the `threshold` and the `self.is_lower_better`
+        attribute. The second view displays only the traces marked as bad ones by the metric."""
         plot_kwargs = {"sort_by": sort_by, "threshold": threshold, "top_y_ax_scale": top_y_ax_scale}
         return [partial(self.plot, **plot_kwargs), partial(self.plot, bad_only=True, **plot_kwargs)], kwargs
 
@@ -272,7 +272,6 @@ class DeadTrace(TracewiseMetric):
     @staticmethod
     @njit(nogil=True)
     def numba_get_values(traces):
-        """Compute njitted QC indicator."""
         res = np.empty_like(traces[:, 0])
         for i in range(traces.shape[0]):
             res[i] = isclose(max(traces[i]), min(traces[i]))
@@ -295,7 +294,6 @@ class TraceAbsMean(TracewiseMetric):
     @staticmethod
     @njit(nogil=True)
     def numba_get_values(traces):
-        """Compute njitted QC indicator."""
         res = np.empty_like(traces[:, 0])
         for i in range(traces.shape[0]):
             res[i] = np.abs(traces[i].mean() / (traces[i].std() + 1e-10))
@@ -318,7 +316,6 @@ class TraceMaxAbs(TracewiseMetric):
     @staticmethod
     @njit(nogil=True)
     def numba_get_values(traces):
-        """Compute njitted QC indicator."""
         res = np.empty_like(traces[:, 0])
         for i in range(traces.shape[0]):
             res[i] = np.max(np.abs(traces[i])) / (traces[i].std() + 1e-10)
@@ -326,10 +323,11 @@ class TraceMaxAbs(TracewiseMetric):
 
 
 class MaxClipsLen(TracewiseMetric):
-    """Calculate the length of consecutive amplitudes equals to trace minimum or maximum amplitudes.
+    """Calculate the maximum number of clipped samples in a row for each trace.
 
-    `get_values` returns 2d array with values indicating the length of consecutive maximum or minimum amplitudes for
-    each trace in the input gather.
+    `get_values` returns a 2d array matching the shape of the input gather. It's values are either 0 for samples that
+    are not clipped or a positive integer representing the length of the clipped sequence for a particular sample
+    otherwise.
     """
     min_value = 1
     max_value = None
@@ -344,8 +342,7 @@ class MaxClipsLen(TracewiseMetric):
     @staticmethod
     @njit(nogil=True)
     def numba_get_values(traces):
-        """Compute njitted QC indicator."""
-        def _update_counters(sample, counter, container, value):
+        def _update_counters(sample, value, counter, container):
             if isclose(sample, value):
                 counter += 1
             else:
@@ -363,8 +360,8 @@ class MaxClipsLen(TracewiseMetric):
             min_val = min(trace)
             min_counter = 0
             for j in range(trace.shape[0]):  # pylint: disable=consider-using-enumerate
-                max_counter = _update_counters(trace[j], max_counter, maxes[i, j - max_counter: j], max_val)
-                min_counter = _update_counters(trace[j], min_counter, mins[i, j - min_counter: j], min_val)
+                max_counter = _update_counters(trace[j], max_val, max_counter, maxes[i, j - max_counter: j])
+                min_counter = _update_counters(trace[j], min_val, min_counter, mins[i, j - min_counter: j])
 
             if max_counter > 1:
                 maxes[i, -max_counter:] = max_counter
@@ -374,10 +371,10 @@ class MaxClipsLen(TracewiseMetric):
 
 
 class MaxConstLen(TracewiseMetric):
-    """Calculate the number of consecutive identical amplitudes.
+    """Calculate the maximum number of identical values in a row for each trace.
 
-    `get_values` returns a 2d array with values indicating the length of consecutive identical values in each trace in
-    the input gather.
+    `get_values` returns a 2d array matching the shape of the input gather. Each its value is the length of a sequence
+    of identical values around each particular sample.
     """
     is_lower_better = True
     threshold = 4
@@ -390,7 +387,6 @@ class MaxConstLen(TracewiseMetric):
     @staticmethod
     @njit(nogil=True)
     def numba_get_values(traces):
-        """Compute njitted QC indicator."""
         indicator = np.zeros_like(traces)
         for i in range(traces.shape[0]):
             trace = traces[i]
@@ -433,12 +429,12 @@ class MuteTracewiseMetric(TracewiseMetric):  # pylint: disable=abstract-method
 
 
 class Spikes(MuteTracewiseMetric):
-    """Spikes detection. The metric reacts to drastic changes in traces amplitudes within a 1-width window around each
-    amplitude value.
+    """Detect spikes: drastic and abnormal changes in trace amplitudes.
 
-    `get_values` returns 2d array with values that show the deviation of the amplitudes of an input gather.
+    `get_values` returns a 2d array matching the shape of the input gather. Each its value is the absolute difference
+    between the corresponding trace sample and the rolling trace mean in the 3 sample window.
 
-    The metric is highly dependent on the muter being used; if muter is not strong enough, the metric will overreact
+    The metric is highly dependent on a muter being used; if the muter is not strong enough, the metric will overreact
     to the first breaks.
     """
     min_value = 0
@@ -454,7 +450,6 @@ class Spikes(MuteTracewiseMetric):
     @staticmethod
     @njit(nogil=True)
     def numba_get_values(traces):
-        """Compute njitted QC indicator."""
         res = np.zeros_like(traces)
         for i in range(traces.shape[0]):
             nan_indices = np.nonzero(np.isnan(traces[i]))[0]
@@ -464,12 +459,12 @@ class Spikes(MuteTracewiseMetric):
 
 
 class Autocorrelation(MuteTracewiseMetric):
-    """Trace correlation with itself shifted by 1.
+    """Compute the lag-1 autocorrelation for each trace.
 
-    `get_values` returns 1d array with values that show mean trace autocorrelation. If proportion of nans in the trace
-    is greater than `nan_ratio`, then the metric value for this trace will be nan.
+    `get_values` returns a 1d array with autocorrelation value for each trace if the fraction of `nan`s in it is no
+    greater than `max_nan_fraction` or `np.nan` otherwise.
 
-    The metric is highly dependent on the muter being used; if muter is not strong enough, the metric will overreact
+    The metric is highly dependent on a muter being used; if the muter is not strong enough, the metric will overreact
     to the first breaks.
 
     Parameters
@@ -478,7 +473,7 @@ class Autocorrelation(MuteTracewiseMetric):
         A muter to use.
     name : str, optional, defaults to "Autocorrelation"
         A metric name.
-    nan_ratio : float, optional, defaults to 0.95
+    max_nan_fraction : float, optional, defaults to 0.95
         The maximum proportion of nan values allowed in a trace.
     """
     min_value = -1
@@ -486,13 +481,14 @@ class Autocorrelation(MuteTracewiseMetric):
     is_lower_better = False
     threshold = 0.8
 
-    def __init__(self, muter, name=None, nan_ratio=0.95):
+    def __init__(self, muter, name=None, max_nan_fraction=0.95):
         super().__init__(muter=muter, name=name)
-        self.nan_ratio = nan_ratio
+        self.max_nan_fraction = max_nan_fraction
 
     def __repr__(self):
         """String representation of the metric."""
-        return f"{type(self).__name__}(name='{self.name}', muter='{self.muter}', nan_ratio='{self.nan_ratio}')"
+        kwargs_str = f"(name='{self.name}', muter='{self.muter}', max_nan_fraction='{self.max_nan_fraction}')"
+        return f"{type(self).__name__}" + kwargs_str
 
     @property
     def description(self):
@@ -500,15 +496,14 @@ class Autocorrelation(MuteTracewiseMetric):
         return f"Traces with autocorrelation less than {self.threshold}"
 
     def get_values(self, gather):
-        return self.numba_get_values(gather.data, nan_ratio=self.nan_ratio)
+        return self.numba_get_values(gather.data, max_nan_fraction=self.max_nan_fraction)
 
     @staticmethod
     @njit(nogil=True)
-    def numba_get_values(traces, nan_ratio):
-        """Compute njitted QC indicator."""
+    def numba_get_values(traces, max_nan_fraction):
         res = np.empty_like(traces[:, 0])
         for i in range(traces.shape[0]):
-            if np.isnan(traces[i]).sum() > nan_ratio*len(traces[i]):
+            if np.isnan(traces[i]).mean() > max_nan_fraction:
                 res[i] = np.nan
             else:
                 res[i] = np.nanmean(traces[i, 1:] * traces[i, :-1])
@@ -516,8 +511,7 @@ class Autocorrelation(MuteTracewiseMetric):
 
 
 class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
-    """Base class for the tracewise metrics that computes RMS in window defined by two arrays with start and end
-    indices for each trace in provided gather.
+    """Base class for tracewise metrics that compute RMS amplitude in a window for each trace.
 
     Child classes should redefine `get_values` or `numba_get_values` methods.
     """
@@ -568,14 +562,14 @@ class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
         return sum_squares, nums
 
     def construct_map(self, coords, values, *, coords_cols=None, index=None, index_cols=None, agg=None, bin_size=None,
-                      calculate_immediately=True, agg_tracewise=False):
+                      calculate_immediately=True, tracewise=False):
         """Construct a metric map with computed RMS values for gathers indexed by `index`.
 
-        There are two available options for RMS computation controlled by `agg_tracewise` flag:
-        1. If `agg_tracewise` is False (default behavior), the RMS is computed gatherwise,
-        2. If `agg_tracewise` is True, the RMS is computed tracewise and then aggregated by gathers.
+        There are two available options for RMS computation controlled by `tracewise` flag:
+        1. If `tracewise` is False (default behavior), the RMS is computed gatherwise,
+        2. If `tracewise` is True, the RMS is computed tracewise and then aggregated by gathers.
         """
-        if agg_tracewise:
+        if tracewise:
             return super().construct_map(coords, np.sqrt(values.iloc[:, 0] / values.iloc[:, 1]),
                                          coords_cols=coords_cols, index=index, index_cols=index_cols, agg=agg,
                                          bin_size=bin_size, calculate_immediately=calculate_immediately)
@@ -616,7 +610,6 @@ class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
     def add_mask_on_plot(self, ax, gather, color=None):
         """Plot any additional metric related graphs over the gather plot."""
         _ = self, ax, gather, color
-        pass
 
     def get_views(self, threshold=None, top_y_ax_scale=None, **kwargs):
         """Return two plotters of the metric views. Each view plots a gather sorted by `offset` with a metric values
@@ -630,7 +623,7 @@ class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
 class MetricsRatio(TracewiseMetric):  # pylint: disable=abstract-method
     """Calculate the ratio of two window RMS metrics.
 
-    In the metric map, the displayed values are obtained by dividing the  value of `self.numerator` metric by the
+    In the metric map, the displayed values are obtained by dividing the value of `self.numerator` metric by the
     value of `self.denominator` metric for each gather independently.
 
     Parameters
@@ -669,27 +662,26 @@ class MetricsRatio(TracewiseMetric):  # pylint: disable=abstract-method
         return self.numerator.header_cols + self.denominator.header_cols
 
     def construct_map(self, coords, values, *, coords_cols=None, index=None, index_cols=None, agg=None, bin_size=None,
-                      calculate_immediately=True, agg_tracewise=False):
+                      calculate_immediately=True, tracewise=False):
         """Construct a metric map with `self.numerator` and `self.denominator` ratio for gathers indexed by `index`.
 
-        There are two available options for ratio computation controlled by `agg_tracewise` flag:
-        1. If `agg_tracewise` is False (default behavior), the resulted ratio is a as ratio of aggregated by gathers
+        There are two available options for ratio computation controlled by `tracewise` flag:
+        1. If `tracewise` is False (default behavior), the resulted ratio is a as ratio of aggregated by gathers
            RMS values of `self.numerator` and `self.denominator`,
-        2. If `agg_tracewise` is True, the ratio computed by traces and then aggregated by gathers.
+        2. If `tracewise` is True, the ratio computed by traces and then aggregated by gathers.
         """
-        if agg_tracewise:
+        if tracewise:
             numerator_values = values[self.numerator.header_cols].to_numpy()
             denominator_values = values[self.denominator.header_cols].to_numpy()
             numerator_rms = np.sqrt(numerator_values[:, 0] / numerator_values[:, 1])
             denominator_rms = np.sqrt(denominator_values[:, 0] / denominator_values[:, 1])
             rms = numerator_rms / denominator_rms
             if np.isnan(rms).sum() == len(rms):
-                msg = f"The ratio of `{self.numerator.name}` and `{self.denominator.name}` cannot be computed since,"\
+                msg = f"The ratio of `{self.numerator.name}` and `{self.denominator.name}` cannot be computed since"\
                        " they were calculated in disjoint windows"
                 raise ValueError(msg)
-            return super().construct_map(coords, rms, coords_cols=coords_cols, index=index,
-                                         index_cols=index_cols, agg=agg, bin_size=bin_size,
-                                         calculate_immediately=calculate_immediately)
+            return super().construct_map(coords, rms, coords_cols=coords_cols, index=index, index_cols=index_cols,
+                                         agg=agg, bin_size=bin_size, calculate_immediately=calculate_immediately)
 
         mmaps_1 = self.numerator.construct_map(coords, values[self.numerator.header_cols], coords_cols=coords_cols,
                                                index=index, index_cols=index_cols, agg=agg)
@@ -748,7 +740,7 @@ class MetricsRatio(TracewiseMetric):  # pylint: disable=abstract-method
 
 
 class WindowRMS(BaseWindowRMSMetric):
-    """Compute traces RMS for provided window by offsets and times.
+    """Compute traces RMS in a rectangular window defined by provided ranges of offsets and times.
 
     Parameters
     ----------
@@ -795,9 +787,8 @@ class WindowRMS(BaseWindowRMSMetric):
         return super().describe(metric_value, line_width=line_width, separator=separator)
 
     def get_values(self, gather):
-        """Compute QC indicator."""
         return self.numba_get_values(gather.data, gather.samples, gather.offsets, self.times, self.offsets,
-                                   self._get_time_ixs, self.compute_stats_by_ixs)
+                                     self._get_time_ixs, self.compute_stats_by_ixs)
 
     @staticmethod
     @njit(nogil=True)
@@ -813,7 +804,6 @@ class WindowRMS(BaseWindowRMSMetric):
     @njit(nogil=True)
     def numba_get_values(traces, gather_samples, gather_offsets, times, offsets, _get_time_ixs,
                        compute_stats_by_ixs):
-        """Compute njitted QC indicator."""
         time_ixs = _get_time_ixs(times, gather_samples)
 
         window_ixs = (gather_offsets >= offsets[0]) & (gather_offsets <= offsets[1])
@@ -842,8 +832,7 @@ class AdaptiveWindowRMS(BaseWindowRMSMetric):
     For each gather, the RMS value will be calculated within a window of size `window_size` centered around the
     refractor velocity shifted by `shift`.
 
-    Only the traces that contain at least single amplitude in the provided window are considered, otherwise the metric
-    is nan.
+    Only traces that contain at least one sample in the provided window are considered, otherwise the metric is nan.
 
     Parameters
     ----------
@@ -890,17 +879,15 @@ class AdaptiveWindowRMS(BaseWindowRMSMetric):
         return super().describe(metric_value, line_width=line_width, separator=separator)
 
     def get_values(self, gather):
-        """Compute QC indicator."""
         fbp_times = self.refractor_velocity(gather.offsets)
         return self.numba_get_values(gather.data, self._get_indices, self.compute_stats_by_ixs,
-                                   window_size=self.window_size, shift=self.shift, samples=gather.samples,
-                                   fbp_times=fbp_times, times_to_indices=times_to_indices)
+                                     window_size=self.window_size, shift=self.shift, samples=gather.samples,
+                                     fbp_times=fbp_times, times_to_indices=times_to_indices)
 
     @staticmethod
     @njit(nogil=True)
     def numba_get_values(traces, _get_indices, compute_stats_by_ixs, window_size, shift, samples, fbp_times,
                        times_to_indices):  # pylint: disable=redefined-outer-name
-        """Compute njitted QC indicator."""
         start_ixs, end_ixs = _get_indices(window_size, shift, samples, fbp_times, times_to_indices)
         return compute_stats_by_ixs(traces, start_ixs, end_ixs)
 

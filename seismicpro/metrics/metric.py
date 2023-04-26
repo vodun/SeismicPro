@@ -77,7 +77,6 @@ class Metric:
     has_bound_context : bool
         Whether the metric has bound execution context and can be used for interactive metric map plotting.
     """
-    name = "metric"
     is_lower_better = None
     min_value = None
     max_value = None
@@ -223,8 +222,7 @@ def initialize_metrics(metrics, metric_class=Metric):
         raise ValueError("At least one metric should be passed")
     if not all(is_metric(metric, metric_class=metric_class) for metric in metrics):
         raise TypeError(f"All passed metrics must be either instances or subclasses of {metric_class.__name__}")
-    metric_names = {metric.__name__ if isinstance(metric, type) else metric.name for metric in metrics}
-    if len(metric_names) != len(metrics):
-        raise ValueError("Passed metrics must have different names")
     metrics = [metric() if isinstance(metric, type) else metric for metric in metrics]
+    if len({metric.name for metric in metrics}) != len(metrics):
+        raise ValueError("Passed metrics must have different names")
     return metrics, is_single_metric

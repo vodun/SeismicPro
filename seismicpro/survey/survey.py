@@ -154,7 +154,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     quantile_interpolator : scipy.interpolate.interp1d or None
         Interpolator of trace values quantiles. `None` until trace statistics are calculated.
     qc_metrics : dict
-        Storage for tracewise metrics results with metric's name as a key and metric's instance as a value.
+        Storage for tracewise metrics instances with metric's name as a key and metric's instance as a value.
     has_inferred_binning : bool
         Whether properties of survey binning have been inferred. `True` if `INLINE_3D` and `CROSSLINE_3D` trace headers
         are loaded on survey instantiation or `infer_binning` method is explicitly called.
@@ -388,6 +388,32 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             return None
         return has_positive_uphole_times or has_positive_uphole_depths
 
+    @property
+    def stats_summary(self):
+        """str: Descriptive statistics of survey traces."""
+        if not self.has_stats:
+            raise ValueError("Global statistics were not calculated, call `Survey.collect_stats` first.")
+        msg = f"""
+        Survey statistics:
+        mean | std:                {self.mean:>10.2f} | {self.std:<10.2f}
+         min | max:                {self.min:>10.2f} | {self.max:<10.2f}
+         q01 | q99:                {self.get_quantile(0.01):>10.2f} | {self.get_quantile(0.99):<10.2f}
+        """
+        return dedent(msg).strip()
+
+    @property
+    def qc_summary(self):
+        """str: Brief report about calculated metrics."""
+        # Use separator with 8 spaces to preserve the same length of leading whitespaces for dedent used in `self.info`
+        summary = [metric.describe(self[metric.header_cols], separator="\n" + " " * 8)
+                   for metric in self.qc_metrics.values()]
+        if not summary:
+            raise ValueError("Metrics were not calculated, call `Survey.qc` first.")
+        msg = """
+        Tracewise QC summary:
+        """ + "\n        ".join(summary)
+        return dedent(msg).strip()
+
     @GatherContainer.headers.setter
     def headers(self, headers):
         """Reconstruct trace positions on each headers assignment."""
@@ -472,13 +498,13 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Inline length:             {(self.inline_length / 1000):.2f} km
         Crossline length:          {(self.crossline_length / 1000):.2f} km
         """
-
+        msg = dedent(msg).strip()
         if self.has_stats:
-            msg += self.get_stats_summary()
+            msg += "\n\n" + self.stats_summary
 
         if self.qc_metrics:
-            msg += self.get_qc_summary()
-        return dedent(msg).strip()
+            msg += "\n\n" + self.qc_summary
+        return msg
 
     def info(self):
         """Print survey metadata including information about the source file, field geometry if it was inferred and
@@ -878,17 +904,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.has_stats = True
 
         if verbose:
-            print(dedent(self.get_stats_summary()))
+            print(self.stats_summary)
         return self
-
-    def get_stats_summary(self):
-        """Provide a description about the survey statistics in a string format."""
-        return f"""
-        Survey statistics:
-        mean | std:                {self.mean:>10.2f} | {self.std:<10.2f}
-         min | max:                {self.min:>10.2f} | {self.max:<10.2f}
-         q01 | q99:                {self.get_quantile(0.01):>10.2f} | {self.get_quantile(0.99):<10.2f}
-        """
 
     def get_quantile(self, q):
         """Calculate an approximation of the `q`-th quantile of the survey data.
@@ -1146,7 +1163,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             raise ValueError('Empty traces after setting limits.')
         return slice(*limits)
 
-    def filter_by_metric(self, metric_name, threshold=None, inplace=False, keep_bad_only=False):
+    def filter_by_metric(self, metric_name, threshold=None, inplace=False, bad_only=False):
         """Filter traces using metric with name `metric_name` and passed `threshold`.
 
         Parameters
@@ -1158,7 +1175,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             If None, threshold defined in metric will be used.
         inplace : bool, optional, defaults to False
             Whether to transform the survey inplace or process its copy.
-        keep_bad_only : bool, optional, defaults to False
+        bad_only : bool, optional, defaults to False
             If True, keep only traces that marked as `bad` by the metric,
             Otherwise, keep traces approved by the metric.
 
@@ -1173,13 +1190,13 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         metric = self.qc_metrics[metric_name]
         def binarize(metric_value):
             bin_mask = metric.binarize(metric_value, threshold)
-            return bin_mask if keep_bad_only else ~bin_mask
+            return bin_mask if bad_only else ~bin_mask
 
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
         self.filter(binarize, cols=metric_name, inplace=True)
         return self
 
-    def remove_dead_traces(self, header_name=None, chunk_size=1000, inplace=False, bar=True):
+    def remove_dead_traces(self, header_name=None, chunk_size=1000, n_workers=None, inplace=False, bar=True):
         """ Remove dead (constant) traces from the survey.
         Calculates :class:`~survey.metrics.DeadTrace` if it was not calculated.
 
@@ -1189,6 +1206,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             Name of the header column with marked dead traces.
         chunk_size : int, optional, defaults to 1000
             Number of traces loaded on each iteration.
+        n_workers : int, optional
+        The maximum number of simultaneously spawned processes to find and remove dead traces. Defaults to the number
+        of cpu cores.
         inplace : bool, optional, defaults to False
             Whether to transform the survey inplace or process its copy.
         bar : bool, optional, defaults to True
@@ -1199,14 +1219,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Survey
             Survey with no dead traces.
         """
-        if header_name is not None and header_name not in self.headers:
-            raise ValueError(f"Missing dead trace column with name {header_name} in survey headers")
-
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
-        if header_name is None:
+        if header_name is None and "DeadTrace" not in self.headers:
             header_name = DeadTrace.__name__
             if header_name not in self.headers:
-                self.qc(DeadTrace, chunk_size=chunk_size, bar=bar)
+                self.qc(DeadTrace, chunk_size=chunk_size, n_workers=n_workers, bar=bar)
 
         self.filter_by_metric(header_name, inplace=True)
         return self
@@ -1335,16 +1352,16 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return self
 
     def qc(self, metrics=None, chunk_size=1000, n_workers=None, bar=True, overwrite=False, verbose=False):  # pylint: disable=invalid-name
-        """Perform quality control of the traces in the survey. The quality control procedure is performed in parallel
-        threads in chunks of size no more than `chunk_size`.
+        """Perform quality control of the traces in the survey.
 
-        By default the following metrics are calculated:
-        * Detection of constant traces,
+        The following metrics are calculated for each trace by default:
+        * A boolean indicator of a dead trace,
         * Absolute value of the trace's mean scaled by trace's std,
         * Maximum absolute amplitude value scaled by trace's std,
-        * Length of consecutive amplitudes equals either to trace's minimum or maximum amplitude,
-        * Number of consecutive identical amplitudes.
+        * The maximum number of consecutive values clipped with either minimum or maximum trace amplitude,
+        * The maximum number of consecutive identical amplitudes.
 
+        The quality control procedure is performed in parallel threads in chunks of size no more than `chunk_size`.
         For each trace, the metric is calculated independently and the result is stored in the `self.headers` in a
         column with name `metrics.header_cols`. The only exception is the metrics that cannot be calculated
         independently by traces, such as window-based metrics. These metrics store some intermediate results in more
@@ -1357,12 +1374,13 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Parameters
         ----------
-         metrics : :class:`~metrics.TracewiseMetric`, or list of :class:`~metrics.TracewiseMetric` instances, optional
-            Metrics to calculate. If None, all the metrics the from `DEFAULT_TRACEWISE_METRICS` are calculated.
+        metrics : :class:`~metrics.TracewiseMetric`, or list of :class:`~metrics.TracewiseMetric`, optional
+            Metrics to calculate. If `None`, metrics lised in `DEFAULT_TRACEWISE_METRICS` are calculated.
         chunk_size : int, optional, defaults to 1000
             Number of traces processed in one thread.
         n_workers : int, optional
-            The number of threads to be spawned to calculate metrics. Defaults to the number of cpu cores.
+            The maximum number of simultaneously spawned processes to compute traces QC. Defaults to the number of cpu
+            cores.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
         verbose : bool, optional, defaults to False
@@ -1376,7 +1394,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Raises
         ------
         ValueError
-            If `overwrite` is False and given metric was calculated before.
+            If `overwrite` is `False` and some of the given metrics were previously calculated.
         """
         if metrics is None:
             metrics = DEFAULT_TRACEWISE_METRICS
@@ -1400,14 +1418,14 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             gather = self.load_gather(self.headers.iloc[ixs])
             results = {}
             for metric in metrics:
-                # Save header_cols since the metric might became partial and the attribute will be unreachable
+                # Save header_cols since the metric may become partial and the attribute will be unreachable
                 header_cols = metric.header_cols
                 if isinstance(metric, BaseWindowRMSMetric):
                     metric = partial(metric, return_rms=False)
                 results.update(zip(to_list(header_cols), np.atleast_2d(metric(gather))))
             return pd.DataFrame(results)
 
-        # Precompile all numba decorated metrics to avoid hanging of the ThreadPoolExecutor during first metrics call
+        # Precompile all numba decorated metrics to avoid hanging of the ThreadPoolExecutor upon the first call
         _ = calc_metrics([0])
 
         futures = []
@@ -1424,19 +1442,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self.qc_metrics.update({metric.name: metric for metric in metrics})
 
         if verbose:
-            print(dedent(self.get_qc_summary()))
+            print(self.qc_summary)
         return self
-
-    def get_qc_summary(self):
-        """Provide a description about the number of bad values for the passed metric values in a string format."""
-        # Use separator with 8 spaces to preserve the same length of leading whitespaces for dedent used in `self.info`
-        summary = [metric.describe(self[metric.header_cols], separator="\n" + " " * 8)
-                   for metric in self.qc_metrics.values()]
-        if summary:
-            return """
-        Tracewise QC summary:
-        """ + "\n        ".join(summary)
-        return ""
 
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #
@@ -1597,15 +1604,27 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         return tmp_map.metric.construct_map(coords, values, index=index, agg=agg, bin_size=bin_size)
 
     def construct_qc_maps(self, metric_names=None, by=None, id_cols=None, agg=None, bin_size=None):
-        """Construct a map of tracewise metric aggregated by gathers.
+        """Construct a map of tracewise metric values aggregated by gathers.
 
-        It is allowed to compute the ratio of two :class:`~metics.BaseWindowRMSMetric` instances. For this, specify
-        the names of two metrics in the `metric_names` separated by `/`.
+        A ratio of any two RMS metrics may be calculated by passing their names separated by `/` in `metric_names`,
+        which allows displaying more complex metrics such as signal-to-noise ratio by gather. By default, RMS
+        amplitudes are first calculated for each gather defined by `by` and then used to calculate the ratio. If
+        `tracewice` flag is set to `True` (see examples below), RMS ratio is calculated independently for each trace
+        and then aggregated by gathers.
 
         Examples
         --------
-        Construct a map of metric with name `trace_maxabs` by shots with `max` aggregation:
-        >>> qc_map = survey.construct_qc_maps(metric_names="trace_maxabs", by="shot", agg="max")
+        Calculate three tracewise metrics:
+        1. Maximum absolute amplitude value scaled by trace's std:
+        >>> maxabs_metric = TraceMaxAbs
+        2. RMS in a signal part of the trace:
+        >>> signal_metric = WindowRMS(offsets=[650, 2000], times=[1000, 1400], name="SignalWindowRMS")
+        3. RMS in a noise part of the trace:
+        >>> noise_metric = WindowRMS(offsets=[650, 2000], times=[100, 500], name="NoiseWindowRMS")
+        >>> survey.qc([TraceMaxAbs, signal_metric, noise_metric])
+
+        Construct a map of metric with name `TraceMaxAbs` by shots with `max` aggregation:
+        >>> qc_map = survey.construct_qc_maps(metric_names="TraceMaxAbs", by="shot", agg="max")
         >>> qc_map.plot()
 
         The map allows for interactive plotting: a gather type defined by `by` with a tracewise metric value on top of
@@ -1614,12 +1633,12 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         the default threshold for the metric will be changed to 20:
         >>> qc_map.plot(interactive=True, threshold=20, sort_by="offset")
 
-        Construct a map of the ratio of metrics with name `signal_rms` and the metric with name `noise_rms`:
-        >>> ratio_map = survey.construct_qc_maps(metric_names="signal_rms/noise_rms", by="shot")
+        Construct a signal-to-noise ratio map by shots:
+        >>> ratio_map = survey.construct_qc_maps(metric_names="SignalWindowRMS/NoiseWindowRMS", by="shot")
 
-        Construct a map of metric with name `signal_rms` and additional argument `agg_tracewise` for
+        Construct a map of metric with name `SignalWindowRMS` and additional argument `tracewise` for
         `signal_rms.construct_map` method by shots.
-        >>> tracewise_qc_map = survey.construct_qc_maps(metric_names={"metric": "signal_rms", "agg_tracewise":True},
+        >>> tracewise_qc_map = survey.construct_qc_maps(metric_names={"metric": "SignalWindowRMS", "tracewise":True},
                                                         by="shot")
 
         Parameters
@@ -1655,7 +1674,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         metrics_list = to_list(metric_names)
         for metric in metrics_list:
             if isinstance(metric, dict) and "metric" not in metric:
-                raise ValueError("Missed key `metric` for one of the passed metrics in `metric_names`")
+                raise ValueError("Missing key `metric` for one of the passed metrics in `metric_names`")
         # Copy dicts to prevent deleting keys from passed objects during metric map constructing
         metrics_list = [{"metric": metric} if isinstance(metric, str) else metric.copy() for metric in metrics_list]
 
