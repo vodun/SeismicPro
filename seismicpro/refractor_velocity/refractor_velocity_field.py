@@ -641,8 +641,8 @@ class RefractorVelocityField(SpatialField):
         refractor_velocities = field(coords_chunk)
         results = []
         for idx, rv in zip(gather_indices_chunk, refractor_velocities):
-            gather = survey.get_gather(idx) 
-            gather_results = [metric(gather, refractor_velocity=rv, 
+            gather = survey.get_gather(idx)
+            gather_results = [metric(gather, refractor_velocity=rv,
                                      first_breaks_col=first_breaks_col, correct_uphole=correct_uphole)
                               for metric in metrics]
             results.append(gather_results)
@@ -720,7 +720,7 @@ class RefractorVelocityField(SpatialField):
         index_cols = to_list(survey.indexed_by)
         index = None if coords_cols == index_cols else survey.indices
         metrics_maps = []
-        context = {"survey": survey, "field": self, 
+        context = {"survey": survey, "field": self,
                    "first_breaks_col": first_breaks_col, "correct_uphole": correct_uphole}
         metrics_instances = [metric.provide_context(**context) for metric in metrics_instances]
         metrics_maps = [metric.construct_map(coords=gather_coords, index=index,

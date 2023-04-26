@@ -103,11 +103,11 @@ def scale_maxabs(data, min_value, max_value, q_min, q_max, tracewise, clip, eps)
     data : 2d np.ndarray
         Data to scale.
     min_value : float, 1d or 2d array-like or None
-        Global minimum value. Dummy trailing axes are added to the array to have at least 2 dimensions, the result must be
-        broadcastable to `data.shape`.
+        Global minimum value. Dummy trailing axes are added to the array to have at least 2 dimensions, the result must
+        be broadcastable to `data.shape`.
     max_value : float, 1d or 2d array-like or None
-        Global maximum value. Dummy trailing axes are added to the array to have at least 2 dimensions, the result must be
-        broadcastable to `data.shape`.
+        Global maximum value. Dummy trailing axes are added to the array to have at least 2 dimensions, the result must
+        be broadcastable to `data.shape`.
     q_min : float
         A quantile to compute gather minimum if min_value is None. Must be between 0 and 1 inclusive.
     q_max : float
@@ -149,11 +149,11 @@ def scale_minmax(data, min_value, max_value, q_min, q_max, tracewise, clip, eps)
     data : 2d np.ndarray
         Data to scale.
     min_value : float, 1d or 2d array-like or None
-        Global minimum value. Dummy trailing axes are added to the array to have at least 2 dimensions, the result must be
-        broadcastable to `data.shape`.
+        Global minimum value. Dummy trailing axes are added to the array to have at least 2 dimensions, the result must
+        be broadcastable to `data.shape`.
     max_value : float, 1d or 2d array-like or None
-        Global maximum value. Dummy trailing axes are added to the array to have at least 2 dimensions, the result must be
-        broadcastable to `data.shape`.
+        Global maximum value. Dummy trailing axes are added to the array to have at least 2 dimensions, the result must
+        be broadcastable to `data.shape`.
     q_min : float
         A quantile to compute gather minimum if min_value is None. Must be between 0 and 1 inclusive.
     q_max : float

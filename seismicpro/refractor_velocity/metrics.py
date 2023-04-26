@@ -5,7 +5,6 @@ import numpy as np
 from numba import njit
 from scipy.signal import hilbert
 
-from ..const import HDR_FIRST_BREAK
 from ..gather.utils.normalization import scale_maxabs
 from ..metrics import Metric
 from ..utils import get_first_defined
@@ -29,6 +28,7 @@ class RefractorVelocityMetric(Metric):
         self.field = None
         self.first_breaks_col = None
         self.correct_uphole = None
+        self.max_offset = None
 
     def bind_context(self, metric_map, survey, field, first_breaks_col, correct_uphole):
         """Process metric evaluation context."""
@@ -155,7 +155,7 @@ class FirstBreaksOutliers(RefractorVelocityMetric):
         rv_times = refractor_velocity(gather["offset"])
         gather_times = gather[first_breaks_col]
         correct_uphole = (correct_uphole if correct_uphole is not None
-                          else ("SourceUpholeTime" in gather.available_headers 
+                          else ("SourceUpholeTime" in gather.available_headers
                                 and refractor_velocity.is_uphole_corrected))
         if correct_uphole:
             gather_times = gather_times + gather["SourceUpholeTime"]
@@ -188,12 +188,12 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
                                    clip=False, tracewise=True, eps=1e-10)
         ix = gather_times / sample_rate
         if np.any(gather_data.shape[1] < ix) or np.any(ix < 0):
-            raise (IndexError, "First breaks are out of bounds")
+            raise IndexError("First breaks are out of bounds")
         res = np.empty_like(ix, dtype=gather_data.dtype)
-        for i in range(len(ix)):
-            prev_ix, next_ix = floor(ix[i]), ceil(ix[i])
-            weight = next_ix - ix[i]
-            res[i] = gather_data[i, prev_ix] * weight + gather_data[i, next_ix] * (1 - weight)
+        for i, idx in enumerate(ix):
+            prev_idx, next_idx = floor(idx), ceil(idx)
+            weight = next_idx - idx
+            res[i] = gather_data[i, prev_idx] * weight + gather_data[i, next_idx] * (1 - weight)
         return res
 
     def calc(self, gather, refractor_velocity, first_breaks_col, correct_uphole):
@@ -233,7 +233,7 @@ class FirstBreaksPhases(RefractorVelocityMetric):
     def __init__(self, target="max", **kwargs):
         if isinstance(target, str):
             if target not in {"max", "min", "transition"}:
-                raise (KeyError, "target should be one of {'max', 'min', 'transition'} or float.")
+                raise KeyError("target should be one of {'max', 'min', 'transition'} or float.")
             target = {"max": 0, "min": np.pi, "transition": np.pi / 2}[target]
         self.target = target
         super().__init__(**kwargs)
@@ -256,7 +256,7 @@ class FirstBreaksPhases(RefractorVelocityMetric):
         _ = refractor_velocity, correct_uphole
         ix = (gather[first_breaks_col] / gather.sample_rate).astype(np.int64)
         if np.any(gather.data.shape[1] < ix) or np.any(ix < 0):
-            raise (IndexError, "First breaks are out of bounds")
+            raise IndexError("First breaks are out of bounds")
         phases = hilbert(gather.data, axis=1)[range(len(ix)), ix]
         angles = np.angle(phases)
         # Map angles to range (target - pi, target + pi]
@@ -319,7 +319,7 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
         """Calculate signal correlation with mean hodograph"""
         ix = (times / sample_rate).astype(np.int64).reshape(-1, 1)
         if np.any(data.shape[1] < ix) or np.any(ix < 0):
-            raise (IndexError, "First breaks are out of bounds")
+            raise IndexError("First breaks are out of bounds")
         mean_cols = ix + np.arange(-window_size // sample_rate, window_size // sample_rate).reshape(1, -1)
         mean_cols = np.clip(mean_cols, 0, data.shape[1] - 1).astype(np.int64)
 
@@ -336,7 +336,7 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
         std_amplitudes = np.sqrt(np.sum(((traces_windows - mean_amplitudes.reshape(-1, 1)) ** 2) / trace_len, axis=1))
         traces_windows_centered = (traces_windows - mean_amplitudes.reshape(-1, 1)) / std_amplitudes.reshape(-1, 1)
 
-        corrs = (np.sum(traces_windows_centered * mean_hodograph_centered.reshape(1, -1), axis=1)/ trace_len)
+        corrs = np.sum(traces_windows_centered * mean_hodograph_centered.reshape(1, -1), axis=1)/ trace_len
         return corrs
 
     def calc(self, gather, refractor_velocity, first_breaks_col, correct_uphole):
@@ -452,7 +452,7 @@ class DivergencePoint(RefractorVelocityMetric):
             Array indicating whether first break of each trace in the gather is diverged.
         """
         times = gather[first_breaks_col]
-        correct_uphole = (correct_uphole if correct_uphole is not None 
+        correct_uphole = (correct_uphole if correct_uphole is not None
                           else ("SourceUpholeTime" in gather.available_headers
                           and refractor_velocity.is_uphole_corrected))
         if correct_uphole:
