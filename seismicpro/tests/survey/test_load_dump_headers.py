@@ -17,7 +17,7 @@ ARGS = [
 
 
 # TODO: addtests for keep_all_headers, skiprows and join_on_headers
-def dump_load_headers(survey, tmp_path, format, new_cols, columns_to_dump, columns_to_load, usecols, dump_col_names,
+def load_dump_headers(survey, tmp_path, format, new_cols, columns_to_dump, columns_to_load, usecols, dump_col_names,
                       decimal=None, sep=None):
     """Base test dump and load headers"""
     file_path = tmp_path / "tmp.csv"
@@ -47,10 +47,10 @@ def dump_load_headers(survey, tmp_path, format, new_cols, columns_to_dump, colum
 @pytest.mark.parametrize("decimal", ['.', ','])
 @pytest.mark.parametrize("new_cols", [["float"], ["int"], ["float", "int"]])
 @pytest.mark.parametrize("columns_to_dump,columns_to_load,usecols,dump_col_names", ARGS)
-def test_fwf_dump_load_headers(survey, tmp_path, new_cols, columns_to_dump, columns_to_load, usecols, dump_col_names,
+def test_fwf_load_dump_headers(survey, tmp_path, new_cols, columns_to_dump, columns_to_load, usecols, dump_col_names,
                                decimal):
     """Test dump and load headers in fwf format"""
-    dump_load_headers(survey=survey, tmp_path=tmp_path, format="fwf", new_cols=new_cols,
+    load_dump_headers(survey=survey, tmp_path=tmp_path, format="fwf", new_cols=new_cols,
                       columns_to_dump=columns_to_dump, columns_to_load=columns_to_load, usecols=usecols,
                       dump_col_names=dump_col_names, decimal=decimal)
 
@@ -58,9 +58,9 @@ def test_fwf_dump_load_headers(survey, tmp_path, new_cols, columns_to_dump, colu
 @pytest.mark.parametrize("sep", [',', ';'])
 @pytest.mark.parametrize("new_cols", [["float"], ["int"], ["float", "int"]])
 @pytest.mark.parametrize("columns_to_dump,columns_to_load,usecols,dump_col_names", ARGS)
-def test_csv_dump_load_headers(survey, tmp_path, new_cols, columns_to_dump, columns_to_load, usecols, dump_col_names,
+def test_csv_load_dump_headers(survey, tmp_path, new_cols, columns_to_dump, columns_to_load, usecols, dump_col_names,
                                sep):
     """Test dump and load headers in csv format"""
-    dump_load_headers(survey=survey, tmp_path=tmp_path, format="csv", new_cols=new_cols,
+    load_dump_headers(survey=survey, tmp_path=tmp_path, format="csv", new_cols=new_cols,
                       columns_to_dump=columns_to_dump, columns_to_load=columns_to_load, usecols=usecols,
                       dump_col_names=dump_col_names, sep=sep)

@@ -283,9 +283,8 @@ class TraceContainer:
         self.headers[res_cols] = res
         return self
 
-    def load_headers(self, path, headers=None, join_on_headers=None, format="fwf", has_header=False, usecols=None,  # pylint: disable=too-many-arguments
-                     sep=None, skiprows=None, decimal=None, encoding="UTF-8", keep_all_headers=False, inplace=False,
-                     **kwargs):
+    def load_headers(self, path, headers=None, join_on=None, format="fwf", has_header=False, usecols=None, sep=',',
+                     skiprows=None, decimal=None, encoding="UTF-8", keep_all_headers=False, inplace=False, **kwargs):
         """Load headers from a file and join them with the existing `self.headers`.
 
         Parameters:
@@ -293,12 +292,12 @@ class TraceContainer:
         path : str
             A path to the file with headers.
         headers : array-like of str, optional, defaults to None
-            Array with column names to use as header names. If `None` and `has_header` is `True`, header names will be
-            inferred from file. Also, if `has_header` is `True`, then `headers` specifies which columns will be loaded
-            from the file.
-        join_on_headers : str, array-like of str or None, optional, defaults to None
-            Column(s) base on witch loaded headers will be join to `self.headers`. If `None`, intersection of headers
-            from `headers` and `self.headers.columns` will be used.
+            Array with column names to use as trace header names. If `None` and `has_header` is `True`, header names
+            will be inferred from file. Also, if `has_header` is `True`, then `headers` specifies which columns will
+            be loaded from the file.
+        join_on : str, array-like of str or None, optional, defaults to None
+            Column(s) based on which loaded headers will be joined to `self.headers`. If `None`, intersection of
+            headers from `headers` and `self.headers.columns` will be used.
         format : "fwf" or "csv", optional, defaults to "fwf"
             Format of the file with headers. Currently, the following options are supported:
             * "fwf" - fixed-width format,
@@ -306,9 +305,10 @@ class TraceContainer:
         has_header : bool, optional, defaults to False
             Indicate if the first row of dataset is a header or not.
         usecols : array-like of int or None, optional, defaults to None
-            Columns indices to be selected from file. Should be always passed in ascending order.
-        sep : str, defaults to None
-              Delimiter to use. If not provided, it will be inferred base on the `format`.
+            Columns indices to be selected from the file. Unlike `pandas` loaders, it is allowed to use negative
+            indices. Should be always passed in ascending order and have the same length as `headers` if both passed.
+        sep : str, defaults to ','
+            Separator used in the file. Used only for "csv" `format`.
        skiprows : int, optional, defaults to None
             Number of rows to skip from the beginning of the file.
         decimal : str, optional, defaults to None
@@ -342,10 +342,9 @@ class TraceContainer:
         if usecols is not None:
             usecols = np.asarray(usecols)
             if any(usecols < 0):
-                sep = sep or ',' if format == "csv" else None
+                usecols_sep =  sep if format == "csv" else None
                 with open(path, 'r', encoding=encoding) as f:
-                    n_cols = len(f.readline().split(sep))
-                usecols[usecols < 0] = n_cols + usecols[usecols < 0]
+                    usecols[usecols < 0] += len(f.readline().split(usecols_sep))
             usecols = usecols.tolist()
 
         if format == "fwf":
@@ -360,7 +359,6 @@ class TraceContainer:
                                          decimal=decimal, skiprows=skiprows, encoding=encoding, **kwargs)
             loaded_headers = pl.from_pandas(loaded_headers)
         else:
-            sep = ',' if sep is None else sep
             if has_header:
                 columns = headers
                 new_columns = None
@@ -375,11 +373,11 @@ class TraceContainer:
         index_cols = self.headers.index.names  # pylint: disable=access-member-before-definition
         headers = pl.from_pandas(self.headers.reset_index())  # pylint: disable=access-member-before-definition
         # Use intersection of columns from file and self.headers as join columns by default
-        if join_on_headers is None:
-            join_on_headers = list(set(headers.columns) & set(loaded_headers.columns))
-        casts = [loaded_headers[column].cast(headers[column].dtype) for column in to_list(join_on_headers)]
+        if join_on is None:
+            join_on = set(headers.columns) & set(loaded_headers.columns)
+        casts = [loaded_headers[column].cast(headers[column].dtype) for column in to_list(join_on)]
         loaded_headers = loaded_headers.with_columns(*casts)
-        headers = headers.join(loaded_headers, on=join_on_headers, how=how, suffix="_loaded")
+        headers = headers.join(loaded_headers, on=join_on, how=how, suffix="_loaded")
         self.headers = headers.to_pandas().set_index(index_cols)  # pylint: disable=attribute-defined-outside-init
 
         if self.is_empty:
@@ -400,11 +398,11 @@ class TraceContainer:
             Output file format. If "fwf", use fixed-width format with a width defined by `col_space`. If "csv", use
             single-separated values format with a separator `sep`.
         sep : str, optional, defaults to ','
-            Separator used in the output file. It is only used when `format="csv"`.
+            Separator used in the output file. Used only for "csv" `format`.
         col_space : int, optional, defaults to 8
             Column width in characters when `format="fwf"`.
         decimal : str, optional, defaults to '.'
-            Decimal point character.  It is only used when `format="fwf"`.
+            Decimal point character. Used only for "fwf" `format`.
         dump_col_names : bool, optional, defaults to False
             Whether to include the column names in the output file.
         kwargs : misc, optional
