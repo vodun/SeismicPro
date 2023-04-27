@@ -62,6 +62,7 @@ def scale_standard(data, mean, std, tracewise, eps):
         else:
             trace_len = data.shape[1]
             mean = np.sum(data, axis=1).reshape(-1, 1) / trace_len
+            mean = mean.astype(np.float64)
             std = np.sqrt(np.sum(((data - mean) ** 2) / trace_len, axis=1)).reshape(-1, 1)
     return (data - mean) / (std + eps)
 
