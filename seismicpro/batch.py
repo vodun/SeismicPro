@@ -130,7 +130,9 @@ class SeismicBatch(Batch):
             if not combined:
                 return self.load_gather(src=src, dst=dst, **kwargs)
             non_empty_parts = [i for i, n_gathers in enumerate(self.index.n_gathers_by_part) if n_gathers]
-            combined_batch = type(self)(DatasetIndex(non_empty_parts), dataset=self.dataset, pipeline=self.pipeline)
+            combined_index = DatasetIndex(non_empty_parts)
+            combined_index.parent_index = self.index
+            combined_batch = type(self)(combined_index, dataset=self.dataset, pipeline=self.pipeline)
             return combined_batch.load_combined_gather(src=src, dst=dst, parent_index=self.index, **kwargs)
         return super().load(src=src, fmt=fmt, dst=dst, **kwargs)
 
@@ -179,7 +181,9 @@ class SeismicBatch(Batch):
 
         non_empty_parts = [i for i, n_gathers in enumerate(self.index.n_gathers_by_part) if n_gathers]
         split_pos = np.cumsum([n_gathers for n_gathers in self.index.n_gathers_by_part if n_gathers][:-1])
-        combined_batch = type(self)(DatasetIndex(non_empty_parts), dataset=self.dataset, pipeline=self.pipeline)
+        combined_index = DatasetIndex(non_empty_parts)
+        combined_index.parent_index = self.index
+        combined_batch = type(self)(combined_index, dataset=self.dataset, pipeline=self.pipeline)
         for src, dst in zip(src_list, dst_list):  # pylint: disable=redefined-argument-from-local
             gathers = getattr(self, src)
             if not all(isinstance(gather, Gather) for gather in gathers):
@@ -191,6 +195,28 @@ class SeismicBatch(Batch):
                 combined_gathers.append(Gather(headers, data, gather_chunk[0].samples, gather_chunk[0].survey))
             combined_batch.add_components(dst, init=np.array(combined_gathers))
         return combined_batch
+
+    @action
+    def split_gathers(self, src, dst=None):
+        """Split combined gathers for each component in `src` and store them in the corresponding components of `dst`.
+        """
+        if not isinstance(self.index, DatasetIndex):
+            return self  # gathers are already split
+
+        src_list = to_list(src)
+        dst_list = to_list(dst) if dst is not None else src_list
+        if len(src_list) != len(dst_list):
+            raise ValueError("src and dst should have the same length.")
+
+        split_batch = type(self)(self.index.parent_index, dataset=self.dataset, pipeline=self.pipeline)
+        for src, dst in zip(src_list, dst_list):  # pylint: disable=redefined-argument-from-local
+            gathers = getattr(self, src)
+            if not all(isinstance(gather, Gather) for gather in gathers):
+                raise ValueError(f"{src} component contains items that are not instances of Gather class")
+            split_gathers = [gather[ix] for gather in gathers
+                                        for ix in gather.headers.groupby(gather.indexed_by).indices.values()]
+            split_batch.add_components(dst, init=np.array(split_gathers))
+        return split_batch
 
     @action
     def update_field(self, field, src):
