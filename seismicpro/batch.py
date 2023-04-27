@@ -162,16 +162,19 @@ class SeismicBatch(Batch):
     @action
     def evaluate_field(self, field, src, dst):
         """Evaluate the field at coordinates of items in `src` component and store the results in `dst`.
+
         Parameters
         ----------
         field : Field
             A field to update.
         src : str
             A component of instances to evaluate the field on. Each of them must have well-defined coordinates.
+        dst : src
+            A component's name to store the result in.
         Returns
         -------
         self : SeismicBatch
-            The batch unchanged.
+            The batch with the evaluation result in `dst` component.
         """
         _ = self.init_component(dst=dst)
         field_items = field([item.coords for item in getattr(self, src)])

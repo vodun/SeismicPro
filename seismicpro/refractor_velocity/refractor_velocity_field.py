@@ -717,8 +717,8 @@ class RefractorVelocityField(SpatialField):
                     futures.append(future)
         results = sum([future.result() for future in futures], [])
 
-        index_cols = to_list(survey.indexed_by)
-        index = None if coords_cols == index_cols else survey.indices
+        # index_cols = to_list(survey.indexed_by)
+        # index = None if coords_cols == index_cols else survey.indices
         metrics_maps = []
         context = {"survey": survey, "field": self,
                    "first_breaks_col": first_breaks_col, "correct_uphole": correct_uphole}

@@ -434,12 +434,12 @@ class Gather(TraceContainer, SamplesContainer):
         """
         if use_global:
             return self.survey.get_quantile(q)
-        q = np.atleast_1d(q).astype(np.float32)
-        quantiles = normalization.get_quantile(self.data, q=q, tracewise=tracewise)
+        q = np.array(q, dtype=np.float32)
+        quantiles = normalization.get_quantile(self.data, q=np.atleast_1d(q), tracewise=tracewise).astype(np.float32)
         # return the same type as q in case of non-global calculation: either single float or array-like
         if not tracewise:
             quantiles = quantiles[:, 0]
-        if q.size == 1:
+        if q.ndim == 0:
             quantiles = quantiles[0]
         return quantiles
 

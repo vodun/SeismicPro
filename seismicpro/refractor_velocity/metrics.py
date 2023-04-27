@@ -1,5 +1,6 @@
 """Implements metrics for quality control of first breaks given the near-surface velocity model."""
 from math import ceil, floor
+import warnings 
 
 import numpy as np
 from numba import njit
@@ -14,8 +15,7 @@ class RefractorVelocityMetric(Metric):
     """Base metric class for quality control of refractor velocity field.
     Implements the following logic: `calc` method returns iterable of tracewise metric values,
     then `__call__` is used for gatherwise metric aggregation.
-    `plot_gather` view is adjustable for plotting metric values on top of gather plot
-    if `calc` implements trase-wise calculation.
+    `plot_gather` view is adjustable for plotting metric values on top of gather plot.
     Parameters needed for metric calculation and view plotting should be set as attributes, e.g. `first_breaks_col`.
     """
 
@@ -35,7 +35,7 @@ class RefractorVelocityMetric(Metric):
         _ = metric_map
         self.survey = survey
         self.field = field
-        self.max_offset = survey["offset"].max() if survey is not None else None
+        self.max_offset = survey["offset"].max()
         self.first_breaks_col = first_breaks_col
         if correct_uphole is None:
             self.correct_uphole = ("SourceUpholeTime" in self.survey.available_headers
@@ -124,9 +124,9 @@ class FirstBreaksOutliers(RefractorVelocityMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def _calc(rv_times, gather_times, threshold_times):
+    def _calc(rv_times, picking_times, threshold_times):
         """Calculate the first break outliers."""
-        return np.abs(rv_times - gather_times) > threshold_times
+        return np.abs(rv_times - picking_times) > threshold_times
 
     def calc(self, gather, refractor_velocity, first_breaks_col, correct_uphole):
         """Calculate the first break outliers.
@@ -152,13 +152,13 @@ class FirstBreaksOutliers(RefractorVelocityMetric):
             Array indicating whether each trace in the gather represents an outlier.
         """
         rv_times = refractor_velocity(gather["offset"])
-        gather_times = gather[first_breaks_col]
+        picking_times = gather[first_breaks_col]
         correct_uphole = (correct_uphole if correct_uphole is not None
                           else ("SourceUpholeTime" in gather.available_headers
                                 and refractor_velocity.is_uphole_corrected))
         if correct_uphole:
-            gather_times = gather_times + gather["SourceUpholeTime"]
-        return self._calc(rv_times, gather_times, self.threshold_times)
+            picking_times = picking_times + gather["SourceUpholeTime"]
+        return self._calc(rv_times, picking_times, self.threshold_times)
 
     def plot_gather(self, *args, **kwargs):
         """Plot the gather with highlighted outliers on top of the gather plot."""
@@ -180,13 +180,14 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def _calc(gather_data, gather_times, sample_rate):
+    def _calc(gather_data, picking_times, sample_interval, start_time):
         """Calculate signal amplitudes at first break times."""
         gather_data = scale_maxabs(gather_data, min_value=None, max_value=None, q_min=0, q_max=1,
                                    clip=False, tracewise=True, eps=1e-10)
-        ix = (picking_times - start_time) / sample_interval
+        ix = ((picking_times - start_time) // sample_interval).astype(np.int64)
         if np.any(gather_data.shape[1] < ix) or np.any(ix < 0):
-            raise IndexError("First breaks are out of bounds")
+            ix = np.clip(ix, 0, gather_data.shape[1] - 1)
+            # warnings.warn("First breaks are out of bounds", RuntimeWarning)
         res = np.empty_like(ix, dtype=gather_data.dtype)
         for i, idx in enumerate(ix):
             prev_idx, next_idx = floor(idx), ceil(idx)
@@ -210,7 +211,7 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
             Signal amplitudes for each trace in the gather.
         """
         _ = refractor_velocity, correct_uphole
-        res = self._calc(gather.data, gather[first_breaks_col], gather.sample_interval)
+        res = self._calc(gather.data, gather[first_breaks_col], gather.sample_interval, gather.times[0])
         return res
 
 
@@ -220,7 +221,7 @@ class FirstBreaksPhases(RefractorVelocityMetric):
     Parameters
     ----------
     target : float in range (-pi, pi] or str from {'max', 'min', 'transition'}, optional, defaults to 'max'
-        Target phase value in the moment of first break, see `np.angle`.
+        Target phase value in the moment of first break: 0, pi, pi / 2 for `max`, `min` and `transition` respectively.
     """
 
     name = "first_breaks_phases"
@@ -252,9 +253,10 @@ class FirstBreaksPhases(RefractorVelocityMetric):
             Signal phase value at first break time for each trace in the gather.
         """
         _ = refractor_velocity, correct_uphole
-        ix = (gather[first_breaks_col] - gather.times[0]) // gather.sample_interval
+        ix = ((gather[first_breaks_col] - gather.times[0]) // gather.sample_interval).astype(np.int64)
         if np.any(gather.data.shape[1] < ix) or np.any(ix < 0):
-            raise IndexError("First breaks are out of bounds")
+            ix = np.clip(ix, 0, gather_data.shape[1] - 1)
+            # warnings.warn("First breaks are out of bounds", RuntimeWarning)
         phases = hilbert(gather.data, axis=1)[range(len(ix)), ix]
         angles = np.angle(phases)
         # Map angles to range (target - pi, target + pi]
@@ -278,7 +280,7 @@ class FirstBreaksPhases(RefractorVelocityMetric):
         _ = coords
         gather = self.survey.get_gather(index)
         if sort_by is not None:
-            gather = gather.copy().sort(by=sort_by)
+            gather = gather.sort(by=sort_by)
         event_headers = kwargs.pop("event_headers", {"headers": self.first_breaks_col})
         signed_deltas = self.calc(gather=gather, refractor_velocity=None, first_breaks_col=self.first_breaks_col,
                                   correct_uphole=self.correct_uphole)
@@ -313,11 +315,11 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
 
     @staticmethod
     @njit(nogil=True)
-    def _calc(times, data, window_size, sample_rate):
-        """Calculate signal correlation with mean hodograph"""
-        ix = ((times - start_time) // sample_interval).reshape(-1, 1)
+    def _make_windows(times, data, window_size, sample_interval, start_time):
+        ix = ((times - start_time) // sample_interval).reshape(-1, 1).astype(np.int64)
         if np.any(data.shape[1] < ix) or np.any(ix < 0):
-            raise IndexError("First breaks are out of bounds")
+            ix = np.clip(ix, 0, data.shape[1] - 1)
+            # warnings.warn("First breaks are out of bounds", RuntimeWarning)
         mean_cols = ix + np.arange(-window_size // (2 * sample_interval), window_size // (2 * sample_interval)).reshape(1, -1)
         mean_cols = np.clip(mean_cols, 0, data.shape[1] - 1).astype(np.int64)
 
@@ -326,7 +328,13 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
         traces_windows = np.empty((n_traces, trace_len), dtype=np.float32)
         for i in range(n_traces):
             traces_windows[i] = data[i][mean_cols[i]]
+        return traces_windows
 
+    @staticmethod
+    @njit(nogil=True)
+    def _calc(traces_windows):
+        """Calculate signal correlation with mean hodograph"""
+        n_traces, trace_len = traces_windows.shape
         mean_hodograph = np.sum(traces_windows, axis=0) / n_traces
         mean_hodograph_centered = (mean_hodograph - np.mean(mean_hodograph)) / np.std(mean_hodograph)
 
@@ -354,7 +362,9 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
             Window correlation with mean hodograph for each trace in the gather.
         """
         _ = refractor_velocity, correct_uphole
-        res = self._calc(gather[first_breaks_col], gather.data, self.window_size, gather.sample_interval)
+        traces_windows = self._make_windows(gather[first_breaks_col], gather.data, self.window_size,
+                         gather.sample_interval, gather.times[0])
+        res = self._calc(traces_windows)
         return res
 
     def plot_mean_hodograph(self, coords, ax, index, **kwargs):
@@ -363,22 +373,17 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
         gather = self.survey.get_gather(index)
         g = gather.copy()
         g.scale_maxabs(clip=True)
-        ix = (g[self.first_breaks_col] / g.sample_rate).astype(np.int64).reshape(-1, 1)
-        mean_cols = ix + np.arange(-self.window_size // g.sample_rate, self.window_size // g.sample_rate).reshape(1, -1)
-        mean_cols = np.clip(mean_cols, 0, g.data.shape[1] - 1).astype(np.int64)
 
-        n_traces = len(g.data)
-        traces_windows = g.data[np.arange(n_traces).reshape(-1, 1), mean_cols]
+        traces_windows = self._make_windows(g[self.first_breaks_col], g.data, self.window_size,
+                                            g.sample_interval, g.times[0])
         mean_hodograph = traces_windows.mean(axis=0)
-
         mean_hodograph_centered = ((mean_hodograph - mean_hodograph.mean()) / mean_hodograph.std()).reshape(1, -1)
         g.data = mean_hodograph_centered
 
-        y_min = mean_cols[0, :].min()
         g.plot(mode="wiggle", ax=ax, **kwargs)
         ax.set_xlabel("Amplitude")
         ax.set_xticks(ticks=[-1, 0, 1])
-        ax.set_yticks(ticks=np.arange(self.window_size)[::5],labels=np.arange(self.window_size)[::5] + y_min)
+        ax.set_yticks(ticks=np.arange(self.window_size)[::5],labels=np.arange(self.window_size)[::5])
 
 
 class DivergencePoint(RefractorVelocityMetric):
@@ -405,8 +410,8 @@ class DivergencePoint(RefractorVelocityMetric):
     def bind_context(self, *args, **kwargs):
         """Set map attributes according to provided context."""
         super().bind_context(*args, **kwargs)
-        self.vmax = self.survey["offset"].max() if self.survey is not None else None
-        self.vmin = self.survey["offset"].min() if self.survey is not None else None
+        self.vmax = self.survey["offset"].max()
+        self.vmin = self.survey["offset"].min()
 
     @staticmethod
     @njit(nogil=True)

@@ -67,7 +67,7 @@ def scale_standard(data, mean, std, tracewise, eps):
 
 @njit(nogil=True)
 def get_quantile(data, q, tracewise):
-    """Compute the `q`-th quantile of the data along the axis.
+    """Compute the `q`-th quantile of the data.
 
     Parameters
     ----------
