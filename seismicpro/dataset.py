@@ -121,8 +121,8 @@ class SeismicDataset(Dataset):
     def __str__(self):
         """Print dataset metadata including information about its batch class and index."""
         msg = f"""
-        Batch class:               {self.batch_class}
-        Index class:               {type(self.index)}
+        Batch class:               {self.batch_class.__name__}
+        Index class:               {type(self.index).__name__}
 
         """
         return (dedent(msg) + str(self.index)).strip()

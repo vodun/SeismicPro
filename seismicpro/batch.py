@@ -161,7 +161,7 @@ class SeismicBatch(Batch):
 
     @action
     def evaluate_field(self, field, src, dst):
-        """Evaluate field on objects from `src` component.
+        """Evaluate the field at coordinates of items in `src` component and store the results in `dst`.
         Parameters
         ----------
         field : Field
