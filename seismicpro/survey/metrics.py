@@ -1,8 +1,9 @@
 # pylint: disable=not-an-iterable
-"""Implements metrics for quality control of the survey.
+"""Implements a utility metric class for headers metric maps construction and a bunch of metrics for survey quality
+control.
 
-These metrics are supposed to be used in :func:`~survey.qc` method, which iterates over traces or group of traces and
-automatically provides metrics with all required context for interactive plotting.
+The quality control metrics are supposed to be used in :func:`~survey.qc` method, which iterates over traces or group
+of traces and automatically provides metrics with all required context for interactive plotting.
 
 To define your own metric, you need to inherit a new class from either `TracewiseMetric` or
 `MuteTracewiseMetric`, or `BaseWindowRMSMetric` depending on the purpose, and do the following:
@@ -217,17 +218,17 @@ class TracewiseMetric(SurveyAttribute):
 
         metric_res = self.get_values(gather)
         metric_vals = self.aggregate(metric_res)
-        mask = self.binarize(metric_res, threshold)
+        bin_mask = self.binarize(metric_res, threshold)
 
         mode = kwargs.pop("mode", "wiggle")
-        masks_dict = {"masks": mask, "alpha": 0.8, "label": self.name or "metric", **kwargs.pop("masks", {})}
+        masks_dict = {"masks": bin_mask, "alpha": 0.8, "label": self.name or "metric", **kwargs.pop("masks", {})}
 
         if bad_only:
-            bad_mask = self.aggregate(mask) == 0
+            bad_mask = self.aggregate(bin_mask) == 0
             gather.data[bad_mask] = np.nan
             metric_vals[bad_mask] = np.nan
-            # Don't need to plot 1d mask if only bad traces will be plotted.
-            if mask.ndim == 1:
+            # Don't need to plot 1d `bin_mask` if only bad traces will be plotted.
+            if bin_mask.ndim == 1:
                 masks_dict = None
 
         gather.plot(ax=ax, mode=mode, top_header=metric_vals, masks=masks_dict, **kwargs)
@@ -529,12 +530,10 @@ class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
             return self.compute_rms(squares, nums)
         return squares, nums
 
-    def _get_description_bundle(self):
+    def _get_threshold_description(self):
+        """String description of the threshold for Window RMS metrics."""
         if isinstance(self.threshold, (int, float, np.number)):
-            if self.is_lower_better is None:
-                raise ValueError("`threshold` cannot be single number if `is_lower_better` is None")
-            bundle = "greater or equal then" if self.is_lower_better else "less or equal then"
-            return bundle + f" {self.threshold}"
+            return ("greater or equal then" if self.is_lower_better else "less or equal then") + f" {self.threshold}"
         return f"between {self.threshold[0]} and {self.threshold[1]}"
 
     @property
@@ -578,9 +577,8 @@ class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
                                                index_cols=index_cols, agg="sum")
         nums_map = super().construct_map(coords, values.iloc[:, 1], coords_cols=coords_cols, index=index,
                                          index_cols=index_cols, agg="sum")
-        if sum_square_map.index_cols != sum_square_map.coords_cols:
-            sum_square_map.index_data.drop(columns=sum_square_map.coords_cols, inplace=True)
-        sum_df = sum_square_map.index_data.merge(nums_map.index_data, on=nums_map.index_cols)
+        sum_square_df = sum_square_map.index_data[[*sum_square_map.index_cols, sum_square_map.metric_name]]
+        sum_df = sum_square_df.merge(nums_map.index_data, on=nums_map.index_cols)
         sum_df[self.name] = np.sqrt(sum_df[self.name+"_x"] / sum_df[self.name+"_y"])
         return super().construct_map(sum_df[nums_map.coords_cols], sum_df[self.name],
                                      index=sum_df[nums_map.index_cols], agg=agg, bin_size=bin_size,
@@ -623,8 +621,9 @@ class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
 class MetricsRatio(TracewiseMetric):  # pylint: disable=abstract-method
     """Calculate the ratio of two window RMS metrics.
 
-    In the metric map, the displayed values are obtained by dividing the value of `self.numerator` metric by the
-    value of `self.denominator` metric for each gather independently.
+    By default, the displayed values on the metric map are obtained by dividing the value of `self.numerator` metric by
+    the value of `self.denominator` metric for each gather independently. To perform a tracewise division of the
+    metrics use `tracewise` flag in :func:`MetricsRatio.construct_map`.
 
     Parameters
     ----------
@@ -687,9 +686,8 @@ class MetricsRatio(TracewiseMetric):  # pylint: disable=abstract-method
                                                index=index, index_cols=index_cols, agg=agg)
         mmaps_2 = self.denominator.construct_map(coords, values[self.denominator.header_cols], coords_cols=coords_cols,
                                                  index=index, index_cols=index_cols, agg=agg)
-        if mmaps_1.index_cols != mmaps_1.coords_cols:
-            mmaps_1.index_data.drop(columns=mmaps_1.coords_cols, inplace=True)
-        ratio_df = mmaps_1.index_data.merge(mmaps_2.index_data, on=mmaps_2.index_cols)
+        numerator_df = mmaps_1.index_data[[*mmaps_1.index_cols, mmaps_1.metric_name]]
+        ratio_df = numerator_df.merge(mmaps_2.index_data, on=mmaps_2.index_cols)
         ratio_df[self.name] = ratio_df[self.numerator.name] / ratio_df[self.denominator.name]
         coords = ratio_df[mmaps_1.coords_cols]
         values = ratio_df[self.name]
@@ -698,10 +696,10 @@ class MetricsRatio(TracewiseMetric):  # pylint: disable=abstract-method
                                      calculate_immediately=calculate_immediately)
 
     def plot(self, ax, coords, index, threshold=None, top_y_ax_scale=None, bad_only=False, **kwargs):
-        """Plot the gather sorted by offset with two masks over the gather plot. The lime-colored mask represents the
-        window where the `self.numerator` metric was calculated, while the magenta-colored mask represents the
-        `self.denominator` window. Additionally, tracewise ratio of `self.numerator` by `self.denominator` is displayed
-        on the top of the gather plot."""
+        """Plot the gather sorted by offset with two rectangles over the gather plot. The lime-colored rectangle
+        represents the window where the `self.numerator` metric was calculated, while the magenta-colored rectangle
+        represents the `self.denominator` window. Additionally, tracewise ratio of `self.numerator` by
+        `self.denominator` is displayed on the top of the gather plot."""
         threshold = self.threshold if threshold is None else threshold
         top_y_ax_scale = self.top_y_ax_scale if top_y_ax_scale is None else top_y_ax_scale
         _ = coords
@@ -772,8 +770,8 @@ class WindowRMS(BaseWindowRMSMetric):
     @property
     def description(self):
         """String description of the tracewise metric."""
-        bundle = self._get_description_bundle()
-        return f"Traces within a window by offsets {self.offsets} and times {self.times} with RMS {bundle}"
+        msg = f"Traces within a window by offsets {self.offsets} and times {self.times} with RMS "
+        return msg + self._get_threshold_description()
 
     def describe(self, metric_values, line_width=55, separator="\n"):
         """Provide a description about the number of bad values for the passed metric values in a string format. Each
@@ -863,9 +861,8 @@ class AdaptiveWindowRMS(BaseWindowRMSMetric):
     @property
     def description(self):
         """String description of the tracewise metric."""
-        bundle = self._get_description_bundle()
-        return f"Traces with a RMS computed along a RV with shift {self.shift} "\
-               f"and window size {self.window_size} {bundle}"
+        msg = f"Traces with a RMS computed along RV with shift {self.shift} and window size {self.window_size} "
+        return msg + self._get_threshold_description()
 
     def describe(self, metric_values, line_width=55, separator="\n"):
         """Provide a description about the number of bad values for the passed metric values in a string format. Each

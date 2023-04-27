@@ -43,8 +43,8 @@ MMAP_METRICS = [
          WindowRMS(offsets=[0, 100], times=[0, 100], name="noise_rms")],
         [
             "signal_rms", "noise_rms", "signal_rms/noise_rms",
-            {"metric": "signal_rms", "agg_tracewise": True},
-            {"metric": "signal_rms/noise_rms", "agg_tracewise": True},
+            {"metric": "signal_rms", "tracewise": True},
+            {"metric": "signal_rms/noise_rms", "tracewise": True},
         ]
     ],
     [
@@ -58,7 +58,7 @@ MMAP_METRICS = [
 class TestTracewise:
     """Test tracewise QC metrics."""
 
-    @pytest.mark.parametrize("metrics, names", METRICS_TO_COMPUTE)
+    @pytest.mark.parametrize("metrics,names", METRICS_TO_COMPUTE)
     def test_qc(self, survey, metrics, names):
         """Test `survey.qc`."""
         _ = self
@@ -68,12 +68,13 @@ class TestTracewise:
             header_cols = to_list(survey.qc_metrics[name].header_cols)
             assert all(col in survey.headers for col in header_cols)
 
-    @pytest.mark.parametrize("metrics, metric_names", MMAP_METRICS)
-    def test_construct_qc_map(self, survey, metrics, metric_names):
+    @pytest.mark.parametrize("metrics,metric_names", MMAP_METRICS)
+    @pytest.mark.parametrize("by", ["shot", "rec"])
+    def test_construct_qc_map(self, survey, metrics, metric_names, by):
         """Test `survey.construct_qc_map`."""
         _ = self
         survey.qc(metrics=metrics, bar=False)
-        mmaps = survey.construct_qc_maps(metric_names=metric_names, by='shot')
+        mmaps = survey.construct_qc_maps(metric_names=metric_names, by=by)
         if metric_names is None:
             assert len(mmaps) == len(DEFAULT_TRACEWISE_METRICS)
             return
@@ -94,7 +95,7 @@ class TestTracewise:
 class TestFilterMetrics:
     """Test survey filter by metric"""
 
-    @pytest.mark.parametrize("metric, threshold", [[MaxClipsLen, None], [MaxConstLen, 2]])
+    @pytest.mark.parametrize("metric,threshold", [[MaxClipsLen, None], [MaxConstLen, 2]])
     def test_filter_metrics(self, stat_segy, header_index, metric, threshold, inplace):
         """Check that `filter_by_metric` properly updates survey `headers`."""
         _ = self
