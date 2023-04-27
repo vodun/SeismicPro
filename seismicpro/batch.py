@@ -2,6 +2,7 @@
 
 from string import Formatter
 from functools import partial
+from itertools import zip_longest
 
 import numpy as np
 import pandas as pd
@@ -197,8 +198,8 @@ class SeismicBatch(Batch):
         return combined_batch
 
     @action
-    def split_gathers(self, src, dst=None):
-        """Split combined gathers for each component in `src` and store them in the corresponding components of `dst`.
+    def split_gathers(self, src, dst=None, assume_sequential=True):
+        """Split combined gathers in each component in `src` and store them in the corresponding components of `dst`.
         """
         if not isinstance(self.index, DatasetIndex):
             return self  # gathers are already split
@@ -213,8 +214,17 @@ class SeismicBatch(Batch):
             gathers = getattr(self, src)
             if not all(isinstance(gather, Gather) for gather in gathers):
                 raise ValueError(f"{src} component contains items that are not instances of Gather class")
-            split_gathers = [gather[ix] for gather in gathers
-                                        for ix in gather.headers.groupby(gather.indexed_by).indices.values()]
+            if assume_sequential:
+                split_gathers = []
+                for gather in gathers:
+                    split_pos = np.where(~gather.headers.index.duplicated(keep="first"))[0]
+                    for start, end in zip_longest(split_pos, split_pos[1:]):
+                        headers = gather.headers.iloc[start:end]
+                        data = gather.data[start:end]
+                        split_gathers.append(Gather(headers, data, gather.samples, gather.survey))
+            else:
+                split_gathers = [gather[ix] for gather in gathers
+                                            for ix in gather.headers.groupby(gather.indexed_by).indices.values()]
             split_batch.add_components(dst, init=np.array(split_gathers))
         return split_batch
 
