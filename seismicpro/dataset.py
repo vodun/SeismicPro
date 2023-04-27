@@ -108,6 +108,8 @@ class SeismicDataset(Dataset):
         self.set_index(index)
 
     def __getstate__(self):
+        """Create pickling state of a dataset from its `__dict__`. Don't pickle `index` if `enable_fast_pickling`
+        config option is set."""
         state = self.__dict__.copy()
         if config["enable_fast_pickling"]:
             state["_index"] = None

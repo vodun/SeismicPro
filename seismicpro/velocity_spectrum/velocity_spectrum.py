@@ -566,6 +566,9 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     window_size : int, optional, defaults to 50
         Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother
         the resulting velocity spectrum will be but to the detriment of small details. Measured in milliseconds.
+    relative_margin : float, optional, defaults to 0.2
+        Relative velocity margin, that determines the velocity range for velocity spectrum calculation
+        for each time `t` as `stacking_velocity(t)` * (1 +- `relative_margin`).
     mode: str, optional, defaults to 'semblance'
         The measure for estimating hodograph coherency.
         The available options are:
