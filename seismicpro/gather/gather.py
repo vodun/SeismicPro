@@ -482,8 +482,8 @@ class Gather(TraceContainer, SamplesContainer):
         if use_global:
             if not self.survey.has_stats:
                 raise ValueError('Global statistics were not calculated, call `Survey.collect_stats` first.')
-            mean = np.array(self.survey.mean, ndmin=2)
-            std = np.array(self.survey.std, ndmin=2)
+            mean = np.atleast_2d(self.survey.mean)
+            std = np.atleast_2d(self.survey.std)
         else:
             mean, std = None, None
         self.data = normalization.scale_standard(self.data, mean, std, tracewise, np.float32(eps))
@@ -536,7 +536,7 @@ class Gather(TraceContainer, SamplesContainer):
         """
         if use_global:
             min_value, max_value = self.survey.get_quantile([q_min, q_max])
-            min_value, max_value = np.array(min_value, ndmin=1), np.array(max_value, ndmin=1)
+            min_value, max_value = np.atleast_1d(min_value), np.atleast_1d(max_value)
         else:
             min_value, max_value = None, None
         self.data = normalization.scale_maxabs(self.data, min_value, max_value, q_min, q_max,
@@ -586,7 +586,7 @@ class Gather(TraceContainer, SamplesContainer):
         """
         if use_global:
             min_value, max_value = self.survey.get_quantile([q_min, q_max])
-            min_value, max_value = np.array(min_value, ndmin=1), np.array(max_value, ndmin=1)
+            min_value, max_value = np.atleast_1d(min_value), np.atleast_1d(max_value)
         else:
             min_value, max_value = None, None
         self.data = normalization.scale_minmax(self.data, min_value, max_value, q_min, q_max,

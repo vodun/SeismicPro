@@ -52,11 +52,10 @@ class RefractorVelocityMetric(Metric):
         """Aggregate the metric. If not overriden, takes mean value of `calc`."""
         return np.mean(self.calc(*args, **kwargs))
 
-    def plot_gather(
-        self, coords, ax, index, sort_by=None, mask=True, top_header=True, **kwargs):
+    def plot_gather(self, coords, ax, index, sort_by=None, mask=True, top_header=True, **kwargs):
         """Base view for gather plotting. Plot the gather by its index in bounded survey and its first breaks.
         By default also recalculates metric in order to display `top_header` with metric values above gather traces
-        and mark trases with metric greater than threshold. Threshold is either aquired from `kwargs` if given,
+        and mark traces with metric greater than threshold. Threshold is either aquired from `kwargs` if given,
         or metric's colorbar margin if defined, or simply by mean value.
 
         Parameters
@@ -98,7 +97,7 @@ class RefractorVelocityMetric(Metric):
         gather = self.survey.get_gather(index)
         refractor_velocity.times = gather[self.first_breaks_col]
         if self.correct_uphole:
-            refractor_velocity.times += gather["SourceUpholeTime"]
+            refractor_velocity.times = refractor_velocity.times + gather["SourceUpholeTime"]
         refractor_velocity.offsets = gather["offset"]
         refractor_velocity.plot(ax=ax, max_offset=self.max_offset, **kwargs)
 
@@ -168,8 +167,7 @@ class FirstBreaksOutliers(RefractorVelocityMetric):
     def plot_refractor_velocity(self, coords, ax, index, **kwargs):
         """Plot the refractor velocity curve and show the threshold area used for metric calculation."""
         threshold_times = kwargs.get("threshold_times", self.threshold_times)
-        return super().plot_refractor_velocity(
-            coords, ax, index, threshold_times=threshold_times, **kwargs)
+        return super().plot_refractor_velocity(coords, ax, index, threshold_times=threshold_times, **kwargs)
 
 
 class FirstBreaksAmplitudes(RefractorVelocityMetric):
@@ -186,7 +184,7 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
         """Calculate signal amplitudes at first break times."""
         gather_data = scale_maxabs(gather_data, min_value=None, max_value=None, q_min=0, q_max=1,
                                    clip=False, tracewise=True, eps=1e-10)
-        ix = gather_times / sample_rate
+        ix = (picking_times - start_time) / sample_interval
         if np.any(gather_data.shape[1] < ix) or np.any(ix < 0):
             raise IndexError("First breaks are out of bounds")
         res = np.empty_like(ix, dtype=gather_data.dtype)
@@ -212,7 +210,7 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
             Signal amplitudes for each trace in the gather.
         """
         _ = refractor_velocity, correct_uphole
-        res = self._calc(gather.data.copy(), gather[first_breaks_col], gather.sample_rate)
+        res = self._calc(gather.data, gather[first_breaks_col], gather.sample_interval)
         return res
 
 
@@ -254,7 +252,7 @@ class FirstBreaksPhases(RefractorVelocityMetric):
             Signal phase value at first break time for each trace in the gather.
         """
         _ = refractor_velocity, correct_uphole
-        ix = (gather[first_breaks_col] / gather.sample_rate).astype(np.int64)
+        ix = (gather[first_breaks_col] - gather.times[0]) // gather.sample_interval
         if np.any(gather.data.shape[1] < ix) or np.any(ix < 0):
             raise IndexError("First breaks are out of bounds")
         phases = hilbert(gather.data, axis=1)[range(len(ix)), ix]
@@ -317,10 +315,10 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
     @njit(nogil=True)
     def _calc(times, data, window_size, sample_rate):
         """Calculate signal correlation with mean hodograph"""
-        ix = (times / sample_rate).astype(np.int64).reshape(-1, 1)
+        ix = ((times - start_time) // sample_interval).reshape(-1, 1)
         if np.any(data.shape[1] < ix) or np.any(ix < 0):
             raise IndexError("First breaks are out of bounds")
-        mean_cols = ix + np.arange(-window_size // sample_rate, window_size // sample_rate).reshape(1, -1)
+        mean_cols = ix + np.arange(-window_size // (2 * sample_interval), window_size // (2 * sample_interval)).reshape(1, -1)
         mean_cols = np.clip(mean_cols, 0, data.shape[1] - 1).astype(np.int64)
 
         trace_len = mean_cols.shape[1]
@@ -356,7 +354,7 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
             Window correlation with mean hodograph for each trace in the gather.
         """
         _ = refractor_velocity, correct_uphole
-        res = self._calc(gather[first_breaks_col], gather.data, self.window_size, gather.sample_rate)
+        res = self._calc(gather[first_breaks_col], gather.data, self.window_size, gather.sample_interval)
         return res
 
     def plot_mean_hodograph(self, coords, ax, index, **kwargs):

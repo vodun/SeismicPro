@@ -649,7 +649,7 @@ class RefractorVelocityField(SpatialField):
         return results
 
     #pylint: disable-next=invalid-name
-    def qc(self, survey=None, metrics=None, first_breaks_col=HDR_FIRST_BREAK, correct_uphole=None,
+    def qc(self, metrics=None, survey=None, first_breaks_col=HDR_FIRST_BREAK, correct_uphole=None,
            n_workers=None, bar=True, chunk_size=250):
         """Perform quality control of the first breaks given the near-surface velocity model.
         By default, the following metrics are calculated:
@@ -672,7 +672,7 @@ class RefractorVelocityField(SpatialField):
         correct_uphole : bool, optional
             Whether to perform uphole correction by adding values of "SourceUpholeTime" header to times of first breaks
             emulating the case when sources are located on the surface. If not given, correction is performed if
-            "SourceUpholeTime" header is loaded.
+            "SourceUpholeTime" header is loaded and `self` if uphole-corrected.
         n_workers : int, optional
             The number of threads to be spawned to calculate metrics. Defaults to the number of cpu cores.
         bar : bool, optional, defaults to True
@@ -723,8 +723,7 @@ class RefractorVelocityField(SpatialField):
         context = {"survey": survey, "field": self,
                    "first_breaks_col": first_breaks_col, "correct_uphole": correct_uphole}
         metrics_instances = [metric.provide_context(**context) for metric in metrics_instances]
-        metrics_maps = [metric.construct_map(coords=gather_coords, index=index,
-                                             index_cols=index_cols, values=metric_values)
+        metrics_maps = [metric.construct_map(gather_coords, metric_values, index=survey.indices)
                         for metric, metric_values in zip(metrics_instances, zip(*results))]
         if is_single_metric:
             return metrics_maps[0]

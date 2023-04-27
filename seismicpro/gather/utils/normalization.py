@@ -62,7 +62,7 @@ def scale_standard(data, mean, std, tracewise, eps):
         else:
             trace_len = data.shape[1]
             mean = np.sum(data, axis=1).reshape(-1, 1) / trace_len
-            std = np.sqrt(np.sum(((data - mean) ** 2) / trace_len, axis=1)).reshape(-1, 1)
+            std = np.sqrt((np.sum((data - mean)**2, axis=1) / trace_len)).reshape(-1, 1)
     return (data - mean) / (std + eps)
 
 @njit(nogil=True)
@@ -88,8 +88,8 @@ def get_quantile(data, q, tracewise):
         values = np.empty((n_quantiles, n_traces), dtype=np.float64)
         for i in range(n_traces):
             values[:, i] = np.nanquantile(data[i], q=q)
-        return values.astype(np.float32)
-    return np.asarray(np.nanquantile(data, q=q), dtype=np.float32).reshape(-1, 1)
+        return values.astype(data.dtype)
+    return np.asarray(np.nanquantile(data, q=q), dtype=data.dtype).reshape(-1, 1)
 
 
 @njit(nogil=True)
@@ -127,7 +127,7 @@ def scale_maxabs(data, min_value, max_value, q_min, q_max, tracewise, clip, eps)
     if min_value is None and max_value is None:
         q = np.array([q_min, q_max], dtype=np.float32)
         quantiles = get_quantile(data, q, tracewise)
-        min_value, max_value = np.asarray(quantiles[0, :]), np.asarray(quantiles[1, :])
+        min_value, max_value = np.asarray(quantiles[0]), np.asarray(quantiles[1])
     max_abs = np.maximum(np.abs(min_value), np.abs(max_value))
     max_abs += eps
     # Use np.atleast_2d(array).T to make the array 2-dimensional by adding dummy trailing axes
@@ -173,7 +173,7 @@ def scale_minmax(data, min_value, max_value, q_min, q_max, tracewise, clip, eps)
     if min_value is None and max_value is None:
         q = np.array([q_min, q_max], dtype=np.float32)
         quantiles = get_quantile(data, q, tracewise)
-        min_value, max_value = (np.asarray(quantiles[0, :]).T, np.asarray(quantiles[1, :]).T)
+        min_value, max_value = np.asarray(quantiles[0]), np.asarray(quantiles[1])
     # Use np.atleast_2d(array).T to make the array 2-dimensional by adding dummy trailing axes
     # for further broadcasting to work tracewise
     min_value = np.atleast_2d(min_value).T
