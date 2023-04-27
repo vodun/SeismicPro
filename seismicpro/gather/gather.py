@@ -72,6 +72,8 @@ class Gather(TraceContainer, SamplesContainer):
         Trace data of the gather with (n_traces, n_samples) layout.
     samples : 1d np.ndarray of floats
         Recording time for each trace value. Measured in milliseconds.
+    sample_interval : float
+        Sample interval of seismic traces. Measured in milliseconds.
     survey : Survey
         A survey that generated the gather.
     sort_by : None or str or list of str
@@ -81,6 +83,10 @@ class Gather(TraceContainer, SamplesContainer):
         self.headers = headers
         self.data = data
         self.samples = samples
+        unique_sample_intervals = np.unique(np.diff(self.samples))
+        if len(unique_sample_intervals) != 1:
+            raise ValueError("`samples` must be evenly spaced")
+        self.sample_interval = unique_sample_intervals.item()
         self.survey = survey
         self.sort_by = None
 
@@ -93,14 +99,6 @@ class Gather(TraceContainer, SamplesContainer):
         if len(indices) != 1:
             return None
         return indices[0]
-
-    @property
-    def sample_interval(self):
-        """"float: Sample interval of seismic traces. Measured in milliseconds."""
-        sample_interval = np.unique(np.diff(self.samples))
-        if len(sample_interval) == 1:
-            return sample_interval.item()
-        raise ValueError("sample_interval is undefined since `samples` are irregular")
 
     @property
     def sample_rate(self):
@@ -137,9 +135,11 @@ class Gather(TraceContainer, SamplesContainer):
 
         Notes
         -----
-        1. If the data after `__getitem__` is no longer sorted, `sort_by` attribute in the resulting `Gather` will be
-           set to `None`.
-        2. If headers selection is performed, the returned array will be 1d if a single header is selected and 2d
+        1. Only basic indexing and slicing is supported along the time axis in order to preserve constant sample
+           interval.
+        2. If the traces are no longer sorted after `__getitem__`, `sort_by` attribute of the resulting `Gather` is set
+           to `None`.
+        3. If headers selection is performed, the returned array will be 1d if a single header is selected and 2d
            otherwise.
 
         Parameters
@@ -148,62 +148,58 @@ class Gather(TraceContainer, SamplesContainer):
             If str or list of str, gather headers to get as an `np.ndarray`. The returned array is 1d if a single
             header is selected and 2d otherwise.
             Otherwise, indices of traces and samples to get. In this case, __getitem__ behavior almost coincides with
-            `np.ndarray` indexing and slicing except for cases, when resulting ndim is not preserved or joint
-            indexation of gather attributes becomes ambiguous (e.g. gather[[0, 1], [0, 1]]).
+            that of `np.ndarray`, except that only basic indexing and slicing is supported along the time axis in order
+            to preserve constant sample interval.
 
         Returns
         -------
         result : np.ndarray or Gather
-            Headers values or Gather with a specified subset of traces and samples.
+            Headers values or a gather with the specified subset of traces and samples.
 
         Raises
         ------
         ValueError
-            If the resulting gather is empty, or data ndim has changed, or joint attribute indexation is ambiguous.
+            If the resulting gather is empty or data ndim has changed.
         """
         # If key is str or array of str, treat it as names of headers columns
         keys_array = np.array(to_list(key))
         if keys_array.dtype.type == np.str_:
             return super().__getitem__(key)
 
-        # Perform traces and samples selection
-        key = (key, ) if not isinstance(key, tuple) else key
-        key = key + (slice(None), ) if len(key) == 1 else key
-        indices = ()
-        for axis_indexer, axis_shape in zip(key, self.shape):
-            if isinstance(axis_indexer, (int, np.integer)):
-                # Convert negative array index to a corresponding positive one
-                axis_indexer %= axis_shape
-                # Switch from simple indexing to a slice to keep array dims
-                axis_indexer = slice(axis_indexer, axis_indexer+1)
-            elif isinstance(axis_indexer, tuple):
-                # Force advanced indexing for `samples`
-                axis_indexer = list(axis_indexer)
-            indices = indices + (axis_indexer, )
+        # Split key into indexers of traces and samples
+        key = (key,) if not isinstance(key, tuple) else key
+        key = key + (slice(None),) if len(key) == 1 else key
+        if len(key) != 2 or None in key:
+            raise KeyError("Data ndim must not change")
+        traces_indexer, samples_indexer = key
 
-        data = self.data[indices]
-        if data.ndim != 2:
-            raise ValueError("Data ndim is not preserved or joint indexation of gather attributes becomes ambiguous "
-                             "after indexation")
+        # Cast samples indexer to a slice so that possible advanced indexing is performed only along traces axis
+        if isinstance(samples_indexer, (int, np.integer)):
+            samples_indexer %= self.n_samples  # Convert negative array index to a corresponding positive one
+            samples_indexer = slice(samples_indexer, samples_indexer + 1)
+        if not isinstance(samples_indexer, slice):
+            raise KeyError("Only basic indexing and slicing is supported along the time axis")
+
+        # Cast a single trace indexer to a list to force advanced indexing and keep data dims
+        if isinstance(traces_indexer, (int, np.integer)):
+            traces_indexer = [traces_indexer]
+
+        # Index data and make it C-contiguous since otherwise some numba functions may fail
+        data = np.require(self.data[traces_indexer, samples_indexer], requirements="C")
         if data.size == 0:
             raise ValueError("Empty gather after indexation")
+        headers = self.headers.iloc[traces_indexer]
+        samples = self.samples[samples_indexer]
+        gather = Gather(headers, data, samples, self.survey)
 
-        # Set indexed data attribute. Make it C-contiguous since otherwise some numba functions may fail
-        new_self = self.copy(ignore=['data', 'headers', 'samples'])
-        new_self.data = np.ascontiguousarray(data, dtype=self.data.dtype)
-
-        # The two-element `indices` tuple describes indices of traces and samples to be obtained respectively
-        new_self.headers = self.headers.iloc[indices[0]]
-        new_self.samples = self.samples[indices[1]]
-
-        # If the gather was sorted, verify that getitem does not break sorting
-        if new_self.sort_by is not None:
-            if isinstance(indices[0], slice):
-                if indices[0].step is not None and indices[0].step < 0: # Slice with negative step breaks sorting
-                    new_self.sort_by = None
-            elif (np.diff(indices[0]) < 0).any(): # Decreasing sequence of indices breaks sorting
-                new_self.sort_by = None
-        return new_self
+        # Preserve gather sorting if needed
+        if self.sort_by is not None:
+            if isinstance(traces_indexer, slice):
+                if traces_indexer.step is None or traces_indexer.step > 0:
+                    gather.sort_by = self.sort_by
+            elif (np.diff(traces_indexer) >= 0).all():
+                gather.sort_by = self.sort_by
+        return gather
 
     def __str__(self):
         """Print gather metadata including information about its survey, headers and traces."""
@@ -267,7 +263,7 @@ class Gather(TraceContainer, SamplesContainer):
         ignore = set() if ignore is None else set(to_list(ignore))
         return super().copy(ignore | {"survey"})
 
-    @batch_method(target='for')
+    @batch_method(target="for", copy_src=False)
     def get_item(self, *args):
         """An interface for `self.__getitem__` method."""
         return self[args if len(args) > 1 else args[0]]
