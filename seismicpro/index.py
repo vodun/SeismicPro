@@ -725,7 +725,8 @@ class SeismicIndex(DatasetIndex):
     #                            Loading methods                             #
     #------------------------------------------------------------------------#
 
-    def get_gather(self, index, part=None, survey_name=None, limits=None, copy_headers=False):
+    def get_gather(self, index, part=None, survey_name=None, limits=None, copy_headers=False, chunk_size=None,
+                   n_workers=None):
         """Load a gather with given `index`.
 
         Parameters
@@ -767,13 +768,15 @@ class SeismicIndex(DatasetIndex):
         empty_headers = index_headers[[]]  # Handle the case when no headers were loaded for a survey
         gather_headers = [index_headers.get(name, empty_headers) for name in survey_names]
 
-        gathers = [survey.load_gather(headers=headers, limits=limits, copy_headers=copy_headers)
+        gathers = [survey.load_gather(headers=headers, limits=limits, copy_headers=copy_headers,
+                                      chunk_size=chunk_size, n_workers=n_workers)
                    for survey, headers in zip(surveys, gather_headers)]
         if is_single_survey:
             return gathers[0]
         return gathers
 
-    def sample_gather(self, part=None, survey_name=None, limits=None, copy_headers=False):
+    def sample_gather(self, part=None, survey_name=None, limits=None, copy_headers=False, chunk_size=None,
+                      n_workers=None):
         """Load a random gather from the index.
 
         Parameters
@@ -800,7 +803,8 @@ class SeismicIndex(DatasetIndex):
         if survey_name is None:
             survey_name = np.random.choice(self.survey_names)
         index = np.random.choice(self.parts[part].indices)
-        return self.get_gather(index, part, survey_name, limits=limits, copy_headers=copy_headers)
+        return self.get_gather(index, part, survey_name, limits=limits, copy_headers=copy_headers,
+                               chunk_size=chunk_size, n_workers=n_workers)
 
     #------------------------------------------------------------------------#
     #                       Index manipulation methods                       #
