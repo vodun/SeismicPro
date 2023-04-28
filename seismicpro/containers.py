@@ -412,9 +412,12 @@ class TraceContainer:
         ValueError
             If the `format` argument is not one of the supported formats ('fwf', 'csv').
         """
+        def _set_float_precision(value):
+            return np.round(value, float_precision).astype(str)
+
         dump_df = self.get_headers(headers)
         if format == "fwf":
-            float_format = lambda x: np.round(x, float_precision).astype(str) if float_precision else None
+            float_format = _set_float_precision if float_precision else None
             dump_df.to_string(path, header=dump_headers_names, index=False, float_format=float_format, **kwargs)
         elif format == "csv":
             dump_df = pl.from_pandas(dump_df)

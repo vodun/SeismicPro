@@ -17,7 +17,7 @@ ARGS = [
 
 
 # TODO: addtests for keep_all_headers, skiprows and join_on_headers
-def load_dump_headers(survey, tmp_path, format, new_cols, float_precision, headers_to_dump, headers_to_load, usecols,
+def load_dump_headers(survey, tmp_path, format, new_cols, float_precision, headers_to_dump, headers_to_load, usecols,  # pylint: disable=too-many-arguments
                       dump_headers_names, decimal=None, sep=None):
     """Base test dump and load headers"""
     file_path = tmp_path / "tmp.csv"
