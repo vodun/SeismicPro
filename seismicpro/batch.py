@@ -18,7 +18,7 @@ from .velocity_spectrum import VerticalVelocitySpectrum, ResidualVelocitySpectru
 from .field import Field
 from .metrics import define_pipeline_metric
 from .decorators import create_batch_methods, apply_to_each_component
-from .utils import to_list, as_dict, save_figure
+from .utils import to_list, align_src_dst, as_dict, save_figure
 
 
 @create_batch_methods(Gather, CroppedGather, VerticalVelocitySpectrum, ResidualVelocitySpectrum)
@@ -133,8 +133,9 @@ class SeismicBatch(Batch):
             return super().load(src=src, fmt=fmt, dst=dst, **kwargs)
 
         if self.is_combined is not None and combined != self.is_combined:
-            raise ValueError
+            raise ValueError("combined flag must match the batch combined status")
 
+        src, dst = align_src_dst(src, dst)
         non_empty_parts = [i for i, n_gathers in enumerate(self.index.n_gathers_by_part) if n_gathers]
         batch = type(self)(DatasetIndex(non_empty_parts), dataset=self.dataset, pipeline=self.pipeline,
                            is_combined=True, initial_index=self.initial_index,
@@ -146,7 +147,7 @@ class SeismicBatch(Batch):
         if self.is_combined is None:  # the first data loading into the batch
             return batch
 
-        for component in to_list(dst):
+        for component in dst:
             component_data = getattr(batch, component)
             if hasattr(self, component):
                 setattr(self, component, component_data)
@@ -186,11 +187,7 @@ class SeismicBatch(Batch):
         if self.is_combined is None or self.is_combined:
             return self
 
-        src_list = to_list(src)
-        dst_list = to_list(dst) if dst is not None else src_list
-        if len(src_list) != len(dst_list):
-            raise ValueError("src and dst should have the same length.")
-
+        src_list, dst_list = align_src_dst(src, dst)
         non_empty_parts = [i for i, n_gathers in enumerate(self.index.n_gathers_by_part) if n_gathers]
         combined_batch = type(self)(DatasetIndex(non_empty_parts), dataset=self.dataset, pipeline=self.pipeline,
                                     is_combined=True, initial_index=self.initial_index,
@@ -215,11 +212,7 @@ class SeismicBatch(Batch):
         if self.is_combined is None or not self.is_combined:
             return self
 
-        src_list = to_list(src)
-        dst_list = to_list(dst) if dst is not None else src_list
-        if len(src_list) != len(dst_list):
-            raise ValueError("src and dst should have the same length.")
-
+        src_list, dst_list = align_src_dst(src, dst)
         split_batch = type(self)(self.initial_index, dataset=self.dataset, pipeline=self.pipeline,
                                  is_combined=False, initial_index=self.initial_index,
                                  n_calculated_metrics=self.n_calculated_metrics)
@@ -446,12 +439,7 @@ class SeismicBatch(Batch):
             If `src` and `dst` have different lengths.
             If `joint` is `True` and `src` contains components of different shapes.
         """
-        dst = src if dst is None else dst
-        src_list = to_list(src)
-        dst_list = to_list(dst)
-
-        if len(src_list) != len(dst_list):
-            raise ValueError("src and dst should have the same length.")
+        src_list, dst_list = align_src_dst(src, dst)
 
         if joint:
             src_shapes = set()
