@@ -427,10 +427,15 @@ class DivergencePoint(RefractorVelocityMetric):
 
         split_idxs = np.arange(step, len(offsets) - len(offsets) % step, step)
         outliers_splits = np.split(sorted_outliers, split_idxs)
+        n_splits = len(outliers_splits)
+
         outliers_fractions = np.array([outliers_window.mean() for outliers_window in outliers_splits])
-        div_idx = split_idxs[np.argmax(outliers_fractions) - 1]
+        diffs = np.empty(n_splits - 1, dtype=outliers_fractions.dtype)
+        for i in range(n_splits - 1):
+            diffs[i] = outliers_fractions[i + 1] - outliers_fractions[i]
+        div_idx = split_idxs[np.argmax(diffs)]
         div_offset = sorted_offsets[div_idx]
-        return outliers * (offsets >= div_offset)
+        return sorted_outliers * (sorted_offsets >= div_offset)
 
     def calc(self, gather, refractor_velocity, first_breaks_col, correct_uphole):
         """Return whether first break time is diverged from expected for each trace.
@@ -475,11 +480,17 @@ class DivergencePoint(RefractorVelocityMetric):
         diverged_outliers = self.calc(gather, *args, **kwargs)
         if np.allclose(diverged_outliers, 0):
             return gather['offset'].max()
-        return gather['offset'][diverged_outliers.argmax()]
+        return np.sort(gather['offset'])[diverged_outliers.argmax()]
 
-    def plot_gather(self, *args, **kwargs):
-        """Plot the gather and its first breaks."""
-        super().plot_gather(*args, mask=False, top_header=False, **kwargs)
+    def plot_gather(self, coords, ax, index, **kwargs):
+        """Plot the gather sorted by offset and hilight diverged traces."""
+        _ = coords
+        gather = self.survey.get_gather(index).sort(by='offset')
+        event_headers = kwargs.pop("event_headers", {"headers": self.first_breaks_col})
+        refractor_velocity = self.field(gather.coords)
+        metric_values = self.calc(gather=gather, refractor_velocity=refractor_velocity,
+                                  first_breaks_col=self.first_breaks_col, correct_uphole=self.correct_uphole)
+        gather.plot(event_headers=event_headers, ax=ax, masks=metric_values, **kwargs)
 
     def plot_refractor_velocity(self, coords, ax, index, **kwargs):
         """Plot the refractor velocity curve, show the divergence offset
