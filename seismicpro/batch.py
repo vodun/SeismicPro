@@ -102,7 +102,7 @@ class SeismicBatch(Batch):
         return self.indices
 
     @action
-    def load(self, src=None, dst=None, fmt="sgy", combined=False, **kwargs):
+    def load(self, src=None, dst=None, fmt="sgy", combined=False, chunk_size=1000, **kwargs):
         """Load seismic gathers into batch components.
 
         Parameters
@@ -140,7 +140,7 @@ class SeismicBatch(Batch):
         batch = type(self)(DatasetIndex(non_empty_parts), dataset=self.dataset, pipeline=self.pipeline,
                            is_combined=True, initial_index=self.initial_index,
                            n_calculated_metrics=self.n_calculated_metrics)
-        batch = batch.load_combined_gather(src=src, dst=dst, **kwargs)
+        batch = batch.load_combined_gather(src=src, dst=dst, chunk_size=chunk_size, **kwargs)
         if not combined:
             batch = batch.split_gathers(src=dst, assume_sequential=True)
 
@@ -156,12 +156,12 @@ class SeismicBatch(Batch):
         return self
 
     @apply_to_each_component(target="for", fetch_method_target=False)
-    def load_combined_gather(self, pos, src, dst, **kwargs):
+    def load_combined_gather(self, pos, src, dst, chunk_size, **kwargs):
         """Load all batch traces from a given part and survey into a single gather."""
         part = self.initial_index.parts[self.indices[pos]]
         survey = part.surveys_dict[src]
         headers = part.headers.get(src, part.headers[[]])  # Handle the case when no headers were loaded for a survey
-        getattr(self, dst)[pos] = survey.load_gather(headers, **kwargs)
+        getattr(self, dst)[pos] = survey.load_gather(headers, chunk_size=chunk_size, **kwargs)
 
     @action
     def combine_gathers(self, src, dst=None):

@@ -24,7 +24,7 @@ from .utils import calculate_trace_stats
 from ..config import config
 from ..gather import Gather
 from ..containers import GatherContainer, SamplesContainer
-from ..utils import to_list, maybe_copy, get_cols, get_first_defined
+from ..utils import to_list, maybe_copy, get_cols, get_first_defined, ForPoolExecutor
 from ..const import HDR_DEAD_TRACE, HDR_FIRST_BREAK, HDR_TRACE_POS
 
 
@@ -913,7 +913,36 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     #                            Loading methods                             #
     #------------------------------------------------------------------------#
 
-    def load_gather(self, headers, limits=None, copy_headers=False):
+    def load_traces(self, indices, limits=None, buffer=None, return_samples=False, chunk_size=None, n_workers=None):
+        if chunk_size is None:
+            return self.loader.load_traces(indices, limits=limits, buffer=buffer, return_samples=return_samples)
+
+        n_chunks, last_chunk_size = divmod(len(indices), chunk_size)
+        chunk_sizes = [0] + [chunk_size] * n_chunks
+        if last_chunk_size:
+            n_chunks += 1
+            chunk_sizes += [last_chunk_size]
+        chunk_borders = np.cumsum(chunk_sizes)
+
+        if n_workers is None:
+            n_workers = os.cpu_count()
+        n_workers = min(n_chunks, n_workers)
+        executor_class = ForPoolExecutor if n_workers == 1 else ThreadPoolExecutor
+
+        limits = self.loader.process_limits(limits)
+        samples = self.file_samples[limits]
+        if buffer is None:
+            buffer = np.empty((len(indices), len(samples)), dtype=self.loader.dtype)
+
+        with executor_class(max_workers=n_workers) as pool:
+            for start, end in zip(chunk_borders[:-1], chunk_borders[1:]):
+                pool.submit(self.loader.load_traces, indices[start:end], limits=limits, buffer=buffer[start:end])
+
+        if return_samples:
+            return buffer, samples
+        return buffer
+
+    def load_gather(self, headers, limits=None, copy_headers=False, chunk_size=None, n_workers=None):
         """Load a gather with given `headers`.
 
         Parameters
@@ -935,10 +964,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             headers = headers.copy()
         traces_pos = get_cols(headers, "TRACE_SEQUENCE_FILE") - 1
         limits = get_first_defined(limits, self.limits)
-        data, samples = self.loader.load_traces(traces_pos, limits=limits, return_samples=True)
+        data, samples = self.load_traces(traces_pos, limits=limits, return_samples=True, chunk_size=chunk_size,
+                                         n_workers=n_workers)
         return Gather(headers=headers, data=data, samples=samples, survey=self)
 
-    def get_gather(self, index, limits=None, copy_headers=False):
+    def get_gather(self, index, limits=None, copy_headers=False, chunk_size=None, n_workers=None):
         """Load a gather with given `index`.
 
         Parameters
@@ -956,9 +986,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         gather : Gather
             Loaded gather instance.
         """
-        return self.load_gather(self.get_headers_by_indices((index,)), limits=limits, copy_headers=copy_headers)
+        return self.load_gather(self.get_headers_by_indices((index,)), limits=limits, copy_headers=copy_headers,
+                                chunk_size=chunk_size, n_workers=n_workers)
 
-    def sample_gather(self, limits=None, copy_headers=False):
+    def sample_gather(self, limits=None, copy_headers=False, chunk_size=None, n_workers=None):
         """Load a gather with random index.
 
         Parameters
@@ -974,7 +1005,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         gather : Gather
             Loaded gather instance.
         """
-        return self.get_gather(index=np.random.choice(self.indices), limits=limits, copy_headers=copy_headers)
+        return self.get_gather(index=np.random.choice(self.indices), limits=limits, copy_headers=copy_headers,
+                               chunk_size=chunk_size, n_workers=n_workers)
 
     # pylint: disable=anomalous-backslash-in-string
     def load_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col=HDR_FIRST_BREAK,
