@@ -1176,7 +1176,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         inplace : bool, optional, defaults to False
             Whether to transform the survey inplace or process its copy.
         bad_only : bool, optional, defaults to False
-            If True, keep only traces that marked as `bad` by the metric,
+            If True, keep only traces that marked as `bad` by the metric.
             Otherwise, keep traces approved by the metric.
 
         Returns
@@ -1614,7 +1614,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Examples
         --------
-        Calculate three tracewise metrics:
+        Define and compute three tracewise metrics:
         1. Maximum absolute amplitude value scaled by trace's std:
         >>> maxabs_metric = TraceMaxAbs
         2. RMS in a signal part of the trace:
@@ -1629,8 +1629,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         The map allows for interactive plotting: a gather type defined by `by` with a tracewise metric value on top of
         the gather plot will be displayed on click on the map. Depending on the metric, other arguments may be passed
-        to the gather plot. See `metric.plot()` for more. In this example, the gather will be sorted by `offset` and
-        the default threshold for the metric will be changed to 20:
+        to the gather plot. See `metric.plot()` for avalible arguments. In this example, the gather will be sorted by
+        `offset` and the default threshold for the metric will be changed to 20:
         >>> qc_map.plot(interactive=True, threshold=20, sort_by="offset")
 
         Construct a signal-to-noise ratio map by shots:
