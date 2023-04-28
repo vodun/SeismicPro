@@ -87,7 +87,7 @@ class TraceContainer:
         """
         self.headers[key] = value
 
-    def get_headers(self, cols, preserve_dtype=False):
+    def get_headers(self, cols):
         """Select values of trace headers by their names and return them as a `pandas.DataFrame`. Unlike `pandas`
         indexing allows for selection of headers the container is indexed by.
 
@@ -95,22 +95,21 @@ class TraceContainer:
         ----------
         cols : str or list of str
             Names of headers to get values for.
-        preserve_dtype : bool, optional, defaults to False
-            Whether to preserve columns dtypes in the resulted `pandas.DataFrame`.
 
         Returns
         -------
-        result : pandas.DataFrame
+        headers : pandas.DataFrame
             Headers values.
         """
-        if isinstance(self.headers.index, pd.MultiIndex):
-            index_dtype = self.headers.index.dtypes
-        else:
-            index_dtype = pd.Series({self.headers.index.name: self.headers.index.dtype})
-        dtypes = pd.concat((self.headers.dtypes, index_dtype))
-
-        headers = pd.DataFrame(self[cols], columns=to_list(cols))
-        return headers.astype(dtypes[cols]) if preserve_dtype else headers
+        headers_cols = pd.DataFrame()
+        # Avoid to_list since tuples must be preserved as is to be used for column selection
+        cols = [cols] if not isinstance(cols, list) else cols
+        for col in cols:
+            if col in self.headers:
+                headers_cols[col] = self.headers[col].to_numpy()
+            else:
+                headers_cols[col] = self.headers.index.get_level_values(col)
+        return headers_cols
 
     def copy(self, ignore=None):
         """Perform a deepcopy of all attributes of `self` except for those specified in `ignore`, which are kept
@@ -312,7 +311,7 @@ class TraceContainer:
        skiprows : int, optional, defaults to None
             Number of rows to skip from the beginning of the file.
         decimal : str, optional, defaults to None
-            Decimal point character. If not provided, it will be inferred from the file.
+            Decimal point character. If not provided, it will be inferred from the file. Used only for "csv" `format`.
         encoding : str, optional, defaults to "UTF-8"
             File encoding.
         keep_all_headers : bool, optional, defaults to False
@@ -342,7 +341,7 @@ class TraceContainer:
         if usecols is not None:
             usecols = np.asarray(usecols)
             if any(usecols < 0):
-                usecols_sep =  sep if format == "csv" else None
+                usecols_sep = sep if format == "csv" else None
                 with open(path, 'r', encoding=encoding) as f:
                     usecols[usecols < 0] += len(f.readline().split(usecols_sep))
             usecols = usecols.tolist()
@@ -384,27 +383,21 @@ class TraceContainer:
             warnings.warn("Empty headers after headers loading", RuntimeWarning)
         return self
 
-    def dump_headers(self, path, columns, format="fwf", sep=',', col_space=8, decimal='.', dump_col_names=False,
-                     **kwargs):
-        """Save the selected columns from headers into a file.
+    def dump_headers(self, path, headers, format="fwf", dump_headers_names=False, float_precision=None, **kwargs):
+        """Save the selected headers to a file.
 
         Parameters
         ----------
         path : str
             Path to the output file.
-        columns : str or array-like of str
+        headers : str or array-like of str
             `self.headers` columns to be included in the output file.
         format : "fwf" or "csv", optional, defaults to "fwf"
-            Output file format. If "fwf", use fixed-width format with a width defined by `col_space`. If "csv", use
-            single-separated values format with a separator `sep`.
-        sep : str, optional, defaults to ','
-            Separator used in the output file. Used only for "csv" `format`.
-        col_space : int, optional, defaults to 8
-            Column width in characters when `format="fwf"`.
-        decimal : str, optional, defaults to '.'
-            Decimal point character. Used only for "fwf" `format`.
-        dump_col_names : bool, optional, defaults to False
-            Whether to include the column names in the output file.
+            Output file format. If "fwf", use fixed-width format. If "csv", use single-separated values format.
+        dump_headers_names : bool, optional, defaults to False
+            Whether to include the headers names in the output file.
+        float_precision : int or None, optional, defaults to None
+            Number of decimal places to write.
         kwargs : misc, optional
             Additional arguments for dumping function. If `format="fwf"`, passed to `pandas.to_string`.
             If `format="csv"`, passed to `polars.write_csv`.
@@ -419,12 +412,13 @@ class TraceContainer:
         ValueError
             If the `format` argument is not one of the supported formats ('fwf', 'csv').
         """
-        dump_df = self.get_headers(columns, preserve_dtype=True)
+        dump_df = self.get_headers(headers)
         if format == "fwf":
-            dump_df.to_string(path, col_space=col_space, header=dump_col_names, index=False, decimal=decimal, **kwargs)
+            float_format = lambda x: np.round(x, float_precision).astype(str) if float_precision else None
+            dump_df.to_string(path, header=dump_headers_names, index=False, float_format=float_format, **kwargs)
         elif format == "csv":
             dump_df = pl.from_pandas(dump_df)
-            dump_df.write_csv(path, has_header=dump_col_names, separator=sep, **kwargs)
+            dump_df.write_csv(path, has_header=dump_headers_names, float_precision=float_precision, **kwargs)
         else:
             raise ValueError(f"Unknown format {format}, available formats are ('fwf', 'csv')")
         return self

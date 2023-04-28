@@ -985,8 +985,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         first_breaks_col : str, optional, defaults to 'FirstBreak'
             Column name in `self.headers` where loaded first break times will be stored.
         format : "fwf" or "csv", optional, defaults to "fwf"
-            Format of the file with first breaks. If "fwf", file treated as fixed-width format. If "csv", file treated
-            as a table with single-character separator.
+            Format of the file with first breaks. If "fwf", file treated as fixed-width format.
+            If "csv"- comma-separated separator.
         decimal : str, defaults to None
             Character to recognize as decimal point. If `None`, it is inferred from the first line of the file.
         inplace : bool, optional, defaults to False
@@ -999,7 +999,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self : Survey
             A survey with loaded times of first breaks.
         """
-        headers = to_list(trace_id_cols) + to_list(first_breaks_col)
+        headers = to_list(trace_id_cols) + [first_breaks_col]
         return self.load_headers(path=path, headers=headers, join_on_headers=trace_id_cols, format=format,
                                  decimal=decimal, inplace=inplace, **kwargs)
 
