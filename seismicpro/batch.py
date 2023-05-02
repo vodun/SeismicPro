@@ -2,6 +2,7 @@
 
 from string import Formatter
 from functools import partial
+from itertools import zip_longest
 
 import numpy as np
 import pandas as pd
@@ -17,7 +18,7 @@ from .velocity_spectrum import VerticalVelocitySpectrum, ResidualVelocitySpectru
 from .field import Field
 from .metrics import define_pipeline_metric
 from .decorators import create_batch_methods, apply_to_each_component
-from .utils import to_list, as_dict, save_figure
+from .utils import to_list, align_src_dst, as_dict, save_figure
 
 
 @create_batch_methods(Gather, CroppedGather, VerticalVelocitySpectrum, ResidualVelocitySpectrum)
@@ -66,10 +67,18 @@ class SeismicBatch(Batch):
         Unique identifiers of seismic gathers in the batch. Usually has :class:`~index.SeismicIndex` type.
     components : tuple of str or None
         Names of the created components. Each of them can be accessed as a usual attribute.
+    is_combined : bool or None
+        Whether gathers in the batch are combined. `None` until `load` method is called for the first time.
+    initial_index : SeismicIndex
+        An index used to create the batch.
+    n_calculated_metrics : int
+        The number of times `calculate_metric` method was called for the batch.
     """
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, is_combined=None, initial_index=None, n_calculated_metrics=0, **kwargs):
         super().__init__(*args, **kwargs)
-        self._num_calculated_metrics = 0
+        self.is_combined = is_combined
+        self.initial_index = self.index if initial_index is None else initial_index
+        self.n_calculated_metrics = n_calculated_metrics
 
     def __getstate__(self):
         """Create pickling state of a batch from its `__dict__`. Don't pickle `dataset` and `pipeline` if
@@ -99,7 +108,8 @@ class SeismicBatch(Batch):
         return self.indices
 
     @action
-    def load(self, src=None, dst=None, fmt="sgy", combined=False, **kwargs):
+    def load(self, src=None, dst=None, fmt="sgy", combined=False, limits=None, copy_headers=False, chunk_size=1000,
+             n_workers=None, **kwargs):
         """Load seismic gathers into batch components.
 
         Parameters
@@ -113,8 +123,17 @@ class SeismicBatch(Batch):
         combined : bool, optional, defaults to False
             If `False`, load gathers by corresponding index value. If `True`, group all traces from a particular survey
             into a single gather. Increases loading speed by reducing the number of `DataFrame` indexations performed.
+        limits : int or tuple or slice or None, optional
+            Time range for trace loading. `int` or `tuple` are used as arguments to init a `slice` object. If not
+            given, `limits` passed to `__init__` of the corresponding survey are used. Measured in samples.
+        copy_headers : bool, optional, defaults to False
+            Whether to copy the subset of survey `headers` describing the gather.
+        chunk_size : int, optional, defaults to 1000
+            The number of traces to load by each of spawned threads.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned threads to load traces. Defaults to the number of cpu cores.
         kwargs : misc, optional
-            Additional keyword arguments to :func:`~Survey.load_gather`.
+            Additional keyword arguments to be passed to `super().load` if `fmt` is not "sgy" or "segy".
 
         Returns
         -------
@@ -126,33 +145,51 @@ class SeismicBatch(Batch):
         KeyError
             If unknown survey name was passed in `src`.
         """
-        if isinstance(fmt, str) and fmt.lower() in {"sgy", "segy"}:
-            if not combined:
-                return self.load_gather(src=src, dst=dst, **kwargs)
-            non_empty_parts = [i for i, n_gathers in enumerate(self.index.n_gathers_by_part) if n_gathers]
-            combined_batch = type(self)(DatasetIndex(non_empty_parts), dataset=self.dataset, pipeline=self.pipeline)
-            return combined_batch.load_combined_gather(src=src, dst=dst, parent_index=self.index, **kwargs)
-        return super().load(src=src, fmt=fmt, dst=dst, **kwargs)
+        if not isinstance(fmt, str) or fmt.lower() not in {"sgy", "segy"}:
+            return super().load(src=src, fmt=fmt, dst=dst, **kwargs)
 
-    @apply_to_each_component(target="threads", fetch_method_target=False)
-    def load_gather(self, pos, src, dst, **kwargs):
-        """Load a gather with ordinal number `pos` in the batch from a survey `src`."""
-        index, part = self.index.index_by_pos(pos)
-        getattr(self, dst)[pos] = self.index.get_gather(index, part=part, survey_name=src, **kwargs)
+        if self.is_combined is not None and combined != self.is_combined:
+            raise ValueError("combined flag must match the batch combined status")
+
+        src, dst = align_src_dst(src, dst)
+        non_empty_parts = [i for i, n_gathers in enumerate(self.index.n_gathers_by_part) if n_gathers]
+        batch = type(self)(DatasetIndex(non_empty_parts), dataset=self.dataset, pipeline=self.pipeline,
+                           is_combined=True, initial_index=self.initial_index,
+                           n_calculated_metrics=self.n_calculated_metrics)
+        batch = batch.load_combined_gather(src=src, dst=dst, limits=limits, copy_headers=copy_headers,
+                                           chunk_size=chunk_size, n_workers=n_workers)
+        if not combined:
+            batch = batch.split_gathers(src=dst, assume_sequential=True)
+
+        if self.is_combined is None:  # the first data loading into the batch
+            return batch
+
+        for component in dst:  # copy loaded components to self
+            component_data = getattr(batch, component)
+            if hasattr(self, component):
+                setattr(self, component, component_data)
+            else:
+                self.add_components(component, component_data)
+        return self
 
     @apply_to_each_component(target="for", fetch_method_target=False)
-    def load_combined_gather(self, pos, src, dst, parent_index, **kwargs):
+    def load_combined_gather(self, pos, src, dst, limits=None, copy_headers=False, chunk_size=1000, n_workers=None):
         """Load all batch traces from a given part and survey into a single gather."""
-        part = parent_index.parts[self.indices[pos]]
+        part = self.initial_index.parts[self.indices[pos]]
         survey = part.surveys_dict[src]
         headers = part.headers.get(src, part.headers[[]])  # Handle the case when no headers were loaded for a survey
-        getattr(self, dst)[pos] = survey.load_gather(headers, **kwargs)
+        getattr(self, dst)[pos] = survey.load_gather(headers, limits=limits, copy_headers=copy_headers,
+                                                     chunk_size=chunk_size, n_workers=n_workers)
 
     @action
     def combine_gathers(self, src, dst=None):
         """Combine all gathers produced by the same survey into a single gather for each component in `src`.
 
-        This method allows for more efficient subsequent gather `dump` since:
+        Most tracewise actions benefit from processing large gathers at once. Combining individual gathers into a
+        single one, running all tracewise methods and splitting the resulting gather back may significantly speed up
+        the processing pipeline.
+
+        This method also allows for more efficient subsequent gather `dump` since:
         1. Text and bin headers are stored only once for the whole combined gather, which especially matters when
            dumping a single stacked trace,
         2. Total number of gathers passed to `aggregate_segys` is reduced.
@@ -169,17 +206,15 @@ class SeismicBatch(Batch):
         batch : SeismicBatch
             A batch with combined gathers.
         """
-        if not isinstance(self.index, SeismicIndex):
-            return self  # gathers are already combined
+        if self.is_combined is None or self.is_combined:
+            return self
 
-        src_list = to_list(src)
-        dst_list = to_list(dst) if dst is not None else src_list
-        if len(src_list) != len(dst_list):
-            raise ValueError("src and dst should have the same length.")
-
+        src_list, dst_list = align_src_dst(src, dst)
         non_empty_parts = [i for i, n_gathers in enumerate(self.index.n_gathers_by_part) if n_gathers]
+        combined_batch = type(self)(DatasetIndex(non_empty_parts), dataset=self.dataset, pipeline=self.pipeline,
+                                    is_combined=True, initial_index=self.initial_index,
+                                    n_calculated_metrics=self.n_calculated_metrics)
         split_pos = np.cumsum([n_gathers for n_gathers in self.index.n_gathers_by_part if n_gathers][:-1])
-        combined_batch = type(self)(DatasetIndex(non_empty_parts), dataset=self.dataset, pipeline=self.pipeline)
         for src, dst in zip(src_list, dst_list):  # pylint: disable=redefined-argument-from-local
             gathers = getattr(self, src)
             if not all(isinstance(gather, Gather) for gather in gathers):
@@ -191,6 +226,54 @@ class SeismicBatch(Batch):
                 combined_gathers.append(Gather(headers, data, gather_chunk[0].samples, gather_chunk[0].survey))
             combined_batch.add_components(dst, init=np.array(combined_gathers))
         return combined_batch
+
+    @action
+    def split_gathers(self, src, dst=None, assume_sequential=True):
+        """Split combined gathers in each component in `src` and store them in the corresponding components of `dst`.
+
+        Most tracewise actions benefit from processing large gathers at once. Combining individual gathers into a
+        single one, running all tracewise methods and splitting the resulting gather back may significantly speed up
+        the processing pipeline.
+
+        Parameters
+        ----------
+        src : str or list of str
+            Batch components to split.
+        dst : str or list of str, optional
+            Batch components to store the split gathers in. Equals to `src` if not given.
+        assume_sequential : bool, optional, defaults to True
+            Assume that individual gathers follow one another in the combined ones. If `True`, avoids excessive copies
+            and allows for much more efficient splitting.
+
+        Returns
+        -------
+        batch : SeismicBatch
+            A batch with split gathers.
+        """
+        if self.is_combined is None or not self.is_combined:
+            return self
+
+        src_list, dst_list = align_src_dst(src, dst)
+        split_batch = type(self)(self.initial_index, dataset=self.dataset, pipeline=self.pipeline,
+                                 is_combined=False, initial_index=self.initial_index,
+                                 n_calculated_metrics=self.n_calculated_metrics)
+        for src, dst in zip(src_list, dst_list):  # pylint: disable=redefined-argument-from-local
+            gathers = getattr(self, src)
+            if not all(isinstance(gather, Gather) for gather in gathers):
+                raise ValueError(f"{src} component contains items that are not instances of Gather class")
+            if assume_sequential:
+                split_gathers = []
+                for gather in gathers:
+                    split_pos = np.where(~gather.headers.index.duplicated(keep="first"))[0]
+                    for start, end in zip_longest(split_pos, split_pos[1:]):
+                        headers = gather.headers.iloc[start:end]
+                        data = gather.data[start:end]
+                        split_gathers.append(Gather(headers, data, gather.samples, gather.survey))
+            else:
+                split_gathers = [gather[ix] for gather in gathers
+                                            for ix in gather.headers.groupby(gather.indexed_by).indices.values()]
+            split_batch.add_components(dst, init=np.array(split_gathers))
+        return split_batch
 
     @action
     def update_field(self, field, src):
@@ -397,12 +480,7 @@ class SeismicBatch(Batch):
             If `src` and `dst` have different lengths.
             If `joint` is `True` and `src` contains components of different shapes.
         """
-        dst = src if dst is None else dst
-        src_list = to_list(src)
-        dst_list = to_list(dst)
-
-        if len(src_list) != len(dst_list):
-            raise ValueError("src and dst should have the same length.")
+        src_list, dst_list = align_src_dst(src, dst)
 
         if joint:
             src_shapes = set()
@@ -490,7 +568,7 @@ class SeismicBatch(Batch):
         Returns
         -------
         self : SeismicBatch
-            The batch with increased `_num_calculated_metrics` counter.
+            The batch with increased `n_calculated_metrics` counter.
 
         Raises
         ------
@@ -519,11 +597,11 @@ class SeismicBatch(Batch):
         index = pd.concat(part_indices, ignore_index=True, copy=False)
 
         # Construct and save the map
-        metric = metric.provide_context(pipeline=self.pipeline, calculate_metric_index=self._num_calculated_metrics)
+        metric = metric.provide_context(pipeline=self.pipeline, calculate_metric_index=self.n_calculated_metrics)
         metric_map = metric.construct_map(coords, values, index=index, calculate_immediately=False)
         if save_to is not None:
             save_data_to(data=metric_map, dst=save_to, batch=self)
-        self._num_calculated_metrics += 1
+        self.n_calculated_metrics += 1
         return self
 
     @staticmethod
@@ -538,8 +616,8 @@ class SeismicBatch(Batch):
             return unpacked_args[0]
         return unpacked_args
 
-    @action
-    def plot(self, src, src_kwargs=None, max_width=20, title="{src}: {index}", save_to=None, **common_kwargs):  # pylint: disable=too-many-statements
+    @action  # pylint: disable-next=too-many-statements
+    def plot(self, src, src_kwargs=None, max_width=20, title="{src}: {index}", save_to=None, **common_kwargs):
         """Plot batch components on a grid constructed as follows:
         1. If a single batch component is passed, its objects are plotted side by side on a single line.
         2. Otherwise, each batch element is drawn on a separate line, its components are plotted in the order they
