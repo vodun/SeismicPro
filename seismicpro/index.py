@@ -743,6 +743,10 @@ class SeismicIndex(DatasetIndex):
             given, `limits` passed to the corresponding `Survey.__init__` are used. Measured in samples.
         copy_headers : bool, optional, defaults to False
             Whether to copy the subset of index `headers` describing the gather.
+        chunk_size : int, optional
+            The number of traces to load by each of spawned threads. Loads all traces in the main thread by default.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned threads to load traces. Defaults to the number of cpu cores.
 
         Returns
         -------
@@ -791,6 +795,10 @@ class SeismicIndex(DatasetIndex):
             given, `limits` passed to the corresponding `Survey.__init__` are used. Measured in samples.
         copy_headers : bool, optional, defaults to False
             Whether to copy the subset of index `headers` describing the gather.
+        chunk_size : int, optional
+            The number of traces to load by each of spawned threads. Loads all traces in the main thread by default.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned threads to load traces. Defaults to the number of cpu cores.
 
         Returns
         -------
