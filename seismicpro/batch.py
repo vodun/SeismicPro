@@ -67,6 +67,12 @@ class SeismicBatch(Batch):
         Unique identifiers of seismic gathers in the batch. Usually has :class:`~index.SeismicIndex` type.
     components : tuple of str or None
         Names of the created components. Each of them can be accessed as a usual attribute.
+    is_combined : bool or None
+        Whether gathers in the batch are combined. `None` until `load` method is called for the first time.
+    initial_index : SeismicIndex
+        An index used to create the batch.
+    n_calculated_metrics : int
+        The number of times `calculate_metric` method was called for the batch.
     """
     def __init__(self, *args, is_combined=None, initial_index=None, n_calculated_metrics=0, **kwargs):
         super().__init__(*args, **kwargs)
@@ -102,7 +108,8 @@ class SeismicBatch(Batch):
         return self.indices
 
     @action
-    def load(self, src=None, dst=None, fmt="sgy", combined=False, chunk_size=1000, **kwargs):
+    def load(self, src=None, dst=None, fmt="sgy", combined=False, limits=None, copy_headers=False, chunk_size=1000,
+             n_workers=None, **kwargs):
         """Load seismic gathers into batch components.
 
         Parameters
@@ -116,8 +123,17 @@ class SeismicBatch(Batch):
         combined : bool, optional, defaults to False
             If `False`, load gathers by corresponding index value. If `True`, group all traces from a particular survey
             into a single gather. Increases loading speed by reducing the number of `DataFrame` indexations performed.
+        limits : int or tuple or slice or None, optional
+            Time range for trace loading. `int` or `tuple` are used as arguments to init a `slice` object. If not
+            given, `limits` passed to `__init__` of the corresponding survey are used. Measured in samples.
+        copy_headers : bool, optional, defaults to False
+            Whether to copy the subset of survey `headers` describing the gather.
+        chunk_size : int, optional, defaults to 1000
+            The number of traces to load by each of spawned threads.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned threads to load traces. Defaults to the number of cpu cores.
         kwargs : misc, optional
-            Additional keyword arguments to :func:`~Survey.load_gather`.
+            Additional keyword arguments to be passed to `super().load` if `fmt` is not "sgy" or "segy".
 
         Returns
         -------
@@ -140,14 +156,15 @@ class SeismicBatch(Batch):
         batch = type(self)(DatasetIndex(non_empty_parts), dataset=self.dataset, pipeline=self.pipeline,
                            is_combined=True, initial_index=self.initial_index,
                            n_calculated_metrics=self.n_calculated_metrics)
-        batch = batch.load_combined_gather(src=src, dst=dst, chunk_size=chunk_size, **kwargs)
+        batch = batch.load_combined_gather(src=src, dst=dst, limits=limits, copy_headers=copy_headers,
+                                           chunk_size=chunk_size, n_workers=n_workers)
         if not combined:
             batch = batch.split_gathers(src=dst, assume_sequential=True)
 
         if self.is_combined is None:  # the first data loading into the batch
             return batch
 
-        for component in dst:
+        for component in dst:  # copy loaded components to self
             component_data = getattr(batch, component)
             if hasattr(self, component):
                 setattr(self, component, component_data)
@@ -156,18 +173,23 @@ class SeismicBatch(Batch):
         return self
 
     @apply_to_each_component(target="for", fetch_method_target=False)
-    def load_combined_gather(self, pos, src, dst, chunk_size, **kwargs):
+    def load_combined_gather(self, pos, src, dst, limits=None, copy_headers=False, chunk_size=1000, n_workers=None):
         """Load all batch traces from a given part and survey into a single gather."""
         part = self.initial_index.parts[self.indices[pos]]
         survey = part.surveys_dict[src]
         headers = part.headers.get(src, part.headers[[]])  # Handle the case when no headers were loaded for a survey
-        getattr(self, dst)[pos] = survey.load_gather(headers, chunk_size=chunk_size, **kwargs)
+        getattr(self, dst)[pos] = survey.load_gather(headers, limits=limits, copy_headers=copy_headers,
+                                                     chunk_size=chunk_size, n_workers=n_workers)
 
     @action
     def combine_gathers(self, src, dst=None):
         """Combine all gathers produced by the same survey into a single gather for each component in `src`.
 
-        This method allows for more efficient subsequent gather `dump` since:
+        Most tracewise actions benefit from processing large gathers at once. Combining individual gathers into a
+        single one, running all tracewise methods and splitting the resulting gather back may significantly speed up
+        the processing pipeline.
+
+        This method also allows for more efficient subsequent gather `dump` since:
         1. Text and bin headers are stored only once for the whole combined gather, which especially matters when
            dumping a single stacked trace,
         2. Total number of gathers passed to `aggregate_segys` is reduced.
@@ -208,6 +230,25 @@ class SeismicBatch(Batch):
     @action
     def split_gathers(self, src, dst=None, assume_sequential=True):
         """Split combined gathers in each component in `src` and store them in the corresponding components of `dst`.
+
+        Most tracewise actions benefit from processing large gathers at once. Combining individual gathers into a
+        single one, running all tracewise methods and splitting the resulting gather back may significantly speed up
+        the processing pipeline.
+
+        Parameters
+        ----------
+        src : str or list of str
+            Batch components to split.
+        dst : str or list of str, optional
+            Batch components to store the split gathers in. Equals to `src` if not given.
+        assume_sequential : bool, optional, defaults to True
+            Assume that individual gathers follow one another in the combined ones. If `True`, avoids excessive copies
+            and allows for much more efficient splitting.
+
+        Returns
+        -------
+        batch : SeismicBatch
+            A batch with split gathers.
         """
         if self.is_combined is None or not self.is_combined:
             return self
