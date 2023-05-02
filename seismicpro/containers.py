@@ -284,16 +284,15 @@ class TraceContainer:
 
     def load_headers(self, path, headers=None, join_on=None, format="fwf", has_header=False, usecols=None, sep=',',  # pylint: disable=too-many-arguments
                      skiprows=None, decimal=None, encoding="UTF-8", keep_all_headers=False, inplace=False, **kwargs):
-        """Load headers from a file and join them with the existing `self.headers`.
+        """Load headers from a file and join them to `self.headers`.
 
         Parameters:
         -----------
         path : str
             A path to the file with headers.
         headers : array-like of str, optional, defaults to None
-            Array with column names to use as trace header names. If `None` and `has_header` is `True`, header names
-            will be inferred from file. Also, if `has_header` is `True`, then `headers` specifies which columns will
-            be loaded from the file.
+            An array with column names to use as trace header names. If `has_header` is `True`, then `headers`
+            specifies which columns will be loaded from the file.
         join_on : str, array-like of str or None, optional, defaults to None
             Column(s) based on which loaded headers will be joined to `self.headers`. If `None`, intersection of
             headers from `headers` and `self.headers.columns` will be used.
@@ -302,7 +301,7 @@ class TraceContainer:
             * "fwf" - fixed-width format,
             * "csv" - comma-separated values format.
         has_header : bool, optional, defaults to False
-            Indicate if the first row of dataset is a header or not.
+            Indicate if the first row of the file contains header names or not.
         usecols : array-like of int or None, optional, defaults to None
             Columns indices to be selected from the file. Unlike `pandas` loaders, it is allowed to use negative
             indices. Should be always passed in ascending order and have the same length as `headers` if both passed.
@@ -311,7 +310,7 @@ class TraceContainer:
        skiprows : int, optional, defaults to None
             Number of rows to skip from the beginning of the file.
         decimal : str, optional, defaults to None
-            Decimal point character. If not provided, it will be inferred from the file. Used only for "csv" `format`.
+            Decimal point character. If not provided, it will be inferred from the file. Used only for "fwf" `format`.
         encoding : str, optional, defaults to "UTF-8"
             File encoding.
         keep_all_headers : bool, optional, defaults to False
@@ -350,7 +349,7 @@ class TraceContainer:
             # If decimal is not provided, try inferring it from the file
             if decimal is None:
                 with open(path, 'r', encoding=encoding) as f:
-                    n_skip = has_header + 1 + (0 if skiprows is None else skiprows)
+                    n_skip = 1 + has_header + (0 if skiprows is None else skiprows)
                     row = [next(f) for _ in range(n_skip)][-1]
                 decimal = '.' if '.' in row else ','
             header = 0 if has_header else None
@@ -389,11 +388,11 @@ class TraceContainer:
         Parameters
         ----------
         path : str
-            Path to the output file.
+            A path to the output file.
         headers : str or array-like of str
             `self.headers` columns to be included in the output file.
         format : "fwf" or "csv", optional, defaults to "fwf"
-            Output file format. If "fwf", use fixed-width format. If "csv", use single-separated values format.
+            Output file format. If "fwf", use fixed-width format. If "csv", use comma-separated format.
         dump_headers_names : bool, optional, defaults to False
             Whether to include the headers names in the output file.
         float_precision : int or None, optional, defaults to None
