@@ -8,7 +8,7 @@ from scipy.signal import hilbert
 
 from ..gather.utils.normalization import scale_maxabs
 from ..metrics import Metric
-from ..utils import get_first_defined
+from ..utils import get_first_defined, to_list
 
 
 class RefractorVelocityMetric(Metric):
@@ -51,6 +51,13 @@ class RefractorVelocityMetric(Metric):
     def __call__(self, *args, **kwargs):
         """Aggregate the metric. If not overriden, takes mean value of `calc`."""
         return np.mean(self.calc(*args, **kwargs))
+    
+    def get_views(self, **kwargs):
+        """Return plotters of the metric views and add kwargs for `gather_plot` to an interactive map plotter."""
+        gather_plot_kwargs = {kwarg: kwargs.pop(kwarg) for kwarg in ["sort_by", "mask", "top_header"]
+                              if kwarg in kwargs}
+        kwargs['plot_on_click_kwargs'][0].update(gather_plot_kwargs)
+        return [getattr(self, view) for view in to_list(self.views)], kwargs
 
     def plot_gather(self, coords, ax, index, sort_by=None, mask=True, top_header=True, **kwargs):
         """Base view for gather plotting. Plot the gather by its index in bounded survey and its first breaks.
@@ -160,9 +167,9 @@ class FirstBreaksOutliers(RefractorVelocityMetric):
             picking_times = picking_times + gather["SourceUpholeTime"]
         return self._calc(rv_times, picking_times, self.threshold_times)
 
-    def plot_gather(self, *args, **kwargs):
+    def plot_gather(self, *args, top_header=False, **kwargs):
         """Plot the gather with highlighted outliers on top of the gather plot."""
-        super().plot_gather(*args, top_header=False, **kwargs)
+        super().plot_gather(*args, top_header=top_header, **kwargs)
 
     def plot_refractor_velocity(self, coords, ax, index, **kwargs):
         """Plot the refractor velocity curve and show the threshold area used for metric calculation."""
@@ -273,7 +280,7 @@ class FirstBreaksPhases(RefractorVelocityMetric):
         deltas = self.calc(*args, **kwargs)
         return np.mean(np.abs(deltas))
 
-    def plot_gather(self, coords, ax, index, sort_by=None, **kwargs):
+    def plot_gather(self, coords, ax, index, sort_by=None, mask=True, top_header=True, **kwargs):
         """Plot the gather with phase values at first break times above the seismogram
         and highlight traces whose metric value differs from the target more than 90 degrees.
         """
@@ -284,13 +291,13 @@ class FirstBreaksPhases(RefractorVelocityMetric):
         event_headers = kwargs.pop("event_headers", {"headers": self.first_breaks_col})
         signed_deltas = self.calc(gather=gather, refractor_velocity=None, first_breaks_col=self.first_breaks_col,
                                   correct_uphole=self.correct_uphole)
-        kwargs["top_header"] = signed_deltas
+        kwargs["top_header"] = signed_deltas if top_header else None
 
         metric_values = np.abs(signed_deltas)
         mask_kwargs = kwargs.get("masks", {})
         mask_threshold = get_first_defined(mask_kwargs.get("threshold", None), self.vmax)
         mask_kwargs.update({"masks": metric_values, "threshold": mask_threshold})
-        kwargs["masks"] = mask_kwargs
+        kwargs["masks"] = mask_kwargs if mask else None
         gather.plot(event_headers=event_headers, ax=ax, **kwargs)
 
 
@@ -319,7 +326,6 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
         ix = ((times - start_time) // sample_interval).reshape(-1, 1).astype(np.int64)
         if np.any(data.shape[1] < ix) or np.any(ix < 0):
             ix = np.clip(ix, 0, data.shape[1] - 1)
-            # warnings.warn("First breaks are out of bounds", RuntimeWarning)
         mean_cols = ix + np.arange(-window_size // (2 * sample_interval), window_size // (2 * sample_interval)).reshape(1, -1)
         mean_cols = np.clip(mean_cols, 0, data.shape[1] - 1).astype(np.int64)
 
@@ -389,7 +395,7 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
 class DivergencePoint(RefractorVelocityMetric):
     """The divergence point metric for first breaks.
     Find an offset after that first breaks are most likely to diverge from expected time.
-    Such an offset is defined as one with the maximum number of outliers in window of `step` times after it.
+    Such an offset is defined as one with the maximum increase of outliers in between bins of `step` times.
 
     Parameters
     ----------
@@ -482,15 +488,17 @@ class DivergencePoint(RefractorVelocityMetric):
             return gather['offset'].max()
         return np.sort(gather['offset'])[diverged_outliers.argmax()]
 
-    def plot_gather(self, coords, ax, index, **kwargs):
+    def plot_gather(self, coords, ax, index, sort_by='offset', mask=True, top_header=False, **kwargs):
         """Plot the gather sorted by offset and hilight diverged traces."""
         _ = coords
-        gather = self.survey.get_gather(index).sort(by='offset')
+        gather = self.survey.get_gather(index).sort(by=sort_by)
         event_headers = kwargs.pop("event_headers", {"headers": self.first_breaks_col})
         refractor_velocity = self.field(gather.coords)
         metric_values = self.calc(gather=gather, refractor_velocity=refractor_velocity,
                                   first_breaks_col=self.first_breaks_col, correct_uphole=self.correct_uphole)
-        gather.plot(event_headers=event_headers, ax=ax, masks=metric_values, **kwargs)
+        masks = metric_values if mask else None
+        top_header = metric_values if top_header else None
+        gather.plot(event_headers=event_headers, ax=ax, masks=masks, top_header=top_header, **kwargs)
 
     def plot_refractor_velocity(self, coords, ax, index, **kwargs):
         """Plot the refractor velocity curve, show the divergence offset
