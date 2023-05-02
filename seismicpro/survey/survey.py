@@ -800,7 +800,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         chunk_weights = np.array(chunk_sizes, dtype=np.float64) / n_traces
 
         def collect_chunk_stats(i):
-            chunk = self.loader.load_traces(chunk_traces_pos[i], limits=limits)
+            chunk = self.load_traces(chunk_traces_pos[i], limits=limits)
             chunk_quantile_mask = chunk_quantile_traces_mask[i]
             if chunk_quantile_mask.any():
                 quantile_traces_buffer[i] = chunk[chunk_quantile_mask].ravel()
@@ -808,7 +808,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             return len(chunk)
 
         # Precompile njitted function to correctly initialize TBB from the main thread
-        _ = calculate_trace_stats(self.loader.load_traces([0], limits=limits).ravel())
+        _ = calculate_trace_stats(self.load_traces([0], limits=limits).ravel())
 
         # Accumulate min, max, mean and var values of traces chunks
         bar_desc = f"Calculating statistics for traces in survey {self.name}"
@@ -897,7 +897,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         dead_indices = []
         for tr_index, pos in tqdm(enumerate(traces_pos), desc=f"Detecting dead traces for survey {self.name}",
                                   total=len(self.headers), disable=not bar):
-            trace = self.loader.load_traces([pos], limits=limits, buffer=buffer).ravel()
+            trace = self.load_traces([pos], limits=limits, buffer=buffer).ravel()
             trace_min, trace_max, *_ = calculate_trace_stats(trace)
 
             if math.isclose(trace_min, trace_max):
@@ -914,22 +914,46 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     #------------------------------------------------------------------------#
 
     def load_traces(self, indices, limits=None, buffer=None, return_samples=False, chunk_size=None, n_workers=None):
-        if chunk_size is None:
-            return self.loader.load_traces(indices, limits=limits, buffer=buffer, return_samples=return_samples)
+        """Load seismic traces by their indices.
 
+        Parameters
+        ----------
+        indices : 1d array-like
+            Indices of the traces to read.
+        limits : int or tuple or slice or None, optional
+            Time range for trace loading. `int` or `tuple` are used as arguments to init a `slice` object. If not
+            given, `limits` passed to `__init__` are used. Measured in samples.
+        buffer : 2d np.ndarray, optional
+            Buffer to read the data into. Created automatically if not given.
+        return_samples : bool
+            Whether to also return samples of loaded traces.
+        chunk_size : int, optional
+            The number of traces to load by each of spawned threads. Loads all traces in the main thread by default.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned threads to load traces. Defaults to the number of cpu cores.
+
+        Returns
+        -------
+        traces : 2d np.ndarray
+            Loaded seismic traces.
+        samples : 1d np.ndarray
+            Samples of loaded traces. Returned only if `return_samples` is `True`.
+        """
+        if chunk_size is None:
+            chunk_size = len(indices)
         n_chunks, last_chunk_size = divmod(len(indices), chunk_size)
-        chunk_sizes = [0] + [chunk_size] * n_chunks
+        chunk_sizes = [chunk_size] * n_chunks
         if last_chunk_size:
             n_chunks += 1
             chunk_sizes += [last_chunk_size]
-        chunk_borders = np.cumsum(chunk_sizes)
+        chunk_borders = np.cumsum([0] + chunk_sizes)
 
         if n_workers is None:
             n_workers = os.cpu_count()
         n_workers = min(n_chunks, n_workers)
         executor_class = ForPoolExecutor if n_workers == 1 else ThreadPoolExecutor
 
-        limits = self.loader.process_limits(limits)
+        limits = self.loader.process_limits(limits) if limits is not None else self.limits
         samples = self.file_samples[limits]
         if buffer is None:
             buffer = np.empty((len(indices), len(samples)), dtype=self.loader.dtype)
@@ -954,6 +978,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             given, `limits` passed to `__init__` are used. Measured in samples.
         copy_headers : bool, optional, defaults to False
             Whether to copy the passed `headers` when instantiating the gather.
+        chunk_size : int, optional
+            The number of traces to load by each of spawned threads. Loads all traces in the main thread by default.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned threads to load traces. Defaults to the number of cpu cores.
 
         Returns
         -------
@@ -962,10 +990,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         if copy_headers:
             headers = headers.copy()
-        traces_pos = get_cols(headers, "TRACE_SEQUENCE_FILE") - 1
-        limits = get_first_defined(limits, self.limits)
-        data, samples = self.load_traces(traces_pos, limits=limits, return_samples=True, chunk_size=chunk_size,
-                                         n_workers=n_workers)
+        data, samples = self.load_traces(get_cols(headers, "TRACE_SEQUENCE_FILE") - 1, limits=limits,
+                                         return_samples=True, chunk_size=chunk_size, n_workers=n_workers)
         return Gather(headers=headers, data=data, samples=samples, survey=self)
 
     def get_gather(self, index, limits=None, copy_headers=False, chunk_size=None, n_workers=None):
@@ -980,6 +1006,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             given, `limits` passed to `__init__` are used. Measured in samples.
         copy_headers : bool, optional, defaults to False
             Whether to copy the subset of survey `headers` describing the gather.
+        chunk_size : int, optional
+            The number of traces to load by each of spawned threads. Loads all traces in the main thread by default.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned threads to load traces. Defaults to the number of cpu cores.
 
         Returns
         -------
@@ -999,6 +1029,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             given, `limits` passed to `__init__` are used. Measured in samples.
         copy_headers : bool, optional, defaults to False
             Whether to copy the subset of survey `headers` describing the sampled gather.
+        chunk_size : int, optional
+            The number of traces to load by each of spawned threads. Loads all traces in the main thread by default.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned threads to load traces. Defaults to the number of cpu cores.
 
         Returns
         -------
