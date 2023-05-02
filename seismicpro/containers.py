@@ -336,22 +336,21 @@ class TraceContainer:
 
         self = maybe_copy(self, inplace, ignore="headers")  # pylint: disable=self-cls-assignment
 
-        # Processing negative usecols
-        if usecols is not None:
-            usecols = np.asarray(usecols)
-            if any(usecols < 0):
-                usecols_sep = sep if format == "csv" else None
-                with open(path, 'r', encoding=encoding) as f:
-                    usecols[usecols < 0] += len(f.readline().split(usecols_sep))
-            usecols = usecols.tolist()
-
-        if format == "fwf":
+        if usecols is not None or decimal is None:
+            with open(path, 'r', encoding=encoding) as f:
+                n_skip = 1 + has_header + (0 if skiprows is None else skiprows)
+                row = [next(f) for _ in range(n_skip)][-1]
             # If decimal is not provided, try inferring it from the file
             if decimal is None:
-                with open(path, 'r', encoding=encoding) as f:
-                    n_skip = 1 + has_header + (0 if skiprows is None else skiprows)
-                    row = [next(f) for _ in range(n_skip)][-1]
                 decimal = '.' if '.' in row else ','
+            if usecols is not None:
+                usecols = np.asarray(usecols)
+                if any(usecols < 0):  # Processing negative usecols
+                    usecols_sep = sep if format == "csv" else None
+                    usecols[usecols < 0] += len(row.split(usecols_sep))
+                usecols = usecols.tolist()
+
+        if format == "fwf":
             header = 0 if has_header else None
             loaded_headers = pd.read_csv(path, sep=r'\s+', header=header, names=headers, usecols=usecols,
                                          decimal=decimal, skiprows=skiprows, encoding=encoding, **kwargs)
