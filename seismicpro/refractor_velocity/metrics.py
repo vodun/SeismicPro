@@ -1,6 +1,5 @@
 """Implements metrics for quality control of first breaks given the near-surface velocity model."""
 from math import ceil, floor
-import warnings 
 
 import numpy as np
 from numba import njit
@@ -262,7 +261,7 @@ class FirstBreaksPhases(RefractorVelocityMetric):
         _ = refractor_velocity, correct_uphole
         ix = ((gather[first_breaks_col] - gather.times[0]) // gather.sample_interval).astype(np.int64)
         if np.any(gather.data.shape[1] < ix) or np.any(ix < 0):
-            ix = np.clip(ix, 0, gather_data.shape[1] - 1)
+            ix = np.clip(ix, 0, gather.data.shape[1] - 1)
             # warnings.warn("First breaks are out of bounds", RuntimeWarning)
         phases = hilbert(gather.data, axis=1)[range(len(ix)), ix]
         angles = np.angle(phases)
@@ -326,7 +325,8 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
         ix = ((times - start_time) // sample_interval).reshape(-1, 1).astype(np.int64)
         if np.any(data.shape[1] < ix) or np.any(ix < 0):
             ix = np.clip(ix, 0, data.shape[1] - 1)
-        mean_cols = ix + np.arange(-window_size // (2 * sample_interval), window_size // (2 * sample_interval)).reshape(1, -1)
+        mean_cols = ix + np.arange(-window_size // (2 * sample_interval),
+                                    window_size // (2 * sample_interval)).reshape(1, -1)
         mean_cols = np.clip(mean_cols, 0, data.shape[1] - 1).astype(np.int64)
 
         trace_len = mean_cols.shape[1]
