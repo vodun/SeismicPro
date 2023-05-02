@@ -4,7 +4,6 @@ import numpy as np
 import rustworkx as rx
 from numba import njit, prange
 
-from .stacking_velocity import StackingVelocity
 from ..utils import to_list, interpolate
 from ..utils.interpolation.univariate import _times_to_indices
 
@@ -77,6 +76,7 @@ def calculate_stacking_velocity(spectrum, init=None, bounds=None, relative_margi
     node_times_ix[-1] = len(spectrum_times) - 1
     node_times = spectrum_times[node_times_ix]
 
+    from .stacking_velocity import StackingVelocity
     if bounds is not None:
         bounds = to_list(bounds)
         if len(bounds) != 2 or not all(isinstance(bound, StackingVelocity) for bound in bounds):
@@ -131,6 +131,4 @@ def calculate_stacking_velocity(spectrum, init=None, bounds=None, relative_margi
     path = np.array(paths_dict[n_nodes - 1], dtype=np.int32)[1:-1]
     times_ix = np.searchsorted(node_biases, path, side="right") - 1
     vels_ix = path - node_biases[times_ix]
-    sv_times = node_times[times_ix]
-    sv_velocities = np.array([node_velocities[tix][vix] for tix, vix in zip(times_ix, vels_ix)])
-    return StackingVelocity(sv_times, sv_velocities, coords=spectrum.coords)
+    return node_times[times_ix], np.array([node_velocities[tix][vix] for tix, vix in zip(times_ix, vels_ix)])

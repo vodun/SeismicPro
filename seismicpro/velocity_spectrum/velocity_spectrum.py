@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 from .utils import coherency_funcs
 from .interactive_plot import VelocitySpectrumPlot
 from ..decorators import batch_method, plotter
-from ..stacking_velocity import StackingVelocity, calculate_stacking_velocity, calculate_stacking_velocity_master
+from ..stacking_velocity import StackingVelocity
 from ..utils import add_colorbar, set_ticks, set_text_formatting, get_first_defined
 from ..gather.utils import correction
 from ..const import DEFAULT_STACKING_VELOCITY
@@ -104,6 +104,14 @@ class BaseVelocitySpectrum:
         velocity spectrum."""
         _ = time_ix, velocity_ix
         raise NotImplementedError
+
+    def get_velocity_range(self, stacking_velocity, relative_margin, velocity_step):
+        interpolated_velocities = stacking_velocity(self.times)
+        min_velocity = np.min(interpolated_velocities) * (1 - relative_margin)
+        max_velocity = np.max(interpolated_velocities) * (1 + relative_margin)
+        n_velocities = math.ceil((max_velocity - min_velocity) / velocity_step) + 1
+        max_velocity = min_velocity + (n_velocities - 1) * velocity_step
+        return np.linspace(min_velocity, max_velocity, n_velocities, dtype=np.float32)
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
@@ -342,15 +350,15 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     def __init__(self, gather, velocities=None, stacking_velocity=None, relative_margin=0.2, velocity_step=50,
                  window_size=50, mode='semblance', max_stretch_factor=np.inf):
         super().__init__(gather, window_size, mode, max_stretch_factor)
-        self.stacking_velocity = get_first_defined(stacking_velocity, DEFAULT_STACKING_VELOCITY)
+        if stacking_velocity is None:
+            stacking_velocity = DEFAULT_STACKING_VELOCITY
+        if velocities is None:
+            velocities = self.get_velocity_range(stacking_velocity, relative_margin, velocity_step)
+
+        self.velocities = velocities  # m/s
+        self.stacking_velocity = stacking_velocity
         self.relative_margin = relative_margin
-        if velocities is not None:
-            self.velocities = velocities  # m/s
-        else:
-            interpolated_velocities = self.stacking_velocity(self.times)
-            self.velocities = np.arange(np.min(interpolated_velocities) * (1 - relative_margin),
-                                        np.max(interpolated_velocities) * (1 + relative_margin),
-                                        velocity_step, dtype=np.float32)
+
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
         kwargs = {"spectrum_func": self.calc_single_velocity_spectrum, "coherency_func": self.coherency_func,
                   "gather_data": self.gather.data, "times": self.times, "offsets": self.offsets,
@@ -469,52 +477,13 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
 
     @batch_method(target="for", args_to_unpack="init", copy_src=False)
     def calculate_stacking_velocity(self, init=None, bounds=None, relative_margin=None, acceleration_bounds="auto",
-                                    times_step=100, max_offset=5000, hodograph_correction_step=1, min_n_velocities=5,
-                                    max_n_skips=2):
+                                    times_step=100, max_offset=5000, hodograph_correction_step=10, max_n_skips=2):
         """Calculate stacking velocity by vertical velocity spectrum."""
-        init = get_first_defined(init, self.stacking_velocity)
-        relative_margin = get_first_defined(relative_margin, self.relative_margin)
-        return calculate_stacking_velocity(self, init, bounds, relative_margin, acceleration_bounds, times_step,
-                                           max_offset, hodograph_correction_step, min_n_velocities, max_n_skips)
-
-    @batch_method(target="for", copy_src=False)
-    def calculate_stacking_velocity_master(self, start_velocity_range=(1400, 1800), end_velocity_range=(2500, 5000),
-                                           max_acceleration=None, n_times=25, n_velocities=25):
-        """Calculate stacking velocity by vertical velocity spectrum.
-
-        Notes
-        -----
-        A detailed description of the proposed algorithm and its implementation can be found in
-        :func:`~velocity_model.calculate_stacking_velocity` docs.
-
-        Parameters
-        ----------
-        start_velocity_range : tuple with 2 elements
-            Valid range for stacking velocity for the first timestamp. Both velocities are measured in meters/seconds.
-        end_velocity_range : tuple with 2 elements
-            Valid range for stacking velocity for the last timestamp. Both velocities are measured in meters/seconds.
-        max_acceleration : None or float, defaults to None
-            Maximal acceleration allowed for the stacking velocity function. If `None`, equals to
-            2 * (mean(end_velocity_range) - mean(start_velocity_range)) / total_time. Measured in meters/seconds^2.
-        n_times : int, defaults to 25
-            The number of evenly spaced points to split time range into to generate graph edges.
-        n_velocities : int, defaults to 25
-            The number of evenly spaced points to split velocity range into for each time to generate graph edges.
-
-        Returns
-        -------
-        stacking_velocity : StackingVelocity
-            Calculated stacking velocity.
-
-        Raises
-        ------
-        ValueError
-            If no stacking velocity was found for given parameters.
-        """
-        times, velocities, _ = calculate_stacking_velocity_master(self.velocity_spectrum, self.times, self.velocities,
-                                                                  start_velocity_range, end_velocity_range,
-                                                                  max_acceleration, n_times, n_velocities)
-        return StackingVelocity(times, velocities, coords=self.coords)
+        kwargs = {"init": get_first_defined(init, self.stacking_velocity), "bounds": bounds,
+                  "relative_margin": get_first_defined(relative_margin, self.relative_margin),
+                  "acceleration_bounds": acceleration_bounds, "times_step": times_step, "max_offset": max_offset,
+                  "hodograph_correction_step": hodograph_correction_step, "max_n_skips": max_n_skips}
+        return StackingVelocity.from_vertical_velocity_spectrum(self, **kwargs)
 
 
 class ResidualVelocitySpectrum(BaseVelocitySpectrum):
@@ -602,16 +571,12 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     def __init__(self, gather, stacking_velocity, relative_margin=0.2, velocity_step=50, window_size=50,
                  mode='semblance', max_stretch_factor=np.inf):
         super().__init__(gather, window_size, mode, max_stretch_factor)
+        self.velocities = self.get_velocity_range(stacking_velocity, relative_margin, velocity_step)  # m/s
         self.stacking_velocity = stacking_velocity
         self.relative_margin = relative_margin
 
-        interpolated_velocities = stacking_velocity(self.times)
-        self.velocities = np.arange(np.min(interpolated_velocities) * (1 - relative_margin),
-                                    np.max(interpolated_velocities) * (1 + relative_margin),
-                                    velocity_step, dtype=np.float32)
-        velocities_ms = self.velocities / 1000  # from m/s to m/ms
-
         left_bound_ix, right_bound_ix = self._calc_velocity_bounds()
+        velocities_ms = self.velocities / 1000  # from m/s to m/ms
         kwargs = {"spectrum_func": self.calc_single_velocity_spectrum, "coherency_func": self.coherency_func,
                   "gather_data": self.gather.data, "times": self.times, "offsets": self.offsets,
                   "velocities": velocities_ms, "left_bound_ix": left_bound_ix, "right_bound_ix": right_bound_ix,

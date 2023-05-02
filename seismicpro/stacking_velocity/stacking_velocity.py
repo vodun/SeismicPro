@@ -2,6 +2,7 @@
 
 import numpy as np
 
+from .velocity_model import calculate_stacking_velocity
 from ..muter import Muter
 from ..decorators import batch_method
 from ..utils import VFUNC
@@ -125,6 +126,16 @@ class StackingVelocity(VFUNC):
             Created stacking velocity instance.
         """
         return cls([0, 10000], [velocity, velocity], coords=coords)
+
+    @classmethod
+    def from_vertical_velocity_spectrum(cls, spectrum, init=None, bounds=None, relative_margin=0.2,
+                                        acceleration_bounds="auto", times_step=100, max_offset=5000,
+                                        hodograph_correction_step=10, max_n_skips=2):
+        kwargs = {"init": init, "bounds": bounds, "relative_margin": relative_margin,
+                  "acceleration_bounds": acceleration_bounds, "times_step": times_step, "max_offset": max_offset,
+                  "hodograph_correction_step": hodograph_correction_step, "max_n_skips": max_n_skips}
+        times, velocities = calculate_stacking_velocity(spectrum, **kwargs)
+        return cls(times, velocities, coords=spectrum.coords)
 
     @batch_method(target="for", copy_src=False)
     def create_muter(self, max_stretch_factor=0.65):

@@ -799,7 +799,8 @@ class Gather(TraceContainer, SamplesContainer):
     #------------------------------------------------------------------------#
 
     @batch_method(target="for", copy_src=False)
-    def calculate_vertical_velocity_spectrum(self, velocities=None, window_size=50, mode="semblance",
+    def calculate_vertical_velocity_spectrum(self, velocities=None, stacking_velocity=None, relative_margin=0.2,
+                                             velocity_step=50, window_size=50, mode='semblance',
                                              max_stretch_factor=np.inf):
         """Calculate vertical velocity spectrum for the gather.
 
@@ -813,7 +814,7 @@ class Gather(TraceContainer, SamplesContainer):
         Calculate vertical velocity spectrum with default parameters: velocities evenly spaces around default stacking
         velocity, 50 ms temporal window size, semblance coherency measure and no muting of hodograph stretching:
         >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum()
-    
+
         Calculate vertical velocity spectrum for 200 velocities from 2000 to 6000 m/s, temporal window size of 128 ms,
         crosscorrelation coherency measure and muting stretching effects greater than 0.65:
         >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum(
@@ -849,11 +850,12 @@ class Gather(TraceContainer, SamplesContainer):
         vertical_velocity_spectrum : VerticalVelocitySpectrum
             Calculated vertical velocity spectrum.
         """
-        return VerticalVelocitySpectrum(gather=self, velocities=velocities, window_size=window_size, mode=mode,
-                                        max_stretch_factor=max_stretch_factor)
+        return VerticalVelocitySpectrum(gather=self, velocities=velocities, stacking_velocity=stacking_velocity,
+                                        relative_margin=relative_margin, velocity_step=velocity_step,
+                                        window_size=window_size, mode=mode, max_stretch_factor=max_stretch_factor)
 
     @batch_method(target="for", args_to_unpack="stacking_velocity", copy_src=False)
-    def calculate_residual_velocity_spectrum(self, stacking_velocity, n_velocities=140, relative_margin=0.2,
+    def calculate_residual_velocity_spectrum(self, stacking_velocity, relative_margin=0.2, velocity_step=50,
                                              window_size=50, mode="semblance", max_stretch_factor=np.inf):
         """Calculate residual velocity spectrum for the gather and provided stacking velocity.
 
@@ -906,9 +908,9 @@ class Gather(TraceContainer, SamplesContainer):
         """
         if isinstance(stacking_velocity, StackingVelocityField):
             stacking_velocity = stacking_velocity(self.coords)
-        return ResidualVelocitySpectrum(gather=self, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
-                                        window_size=window_size, relative_margin=relative_margin, mode=mode,
-                                        max_stretch_factor=max_stretch_factor)
+        return ResidualVelocitySpectrum(gather=self, stacking_velocity=stacking_velocity,
+                                        relative_margin=relative_margin, velocity_step=velocity_step,
+                                        window_size=window_size, mode=mode, max_stretch_factor=max_stretch_factor)
 
     #------------------------------------------------------------------------#
     #                           Gather corrections                           #
