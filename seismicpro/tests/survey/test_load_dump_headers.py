@@ -42,12 +42,17 @@ def load_dump_headers(survey, tmp_path, format, new_cols, float_precision, heade
 
     loaded_survey = survey_copy.load_headers(file_path, headers=headers_to_load, format=format,
                                              has_header=dump_headers_names, usecols=usecols, sep=sep, decimal=decimal)
-    assert_surveys_equal(survey, loaded_survey)
+
+    if float_precision is not None and "floats" in new_cols:
+        # Check that loaded floating numbers differ by no more than the number of rounded characters
+        assert np.max(np.abs(survey["floats"] - loaded_survey["floats"])) <= 10**(-float_precision)
+        survey.headers["floats"] = loaded_survey["floats"] # Avoid round errors
+    assert_surveys_equal(survey, loaded_survey, ignore_dtypes=True)
 
 
 @pytest.mark.parametrize("decimal", ['.', ','])
 @pytest.mark.parametrize("float_precision", [None, 2])
-@pytest.mark.parametrize("new_cols", [["float"], ["int"], ["float", "int"]])
+@pytest.mark.parametrize("new_cols", [["floats"], ["int"], ["floats", "int"]])
 @pytest.mark.parametrize("headers_to_dump,headers_to_load,usecols,dump_headers_names", ARGS)
 def test_fwf_load_dump_headers(survey, tmp_path, new_cols, float_precision, headers_to_dump, headers_to_load, usecols,
                                dump_headers_names, decimal):
@@ -59,7 +64,7 @@ def test_fwf_load_dump_headers(survey, tmp_path, new_cols, float_precision, head
 
 @pytest.mark.parametrize("sep", [',', ';'])
 @pytest.mark.parametrize("float_precision", [None, 2])
-@pytest.mark.parametrize("new_cols", [["float"], ["int"], ["float", "int"]])
+@pytest.mark.parametrize("new_cols", [["floats"], ["int"], ["floats", "int"]])
 @pytest.mark.parametrize("headers_to_dump,headers_to_load,usecols,dump_headers_names", ARGS)
 def test_csv_load_dump_headers(survey, tmp_path, new_cols, float_precision, headers_to_dump, headers_to_load, usecols,
                                dump_headers_names, sep):
