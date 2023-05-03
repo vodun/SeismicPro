@@ -152,7 +152,7 @@ class SeismicBatch(Batch):
             raise ValueError("combined flag must match the batch combined status")
 
         src, dst = align_src_dst(src, dst)
-        non_empty_parts = [i for i, n_gathers in enumerate(self.index.n_gathers_by_part) if n_gathers]
+        non_empty_parts = [i for i, n_gathers in enumerate(self.initial_index.n_gathers_by_part) if n_gathers]
         batch = type(self)(DatasetIndex(non_empty_parts), dataset=self.dataset, pipeline=self.pipeline,
                            is_combined=True, initial_index=self.initial_index,
                            n_calculated_metrics=self.n_calculated_metrics)
