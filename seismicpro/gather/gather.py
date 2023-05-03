@@ -482,8 +482,8 @@ class Gather(TraceContainer, SamplesContainer):
         if use_global:
             if not self.survey.has_stats:
                 raise ValueError('Global statistics were not calculated, call `Survey.collect_stats` first.')
-            mean = np.atleast_2d(self.survey.mean)
-            std = np.atleast_2d(self.survey.std)
+            mean = np.atleast_2d(self.survey.mean, dtype=self.data.dtype)
+            std = np.atleast_2d(self.survey.std, dtype=self.data.dtype)
         else:
             mean, std = None, None
         self.data = normalization.scale_standard(self.data, mean, std, tracewise, np.float32(eps))

@@ -41,9 +41,9 @@ def scale_standard(data, mean, std, tracewise, eps):
     ----------
     data : np.ndarray
         Data to scale.
-    mean : np.ndarray of float or None
+    mean : np.ndarray of `data.dtype` or None
         Global mean value. If provided, must be broadcastable to `data.shape`.
-    std : np.ndarray of float or None
+    std : np.ndarray of `data.dtype` or None
         Global standard deviation. If provided, must be broadcastable to `data.shape`.
     tracewise : bool
         If `True`, mean and std are calculated for each trace independently, otherwise for the entire gather.
@@ -56,13 +56,16 @@ def scale_standard(data, mean, std, tracewise, eps):
         Scaled data with unchanged shape.
     """
     if mean is None and std is None:
-        if not tracewise:
-            mean = np.asarray(np.mean(data)).reshape(1, 1).astype(data.dtype)
-            std = np.asarray(np.std(data)).reshape(1, 1).astype(data.dtype)
+        n_traces, trace_len = data.shape
+        if tracewise:
+            mean = np.empty((n_traces, 1), dtype=data.dtype)
+            std = np.empty((n_traces, 1), dtype=data.dtype)
+            for i in range(n_traces):
+                mean[i] = np.sum(data[i]) / (trace_len)
+                std[i] = np.sqrt((np.sum((data[i] - mean[i])**2) / trace_len))
         else:
-            trace_len = data.shape[1]
-            mean = (np.sum(data, axis=1).reshape(-1, 1) / trace_len).astype(data.dtype)
-            std = np.sqrt((np.sum((data - mean)**2, axis=1) / trace_len)).reshape(-1, 1).astype(data.dtype)
+            mean = np.atleast_2d(np.asarray(np.mean(data), dtype=data.dtype))
+            std = np.atleast_2d(np.asarray(np.mean(data), dtype=data.dtype))
     return (data - mean) / (std + eps)
 
 @njit(nogil=True)
