@@ -261,17 +261,16 @@ class SeismicBatch(Batch):
             gathers = getattr(self, src)
             if not all(isinstance(gather, Gather) for gather in gathers):
                 raise ValueError(f"{src} component contains items that are not instances of Gather class")
+
+            gather_indices = []
             if assume_sequential:
-                split_gathers = []
                 for gather in gathers:
                     split_pos = np.where(~gather.headers.index.duplicated(keep="first"))[0]
-                    for start, end in zip_longest(split_pos, split_pos[1:]):
-                        headers = gather.headers.iloc[start:end]
-                        data = gather.data[start:end]
-                        split_gathers.append(Gather(headers, data, gather.samples, gather.survey))
+                    gather_indices.append([slice(start, end) for start, end in zip_longest(split_pos, split_pos[1:])])
             else:
-                split_gathers = [gather[ix] for gather in gathers
-                                            for ix in gather.headers.groupby(gather.indexed_by).indices.values()]
+                for gather in gathers:
+                    gather_indices.append(gather.headers.groupby(gather.indexed_by, sort=False).indices.values())
+            split_gathers = [gather[ix] for gather, indices in zip(gathers, gather_indices) for ix in indices]
             split_batch.add_components(dst, init=np.array(split_gathers))
         return split_batch
 
