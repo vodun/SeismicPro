@@ -341,14 +341,21 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
     def _calc(traces_windows):
         """Calculate signal correlation with mean hodograph"""
         n_traces, trace_len = traces_windows.shape
-        mean_hodograph = np.sum(traces_windows, axis=0) / n_traces
+        mean_hodograph = np.empty((1, trace_len), dtype=traces_windows.dtype)
+        for i in range(trace_len):
+            mean_hodograph[:, i] = np.sum(traces_windows[:, i]) / (n_traces)
         mean_hodograph_centered = (mean_hodograph - np.mean(mean_hodograph)) / np.std(mean_hodograph)
 
-        mean_amplitudes = np.sum(traces_windows, axis=1) / trace_len
-        std_amplitudes = np.sqrt(np.sum(((traces_windows - mean_amplitudes.reshape(-1, 1)) ** 2) / trace_len, axis=1))
-        traces_windows_centered = (traces_windows - mean_amplitudes.reshape(-1, 1)) / std_amplitudes.reshape(-1, 1)
+        mean_amplitudes = np.empty((n_traces, 1), dtype=traces_windows.dtype)
+        std_amplitudes = np.empty((n_traces, 1), dtype=traces_windows.dtype)
+        for i in range(n_traces):
+            mean_amplitudes[i] = np.sum(traces_windows[i]) / (trace_len)
+            std_amplitudes[i] = np.sqrt((np.sum((traces_windows[i] - mean_amplitudes[i])**2) / trace_len))
+        traces_windows_centered = (traces_windows - mean_amplitudes) / std_amplitudes
 
-        corrs = np.sum(traces_windows_centered * mean_hodograph_centered.reshape(1, -1), axis=1)/ trace_len
+        corrs = np.empty(n_traces, dtype=traces_windows.dtype)
+        for i in range(n_traces):
+            corrs[i] = np.sum(traces_windows_centered[i] * mean_hodograph_centered) / trace_len
         return corrs
 
     def calc(self, gather, refractor_velocity, first_breaks_col, correct_uphole):
