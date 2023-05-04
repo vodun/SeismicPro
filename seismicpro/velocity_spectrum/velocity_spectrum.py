@@ -318,8 +318,8 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         Stacking velocity around which vertical velocity spectrum is calculated if `velocities` are not given.
     relative_margin : float, optional, defaults to 0.2
         Relative velocity margin to additionally extend the velocity range obtained from `stacking_velocity`: an
-        interval [`min_velocity`, `min_velocity`] is mapped to [(1 - `relative_margin`) * `min_velocity`,
-        (1 + `relative_margin`) * `min_velocity`].
+        interval [`min_velocity`, `max_velocity`] is mapped to [(1 - `relative_margin`) * `min_velocity`,
+        (1 + `relative_margin`) * `max_velocity`].
     velocity_step : float, optional, defaults to 50
         A step between two adjacent velocities for which vertical velocity spectrum is calculated if `velocities` are
         not passed. Measured in meters/seconds.
