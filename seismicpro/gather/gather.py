@@ -162,8 +162,7 @@ class Gather(TraceContainer, SamplesContainer):
             If the resulting gather is empty, or data ndim has changed, or joint attribute indexation is ambiguous.
         """
         # If key is str or array of str, treat it as names of headers columns
-        keys_array = np.array(to_list(key))
-        if keys_array.dtype.type == np.str_:
+        if all(isinstance(item, str) for item in to_list(key)):
             return super().__getitem__(key)
 
         # Perform traces and samples selection
@@ -818,7 +817,7 @@ class Gather(TraceContainer, SamplesContainer):
         Calculate vertical velocity spectrum for 200 velocities from 2000 to 6000 m/s, temporal window size of 128 ms,
         crosscorrelation coherency measure and muting stretching effects greater than 0.65:
         >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum(
-                                                                velocities=np.linspace(2000, 6000, 200), 
+                                                                velocities=np.linspace(2000, 6000, 200),
                                                                 window_size=128, mode='CC', max_stretch_factor=0.65)
 
         Parameters
@@ -832,8 +831,8 @@ class Gather(TraceContainer, SamplesContainer):
             Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother
             the resulting velocity spectrum will be but to the detriment of small details. Measured in ms.
         mode: str, optional, defaults to 'semblance'
-            The measure for estimating hodograph coherency. 
-            The available options are: 
+            The measure for estimating hodograph coherency.
+            The available options are:
                 `semblance` or `NE`,
                 `stacked_amplitude` or `S`,
                 `normalized_stacked_amplitude` or `NS`,
@@ -842,7 +841,7 @@ class Gather(TraceContainer, SamplesContainer):
         max_stretch_factor : float, defaults to np.inf
             Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
             This mute is applied after nmo correction for each provided velocity and before coherency calculation.
-            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
+            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied.
             Reasonably good value is 0.65
 
         Returns
@@ -874,22 +873,22 @@ class Gather(TraceContainer, SamplesContainer):
         Parameters
         ----------
         stacking_velocity : StackingVelocity or StackingVelocityField or str
-            Stacking velocity around which residual velocity spectrum is calculated. 
-            `StackingVelocity` instance is used directly. If `StackingVelocityField` instance is passed, 
+            Stacking velocity around which residual velocity spectrum is calculated.
+            `StackingVelocity` instance is used directly. If `StackingVelocityField` instance is passed,
             a `StackingVelocity` corresponding to gather coordinates is fetched from it.
             May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
         n_velocities : int, optional, defaults to 140
             The number of velocities to compute residual velocity spectrum for.
         relative_margin : float, optional, defaults to 0.2
-            Relative velocity margin, that determines the velocity range for residual spectrum calculation 
+            Relative velocity margin, that determines the velocity range for residual spectrum calculation
             for each time `t` as `stacking_velocity(t)` * (1 +- `relative_margin`).
         window_size : int, optional, defaults to 50
             Temporal window size used for residual velocity spectrum calculation. Measured in ms.
             The higher the `window_size` is, the smoother the resulting spectrum will be but to the
             detriment of small details.
         mode: str, optional, defaults to 'semblance'
-            The measure for estimating hodograph coherency. 
-            The available options are: 
+            The measure for estimating hodograph coherency.
+            The available options are:
                 `semblance` or `NE`,
                 `stacked_amplitude` or `S`,
                 `normalized_stacked_amplitude` or `NS`,
@@ -898,7 +897,7 @@ class Gather(TraceContainer, SamplesContainer):
         max_stretch_factor : float, defaults to np.inf
             Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
             This mute is applied after nmo correction for each provided velocity and before coherency calculation.
-            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
+            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied.
             Reasonably good value is 0.65
 
         Returns
@@ -987,7 +986,7 @@ class Gather(TraceContainer, SamplesContainer):
             Whether to mute areas where the time reversal occurred after nmo corrections.
         max_stretch_factor : float, optional, defaults to np.inf
             Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
-            The lower the value, the stronger the mute. In case np.inf (default) no mute is applied. 
+            The lower the value, the stronger the mute. In case np.inf (default) no mute is applied.
             Reasonably good value is 0.65
         fill_value : float, optional, defaults to np.nan
             Value used to fill the amplitudes outside the gather bounds after moveout.
