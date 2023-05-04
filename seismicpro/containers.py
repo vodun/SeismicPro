@@ -274,15 +274,18 @@ class TraceContainer:
         self.headers[res_cols] = res
         return self
 
-    def load_headers(self, path, headers=None, join_on=None, format="fwf", has_header=False, usecols=None, sep=',',  # pylint: disable=too-many-arguments
-                     skiprows=0, decimal=None, encoding="UTF-8", keep_all_headers=False, inplace=False, **kwargs):
+
+    # pylint: disable-next=too-many-arguments
+    def load_headers(self, path, headers_names=None, join_on=None, format="fwf", has_header=False, usecols=None,
+                     sep=',', skiprows=0, decimal=None, encoding="UTF-8", keep_all_headers=False, inplace=False,
+                     **kwargs):
         """Load headers from a file and join them to `self.headers`.
 
         Parameters:
         -----------
         path : str
             A path to the file with headers.
-        headers : array-like of str, optional, defaults to None
+        headers_names : array-like of str, optional, defaults to None
             An array with column names to use as trace header names. If `has_header` is `True`, then `headers`
             specifies which columns will be loaded from the file.
         join_on : str, array-like of str or None, optional, defaults to None
@@ -337,23 +340,25 @@ class TraceContainer:
                 decimal = '.' if '.' in row else ','
             if usecols is not None:
                 usecols = np.asarray(usecols)
-                if any(usecols < 0):  # Processing negative usecols
+                if any(usecols < 0):  # Processing negative `usecols`
                     usecols_sep = sep if format == "csv" else None
+                    # Find the position of columns with negative `usecols` by adding them to the total number of
+                    # columns in the file.
                     usecols[usecols < 0] += len(row.split(usecols_sep))
                 usecols = usecols.tolist()
 
         if format == "fwf":
             header = 0 if has_header else None
-            loaded_headers = pd.read_csv(path, sep=r'\s+', header=header, names=headers, usecols=usecols,
+            loaded_headers = pd.read_csv(path, sep=r'\s+', header=header, names=headers_names, usecols=usecols,
                                          decimal=decimal, skiprows=skiprows, encoding=encoding, **kwargs)
             loaded_headers = pl.from_pandas(loaded_headers)
         else:
             if has_header:
-                columns = headers
+                columns = headers_names
                 new_columns = None
             else:
                 columns = usecols
-                new_columns = headers
+                new_columns = headers_names
             loaded_headers = pl.read_csv(path, has_header=has_header, columns=columns, new_columns=new_columns,
                                          separator=sep, skip_rows=skiprows, encoding=encoding, **kwargs)
 
@@ -372,14 +377,15 @@ class TraceContainer:
             warnings.warn("Empty headers after headers loading", RuntimeWarning)
         return self
 
-    def dump_headers(self, path, headers, format="fwf", dump_headers_names=False, float_precision=None, **kwargs):
+    def dump_headers(self, path, headers_names, format="fwf", dump_headers_names=False, float_precision=None,
+                     **kwargs):
         """Save the selected headers to a file.
 
         Parameters
         ----------
         path : str
             A path to the output file.
-        headers : str or array-like of str
+        headers_names : str or array-like of str
             `self.headers` columns to be included in the output file.
         format : "fwf" or "csv", optional, defaults to "fwf"
             Output file format. If "fwf", use fixed-width format. If "csv", use comma-separated format.
@@ -401,15 +407,16 @@ class TraceContainer:
         ValueError
             If the `format` argument is not one of the supported formats ('fwf', 'csv').
         """
-        dump_df = self.get_headers(headers)
+        if format not in ["fwf", "csv"]:
+            raise ValueError(f"Unknown format `{format}`, available formats are ('fwf', 'csv')")
+        dump_df = self.get_headers(headers_names)
+
         if format == "fwf":
             float_format = f"%.{float_precision}f" if float_precision is not None else float_precision
             dump_df.to_string(path, header=dump_headers_names, index=False, float_format=float_format, **kwargs)
-        elif format == "csv":
+        else:
             dump_df = pl.from_pandas(dump_df)
             dump_df.write_csv(path, has_header=dump_headers_names, float_precision=float_precision, **kwargs)
-        else:
-            raise ValueError(f"Unknown format {format}, available formats are ('fwf', 'csv')")
         return self
 
 

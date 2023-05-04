@@ -1049,8 +1049,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Each line of the file stores the first break time for a trace in the last column. The combination of all but
         the last columns should act as a unique trace identifier and is used to match the trace from the file with the
         corresponding trace in `self.headers`.
-        The file can have any format that can be read by `pd.read_csv` or `polars.read_csv`, by default, it's expected
-        to have fixed-width format.
+        The file can have any format that can be read by :func:`TraceContainer.load_headers`.
 
         Parameters
         ----------
@@ -1075,9 +1074,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self : Survey
             A survey with loaded times of first breaks.
         """
-        headers = to_list(trace_id_headers) + [first_breaks_header]
-        return self.load_headers(path=path, headers=headers, join_on=trace_id_headers, format=format, decimal=decimal,
-                                 inplace=inplace, **kwargs)
+        headers_names = to_list(trace_id_headers) + [first_breaks_header]
+        return self.load_headers(path=path, headers_names=headers_names, join_on=trace_id_headers, format=format,
+                                 decimal=decimal, inplace=inplace, **kwargs)
 
     #------------------------------------------------------------------------#
     #                       Survey processing methods                        #
@@ -1280,8 +1279,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self : Survey
             A Survey unchanged
         """
-        headers = to_list(trace_id_headers) + to_list(first_breaks_header)
-        return self.dump_headers(path=path, headers=headers, format=format, **kwargs)
+        headers_names = to_list(trace_id_headers) + to_list(first_breaks_header)
+        return self.dump_headers(path=path, headers_names=headers_names, format=format, **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #

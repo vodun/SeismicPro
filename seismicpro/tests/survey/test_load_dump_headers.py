@@ -37,10 +37,10 @@ def load_dump_headers(survey, tmp_path, format, new_cols, float_precision, heade
         survey.headers[column] = values
 
     kwargs = {"separator" : sep} if format == 'csv' else {"decimal": decimal}
-    survey.dump_headers(file_path, headers=headers_to_dump, dump_headers_names=dump_headers_names,
+    survey.dump_headers(file_path, headers_names=headers_to_dump, dump_headers_names=dump_headers_names,
                         float_precision=float_precision, format=format, **kwargs)
 
-    loaded_survey = survey_copy.load_headers(file_path, headers=headers_to_load, format=format,
+    loaded_survey = survey_copy.load_headers(file_path, headers_names=headers_to_load, format=format,
                                              has_header=dump_headers_names, usecols=usecols, sep=sep, decimal=decimal)
 
     if float_precision is not None and "floats" in new_cols:
