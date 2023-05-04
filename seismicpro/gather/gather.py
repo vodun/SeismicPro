@@ -1024,33 +1024,25 @@ class Gather(TraceContainer, SamplesContainer):
     def stack(self, amplify_factor=0):
         """Stack a gather by calculating mean value of all non-nan amplitudes for each time over the offset axis.
 
-        The gather being stacked must contain traces from a single bin. The resulting gather will contain a single
-        trace with `headers` matching those of the first input trace.
+        The resulting gather will contain a single trace with `headers` matching those of the first input trace.
 
         Parameters
         ----------
         amplify_factor : float in range [0, 1], optional, defaults to 0
             Amplifying factor which affects the normalization of the sum of hodographs amplitudes.
-            The amplitudes sum is multiplied by amplify_factor/sqrt(N) + (1 - amplify_factor)/N,
-            where N is the number of live(non muted) amplitudes. Acts as the coherency amplifier for long hodographs.
-            Note that in case amplify_factor=0 (default), sum of trace amplitudes is simply divided by N,
-            so that stack amplitude is the average of ensemble amplitudes. Must be in [0, 1] range.
+            The amplitudes sum is multiplied by amplify_factor/sqrt(N) + (1 - amplify_factor)/N, where N is the number
+            of live (non muted) amplitudes. Acts as the coherency amplifier for long hodographs. Note that in case
+            amplify_factor=0 (default), sum of trace amplitudes is simply divided by N, so that stack amplitude is the
+            average of ensemble amplitudes. Must be in [0, 1] range.
 
         Returns
         -------
         gather : Gather
             Stacked gather.
         """
-        lines = self[["INLINE_3D", "CROSSLINE_3D"]]
-        if (lines != lines[0]).any():
-            raise ValueError("Only a single CDP gather can be stacked")
-
         amplify_factor = np.clip(amplify_factor, 0, 1)
-        # Preserve headers of the first trace of the gather being stacked
-        self.headers = self.headers.iloc[[0]]
-
-        self.data = stacked_amplitude(self.data, amplify_factor, abs=False)[0]
-        self.data = self.data.reshape(1, -1)
+        self.headers = self.headers.iloc[[0]]  # Preserve headers of the first trace of the gather being stacked
+        self.data = stacked_amplitude(self.data, amplify_factor, abs=False)[0].reshape(1, -1)
         return self
 
     def crop(self, origins, crop_shape, n_crops=1, stride=None, pad_mode='constant', **kwargs):
