@@ -21,6 +21,7 @@ from .headers_checks import validate_trace_headers, validate_source_headers, val
 from .metrics import SurveyAttribute
 from .plot_geometry import SurveyGeometryPlot
 from .utils import calculate_trace_stats
+from ..config import config
 from ..gather import Gather
 from ..containers import GatherContainer, SamplesContainer
 from ..utils import to_list, maybe_copy, get_cols, get_first_defined
@@ -350,6 +351,15 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         GatherContainer.headers.fset(self, headers)
         htp_dtype = np.int32 if len(headers) < np.iinfo(np.int32).max else np.int64
         self.headers[HDR_TRACE_POS] = np.arange(self.n_traces, dtype=htp_dtype)
+
+    def __getstate__(self):
+        """Create pickling state of a survey from its `__dict__`. Don't pickle `headers` and `indexer` if
+        `enable_fast_pickling` config option is set."""
+        state = self.__dict__.copy()
+        if config["enable_fast_pickling"]:
+            state["_headers"] = None
+            state["_indexer"] = None
+        return state
 
     def __str__(self):
         """Print survey metadata including information about the source file, field geometry if it was inferred and

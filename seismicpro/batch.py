@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from batchflow import save_data_to, Batch, DatasetIndex, NamedExpression
 from batchflow.decorators import action, inbatch_parallel
 
+from .config import config
 from .index import SeismicIndex
 from .gather import Gather, CroppedGather
 from .gather.utils.crop_utils import make_origins
@@ -69,6 +70,15 @@ class SeismicBatch(Batch):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._num_calculated_metrics = 0
+
+    def __getstate__(self):
+        """Create pickling state of a batch from its `__dict__`. Don't pickle `dataset` and `pipeline` if
+        `enable_fast_pickling` config option is set."""
+        state = super().__getstate__()
+        if config["enable_fast_pickling"]:
+            state["_dataset"] = None
+            state["pipeline"] = None
+        return state
 
     def init_component(self, *args, dst=None, **kwargs):
         """Create and preallocate new attributes with names listed in `dst` if they don't exist and return ordinal
@@ -137,6 +147,50 @@ class SeismicBatch(Batch):
         survey = part.surveys_dict[src]
         headers = part.headers.get(src, part.headers[[]])  # Handle the case when no headers were loaded for a survey
         getattr(self, dst)[pos] = survey.load_gather(headers, **kwargs)
+
+    @action
+    def combine_gathers(self, src, dst=None):
+        """Combine all gathers produced by the same survey into a single gather for each component in `src`.
+
+        This method allows for more efficient subsequent gather `dump` since:
+        1. Text and bin headers are stored only once for the whole combined gather, which especially matters when
+           dumping a single stacked trace,
+        2. Total number of gathers passed to `aggregate_segys` is reduced.
+
+        Parameters
+        ----------
+        src : str or list of str
+            Batch components to combine.
+        dst : str or list of str, optional
+            Batch components to store the combined gathers in. Equals to `src` if not given.
+
+        Returns
+        -------
+        batch : SeismicBatch
+            A batch with combined gathers.
+        """
+        if not isinstance(self.index, SeismicIndex):
+            return self  # gathers are already combined
+
+        src_list = to_list(src)
+        dst_list = to_list(dst) if dst is not None else src_list
+        if len(src_list) != len(dst_list):
+            raise ValueError("src and dst should have the same length.")
+
+        non_empty_parts = [i for i, n_gathers in enumerate(self.index.n_gathers_by_part) if n_gathers]
+        split_pos = np.cumsum([n_gathers for n_gathers in self.index.n_gathers_by_part if n_gathers][:-1])
+        combined_batch = type(self)(DatasetIndex(non_empty_parts), dataset=self.dataset, pipeline=self.pipeline)
+        for src, dst in zip(src_list, dst_list):  # pylint: disable=redefined-argument-from-local
+            gathers = getattr(self, src)
+            if not all(isinstance(gather, Gather) for gather in gathers):
+                raise ValueError(f"{src} component contains items that are not instances of Gather class")
+            combined_gathers = []
+            for gather_chunk in np.split(gathers, split_pos):
+                headers = pd.concat([gather.headers for gather in gather_chunk])
+                data = np.concatenate([gather.data for gather in gather_chunk])
+                combined_gathers.append(Gather(headers, data, gather_chunk[0].samples, gather_chunk[0].survey))
+            combined_batch.add_components(dst, init=np.array(combined_gathers))
+        return combined_batch
 
     @action
     def update_field(self, field, src):
