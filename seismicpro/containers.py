@@ -73,7 +73,7 @@ class TraceContainer:
         result : np.ndarray
             Headers values.
         """
-        return get_cols(self.headers, key)
+        return get_cols(self.headers, key).to_numpy()
 
     def __setitem__(self, key, value):
         """Set given values to selected headers.
@@ -101,15 +101,7 @@ class TraceContainer:
         headers : pandas.DataFrame
             Headers values.
         """
-        headers_cols = pd.DataFrame()
-        # Avoid to_list since tuples must be preserved as is to be used for column selection
-        cols = [cols] if not isinstance(cols, list) else cols
-        for col in cols:
-            if col in self.headers:
-                headers_cols[col] = self.headers[col].to_numpy()
-            else:
-                headers_cols[col] = self.headers.index.get_level_values(col)
-        return headers_cols
+        return get_cols(self.headers, cols)
 
     def copy(self, ignore=None):
         """Perform a deepcopy of all attributes of `self` except for those specified in `ignore`, which are kept
@@ -283,7 +275,7 @@ class TraceContainer:
         return self
 
     def load_headers(self, path, headers=None, join_on=None, format="fwf", has_header=False, usecols=None, sep=',',  # pylint: disable=too-many-arguments
-                     skiprows=None, decimal=None, encoding="UTF-8", keep_all_headers=False, inplace=False, **kwargs):
+                     skiprows=0, decimal=None, encoding="UTF-8", keep_all_headers=False, inplace=False, **kwargs):
         """Load headers from a file and join them to `self.headers`.
 
         Parameters:
@@ -307,7 +299,7 @@ class TraceContainer:
             indices. Should be always passed in ascending order and have the same length as `headers` if both passed.
         sep : str, defaults to ','
             Separator used in the file. Used only for "csv" `format`.
-       skiprows : int, optional, defaults to None
+       skiprows : int, optional, defaults to 0
             Number of rows to skip from the beginning of the file.
         decimal : str, optional, defaults to None
             Decimal point character. If not provided, it will be inferred from the file. Used only for "fwf" `format`.
@@ -338,7 +330,7 @@ class TraceContainer:
 
         if usecols is not None or decimal is None:
             with open(path, 'r', encoding=encoding) as f:
-                n_skip = 1 + has_header + (0 if skiprows is None else skiprows)
+                n_skip = 1 + has_header + skiprows
                 row = [next(f) for _ in range(n_skip)][-1]
             # If decimal is not provided, try inferring it from the file
             if decimal is None:
@@ -362,7 +354,6 @@ class TraceContainer:
             else:
                 columns = usecols
                 new_columns = headers
-            skiprows = 0 if skiprows is None else skiprows
             loaded_headers = pl.read_csv(path, has_header=has_header, columns=columns, new_columns=new_columns,
                                          separator=sep, skip_rows=skiprows, encoding=encoding, **kwargs)
 

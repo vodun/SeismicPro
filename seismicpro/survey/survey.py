@@ -763,7 +763,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         n_quantile_traces = min(n_traces, n_quantile_traces)
 
         # Sort traces by TRACE_SEQUENCE_FILE: sequential access to trace amplitudes is much faster than random
-        traces_pos = np.sort(get_cols(headers, "TRACE_SEQUENCE_FILE") - 1)
+        traces_pos = np.sort(get_cols(headers, "TRACE_SEQUENCE_FILE").to_numpy() - 1)
         quantile_traces_mask = np.zeros(n_traces, dtype=np.bool_)
         quantile_traces_mask[np.random.choice(n_traces, size=n_quantile_traces, replace=False)] = True
 
@@ -923,7 +923,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         if copy_headers:
             headers = headers.copy()
-        traces_pos = get_cols(headers, "TRACE_SEQUENCE_FILE") - 1
+        traces_pos = get_cols(headers, "TRACE_SEQUENCE_FILE").to_numpy() - 1
         limits = get_first_defined(limits, self.limits)
         data, samples = self.loader.load_traces(traces_pos, limits=limits, return_samples=True)
         return Gather(headers=headers, data=data, samples=samples, survey=self)
@@ -980,7 +980,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         ----------
         path : str
             A path to the file with first break times in milliseconds.
-        trace_id_headers : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
+        trace_id_headers : str or tuple of str, defaults to ('FieldRecord', 'TraceNumber')
             Columns names from `self.headers`, whose values are stored in all but the last columns of the file.
         first_breaks_header : str, optional, defaults to 'FirstBreak'
             Column name in `self.headers` where loaded first break times will be stored.
@@ -1000,8 +1000,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             A survey with loaded times of first breaks.
         """
         headers = to_list(trace_id_headers) + [first_breaks_header]
-        return self.load_headers(path=path, headers=headers, join_on_headers=trace_id_headers, format=format,
-                                 decimal=decimal, inplace=inplace, **kwargs)
+        return self.load_headers(path=path, headers=headers, join_on=trace_id_headers, format=format, decimal=decimal,
+                                 inplace=inplace, **kwargs)
 
     #------------------------------------------------------------------------#
     #                       Survey processing methods                        #
@@ -1204,8 +1204,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         self : Survey
             A Survey unchanged
         """
-        columns = to_list(trace_id_headers) + to_list(first_breaks_header)
-        return self.dump_headers(path=path, columns=columns, format=format, **kwargs)
+        headers = to_list(trace_id_headers) + to_list(first_breaks_header)
+        return self.dump_headers(path=path, headers=headers, format=format, **kwargs)
 
     #------------------------------------------------------------------------#
     #                         Visualization methods                          #
