@@ -162,8 +162,7 @@ class Gather(TraceContainer, SamplesContainer):
             If the resulting gather is empty, or data ndim has changed, or joint attribute indexation is ambiguous.
         """
         # If key is str or array of str, treat it as names of headers columns
-        keys_array = np.array(to_list(key))
-        if keys_array.dtype.type == np.str_:
+        if all(isinstance(item, str) for item in to_list(key)):
             return super().__getitem__(key)
 
         # Perform traces and samples selection
@@ -947,7 +946,7 @@ class Gather(TraceContainer, SamplesContainer):
             Whether to mute areas where the time reversal occurred after nmo corrections.
         max_stretch_factor : float, optional, defaults to np.inf
             Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
-            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied.
+            The lower the value, the stronger the mute. In case np.inf (default) no mute is applied.
             Reasonably good value is 0.65
         fill_value : float, optional, defaults to np.nan
             Value used to fill the amplitudes outside the gather bounds after moveout.
