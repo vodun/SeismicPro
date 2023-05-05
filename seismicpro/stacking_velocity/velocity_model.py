@@ -20,8 +20,8 @@ def get_path_sum(spectrum_data, start_time_ix, start_vel_ix, end_time_ix, end_ve
 
 
 @njit(nogil=True)  # pylint: disable-next=too-many-function-args
-def create_edges_between_layers(spectrum_data, start_time, start_time_ix, start_bias, end_time, end_time_ix, end_bias,
-                                start_velocities, start_velocities_ix, end_velocities, end_velocities_ix,
+def create_edges_between_layers(spectrum_data, start_time, start_time_ix, start_velocities, start_velocities_ix,
+                                start_bias, end_time, end_time_ix, end_velocities, end_velocities_ix, end_bias,
                                 acceleration_bounds):
     dt = (end_time - start_time) / 1000
     edges = []
@@ -36,7 +36,7 @@ def create_edges_between_layers(spectrum_data, start_time, start_time_ix, start_
 
 
 @njit(nogil=True, parallel=True)
-def create_edges(spectrum_data, spectrum_times, spectrum_velocities, node_times_ix, node_velocities_ix, node_biases,
+def create_edges(spectrum_data, node_times, node_times_ix, node_velocities, node_velocities_ix, node_biases,
                  max_n_skips, acceleration_bounds):
     edges = [[(1, 1, -1.0)] for _ in range((max_n_skips + 1) * (len(node_times_ix) - 1))]
     for ix in prange(len(edges)):  # pylint: disable=not-an-iterable
@@ -44,8 +44,10 @@ def create_edges(spectrum_data, spectrum_times, spectrum_velocities, node_times_
         j = i + 1 + ix % (max_n_skips + 1)
         if j >= len(node_times_ix):
             continue
-        edges[ix] = create_edges_between_layers(i, j, spectrum_data, spectrum_times, spectrum_velocities,
-                                                node_times_ix, node_velocities_ix, node_biases, acceleration_bounds)
+        edges[ix] = create_edges_between_layers(spectrum_data, node_times[i], node_times_ix[i], node_velocities[i],
+                                                node_velocities_ix[i], node_biases[i], node_times[j], node_times_ix[j],
+                                                node_velocities[j], node_velocities_ix[j], node_biases[j],
+                                                acceleration_bounds)
     edges = [layer_edges for layer_edges in edges if (len(layer_edges) > 1) or (layer_edges[0][-1] > 0)]
     edges.append([(0, i + 1, 0.0) for i in range(len(node_velocities_ix[0]))])
     edges.append([(node_biases[-1] + i, node_biases[-1] + len(node_velocities_ix[-1]), 0.0)
@@ -114,8 +116,8 @@ def calculate_stacking_velocity(spectrum, init=None, bounds=None, relative_margi
     # Create a graph and find the path with maximal velocity spectrum sum along it
     n_nodes = 2 + sum(len(node_vels) for node_vels in node_velocities)
     node_biases = np.cumsum([1] + [len(node_vels) for node_vels in node_velocities[:-1]])
-    edges = create_edges(spectrum_data, spectrum_times, spectrum_velocities, node_times_ix, node_velocities_ix,
-                         node_biases, max_n_skips, acceleration_bounds)
+    edges = create_edges(spectrum_data, node_times, node_times_ix, node_velocities, node_velocities_ix, node_biases,
+                         max_n_skips, acceleration_bounds)
     graph = rx.PyDiGraph()
     for layer_edges in edges:
         graph.extend_from_weighted_edge_list(layer_edges)

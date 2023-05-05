@@ -134,9 +134,6 @@ class StackingVelocity(VFUNC):
         from ..velocity_spectrum import VerticalVelocitySpectrum  # pylint: disable=import-outside-toplevel
         if not isinstance(spectrum, VerticalVelocitySpectrum):
             raise ValueError("spectrum must be an instance of VerticalVelocitySpectrum")
-        spectrum_data = spectrum.velocity_spectrum
-        spectrum_times = np.asarray(spectrum.times, dtype=np.float32)
-        spectrum_velocities = np.asarray(spectrum.velocities, dtype=np.float32)
 
         if init is None and bounds is None:
             raise ValueError("Either init or bounds must be passed")
@@ -150,7 +147,7 @@ class StackingVelocity(VFUNC):
         kwargs = {"init": init, "bounds": bounds, "relative_margin": relative_margin,
                   "acceleration_bounds": acceleration_bounds, "times_step": times_step, "max_offset": max_offset,
                   "hodograph_correction_step": hodograph_correction_step, "max_n_skips": max_n_skips}
-        times, velocities = calculate_stacking_velocity(spectrum_data, spectrum_times, spectrum_velocities, **kwargs)
+        times, velocities = calculate_stacking_velocity(spectrum, **kwargs)
         return cls(times, velocities, coords=spectrum.coords)
 
     @batch_method(target="for", copy_src=False)
