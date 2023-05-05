@@ -826,11 +826,12 @@ class Gather(TraceContainer, SamplesContainer):
             provided, `stacking_velocity` is evaluated for gather times to estimate the velocity range being examined.
             The resulting velocities are then evenly sampled from this range being additionally extended by
             `relative_margin` * 100% in both directions with a step of `velocity_step`.
-        stacking_velocity : StackingVelocity, optional, defaults to DEFAULT_STACKING_VELOCITY
+        stacking_velocity : StackingVelocity or StackingVelocityField or str, optional,
+                            defaults to DEFAULT_STACKING_VELOCITY
             Stacking velocity around which vertical velocity spectrum is calculated if `velocities` are not given.
             `StackingVelocity` instance is used directly. If `StackingVelocityField` instance is passed,
-            a `StackingVelocity` corresponding to gather coordinates is fetched from it.
-            May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
+            a `StackingVelocity` corresponding to gather coordinates is fetched from it. May be `str` if called in a
+            pipeline: in this case it defines a component with stacking velocities to use.
         relative_margin : float, optional, defaults to 0.2
             Relative velocity margin to additionally extend the velocity range obtained from `stacking_velocity`: an
             interval [`min_velocity`, `max_velocity`] is mapped to [(1 - `relative_margin`) * `min_velocity`,
@@ -860,8 +861,6 @@ class Gather(TraceContainer, SamplesContainer):
         vertical_velocity_spectrum : VerticalVelocitySpectrum
             Calculated vertical velocity spectrum.
         """
-        if isinstance(stacking_velocity, StackingVelocityField):
-            stacking_velocity = stacking_velocity(self.coords)
         return VerticalVelocitySpectrum(gather=self, velocities=velocities, stacking_velocity=stacking_velocity,
                                         relative_margin=relative_margin, velocity_step=velocity_step,
                                         window_size=window_size, mode=mode, max_stretch_factor=max_stretch_factor)
@@ -884,11 +883,11 @@ class Gather(TraceContainer, SamplesContainer):
 
         Parameters
         ----------
-        stacking_velocity : StackingVelocity
-            Stacking velocity around which residual velocity spectrum is calculated.
-            `StackingVelocity` instance is used directly. If `StackingVelocityField` instance is passed,
-            a `StackingVelocity` corresponding to gather coordinates is fetched from it.
-            May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
+        stacking_velocity : StackingVelocity or StackingVelocityField or str
+            Stacking velocity around which residual velocity spectrum is calculated. `StackingVelocity` instance is
+            used directly. If `StackingVelocityField` instance is passed, a `StackingVelocity` corresponding to gather
+            coordinates is fetched from it. May be `str` if called in a pipeline: in this case it defines a component
+            with stacking velocities to use.
         relative_margin : float, optional, defaults to 0.2
             Relative velocity margin, that determines the velocity range for velocity spectrum calculation for each
             time `t` as `stacking_velocity(t)` * (1 +- `relative_margin`).
@@ -917,8 +916,6 @@ class Gather(TraceContainer, SamplesContainer):
         residual_velocity_spectrum : ResidualVelocitySpectrum
             Calculated residual velocity spectrum.
         """
-        if isinstance(stacking_velocity, StackingVelocityField):
-            stacking_velocity = stacking_velocity(self.coords)
         return ResidualVelocitySpectrum(gather=self, stacking_velocity=stacking_velocity,
                                         relative_margin=relative_margin, velocity_step=velocity_step,
                                         window_size=window_size, mode=mode, max_stretch_factor=max_stretch_factor)

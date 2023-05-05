@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 from .utils import coherency_funcs
 from .interactive_plot import VelocitySpectrumPlot
 from ..decorators import batch_method, plotter
-from ..stacking_velocity import StackingVelocity
+from ..stacking_velocity import StackingVelocity, StackingVelocityField
 from ..utils import add_colorbar, set_ticks, set_text_formatting, get_first_defined
 from ..gather.utils import correction
 from ..const import DEFAULT_STACKING_VELOCITY
@@ -314,8 +314,10 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         provided, `stacking_velocity` is evaluated for gather times to estimate the velocity range being examined.
         The resulting velocities are then evenly sampled from this range being additionally extended by
         `relative_margin` * 100% in both directions with a step of `velocity_step`.
-    stacking_velocity : StackingVelocity, optional, defaults to DEFAULT_STACKING_VELOCITY
+    stacking_velocity : StackingVelocity or StackingVelocityField, optional, defaults to DEFAULT_STACKING_VELOCITY
         Stacking velocity around which vertical velocity spectrum is calculated if `velocities` are not given.
+        `StackingVelocity` instance is used directly. If `StackingVelocityField` instance is passed, a
+        `StackingVelocity` corresponding to gather coordinates is fetched from it.
     relative_margin : float, optional, defaults to 0.2
         Relative velocity margin to additionally extend the velocity range obtained from `stacking_velocity`: an
         interval [`min_velocity`, `max_velocity`] is mapped to [(1 - `relative_margin`) * `min_velocity`,
@@ -357,6 +359,8 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         super().__init__(gather, window_size, mode, max_stretch_factor)
         if stacking_velocity is None:
             stacking_velocity = DEFAULT_STACKING_VELOCITY
+        if isinstance(stacking_velocity, StackingVelocityField):
+            stacking_velocity = stacking_velocity(self.coords)
         if velocities is None:
             velocities = self.get_velocity_range(stacking_velocity, relative_margin, velocity_step)
 
@@ -478,6 +482,8 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         """
         if title is None:
             title = f"Vertical Velocity Spectrum \n Coherency func: {self.coherency_func.__name__}"
+        if isinstance(stacking_velocity, StackingVelocityField):
+            stacking_velocity = stacking_velocity(self.coords)
         return super().plot(stacking_velocity=stacking_velocity, interactive=interactive, title=title, **kwargs)
 
     @batch_method(target="for", args_to_unpack="init", copy_src=False)
@@ -530,8 +536,10 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     ----------
     gather : Gather
         Seismic gather to calculate residual velocity spectrum for.
-    stacking_velocity : StackingVelocity
-        Stacking velocity around which residual velocity spectrum is calculated.
+    stacking_velocity : StackingVelocity or StackingVelocityField
+        Stacking velocity around which residual velocity spectrum is calculated. `StackingVelocity` instance is used
+        directly. If `StackingVelocityField` instance is passed, a `StackingVelocity` corresponding to gather
+        coordinates is fetched from it.
     relative_margin : float, optional, defaults to 0.2
         Relative velocity margin, that determines the velocity range for velocity spectrum calculation for each time
         `t` as `stacking_velocity(t)` * (1 +- `relative_margin`).
@@ -574,6 +582,8 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     def __init__(self, gather, stacking_velocity, relative_margin=0.2, velocity_step=50, window_size=50,
                  mode='semblance', max_stretch_factor=np.inf):
         super().__init__(gather, window_size, mode, max_stretch_factor)
+        if isinstance(stacking_velocity, StackingVelocityField):
+            stacking_velocity = stacking_velocity(self.coords)
         self.velocities = self.get_velocity_range(stacking_velocity, relative_margin, velocity_step)  # m/s
         self.stacking_velocity = stacking_velocity
         self.relative_margin = relative_margin
