@@ -20,7 +20,7 @@ def get_path_sum(spectrum_data, start_time_ix, start_vel_ix, end_time_ix, end_ve
     return res
 
 
-@njit(nogil=True)  # pylint: disable-next=too-many-function-args
+@njit(nogil=True)  # pylint: disable-next=too-many-arguments
 def create_edges_between_layers(spectrum_data, start_time, start_time_ix, start_velocities, start_velocities_ix,
                                 start_bias, end_time, end_time_ix, end_velocities, end_velocities_ix, end_bias,
                                 acceleration_bounds):
@@ -81,6 +81,7 @@ def calculate_stacking_velocity(spectrum, init=None, bounds=None, relative_margi
     max_spectrum_velocity = spectrum_velocities.max()
     min_vel_bound = np.clip(min_vel_bound, min_spectrum_velocity, max_spectrum_velocity)
     max_vel_bound = np.clip(max_vel_bound, min_spectrum_velocity, max_spectrum_velocity)
+    min_vel_bound = np.minimum(min_vel_bound, max_vel_bound)
     max_vel_bound = np.maximum(min_vel_bound, max_vel_bound)
 
     # Estimate node velocities for each time
@@ -122,8 +123,11 @@ def calculate_stacking_velocity(spectrum, init=None, bounds=None, relative_margi
     graph = rx.PyDiGraph()
     for layer_edges in edges:
         graph.extend_from_weighted_edge_list(layer_edges)
-    paths_dict = rx.dijkstra_shortest_paths(graph, 0, n_nodes - 1, weight_fn=float)
-    path = np.array(paths_dict[n_nodes - 1], dtype=np.int32)[1:-1]
+    end_node = n_nodes - 1
+    paths_dict = rx.dijkstra_shortest_paths(graph, 0, end_node, weight_fn=float)
+    if end_node not in paths_dict:
+        raise ValueError("No path was found for given parameters")
+    path = np.array(paths_dict[end_node], dtype=np.int32)[1:-1]
     times_ix = np.searchsorted(node_biases, path, side="right") - 1
     vels_ix = path - node_biases[times_ix]
     times = node_times[times_ix]
