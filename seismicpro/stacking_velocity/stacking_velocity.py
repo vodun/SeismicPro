@@ -5,7 +5,7 @@ import numpy as np
 from .velocity_model import calculate_stacking_velocity
 from ..muter import Muter
 from ..decorators import batch_method
-from ..utils import VFUNC
+from ..utils import to_list, VFUNC
 
 
 class StackingVelocity(VFUNC):
@@ -131,10 +131,26 @@ class StackingVelocity(VFUNC):
     def from_vertical_velocity_spectrum(cls, spectrum, init=None, bounds=None, relative_margin=0.2,
                                         acceleration_bounds="auto", times_step=100, max_offset=5000,
                                         hodograph_correction_step=10, max_n_skips=2):
+        from ..velocity_spectrum import VerticalVelocitySpectrum  # pylint: disable=import-outside-toplevel
+        if not isinstance(spectrum, VerticalVelocitySpectrum):
+            raise ValueError("spectrum must be an instance of VerticalVelocitySpectrum")
+        spectrum_data = spectrum.velocity_spectrum
+        spectrum_times = np.asarray(spectrum.times, dtype=np.float32)
+        spectrum_velocities = np.asarray(spectrum.velocities, dtype=np.float32)
+
+        if init is None and bounds is None:
+            raise ValueError("Either init or bounds must be passed")
+        if init is not None and not isinstance(init, StackingVelocity):
+            raise ValueError("init must be an instance of StackingVelocity")
+        if bounds is not None:
+            bounds = to_list(bounds)
+            if len(bounds) != 2 or not all(isinstance(bound, StackingVelocity) for bound in bounds):
+                raise ValueError("bounds must be an array-like with two StackingVelocity instances")
+
         kwargs = {"init": init, "bounds": bounds, "relative_margin": relative_margin,
                   "acceleration_bounds": acceleration_bounds, "times_step": times_step, "max_offset": max_offset,
                   "hodograph_correction_step": hodograph_correction_step, "max_n_skips": max_n_skips}
-        times, velocities = calculate_stacking_velocity(spectrum, **kwargs)
+        times, velocities = calculate_stacking_velocity(spectrum_data, spectrum_times, spectrum_velocities, **kwargs)
         return cls(times, velocities, coords=spectrum.coords)
 
     @batch_method(target="for", copy_src=False)
