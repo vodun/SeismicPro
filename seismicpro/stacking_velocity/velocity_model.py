@@ -7,11 +7,12 @@ from numba import njit, prange
 
 @njit(nogil=True)
 def get_path_sum(spectrum_data, start_time_ix, start_vel_ix, end_time_ix, end_vel_ix):
-    n_times = end_time_ix - start_time_ix + 1
-    vels_ix = np.linspace(start_vel_ix, end_vel_ix, n_times)[:-1]
+    n_points = end_time_ix - start_time_ix
+    dv = (end_vel_ix - start_vel_ix) / n_points
     res = 0
-    for i, vel_ix in enumerate(vels_ix):
+    for i in range(n_points):
         time_ix = start_time_ix + i
+        vel_ix = start_vel_ix + i * dv
         prev_vel_ix = math.floor(vel_ix)
         next_vel_ix = math.ceil(vel_ix)
         weight = next_vel_ix - vel_ix
@@ -57,7 +58,7 @@ def create_edges(spectrum_data, node_times, node_times_ix, node_velocities, node
 
 # pylint: disable-next=too-many-statements
 def calculate_stacking_velocity(spectrum, init=None, bounds=None, relative_margin=0.2, acceleration_bounds="auto",
-                                times_step=100, max_offset=5000, hodograph_correction_step=10, max_n_skips=2):
+                                times_step=100, max_offset=5000, hodograph_correction_step=25, max_n_skips=2):
     spectrum_data = spectrum.velocity_spectrum.max() - spectrum.velocity_spectrum
     spectrum_times = np.asarray(spectrum.times, dtype=np.float32)
     spectrum_velocities = np.asarray(spectrum.velocities, dtype=np.float32)
@@ -106,7 +107,7 @@ def calculate_stacking_velocity(spectrum, init=None, bounds=None, relative_margi
         max_vel_accelerations = np.diff(max_vel_bound) / dt
         min_acceleration = min(min_vel_accelerations.min(), max_vel_accelerations.min())
         max_acceleration = max(min_vel_accelerations.max(), max_vel_accelerations.max())
-        acceleration_bounds = [min_acceleration / 2, max_acceleration * 2]
+        acceleration_bounds = [min_acceleration * 0.5, max_acceleration * 1.5]
     acceleration_bounds = np.array(acceleration_bounds, dtype=np.float32)
     if len(acceleration_bounds) != 2:
         raise ValueError("acceleration_bounds must be an array-like with 2 elements")

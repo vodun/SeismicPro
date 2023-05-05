@@ -130,7 +130,7 @@ class StackingVelocity(VFUNC):
     @classmethod
     def from_vertical_velocity_spectrum(cls, spectrum, init=None, bounds=None, relative_margin=0.2,
                                         acceleration_bounds="auto", times_step=100, max_offset=5000,
-                                        hodograph_correction_step=10, max_n_skips=2):
+                                        hodograph_correction_step=25, max_n_skips=2):
         from ..velocity_spectrum import VerticalVelocitySpectrum  # pylint: disable=import-outside-toplevel
         if not isinstance(spectrum, VerticalVelocitySpectrum):
             raise ValueError("spectrum must be an instance of VerticalVelocitySpectrum")

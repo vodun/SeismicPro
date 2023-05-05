@@ -488,7 +488,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
 
     @batch_method(target="for", args_to_unpack="init", copy_src=False)
     def calculate_stacking_velocity(self, init=None, bounds=None, relative_margin=None, acceleration_bounds="auto",
-                                    times_step=100, max_offset=5000, hodograph_correction_step=10, max_n_skips=2):
+                                    times_step=100, max_offset=5000, hodograph_correction_step=25, max_n_skips=2):
         """Calculate stacking velocity by vertical velocity spectrum."""
         kwargs = {"init": get_first_defined(init, self.stacking_velocity), "bounds": bounds,
                   "relative_margin": get_first_defined(relative_margin, self.relative_margin),
