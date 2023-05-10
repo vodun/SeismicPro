@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 
 from .utils import coherency_funcs
 from .interactive_plot import VelocitySpectrumPlot
+from ..containers import SamplesContainer
 from ..decorators import batch_method, plotter
 from ..stacking_velocity import StackingVelocity, StackingVelocityField
 from ..utils import add_colorbar, set_ticks, set_text_formatting, get_first_defined
@@ -32,7 +33,7 @@ COHERENCY_FUNCS = {
 }
 
 
-class BaseVelocitySpectrum:
+class BaseVelocitySpectrum(SamplesContainer):
     """Base class for vertical velocity spectrum calculation.
 
     Implements general computation logic and a method for spectrum visualization.
@@ -73,9 +74,9 @@ class BaseVelocitySpectrum:
             raise ValueError(f"Unknown mode {mode}, available modes are {COHERENCY_FUNCS.keys()}")
 
     @property
-    def times(self):
+    def samples(self):
         """np.ndarray of floats: Recording time for each trace value. Measured in milliseconds."""
-        return self.gather.times  # ms
+        return self.gather.samples  # ms
 
     @property
     def sample_interval(self):
@@ -83,14 +84,8 @@ class BaseVelocitySpectrum:
         return self.gather.sample_interval
 
     @property
-    def sample_rate(self):
-        """float: Sample rate of seismic traces. Measured in Hz."""
-        return self.gather.sample_rate
-
-    @property
-    def offsets(self):
-        """np.ndarray of floats: The distance between source and receiver for each trace. Measured in meters."""
-        return self.gather.offsets  # m
+    def delay(self):
+        return self.gather.delay
 
     @property
     def coords(self):
@@ -370,7 +365,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
 
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
         kwargs = {"spectrum_func": self.calc_single_velocity_spectrum, "coherency_func": self.coherency_func,
-                  "gather_data": self.gather.data, "times": self.times, "offsets": self.offsets,
+                  "gather_data": self.gather.data, "times": self.times, "offsets": self.gather.offsets,
                   "velocities": velocities_ms, "sample_interval": self.sample_interval,
                   "max_stretch_factor": max_stretch_factor, "half_win_size_samples": self.half_win_size_samples}
         self.velocity_spectrum = self._calc_spectrum_numba(**kwargs)
@@ -631,7 +626,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         left_bound_ix, right_bound_ix = self._calc_velocity_bounds()
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
         kwargs = {"spectrum_func": self.calc_single_velocity_spectrum, "coherency_func": self.coherency_func,
-                  "gather_data": self.gather.data, "times": self.times, "offsets": self.offsets,
+                  "gather_data": self.gather.data, "times": self.times, "offsets": self.gather.offsets,
                   "velocities": velocities_ms, "left_bound_ix": left_bound_ix, "right_bound_ix": right_bound_ix,
                   "half_win_size_samples": self.half_win_size_samples, "sample_interval": self.sample_interval,
                   "max_stretch_factor": max_stretch_factor}
