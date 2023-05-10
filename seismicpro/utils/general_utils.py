@@ -60,7 +60,8 @@ def get_first_defined(*args):
 
 
 def get_cols(df, cols):
-    """Extract columns from `cols` from the `df` DataFrame columns or index as a new instance of `pd.DataFrame`."""
+    """Extract columns from `cols` from the `df` DataFrame columns or index as a new instance of `pd.DataFrame` if
+    `cols` is array-like or `pd.Series` if `cols` is string."""
     if df.columns.nlevels == 1:  # Flat column index
         is_single_col = isinstance(cols, str)
         cols = to_list(cols)

@@ -1043,7 +1043,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
                                chunk_size=chunk_size, n_workers=n_workers)
 
     def load_first_breaks(self, path, trace_id_headers=('FieldRecord', 'TraceNumber'),
-                          first_breaks_header=HDR_FIRST_BREAK, format="fwf", decimal=None, inplace=False, **kwargs):
+                          first_breaks_header=HDR_FIRST_BREAK, decimal=None, inplace=False, **kwargs):
         """Load times of first breaks from a file and save them to a new column in headers.
 
         Each line of the file stores the first break time for a trace in the last column. The combination of all but
@@ -1059,9 +1059,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             Columns names from `self.headers`, whose values are stored in all but the last columns of the file.
         first_breaks_header : str, optional, defaults to 'FirstBreak'
             Column name in `self.headers` where loaded first break times will be stored.
-        format : "fwf" or "csv", optional, defaults to "fwf"
-            Format of the file with first breaks. If "fwf", file treated as fixed-width format.
-            If "csv"- comma-separated format.
         decimal : str, defaults to None
             Decimal point character. If not provided, it will be inferred from the file. Used only for "fwf" `format`.
         inplace : bool, optional, defaults to False
@@ -1075,8 +1072,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             A survey with loaded times of first breaks.
         """
         headers_names = to_list(trace_id_headers) + [first_breaks_header]
-        return self.load_headers(path=path, headers_names=headers_names, join_on=trace_id_headers, format=format,
-                                 decimal=decimal, inplace=inplace, **kwargs)
+        return self.load_headers(path=path, headers_names=headers_names, join_on=trace_id_headers, decimal=decimal,
+                                 inplace=inplace, **kwargs)
 
     #------------------------------------------------------------------------#
     #                       Survey processing methods                        #
@@ -1256,7 +1253,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     #------------------------------------------------------------------------#
 
     def dump_first_breaks(self, path, trace_id_headers=('FieldRecord', 'TraceNumber'),
-                          first_breaks_header=HDR_FIRST_BREAK, format="fwf", **kwargs):
+                          first_breaks_header=HDR_FIRST_BREAK, **kwargs):
         """ Save first break picking times to a file.
 
         Each line in the resulting file corresponds to one trace, where all columns but the last one store values from

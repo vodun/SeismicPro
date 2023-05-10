@@ -5,6 +5,8 @@ import glob
 
 import segyio
 import numpy as np
+import pandas as pd
+import polars as pl
 from tqdm.auto import tqdm
 
 from .general_utils import to_list
@@ -87,6 +89,53 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=False, keep_exts=(
     if delete_in_files:
         for path in in_paths:
             os.remove(path)
+
+
+def load_dataframe(path, columns=None, format="fwf", has_header=False, usecols=None, sep=',', skiprows=0, decimal=None,
+                   encoding="UTF-8", **kwargs):
+    """Read a file into a `pd.DataFrame`. See :func:`TraceContainer.load_headers` for arguments description."""
+    if usecols is not None or decimal is None:
+        with open(path, 'r', encoding=encoding) as f:
+            n_skip = 1 + has_header + skiprows
+            row = [next(f) for _ in range(n_skip)][-1]
+        # If decimal is not provided, try inferring it from the file
+        if decimal is None:
+            decimal = '.' if '.' in row else ','
+        if usecols is not None:
+            usecols = np.asarray(usecols)
+            if any(usecols < 0):  # Processing negative `usecols`
+                usecols_sep = sep if format == "csv" else None
+                # Find the position of columns with negative `usecols` by adding them to the total number of
+                # columns in the file.
+                usecols = np.arange(len(row.split(usecols_sep)))[usecols]
+                if np.any(usecols[:-1] > usecols[1:]):
+                    raise ValueError("`usecols` should be sorted in ascending order.")
+            usecols = usecols.tolist()
+
+    if format == "fwf":
+        header = 0 if has_header else None
+        loaded_headers = pd.read_csv(path, sep=r'\s+', header=header, names=columns, usecols=usecols,
+                                     decimal=decimal, skiprows=skiprows, encoding=encoding, **kwargs)
+        loaded_headers = pl.from_pandas(loaded_headers)
+    elif format == "csv":
+        columns, new_columns = (columns, None) if has_header else (usecols, columns)
+        loaded_headers = pl.read_csv(path, has_header=has_header, columns=columns, new_columns=new_columns,
+                                     separator=sep, skip_rows=skiprows, encoding=encoding, **kwargs)
+    else:
+        raise ValueError(f"Unknown format `{format}`, available formats are ('fwf', 'csv')")
+    return loaded_headers
+
+
+def dump_dataframe(path, df, format="fwf", dump_columns_names=False, float_precision=None, **kwargs):
+    """Save a provided `pd.DataFrame` to a file. See :func:`TraceContainer.dump_headers` for arguments description."""
+    if format == "fwf":
+        float_format = f"%.{float_precision}f" if float_precision is not None else float_precision
+        df.to_string(path, header=dump_columns_names, index=False, float_format=float_format, **kwargs)
+    elif format == "csv":
+        df = pl.from_pandas(df)
+        df.write_csv(path, has_header=dump_columns_names, float_precision=float_precision, **kwargs)
+    else:
+        raise ValueError(f"Unknown format `{format}`, available formats are ('fwf', 'csv')")
 
 
 # pylint: disable=too-many-arguments, invalid-name
