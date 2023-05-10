@@ -3,8 +3,6 @@
 import numpy as np
 
 from .velocity_model import calculate_stacking_velocity
-from ..muter import Muter
-from ..decorators import batch_method
 from ..utils import to_list, VFUNC
 
 
