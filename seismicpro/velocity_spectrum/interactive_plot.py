@@ -4,7 +4,7 @@ from functools import partial
 
 import numpy as np
 
-from ..utils import get_text_formatting_kwargs, times_to_indices
+from ..utils import get_text_formatting_kwargs
 from ..utils.interactive_plot_utils import InteractivePlot, PairedPlot
 
 
