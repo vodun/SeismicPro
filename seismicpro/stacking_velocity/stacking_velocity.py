@@ -131,6 +131,44 @@ class StackingVelocity(VFUNC):
     def from_vertical_velocity_spectrum(cls, spectrum, init=None, bounds=None, relative_margin=0.2,
                                         acceleration_bounds="auto", times_step=100, max_offset=5000,
                                         hodograph_correction_step=25, max_n_skips=2):
+        """Calculate stacking velocity by vertical velocity spectrum.
+
+        Notes
+        -----
+        A detailed description of the proposed algorithm and its implementation can be found in
+        :func:`~velocity_model.calculate_stacking_velocity` docs.
+
+        Parameters
+        ----------
+        init : StackingVelocity, optional
+            A rough estimate of the stacking velocity being picked. Used to calculate `bounds` as
+            [`init` * (1 - `relative_margin`), `init` * (1 + `relative_margin`)] if they are not given.
+        bounds : array-like of two StackingVelocity, optional
+            Left and right bounds of an area for stacking velocity picking. If not given, `init` must be passed.
+        relative_margin : positive float, optional, defaults to 0.2
+            A fraction of stacking velocities defined by `init` used to estimate `bounds` if they are not given.
+        acceleration_bounds : tuple of two positive floats or "auto" or None, optional
+            Minimal and maximal acceleration allowed for the stacking velocity function. If "auto", equals to the range
+            of accelerations of stacking velocities in `bounds` extended by 50% in both directions. If `None`, only
+            ensures that picked stacking velocity is monotonically increasing. Measured in meters/seconds^2.
+        times_step : float, optional, defaults to 100
+            A difference between two adjacent times defining graph nodes.
+        max_offset : float, optional, defaults to 5000
+            An offset for hodograph time estimation. Used to create graph nodes and calculate their velocities for each
+            time.
+        hodograph_correction_step : float, optional, defaults to 25
+            The maximum difference in arrival time of two hodographs starting at the same zero-offset time and two
+            adjacent velocities at `max_offset`. Used to create graph nodes and calculate their velocities for each
+            time.
+        max_n_skips : int, optional, defaults to 2
+            Defines the maximum number of subsequent times to skip to still be able to connect two nodes of the graph
+            with an edge.
+
+        Returns
+        -------
+        stacking_velocity : StackingVelocity
+            Calculated stacking velocity.
+        """
         from ..velocity_spectrum import VerticalVelocitySpectrum  # pylint: disable=import-outside-toplevel
         if not isinstance(spectrum, VerticalVelocitySpectrum):
             raise ValueError("spectrum must be an instance of VerticalVelocitySpectrum")
