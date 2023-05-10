@@ -162,8 +162,7 @@ class Gather(TraceContainer, SamplesContainer):
             If the resulting gather is empty or data ndim has changed.
         """
         # If key is str or array of str, treat it as names of headers columns
-        keys_array = np.array(to_list(key))
-        if keys_array.dtype.type == np.str_:
+        if all(isinstance(item, str) for item in to_list(key)):
             return super().__getitem__(key)
 
         # Split key into indexers of traces and samples
@@ -794,8 +793,9 @@ class Gather(TraceContainer, SamplesContainer):
     #             Vertical Velocity Spectrum calculation methods             #
     #------------------------------------------------------------------------#
 
-    @batch_method(target="for", copy_src=False)
-    def calculate_vertical_velocity_spectrum(self, velocities=None, window_size=50, mode="semblance",
+    @batch_method(target="for", args_to_unpack="stacking_velocity", copy_src=False)
+    def calculate_vertical_velocity_spectrum(self, velocities=None, stacking_velocity=None, relative_margin=0.2,
+                                             velocity_step=50, window_size=50, mode='semblance',
                                              max_stretch_factor=np.inf):
         """Calculate vertical velocity spectrum for the gather.
 
@@ -808,48 +808,61 @@ class Gather(TraceContainer, SamplesContainer):
         --------
         Calculate vertical velocity spectrum with default parameters: velocities evenly spaces around default stacking
         velocity, 50 ms temporal window size, semblance coherency measure and no muting of hodograph stretching:
-        >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum()
-    
+        >>> spectrum = gather.calculate_vertical_velocity_spectrum()
+
         Calculate vertical velocity spectrum for 200 velocities from 2000 to 6000 m/s, temporal window size of 128 ms,
-        crosscorrelation coherency measure and muting stretching effects greater than 0.65:
-        >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum(
-                                                                velocities=np.linspace(2000, 6000, 200), 
-                                                                window_size=128, mode='CC', max_stretch_factor=0.65)
+        crosscorrelation coherency measure and muting of stretching effects greater than 65%:
+        >>> spectrum = gather.calculate_vertical_velocity_spectrum(velocities=np.linspace(2000, 6000, 200), mode='CC',
+                                                                   window_size=128, max_stretch_factor=0.65)
 
         Parameters
         ----------
-        velocities : 1d np.ndarray or None, optional, defaults to None.
-            Range of velocity values for which velocity spectrum is calculated. Measured in meters/seconds.
-            If not provided velocity range is inferred from const.DEFAULT_STACKING_VELOCITY evaluated for gather times
-            and then additionally extended by 20%. Spectrum velocities are evenly sampled from this range
-            with a step of 100 m/s.
+        velocities : 1d np.ndarray, optional, defaults to None
+            An array of stacking velocities to calculate the velocity spectrum for. Measured in meters/seconds. If not
+            provided, `stacking_velocity` is evaluated for gather times to estimate the velocity range being examined.
+            The resulting velocities are then evenly sampled from this range being additionally extended by
+            `relative_margin` * 100% in both directions with a step of `velocity_step`.
+        stacking_velocity : StackingVelocity or StackingVelocityField or str, optional,
+                            defaults to DEFAULT_STACKING_VELOCITY
+            Stacking velocity around which vertical velocity spectrum is calculated if `velocities` are not given.
+            `StackingVelocity` instance is used directly. If `StackingVelocityField` instance is passed,
+            a `StackingVelocity` corresponding to gather coordinates is fetched from it. May be `str` if called in a
+            pipeline: in this case it defines a component with stacking velocities to use.
+        relative_margin : float, optional, defaults to 0.2
+            Relative velocity margin to additionally extend the velocity range obtained from `stacking_velocity`: an
+            interval [`min_velocity`, `max_velocity`] is mapped to [(1 - `relative_margin`) * `min_velocity`,
+            (1 + `relative_margin`) * `max_velocity`].
+        velocity_step : float, optional, defaults to 50
+            A step between two adjacent velocities for which vertical velocity spectrum is calculated if `velocities`
+            are not passed. Measured in meters/seconds.
         window_size : int, optional, defaults to 50
             Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother
-            the resulting velocity spectrum will be but to the detriment of small details. Measured in ms.
+            the resulting velocity spectrum will be but to the detriment of small details. Measured in milliseconds.
         mode: str, optional, defaults to 'semblance'
-            The measure for estimating hodograph coherency. 
-            The available options are: 
+            The measure for estimating hodograph coherency.
+            The available options are:
                 `semblance` or `NE`,
                 `stacked_amplitude` or `S`,
                 `normalized_stacked_amplitude` or `NS`,
                 `crosscorrelation` or `CC`,
-                `energy_normalized_crosscorrelation` or `ENCC`
+                `energy_normalized_crosscorrelation` or `ENCC`.
         max_stretch_factor : float, defaults to np.inf
             Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
-            This mute is applied after nmo correction for each provided velocity and before coherency calculation.
-            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
-            Reasonably good value is 0.65
+            This mute is applied after nmo correction for each provided velocity and before coherency calculation. The
+            lower the value, the stronger the mute. In case np.inf (default) no mute is applied. Reasonably good value
+            is 0.65.
 
         Returns
         -------
         vertical_velocity_spectrum : VerticalVelocitySpectrum
             Calculated vertical velocity spectrum.
         """
-        return VerticalVelocitySpectrum(gather=self, velocities=velocities, window_size=window_size, mode=mode,
-                                        max_stretch_factor=max_stretch_factor)
+        return VerticalVelocitySpectrum(gather=self, velocities=velocities, stacking_velocity=stacking_velocity,
+                                        relative_margin=relative_margin, velocity_step=velocity_step,
+                                        window_size=window_size, mode=mode, max_stretch_factor=max_stretch_factor)
 
     @batch_method(target="for", args_to_unpack="stacking_velocity", copy_src=False)
-    def calculate_residual_velocity_spectrum(self, stacking_velocity, n_velocities=140, relative_margin=0.2,
+    def calculate_residual_velocity_spectrum(self, stacking_velocity, relative_margin=0.2, velocity_step=50,
                                              window_size=50, mode="semblance", max_stretch_factor=np.inf):
         """Calculate residual velocity spectrum for the gather and provided stacking velocity.
 
@@ -858,53 +871,50 @@ class Gather(TraceContainer, SamplesContainer):
         A detailed description of residual velocity spectrum and its computation algorithm can be found in
         :func:`~velocity_spectrum.ResidualVelocitySpectrum` docs.
 
-
         Examples
         --------
         Calculate residual velocity spectrum for a gather and a stacking velocity, loaded from a file:
         >>> velocity = StackingVelocity.from_file(velocity_path)
-        >>> residual_spectrum = gather.calculate_residual_velocity_spectrum(velocity, n_velocities=100, window_size=8)
+        >>> spectrum = gather.calculate_residual_velocity_spectrum(velocity, velocity_step=100, window_size=32)
 
         Parameters
         ----------
         stacking_velocity : StackingVelocity or StackingVelocityField or str
-            Stacking velocity around which residual velocity spectrum is calculated. 
-            `StackingVelocity` instance is used directly. If `StackingVelocityField` instance is passed, 
-            a `StackingVelocity` corresponding to gather coordinates is fetched from it.
-            May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
-        n_velocities : int, optional, defaults to 140
-            The number of velocities to compute residual velocity spectrum for.
+            Stacking velocity around which residual velocity spectrum is calculated. `StackingVelocity` instance is
+            used directly. If `StackingVelocityField` instance is passed, a `StackingVelocity` corresponding to gather
+            coordinates is fetched from it. May be `str` if called in a pipeline: in this case it defines a component
+            with stacking velocities to use.
         relative_margin : float, optional, defaults to 0.2
-            Relative velocity margin, that determines the velocity range for residual spectrum calculation 
-            for each time `t` as `stacking_velocity(t)` * (1 +- `relative_margin`).
+            Relative velocity margin, that determines the velocity range for velocity spectrum calculation for each
+            time `t` as `stacking_velocity(t)` * (1 +- `relative_margin`).
+        velocity_step : float, optional, defaults to 50
+            A step between two adjacent velocities for which residual velocity spectrum is calculated. Measured in
+            meters/seconds.
         window_size : int, optional, defaults to 50
-            Temporal window size used for residual velocity spectrum calculation. Measured in ms.
-            The higher the `window_size` is, the smoother the resulting spectrum will be but to the
-            detriment of small details.
+            Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother
+            the resulting velocity spectrum will be but to the detriment of small details. Measured in milliseconds.
         mode: str, optional, defaults to 'semblance'
-            The measure for estimating hodograph coherency. 
-            The available options are: 
+            The measure for estimating hodograph coherency.
+            The available options are:
                 `semblance` or `NE`,
                 `stacked_amplitude` or `S`,
                 `normalized_stacked_amplitude` or `NS`,
                 `crosscorrelation` or `CC`,
-                `energy_normalized_crosscorrelation` or `ENCC`
+                `energy_normalized_crosscorrelation` or `ENCC`.
         max_stretch_factor : float, defaults to np.inf
             Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
-            This mute is applied after nmo correction for each provided velocity and before coherency calculation.
-            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied. 
-            Reasonably good value is 0.65
+            This mute is applied after nmo correction for each provided velocity and before coherency calculation. The
+            lower the value, the stronger the mute. In case np.inf (default) no mute is applied. Reasonably good value
+            is 0.65.
 
         Returns
         -------
         residual_velocity_spectrum : ResidualVelocitySpectrum
             Calculated residual velocity spectrum.
         """
-        if isinstance(stacking_velocity, StackingVelocityField):
-            stacking_velocity = stacking_velocity(self.coords)
-        return ResidualVelocitySpectrum(gather=self, stacking_velocity=stacking_velocity, n_velocities=n_velocities,
-                                        window_size=window_size, relative_margin=relative_margin, mode=mode,
-                                        max_stretch_factor=max_stretch_factor)
+        return ResidualVelocitySpectrum(gather=self, stacking_velocity=stacking_velocity,
+                                        relative_margin=relative_margin, velocity_step=velocity_step,
+                                        window_size=window_size, mode=mode, max_stretch_factor=max_stretch_factor)
 
     #------------------------------------------------------------------------#
     #                           Gather corrections                           #
@@ -981,7 +991,7 @@ class Gather(TraceContainer, SamplesContainer):
             Whether to mute areas where the time reversal occurred after nmo corrections.
         max_stretch_factor : float, optional, defaults to np.inf
             Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
-            The lower the value, the stronger the mute. In case np.inf (default) no mute is applied. 
+            The lower the value, the stronger the mute. In case np.inf (default) no mute is applied.
             Reasonably good value is 0.65
         fill_value : float, optional, defaults to np.nan
             Value used to fill the amplitudes outside the gather bounds after moveout.
