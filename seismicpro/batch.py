@@ -223,7 +223,9 @@ class SeismicBatch(Batch):
             for gather_chunk in np.split(gathers, split_pos):
                 headers = pd.concat([gather.headers for gather in gather_chunk])
                 data = np.concatenate([gather.data for gather in gather_chunk])
-                combined_gathers.append(Gather(headers, data, gather_chunk[0].samples, gather_chunk[0].survey))
+                gather = Gather(headers, data, sample_interval=gather_chunk[0].sample_interval,
+                                delay=gather_chunk[0].delay, survey=gather_chunk[0].survey)
+                combined_gathers.append(gather)
             combined_batch.add_components(dst, init=np.array(combined_gathers))
         return combined_batch
 
