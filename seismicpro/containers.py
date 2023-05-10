@@ -34,6 +34,11 @@ class SamplesContainer:
         """int: Trace length in samples."""
         return len(self.times)
 
+    @property
+    def sample_rate(self):
+        """float: Sample rate of seismic traces. Measured in Hz."""
+        return 1000 / self.sample_interval
+
 
 class TraceContainer:
     """A mixin class that implements extra properties and processing methods for concrete subclasses with defined

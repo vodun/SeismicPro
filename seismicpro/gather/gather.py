@@ -79,14 +79,16 @@ class Gather(TraceContainer, SamplesContainer):
     sort_by : None or str or list of str
         Headers that were used for gather sorting. If `None`, no sorting was performed.
     """
-    def __init__(self, headers, data, samples, survey):
+    def __init__(self, headers, data, sample_interval, survey, delay=0):
+        if sample_interval <= 0:
+            raise ValueError("Sample interval must be positive")
+        if delay < 0:
+            raise ValueError("Delay must be non-negative")
         self.headers = headers
         self.data = data
-        self.samples = samples
-        unique_sample_intervals = np.unique(np.diff(self.samples))
-        if len(unique_sample_intervals) != 1:
-            raise ValueError("`samples` must be evenly spaced")
-        self.sample_interval = unique_sample_intervals.item()
+        self.sample_interval = sample_interval
+        self.delay = delay
+        self.samples = (delay + sample_interval * np.arange(data.shape[1])).astype(np.float32)
         self.survey = survey
         self.sort_by = None
 
@@ -99,11 +101,6 @@ class Gather(TraceContainer, SamplesContainer):
         if len(indices) != 1:
             return None
         return indices[0]
-
-    @property
-    def sample_rate(self):
-        """float: Sample rate of seismic traces. Measured in Hz."""
-        return 1000 / self.sample_interval
 
     @property
     def offsets(self):
@@ -172,24 +169,35 @@ class Gather(TraceContainer, SamplesContainer):
             raise KeyError("Data ndim must not change")
         traces_indexer, samples_indexer = key
 
+        def int_to_slice(ix, size):
+            """Convert an `int` to a slice to be further used for array indexing, that will return a view and preserve
+            array shape."""
+            if ix < 0:
+                ix += size
+            if (ix < 0) or (ix > size - 1):
+                raise IndexError("gather index out of range")
+            return slice(ix, ix + 1)
+
         # Cast samples indexer to a slice so that possible advanced indexing is performed only along traces axis
         if isinstance(samples_indexer, (int, np.integer)):
-            samples_indexer %= self.n_samples  # Convert negative array index to a corresponding positive one
-            samples_indexer = slice(samples_indexer, samples_indexer + 1)
+            samples_indexer = int_to_slice(samples_indexer, self.n_samples)
         if not isinstance(samples_indexer, slice):
             raise KeyError("Only basic indexing and slicing is supported along the time axis")
+        delay_ix, _, samples_step = samples_indexer.indices(self.n_samples)
+        if samples_step < 0:
+            raise ValueError("Negative step is not allowed for samples slicing")
 
-        # Cast a single trace indexer to a list to force advanced indexing and keep data dims
+        # Cast a single trace indexer to a slice
         if isinstance(traces_indexer, (int, np.integer)):
-            traces_indexer = [traces_indexer]
+            traces_indexer = int_to_slice(traces_indexer, self.n_traces)
 
         # Index data and make it C-contiguous since otherwise some numba functions may fail
         data = np.require(self.data[traces_indexer, samples_indexer], requirements="C")
-        if data.size == 0:
+        if data.size == 0:  # e.g. after empty slicing
             raise ValueError("Empty gather after indexation")
         headers = self.headers.iloc[traces_indexer]
-        samples = self.samples[samples_indexer]
-        gather = Gather(headers, data, samples, self.survey)
+        sample_interval = self.sample_interval * samples_step
+        gather = Gather(headers, data, sample_interval, delay=self.samples[delay_ix], survey=self.survey)
 
         # Preserve gather sorting if needed
         if self.sort_by is not None:
@@ -265,7 +273,7 @@ class Gather(TraceContainer, SamplesContainer):
     @batch_method(target="for", copy_src=False)
     def get_item(self, *args):
         """An interface for `self.__getitem__` method."""
-        return self[args if len(args) > 1 else args[0]]
+        return self[args if len(args) > 1 else args[0]].copy()
 
     def _post_filter(self, mask):
         """Remove traces from gather data that correspond to filtered headers after `Gather.filter`."""
