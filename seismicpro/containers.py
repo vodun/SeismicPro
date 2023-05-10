@@ -39,6 +39,16 @@ class SamplesContainer:
         """float: Sample rate of seismic traces. Measured in Hz."""
         return 1000 / self.sample_interval
 
+    @staticmethod
+    def create_samples(n_samples, sample_interval, delay=0):
+        return (delay + sample_interval * np.arange(n_samples)).astype(np.float32)
+
+    def times_to_indices(self, times, round=False):
+        indices = (times - self.delay) / self.sample_interval
+        if round:
+            indices = np.rint(indices).astype(np.int32)
+        return indices
+
 
 class TraceContainer:
     """A mixin class that implements extra properties and processing methods for concrete subclasses with defined

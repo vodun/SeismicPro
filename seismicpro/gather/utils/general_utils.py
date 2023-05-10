@@ -3,11 +3,9 @@
 import numpy as np
 from numba import njit, prange
 
-from ...utils import times_to_indices
-
 
 @njit(nogil=True)
-def convert_times_to_mask(times, samples):
+def convert_times_to_mask(times, n_samples, sample_interval, delay):
     """Convert `times` to indices by finding a nearest position in `samples` for each time in `times` and construct a
     boolean mask with shape (len(times), len(samples)) with `False` values before calculated time index for each row
     and `True` after.
@@ -33,12 +31,12 @@ def convert_times_to_mask(times, samples):
     mask : np.ndarray of bool
         Boolean mask with shape (len(times), len(samples)).
     """
-    times_indices = times_to_indices(times, samples, round=True)
-    return (np.arange(len(samples)) - times_indices.reshape(-1, 1)) >= 0
+    times_indices = np.rint((times - delay) / sample_interval)
+    return (np.arange(n_samples) - times_indices.reshape(-1, 1)) >= 0
 
 
 @njit(nogil=True, parallel=True)
-def convert_mask_to_pick(mask, samples, threshold):
+def convert_mask_to_pick(mask, threshold, sample_interval, delay):
     """Convert a first breaks `mask` into an array of arrival times.
 
     The mask has shape (n_traces, trace_length), each its value represents a probability of corresponding index along
@@ -94,12 +92,12 @@ def convert_mask_to_pick(mask, samples, threshold):
         if curr_len > max_len:
             picking_ix = len(trace)
             max_len = curr_len
-        picking_times[i] = samples[picking_ix - max_len]
+        picking_times[i] = delay + sample_interval * (picking_ix - max_len)
     return picking_times
 
 
 @njit(nogil=True)
-def mute_gather(gather_data, muting_times, samples, fill_value):
+def mute_gather(gather_data, muting_times, sample_interval, delay, fill_value):
     """Fill area before `muting_times` with `fill_value`.
 
     Parameters
@@ -119,7 +117,7 @@ def mute_gather(gather_data, muting_times, samples, fill_value):
     gather_data : 2d np.ndarray
         Muted gather data.
     """
-    mask = convert_times_to_mask(times=muting_times, samples=samples)
+    mask = convert_times_to_mask(muting_times, gather_data.shape[1], sample_interval, delay)
     data_shape = gather_data.shape
     gather_data = gather_data.reshape(-1)
     mask = mask.reshape(-1)

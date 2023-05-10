@@ -18,7 +18,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from .cropped_gather import CroppedGather
 from .plot_corrections import NMOCorrectionPlot, LMOCorrectionPlot
 from .utils import correction, normalization, gain
-from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
+from .utils import convert_times_to_mask, convert_mask_to_pick, mute_gather, make_origins
 from ..utils import (to_list, get_coords_cols, get_first_defined, set_ticks, format_subplot_yticklabels,
                      set_text_formatting, add_colorbar, piecewise_polynomial, Coordinates)
 from ..containers import TraceContainer, SamplesContainer
@@ -88,7 +88,7 @@ class Gather(TraceContainer, SamplesContainer):
         self.data = data
         self.sample_interval = sample_interval
         self.delay = delay
-        self.samples = (delay + sample_interval * np.arange(data.shape[1])).astype(np.float32)
+        self.samples = self.create_samples(data.shape[1], sample_interval, delay)
         self.survey = survey
         self.sort_by = None
 
@@ -625,9 +625,10 @@ class Gather(TraceContainer, SamplesContainer):
         gather : Gather
             A new `Gather` with calculated first breaks mask in its `data` attribute.
         """
-        mask = convert_times_to_mask(times=self[first_breaks_col], samples=self.samples).astype(np.int32)
+        mask = convert_times_to_mask(times=self[first_breaks_col], n_samples=self.n_samples,
+                                     sample_interval=self.sample_interval, delay=self.delay)
         gather = self.copy(ignore='data')
-        gather.data = mask
+        gather.data = mask.astype(np.int32)
         return gather
 
     @batch_method(target='threads', args_to_unpack='save_to')
@@ -659,7 +660,8 @@ class Gather(TraceContainer, SamplesContainer):
         self : Gather
             A gather with first break times in headers column defined by `first_breaks_col`.
         """
-        picking_times = convert_mask_to_pick(mask=self.data, samples=self.samples, threshold=threshold)
+        picking_times = convert_mask_to_pick(mask=self.data, threshold=threshold, sample_interval=self.sample_interval,
+                                             delay=self.delay)
         self[first_breaks_col] = picking_times
         if save_to is not None:
             save_to[first_breaks_col] = picking_times
@@ -793,8 +795,8 @@ class Gather(TraceContainer, SamplesContainer):
             muter = muter(self.coords)
         if not isinstance(muter, Muter):
             raise ValueError("muter must be of Muter or MuterField type")
-        self.data = mute_gather(gather_data=self.data, muting_times=muter(self.offsets), samples=self.samples,
-                                fill_value=fill_value)
+        self.data = mute_gather(gather_data=self.data, muting_times=muter(self.offsets),
+                                sample_interval=self.sample_interval, delay=self.delay, fill_value=fill_value)
         return self
 
     #------------------------------------------------------------------------#
@@ -974,7 +976,7 @@ class Gather(TraceContainer, SamplesContainer):
             correct_uphole = "SourceUpholeTime" in self.available_headers and refractor_velocity.is_uphole_corrected
         if correct_uphole:
             trace_delays += self["SourceUpholeTime"]
-        trace_delays_samples = times_to_indices(trace_delays, self.samples, round=True).astype(int)
+        trace_delays_samples = self.times_to_indices(trace_delays, round=True)
         self.data = correction.apply_lmo(self.data, trace_delays_samples, fill_value)
         if event_headers is not None:
             self[to_list(event_headers)] += trace_delays.reshape(-1, 1)
@@ -1217,7 +1219,8 @@ class Gather(TraceContainer, SamplesContainer):
             filter_size = int(40 * new_sample_interval / current_sample_interval)
             self.bandpass_filter(high=0.9*nyquist_frequency, filter_size=filter_size, window="hann")
 
-        new_samples = np.arange(self.samples[0], self.samples[-1] + 1e-6, new_sample_interval, self.samples.dtype)
+        new_n_samples = int((self.samples[-1] - self.samples[0]) // new_sample_interval)
+        new_samples = self.create_samples(new_n_samples, new_sample_interval, self.delay)
 
         if isinstance(kind, int):
             data_resampled = piecewise_polynomial(new_samples, self.samples, self.data, kind)
@@ -1225,6 +1228,7 @@ class Gather(TraceContainer, SamplesContainer):
             data_resampled = scipy.interpolate.interp1d(self.samples, self.data, kind=kind)(new_samples)
 
         self.data = data_resampled
+        self.sample_interval = new_sample_interval
         self.samples = new_samples
         return self
 
@@ -1695,7 +1699,7 @@ class Gather(TraceContainer, SamplesContainer):
             header = kwargs.pop("headers")
             label = kwargs.pop("label", header)
             process_outliers = kwargs.pop("process_outliers", "none")
-            y_coords = times_to_indices(self[header], self.samples, round=False)
+            y_coords = self.times_to_indices(self[header])
             if process_outliers == "clip":
                 y_coords = np.clip(y_coords, 0, self.n_samples - 1)
             elif process_outliers == "discard":
