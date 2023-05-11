@@ -76,7 +76,7 @@ class BaseVelocitySpectrum(SamplesContainer):
     @property
     def samples(self):
         """np.ndarray of floats: Recording time for each trace value. Measured in milliseconds."""
-        return self.gather.samples  # ms
+        return self.gather.samples
 
     @property
     def sample_interval(self):
@@ -100,22 +100,9 @@ class BaseVelocitySpectrum(SamplesContainer):
         _ = time_ix, velocity_ix
         raise NotImplementedError
 
-    def get_velocity_range(self, stacking_velocity, relative_margin, velocity_step):
-        """Return an array of stacking velocities for spectrum calculation:
-        1. First `stacking_velocity` is evaluated for gather times to estimate the velocity range being examined.
-        2. Then the range is additionally extended by `relative_margin` * 100% in both directions.
-        3. The resulting velocities are then evenly sampled from this range with a step of `velocity_step`.
-        """
-        interpolated_velocities = stacking_velocity(self.times)
-        min_velocity = np.min(interpolated_velocities) * (1 - relative_margin)
-        max_velocity = np.max(interpolated_velocities) * (1 + relative_margin)
-        n_velocities = math.ceil((max_velocity - min_velocity) / velocity_step) + 1
-        max_velocity = min_velocity + (n_velocities - 1) * velocity_step
-        return np.linspace(min_velocity, max_velocity, n_velocities, dtype=np.float32)
-
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def calc_single_velocity_spectrum(coherency_func, gather_data, times, offsets, velocity, sample_interval,
+    def calc_single_velocity_spectrum(coherency_func, gather_data, times, offsets, velocity, sample_interval, delay,
                                       half_win_size_samples, t_min_ix, t_max_ix, max_stretch_factor=np.inf, out=None):
         """Calculate velocity spectrum for given velocity and time range.
 
@@ -155,7 +142,7 @@ class BaseVelocitySpectrum(SamplesContainer):
         t_win_size_max_ix = min(len(times) - 1, t_max_ix + half_win_size_samples)
 
         corrected_gather_data = correction.apply_nmo(gather_data, times[t_win_size_min_ix: t_win_size_max_ix + 1],
-                                                     offsets, velocity, sample_interval, mute_crossover=False,
+                                                     offsets, velocity, sample_interval, delay, mute_crossover=False,
                                                      max_stretch_factor=max_stretch_factor)
         numerator, denominator = coherency_func(corrected_gather_data)
 
@@ -366,14 +353,14 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
         kwargs = {"spectrum_func": self.calc_single_velocity_spectrum, "coherency_func": self.coherency_func,
                   "gather_data": self.gather.data, "times": self.times, "offsets": self.gather.offsets,
-                  "velocities": velocities_ms, "sample_interval": self.sample_interval,
-                  "max_stretch_factor": max_stretch_factor, "half_win_size_samples": self.half_win_size_samples}
+                  "velocities": velocities_ms, "sample_interval": self.sample_interval, "delay": self.delay,
+                  "half_win_size_samples": self.half_win_size_samples, "max_stretch_factor": max_stretch_factor}
         self.velocity_spectrum = self._calc_spectrum_numba(**kwargs)
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def _calc_spectrum_numba(spectrum_func, coherency_func, gather_data, times, offsets, velocities,
-                             sample_interval, half_win_size_samples, max_stretch_factor):
+    def _calc_spectrum_numba(spectrum_func, coherency_func, gather_data, times, offsets, velocities, sample_interval,
+                             delay, half_win_size_samples, max_stretch_factor):
         """Parallelized and njitted method for vertical velocity spectrum calculation.
 
         Parameters
@@ -391,10 +378,23 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         velocity_spectrum = np.empty((gather_data.shape[1], len(velocities)), dtype=np.float32)
         for j in prange(len(velocities)):  # pylint: disable=consider-using-enumerate
             spectrum_func(coherency_func=coherency_func, gather_data=gather_data, times=times, offsets=offsets,
-                          velocity=velocities[j], half_win_size_samples=half_win_size_samples,
-                          t_min_ix=0, t_max_ix=gather_data.shape[1], sample_interval=sample_interval,
+                          velocity=velocities[j], sample_interval=sample_interval, delay=delay,
+                          half_win_size_samples=half_win_size_samples, t_min_ix=0, t_max_ix=gather_data.shape[1],
                           max_stretch_factor=max_stretch_factor, out=velocity_spectrum[:, j])
         return velocity_spectrum
+
+    def get_velocity_range(self, stacking_velocity, relative_margin, velocity_step):
+        """Return an array of stacking velocities for spectrum calculation:
+        1. First `stacking_velocity` is evaluated for gather times to estimate the velocity range being examined.
+        2. Then the range is additionally extended by `relative_margin` * 100% in both directions.
+        3. The resulting velocities are then evenly sampled from this range with a step of `velocity_step`.
+        """
+        interpolated_velocities = stacking_velocity(self.times)
+        min_velocity = np.min(interpolated_velocities) * (1 - relative_margin)
+        max_velocity = np.max(interpolated_velocities) * (1 + relative_margin)
+        n_velocities = math.ceil((max_velocity - min_velocity) / velocity_step) + 1
+        max_velocity = min_velocity + (n_velocities - 1) * velocity_step
+        return np.linspace(min_velocity, max_velocity, n_velocities, dtype=np.float32)
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
@@ -418,11 +418,11 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         # Add a stacking velocity line on the plot
         stacking_times_ix, stacking_velocities_ix = None, None
         if stacking_velocity is not None:
-            stacking_times = stacking_velocity.times[stacking_velocity.times <= self.times[-1]]
+            valid_times_mask = (stacking_velocity.times >= self.times[0]) & (stacking_velocity.times <= self.times[-1])
+            stacking_times = stacking_velocity.times[valid_times_mask]
             stacking_velocities = stacking_velocity(stacking_times)
-            stacking_times_ix = stacking_times / self.sample_interval
-            stacking_velocities_ix = ((stacking_velocities - self.velocities[0]) /
-                                      (self.velocities[-1] - self.velocities[0]) * self.velocity_spectrum.shape[1])
+            stacking_times_ix = (stacking_times - self.delay) / self.sample_interval
+            stacking_velocities_ix = np.interp(stacking_velocities, self.velocities, np.arange(len(self.velocities)))
 
         super()._plot(title=title, x_label="Velocity, m/s", x_ticklabels=self.velocities,
                       x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax, grid=grid,
@@ -619,17 +619,15 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         super().__init__(gather, window_size, mode, max_stretch_factor)
         if isinstance(stacking_velocity, StackingVelocityField):
             stacking_velocity = stacking_velocity(self.coords)
-        self.velocities = self.get_velocity_range(stacking_velocity, relative_margin, velocity_step)  # m/s
         self.stacking_velocity = stacking_velocity
         self.relative_margin = relative_margin
 
-        left_bound_ix, right_bound_ix = self._calc_velocity_bounds()
-        velocities_ms = self.velocities / 1000  # from m/s to m/ms
+        stacking_velocities = self.stacking_velocity(self.times)
         kwargs = {"spectrum_func": self.calc_single_velocity_spectrum, "coherency_func": self.coherency_func,
                   "gather_data": self.gather.data, "times": self.times, "offsets": self.gather.offsets,
-                  "velocities": velocities_ms, "left_bound_ix": left_bound_ix, "right_bound_ix": right_bound_ix,
-                  "half_win_size_samples": self.half_win_size_samples, "sample_interval": self.sample_interval,
-                  "max_stretch_factor": max_stretch_factor}
+                  "stacking_velocities": stacking_velocities, "relative_margin": relative_margin,
+                  "velocity_step": velocity_step, "sample_interval": self.sample_interval, "delay": self.delay,
+                  "half_win_size_samples": self.half_win_size_samples, "max_stretch_factor": max_stretch_factor}
         self.velocity_spectrum = self._calc_res_velocity_spectrum_numba(**kwargs)
 
     def _calc_velocity_bounds(self):
@@ -642,7 +640,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         right_bound_ix : 1d array
             Indices of corresponding velocities of the right bound for each time.
         """
-        interpolated_velocities = np.clip(self.stacking_velocity(self.times), self.velocities[0], self.velocities[-1])
+        interpolated_velocities = self.stacking_velocity(self.times)
         left_bound_values = (interpolated_velocities * (1 - self.relative_margin)).reshape(-1, 1)
         left_bound_ix = np.argmin(np.abs(left_bound_values - self.velocities), axis=1)
         right_bound_values = (interpolated_velocities * (1 + self.relative_margin)).reshape(-1, 1)
@@ -651,9 +649,9 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
-    def _calc_res_velocity_spectrum_numba(spectrum_func, coherency_func, gather_data, times, offsets, velocities,
-                                          left_bound_ix, right_bound_ix, sample_interval, half_win_size_samples,
-                                          max_stretch_factor):
+    def _calc_res_velocity_spectrum_numba(spectrum_func, coherency_func, gather_data, times, offsets,
+                                          stacking_velocities, relative_margin, velocity_step, sample_interval, delay,
+                                          half_win_size_samples, max_stretch_factor):
         """Parallelized and njitted method for residual vertical velocity spectrum calculation.
 
         Parameters
@@ -674,27 +672,46 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         residual_velocity_spectrum : 2d np.ndarray
             Array with residual vertical velocity spectrum values.
         """
-        velocity_spectrum = np.zeros((gather_data.shape[1], len(velocities)), dtype=np.float32)
-        for i in prange(left_bound_ix.min(), right_bound_ix.max() + 1):
-            t_min_ix = np.where(right_bound_ix == i)[0]
-            t_min_ix = 0 if len(t_min_ix) == 0 else t_min_ix[0]
+        # Calculate velocity bounds and range of velocities for residual spectrum calculation
+        left_bound = stacking_velocities * (1 - relative_margin)
+        right_bound = stacking_velocities * (1 + relative_margin)
+        min_velocity = left_bound.min()
+        max_velocity = right_bound.max()
+        n_velocities = math.ceil((max_velocity - min_velocity) / velocity_step) + 1
+        max_velocity = min_velocity + (n_velocities - 1) * velocity_step
+        velocities = np.linspace(min_velocity, max_velocity, n_velocities, dtype=np.float32)
 
-            t_max_ix = np.where(left_bound_ix == i)[0]
+        # Convert bounds to their indices in velocities array
+        left_bound_ix = np.argmin(np.abs(left_bound.reshape(-1, 1) - velocities), axis=1)
+        right_bound_ix = np.argmin(np.abs(right_bound.reshape(-1, 1) - velocities), axis=1)
+        min_bound_ix = np.min(left_bound_ix)
+        velocities = velocities[min_bound_ix:]
+        left_bound_ix -= min_bound_ix
+        right_bound_ix -= min_bound_ix
+        max_bound_ix = np.max(right_bound_ix)
+        velocities = velocities[:max_bound_ix + 1]
+
+        # Calculate only necessary part of the vertical velocity spectrum
+        velocity_spectrum = np.zeros((gather_data.shape[1], len(velocities)), dtype=np.float32)
+        for i in prange(velocity_spectrum.shape[1]):
+            t_min_ix = np.where(right_bound_ix >= i)[0]
+            t_min_ix = 0 if len(t_min_ix) == 0 else t_min_ix[0]
+            t_max_ix = np.where(left_bound_ix <= i)[0]
             t_max_ix = len(times) - 1 if len(t_max_ix) == 0 else t_max_ix[-1]
 
             spectrum_func(coherency_func=coherency_func, gather_data=gather_data, times=times, offsets=offsets,
-                          velocity=velocities[i], sample_interval=sample_interval,
+                          velocity=velocities[i], sample_interval=sample_interval, delay=delay,
                           half_win_size_samples=half_win_size_samples, t_min_ix=t_min_ix, t_max_ix=t_max_ix+1,
-                          max_stretch_factor=max_stretch_factor, out=velocity_spectrum[t_min_ix : t_max_ix+1, i])
+                          max_stretch_factor=max_stretch_factor, out=velocity_spectrum[t_min_ix : t_max_ix + 1, i])
 
         # Interpolate velocity spectrum to get a rectangular image
         residual_velocity_spectrum_len = (right_bound_ix - left_bound_ix).max()
         residual_velocity_spectrum = np.empty((len(times), residual_velocity_spectrum_len), dtype=np.float32)
         for i in prange(len(residual_velocity_spectrum)):
-            cropped_velocity_spectrum = velocity_spectrum[i, left_bound_ix[i] : right_bound_ix[i] + 1]
-            x = np.linspace(0, len(cropped_velocity_spectrum) - 1, residual_velocity_spectrum_len)
-            residual_velocity_spectrum[i] = np.interp(x, np.arange(len(cropped_velocity_spectrum)),
-                                                      cropped_velocity_spectrum)
+            cropped_spectrum = velocity_spectrum[i, left_bound_ix[i] : right_bound_ix[i] + 1]
+            cropped_velocities = velocities[left_bound_ix[i] : right_bound_ix[i] + 1]
+            target_velocities = np.linspace(left_bound[i], right_bound[i], residual_velocity_spectrum_len)
+            residual_velocity_spectrum[i] = np.interp(target_velocities, cropped_velocities, cropped_spectrum)
         return residual_velocity_spectrum
 
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
@@ -712,12 +729,13 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
 
     def _plot(self, *, title=None, x_ticker=None, y_ticker=None, grid=False, colorbar=True, ax=None, **kwargs):
         """Plot residual vertical velocity spectrum."""
-        x_ticklabels = np.linspace(-self.relative_margin, self.relative_margin, self.velocity_spectrum.shape[1]) * 100
-
-        stacking_times = self.stacking_velocity.times[self.stacking_velocity.times <= self.times[-1]]
-        stacking_times_ix = stacking_times / self.sample_interval
+        valid_times_mask = ((self.stacking_velocity.times >= self.times[0]) &
+                            (self.stacking_velocity.times <= self.times[-1]))
+        stacking_times = self.stacking_velocity.times[valid_times_mask]
+        stacking_times_ix = (stacking_times - self.delay) / self.sample_interval
         stacking_velocities_ix = np.full_like(stacking_times_ix, self.velocity_spectrum.shape[1] / 2)
 
+        x_ticklabels = np.linspace(-self.relative_margin, self.relative_margin, self.velocity_spectrum.shape[1]) * 100
         super()._plot(title=title, x_label="Relative velocity margin, %",
                       x_ticklabels=x_ticklabels, x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax,
                       grid=grid, stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
