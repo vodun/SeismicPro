@@ -8,7 +8,7 @@ from numba import njit, prange
 
 
 @njit(nogil=True, fastmath=True)
-def get_hodograph(gather_data, offsets, hodograph_times, sample_interval, interpolate=True, fill_value=np.nan,
+def get_hodograph(gather_data, offsets, hodograph_times, sample_interval, delay, interpolate=True, fill_value=np.nan,
                   max_offset=np.inf, out=None):
     """Retrieve hodograph amplitudes from the `gather_data`.
 
@@ -41,9 +41,9 @@ def get_hodograph(gather_data, offsets, hodograph_times, sample_interval, interp
     """
     if out is None:
         out = np.empty(len(hodograph_times), dtype=gather_data.dtype)
-    for i, hodograph_sample in enumerate(hodograph_times / sample_interval):
+    for i, hodograph_sample in enumerate((hodograph_times - delay) / sample_interval):
         amplitude = fill_value
-        if offsets[i] <= max_offset and hodograph_sample <= gather_data.shape[1] - 1:
+        if offsets[i] <= max_offset and hodograph_sample >= 0 and hodograph_sample <= gather_data.shape[1] - 1:
             if interpolate:
                 time_prev = math.floor(hodograph_sample)
                 time_next = math.ceil(hodograph_sample)
@@ -107,7 +107,7 @@ def compute_crossover_offsets(hodograph_times, times, offsets):
     return np.interp(times, crossover_times, offsets)
 
 @njit(nogil=True, parallel=True)
-def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_interval, mute_crossover=False,
+def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_interval, delay, mute_crossover=False,
               max_stretch_factor=np.inf, fill_value=np.nan):
     r"""Perform gather normal moveout correction with given stacking velocities for each timestamp.
 
@@ -160,7 +160,7 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_interval,
         max_offsets = np.minimum(max_offsets, crossover_offsets)
 
     for i in prange(times.shape[0]):
-        get_hodograph(gather_data, offsets, hodograph_times[i], sample_interval, fill_value=fill_value,
+        get_hodograph(gather_data, offsets, hodograph_times[i], sample_interval, delay, fill_value=fill_value,
                       max_offset=max_offsets[i], out=corrected_gather_data[:, i])
 
     return corrected_gather_data

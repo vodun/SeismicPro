@@ -976,7 +976,7 @@ class Gather(TraceContainer, SamplesContainer):
             correct_uphole = "SourceUpholeTime" in self.available_headers and refractor_velocity.is_uphole_corrected
         if correct_uphole:
             trace_delays += self["SourceUpholeTime"]
-        trace_delays_samples = self.times_to_indices(trace_delays, round=True)
+        trace_delays_samples = np.rint(trace_delays / self.sample_interval).astype(np.int32)
         self.data = correction.apply_lmo(self.data, trace_delays_samples, fill_value)
         if event_headers is not None:
             self[to_list(event_headers)] += trace_delays.reshape(-1, 1)
@@ -1024,8 +1024,8 @@ class Gather(TraceContainer, SamplesContainer):
             raise ValueError("stacking_velocity must be of int, float, StackingVelocity or StackingVelocityField type")
 
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
-        self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms,
-                                         self.sample_interval, mute_crossover, max_stretch_factor, fill_value)
+        self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms, self.sample_interval,
+                                         self.delay, mute_crossover, max_stretch_factor, fill_value)
         return self
 
     #------------------------------------------------------------------------#

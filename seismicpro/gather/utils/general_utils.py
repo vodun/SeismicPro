@@ -32,7 +32,7 @@ def convert_times_to_mask(times, n_samples, sample_interval, delay):
         Boolean mask with shape (len(times), len(samples)).
     """
     times_indices = np.rint((times - delay) / sample_interval)
-    return (np.arange(n_samples) - times_indices.reshape(-1, 1)) >= 0
+    return np.arange(n_samples) >= times_indices.reshape(-1, 1)
 
 
 @njit(nogil=True, parallel=True)
