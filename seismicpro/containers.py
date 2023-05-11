@@ -13,7 +13,7 @@ import pandas as pd
 import polars as pl
 
 from .decorators import batch_method
-from .utils import to_list, get_cols, create_indexer, maybe_copy, load_dataframe, dump_dataframe
+from .utils import to_list, get_cols, create_indexer, maybe_copy, read_dataframe, dump_dataframe
 
 
 class SamplesContainer:
@@ -333,9 +333,11 @@ class TraceContainer:
         """
         self = maybe_copy(self, inplace, ignore="headers") # pylint: disable=self-cls-assignment
 
-        loaded_headers = load_dataframe(path, columns=headers_names, format=format, has_header=has_header,
+        loaded_headers = read_dataframe(path, columns=headers_names, format=format, has_header=has_header,
                                         usecols=usecols, sep=sep, skiprows=skiprows, decimal=decimal,
                                         encoding=encoding, **kwargs)
+        loaded_headers = pl.from_dataframe(loaded_headers)
+
         index_cols = self.headers.index.names  # pylint: disable=access-member-before-definition
         headers = pl.from_pandas(self.headers.reset_index())  # pylint: disable=access-member-before-definition
         # Use intersection of columns from file and self.headers as join columns by default
@@ -352,8 +354,8 @@ class TraceContainer:
             warnings.warn("Empty headers after headers loading", RuntimeWarning)
         return self
 
-    def dump_headers(self, path, headers_names, format="fwf", dump_headers_names=False, float_precision=None,
-                     **kwargs):
+    def dump_headers(self, path, headers_names, format="fwf", dump_headers_names=False, float_precision=2, decimal='.',
+                     min_width=None, **kwargs):
         """Save the selected headers to a file.
 
         Parameters
@@ -366,11 +368,14 @@ class TraceContainer:
             Output file format. If "fwf", use fixed-width format. If "csv", use comma-separated format.
         dump_headers_names : bool, optional, defaults to False
             Whether to include the headers names in the output file.
-        float_precision : int or None, optional, defaults to None
+        float_precision : int, optional, defaults to 2
             Number of decimal places to write.
+        decimal : str, optional, defaults to '.'
+            Decimal point character. Used only for "fwf" `format`.
+        min_width : int or None, optional, defaults to None
+            Minimal column width in the output file. Used only for "fwf" `format`.
         kwargs : misc, optional
-            Additional arguments for dumping function. If `format="fwf"`, passed to `pandas.to_string`.
-            If `format="csv"`, passed to `polars.write_csv`.
+            Additional arguments for dumping function `polars.write_csv`. Used only for "csv" `format`.
 
         Returns
         -------
@@ -383,8 +388,8 @@ class TraceContainer:
             If the `format` argument is not one of the supported formats ('fwf', 'csv').
         """
         df = self.get_headers(headers_names)
-        dump_dataframe(path=path, df=df, format=format, dump_columns_names=dump_headers_names,
-                       float_precision=float_precision, **kwargs)
+        dump_dataframe(path=path, df=df, format=format, has_header=dump_headers_names, float_precision=float_precision,
+                       decimal=decimal, min_width=min_width, **kwargs)
         return self
 
 

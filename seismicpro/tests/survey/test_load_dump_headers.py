@@ -30,10 +30,9 @@ def load_dump_headers(survey, tmp_path, format, new_cols, float_precision, heade
         usecols = usecols + [-len(new_cols) + ix for ix in range(len(new_cols))]
 
     for column in new_cols:
+        values = np.random.randint(-100, 100, size=survey.n_traces)
         if column == "floats":
-            values = np.round(np.random.random(survey.n_traces) * 5, 3)
-        else:
-            values = np.random.randint(0, 10, size=survey.n_traces)
+            values = values * np.random.random(survey.n_traces)
         survey.headers[column] = values
 
     kwargs = {"separator" : sep} if format == 'csv' else {"decimal": decimal}
@@ -51,7 +50,7 @@ def load_dump_headers(survey, tmp_path, format, new_cols, float_precision, heade
 
 
 @pytest.mark.parametrize("decimal", ['.', ','])
-@pytest.mark.parametrize("float_precision", [None, 2])
+@pytest.mark.parametrize("float_precision", [5, 2])
 @pytest.mark.parametrize("new_cols", [["floats"], ["int"], ["floats", "int"]])
 @pytest.mark.parametrize("headers_to_dump,headers_to_load,usecols,dump_headers_names", ARGS)
 def test_fwf_load_dump_headers(survey, tmp_path, new_cols, float_precision, headers_to_dump, headers_to_load, usecols,
@@ -63,7 +62,7 @@ def test_fwf_load_dump_headers(survey, tmp_path, new_cols, float_precision, head
 
 
 @pytest.mark.parametrize("sep", [',', ';'])
-@pytest.mark.parametrize("float_precision", [None, 2])
+@pytest.mark.parametrize("float_precision", [5, 2])
 @pytest.mark.parametrize("new_cols", [["floats"], ["int"], ["floats", "int"]])
 @pytest.mark.parametrize("headers_to_dump,headers_to_load,usecols,dump_headers_names", ARGS)
 def test_csv_load_dump_headers(survey, tmp_path, new_cols, float_precision, headers_to_dump, headers_to_load, usecols,
