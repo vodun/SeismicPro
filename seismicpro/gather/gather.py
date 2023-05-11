@@ -86,9 +86,9 @@ class Gather(TraceContainer, SamplesContainer):
             raise ValueError("Delay must be non-negative")
         self.headers = headers
         self.data = data
+        self.samples = self.create_samples(data.shape[1], sample_interval, delay)
         self.sample_interval = sample_interval
         self.delay = delay
-        self.samples = self.create_samples(data.shape[1], sample_interval, delay)
         self.survey = survey
         self.sort_by = None
 
