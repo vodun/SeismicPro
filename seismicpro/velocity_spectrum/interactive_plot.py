@@ -80,7 +80,7 @@ class VelocitySpectrumPlot(PairedPlot):  # pylint: disable=too-many-instance-att
         hodograph = self.get_hodograph(corrected=corrected)
         if hodograph is None:
             return
-        hodograph_y = self.times_to_indices(hodograph) - 0.5  # Correction for pixel center
+        hodograph_y = self.velocity_spectrum.times_to_indices(hodograph) - 0.5  # Correction for pixel center
         half_window = self.velocity_spectrum.half_win_size_samples
         hodograph_low = np.clip(hodograph_y - half_window, 0, len(self.gather.times) - 1)
         hodograph_high = np.clip(hodograph_y + half_window, 0, len(self.gather.times) - 1)

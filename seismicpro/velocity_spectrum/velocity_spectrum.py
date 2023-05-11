@@ -679,11 +679,14 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         max_velocity = right_bound.max()
         n_velocities = math.ceil((max_velocity - min_velocity) / velocity_step) + 1
         max_velocity = min_velocity + (n_velocities - 1) * velocity_step
-        velocities = np.linspace(min_velocity, max_velocity, n_velocities, dtype=np.float32)
+        velocities = np.linspace(min_velocity, max_velocity, n_velocities).astype(np.float32)
 
         # Convert bounds to their indices in velocities array
-        left_bound_ix = np.argmin(np.abs(left_bound.reshape(-1, 1) - velocities), axis=1)
-        right_bound_ix = np.argmin(np.abs(right_bound.reshape(-1, 1) - velocities), axis=1)
+        left_bound_ix = np.empty(len(left_bound), dtype=np.int32)
+        right_bound_ix = np.empty(len(right_bound), dtype=np.int32)
+        for i in prange(len(left_bound_ix)):
+            left_bound_ix[i] = np.argmin(np.abs(left_bound[i] - velocities))
+            right_bound_ix[i] = np.argmin(np.abs(right_bound[i] - velocities))
         min_bound_ix = np.min(left_bound_ix)
         velocities = velocities[min_bound_ix:]
         left_bound_ix -= min_bound_ix
@@ -700,7 +703,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
             t_max_ix = len(times) - 1 if len(t_max_ix) == 0 else t_max_ix[-1]
 
             spectrum_func(coherency_func=coherency_func, gather_data=gather_data, times=times, offsets=offsets,
-                          velocity=velocities[i], sample_interval=sample_interval, delay=delay,
+                          velocity=velocities[i] / 1000, sample_interval=sample_interval, delay=delay,
                           half_win_size_samples=half_win_size_samples, t_min_ix=t_min_ix, t_max_ix=t_max_ix+1,
                           max_stretch_factor=max_stretch_factor, out=velocity_spectrum[t_min_ix : t_max_ix + 1, i])
 
