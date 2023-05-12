@@ -147,7 +147,7 @@ def _dump_to_fwf(path, df, has_header, float_precision, decimal, min_width=None)
 
     columns = df.columns
     is_float_cols = [is_float_dtype(t) for t in df.dtypes]
-    df = pl.from_dataframe(df)
+    df = pl.from_pandas(df)
     str_df = df.select([format_float(col, float_precision) if is_float else pl.col(col).cast(str)
                         for col, is_float in zip(columns, is_float_cols)])
     col_lens = str_df.select(pl.all().str.lengths().max()).row(0)
