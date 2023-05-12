@@ -203,11 +203,12 @@ class BaseVelocitySpectrum(SamplesContainer):
         add_colorbar(ax, img, colorbar, y_ticker=y_ticker)
         ax.set_title(**{"label": None, **title})
 
-        # Change markers of stacking velocity points if they are far enough apart
         if stacking_velocities_ix is not None and stacking_times_ix is not None:
-            marker = 'o' if np.min(np.diff(np.sort(stacking_times_ix))) > 50 else ''
-            ax.plot(stacking_velocities_ix, stacking_times_ix, c='#fafcc2', linewidth=2.5,
-                    marker=marker, markevery=slice(1, -1))
+            marker_kwargs = {}
+            # Change markers of stacking velocity points if they are far enough apart
+            if np.all(self.sample_interval * np.diff(stacking_times_ix[1:-1]) >= 50):
+                marker_kwargs = {"marker": "o", "markevery": slice(1, -1)}
+            ax.plot(stacking_velocities_ix, stacking_times_ix, c='#fafcc2', linewidth=2.5, **marker_kwargs)
 
         if grid:
             ax.grid(c='k')
@@ -439,8 +440,8 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         Parameters
         ----------
         stacking_velocity : StackingVelocity or str, optional
-            Stacking velocity to plot if given. If its sample rate is more than 50 ms, every point will be highlighted
-            with a circle.
+            Stacking velocity to plot if given. If its times are sampled less than once every 50 ms, each point will be
+            highlighted with a circle.
             May be `str` if plotted in a pipeline: in this case it defines a component with stacking velocities to use.
         title : str, optional
             Plot title. If not provided, equals to stacked lines "Vertical Velocity Spectrum" and coherency func name.
