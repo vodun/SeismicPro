@@ -287,7 +287,9 @@ class RefractorVelocity:
                           loss=loss, huber_coef=huber_coef)
         fit_result = minimize(loss_fn, x0=init_array, bounds=bounds_array, constraints=constraints,
                               method="SLSQP", tol=tol, options=kwargs)
-        param_values = postprocess_params(cls._unscale_params(fit_result.x))
+        param_values = cls._unscale_params(fit_result.x)
+        param_values[1:n_refractors] = np.minimum(param_values[1:n_refractors], max_offset)
+        param_values = postprocess_params(param_values)
         params = dict(zip(param_names, param_values))
 
         # Construct a refractor velocity instance

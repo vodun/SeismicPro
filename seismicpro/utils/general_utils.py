@@ -19,6 +19,16 @@ def maybe_copy(obj, inplace=False, **kwargs):
     return obj if inplace else obj.copy(**kwargs)
 
 
+def align_src_dst(src, dst=None):
+    """Cast both `src` and `dst` to lists and check if they have the same lengths. Assume that `dst` equals to `src` if
+    not given."""
+    src_list = to_list(src)
+    dst_list = to_list(dst) if dst is not None else src_list
+    if len(src_list) != len(dst_list):
+        raise ValueError("src and dst should have the same length.")
+    return src_list, dst_list
+
+
 def unique_indices_sorted(arr):
     """Return indices of the first occurrences of the unique values in a sorted array."""
     mask = np.empty(len(arr), dtype=np.bool_)

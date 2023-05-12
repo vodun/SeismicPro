@@ -6,6 +6,7 @@ from textwrap import dedent
 
 from batchflow import Dataset
 
+from .config import config
 from .batch import SeismicBatch
 from .index import SeismicIndex
 
@@ -105,6 +106,14 @@ class SeismicDataset(Dataset):
         # Correctly set index if it has already been split
         super().__init__(None, batch_class=batch_class)
         self.set_index(index)
+
+    def __getstate__(self):
+        """Create pickling state of a dataset from its `__dict__`. Don't pickle `index` if `enable_fast_pickling`
+        config option is set."""
+        state = self.__dict__.copy()
+        if config["enable_fast_pickling"]:
+            state["_index"] = None
+        return state
 
     def __getattr__(self, name):
         """Redirect requests to undefined attributes and methods to the underlying index."""
