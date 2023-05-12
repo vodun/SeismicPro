@@ -1254,7 +1254,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     def dump_first_breaks(self, path, trace_id_headers=('FieldRecord', 'TraceNumber'),
                           first_breaks_header=HDR_FIRST_BREAK, **kwargs):
-        """ Save first break picking times to a file.
+        """Save first break picking times to a file.
 
         Each line in the resulting file corresponds to one trace, where all columns but the last one store values from
         `trace_id_headers` headers and identify the trace while the last column stores first break time from

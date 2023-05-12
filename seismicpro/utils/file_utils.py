@@ -103,14 +103,11 @@ def read_dataframe(path, columns=None, format="fwf", has_header=False, usecols=N
         if decimal is None:
             decimal = '.' if '.' in row else ','
         if usecols is not None:
-            usecols = np.asarray(usecols)
-            if any(usecols < 0):  # Processing negative `usecols`
-                usecols_sep = sep if format == "csv" else None
-                # Find the position of columns with negative `usecols` by adding them to the total number of
-                # columns in the file.
-                usecols = np.arange(len(row.split(usecols_sep)))[usecols]
-                if np.any(usecols[:-1] > usecols[1:]):
-                    raise ValueError("`usecols` should be sorted in ascending order.")
+            usecols_sep = sep if format == "csv" else None
+            # Avoid negative values in `usecols`
+            usecols = np.arange(len(row.split(usecols_sep)))[usecols]
+            if np.any(usecols[:-1] > usecols[1:]):
+                raise ValueError("`usecols` should be sorted in ascending order.")
             usecols = usecols.tolist()
 
     if format == "fwf":
@@ -139,12 +136,13 @@ def dump_dataframe(path, df, format="fwf", has_header=False, float_precision=2, 
 
 def _dump_to_fwf(path, df, has_header, float_precision, decimal, min_width=None):
     def format_float(col, n):
-        """Clip all floats to the same amount of fractional numbers and align them by adding zeros the end where
-        needed."""
+        """Clip all floats to the same amount of fractional numbers and pad with zeros where needed."""
         round_col = pl.col(col).round(n).abs()
         int_part = round_col.floor().cast(int)
+        # Converting fractional numbers to int by raising it to a power of `n` and padding with zeros if needed
         frac_part = ((round_col - int_part) * pl.lit(10)**n).round(0).cast(int).cast(str).str.rjust(n, "0")
         str_num = pl.concat_str([int_part.cast(str), frac_part], separator=decimal)
+        # Restoring the sign of numbers
         return pl.when(pl.col(col) < 0).then("-" + str_num).otherwise(str_num)
 
     columns = df.columns
