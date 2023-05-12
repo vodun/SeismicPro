@@ -55,7 +55,7 @@ class RefractorVelocityMetric(Metric):
         """Return plotters of the metric views and add kwargs for `gather_plot` to an interactive map plotter."""
         gather_plot_kwargs = {kwarg: kwargs.pop(kwarg) for kwarg in ["sort_by", "mask", "top_header"]
                               if kwarg in kwargs}
-        plot_on_click_kwargs = kwargs.pop('plot_on_click_kwargs', [{}, {}])                      
+        plot_on_click_kwargs = kwargs.pop('plot_on_click_kwargs', [{}, {}])                  
         plot_on_click_kwargs[0].update(gather_plot_kwargs)
         kwargs['plot_on_click_kwargs'] = plot_on_click_kwargs
         return [getattr(self, view) for view in to_list(self.views)], kwargs
