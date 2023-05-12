@@ -24,15 +24,17 @@ def get_hodograph(gather_data, offsets, hodograph_times, sample_interval, delay,
         Event time for each gather trace. Must match the length of `gather_data`. Measured in milliseconds.
     sample_interval : float
         Sample interval of seismic traces. Measured in milliseconds.
+    delay : float
+        Delay recording time of seismic traces. Measured in milliseconds.
     interpolate: bool, optional, defaults to True
-        Whether to perform linear interpolation to retrieve the hodograph event from the trace.
-        If `False`, the nearest time sample amplitude is obtained.
+        Whether to perform linear interpolation to retrieve the hodograph event from the trace. If `False`, the nearest
+        time sample amplitude is used.
     fill_value : float, optional, defaults to np.nan
         Fill value to use if the traveltime is outside the gather bounds.
     max_offset: float, optional, defaults to np.inf
-        The maximum offset value for which the hodograph being tracked.
+        The maximum offset value for which the hodograph is being tracked.
     out : np.array, optional
-        The buffer to store result in. If not provided, allocate new array.
+        The buffer to store the result in. If not provided, a new array is allocated.
 
     Returns
     -------
@@ -43,7 +45,7 @@ def get_hodograph(gather_data, offsets, hodograph_times, sample_interval, delay,
         out = np.empty(len(hodograph_times), dtype=gather_data.dtype)
     for i, hodograph_sample in enumerate((hodograph_times - delay) / sample_interval):
         amplitude = fill_value
-        if offsets[i] <= max_offset and hodograph_sample >= 0 and hodograph_sample <= gather_data.shape[1] - 1:
+        if offsets[i] <= max_offset and 0 <= hodograph_sample <= gather_data.shape[1] - 1:
             if interpolate:
                 time_prev = math.floor(hodograph_sample)
                 time_next = math.ceil(hodograph_sample)
@@ -131,17 +133,18 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_interval,
     offsets : 1d np.ndarray
         The distance between source and receiver for each trace. Measured in meters.
     stacking_velocities : 1d np.ndarray or scalar
-        Stacking velocities for each time. If scalar value, perform nmo with given velocity for each time.
+        Stacking velocities for each time. If scalar, the same velocity is used for all times.
         Measured in meters/milliseconds.
     sample_interval : float
         Sample interval of seismic traces. Measured in milliseconds.
+    delay : float
+        Delay recording time of seismic traces. Measured in milliseconds.
     mute_crossover: bool, optional, defaults to False
-        Whether to mute areas where the time reversal occurred after nmo corrections.
+        Whether to mute areas where time reversal occurred after NMO correction.
     max_stretch_factor : float, optional, defaults to np.inf
-        Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
-        This mute is applied after nmo correction for each provided velocity and before coherency calculation.
-        The lower the value, the stronger the mute. In case np.inf (default) no mute is applied. 
-        Reasonably good value is 0.65
+        Maximum allowable factor for the muter that attenuates the effect of waveform stretching after NMO correction.
+        The lower the value, the stronger the mute. In case np.inf (default) no mute is applied. Reasonably good value
+        is 0.65.
     fill_value : float, optional, defaults to np.nan
         Value used to fill the amplitudes outside the gather bounds after moveout.
 
