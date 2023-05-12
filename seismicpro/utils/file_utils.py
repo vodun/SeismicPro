@@ -94,7 +94,7 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=False, keep_exts=(
 
 def read_dataframe(path, columns=None, format="fwf", has_header=False, usecols=None, sep=',', skiprows=0, decimal=None,
                    encoding="UTF-8", **kwargs):
-    """Read a file into a `pd.DataFrame`. See :func:`TraceContainer.load_headers` for arguments description. """
+    """Read a file into a `pd.DataFrame`. See :func:`TraceContainer.load_headers` for arguments description."""
     if usecols is not None or decimal is None:
         with open(path, 'r', encoding=encoding) as f:
             n_skip = 1 + has_header + skiprows

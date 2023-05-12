@@ -14,6 +14,7 @@ import polars as pl
 
 from .decorators import batch_method
 from .utils import to_list, get_cols, create_indexer, maybe_copy, read_dataframe, dump_dataframe
+from .const import HDR_FIRST_BREAK
 
 
 class SamplesContainer:
@@ -57,6 +58,11 @@ class TraceContainer:
     def n_traces(self):
         """int: The number of traces."""
         return len(self.headers)
+
+    @property
+    def is_empty(self):
+        """bool: Whether no gathers are stored in the container."""
+        return self.n_traces == 0
 
     def __getitem__(self, key):
         """Select values of trace headers by their names and return them as a `np.ndarray`. Unlike `pandas` indexing
@@ -223,7 +229,7 @@ class TraceContainer:
         mask = mask[:, 0]
         # Guarantee that a copy is set
         self.headers = self.headers.loc[mask].copy()  # pylint: disable=attribute-defined-outside-init
-        if len(self.headers) == 0:
+        if self.is_empty:
             warnings.warn("Empty headers after filtering", RuntimeWarning)
         self._post_filter(mask)
         return self
@@ -274,7 +280,7 @@ class TraceContainer:
         self.headers[res_cols] = res
         return self
 
-
+    @batch_method(target="for")
     # pylint: disable-next=too-many-arguments
     def load_headers(self, path, headers_names=None, join_on=None, format="fwf", has_header=False, usecols=None,
                      sep=',', skiprows=0, decimal=None, encoding="UTF-8", how="inner", inplace=False,
@@ -347,13 +353,16 @@ class TraceContainer:
         loaded_headers = loaded_headers.with_columns(*casts)
         if how not in ["inner", "left"]:
             raise ValueError(f"Argument `how` supports only 'inner' and 'left', but given `{how}`.")
-        headers = headers.join(loaded_headers, on=join_on, how=how, suffix="_loaded")
-        self.headers = headers.to_pandas().set_index(index_cols)  # pylint: disable=attribute-defined-outside-init
+        joined_headers = headers.join(loaded_headers, on=join_on, how=how, suffix="_loaded")
+        self.headers = joined_headers.to_pandas().set_index(index_cols)  # pylint: disable=attribute-defined-outside-init
 
         if self.is_empty:
             warnings.warn("Empty headers after headers loading", RuntimeWarning)
+        # Perform additional filter for traces that were deleted after file loading.
+        self._post_filter(headers["TRACE_SEQUENCE_FILE"].is_in(joined_headers["TRACE_SEQUENCE_FILE"]).to_numpy())
         return self
 
+    @batch_method(target="for", use_lock=True)
     def dump_headers(self, path, headers_names, format="fwf", dump_headers_names=False, float_precision=2, decimal='.',
                      min_width=None, **kwargs):
         """Save the selected headers to a file.
@@ -392,6 +401,72 @@ class TraceContainer:
                        decimal=decimal, min_width=min_width, **kwargs)
         return self
 
+    #------------------------------------------------------------------------#
+    #                         Task specific methods                          #
+    #------------------------------------------------------------------------#
+
+    @batch_method(target="for")
+    def load_first_breaks(self, path, trace_id_headers=('FieldRecord', 'TraceNumber'),
+                          first_breaks_header=HDR_FIRST_BREAK, decimal=None, inplace=False, **kwargs):
+        """Load times of first breaks from a file and save them to a new column in headers.
+
+        Each line of the file stores the first break time for a trace in the last column. The combination of all but
+        the last columns should act as a unique trace identifier and is used to match the trace from the file with the
+        corresponding trace in `self.headers`.
+        The file can have any format that can be read by :func:`TraceContainer.load_headers`.
+
+        Parameters
+        ----------
+        path : str
+            A path to the file with first break times in milliseconds.
+        trace_id_headers : str or tuple of str, defaults to ('FieldRecord', 'TraceNumber')
+            Columns names from `self.headers`, whose values are stored in all but the last columns of the file.
+        first_breaks_header : str, optional, defaults to 'FirstBreak'
+            Column name in `self.headers` where loaded first break times will be stored.
+        decimal : str, defaults to None
+            Decimal point character. If not provided, it will be inferred from the file. Used only for "fwf" `format`.
+        inplace : bool, optional, defaults to False
+            Whether to load first break times inplace or to a survey copy.
+        kwargs : misc, optional
+            Additional keyword arguments to pass to :func:`TraceContainer.load_headers`.
+
+        Returns
+        -------
+        self : Survey
+            A survey with loaded times of first breaks.
+        """
+        headers_names = to_list(trace_id_headers) + [first_breaks_header]
+        return self.load_headers(path=path, headers_names=headers_names, join_on=trace_id_headers, decimal=decimal,
+                                 inplace=inplace, **kwargs)
+
+    @batch_method(target="for", use_lock=True)
+    def dump_first_breaks(self, path, trace_id_headers=('FieldRecord', 'TraceNumber'),
+                          first_breaks_header=HDR_FIRST_BREAK, **kwargs):
+        """Save first break picking times to a file.
+
+        Each line in the resulting file corresponds to one trace, where all columns but the last one store values from
+        `trace_id_headers` headers and identify the trace while the last column stores first break time from
+        `first_breaks_header` header.
+
+        Parameters
+        ----------
+        path : str
+            A path to the output file.
+        trace_id_headers : tuple of str, defaults to ('FieldRecord', 'TraceNumber')
+            Columns names from `self.headers` that act as trace id. These would be present in the file.
+        first_breaks_header : str, defaults to :const:`~const.HDR_FIRST_BREAK`
+            Column name from `self.headers` where first break times are stored.
+        kwargs : misc, optional
+            Additional keyword arguments to pass to :func:`TraceContainer.dump_headers`.
+
+        Returns
+        -------
+        self : Survey
+            A Survey unchanged
+        """
+        headers_names = to_list(trace_id_headers) + to_list(first_breaks_header)
+        return self.dump_headers(path=path, headers_names=headers_names, **kwargs)
+
 
 class GatherContainer(TraceContainer):
     """A mixin class that implements extra properties and processing methods for concrete subclasses with defined
@@ -428,11 +503,6 @@ class GatherContainer(TraceContainer):
     def n_gathers(self):
         """int: The number of gathers."""
         return len(self.indices)
-
-    @property
-    def is_empty(self):
-        """bool: Whether no gathers are stored in the container."""
-        return self.n_gathers == 0
 
     def get_traces_locs(self, indices):
         """Get positions of traces in `headers` by `indices` of their gathers.
