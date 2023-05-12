@@ -628,7 +628,7 @@ class Gather(TraceContainer, SamplesContainer):
         mask = convert_times_to_mask(times=self[first_breaks_col], n_samples=self.n_samples,
                                      sample_interval=self.sample_interval, delay=self.delay)
         gather = self.copy(ignore='data')
-        gather.data = mask.astype(np.int32)
+        gather.data = mask.astype(np.float32)
         return gather
 
     @batch_method(target='threads', args_to_unpack='save_to')
