@@ -59,10 +59,12 @@ class Gather(TraceContainer, SamplesContainer):
         Headers of gather traces. Must be a subset of parent survey trace headers.
     data : 2d np.ndarray
         Trace data of the gather with (n_traces, n_samples) layout.
-    samples : 1d np.ndarray of floats
-        Recording time for each trace value. Measured in milliseconds.
+    sample_interval : float
+        Sample interval of seismic traces. Measured in milliseconds.
     survey : Survey
         A survey that generated the gather.
+    delay : float, optional, defaults to 0
+        Delay recording time of seismic traces. Measured in milliseconds.
 
     Attributes
     ----------
@@ -74,6 +76,8 @@ class Gather(TraceContainer, SamplesContainer):
         Recording time for each trace value. Measured in milliseconds.
     sample_interval : float
         Sample interval of seismic traces. Measured in milliseconds.
+    delay : float
+        Delay recording time of seismic traces. Measured in milliseconds.
     survey : Survey
         A survey that generated the gather.
     sort_by : None or str or list of str
@@ -127,13 +131,12 @@ class Gather(TraceContainer, SamplesContainer):
         return Coordinates(coords[0], names=coords_cols)
 
     def __getitem__(self, key):
-        """Either select gather headers values by their names or create a new `Gather` with specified traces and
+        """Either select values of gather headers by their names or create a new `Gather` with specified traces and
         samples depending on the key type.
 
         Notes
         -----
-        1. Only basic indexing and slicing is supported along the time axis in order to preserve constant sample
-           interval.
+        1. Only basic indexing and slicing is supported along the time axis in order to preserve constant sample rate.
         2. If the traces are no longer sorted after `__getitem__`, `sort_by` attribute of the resulting `Gather` is set
            to `None`.
         3. If headers selection is performed, the returned array will be 1d if a single header is selected and 2d
@@ -144,19 +147,19 @@ class Gather(TraceContainer, SamplesContainer):
         key : str, list of str, int, list, tuple, slice
             If str or list of str, gather headers to get as an `np.ndarray`. The returned array is 1d if a single
             header is selected and 2d otherwise.
-            Otherwise, indices of traces and samples to get. In this case, __getitem__ behavior almost coincides with
+            Otherwise, indices of traces and samples to get. In this case, `__getitem__` behavior almost coincides with
             that of `np.ndarray`, except that only basic indexing and slicing is supported along the time axis in order
-            to preserve constant sample interval.
+            to preserve constant sample rate.
 
         Returns
         -------
         result : np.ndarray or Gather
-            Headers values or a gather with the specified subset of traces and samples.
+            Values of gather headers or a gather with the specified subset of traces and samples.
 
         Raises
         ------
         ValueError
-            If the resulting gather is empty or data ndim has changed.
+            If the resulting gather is empty or the number of data dimensions has changed.
         """
         # If key is str or array of str, treat it as names of headers columns
         if all(isinstance(item, str) for item in to_list(key)):
@@ -170,8 +173,8 @@ class Gather(TraceContainer, SamplesContainer):
         traces_indexer, samples_indexer = key
 
         def int_to_slice(ix, size):
-            """Convert an `int` to a slice to be further used for array indexing, that will return a view and preserve
-            array shape."""
+            """Convert an integer index to a slice to be further used for array indexing, that will return a view and
+            preserve the number of array dimensions."""
             if ix < 0:
                 ix += size
             if (ix < 0) or (ix > size - 1):
@@ -272,7 +275,7 @@ class Gather(TraceContainer, SamplesContainer):
 
     @batch_method(target="for", copy_src=False)
     def get_item(self, *args):
-        """An interface for `self.__getitem__` method."""
+        """A pipeline interface for `self.__getitem__` method."""
         return self[args if len(args) > 1 else args[0]].copy()
 
     def _post_filter(self, mask):
@@ -635,8 +638,8 @@ class Gather(TraceContainer, SamplesContainer):
     def mask_to_pick(self, threshold=0.5, first_breaks_col=HDR_FIRST_BREAK, save_to=None):
         """Convert a first break mask saved in `data` into times of first arrivals.
 
-        For a given trace each value of the mask represents the probability that the corresponding index is greater
-        than the index of the first break.
+        For a given trace each value of the mask represents the probability that the corresponding time sample follows
+        the first break.
 
         Notes
         -----
@@ -1210,6 +1213,8 @@ class Gather(TraceContainer, SamplesContainer):
             Resampled gather.
         """
         current_sample_interval = self.sample_interval
+        if current_sample_interval == new_sample_interval:
+            return self
 
         # Anti-aliasing filter is optionally applied during downsampling to avoid frequency aliasing
         if enable_anti_aliasing and new_sample_interval > current_sample_interval:
@@ -1219,7 +1224,7 @@ class Gather(TraceContainer, SamplesContainer):
             filter_size = int(40 * new_sample_interval / current_sample_interval)
             self.bandpass_filter(high=0.9*nyquist_frequency, filter_size=filter_size, window="hann")
 
-        new_n_samples = int((self.samples[-1] - self.samples[0]) // new_sample_interval)
+        new_n_samples = int((self.samples[-1] - self.samples[0]) // new_sample_interval) + 1
         new_samples = self.create_samples(new_n_samples, new_sample_interval, self.delay)
 
         if isinstance(kind, int):
