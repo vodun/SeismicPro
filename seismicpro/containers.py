@@ -336,7 +336,7 @@ class TraceContainer:
         loaded_headers = read_dataframe(path, columns=headers_names, format=format, has_header=has_header,
                                         usecols=usecols, sep=sep, skiprows=skiprows, decimal=decimal,
                                         encoding=encoding, **kwargs)
-        loaded_headers = pl.from_dataframe(loaded_headers)
+        loaded_headers = pl.from_pandas(loaded_headers, nan_to_null=False)
 
         index_cols = self.headers.index.names  # pylint: disable=access-member-before-definition
         headers = pl.from_pandas(self.headers.reset_index())  # pylint: disable=access-member-before-definition
