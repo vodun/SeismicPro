@@ -206,7 +206,8 @@ class BaseVelocitySpectrum(SamplesContainer):
         # Change markers of stacking velocity points if they are far enough apart
         if stacking_velocities_ix is not None and stacking_times_ix is not None:
             marker = 'o' if np.min(np.diff(np.sort(stacking_times_ix))) > 50 else ''
-            ax.plot(stacking_velocities_ix, stacking_times_ix, c='#fafcc2', linewidth=2.5, marker=marker)
+            ax.plot(stacking_velocities_ix, stacking_times_ix, c='#fafcc2', linewidth=2.5,
+                    marker=marker, markevery=slice(1, -1))
 
         if grid:
             ax.grid(c='k')
@@ -418,8 +419,9 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         # Add a stacking velocity line on the plot
         stacking_times_ix, stacking_velocities_ix = None, None
         if stacking_velocity is not None:
-            valid_times_mask = (stacking_velocity.times >= self.times[0]) & (stacking_velocity.times <= self.times[-1])
-            stacking_times = stacking_velocity.times[valid_times_mask]
+            valid_times_mask = (stacking_velocity.times > self.times[0]) & (stacking_velocity.times < self.times[-1])
+            valid_times = np.sort(stacking_velocity.times[valid_times_mask])
+            stacking_times = np.concatenate([[self.times[0]], valid_times, [self.times[-1]]])
             stacking_velocities = stacking_velocity(stacking_times)
             stacking_times_ix = (stacking_times - self.delay) / self.sample_interval
             stacking_velocities_ix = np.interp(stacking_velocities, self.velocities, np.arange(len(self.velocities)))
@@ -630,23 +632,6 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
                   "half_win_size_samples": self.half_win_size_samples, "max_stretch_factor": max_stretch_factor}
         self.velocity_spectrum = self._calc_res_velocity_spectrum_numba(**kwargs)
 
-    def _calc_velocity_bounds(self):
-        """Calculate velocity boundaries for each time within which residual velocity spectrum will be calculated.
-
-        Returns
-        -------
-        left_bound_ix : 1d array
-            Indices of corresponding velocities of the left bound for each time.
-        right_bound_ix : 1d array
-            Indices of corresponding velocities of the right bound for each time.
-        """
-        interpolated_velocities = self.stacking_velocity(self.times)
-        left_bound_values = (interpolated_velocities * (1 - self.relative_margin)).reshape(-1, 1)
-        left_bound_ix = np.argmin(np.abs(left_bound_values - self.velocities), axis=1)
-        right_bound_values = (interpolated_velocities * (1 + self.relative_margin)).reshape(-1, 1)
-        right_bound_ix = np.argmin(np.abs(right_bound_values - self.velocities), axis=1)
-        return left_bound_ix, right_bound_ix
-
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_res_velocity_spectrum_numba(spectrum_func, coherency_func, gather_data, times, offsets,
@@ -688,11 +673,10 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
             left_bound_ix[i] = np.argmin(np.abs(left_bound[i] - velocities))
             right_bound_ix[i] = np.argmin(np.abs(right_bound[i] - velocities))
         min_bound_ix = np.min(left_bound_ix)
-        velocities = velocities[min_bound_ix:]
+        max_bound_ix = np.max(right_bound_ix)
+        velocities = velocities[min_bound_ix : max_bound_ix + 1]
         left_bound_ix -= min_bound_ix
         right_bound_ix -= min_bound_ix
-        max_bound_ix = np.max(right_bound_ix)
-        velocities = velocities[:max_bound_ix + 1]
 
         # Calculate only necessary part of the vertical velocity spectrum
         velocity_spectrum = np.zeros((gather_data.shape[1], len(velocities)), dtype=np.float32)
@@ -732,11 +716,12 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
 
     def _plot(self, *, title=None, x_ticker=None, y_ticker=None, grid=False, colorbar=True, ax=None, **kwargs):
         """Plot residual vertical velocity spectrum."""
-        valid_times_mask = ((self.stacking_velocity.times >= self.times[0]) &
-                            (self.stacking_velocity.times <= self.times[-1]))
-        stacking_times = self.stacking_velocity.times[valid_times_mask]
+        valid_times_mask = ((self.stacking_velocity.times > self.times[0]) &
+                            (self.stacking_velocity.times < self.times[-1]))
+        valid_times = np.sort(self.stacking_velocity.times[valid_times_mask])
+        stacking_times = np.concatenate([[self.times[0]], valid_times, [self.times[-1]]])
         stacking_times_ix = (stacking_times - self.delay) / self.sample_interval
-        stacking_velocities_ix = np.full_like(stacking_times_ix, self.velocity_spectrum.shape[1] / 2)
+        stacking_velocities_ix = np.full_like(stacking_times_ix, (self.velocity_spectrum.shape[1] - 1) / 2)
 
         x_ticklabels = np.linspace(-self.relative_margin, self.relative_margin, self.velocity_spectrum.shape[1]) * 100
         super()._plot(title=title, x_label="Relative velocity margin, %",
