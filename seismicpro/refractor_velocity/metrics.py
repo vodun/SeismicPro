@@ -50,12 +50,14 @@ class RefractorVelocityMetric(Metric):
     def __call__(self, *args, **kwargs):
         """Aggregate the metric. If not overriden, takes mean value of `calc`."""
         return np.mean(self.calc(*args, **kwargs))
-    
+
     def get_views(self, **kwargs):
         """Return plotters of the metric views and add kwargs for `gather_plot` to an interactive map plotter."""
         gather_plot_kwargs = {kwarg: kwargs.pop(kwarg) for kwarg in ["sort_by", "mask", "top_header"]
                               if kwarg in kwargs}
-        kwargs['plot_on_click_kwargs'][0].update(gather_plot_kwargs)
+        plot_on_click_kwargs = kwargs.pop('plot_on_click_kwargs', [{}, {}])                      
+        plot_on_click_kwargs[0].update(gather_plot_kwargs)
+        kwargs['plot_on_click_kwargs'] = plot_on_click_kwargs
         return [getattr(self, view) for view in to_list(self.views)], kwargs
 
     def plot_gather(self, coords, ax, index, sort_by=None, mask=True, top_header=True, **kwargs):

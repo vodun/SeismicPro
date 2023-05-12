@@ -65,7 +65,7 @@ def scale_standard(data, mean, std, tracewise, eps):
                 std[i] = np.sqrt((np.sum((data[i] - mean[i])**2) / trace_len))
         else:
             mean = np.atleast_2d(np.asarray(np.mean(data), dtype=data.dtype))
-            std = np.atleast_2d(np.asarray(np.mean(data), dtype=data.dtype))
+            std = np.atleast_2d(np.asarray(np.std(data), dtype=data.dtype))
     return (data - mean) / (std + eps)
 
 @njit(nogil=True)
