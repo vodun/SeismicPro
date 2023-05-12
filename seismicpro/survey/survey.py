@@ -133,6 +133,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Recording time for each trace value. Measured in milliseconds.
     sample_interval : float
         Sample interval of seismic traces. Measured in milliseconds.
+    delay : float
+        Delay recording time of seismic traces. Measured in milliseconds.
     limits : slice
         Default time limits to be used during trace loading and survey statistics calculation. Measured in samples.
     source_id_cols : str or list of str or None
@@ -886,7 +888,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             The same survey with a new `DeadTrace` header created.
         """
         traces_pos = self["TRACE_SEQUENCE_FILE"] - 1
-        limits, n_samples, _, _ = self.get_limits_info(get_first_defined(limits, self.limits))
+        limits, n_samples, _, _ = self._get_limits_info(get_first_defined(limits, self.limits))
         buffer = np.empty((1, n_samples), dtype=self.loader.dtype)
         dead_indices = []
         for tr_index, pos in tqdm(enumerate(traces_pos), desc=f"Detecting dead traces for survey {self.name}",
@@ -925,7 +927,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         n_workers : int, optional
             The maximum number of simultaneously spawned threads to load traces. Defaults to the number of cpu cores.
         return_samples_info : bool
-            Whether to also return sample interval and delay time of loaded traces.
+            Whether to also return sample interval and delay recording time of loaded traces.
 
         Returns
         -------
@@ -934,7 +936,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         sample_interval : float
             Sample interval of loaded seismic traces. Returned only if `return_samples_info` is `True`.
         delay : float
-            Delay time of loaded seismic traces. Returned only if `return_samples_info` is `True`.
+            Delay recording time of loaded seismic traces. Returned only if `return_samples_info` is `True`.
         """
         if chunk_size is None:
             chunk_size = len(indices)
@@ -950,7 +952,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         n_workers = min(n_chunks, n_workers)
         executor_class = ForPoolExecutor if n_workers == 1 else ThreadPoolExecutor
 
-        limits, n_samples, sample_interval, delay = self.get_limits_info(get_first_defined(limits, self.limits))
+        limits, n_samples, sample_interval, delay = self._get_limits_info(get_first_defined(limits, self.limits))
         if buffer is None:
             buffer = np.empty((len(indices), n_samples), dtype=self.loader.dtype)
 
@@ -1102,7 +1104,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     #                       Survey processing methods                        #
     #------------------------------------------------------------------------#
 
-    def get_limits_info(self, limits):
+    def _get_limits_info(self, limits):
+        """Convert given `limits` to a `slice` and return it together with the number of samples, sample interval and
+        delay recording time these limits imply."""
         limits = self.loader.process_limits(limits)
         samples = self.file_samples[limits]
         return limits, len(samples), self.file_sample_interval * limits.step, samples[0]
@@ -1115,7 +1119,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         limits : int or tuple or slice
             Default time limits to be used during trace loading and survey statistics calculation. `int` or `tuple` are
             used as arguments to init a `slice`. The resulting object is stored in `self.limits` attribute and used to
-            recalculate `self.samples` and `self.sample_interval`. Measured in samples.
+            recalculate `self.samples`, `self.sample_interval` and `self.delay`. Measured in samples.
 
         Raises
         ------
@@ -1123,7 +1127,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             If negative step of limits was passed.
             If the resulting samples length is zero.
         """
-        self.limits, _, self.sample_interval, self.delay = self.get_limits_info(limits)
+        self.limits, _, self.sample_interval, self.delay = self._get_limits_info(limits)
         self.samples = self.file_samples[self.limits]
 
     def remove_dead_traces(self, limits=None, inplace=False, bar=True):
