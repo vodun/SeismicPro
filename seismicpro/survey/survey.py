@@ -24,8 +24,8 @@ from .utils import calculate_trace_stats
 from ..config import config
 from ..gather import Gather
 from ..containers import GatherContainer, SamplesContainer
-from ..utils import to_list, maybe_copy, get_cols, get_first_defined
-from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK, HDR_TRACE_POS
+from ..utils import to_list, maybe_copy, get_cols, get_first_defined, ForPoolExecutor
+from ..const import HDR_FIRST_BREAK, HDR_TRACE_POS
 
 
 class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-instance-attributes
