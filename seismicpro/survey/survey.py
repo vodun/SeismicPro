@@ -24,6 +24,7 @@ from .utils import calculate_trace_stats
 from ..config import config
 from ..gather import Gather
 from ..containers import GatherContainer, SamplesContainer
+from ..metrics import initialize_metrics
 from ..utils import to_list, maybe_copy, get_cols, get_first_defined, ForPoolExecutor
 from ..const import HDR_FIRST_BREAK, HDR_TRACE_POS
 
