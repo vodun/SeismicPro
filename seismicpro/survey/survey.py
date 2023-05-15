@@ -2,7 +2,6 @@
 
 import os
 import warnings
-from copy import copy
 from textwrap import dedent
 from functools import partial
 from concurrent.futures import ThreadPoolExecutor
@@ -12,21 +11,21 @@ import segyio
 import numpy as np
 import scipy as sp
 import pandas as pd
+from segfast import Loader
 from tqdm.auto import tqdm
 from scipy.interpolate import interp1d
 from sklearn.linear_model import LinearRegression
 
-from .headers import load_headers
 from .headers_checks import validate_trace_headers, validate_source_headers, validate_receiver_headers
 from .metrics import (SurveyAttribute, TracewiseMetric, BaseWindowRMSMetric, MetricsRatio, DeadTrace,
                       DEFAULT_TRACEWISE_METRICS)
 from .plot_geometry import SurveyGeometryPlot
-from .utils import ibm_to_ieee, calculate_trace_stats
+from .utils import calculate_trace_stats
+from ..config import config
 from ..gather import Gather
 from ..containers import GatherContainer, SamplesContainer
-from ..metrics import initialize_metrics
 from ..utils import to_list, maybe_copy, get_cols, get_first_defined
-from ..const import ENDIANNESS, HDR_FIRST_BREAK, HDR_TRACE_POS
+from ..const import ENDIANNESS, HDR_DEAD_TRACE, HDR_FIRST_BREAK, HDR_TRACE_POS
 
 
 class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-instance-attributes
@@ -54,7 +53,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     `UnassignedInt2` since they are treated differently from all other headers by `segyio`. Also, `TRACE_SEQUENCE_FILE`
     header is not loaded from the file but always automatically reconstructed.
 
-    The survey sample rate is calculated by two values stored in:
+    Sample interval of the survey is calculated by two values stored in:
     - bytes 3217-3218 of the binary header, called `Interval` in `segyio`,
     - bytes 117-118 of the trace header of the first trace in the file, called `TRACE_SAMPLE_INTERVAL` in `segyio`.
     If both of them are present and equal or only one of them is well-defined (non-zero), it is used as a sample rate.
@@ -90,14 +89,13 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     header_cols : str or list of str or "all", optional
         Extra trace headers to load. Must be any of those specified in
         https://segyio.readthedocs.io/en/latest/segyio.html#trace-header-keys except for `UnassignedInt1` and
-        `UnassignedInt2`.
-        If not given, only headers from `header_index` are loaded and `TRACE_SEQUENCE_FILE` header is reconstructed
-        automatically if not in the index.
+        `UnassignedInt2`. `TRACE_SEQUENCE_FILE` header is automatically reconstructed and always present in `headers`.
+        If not given, only headers from `header_index`, `source_id_cols` and `receiver_id_cols` are loaded.
         If "all", all available headers are loaded.
     source_id_cols : str or list of str, optional
         Trace headers that uniquely identify a seismic source. If not given, set in the following way (in order of
         priority):
-        - `FieldRecord` if it loaded,
+        - `FieldRecord` if it is loaded,
         - [`SourceX`, `SourceY`] if they are loaded,
         - `None` otherwise.
     receiver_id_cols : str or list of str, optional
@@ -110,6 +108,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         used as arguments to init a `slice` object. If not given, whole traces are used. Measured in samples.
     validate : bool, optional, defaults to True
         Whether to perform validation of trace headers consistency.
+    engine : {"segyio", "memmap"}, optional, defaults to "memmap"
+        SEG-Y file loading engine. Two options are supported:
+        - "segyio" - directly uses `segyio` library interface,
+        - "memmap" - optimizes data fetching using `numpy` memory mapping. Generally provides up to 10x speedup
+          compared to "segyio" and thus set as default.
     endian : {"big", "msb", "little", "lsb"}, optional, defaults to "big"
         SEG-Y file endianness.
     chunk_size : int, optional, defaults to 25000
@@ -118,10 +121,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         The maximum number of simultaneously spawned processes to load trace headers. Defaults to the number of cpu
         cores.
     bar : bool, optional, defaults to True
-        Whether to show survey loading progress bar.
-    use_segyio_trace_loader : bool, optional, defaults to False
-        Whether to use `segyio` trace loading methods or try optimizing data fetching using `numpy` memory mapping. May
-        degrade performance if enabled.
+        Whether to show trace headers loading progress bar.
 
     Attributes
     ----------
@@ -131,16 +131,16 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Survey name.
     samples : 1d np.ndarray of floats
         Recording time for each trace value. Measured in milliseconds.
-    sample_rate : float
-        Sample rate of seismic traces. Measured in milliseconds.
+    sample_interval : float
+        Sample interval of seismic traces. Measured in milliseconds.
     limits : slice
         Default time limits to be used during trace loading and survey statistics calculation. Measured in samples.
     source_id_cols : str or list of str or None
         Trace headers that uniquely identify a seismic source.
     receiver_id_cols : str or list of str or None
         Trace headers that uniquely identify a receiver.
-    segy_handler : segyio.segy.SegyFile
-        Source SEG-Y file handler.
+    loader : segfast.SegyioLoader or segfast.MemmapLoader
+        SEG-Y file loader. Its type depends on the `engine` passed during survey instantiation.
     has_stats : bool
         Whether the survey has trace statistics calculated. `False` until `collect_stats` method is called.
     min : np.float32 or None
@@ -163,8 +163,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     is_stacked : bool or None
         Whether the survey is stacked. `None` until properties of survey binning are inferred.
     field_mask : 2d np.ndarray or None
-        A binary mask of the field with ones set for bins with at least one trace and zeros otherwise. `None` until
-        properties of survey binning are inferred.
+        A binary mask of the field with ones set for bins with at least one trace and zeros otherwise. The origin of
+        the mask is stored in the `field_mask_origin` attribute. `None` until properties of survey binning are
+        inferred.
     field_mask_origin : np.ndarray with 2 elements
         Minimum values of inline and crossline over the field. `None` until properties of survey binning are inferred.
     bin_contours : tuple of np.ndarray or None
@@ -175,16 +176,16 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         headers are loaded on survey instantiation or `infer_geometry` method is explicitly called.
     is_2d : bool or None
         Whether the survey is 2D. `None` until survey geometry is inferred.
+    area : float or None
+        Field area in squared meters. `None` until survey geometry is inferred.
+    perimeter : float or None
+        Field perimeter in meters. `None` until survey geometry is inferred.
     bin_size : np.ndarray with 2 elements or None
         Bin sizes in meters along inline and crossline directions. `None` until survey geometry is inferred.
     inline_length : float or None
         Maximum field length along inline direction in meters. `None` until survey geometry is inferred.
     crossline_length : float or None
         Maximum field length along crossline direction in meters. `None` until survey geometry is inferred.
-    area : float or None
-        Field area in squared meters. `None` until survey geometry is inferred.
-    perimeter : float or None
-        Field perimeter in meters. `None` until survey geometry is inferred.
     geographic_contours : tuple of np.ndarray or None
         Contours of all connected components of the field in geographic coordinates. `None` until survey geometry is
         inferred.
@@ -192,8 +193,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     # pylint: disable-next=too-many-arguments, too-many-statements
     def __init__(self, path, header_index, header_cols=None, source_id_cols=None, receiver_id_cols=None, name=None,
-                 limits=None, validate=True, endian="big", chunk_size=25000, n_workers=None, bar=True,
-                 use_segyio_trace_loader=False):
+                 limits=None, validate=True, engine="memmap", endian="big", chunk_size=25000, n_workers=None,
+                 bar=True):
         self.path = os.path.abspath(path)
         self.name = os.path.splitext(os.path.basename(self.path))[0] if name is None else name
 
@@ -226,50 +227,27 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             headers_to_load |= set(to_list(receiver_id_cols))
         self.receiver_id_cols = receiver_id_cols
 
-        # TRACE_SEQUENCE_FILE is not loaded but reconstructed manually since sometimes it is undefined in the file but
-        # we rely on it during gather loading
-        headers_to_load = headers_to_load - {"TRACE_SEQUENCE_FILE"}
-
+        # Validate that only valid headers are being loaded
         unknown_headers = headers_to_load - allowed_headers
         if unknown_headers:
             raise ValueError(f"Unknown headers {', '.join(unknown_headers)}")
 
-        # Open the SEG-Y file and memory map it
-        if endian not in ENDIANNESS:
-            raise ValueError(f"Unknown endian, must be one of {', '.join(ENDIANNESS)}")
-        self.endian = endian
-        self.segy_handler = segyio.open(self.path, mode="r", endian=endian, ignore_geometry=True)
-        self.segy_handler.mmap()
-
-        # Get attributes from the source SEG-Y file.
-        self.file_sample_rate = self._infer_sample_rate()
-        self.file_samples = (np.arange(self.segy_handler.trace.shape) * self.file_sample_rate).astype(np.float32)
+        # Open the SEG-Y file
+        self.loader = Loader(self.path, engine=engine, endian=endian, ignore_geometry=True)
 
         # Set samples and sample_rate according to passed `limits`.
         self.limits = None
         self.samples = None
-        self.sample_rate = None
+        self.sample_interval = None
         self.set_limits(limits)
 
-        # Load trace headers
-        file_metrics = self.segy_handler.xfd.metrics()
-        self.segy_format = file_metrics["format"]
-        self.trace_data_offset = file_metrics["trace0"]
-        self.n_file_traces = file_metrics["tracecount"]
-        headers = load_headers(path, headers_to_load, trace_data_offset=self.trace_data_offset,
-                               trace_size=file_metrics["trace_bsize"], n_traces=self.n_file_traces,
-                               endian=endian, chunk_size=chunk_size, n_workers=n_workers, bar=bar)
-
-        # Reconstruct TRACE_SEQUENCE_FILE header
-        tsf_dtype = np.int32 if len(headers) < np.iinfo(np.int32).max else np.int64
-        headers["TRACE_SEQUENCE_FILE"] = np.arange(1, self.segy_handler.tracecount+1, dtype=tsf_dtype)
-
-        # Sort headers by the required index in order to optimize further subsampling and merging. Sorting preserves
-        # trace order from the file within each gather.
+        # Load trace headers and sort them by the required index in order to optimize further subsampling and merging.
+        # Sorting preserves trace order from the file within each gather.
+        pbar = partial(tqdm, desc="Trace headers loaded") if bar else False
+        headers = self.loader.load_headers(headers_to_load, reconstruct_tsf=True, sort_columns=True,
+                                           chunk_size=chunk_size, max_workers=n_workers, pbar=pbar)
         headers.set_index(header_index, inplace=True)
         headers.sort_index(kind="stable", inplace=True)
-
-        # Set loaded survey headers and construct its fast indexer
         self._headers = None
         self._indexer = None
         self.headers = headers
@@ -277,30 +255,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         # Validate trace headers for consistency
         if validate:
             self.validate_headers()
-
-        # Data format code defined by bytes 3225–3226 of the binary header that can be conveniently loaded using numpy
-        # memmap. Currently only 3-byte integers (codes 7 and 15) and 4-byte fixed-point floats (code 4) are not
-        # supported and result in a fallback to loading using segyio.
-        endian_str = ">" if self.endian in {"big", "msb"} else "<"
-        format_to_mmap_dtype = {
-            1: np.uint8,  # IBM 4-byte float: read as 4 bytes and then manually transformed to an IEEE float32
-            2: endian_str + "i4",
-            3: endian_str + "i2",
-            5: endian_str + "f4",
-            6: endian_str + "f8",
-            8: np.int8,
-            9: endian_str + "i8",
-            10: endian_str + "u4",
-            11: endian_str + "u2",
-            12: endian_str + "u8",
-            16: np.uint8,
-        }
-
-        # Optionally create a memory map over traces data
-        self.trace_dtype = self.segy_handler.dtype  # Appropriate data type of a buffer to load a trace into
-        self.segy_trace_dtype = format_to_mmap_dtype.get(self.segy_format)  # Physical data type of traces on disc
-        self.use_segyio_trace_loader = use_segyio_trace_loader or self.segy_trace_dtype is None
-        self.traces_mmap = self._construct_traces_mmap()
 
         # Define all stats-related attributes
         self.has_stats = False
@@ -337,31 +291,31 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         if {"INLINE_3D", "CROSSLINE_3D", "CDP_X", "CDP_Y"} <= headers_to_load:
             self.infer_geometry()
 
-    def _infer_sample_rate(self):
-        """Get sample rate from file headers."""
-        bin_sample_rate = self.segy_handler.bin[segyio.BinField.Interval]
-        trace_sample_rate = self.segy_handler.header[0][segyio.TraceField.TRACE_SAMPLE_INTERVAL]
-        # 0 means undefined sample rate, so it is removed from the set of sample rate values.
-        union_sample_rate = {bin_sample_rate, trace_sample_rate} - {0}
-        if len(union_sample_rate) != 1:
-            raise ValueError("Cannot infer sample rate from file headers: either both `Interval` (bytes 3217-3218 in "
-                             "the binary header) and `TRACE_SAMPLE_INTERVAL` (bytes 117-118 in the header of the "
-                             "first trace are undefined or they have different values.")
-        return union_sample_rate.pop() / 1000  # Convert sample rate from microseconds to milliseconds
+    @property
+    def file_sample_rate(self):
+        """float: Sample rate of seismic traces in the source SEG-Y file. Measured in Hz."""
+        return self.loader.sample_rate
 
-    def _construct_traces_mmap(self):
-        """Memory map traces data."""
-        if self.use_segyio_trace_loader:
-            return None
-        trace_shape = self.n_file_samples if self.segy_format != 1 else (self.n_file_samples, 4)
-        mmap_trace_dtype = np.dtype([("headers", np.uint8, 240), ("trace", self.segy_trace_dtype, trace_shape)])
-        return np.memmap(filename=self.path, mode="r", shape=self.n_file_traces, dtype=mmap_trace_dtype,
-                         offset=self.trace_data_offset)["trace"]
+    @property
+    def file_sample_interval(self):
+        """float: Sample interval of seismic traces in the source SEG-Y file. Measured in milliseconds."""
+        return self.loader.sample_interval
+
+    @property
+    def file_samples(self):
+        """1d np.ndarray of floats: Recording time for each trace value in the source SEG-Y file. Measured in
+        milliseconds."""
+        return self.loader.samples
 
     @property
     def n_file_samples(self):
         """int: Trace length in samples in the source SEG-Y file."""
         return len(self.file_samples)
+
+    @property
+    def sample_rate(self):
+        """float: Sample rate of seismic traces. Measured in Hz."""
+        return 1000 / self.sample_interval
 
     @property
     def n_sources(self):
@@ -421,25 +375,14 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         htp_dtype = np.int32 if len(headers) < np.iinfo(np.int32).max else np.int64
         self.headers[HDR_TRACE_POS] = np.arange(self.n_traces, dtype=htp_dtype)
 
-    def __del__(self):
-        """Close SEG-Y file handler on survey destruction."""
-        self.segy_handler.close()
-
     def __getstate__(self):
-        """Create a survey's pickling state from its `__dict__` by setting SEG-Y file handler and memory mapped trace
-        data to `None`."""
-        state = copy(self.__dict__)
-        state["segy_handler"] = None
-        state["traces_mmap"] = None
+        """Create pickling state of a survey from its `__dict__`. Don't pickle `headers` and `indexer` if
+        `enable_fast_pickling` config option is set."""
+        state = self.__dict__.copy()
+        if config["enable_fast_pickling"]:
+            state["_headers"] = None
+            state["_indexer"] = None
         return state
-
-    def __setstate__(self, state):
-        """Recreate a survey from unpickled state, reopen its source SEG-Y file and reconstruct a memory map over
-        traces data."""
-        self.__dict__ = state
-        self.segy_handler = segyio.open(self.path, ignore_geometry=True)
-        self.segy_handler.mmap()
-        self.traces_mmap = self._construct_traces_mmap()
 
     def __str__(self):
         """Print survey metadata including information about the source file, field geometry if it was inferred and
@@ -454,7 +397,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Number of traces:          {self.n_traces}
         Trace length:              {self.n_samples} samples
-        Sample rate:               {self.sample_rate} ms
+        Sample interval:           {self.sample_interval} ms
+        Sample rate:               {self.sample_rate} Hz
         Times range:               [{min(self.samples)} ms, {max(self.samples)} ms]
         Offsets range:             {offset_range}
         Is uphole:                 {get_first_defined(self.is_uphole, "Unknown")}
@@ -792,7 +736,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
     # pylint: disable-next=too-many-statements
     def collect_stats(self, indices=None, n_quantile_traces=100000, quantile_precision=2, limits=None,
-                      chunk_size=10000, bar=True, verbose=False):
+                      chunk_size=10000, n_workers=None, bar=True, verbose=False):
         """Collect the following statistics by iterating over survey traces:
         1. Min and max amplitude,
         2. Mean amplitude and trace standard deviation,
@@ -819,7 +763,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         limits : int or tuple or slice, optional
             Time limits to be used for statistics calculation. `int` or `tuple` are used as arguments to init a `slice`
             object. If not given, `limits` passed to `__init__` are used. Measured in samples.
-        chunk_size : int, optional, defaults to 10000
+        chunk_size : int, optional, defaults to 1000
             The number of traces to be processed at once.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
@@ -832,11 +776,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             The survey with collected stats. Sets `has_stats` flag to `True` and updates statistics attributes inplace.
         """
 
-        limits = self.limits if limits is None else self._process_limits(limits)
         headers = self.headers
         if indices is not None:
             headers = self.get_headers_by_indices(indices)
         n_traces = len(headers)
+        limits = get_first_defined(limits, self.limits)
 
         if n_quantile_traces < 0:
             raise ValueError("n_quantile_traces must be non-negative")
@@ -858,29 +802,40 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         chunk_traces_pos = np.split(traces_pos, chunk_borders)
         chunk_quantile_traces_mask = np.split(quantile_traces_mask, chunk_borders)
 
+        if n_workers is None:
+            n_workers = os.cpu_count()
+        n_workers = min(n_chunks, n_workers)
+
         # Define buffers. chunk_mean, chunk_var and chunk_weights have float64 dtype to be numerically stable
-        quantile_traces_buffer = []
-        global_min, global_max = np.float32("inf"), np.float32("-inf")
+        quantile_traces_buffer = [[] for _ in range(n_chunks)]
+        min_buffer = np.empty(n_chunks, dtype=np.float32)
+        max_buffer = np.empty(n_chunks, dtype=np.float32)
         mean_buffer = np.empty(n_chunks, dtype=np.float64)
         var_buffer = np.empty(n_chunks, dtype=np.float64)
         chunk_weights = np.array(chunk_sizes, dtype=np.float64) / n_traces
 
+        def collect_chunk_stats(i):
+            chunk = self.load_traces(chunk_traces_pos[i], limits=limits)
+            chunk_quantile_mask = chunk_quantile_traces_mask[i]
+            if chunk_quantile_mask.any():
+                quantile_traces_buffer[i] = chunk[chunk_quantile_mask].ravel()
+            min_buffer[i], max_buffer[i], mean_buffer[i], var_buffer[i] = calculate_trace_stats(chunk.ravel())
+            return len(chunk)
+
+        # Precompile njitted function to correctly initialize TBB from the main thread
+        _ = calculate_trace_stats(self.load_traces([0], limits=limits).ravel())
+
         # Accumulate min, max, mean and var values of traces chunks
         bar_desc = f"Calculating statistics for traces in survey {self.name}"
         with tqdm(total=n_traces, desc=bar_desc, disable=not bar) as pbar:
-            for i, (chunk_pos, chunk_quantile_mask) in enumerate(zip(chunk_traces_pos, chunk_quantile_traces_mask)):
-                chunk_traces = self.load_traces(chunk_pos, limits=limits)
-                if chunk_quantile_mask.any():
-                    quantile_traces_buffer.append(chunk_traces[chunk_quantile_mask].ravel())
+            with ThreadPoolExecutor(max_workers=n_workers) as pool:
+                for i in range(n_chunks):
+                    future = pool.submit(collect_chunk_stats, i)
+                    future.add_done_callback(lambda fut: pbar.update(fut.result()))
 
-                chunk_min, chunk_max, chunk_mean, chunk_var = calculate_trace_stats(chunk_traces.ravel())
-                global_min = min(chunk_min, global_min)
-                global_max = max(chunk_max, global_max)
-                mean_buffer[i] = chunk_mean
-                var_buffer[i] = chunk_var
-                pbar.update(len(chunk_traces))
-
-        # Calculate global survey mean and variance by its values in chunks
+        # Calculate global survey statistics by individual chunks
+        global_min = np.min(min_buffer)
+        global_max = np.max(max_buffer)
         global_mean = np.average(mean_buffer, weights=chunk_weights)
         global_var = np.average(var_buffer + (mean_buffer - global_mean)**2, weights=chunk_weights)
 
@@ -939,72 +894,60 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     #                            Loading methods                             #
     #------------------------------------------------------------------------#
 
-    def load_trace_segyio(self, buf, index, limits, trace_length):
-        """Load a single trace from a SEG-Y file by its position.
-
-        In order to optimize trace loading process, we use `segyio`'s low-level function `xfd.gettr`. Description of
-        its arguments is given below:
-            1. A buffer to write the loaded trace to,
-            2. An index of the trace in a SEG-Y file to load,
-            3. Unknown arg (always 1),
-            4. Unknown arg (always 1),
-            5. An index of the first trace element to load,
-            6. An index of the last trace element to load,
-            7. Trace element loading step,
-            8. The overall number of samples to load.
+    def load_traces(self, indices, limits=None, buffer=None, return_samples=False, chunk_size=None, n_workers=None):
+        """Load seismic traces by their indices.
 
         Parameters
         ----------
-        buf : 1d np.ndarray of self.trace_dtype
-            An empty array to save the loaded trace.
-        index : int
-            Trace position in the file.
-        limits : slice
-            Trace time range to load. Measured in samples.
-        trace_length : int
-            Total number of samples to load.
+        indices : 1d array-like
+            Indices of the traces to read.
+        limits : int or tuple or slice or None, optional
+            Time range for trace loading. `int` or `tuple` are used as arguments to init a `slice` object. If not
+            given, `limits` passed to `__init__` are used. Measured in samples.
+        buffer : 2d np.ndarray, optional
+            Buffer to read the data into. Created automatically if not given.
+        return_samples : bool
+            Whether to also return samples of loaded traces.
+        chunk_size : int, optional
+            The number of traces to load by each of spawned threads. Loads all traces in the main thread by default.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned threads to load traces. Defaults to the number of cpu cores.
 
         Returns
         -------
-        trace : 1d np.ndarray of self.trace_dtype
-            Loaded trace.
+        traces : 2d np.ndarray
+            Loaded seismic traces.
+        samples : 1d np.ndarray
+            Samples of loaded traces. Returned only if `return_samples` is `True`.
         """
-        return self.segy_handler.xfd.gettr(buf, index, 1, 1, limits.start, limits.stop, limits.step, trace_length)
+        if chunk_size is None:
+            chunk_size = len(indices)
+        n_chunks, last_chunk_size = divmod(len(indices), chunk_size)
+        chunk_sizes = [chunk_size] * n_chunks
+        if last_chunk_size:
+            n_chunks += 1
+            chunk_sizes += [last_chunk_size]
+        chunk_borders = np.cumsum([0] + chunk_sizes)
 
-    def load_traces_segyio(self, traces_pos, limits=None):
-        """Load traces by their positions in the SEG-Y file using low-level `segyio` interface."""
-        limits = self.limits if limits is None else self._process_limits(limits)
+        if n_workers is None:
+            n_workers = os.cpu_count()
+        n_workers = min(n_chunks, n_workers)
+        executor_class = ForPoolExecutor if n_workers == 1 else ThreadPoolExecutor
+
+        limits = self.loader.process_limits(limits) if limits is not None else self.limits
         samples = self.file_samples[limits]
-        n_samples = len(samples)
+        if buffer is None:
+            buffer = np.empty((len(indices), len(samples)), dtype=self.loader.dtype)
 
-        traces = np.empty((len(traces_pos), n_samples), dtype=self.trace_dtype)
-        for i, pos in enumerate(traces_pos):
-            self.load_trace_segyio(buf=traces[i], index=pos, limits=limits, trace_length=n_samples)
-        return traces
+        with executor_class(max_workers=n_workers) as pool:
+            for start, end in zip(chunk_borders[:-1], chunk_borders[1:]):
+                pool.submit(self.loader.load_traces, indices[start:end], limits=limits, buffer=buffer[start:end])
 
-    def load_traces_mmap(self, traces_pos, limits=None):
-        """Load traces by their positions in the SEG-Y file from memory mapped trace data."""
-        limits = self.limits if limits is None else self._process_limits(limits)
-        if self.segy_format != 1:
-            return self.traces_mmap[traces_pos, limits]
-        # IBM 4-byte float case: reading from mmap with step is way more expensive
-        # than loading the whole trace with consequent slicing
-        traces = self.traces_mmap[traces_pos, limits.start:limits.stop]
-        if limits.step != 1:
-            traces = traces[:, ::limits.step]
-        traces_bytes = (traces[:, :, 0], traces[:, :, 1], traces[:, :, 2], traces[:, :, 3])
-        if self.endian in {"little", "lsb"}:
-            traces_bytes = traces_bytes[::-1]
-        return ibm_to_ieee(*traces_bytes)
+        if return_samples:
+            return buffer, samples
+        return buffer
 
-    def load_traces(self, traces_pos, limits=None):
-        """Load traces by their positions in the SEG-Y file."""
-        loader = self.load_traces_segyio if self.use_segyio_trace_loader else self.load_traces_mmap
-        traces = loader(traces_pos, limits=limits)
-        # Cast the result to a C-contiguous float32 array regardless of the dtype in the source file
-        return np.require(traces, dtype=np.float32, requirements="C")
-
-    def load_gather(self, headers, limits=None, copy_headers=False):
+    def load_gather(self, headers, limits=None, copy_headers=False, chunk_size=None, n_workers=None):
         """Load a gather with given `headers`.
 
         Parameters
@@ -1016,6 +959,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             given, `limits` passed to `__init__` are used. Measured in samples.
         copy_headers : bool, optional, defaults to False
             Whether to copy the passed `headers` when instantiating the gather.
+        chunk_size : int, optional
+            The number of traces to load by each of spawned threads. Loads all traces in the main thread by default.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned threads to load traces. Defaults to the number of cpu cores.
 
         Returns
         -------
@@ -1024,13 +971,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         """
         if copy_headers:
             headers = headers.copy()
-        traces_pos = get_cols(headers, "TRACE_SEQUENCE_FILE") - 1
-        limits = self.limits if limits is None else self._process_limits(limits)
-        samples = self.file_samples[limits]
-        data = self.load_traces(traces_pos, limits=limits)
+        data, samples = self.load_traces(get_cols(headers, "TRACE_SEQUENCE_FILE") - 1, limits=limits,
+                                         return_samples=True, chunk_size=chunk_size, n_workers=n_workers)
         return Gather(headers=headers, data=data, samples=samples, survey=self)
 
-    def get_gather(self, index, limits=None, copy_headers=False):
+    def get_gather(self, index, limits=None, copy_headers=False, chunk_size=None, n_workers=None):
         """Load a gather with given `index`.
 
         Parameters
@@ -1042,15 +987,20 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             given, `limits` passed to `__init__` are used. Measured in samples.
         copy_headers : bool, optional, defaults to False
             Whether to copy the subset of survey `headers` describing the gather.
+        chunk_size : int, optional
+            The number of traces to load by each of spawned threads. Loads all traces in the main thread by default.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned threads to load traces. Defaults to the number of cpu cores.
 
         Returns
         -------
         gather : Gather
             Loaded gather instance.
         """
-        return self.load_gather(self.get_headers_by_indices((index,)), limits=limits, copy_headers=copy_headers)
+        return self.load_gather(self.get_headers_by_indices((index,)), limits=limits, copy_headers=copy_headers,
+                                chunk_size=chunk_size, n_workers=n_workers)
 
-    def sample_gather(self, limits=None, copy_headers=False):
+    def sample_gather(self, limits=None, copy_headers=False, chunk_size=None, n_workers=None):
         """Load a gather with random index.
 
         Parameters
@@ -1060,13 +1010,18 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             given, `limits` passed to `__init__` are used. Measured in samples.
         copy_headers : bool, optional, defaults to False
             Whether to copy the subset of survey `headers` describing the sampled gather.
+        chunk_size : int, optional
+            The number of traces to load by each of spawned threads. Loads all traces in the main thread by default.
+        n_workers : int, optional
+            The maximum number of simultaneously spawned threads to load traces. Defaults to the number of cpu cores.
 
         Returns
         -------
         gather : Gather
             Loaded gather instance.
         """
-        return self.get_gather(index=np.random.choice(self.indices), limits=limits, copy_headers=copy_headers)
+        return self.get_gather(index=np.random.choice(self.indices), limits=limits, copy_headers=copy_headers,
+                               chunk_size=chunk_size, n_workers=n_workers)
 
     # pylint: disable=anomalous-backslash-in-string
     def load_first_breaks(self, path, trace_id_cols=('FieldRecord', 'TraceNumber'), first_breaks_col=HDR_FIRST_BREAK,
@@ -1139,7 +1094,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         limits : int or tuple or slice
             Default time limits to be used during trace loading and survey statistics calculation. `int` or `tuple` are
             used as arguments to init a `slice`. The resulting object is stored in `self.limits` attribute and used to
-            recalculate `self.samples` and `self.sample_rate`. Measured in samples.
+            recalculate `self.samples` and `self.sample_interval`. Measured in samples.
 
         Raises
         ------
@@ -1147,21 +1102,9 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             If negative step of limits was passed.
             If the resulting samples length is zero.
         """
-        self.limits = self._process_limits(limits)
+        self.limits = self.loader.process_limits(limits)
         self.samples = self.file_samples[self.limits]
-        self.sample_rate = self.file_sample_rate * self.limits.step
-
-    def _process_limits(self, limits):
-        """Convert given `limits` to a `slice`."""
-        if not isinstance(limits, slice):
-            limits = slice(*to_list(limits))
-        # Use .indices to avoid negative slicing range
-        limits = limits.indices(len(self.file_samples))
-        if limits[-1] < 0:
-            raise ValueError('Negative step is not allowed.')
-        if limits[1] <= limits[0]:
-            raise ValueError('Empty traces after setting limits.')
-        return slice(*limits)
+        self.sample_interval = self.file_sample_interval * self.limits.step
 
     def filter_by_metric(self, metric_name, threshold=None, inplace=False, bad_only=False):
         """Filter traces using metric with name `metric_name` and passed `threshold`.

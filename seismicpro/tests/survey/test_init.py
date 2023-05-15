@@ -2,6 +2,7 @@
 
 import pytest
 import segyio
+import segfast
 
 from seismicpro import Survey
 from seismicpro.const import HDR_TRACE_POS
@@ -70,14 +71,17 @@ WORKERS = [  # headers chunk size, number of workers and progress bar display fl
 class TestInit:
     """Test `Survey` instantiation."""
 
+    @pytest.mark.parametrize("engine, loader_type", [
+        ["segyio", segfast.SegyioLoader],
+        ["memmap", segfast.MemmapLoader],
+    ])
     @pytest.mark.parametrize("chunk_size, n_workers, bar", WORKERS)
-    @pytest.mark.parametrize("use_segyio_trace_loader", [True, False])
     @pytest.mark.parametrize("validate", [True, False])
-    def test_headers_loading(self, segy_path, chunk_size, n_workers, bar, use_segyio_trace_loader, validate):
+    def test_headers_loading(self, segy_path, engine, loader_type, chunk_size, n_workers, bar, validate):
         """Test sequential and parallel loading of survey trace headers."""
-        survey = Survey(segy_path, header_index="FieldRecord", header_cols="all", name="raw", chunk_size=chunk_size,
-                        n_workers=n_workers, bar=bar, use_segyio_trace_loader=use_segyio_trace_loader,
-                        validate=validate)
+        survey = Survey(segy_path, header_index="FieldRecord", header_cols="all", name="raw", engine=engine,
+                        chunk_size=chunk_size, n_workers=n_workers, bar=bar, validate=validate)
+        assert isinstance(survey.loader, loader_type)
         assert_survey_loaded(survey, segy_path, "raw", {"FieldRecord"}, ALL_HEADERS | {HDR_TRACE_POS})
 
     @pytest.mark.parametrize("header_index, expected_index", HEADER_INDEX)

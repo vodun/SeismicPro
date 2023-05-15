@@ -6,23 +6,67 @@ import numpy as np
 
 from seismicpro import Survey
 
-from . import assert_surveys_equal
+from . import assert_surveys_equal, assert_survey_processed_inplace
+
+
+def gen_random_traces(n_traces, n_samples):
+    """Generate `n_traces` random traces."""
+    return np.random.normal(size=(n_traces, n_samples)).astype(np.float32)
+
+
+def gen_random_traces_some_dead(n_traces, n_samples):
+    """Generate `n_traces` random traces with every third of them dead."""
+    traces = np.random.uniform(size=(n_traces, n_samples)).astype(np.float32)
+    traces[::3] = 0
+    return traces
+
+
+@pytest.fixture(scope="module", params=[gen_random_traces, gen_random_traces_some_dead])
+def stat_segy(tmp_path_factory, request):
+    """Return a path to a SEG-Y file and its trace data to estimate its statistics."""
+    n_traces = 16
+    n_samples = 10
+    trace_gen = request.param
+    trace_data = trace_gen(n_traces, n_samples)
+
+    def gen_trace(TRACE_SEQUENCE_FILE, **kwargs):  # pylint: disable=invalid-name
+        """Return a corresponding trace from pregenerated data."""
+        _ = kwargs
+        return trace_data[TRACE_SEQUENCE_FILE - 1]
+
+    path = tmp_path_factory.mktemp("stat") / "stat.sgy"
+    make_prestack_segy(path, survey_size=(4, 4), origin=(0, 0), sources_step=(3, 3), receivers_step=(1, 1),
+                       bin_size=(1, 1), activation_dist=(1, 1), n_samples=n_samples, sample_interval=2000, delay=0,
+                       bar=False, trace_gen=gen_trace)
+    return path, trace_data
 
 
 class TestStats:
     """Test `collect_stats` method."""
 
+    def test_no_mark_dead_warning(self, segy_path):
+        """Check that a warning is emitted when `collect_stats` is run before `mark_dead_traces`"""
+        survey = Survey(segy_path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset")
+
+        with pytest.warns(RuntimeWarning):
+            survey.collect_stats()
+
+    @pytest.mark.parametrize("remove_dead", [True, False])
     @pytest.mark.parametrize("init_limits", [slice(None), slice(8), slice(-4, None)])
     @pytest.mark.parametrize("n_quantile_traces", [0, 10, 100])
     @pytest.mark.parametrize("quantile_precision", [1, 2])
     @pytest.mark.parametrize("stats_limits", [None, slice(5), slice(2, 8)])
-    @pytest.mark.parametrize("use_segyio_trace_loader", [True, False])
-    def test_collect_stats(self, stat_segy, init_limits, n_quantile_traces, quantile_precision,
-                           stats_limits, use_segyio_trace_loader):
+    @pytest.mark.parametrize("engine", ["segyio", "memmap"])
+    def test_collect_stats(self, stat_segy, init_limits, remove_dead, n_quantile_traces, quantile_precision,
+                           stats_limits, engine):
         """Compare stats obtained by running `collect_stats` with the actual ones."""
         path, trace_data = stat_segy
         survey = Survey(path, header_index="TRACE_SEQUENCE_FILE", header_cols="offset", limits=init_limits,
-                        use_segyio_trace_loader=use_segyio_trace_loader, bar=False)
+                        engine=engine, bar=False)
+        if remove_dead:
+            survey.remove_dead_traces(inplace=True)
+            is_dead = np.isclose(trace_data[:, init_limits].ptp(axis=1), 0)
+            trace_data = trace_data[~is_dead]
 
         survey_copy = survey.copy()
         survey.collect_stats(n_quantile_traces=n_quantile_traces, quantile_precision=quantile_precision,
@@ -30,7 +74,7 @@ class TestStats:
 
         # stats_limits take priority over init_limits
         stats_limits = init_limits if stats_limits is None else stats_limits
-        trace_data = trace_data[:, stats_limits]
+        trace_data = trace_data[:, stats_limits].ravel()
 
         # Perform basic tests of estimated quantiles since fair comparison of interpolators is complicated
         quantiles = survey.quantile_interpolator(np.linspace(0, 1, 11))

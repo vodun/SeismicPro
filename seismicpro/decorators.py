@@ -7,7 +7,7 @@ from collections import defaultdict
 import matplotlib.pyplot as plt
 from batchflow.decorators import action, inbatch_parallel
 
-from .utils import to_list, save_figure, as_dict
+from .utils import to_list, align_src_dst, save_figure, as_dict
 
 
 def _update_method_params(method, decorator_name, **decorator_params):
@@ -134,11 +134,7 @@ def _apply_to_each_component(method, target, fetch_method_target):
     in the corresponding components of `dst`."""
     @wraps(method)
     def decorated_method(self, *args, src, dst=None, **kwargs):
-        src_list = to_list(src)
-        dst_list = to_list(dst) if dst is not None else src_list
-        if len(src_list) != len(dst_list):
-            raise ValueError("src and dst should have the same length.")
-
+        src_list, dst_list = align_src_dst(src, dst)
         for src, dst in zip(src_list, dst_list):  # pylint: disable=redefined-argument-from-local
             # Set src_method_target default
             src_method_target = target
