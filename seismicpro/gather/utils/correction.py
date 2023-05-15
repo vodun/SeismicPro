@@ -17,7 +17,7 @@ def compute_hodograph_times(offsets, times, velocities):
 
 @njit(nogil=True, parallel=True)
 def compute_crossover_mask(hodograph_times):
-    crossover_mask = np.empty_like(hodograph_times, dtype=bool)
+    crossover_mask = np.empty_like(hodograph_times, dtype=np.bool_)
     n = len(hodograph_times) - 1
     for i in prange(hodograph_times.shape[1]):
         t_next = hodograph_times[n, i]
@@ -34,7 +34,7 @@ def compute_crossover_mask(hodograph_times):
 @njit(nogil=True, parallel=True)
 def compute_stretch_mask(hodograph_times, offsets, times, velocities, velocities_grad, max_stretch_factor):
     corrected_t0 = times.reshape(-1, 1) - (offsets**2 * velocities_grad.reshape(-1, 1)) / velocities.reshape(-1, 1)**3
-    stretch_mask = (corrected_t0 <= 0) | (hodograph_times > max_stretch_factor * corrected_t0)
+    stretch_mask = (corrected_t0 <= 0) | (hodograph_times > (1 + max_stretch_factor) * corrected_t0)
     for i in prange(stretch_mask.shape[1]):
         for j in range(stretch_mask.shape[0] - 1, -1, -1):
             if stretch_mask[j, i]:
@@ -43,9 +43,10 @@ def compute_stretch_mask(hodograph_times, offsets, times, velocities, velocities
     return stretch_mask
 
 
+@njit(nogil=True, parallel=True)
 def compute_muting_offsets(hodograph_times, offsets, times, velocities, velocities_grad, mute_crossover=False,
                            max_stretch_factor=None):
-    muting_mask = np.full_like(hodograph_times, 0, dtype=bool)
+    muting_mask = np.full_like(hodograph_times, 0, dtype=np.bool_)
     if mute_crossover:
         muting_mask |= compute_crossover_mask(hodograph_times)
     if max_stretch_factor is not None:
