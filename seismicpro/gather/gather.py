@@ -986,7 +986,8 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
-    def apply_nmo(self, stacking_velocity, mute_crossover=False, max_stretch_factor=np.inf, fill_value=np.nan):
+    def apply_nmo(self, stacking_velocity, interpolate=True, mute_crossover=False, max_stretch_factor=None,
+                  fill_value=np.nan):
         """Perform gather normal moveout correction using the given stacking velocity.
 
         Notes
@@ -1026,9 +1027,11 @@ class Gather(TraceContainer, SamplesContainer):
         if not isinstance(stacking_velocity, StackingVelocity):
             raise ValueError("stacking_velocity must be of int, float, StackingVelocity or StackingVelocityField type")
 
-        velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
-        self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms, self.sample_interval,
-                                         self.delay, mute_crossover, max_stretch_factor, fill_value)
+        velocities = stacking_velocity(self.times) / 1000  # from m/s to m/ms
+        velocities_grad = np.gradient(velocities, self.sample_interval)
+        self.data = correction.apply_nmo(self.data, self.offsets, self.sample_interval, self.delay, self.times,
+                                         velocities, velocities_grad, interpolate, mute_crossover, max_stretch_factor,
+                                         fill_value)
         return self
 
     #------------------------------------------------------------------------#

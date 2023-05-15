@@ -7,8 +7,61 @@ import numpy as np
 from numba import njit, prange
 
 
+@njit(nogil=True, parallel=True)
+def compute_hodograph_times(offsets, times, velocities):
+    """Calculate times of hyperbolic hodographs for each start time, corresponding stacking velocity and all offsets.
+    Offsets and times are 1d `np.ndarray`s. Velocities are either a 1d `np.ndarray` or a scalar.
+    The result is a 2d `np.ndarray` with shape `(len(times), len(offsets))`."""
+    return np.sqrt(times.reshape(-1, 1) ** 2 + (offsets / velocities.reshape(-1, 1)) ** 2)
+
+
+@njit(nogil=True, parallel=True)
+def compute_crossover_mask(hodograph_times):
+    crossover_mask = np.empty_like(hodograph_times, dtype=bool)
+    n = len(hodograph_times) - 1
+    for i in prange(hodograph_times.shape[1]):
+        t_next = hodograph_times[n, i]
+        for j in range(n-1, -1, -1):
+            t = hodograph_times[j, i]
+            if t > t_next:
+                crossover_mask[:j+1, i] = True
+                crossover_mask[j+1:, i] = False
+                break
+            t_next = t
+    return crossover_mask
+
+
+@njit(nogil=True, parallel=True)
+def compute_stretch_mask(hodograph_times, offsets, times, velocities, velocities_grad, max_stretch_factor):
+    corrected_t0 = times.reshape(-1, 1) - (offsets**2 * velocities_grad.reshape(-1, 1)) / velocities.reshape(-1, 1)**3
+    stretch_mask = (corrected_t0 <= 0) | (hodograph_times > max_stretch_factor * corrected_t0)
+    for i in prange(stretch_mask.shape[1]):
+        for j in range(stretch_mask.shape[0] - 1, -1, -1):
+            if stretch_mask[j, i]:
+                stretch_mask[:j, i] = True
+                break
+    return stretch_mask
+
+
+def compute_muting_offsets(hodograph_times, offsets, times, velocities, velocities_grad, mute_crossover=False,
+                           max_stretch_factor=None):
+    muting_mask = np.full_like(hodograph_times, 0, dtype=bool)
+    if mute_crossover:
+        muting_mask |= compute_crossover_mask(hodograph_times)
+    if max_stretch_factor is not None:
+        muting_mask |= compute_stretch_mask(hodograph_times, offsets, times, velocities, velocities_grad,
+                                            max_stretch_factor)
+
+    muting_offsets = np.full(len(times), np.inf, dtype=np.float32)
+    for i in prange(len(muting_mask)):
+        muted_offsets = offsets[muting_mask[i]]
+        if muted_offsets.size > 0:
+            muting_offsets[i] = muted_offsets.min()
+    return muting_offsets
+
+
 @njit(nogil=True, fastmath=True)
-def get_hodograph(gather_data, offsets, hodograph_times, sample_interval, delay, interpolate=True, fill_value=np.nan,
+def get_hodograph(gather_data, offsets, sample_interval, delay, hodograph_times, interpolate=True, fill_value=np.nan,
                   max_offset=np.inf, out=None):
     """Retrieve hodograph amplitudes from the `gather_data`.
 
@@ -45,7 +98,7 @@ def get_hodograph(gather_data, offsets, hodograph_times, sample_interval, delay,
         out = np.empty(len(hodograph_times), dtype=gather_data.dtype)
     for i, hodograph_sample in enumerate((hodograph_times - delay) / sample_interval):
         amplitude = fill_value
-        if offsets[i] <= max_offset and 0 <= hodograph_sample <= gather_data.shape[1] - 1:
+        if offsets[i] < max_offset and 0 <= hodograph_sample <= gather_data.shape[1] - 1:
             if interpolate:
                 time_prev = math.floor(hodograph_sample)
                 time_next = math.ceil(hodograph_sample)
@@ -58,59 +111,8 @@ def get_hodograph(gather_data, offsets, hodograph_times, sample_interval, delay,
 
 
 @njit(nogil=True, parallel=True)
-def compute_hodograph_times(offsets, times, velocities):
-    """Calculate times of hyperbolic hodographs for each start time, corresponding stacking velocity and all offsets.
-    Offsets and times are 1d `np.ndarray`s. Velocities are either a 1d `np.ndarray` or a scalar.
-    The result is a 2d `np.ndarray` with shape `(len(times), len(offsets))`."""
-    # Explicit broadcasting velocities, in case it's scalar. Required for `parallel=True` flag
-    velocities = np.ascontiguousarray(np.broadcast_to(velocities, times.shape))
-    return np.sqrt(times.reshape(-1, 1) ** 2 + (offsets / velocities.reshape(-1, 1)) ** 2)
-
-
-@njit(nogil=True, parallel=True)
-def compute_crossover_offsets(hodograph_times, times, offsets):
-    """Given `hodograph_times` for gather NMO correction, find an offset after which the crossover events occur for
-    each timestamp.
-
-    Parameters
-    ----------
-    hodograph_times : 2d np.ndarray
-        Array storing the times of hyperbolic hodographs for gather NMO correction. Has shape
-        `(len(times), len(offsets))`.
-    times : 1d np.ndarray
-        Gather timestamps.
-    offsets : 1d np.ndarray
-        Gather offsets.
-
-    Returns
-    -------
-    crossover_offsets : 1d np.array
-        An array of offsets where crossover events occur for each timestamp. Has shape `(len(times),)`.
-    """
-    n = len(hodograph_times) - 1
-    crossover_times = np.zeros(hodograph_times.shape[1])
-
-    for i in prange(hodograph_times.shape[1]):
-        t_prev = hodograph_times[n, i]
-        for j in range(n-1, 0, -1):
-            t = hodograph_times[j, i]
-            if t > t_prev:
-                crossover_times[i] = j
-                break
-            t_prev = t
-
-    time_max = crossover_times[0]
-    for i in range(1, len(crossover_times)):
-        if crossover_times[i] > time_max:
-            time_max = crossover_times[i]
-        else:
-            crossover_times[i] = time_max
-
-    return np.interp(times, crossover_times, offsets)
-
-@njit(nogil=True, parallel=True)
-def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_interval, delay, mute_crossover=False,
-              max_stretch_factor=np.inf, fill_value=np.nan):
+def apply_nmo(gather_data, offsets, sample_interval, delay, times, velocities, velocities_grad, interpolate=True,
+              mute_crossover=False, max_stretch_factor=np.inf, fill_value=np.nan):
     r"""Perform gather normal moveout correction with given stacking velocities for each timestamp.
 
     The process of NMO correction removes the moveout effect on traveltimes, assuming that reflection traveltimes in a
@@ -153,19 +155,19 @@ def apply_nmo(gather_data, times, offsets, stacking_velocities, sample_interval,
     corrected_gather_data : 2d array
         NMO corrected gather data with an ordinary shape of (num_traces, trace_length).
     """
+    # Explicit broadcasting of velocities and their gradients in case they are scalars.
+    # Required for `parallel=True` flag
+    velocities = np.ascontiguousarray(np.broadcast_to(velocities, times.shape))
+    velocities_grad = np.ascontiguousarray(np.broadcast_to(velocities_grad, times.shape))
+
+    hodograph_times = compute_hodograph_times(offsets, times, velocities)
+    muting_offsets = compute_muting_offsets(hodograph_times, offsets, times, velocities, velocities_grad,
+                                            mute_crossover=mute_crossover, max_stretch_factor=max_stretch_factor)
+
     corrected_gather_data = np.full_like(gather_data, fill_value=fill_value)
-    hodograph_times = compute_hodograph_times(offsets, times, stacking_velocities)
-
-    max_offsets = times * stacking_velocities * np.sqrt((1 + max_stretch_factor) ** 2 - 1)
-
-    if mute_crossover:
-        crossover_offsets = compute_crossover_offsets(hodograph_times, times, offsets)
-        max_offsets = np.minimum(max_offsets, crossover_offsets)
-
     for i in prange(times.shape[0]):
-        get_hodograph(gather_data, offsets, hodograph_times[i], sample_interval, delay, fill_value=fill_value,
-                      max_offset=max_offsets[i], out=corrected_gather_data[:, i])
-
+        get_hodograph(gather_data, offsets, sample_interval, delay, hodograph_times[i], interpolate=interpolate,
+                      fill_value=fill_value, max_offset=muting_offsets[i], out=corrected_gather_data[:, i])
     return corrected_gather_data
 
 
