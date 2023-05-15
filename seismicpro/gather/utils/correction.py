@@ -12,32 +12,27 @@ def compute_hodograph_times(offsets, times, velocities):
     """Calculate times of hyperbolic hodographs for each start time, corresponding stacking velocity and all offsets.
     Offsets and times are 1d `np.ndarray`s. Velocities are either a 1d `np.ndarray` or a scalar.
     The result is a 2d `np.ndarray` with shape `(len(times), len(offsets))`."""
-    return np.sqrt(times.reshape(-1, 1) ** 2 + (offsets / velocities.reshape(-1, 1)) ** 2)
+    return np.sqrt(times.reshape(-1, 1)**2 + (offsets / velocities.reshape(-1, 1))**2)
 
 
 @njit(nogil=True, parallel=True)
 def compute_muting_offsets(hodograph_times, offsets, times, velocities, velocities_grad, max_stretch_factor=None):
     corrected_t0 = times.reshape(-1, 1) - (offsets**2 * velocities_grad.reshape(-1, 1)) / velocities.reshape(-1, 1)**3
     stretch_mask = (corrected_t0 <= 0) | (hodograph_times > (1 + max_stretch_factor) * corrected_t0)
-    muting_times = np.zeros(len(offsets), dtype=np.float32)
-    for i in prange(stretch_mask.shape[1]):
-        for j in range(stretch_mask.shape[0] - 1, -1, -1):
-            if stretch_mask[j, i]:
-                muting_times[i] = times[min(j + 1, stretch_mask.shape[0] - 1)]
-                break
 
-    sort_ix = np.argsort(offsets)
-    offsets = offsets[sort_ix]
-    muting_times = muting_times[sort_ix]
+    muting_offsets = np.full(len(times), np.inf, dtype=np.float32)
+    for i in prange(stretch_mask.shape[0]):
+        muted_offsets = offsets[stretch_mask[i]]
+        if muted_offsets.size > 0:
+            muting_offsets[i] = muted_offsets.min()
 
-    max_time = muting_times[0]
-    for i in range(1, len(muting_times)):
-        if muting_times[i] > max_time:
-            max_time = muting_times[i]
+    min_offset = muting_offsets[len(muting_offsets) - 1]
+    for i in range(len(muting_offsets) - 2, -1, -1):
+        if muting_offsets[i] < min_offset:
+            min_offset = muting_offsets[i]
         else:
-            muting_times[i] = max_time
-
-    return np.interp(times, muting_times, offsets).astype(np.float32)
+            muting_offsets[i] = min_offset
+    return muting_offsets
 
 
 @njit(nogil=True, fastmath=True)

@@ -146,7 +146,7 @@ class BaseVelocitySpectrum(SamplesContainer):
 
         corrected_gather_data = correction.apply_nmo(gather_data, offsets, sample_interval, delay,
                                                      times[t_win_size_min_ix: t_win_size_max_ix + 1], velocity,
-                                                     velocities_grad=0, interpolate=True, mute_crossover=False,
+                                                     velocities_grad=0, interpolate=True,
                                                      max_stretch_factor=max_stretch_factor)
         numerator, denominator = coherency_func(corrected_gather_data)
 
