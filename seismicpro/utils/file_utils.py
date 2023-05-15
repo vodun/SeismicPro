@@ -143,7 +143,7 @@ def _dump_to_fwf(path, df, has_header, float_precision, decimal, min_width=None)
         frac_part = ((round_col - int_part) * pl.lit(10)**n).round(0).cast(int).cast(str).str.rjust(n, "0")
         str_num = pl.concat_str([int_part.cast(str), frac_part], separator=decimal)
         # Restoring the sign of numbers
-        return pl.when(pl.col(col) < 0).then("-" + str_num).otherwise(str_num)
+        return pl.when(pl.col(col) < 0).then("-" + str_num).otherwise(str_num).alias(col)
 
     columns = df.columns
     is_float_cols = [is_float_dtype(t) for t in df.dtypes]
