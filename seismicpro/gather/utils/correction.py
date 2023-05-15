@@ -16,49 +16,28 @@ def compute_hodograph_times(offsets, times, velocities):
 
 
 @njit(nogil=True, parallel=True)
-def compute_crossover_mask(hodograph_times):
-    crossover_mask = np.empty_like(hodograph_times, dtype=np.bool_)
-    n = len(hodograph_times) - 1
-    for i in prange(hodograph_times.shape[1]):
-        t_next = hodograph_times[n, i]
-        for j in range(n-1, -1, -1):
-            t = hodograph_times[j, i]
-            if t > t_next:
-                crossover_mask[:j+1, i] = True
-                crossover_mask[j+1:, i] = False
-                break
-            t_next = t
-    return crossover_mask
-
-
-@njit(nogil=True, parallel=True)
-def compute_stretch_mask(hodograph_times, offsets, times, velocities, velocities_grad, max_stretch_factor):
+def compute_muting_offsets(hodograph_times, offsets, times, velocities, velocities_grad, max_stretch_factor=None):
     corrected_t0 = times.reshape(-1, 1) - (offsets**2 * velocities_grad.reshape(-1, 1)) / velocities.reshape(-1, 1)**3
     stretch_mask = (corrected_t0 <= 0) | (hodograph_times > (1 + max_stretch_factor) * corrected_t0)
+    muting_times = np.zeros(len(offsets), dtype=np.float32)
     for i in prange(stretch_mask.shape[1]):
         for j in range(stretch_mask.shape[0] - 1, -1, -1):
             if stretch_mask[j, i]:
-                stretch_mask[:j, i] = True
+                muting_times[i] = times[min(j + 1, stretch_mask.shape[0] - 1)]
                 break
-    return stretch_mask
 
+    sort_ix = np.argsort(offsets)
+    offsets = offsets[sort_ix]
+    muting_times = muting_times[sort_ix]
 
-@njit(nogil=True, parallel=True)
-def compute_muting_offsets(hodograph_times, offsets, times, velocities, velocities_grad, mute_crossover=False,
-                           max_stretch_factor=None):
-    muting_mask = np.full_like(hodograph_times, 0, dtype=np.bool_)
-    if mute_crossover:
-        muting_mask |= compute_crossover_mask(hodograph_times)
-    if max_stretch_factor is not None:
-        muting_mask |= compute_stretch_mask(hodograph_times, offsets, times, velocities, velocities_grad,
-                                            max_stretch_factor)
+    max_time = muting_times[0]
+    for i in range(1, len(muting_times)):
+        if muting_times[i] > max_time:
+            max_time = muting_times[i]
+        else:
+            muting_times[i] = max_time
 
-    muting_offsets = np.full(len(times), np.inf, dtype=np.float32)
-    for i in prange(len(muting_mask)):
-        muted_offsets = offsets[muting_mask[i]]
-        if muted_offsets.size > 0:
-            muting_offsets[i] = muted_offsets.min()
-    return muting_offsets
+    return np.interp(times, muting_times, offsets).astype(np.float32)
 
 
 @njit(nogil=True, fastmath=True)
@@ -113,7 +92,7 @@ def get_hodograph(gather_data, offsets, sample_interval, delay, hodograph_times,
 
 @njit(nogil=True, parallel=True)
 def apply_nmo(gather_data, offsets, sample_interval, delay, times, velocities, velocities_grad, interpolate=True,
-              mute_crossover=False, max_stretch_factor=np.inf, fill_value=np.nan):
+              max_stretch_factor=None, fill_value=np.nan):
     r"""Perform gather normal moveout correction with given stacking velocities for each timestamp.
 
     The process of NMO correction removes the moveout effect on traveltimes, assuming that reflection traveltimes in a
@@ -157,15 +136,18 @@ def apply_nmo(gather_data, offsets, sample_interval, delay, times, velocities, v
         NMO corrected gather data with an ordinary shape of (num_traces, trace_length).
     """
     # Explicit broadcasting of velocities and their gradients in case they are scalars.
-    # Required for `parallel=True` flag
+    # Required for `parallel=True` flag.
     velocities = np.ascontiguousarray(np.broadcast_to(velocities, times.shape))
     velocities_grad = np.ascontiguousarray(np.broadcast_to(velocities_grad, times.shape))
 
     hodograph_times = compute_hodograph_times(offsets, times, velocities)
-    muting_offsets = compute_muting_offsets(hodograph_times, offsets, times, velocities, velocities_grad,
-                                            mute_crossover=mute_crossover, max_stretch_factor=max_stretch_factor)
+    if max_stretch_factor is None:
+        muting_offsets = np.full(len(times), np.inf, dtype=np.float32)
+    else:
+        muting_offsets = compute_muting_offsets(hodograph_times, offsets, times, velocities, velocities_grad,
+                                                max_stretch_factor=max_stretch_factor)
 
-    corrected_gather_data = np.full_like(gather_data, fill_value=fill_value)
+    corrected_gather_data = np.empty_like(gather_data)
     for i in prange(times.shape[0]):
         get_hodograph(gather_data, offsets, sample_interval, delay, hodograph_times[i], interpolate=interpolate,
                       fill_value=fill_value, max_offset=muting_offsets[i], out=corrected_gather_data[:, i])
