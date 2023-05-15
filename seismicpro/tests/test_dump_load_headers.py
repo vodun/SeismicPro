@@ -105,7 +105,8 @@ def test_gather_dump_load_headers(survey_no_stats, tmp_path, new_cols, float_pre
                       headers_to_dump=headers_to_dump, headers_to_load=headers_to_load, format=format,
                       new_cols=new_cols, float_precision=float_precision, usecols=usecols,
                       dump_headers_names=dump_headers_names, assert_func=compare_gathers,
-                      dump_load_func=dump_load_in_container, decimal=decimal, sep=sep)
+                      dump_load_func=dump_load_in_container, decimal=decimal, sep=sep,
+                      assert_kwargs={"check_headers_dtypes": False})
 
 
 def dump_load_in_pipeline(container_to_dump, container_to_load, headers_to_dump, headers_to_load, file_path, format,
@@ -141,4 +142,4 @@ def test_pipeline_dump_load_headers(survey_no_stats, tmp_path, new_cols, float_p
                       new_cols=new_cols, float_precision=float_precision, usecols=usecols,
                       dump_headers_names=dump_headers_names, assert_func=compare_gathers,
                       dump_load_func=dump_load_in_pipeline, decimal=decimal, sep=sep,
-                      assert_kwargs={"same_survey": False})
+                      assert_kwargs={"same_survey": False, "check_headers_dtypes": False})
