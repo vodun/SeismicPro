@@ -1616,7 +1616,8 @@ class Gather(TraceContainer, SamplesContainer):
         top_ax.set_title(**{'label': None, **title})
 
         if len(ax.get_legend_handles_labels()[0]):
-            ax.legend()
+            # Define legend position to speed up plotting for huge gathers
+            ax.legend(loc='upper right')
 
     def _process_masks(self, masks):
         colors_iterator = cycle(['tab:red', 'tab:blue', 'tab:orange', 'tab:green', 'tab:purple', 'tab:pink',

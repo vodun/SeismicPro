@@ -16,7 +16,8 @@ To define your own metric, you need to inherit a new class from either `Tracewis
   `is_lower_better` class attribute is `True`, the values greater or equal to the `threshold` will be considered bad
   and lower or equal otherwise.
 * Optionally redefine `preprocess` method, which accepts the gather and applies any preprocess procedures such as
-  muting or scaling. This gather will later used in `get_values` and showed on the right side of the interactive plot.
+  muting or scaling. This gather will later be used in `get_values` and displayed on the right side of the interactive
+  plot.
 * Optionally define all other class attributes of `Metric` for future convenience.
 * Optionally redefine `plot` method which will be used to plot gather with tracewise metric on top when a metric map is
   clicked in interactive mode. It should accept an instance of `matplotlib.axes.Axes` to plot on, `coords` and `index`
@@ -106,7 +107,6 @@ class TracewiseMetric(SurveyAttribute):
     def preprocess(self, gather):
         """Preprocess gather before either calling `self.get_values` method to calculate metric or to plot the gather.
         Identity by default."""
-        _ = self
         return gather
 
     def get_values(self, gather):  # get_values, compute_metric
@@ -124,11 +124,12 @@ class TracewiseMetric(SurveyAttribute):
     @staticmethod
     @njit(nogil=True)
     def numba_get_values(traces):
-        """Compute njitted QC indicator."""
+        """Compute QC indicator."""
         raise NotImplementedError
 
     def aggregate(self, values):
-        """Row-wise `values` aggregation depending on `self.is_lower_better` to select the worst values."""
+        """If `values` is 2d array-like, selects the worst values from each row depending on `self.is_lower_better`.
+        If `values` is 1d array-like, returns `values` unchanged."""
         if self.is_lower_better is None:
             agg_fn = np.nanmean
         elif self.is_lower_better:
@@ -148,8 +149,8 @@ class TracewiseMetric(SurveyAttribute):
             A value to use as a threshold for binarizing the input `values`.
             If a single number and `self.is_lower_better` is `True`, `values` greater or equal than the `threshold`
             will be treated as bad and marked as `True`, otherwise, if `self.is_lower_better` is `False`, values lower
-            or equal then the `threshold` will be treated as bad and marked as `True`.
-            If array, two numbers indicate the boundaries within which the metric values are treated as `False`,
+            or equal than the `threshold` will be treated as bad and marked as `True`.
+            If array-like, two numbers indicate the boundaries within which the metric values are treated as `False`,
             outside inclusive - as `True`.
             If `None`, `self.threshold` will be used.
 
@@ -167,7 +168,7 @@ class TracewiseMetric(SurveyAttribute):
         """
         threshold = self.threshold if threshold is None else threshold
         if threshold is None:
-            raise ValueError("Either `threshold` or `self.threshold` must be non None")
+            raise ValueError("Either `threshold` or `self.threshold` must be defined")
 
         if isinstance(threshold, (int, float, np.number)):
             if self.is_lower_better is None:
@@ -175,7 +176,8 @@ class TracewiseMetric(SurveyAttribute):
             bin_fn = np.greater_equal if self.is_lower_better else np.less_equal
             bin_mask = bin_fn(values, threshold)
         elif len(threshold) != 2:
-            raise ValueError(f"`threshold` should contain exactly 2 elements, not {len(threshold)}")
+            msg = f"If `threshold` is array-like, it should contain exactly 2 elements, not {len(threshold)}"
+            raise ValueError(msg)
         else:
             bin_mask = (values <= threshold[0]) | (values >= threshold[1])
         bin_mask[np.isnan(values)] = False
@@ -202,24 +204,25 @@ class TracewiseMetric(SurveyAttribute):
             Threshold used to binarize the metric values.
             If None, `self.threshold` will be used. See `self.binarize` for more details.
         top_y_ax_scale : str, optional, defaults to None
-            Scale type for top header plot, see `matplotlib.axes.Axes.set_yscale` for available options.
+            Scale type for top header plot, see `matplotlib.axes.Axes.set_yscale` for available options. Linear
+            scaling is applied by default.
         bad_only : bool, optional, defaults to False
             Show only traces that are considered bad based on provided threshold and `self.is_lower_better`.
         kwargs : misc, optional
             Additional keyword arguments to the `gather.plot`.
         """
+        _ = coords
         threshold = self.threshold if threshold is None else threshold
         top_y_ax_scale = self.top_y_ax_scale if top_y_ax_scale is None else top_y_ax_scale
-        _ = coords
 
         gather = self.survey.get_gather(index)
         if sort_by is not None:
             gather = gather.sort(sort_by)
         gather = self.preprocess(gather)
 
-        metric_res = self.get_values(gather)
-        metric_vals = self.aggregate(metric_res)
-        bin_mask = self.binarize(metric_res, threshold)
+        result = self.get_values(gather)
+        tracewise_result = self.aggregate(result)
+        bin_mask = self.binarize(result, threshold)
 
         mode = kwargs.pop("mode", "wiggle")
         masks_dict = {"masks": bin_mask, "alpha": 0.8, "label": self.name or "metric", **kwargs.pop("masks", {})}
@@ -227,12 +230,12 @@ class TracewiseMetric(SurveyAttribute):
         if bad_only:
             bad_mask = self.aggregate(bin_mask) == 0
             gather.data[bad_mask] = np.nan
-            metric_vals[bad_mask] = np.nan
+            tracewise_result[bad_mask] = np.nan
             # Don't need to plot 1d `bin_mask` if only bad traces will be plotted.
             if bin_mask.ndim == 1:
                 masks_dict = None
 
-        gather.plot(ax=ax, mode=mode, top_header=metric_vals, masks=masks_dict, **kwargs)
+        gather.plot(ax=ax, mode=mode, top_header=tracewise_result, masks=masks_dict, **kwargs)
         top_ax = ax.figure.axes[1]
         top_ax.set_yscale(top_y_ax_scale)
         if threshold is not None:
@@ -250,8 +253,8 @@ class TracewiseMetric(SurveyAttribute):
     def get_views(self, sort_by=None, threshold=None, top_y_ax_scale=None, **kwargs):
         """Return two plotters of the metric views. Each view plots a gather sorted by `sort_by` with a metric values
         shown on top of the gather plot. The y-axis of the metric plot is scaled by `top_y_ax_scale`. The first view
-        plots full gather with highlighted `bad` traces selected based on a `threshold` and a `self.is_lower_better`.
-        The second view displays only `bad` traces."""
+        plots full gather with highlighted bad traces selected based on a `threshold` and a `self.is_lower_better`.
+        The second view displays only bad traces."""
         plot_kwargs = {"sort_by": sort_by, "threshold": threshold, "top_y_ax_scale": top_y_ax_scale}
         return [partial(self.plot, **plot_kwargs), partial(self.plot, bad_only=True, **plot_kwargs)], kwargs
 
@@ -279,9 +282,16 @@ class DeadTrace(TracewiseMetric):
             res[i] = isclose(max(traces[i]), min(traces[i]))
         return res
 
+    def get_views(self, sort_by=None, threshold=None, top_y_ax_scale=None, **kwargs):
+        """Return single view, that plots a gather sorted by `sort_by` with a metric values shown on top of the gather
+        plot and highlighted bad traces selected based on a `threshold` and a `self.is_lower_better`. The y-axis of
+        the metric plot is scaled by `top_y_ax_scale`."""
+        plot_kwargs = {"sort_by": sort_by, "threshold": threshold, "top_y_ax_scale": top_y_ax_scale}
+        return [partial(self.plot, **plot_kwargs)], kwargs
+
 
 class TraceAbsMean(TracewiseMetric):
-    """Calculate absolute value of the trace's mean scaled by trace's std.
+    """Calculate absolute value of the trace's mean divided by trace's std.
 
     `get_values` returns 1d array with computed metric values for the gather.
     """
@@ -394,7 +404,7 @@ class MaxConstLen(TracewiseMetric):
             trace = traces[i]
             counter = 1
             for j in range(1, trace.shape[0]):  # pylint: disable=consider-using-enumerate
-                if isclose(trace[j], trace[j-1]):
+                if isclose(trace[j], trace[j - 1]):
                     counter += 1
                 else:
                     if counter > 1:
@@ -456,7 +466,7 @@ class Spikes(MuteTracewiseMetric):
         for i in range(traces.shape[0]):
             nan_indices = np.nonzero(np.isnan(traces[i]))[0]
             j = nan_indices[-1] + 1 if len(nan_indices) > 0 else 0
-            res[i, j+1: -1] = np.abs(traces[i, j+2:] + traces[i, j:-2] - 2*traces[i, j+1:-1]) / 3
+            res[i, j+1: -1] = np.abs(traces[i, j+2:] + traces[i, j: -2] - 2*traces[i, j+1 :-1]) / 3
         return res
 
 
@@ -609,127 +619,6 @@ class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
     def add_metric_on_plot(self, ax, gather, color=None):
         """Plot any additional metric related graphs over the gather plot."""
         _ = self, ax, gather, color
-
-    def get_views(self, threshold=None, top_y_ax_scale=None, **kwargs):
-        """Return two plotters of the metric views. Each view plots a gather sorted by `offset` with a metric values
-        shown on top of the gather plot. The y-axis of the metric plot is scaled by `top_y_ax_scale`. The first view
-        plots full gather with highlighted `bad` traces selected based on a `threshold` and a `self.is_lower_better`.
-        The second view displays only `bad` traces."""
-        plot_kwargs = {"threshold": threshold, "top_y_ax_scale": top_y_ax_scale}
-        return [partial(self.plot, **plot_kwargs), partial(self.plot, bad_only=True, **plot_kwargs)], kwargs
-
-
-class MetricsRatio(TracewiseMetric):  # pylint: disable=abstract-method
-    """Calculate the ratio of two window RMS metrics.
-
-    By default, the RMS amplitudes for `self.numerator` and `self.denominator` are first calculated for each gather and
-    then used to calculate the ratio. If `tracewise` flag in :func:`MetricsRatio.construct_map` set to `True`, the RMS
-    ratio of `self.numerator` and `self.denominator` is calculated independently for each trace and then aggregated by
-    gathers.
-
-    Parameters
-    ----------
-    numerator : BaseWindowRMSMetric or its subclass
-        Metric instance whose values will be divided by the `denominator` metric values.
-    denominator : BaseWindowRMSMetric or its subclass
-        Metric instance whose values will be used as a divisor for a `numerator` metric.
-    name : str, optional, defaults to "numerator.name to denominator.name ratio"
-        A metric name.
-    """
-    is_lower_better = False
-    threshold = None
-
-    def __init__(self, numerator, denominator, name=None):
-        for metric in [numerator, denominator]:
-            if not isinstance(metric, BaseWindowRMSMetric):
-                msg = f"Metric ratio can be computed only for BaseWindowRMSMetric instances or its subclasses, but \
-                       given metric has type: {type(metric)}."
-                raise ValueError(msg)
-
-        name = f"{numerator.name} to {denominator.name} ratio" if name is None else name
-        super().__init__(name=name)
-
-        self.numerator = numerator
-        self.denominator = denominator
-
-    def __repr__(self):
-        """String representation of the metric."""
-        kwargs_str = f"(name='{self.name}', numerator='{self.numerator}', denominator='{self.denominator}')"
-        return f"{type(self).__name__}" + kwargs_str
-
-    @property
-    def header_cols(self):
-        """Column names in `survey.headers` to store the metrics results in."""
-        return self.numerator.header_cols + self.denominator.header_cols
-
-    def construct_map(self, coords, values, *, coords_cols=None, index=None, index_cols=None, agg=None, bin_size=None,
-                      calculate_immediately=True, tracewise=False):
-        """Construct a metric map with `self.numerator` and `self.denominator` ratio for gathers indexed by `index`.
-
-        There are two available options for ratio computation controlled by `tracewise` flag:
-        1. If `tracewise` is False (default behavior), the RMS amplitudes for `self.numerator` and `self.denominator`
-        are first calculated for each gather and then used to calculate the ratio,
-        2. If `tracewise` is True, the ratio of `self.numerator` and `self.denominator` computed independently for each
-        trace and then aggregated by gathers.
-        """
-        if tracewise:
-            numerator_values = values[self.numerator.header_cols].to_numpy()
-            denominator_values = values[self.denominator.header_cols].to_numpy()
-            numerator_rms = np.sqrt(numerator_values[:, 0] / numerator_values[:, 1])
-            denominator_rms = np.sqrt(denominator_values[:, 0] / denominator_values[:, 1])
-            rms = numerator_rms / denominator_rms
-            if np.isnan(rms).sum() == len(rms):
-                msg = f"The ratio of `{self.numerator.name}` and `{self.denominator.name}` cannot be computed since"\
-                       " they were calculated in disjoint windows"
-                raise ValueError(msg)
-            return super().construct_map(coords, rms, coords_cols=coords_cols, index=index, index_cols=index_cols,
-                                         agg=agg, bin_size=bin_size, calculate_immediately=calculate_immediately)
-
-        mmaps_1 = self.numerator.construct_map(coords, values[self.numerator.header_cols], coords_cols=coords_cols,
-                                               index=index, index_cols=index_cols, agg=agg)
-        mmaps_2 = self.denominator.construct_map(coords, values[self.denominator.header_cols], coords_cols=coords_cols,
-                                                 index=index, index_cols=index_cols, agg=agg)
-        numerator_df = mmaps_1.index_data[[*mmaps_1.index_cols, mmaps_1.metric_name]]
-        ratio_df = numerator_df.merge(mmaps_2.index_data, on=mmaps_2.index_cols)
-        ratio_df[self.name] = ratio_df[self.numerator.name] / ratio_df[self.denominator.name]
-        coords = ratio_df[mmaps_1.coords_cols]
-        values = ratio_df[self.name]
-        index = ratio_df[mmaps_1.index_cols]
-        return super().construct_map(coords, values, index=index, agg=agg, bin_size=bin_size,
-                                     calculate_immediately=calculate_immediately)
-
-    def plot(self, ax, coords, index, threshold=None, top_y_ax_scale=None, bad_only=False, **kwargs):
-        """Plot the gather sorted by offset with two rectangles over the gather plot. The lime-colored rectangle
-        represents the window where the `self.numerator` metric was calculated, while the magenta-colored rectangle
-        represents the `self.denominator` window. Additionally, tracewise ratio of `self.numerator` by
-        `self.denominator` is displayed on the top of the gather plot."""
-        threshold = self.threshold if threshold is None else threshold
-        top_y_ax_scale = self.top_y_ax_scale if top_y_ax_scale is None else top_y_ax_scale
-        _ = coords
-        gather = self.survey.get_gather(index).sort("offset")
-
-        squares_numerator, nums_numerator = self.numerator(gather, return_rms=False)
-        squares_denominator, nums_denominator = self.denominator(gather, return_rms=False)
-
-        tracewise_numerator = np.sqrt(squares_numerator / nums_numerator)
-        tracewise_denominator = np.sqrt(squares_denominator / nums_denominator)
-        tracewise_metric = tracewise_numerator / tracewise_denominator
-        tracewise_metric[tracewise_metric == 0] = np.nan
-
-        if bad_only:
-            bin_mask = self.binarize(tracewise_metric, threshold)
-            gather.data[self.aggregate(bin_mask) == 0] = np.nan
-
-        gather.plot(ax=ax, top_header=tracewise_metric, **kwargs)
-        top_ax = ax.figure.axes[1]
-        if threshold is not None:
-            self._plot_threshold(ax=top_ax, threshold=threshold)
-        top_ax.set_yscale(top_y_ax_scale)
-
-        self.numerator.add_metric_on_plot(ax=ax, gather=gather, color="lime", legend=f"{self.numerator.name} window")
-        self.denominator.add_metric_on_plot(ax=ax, gather=gather, color="magenta",
-                                          legend=f"{self.denominator.name} window")
-        ax.legend()
 
     def get_views(self, threshold=None, top_y_ax_scale=None, **kwargs):
         """Return two plotters of the metric views. Each view plots a gather sorted by `offset` with a metric values
@@ -913,5 +802,127 @@ class AdaptiveWindowRMS(BaseWindowRMSMetric):
 
         ax.plot(np.arange(gather.n_traces), indices[0], color=color, label=legend)
         ax.plot(np.arange(gather.n_traces), indices[1], color=color)
+
+
+class MetricsRatio(TracewiseMetric):  # pylint: disable=abstract-method
+    """Calculate the ratio of two window RMS metrics.
+
+    By default, the RMS amplitudes for `self.numerator` and `self.denominator` are first calculated for each gather and
+    then used to calculate the ratio. If `tracewise` flag in :func:`MetricsRatio.construct_map` set to `True`, the RMS
+    ratio of `self.numerator` and `self.denominator` is calculated independently for each trace and then aggregated by
+    gathers.
+
+    Parameters
+    ----------
+    numerator : BaseWindowRMSMetric or its subclass
+        Metric instance whose values will be divided by the `denominator` metric values.
+    denominator : BaseWindowRMSMetric or its subclass
+        Metric instance whose values will be used as a divisor for a `numerator` metric.
+    name : str, optional, defaults to "numerator.name to denominator.name ratio"
+        A metric name.
+    """
+    is_lower_better = False
+    threshold = None
+
+    def __init__(self, numerator, denominator, name=None):
+        for metric in [numerator, denominator]:
+            if not isinstance(metric, BaseWindowRMSMetric):
+                msg = f"Metric ratio can be computed only for BaseWindowRMSMetric instances or its subclasses, but \
+                       given metric has type: {type(metric)}."
+                raise ValueError(msg)
+
+        name = f"{numerator.name} to {denominator.name} ratio" if name is None else name
+        super().__init__(name=name)
+
+        self.numerator = numerator
+        self.denominator = denominator
+
+    def __repr__(self):
+        """String representation of the metric."""
+        kwargs_str = f"(name='{self.name}', numerator='{self.numerator}', denominator='{self.denominator}')"
+        return f"{type(self).__name__}" + kwargs_str
+
+    @property
+    def header_cols(self):
+        """Column names in `survey.headers` to store the metrics results in."""
+        return self.numerator.header_cols + self.denominator.header_cols
+
+    def construct_map(self, coords, values, *, coords_cols=None, index=None, index_cols=None, agg=None, bin_size=None,
+                      calculate_immediately=True, tracewise=False):
+        """Construct a metric map with `self.numerator` and `self.denominator` ratio for gathers indexed by `index`.
+
+        There are two available options for ratio computation controlled by `tracewise` flag:
+        1. If `tracewise` is False (default behavior), the RMS amplitudes for `self.numerator` and `self.denominator`
+        are first calculated for each gather and then used to calculate the ratio,
+        2. If `tracewise` is True, the ratio of `self.numerator` and `self.denominator` computed independently for each
+        trace and then aggregated by gathers.
+        """
+        if tracewise:
+            numerator_values = values[self.numerator.header_cols].to_numpy()
+            denominator_values = values[self.denominator.header_cols].to_numpy()
+            numerator_rms = np.sqrt(numerator_values[:, 0] / numerator_values[:, 1])
+            denominator_rms = np.sqrt(denominator_values[:, 0] / denominator_values[:, 1])
+            rms = numerator_rms / denominator_rms
+            if np.isnan(rms).sum() == len(rms):
+                msg = f"The ratio of `{self.numerator.name}` and `{self.denominator.name}` cannot be computed since"\
+                       " they were calculated in disjoint windows"
+                raise ValueError(msg)
+            return super().construct_map(coords, rms, coords_cols=coords_cols, index=index, index_cols=index_cols,
+                                         agg=agg, bin_size=bin_size, calculate_immediately=calculate_immediately)
+
+        mmaps_1 = self.numerator.construct_map(coords, values[self.numerator.header_cols], coords_cols=coords_cols,
+                                               index=index, index_cols=index_cols, agg=agg)
+        mmaps_2 = self.denominator.construct_map(coords, values[self.denominator.header_cols], coords_cols=coords_cols,
+                                                 index=index, index_cols=index_cols, agg=agg)
+        numerator_df = mmaps_1.index_data[[*mmaps_1.index_cols, mmaps_1.metric_name]]
+        ratio_df = numerator_df.merge(mmaps_2.index_data, on=mmaps_2.index_cols)
+        ratio_df[self.name] = ratio_df[self.numerator.name] / ratio_df[self.denominator.name]
+        coords = ratio_df[mmaps_1.coords_cols]
+        values = ratio_df[self.name]
+        index = ratio_df[mmaps_1.index_cols]
+        return super().construct_map(coords, values, index=index, agg=agg, bin_size=bin_size,
+                                     calculate_immediately=calculate_immediately)
+
+    def plot(self, ax, coords, index, threshold=None, top_y_ax_scale=None, bad_only=False, **kwargs):
+        """Plot the gather sorted by offset with two rectangles over the gather plot. The lime-colored rectangle
+        represents the window where the `self.numerator` metric was calculated, while the magenta-colored rectangle
+        represents the `self.denominator` window. Additionally, tracewise ratio of `self.numerator` by
+        `self.denominator` is displayed on the top of the gather plot."""
+        threshold = self.threshold if threshold is None else threshold
+        top_y_ax_scale = self.top_y_ax_scale if top_y_ax_scale is None else top_y_ax_scale
+        _ = coords
+        gather = self.survey.get_gather(index).sort("offset")
+
+        squares_numerator, nums_numerator = self.numerator(gather, return_rms=False)
+        squares_denominator, nums_denominator = self.denominator(gather, return_rms=False)
+
+        tracewise_numerator = np.sqrt(squares_numerator / nums_numerator)
+        tracewise_denominator = np.sqrt(squares_denominator / nums_denominator)
+        tracewise_metric = tracewise_numerator / tracewise_denominator
+        tracewise_metric[tracewise_metric == 0] = np.nan
+
+        if bad_only:
+            bin_mask = self.binarize(tracewise_metric, threshold)
+            gather.data[self.aggregate(bin_mask) == 0] = np.nan
+
+        gather.plot(ax=ax, top_header=tracewise_metric, **kwargs)
+        top_ax = ax.figure.axes[1]
+        if threshold is not None:
+            self._plot_threshold(ax=top_ax, threshold=threshold)
+        top_ax.set_yscale(top_y_ax_scale)
+
+        self.numerator.add_metric_on_plot(ax=ax, gather=gather, color="lime", legend=f"{self.numerator.name} window")
+        self.denominator.add_metric_on_plot(ax=ax, gather=gather, color="magenta",
+                                          legend=f"{self.denominator.name} window")
+        ax.legend(loc='upper right')
+
+    def get_views(self, threshold=None, top_y_ax_scale=None, **kwargs):
+        """Return two plotters of the metric views. Each view plots a gather sorted by `offset` with a metric values
+        shown on top of the gather plot. The y-axis of the metric plot is scaled by `top_y_ax_scale`. The first view
+        plots full gather with highlighted `bad` traces selected based on a `threshold` and a `self.is_lower_better`.
+        The second view displays only `bad` traces."""
+        plot_kwargs = {"threshold": threshold, "top_y_ax_scale": top_y_ax_scale}
+        return [partial(self.plot, **plot_kwargs), partial(self.plot, bad_only=True, **plot_kwargs)], kwargs
+
 
 DEFAULT_TRACEWISE_METRICS = [DeadTrace, TraceAbsMean, TraceMaxAbs, MaxClipsLen, MaxConstLen]

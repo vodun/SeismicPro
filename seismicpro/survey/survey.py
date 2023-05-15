@@ -1207,8 +1207,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         chunk_size : int, optional, defaults to 1000
             Number of traces loaded on each iteration.
         n_workers : int, optional
-        The maximum number of simultaneously spawned processes to find and remove dead traces. Defaults to the number
-        of cpu cores.
+            The maximum number of simultaneously spawned threads to find and remove dead traces. Defaults to the
+            number of cpu cores.
         inplace : bool, optional, defaults to False
             Whether to transform the survey inplace or process its copy.
         bar : bool, optional, defaults to True
@@ -1372,14 +1372,33 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         :class:`~metric.AdaptiveWindowRMS` - saves results in two columns: first one with the sum of squares of
         amplitudes and second is the number of amplitudes in the window for each trace.
 
+        Examples
+        --------
+        Calculate several tracewise metrics:
+        1. Indicator of a dead trace:
+        >>> dead_trace = DeadTrace()
+        2. Spikes:
+        >>> spikes = Spikes(muter=muter)
+        Note that to create instance of `Spikes` metrics, you need to first define `muter`.
+        3. Two instances of window RMS for signal and noise parts of a trace:
+        >>> signal_metric = WindowRMS(offsets=[650, 2000], times=[1000, 1400], name="SignalWindowRMS")
+        >>> noise_metric = WindowRMS(offsets=[650, 2000], times=[100, 500], name="NoiseWindowRMS")
+
+        To compute metric values, run the following command:
+        >>> survey.qc([dead_trace, spikes, signal_metric, noise_metric])
+
+        It is not necessary to define instance of tracewise metric. For metrics that do not have required arguments one
+        may use only class name:
+        >>> survey.qc(TraceMaxAbs)
+
         Parameters
         ----------
         metrics : :class:`~metrics.TracewiseMetric`, or list of :class:`~metrics.TracewiseMetric`, optional
-            Metrics to calculate. If `None`, metrics lised in `DEFAULT_TRACEWISE_METRICS` are calculated.
+            Metrics to calculate. If `None`, metrics listed in `DEFAULT_TRACEWISE_METRICS` are calculated.
         chunk_size : int, optional, defaults to 1000
             Number of traces processed in one thread.
         n_workers : int, optional
-            The maximum number of simultaneously spawned processes to compute traces QC. Defaults to the number of cpu
+            The maximum number of simultaneously spawned threads to compute traces QC. Defaults to the number of cpu
             cores.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
@@ -1394,7 +1413,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Raises
         ------
         ValueError
-            If `overwrite` is `False` and some of the given metrics were previously calculated.
+            If `overwrite` is `False` and any of the given metrics were previously calculated.
         """
         if metrics is None:
             metrics = DEFAULT_TRACEWISE_METRICS
@@ -1615,7 +1634,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Examples
         --------
         Define and compute three tracewise metrics:
-        1. Maximum absolute amplitude value scaled by trace's std:
+        1. Maximum absolute amplitude value divided by trace's std:
         >>> maxabs_metric = TraceMaxAbs
         2. RMS in a signal part of the trace:
         >>> signal_metric = WindowRMS(offsets=[650, 2000], times=[1000, 1400], name="SignalWindowRMS")
@@ -1625,6 +1644,16 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
 
         Construct a map of metric with name `TraceMaxAbs` by shots with `max` aggregation:
         >>> qc_map = survey.construct_qc_maps(metric_names="TraceMaxAbs", by="shot", agg="max")
+
+        Construct a signal-to-noise ratio map by shots:
+        >>> ratio_qc_map = survey.construct_qc_maps(metric_names="SignalWindowRMS/NoiseWindowRMS", by="shot")
+
+        Construct a map of metric with name `SignalWindowRMS` and additional argument `tracewise` for
+        `signal_rms.construct_map` method by shots.
+        >>> tracewise_qc_map = survey.construct_qc_maps(metric_names={"metric": "SignalWindowRMS", "tracewise":True},
+                                                        by="shot")
+
+        Plot a map of the first created tracewise metric:
         >>> qc_map.plot()
 
         The map allows for interactive plotting: a gather type defined by `by` with a tracewise metric value on top of
@@ -1632,14 +1661,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         to the gather plot. See `metric.plot()` for avalible arguments. In this example, the gather will be sorted by
         `offset` and the default threshold for the metric will be changed to 20:
         >>> qc_map.plot(interactive=True, threshold=20, sort_by="offset")
-
-        Construct a signal-to-noise ratio map by shots:
-        >>> ratio_map = survey.construct_qc_maps(metric_names="SignalWindowRMS/NoiseWindowRMS", by="shot")
-
-        Construct a map of metric with name `SignalWindowRMS` and additional argument `tracewise` for
-        `signal_rms.construct_map` method by shots.
-        >>> tracewise_qc_map = survey.construct_qc_maps(metric_names={"metric": "SignalWindowRMS", "tracewise":True},
-                                                        by="shot")
 
         Parameters
         ----------
@@ -1653,7 +1674,6 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             If None, maps for all metrics that were calculated for this survey are built.
         by : {"source", "shot", "receiver", "rec", "cdp", "cmp", "midpoint", "bin", "supergather"}
             Gather type to aggregate metric values over. Note that this argument cannot be None and should be defined.
-            It is optional to preserve arguments order along all construct maps methods in the Survey.
         id_cols : str or list of str, optional
             Trace headers that uniquely identify a gather of the chosen type. Acts as an index of the resulting map. If
             not given and `by` represents either a common source or common receiver gather, `self.source_id_cols` or
@@ -1682,13 +1702,13 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         for metric_dict in metrics_list:
             metric_name = metric_dict.pop("metric")
             if "/" in metric_name:
-                metric_list = list(map(lambda name: name.strip(), metric_name.split("/")))
-                if len(metric_list) != 2:
-                    raise ValueError(f"Exactly two metrics should be used for division, not {len(metric_list)}")
-                for metric in metric_list:
+                operand_metrics = list(map(lambda name: name.strip(), metric_name.split("/")))
+                if len(operand_metrics) != 2:
+                    raise ValueError(f"Exactly two metrics should be used for division, not {len(operand_metrics)}")
+                for metric in operand_metrics:
                     if metric not in self.qc_metrics:
                         raise ValueError(f'Metric with name "{metric}" is not calculated yet')
-                metric = MetricsRatio(*[self.qc_metrics[metric] for metric in metric_list])
+                metric = MetricsRatio(*[self.qc_metrics[metric] for metric in operand_metrics])
             elif metric_name in self.qc_metrics:
                 metric = self.qc_metrics[metric_name]
             else:
