@@ -57,10 +57,11 @@ def dump_load_headers(tmp_path, container_to_dump, container_to_load, headers_to
     original, loaded = containers
 
     for column in new_cols:
-        if "floats" in column:
-            # Check that loaded floating numbers differ by no more than the number of rounded characters
-            assert np.max(np.abs(original[column] - loaded[column])) <= 10**(-float_precision)
-            original.headers[column] = loaded[column] # Avoid round errors
+        # Check that loaded floating numbers differ by no more than the number of rounded characters
+        assert np.max(np.abs(original[column] - loaded[column])) <= 10**(-float_precision)
+         # Avoid round and type errors
+        original.headers[column] = loaded[column]
+        original.headers[column] = original.headers[column].astype(loaded.headers[column].dtypes)
     assert_kwargs = {} if assert_kwargs is None else assert_kwargs
     assert_func(original, loaded, **assert_kwargs)
 
@@ -105,8 +106,7 @@ def test_gather_dump_load_headers(survey_no_stats, tmp_path, new_cols, float_pre
                       headers_to_dump=headers_to_dump, headers_to_load=headers_to_load, format=format,
                       new_cols=new_cols, float_precision=float_precision, usecols=usecols,
                       dump_headers_names=dump_headers_names, assert_func=compare_gathers,
-                      dump_load_func=dump_load_in_container, decimal=decimal, sep=sep,
-                      assert_kwargs={"check_headers_dtypes": False})
+                      dump_load_func=dump_load_in_container, decimal=decimal, sep=sep)
 
 
 def dump_load_in_pipeline(container_to_dump, container_to_load, headers_to_dump, headers_to_load, file_path, format,
@@ -142,4 +142,4 @@ def test_pipeline_dump_load_headers(survey_no_stats, tmp_path, new_cols, float_p
                       new_cols=new_cols, float_precision=float_precision, usecols=usecols,
                       dump_headers_names=dump_headers_names, assert_func=compare_gathers,
                       dump_load_func=dump_load_in_pipeline, decimal=decimal, sep=sep,
-                      assert_kwargs={"same_survey": False, "check_headers_dtypes": False})
+                      assert_kwargs={"same_survey": False})

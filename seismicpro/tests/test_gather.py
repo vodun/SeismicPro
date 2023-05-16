@@ -34,7 +34,7 @@ def gather(survey):
     return survey.get_gather((0, 0))
 
 
-def compare_gathers(first, second, drop_cols=None, check_types=True, check_headers_dtypes=True, same_survey=True):
+def compare_gathers(first, second, drop_cols=None, check_types=True, same_survey=True):
     """compare_gathers"""
     first_attrs = first.__dict__
     second_attrs = second.__dict__
@@ -48,8 +48,6 @@ def compare_gathers(first, second, drop_cols=None, check_types=True, check_heade
         second_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
 
     assert len(first_headers) == len(second_headers)
-    if not check_headers_dtypes:
-        second_headers = second_headers.astype(first_headers.dtypes)
     if len(first_headers) > 0:
         assert first_headers.equals(second_headers)
 
