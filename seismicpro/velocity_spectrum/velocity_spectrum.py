@@ -15,7 +15,7 @@ from ..containers import SamplesContainer
 from ..decorators import batch_method, plotter
 from ..stacking_velocity import StackingVelocity, StackingVelocityField
 from ..utils import add_colorbar, set_ticks, set_text_formatting, get_first_defined
-from ..gather.utils import correction
+from ..gather.utils.correction import apply_constant_velocity_nmo
 from ..const import DEFAULT_STACKING_VELOCITY
 
 
@@ -144,9 +144,9 @@ class BaseVelocitySpectrum(SamplesContainer):
         t_win_size_min_ix = max(0, t_min_ix - half_win_size_samples)
         t_win_size_max_ix = min(len(times) - 1, t_max_ix + half_win_size_samples)
 
-        corrected_gather_data = correction.apply_nmo(gather_data, offsets, sample_interval, delay,
-                                                     times[t_win_size_min_ix: t_win_size_max_ix + 1], velocity,
-                                                     max_stretch_factor=max_stretch_factor)
+        corrected_gather_data = apply_constant_velocity_nmo(gather_data, offsets, sample_interval, delay,
+                                                            times[t_win_size_min_ix: t_win_size_max_ix + 1], velocity,
+                                                            max_stretch_factor=max_stretch_factor)
         numerator, denominator = coherency_func(corrected_gather_data)
 
         if out is None:

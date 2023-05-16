@@ -7,44 +7,6 @@ import numpy as np
 from numba import njit, prange
 
 
-@njit(nogil=True, parallel=True)
-def compute_hodograph_times(offsets, times, velocities):
-    """Calculate times of hyperbolic hodographs for each start time, corresponding stacking velocity and all offsets.
-    Offsets and times are 1d `np.ndarray`s. Velocities are either a 1d `np.ndarray` or a scalar.
-    The result is a 2d `np.ndarray` with shape `(len(times), len(offsets))`."""
-    return np.sqrt(times.reshape(-1, 1)**2 + (offsets / velocities.reshape(-1, 1))**2)
-
-
-@njit(nogil=True, parallel=True)
-def compute_max_offsets_grad(hodograph_times, offsets, times, velocities, velocities_grad, max_stretch_factor):
-    # Explicitly broadcast scalar velocity gradient to a contiguous array
-    velocities_grad = np.ascontiguousarray(np.broadcast_to(velocities_grad, times.shape))
-    corrected_t0 = times.reshape(-1, 1) - offsets**2 * velocities_grad.reshape(-1, 1) / velocities.reshape(-1, 1)**3
-    stretch_mask = (corrected_t0 <= 0) | (hodograph_times > (1 + max_stretch_factor) * corrected_t0)
-
-    max_offsets = np.empty(len(times), dtype=np.float32)
-    for i in prange(len(max_offsets)):
-        muted_offsets = offsets[stretch_mask[i]]
-        max_offsets[i] = muted_offsets.min() if muted_offsets.size > 0 else np.inf
-
-    min_max_offset = max_offsets[-1]
-    for i in range(len(max_offsets) - 2, -1, -1):
-        if max_offsets[i] < min_max_offset:
-            min_max_offset = max_offsets[i]
-        else:
-            max_offsets[i] = min_max_offset
-    return max_offsets
-
-
-@njit(nogil=True)
-def compute_max_offsets(hodograph_times, offsets, times, velocities, velocities_grad=None, max_stretch_factor=None):
-    if max_stretch_factor is None:
-        return np.full(len(times), np.inf, dtype=np.float32)
-    if velocities_grad is None:
-        return (times * velocities * np.sqrt((1 + max_stretch_factor)**2 - 1)).astype(np.float32)
-    return compute_max_offsets_grad(hodograph_times, offsets, times, velocities, velocities_grad, max_stretch_factor)
-
-
 @njit(nogil=True, fastmath=True)
 def get_hodograph(gather_data, offsets, sample_interval, delay, hodograph_times, interpolate=True, fill_value=np.nan,
                   max_offset=np.inf, out=None):
@@ -79,10 +41,12 @@ def get_hodograph(gather_data, offsets, sample_interval, delay, hodograph_times,
     out : 1d array
         Gather amplitudes along a hodograph.
     """
+    n_times = len(hodograph_times)
     if out is None:
-        out = np.empty(len(hodograph_times), dtype=gather_data.dtype)
-    for i, hodograph_sample in enumerate((hodograph_times - delay) / sample_interval):
+        out = np.empty(n_times, dtype=gather_data.dtype)
+    for i in range(n_times):
         amplitude = fill_value
+        hodograph_sample = (hodograph_times[i] - delay) / sample_interval
         if offsets[i] < max_offset and 0 <= hodograph_sample <= gather_data.shape[1] - 1:
             if interpolate:
                 time_prev = math.floor(hodograph_sample)
@@ -96,8 +60,20 @@ def get_hodograph(gather_data, offsets, sample_interval, delay, hodograph_times,
 
 
 @njit(nogil=True, parallel=True)
-def apply_nmo(gather_data, offsets, sample_interval, delay, times, velocities, velocities_grad=None, interpolate=True,
-              max_stretch_factor=None, fill_value=np.nan):
+def apply_constant_velocity_nmo(gather_data, offsets, sample_interval, delay, times, velocity, interpolate=True,
+                                max_stretch_factor=np.inf, fill_value=np.nan):
+    corrected_gather_data = np.full((len(offsets), len(times)), fill_value=fill_value, dtype=gather_data.dtype)
+    for i in prange(len(times)):
+        hodograph_times = np.sqrt(times[i]**2 + (offsets / velocity)**2)
+        max_offset = times[i] * velocity * np.sqrt((1 + max_stretch_factor)**2 - 1)
+        get_hodograph(gather_data, offsets, sample_interval, delay, hodograph_times, interpolate=interpolate,
+                      fill_value=fill_value, max_offset=max_offset, out=corrected_gather_data[:, i])
+    return corrected_gather_data
+
+
+@njit(nogil=True, parallel=True)
+def apply_nmo(gather_data, offsets, sample_interval, delay, times, velocities, velocities_grad, interpolate=True,
+              max_stretch_factor=np.inf, fill_value=np.nan):
     r"""Perform gather normal moveout correction with given stacking velocities for each timestamp.
 
     The process of NMO correction removes the moveout effect on traveltimes, assuming that reflection traveltimes in a
@@ -140,13 +116,24 @@ def apply_nmo(gather_data, offsets, sample_interval, delay, times, velocities, v
     corrected_gather_data : 2d array
         NMO corrected gather data with an ordinary shape of (num_traces, trace_length).
     """
-    # Explicitly broadcast scalar velocity to a contiguous array for numba `parallel=True` flag to properly work
-    velocities = np.ascontiguousarray(np.broadcast_to(velocities, times.shape))
-    hodograph_times = compute_hodograph_times(offsets, times, velocities)
-    max_offsets = compute_max_offsets(hodograph_times, offsets, times, velocities, velocities_grad, max_stretch_factor)
+    hodograph_times = np.empty((len(times), len(offsets)), dtype=np.float32)
+    max_offsets = np.empty(len(times), dtype=np.float32)
+    for i in prange(len(times)):
+        hodograph_times[i] = np.sqrt(times[i]**2 + (offsets / velocities[i])**2)
+        corrected_t0 = times[i] - offsets**2 * velocities_grad[i] / velocities[i]**3
+        stretch_mask = (corrected_t0 <= 0) | (hodograph_times[i] > (1 + max_stretch_factor) * corrected_t0)
+        muted_offsets = offsets[stretch_mask]
+        max_offsets[i] = muted_offsets.min() if muted_offsets.size > 0 else np.inf
 
-    corrected_gather_data = np.empty_like(gather_data)
-    for i in prange(times.shape[0]):
+    min_max_offset = max_offsets[-1]
+    for i in range(len(max_offsets) - 2, -1, -1):
+        if max_offsets[i] < min_max_offset:
+            min_max_offset = max_offsets[i]
+        else:
+            max_offsets[i] = min_max_offset
+
+    corrected_gather_data = np.full((len(offsets), len(times)), fill_value=fill_value, dtype=gather_data.dtype)
+    for i in prange(len(times)):
         get_hodograph(gather_data, offsets, sample_interval, delay, hodograph_times[i], interpolate=interpolate,
                       fill_value=fill_value, max_offset=max_offsets[i], out=corrected_gather_data[:, i])
     return corrected_gather_data
