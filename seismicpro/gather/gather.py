@@ -809,7 +809,7 @@ class Gather(TraceContainer, SamplesContainer):
     @batch_method(target="for", args_to_unpack="stacking_velocity", copy_src=False)
     def calculate_vertical_velocity_spectrum(self, velocities=None, stacking_velocity=None, relative_margin=0.2,
                                              velocity_step=50, window_size=50, mode='semblance',
-                                             max_stretch_factor=np.inf):
+                                             max_stretch_factor=np.inf, interpolate=True):
         """Calculate vertical velocity spectrum for the gather.
 
         Notes
@@ -819,7 +819,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         Examples
         --------
-        Calculate vertical velocity spectrum with default parameters: velocities evenly spaces around default stacking
+        Calculate vertical velocity spectrum with default parameters: velocities evenly spaced around default stacking
         velocity, 50 ms temporal window size, semblance coherency measure and no muting of hodograph stretching:
         >>> spectrum = gather.calculate_vertical_velocity_spectrum()
 
@@ -872,11 +872,13 @@ class Gather(TraceContainer, SamplesContainer):
         """
         return VerticalVelocitySpectrum(gather=self, velocities=velocities, stacking_velocity=stacking_velocity,
                                         relative_margin=relative_margin, velocity_step=velocity_step,
-                                        window_size=window_size, mode=mode, max_stretch_factor=max_stretch_factor)
+                                        window_size=window_size, mode=mode, max_stretch_factor=max_stretch_factor,
+                                        interpolate=interpolate)
 
     @batch_method(target="for", args_to_unpack="stacking_velocity", copy_src=False)
     def calculate_residual_velocity_spectrum(self, stacking_velocity, relative_margin=0.2, velocity_step=50,
-                                             window_size=50, mode="semblance", max_stretch_factor=np.inf):
+                                             window_size=50, mode="semblance", max_stretch_factor=np.inf,
+                                             interpolate=True):
         """Calculate residual velocity spectrum for the gather and provided stacking velocity.
 
         Notes
@@ -927,7 +929,8 @@ class Gather(TraceContainer, SamplesContainer):
         """
         return ResidualVelocitySpectrum(gather=self, stacking_velocity=stacking_velocity,
                                         relative_margin=relative_margin, velocity_step=velocity_step,
-                                        window_size=window_size, mode=mode, max_stretch_factor=max_stretch_factor)
+                                        window_size=window_size, mode=mode, max_stretch_factor=max_stretch_factor,
+                                        interpolate=interpolate)
 
     #------------------------------------------------------------------------#
     #                           Gather corrections                           #
@@ -986,7 +989,7 @@ class Gather(TraceContainer, SamplesContainer):
         return self
 
     @batch_method(target="threads", args_to_unpack="stacking_velocity")
-    def apply_nmo(self, stacking_velocity, interpolate=True, max_stretch_factor=np.inf, fill_value=np.nan):
+    def apply_nmo(self, stacking_velocity, max_stretch_factor=np.inf, interpolate=True, fill_value=np.nan):
         """Perform gather normal moveout correction using the given stacking velocity.
 
         Notes
@@ -1029,7 +1032,7 @@ class Gather(TraceContainer, SamplesContainer):
         velocities = stacking_velocity(self.times) / 1000  # from m/s to m/ms
         velocities_grad = np.gradient(velocities, self.sample_interval)
         self.data = correction.apply_nmo(self.data, self.offsets, self.sample_interval, self.delay, self.times,
-                                         velocities, velocities_grad, interpolate, max_stretch_factor, fill_value)
+                                         velocities, velocities_grad, max_stretch_factor, interpolate, fill_value)
         return self
 
     #------------------------------------------------------------------------#

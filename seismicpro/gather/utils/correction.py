@@ -8,8 +8,8 @@ from numba import njit, prange
 
 
 @njit(nogil=True, fastmath=True)
-def get_hodograph(gather_data, offsets, sample_interval, delay, hodograph_times, interpolate=True, fill_value=np.nan,
-                  max_offset=np.inf, out=None):
+def get_hodograph(gather_data, offsets, sample_interval, delay, hodograph_times, max_offset=np.inf, interpolate=True,
+                  fill_value=np.nan, out=None):
     """Retrieve hodograph amplitudes from the `gather_data`.
 
     Hodograph is defined by `hodograph_times`: an array of event times for each trace of the gather.
@@ -60,8 +60,8 @@ def get_hodograph(gather_data, offsets, sample_interval, delay, hodograph_times,
 
 
 @njit(nogil=True, parallel=True)
-def apply_constant_velocity_nmo(gather_data, offsets, sample_interval, delay, times, velocity, interpolate=True,
-                                max_stretch_factor=np.inf, fill_value=np.nan):
+def apply_constant_velocity_nmo(gather_data, offsets, sample_interval, delay, times, velocity,
+                                max_stretch_factor=np.inf, interpolate=True, fill_value=np.nan):
     corrected_gather_data = np.full((len(offsets), len(times)), fill_value=fill_value, dtype=gather_data.dtype)
     for i in prange(len(times)):
         hodograph_times = np.sqrt(times[i]**2 + (offsets / velocity)**2)
@@ -72,8 +72,8 @@ def apply_constant_velocity_nmo(gather_data, offsets, sample_interval, delay, ti
 
 
 @njit(nogil=True, parallel=True)
-def apply_nmo(gather_data, offsets, sample_interval, delay, times, velocities, velocities_grad, interpolate=True,
-              max_stretch_factor=np.inf, fill_value=np.nan):
+def apply_nmo(gather_data, offsets, sample_interval, delay, times, velocities, velocities_grad,
+              max_stretch_factor=np.inf, interpolate=True, fill_value=np.nan):
     r"""Perform gather normal moveout correction with given stacking velocities for each timestamp.
 
     The process of NMO correction removes the moveout effect on traveltimes, assuming that reflection traveltimes in a

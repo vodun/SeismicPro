@@ -104,7 +104,8 @@ class BaseVelocitySpectrum(SamplesContainer):
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def calc_single_velocity_spectrum(coherency_func, gather_data, times, offsets, velocity, sample_interval, delay,
-                                      half_win_size_samples, t_min_ix, t_max_ix, max_stretch_factor=np.inf, out=None):
+                                      half_win_size_samples, t_min_ix, t_max_ix, max_stretch_factor=np.inf,
+                                      interpolate=True, out=None):
         """Calculate velocity spectrum for given velocity and time range.
 
         Parameters
@@ -146,7 +147,7 @@ class BaseVelocitySpectrum(SamplesContainer):
 
         corrected_gather_data = apply_constant_velocity_nmo(gather_data, offsets, sample_interval, delay,
                                                             times[t_win_size_min_ix: t_win_size_max_ix + 1], velocity,
-                                                            max_stretch_factor=max_stretch_factor)
+                                                            max_stretch_factor, interpolate)
         numerator, denominator = coherency_func(corrected_gather_data)
 
         if out is None:
@@ -342,7 +343,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         Max allowable factor for stretch muter.
     """
     def __init__(self, gather, velocities=None, stacking_velocity=None, relative_margin=0.2, velocity_step=50,
-                 window_size=50, mode='semblance', max_stretch_factor=np.inf):
+                 window_size=50, mode='semblance', max_stretch_factor=np.inf, interpolate=True):
         super().__init__(gather, window_size, mode, max_stretch_factor)
         if stacking_velocity is None:
             stacking_velocity = DEFAULT_STACKING_VELOCITY
@@ -359,13 +360,14 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         kwargs = {"spectrum_func": self.calc_single_velocity_spectrum, "coherency_func": self.coherency_func,
                   "gather_data": self.gather.data, "times": self.times, "offsets": self.gather.offsets,
                   "velocities": velocities_ms, "sample_interval": self.sample_interval, "delay": self.delay,
-                  "half_win_size_samples": self.half_win_size_samples, "max_stretch_factor": max_stretch_factor}
+                  "half_win_size_samples": self.half_win_size_samples, "max_stretch_factor": max_stretch_factor,
+                  "interpolate": interpolate}
         self.velocity_spectrum = self._calc_spectrum_numba(**kwargs)
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_spectrum_numba(spectrum_func, coherency_func, gather_data, times, offsets, velocities, sample_interval,
-                             delay, half_win_size_samples, max_stretch_factor):
+                             delay, half_win_size_samples, max_stretch_factor, interpolate):
         """Parallelized and njitted method for vertical velocity spectrum calculation.
 
         Parameters
@@ -388,7 +390,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
             spectrum_func(coherency_func=coherency_func, gather_data=gather_data, times=times, offsets=offsets,
                           velocity=velocities[j], sample_interval=sample_interval, delay=delay,
                           half_win_size_samples=half_win_size_samples, t_min_ix=0, t_max_ix=gather_data.shape[1],
-                          max_stretch_factor=max_stretch_factor, out=velocity_spectrum[:, j])
+                          max_stretch_factor=max_stretch_factor, interpolate=interpolate, out=velocity_spectrum[:, j])
         return velocity_spectrum
 
     def get_velocity_range(self, stacking_velocity, relative_margin, velocity_step):
@@ -621,7 +623,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         Max allowable factor for stretch muter.
     """
     def __init__(self, gather, stacking_velocity, relative_margin=0.2, velocity_step=50, window_size=50,
-                 mode='semblance', max_stretch_factor=np.inf):
+                 mode='semblance', max_stretch_factor=np.inf, interpolate=True):
         super().__init__(gather, window_size, mode, max_stretch_factor)
         if isinstance(stacking_velocity, StackingVelocityField):
             stacking_velocity = stacking_velocity(self.coords)
@@ -633,14 +635,15 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
                   "gather_data": self.gather.data, "times": self.times, "offsets": self.gather.offsets,
                   "stacking_velocities": stacking_velocities, "relative_margin": relative_margin,
                   "velocity_step": velocity_step, "sample_interval": self.sample_interval, "delay": self.delay,
-                  "half_win_size_samples": self.half_win_size_samples, "max_stretch_factor": max_stretch_factor}
+                  "half_win_size_samples": self.half_win_size_samples, "max_stretch_factor": max_stretch_factor,
+                  "interpolate": interpolate}
         self.velocity_spectrum = self._calc_spectrum_numba(**kwargs)
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def _calc_spectrum_numba(spectrum_func, coherency_func, gather_data, times, offsets, stacking_velocities,
                              relative_margin, velocity_step, sample_interval, delay, half_win_size_samples,
-                             max_stretch_factor):
+                             max_stretch_factor, interpolate):
         """Parallelized and njitted method for residual vertical velocity spectrum calculation.
 
         Parameters
@@ -689,7 +692,8 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
             spectrum_func(coherency_func=coherency_func, gather_data=gather_data, times=times, offsets=offsets,
                           velocity=velocities[i] / 1000, sample_interval=sample_interval, delay=delay,
                           half_win_size_samples=half_win_size_samples, t_min_ix=t_min_ix, t_max_ix=t_max_ix+1,
-                          max_stretch_factor=max_stretch_factor, out=velocity_spectrum[t_min_ix : t_max_ix + 1, i])
+                          max_stretch_factor=max_stretch_factor, interpolate=interpolate,
+                          out=velocity_spectrum[t_min_ix : t_max_ix + 1, i])
 
         # Interpolate velocity spectrum to get a rectangular image
         residual_velocity_spectrum_len = (right_bound_ix - left_bound_ix).max()
