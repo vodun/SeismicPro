@@ -838,8 +838,8 @@ class Gather(TraceContainer, SamplesContainer):
         stacking_velocity : StackingVelocity or StackingVelocityField or str, optional,
                             defaults to DEFAULT_STACKING_VELOCITY
             Stacking velocity around which vertical velocity spectrum is calculated if `velocities` are not given.
-            `StackingVelocity` instance is used directly. If `StackingVelocityField` instance is passed,
-            a `StackingVelocity` corresponding to gather coordinates is fetched from it. May be `str` if called in a
+            `StackingVelocity` instance is used directly. If `StackingVelocityField` instance is passed, a
+            `StackingVelocity` corresponding to gather coordinates is fetched from it. May be `str` if called in a
             pipeline: in this case it defines a component with stacking velocities to use.
         relative_margin : float, optional, defaults to 0.2
             Relative velocity margin to additionally extend the velocity range obtained from `stacking_velocity`: an
@@ -860,10 +860,13 @@ class Gather(TraceContainer, SamplesContainer):
                 `crosscorrelation` or `CC`,
                 `energy_normalized_crosscorrelation` or `ENCC`.
         max_stretch_factor : float, defaults to np.inf
-            Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
-            This mute is applied after nmo correction for each provided velocity and before coherency calculation. The
-            lower the value, the stronger the mute. In case np.inf (default) no mute is applied. Reasonably good value
-            is 0.65.
+            Maximum allowable factor for the muter that attenuates the effect of waveform stretching after NMO
+            correction. This mute is applied after NMO correction for each provided velocity and before coherency
+            calculation. The lower the value, the stronger the mute. In case np.inf (default) no mute is applied.
+            Reasonably good value is 0.65.
+        interpolate: bool, optional, defaults to True
+            Whether to perform linear interpolation to retrieve amplitudes along hodographs. If `False`, an amplitude
+            at the nearest time sample is used.
 
         Returns
         -------
@@ -876,7 +879,7 @@ class Gather(TraceContainer, SamplesContainer):
                                         interpolate=interpolate)
 
     @batch_method(target="for", args_to_unpack="stacking_velocity", copy_src=False)
-    def calculate_residual_velocity_spectrum(self, stacking_velocity, relative_margin=0.2, velocity_step=50,
+    def calculate_residual_velocity_spectrum(self, stacking_velocity, relative_margin=0.2, velocity_step=25,
                                              window_size=50, mode="semblance", max_stretch_factor=np.inf,
                                              interpolate=True):
         """Calculate residual velocity spectrum for the gather and provided stacking velocity.
@@ -902,7 +905,7 @@ class Gather(TraceContainer, SamplesContainer):
         relative_margin : float, optional, defaults to 0.2
             Relative velocity margin, that determines the velocity range for velocity spectrum calculation for each
             time `t` as `stacking_velocity(t)` * (1 +- `relative_margin`).
-        velocity_step : float, optional, defaults to 50
+        velocity_step : float, optional, defaults to 25
             A step between two adjacent velocities for which residual velocity spectrum is calculated. Measured in
             meters/seconds.
         window_size : int, optional, defaults to 50
@@ -917,10 +920,13 @@ class Gather(TraceContainer, SamplesContainer):
                 `crosscorrelation` or `CC`,
                 `energy_normalized_crosscorrelation` or `ENCC`.
         max_stretch_factor : float, defaults to np.inf
-            Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
-            This mute is applied after nmo correction for each provided velocity and before coherency calculation. The
-            lower the value, the stronger the mute. In case np.inf (default) no mute is applied. Reasonably good value
-            is 0.65.
+            Maximum allowable factor for the muter that attenuates the effect of waveform stretching after NMO
+            correction. This mute is applied after NMO correction for each provided velocity and before coherency
+            calculation. The lower the value, the stronger the mute. In case np.inf (default) no mute is applied.
+            Reasonably good value is 0.65.
+        interpolate: bool, optional, defaults to True
+            Whether to perform linear interpolation to retrieve amplitudes along hodographs. If `False`, an amplitude
+            at the nearest time sample is used.
 
         Returns
         -------
@@ -1001,16 +1007,17 @@ class Gather(TraceContainer, SamplesContainer):
         stacking_velocity : int, float, StackingVelocity, StackingVelocityField or str
             Stacking velocities to perform NMO correction with. `StackingVelocity` instance is used directly. If
             `StackingVelocityField` instance is passed, a `StackingVelocity` corresponding to gather coordinates is
-            fetched from it. If `int` or `float` then constant-velocity correction is performed.
-            May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
-        mute_crossover: bool, optional, defaults to False
-            Whether to mute areas where time reversal occurred after NMO correction.
+            fetched from it. If `int` or `float` then constant-velocity correction is performed. May be `str` if called
+            in a pipeline: in this case it defines a component with stacking velocities to use.
         max_stretch_factor : float, optional, defaults to np.inf
             Maximum allowable factor for the muter that attenuates the effect of waveform stretching after NMO
-            correction. The lower the value, the stronger the mute. In case np.inf (default) no mute is applied.
-            Reasonably good value is 0.65.
+            correction. The lower the value, the stronger the mute. In case np.inf (default) only areas where time
+            reversal occurred are muted. Reasonably good value is 0.65.
+        interpolate: bool, optional, defaults to True
+            Whether to perform linear interpolation to retrieve amplitudes along hodographs. If `False`, an amplitude
+            at the nearest time sample is used.
         fill_value : float, optional, defaults to np.nan
-            Value used to fill the amplitudes outside the gather bounds after moveout.
+            Fill value to use if hodograph time is outside the gather bounds.
 
         Returns
         -------
@@ -1022,8 +1029,13 @@ class Gather(TraceContainer, SamplesContainer):
         ValueError
             If wrong type of `stacking_velocity` is passed.
         """
-        if isinstance(stacking_velocity, (int, float)):
-            stacking_velocity = StackingVelocity.from_constant_velocity(stacking_velocity)
+        if isinstance(stacking_velocity, (int, float, np.number)):
+            stacking_velocity = np.float32(stacking_velocity / 1000)  # from m/s to m/ms
+            self.data = correction.apply_constant_velocity_nmo(self.data, self.offsets, self.sample_interval,
+                                                               self.delay, self.times, stacking_velocity,
+                                                               max_stretch_factor, interpolate, fill_value)
+            return self
+
         if isinstance(stacking_velocity, StackingVelocityField):
             stacking_velocity = stacking_velocity(self.coords)
         if not isinstance(stacking_velocity, StackingVelocity):

@@ -333,6 +333,9 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         This mute is applied after NMO correction for each provided velocity and before coherency calculation. The
         lower the value, the stronger the mute. In case np.inf (default) no mute is applied.
         Reasonably good value is 0.65.
+    interpolate: bool, optional, defaults to True
+        Whether to perform linear interpolation to retrieve amplitudes along hodographs. If `False`, an amplitude at
+        the nearest time sample is used.
 
     Attributes
     ----------
@@ -593,7 +596,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     relative_margin : float, optional, defaults to 0.2
         Relative velocity margin, that determines the velocity range for velocity spectrum calculation for each time
         `t` as `stacking_velocity(t)` * (1 +- `relative_margin`).
-    velocity_step : float, optional, defaults to 50
+    velocity_step : float, optional, defaults to 25
         A step between two adjacent velocities for which residual velocity spectrum is calculated. Measured in
         meters/seconds.
     window_size : int, optional, defaults to 50
@@ -612,6 +615,9 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         This mute is applied after NMO correction for each provided velocity and before coherency calculation. The
         lower the value, the stronger the mute. In case np.inf (default) no mute is applied.
         Reasonably good value is 0.65.
+    interpolate: bool, optional, defaults to True
+        Whether to perform linear interpolation to retrieve amplitudes along hodographs. If `False`, an amplitude at
+        the nearest time sample is used.
 
     Attributes
     ----------
@@ -628,7 +634,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     max_stretch_factor: float
         Maximum allowable factor for stretch muter.
     """
-    def __init__(self, gather, stacking_velocity, relative_margin=0.2, velocity_step=50, window_size=50,
+    def __init__(self, gather, stacking_velocity, relative_margin=0.2, velocity_step=25, window_size=50,
                  mode='semblance', max_stretch_factor=np.inf, interpolate=True):
         super().__init__(gather, window_size, mode, max_stretch_factor)
         if isinstance(stacking_velocity, StackingVelocityField):
