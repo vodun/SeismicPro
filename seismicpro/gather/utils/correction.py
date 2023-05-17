@@ -12,33 +12,33 @@ def get_hodograph(gather_data, offsets, sample_interval, delay, hodograph_times,
                   fill_value=np.nan, out=None):
     """Retrieve hodograph amplitudes from the `gather_data`.
 
-    Hodograph is defined by `hodograph_times`: an array of event times for each trace of the gather.
+    The hodograph is defined by `hodograph_times`: an array of event times for each trace of the gather.
 
     Parameters
     ----------
     gather_data : 2d np.ndarray
-        Gather data to retrieve hodograph amplitudes from.
+        Gather data to retrieve hodograph amplitudes from. Should have (n_traces, n_samples) layout.
     offsets : 1d np.ndarray
         The distance between source and receiver for each trace. Measured in meters.
-    hodograph_times : 1d np.array
-        Event time for each gather trace. Must match the length of `gather_data`. Measured in milliseconds.
     sample_interval : float
         Sample interval of seismic traces. Measured in milliseconds.
     delay : float
         Delay recording time of seismic traces. Measured in milliseconds.
-    interpolate: bool, optional, defaults to True
-        Whether to perform linear interpolation to retrieve the hodograph event from the trace. If `False`, the nearest
-        time sample amplitude is used.
-    fill_value : float, optional, defaults to np.nan
-        Fill value to use if the traveltime is outside the gather bounds.
+    hodograph_times : 1d np.array
+        Event time for each gather trace. Must match the length of `gather_data`. Measured in milliseconds.
     max_offset: float, optional, defaults to np.inf
         The maximum offset value for which the hodograph is being tracked.
+    interpolate: bool, optional, defaults to True
+        Whether to perform linear interpolation to retrieve amplitudes along the hodograph. If `False`, an amplitude at
+        the nearest time sample is used.
+    fill_value : float, optional, defaults to np.nan
+        Fill value to use if hodograph time is outside the gather bounds.
     out : np.array, optional
         The buffer to store the result in. If not provided, a new array is allocated.
 
     Returns
     -------
-    out : 1d array
+    out : 1d np.ndarray
         Gather amplitudes along a hodograph.
     """
     n_times = len(hodograph_times)
@@ -62,12 +62,17 @@ def get_hodograph(gather_data, offsets, sample_interval, delay, hodograph_times,
 @njit(nogil=True, parallel=True)
 def apply_constant_velocity_nmo(gather_data, offsets, sample_interval, delay, times, velocity,
                                 max_stretch_factor=np.inf, interpolate=True, fill_value=np.nan):
+    """Perform gather normal moveout correction with the same velocity used for all times.
+
+    This method is identical to `apply_nmo` when all elements of `velocities` are equal to `velocity` and all elements
+    of `velocities_grad` are zeros. However, it is far more optimized due to the simplified muting procedure.
+    """
     corrected_gather_data = np.full((len(offsets), len(times)), fill_value=fill_value, dtype=gather_data.dtype)
     for i in prange(len(times)):
         hodograph_times = np.sqrt(times[i]**2 + (offsets / velocity)**2)
         max_offset = times[i] * velocity * np.sqrt((1 + max_stretch_factor)**2 - 1)
-        get_hodograph(gather_data, offsets, sample_interval, delay, hodograph_times, interpolate=interpolate,
-                      fill_value=fill_value, max_offset=max_offset, out=corrected_gather_data[:, i])
+        get_hodograph(gather_data, offsets, sample_interval, delay, hodograph_times, max_offset=max_offset,
+                      interpolate=interpolate, fill_value=fill_value, out=corrected_gather_data[:, i])
     return corrected_gather_data
 
 
@@ -90,32 +95,38 @@ def apply_nmo(gather_data, offsets, sample_interval, delay, times, velocities, v
     Parameters
     ----------
     gather_data : 2d np.ndarray
-        Gather data to apply NMO correction to with an ordinary shape of (n_traces, n_samples).
-    times : 1d np.ndarray
-        Recording time for each trace value. Measured in milliseconds.
+        Gather data to apply NMO correction to. Should have (n_traces, n_samples) layout.
     offsets : 1d np.ndarray
         The distance between source and receiver for each trace. Measured in meters.
-    stacking_velocities : 1d np.ndarray or scalar
-        Stacking velocities for each time. If scalar, the same velocity is used for all times.
-        Measured in meters/milliseconds.
     sample_interval : float
         Sample interval of seismic traces. Measured in milliseconds.
     delay : float
         Delay recording time of seismic traces. Measured in milliseconds.
-    mute_crossover: bool, optional, defaults to False
-        Whether to mute areas where time reversal occurred after NMO correction.
+    times : 1d np.ndarray
+        Zero-offset traveltimes to perform correction for. Measured in milliseconds.
+    velocities : 1d np.ndarray
+        Stacking velocities for each zero-offset traveltime. Must match the shape of `times`.
+        Measured in meters/milliseconds.
+    velocities_grad : 1d np.ndarray
+        Gradient of stacking velocities for each zero-offset traveltime. Must match the shape of `times`.
+        Measured in meters/milliseconds^2.
     max_stretch_factor : float, optional, defaults to np.inf
         Maximum allowable factor for the muter that attenuates the effect of waveform stretching after NMO correction.
-        The lower the value, the stronger the mute. In case np.inf (default) no mute is applied. Reasonably good value
-        is 0.65.
+        The lower the value, the stronger the mute. In case np.inf (default) only areas where time reversal occurred
+        are muted. Reasonably good value is 0.65.
+    interpolate: bool, optional, defaults to True
+        Whether to perform linear interpolation to retrieve amplitudes along hodographs. If `False`, an amplitude at
+        the nearest time sample is used.
     fill_value : float, optional, defaults to np.nan
-        Value used to fill the amplitudes outside the gather bounds after moveout.
+        Fill value to use if hodograph time is outside the gather bounds.
 
     Returns
     -------
     corrected_gather_data : 2d array
-        NMO corrected gather data with an ordinary shape of (num_traces, trace_length).
+        NMO corrected gather data with shape (n_traces, len(times)).
     """
+    # Calculate hodograph times and an offset when time reversal or excessive stretching occurs
+    # for each zero-offset time
     hodograph_times = np.empty((len(times), len(offsets)), dtype=np.float32)
     max_offsets = np.empty(len(times), dtype=np.float32)
     for i in prange(len(times)):
@@ -125,6 +136,7 @@ def apply_nmo(gather_data, offsets, sample_interval, delay, times, velocities, v
         muted_offsets = offsets[stretch_mask]
         max_offsets[i] = muted_offsets.min() if muted_offsets.size > 0 else np.inf
 
+    # Make a sequence of max offsets monotonically non-decreasing
     min_max_offset = max_offsets[-1]
     for i in range(len(max_offsets) - 2, -1, -1):
         if max_offsets[i] < min_max_offset:
@@ -132,10 +144,11 @@ def apply_nmo(gather_data, offsets, sample_interval, delay, times, velocities, v
         else:
             max_offsets[i] = min_max_offset
 
+    # Correct and mute the gather
     corrected_gather_data = np.full((len(offsets), len(times)), fill_value=fill_value, dtype=gather_data.dtype)
     for i in prange(len(times)):
-        get_hodograph(gather_data, offsets, sample_interval, delay, hodograph_times[i], interpolate=interpolate,
-                      fill_value=fill_value, max_offset=max_offsets[i], out=corrected_gather_data[:, i])
+        get_hodograph(gather_data, offsets, sample_interval, delay, hodograph_times[i], max_offset=max_offsets[i],
+                      interpolate=interpolate, fill_value=fill_value, out=corrected_gather_data[:, i])
     return corrected_gather_data
 
 
