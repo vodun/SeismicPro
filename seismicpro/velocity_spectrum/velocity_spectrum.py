@@ -43,14 +43,15 @@ class BaseVelocitySpectrum(SamplesContainer):
     gather : Gather
         Seismic gather to calculate velocity spectrum for.
     window_size : float
-        Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother
-        the resulting velocity spectrum will be but to the detriment of small details. Measured in milliseconds.
+        Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother the
+        resulting velocity spectrum will be but to the detriment of small details. Measured in milliseconds.
     mode: str, defaults to `semblance`
-        The coherency measure. See the `COHERENCY_FUNCS` for available options.
+        A measure for estimating hodograph coherency. See `COHERENCY_FUNCS` for available options.
     max_stretch_factor : float, defaults to np.inf
-        Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction. This
-        mute is applied after nmo correction for each provided velocity and before coherency calculation. The lower the
-        value, the stronger the mute. In case np.inf (default) no mute is applied. Reasonably good value is 0.65.
+        Maximum allowable factor for the muter that attenuates the effect of waveform stretching after NMO correction.
+        This mute is applied after NMO correction for each provided velocity and before coherency calculation. The
+        lower the value, the stronger the mute. In case np.inf (default) no mute is applied.
+        Reasonably good value is 0.65.
 
     Attributes
     ----------
@@ -59,9 +60,9 @@ class BaseVelocitySpectrum(SamplesContainer):
     half_win_size_samples : int
         Half of the temporal window size for smoothing the velocity spectrum. Measured in samples.
     coherency_func : callable
-        The function that estimates the coherency measure for hodograph.
+        A function that estimates the chosen coherency measure for a hodograph.
     max_stretch_factor : float
-        Max allowable factor for stretch muter.
+        Maximum allowable factor for stretch muter.
     """
 
     def __init__(self, gather, window_size, mode='semblance', max_stretch_factor=np.inf):
@@ -90,7 +91,7 @@ class BaseVelocitySpectrum(SamplesContainer):
 
     @property
     def coords(self):
-        """Coordinates or None: Spatial coordinates of the velocity_spectrum. Determined by the underlying gather.
+        """Coordinates or None: Spatial coordinates of the velocity spectrum. Determined by the underlying gather.
         `None` if the gather is indexed by unsupported headers or required coords headers were not loaded or
         coordinates are non-unique for traces of the gather."""
         return self.gather.coords
@@ -106,12 +107,12 @@ class BaseVelocitySpectrum(SamplesContainer):
     def calc_single_velocity_spectrum(coherency_func, gather_data, times, offsets, velocity, sample_interval, delay,
                                       half_win_size_samples, t_min_ix, t_max_ix, max_stretch_factor=np.inf,
                                       interpolate=True, out=None):
-        """Calculate velocity spectrum for given velocity and time range.
+        """Calculate velocity spectrum for a given range of zero-offset traveltimes and constant velocity.
 
         Parameters
         ----------
         coherency_func: njitted callable
-            The function that estimates hodograph coherency.
+            A function that estimates hodograph coherency.
         gather_data : 2d np.ndarray
             Gather data for velocity spectrum calculation.
         times : 1d np.ndarray
@@ -131,9 +132,12 @@ class BaseVelocitySpectrum(SamplesContainer):
         t_max_ix : int
             Time index in `times` array to stop calculating velocity spectrum at. Measured in samples.
         max_stretch_factor : float, defaults to np.inf
-            Max allowable factor for the muter that attenuates the effect of waveform stretching after NMO correction.
-            The lower the value, the stronger the mute. In case np.inf (default) no mute is applied. Reasonably good
-            value is 0.65.
+            Maximum allowable factor for the muter that attenuates the effect of waveform stretching after NMO
+            correction. The lower the value, the stronger the mute. In case np.inf (default) no mute is applied.
+            Reasonably good value is 0.65.
+        interpolate: bool, optional, defaults to True
+            Whether to perform linear interpolation to retrieve amplitudes along hodographs. If `False`, an amplitude
+            at the nearest time sample is used.
         out : np.array, optional
             The buffer to store result in. If not provided, a new array is allocated.
 
@@ -230,7 +234,7 @@ class BaseVelocitySpectrum(SamplesContainer):
 class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     r"""A class for vertical velocity spectrum calculation and processing.
 
-    Velocity spectrum is a measure for hodograph coherency. The higher the values of velocity spectrum are, the more
+    Velocity spectrum is a measure of hodograph coherency. The higher the values of velocity spectrum are, the more
     coherent the signal is along a hyperbolic trajectory over the entire spread length of the gather.
 
     Velocity spectrum instance can be created either directly by passing source gather (and optional parameters such as
@@ -325,9 +329,10 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
             `crosscorrelation` or `CC`,
             `energy_normalized_crosscorrelation` or `ENCC`.
     max_stretch_factor : float, defaults to np.inf
-        Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction. This
-        mute is applied after nmo correction for each provided velocity and before coherency calculation. The lower the
-        value, the stronger the mute. In case np.inf (default) no mute is applied. Reasonably good value is 0.65.
+        Maximum allowable factor for the muter that attenuates the effect of waveform stretching after NMO correction.
+        This mute is applied after NMO correction for each provided velocity and before coherency calculation. The
+        lower the value, the stronger the mute. In case np.inf (default) no mute is applied.
+        Reasonably good value is 0.65.
 
     Attributes
     ----------
@@ -340,7 +345,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     velocity_spectrum : 2d np.ndarray
         An array with calculated vertical velocity spectrum values.
     max_stretch_factor : float
-        Max allowable factor for stretch muter.
+        Maximum allowable factor for stretch muter.
     """
     def __init__(self, gather, velocities=None, stacking_velocity=None, relative_margin=0.2, velocity_step=50,
                  window_size=50, mode='semblance', max_stretch_factor=np.inf, interpolate=True):
@@ -373,7 +378,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         Parameters
         ----------
         spectrum_func : njitted callable
-            Base function for velocity spectrum calculation for single velocity and a time range.
+            Base function for velocity spectrum calculation for a single velocity and a time range.
         coherency_func : njitted callable
             A function for hodograph coherency estimation.
         other parameters : misc
@@ -603,9 +608,10 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
             `crosscorrelation` or `CC`,
             `energy_normalized_crosscorrelation` or `ENCC`.
     max_stretch_factor : float, defaults to np.inf
-        Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction. This
-        mute is applied after nmo correction for each provided velocity and before coherency calculation. The lower the
-        value, the stronger the mute. In case np.inf (default) no mute is applied. Reasonably good value is 0.65.
+        Maximum allowable factor for the muter that attenuates the effect of waveform stretching after NMO correction.
+        This mute is applied after NMO correction for each provided velocity and before coherency calculation. The
+        lower the value, the stronger the mute. In case np.inf (default) no mute is applied.
+        Reasonably good value is 0.65.
 
     Attributes
     ----------
@@ -620,7 +626,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     velocity_spectrum : 2d np.ndarray
         An array with calculated residual vertical velocity spectrum values.
     max_stretch_factor: float
-        Max allowable factor for stretch muter.
+        Maximum allowable factor for stretch muter.
     """
     def __init__(self, gather, stacking_velocity, relative_margin=0.2, velocity_step=50, window_size=50,
                  mode='semblance', max_stretch_factor=np.inf, interpolate=True):
@@ -649,7 +655,7 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         Parameters
         ----------
         spectrum_func : njitted callable
-            Base function for velocity spectrum calculation for single velocity and a time range.
+            Base function for velocity spectrum calculation for a single velocity and a time range.
         coherency_func : njitted callable
             A function for hodograph coherency estimation.
         other parameters : misc
