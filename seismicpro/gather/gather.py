@@ -424,7 +424,7 @@ class Gather(TraceContainer, SamplesContainer):
 
         Returns
         -------
-        q : float or np.ndarray of floats
+        q : float or array-like of floats
             The `q`-th quantile values.
 
         Raises
@@ -434,14 +434,15 @@ class Gather(TraceContainer, SamplesContainer):
         """
         if use_global:
             return self.survey.get_quantile(q)
-        q = np.array(q, dtype=np.float32)
-        quantiles = normalization.get_quantile(self.data, q=np.atleast_1d(q), tracewise=tracewise).astype(np.float32)
-        # return the same type as q in case of non-global calculation: either single float or array-like
+        q = np.atleast_1d(q).astype(np.float32)
         if not tracewise:
-            quantiles = quantiles[:, 0]
+            quantiles = np.nanquantile(self.data, q=q)
+        else:
+            quantiles = normalization.get_quantile(self.data, q=q)
+        # return the same type as q in case of non-global calculation: either single float or array-like
         if q.ndim == 0:
             quantiles = quantiles[0]
-        return quantiles
+        return quantiles.astype(self.data.dtype)
 
     @batch_method(target='threads')
     def scale_standard(self, tracewise=True, use_global=False, eps=1e-10):
@@ -536,11 +537,12 @@ class Gather(TraceContainer, SamplesContainer):
         """
         if use_global:
             min_value, max_value = self.survey.get_quantile([q_min, q_max])
-            min_value, max_value = np.atleast_1d(min_value), np.atleast_1d(max_value)
+        elif not tracewise:
+            min_value, max_value = self.get_quantile([q_min, q_max], tracewise=False)
         else:
             min_value, max_value = None, None
         self.data = normalization.scale_maxabs(self.data, min_value, max_value, q_min, q_max,
-                                               tracewise, clip, np.float32(eps))
+                                               clip, np.float32(eps))
         return self
 
     @batch_method(target='for')
@@ -586,11 +588,13 @@ class Gather(TraceContainer, SamplesContainer):
         """
         if use_global:
             min_value, max_value = self.survey.get_quantile([q_min, q_max])
-            min_value, max_value = np.atleast_1d(min_value), np.atleast_1d(max_value)
+            # min_value, max_value = np.atleast_1d(min_value), np.atleast_1d(max_value)
+        elif not tracewise:
+            min_value, max_value = self.get_quantile([q_min, q_max], tracewise=False)
         else:
             min_value, max_value = None, None
         self.data = normalization.scale_minmax(self.data, min_value, max_value, q_min, q_max,
-                                               tracewise, clip, np.float32(eps))
+                                               clip, np.float32(eps))
         return self
 
     #------------------------------------------------------------------------#
