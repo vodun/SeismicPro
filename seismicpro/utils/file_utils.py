@@ -92,7 +92,7 @@ def aggregate_segys(in_paths, out_path, recursive=False, mmap=False, keep_exts=(
             os.remove(path)
 
 
-def read_dataframe(path, columns=None, format="fwf", has_header=False, usecols=None, sep=',', skiprows=0, decimal=None,
+def load_dataframe(path, columns=None, has_header=False, usecols=None, format="fwf", sep=',', skiprows=0, decimal=None,
                    encoding="UTF-8", **kwargs):
     """Read a file into a `pd.DataFrame`. See :func:`TraceContainer.load_headers` for arguments description."""
     if usecols is not None or decimal is None:
@@ -115,21 +115,23 @@ def read_dataframe(path, columns=None, format="fwf", has_header=False, usecols=N
         return pd.read_csv(path, sep=r'\s+', header=header, names=columns, usecols=usecols, decimal=decimal,
                            skiprows=skiprows, encoding=encoding, **kwargs)
     if format == "csv":
+        if decimal != ".":
+            # FIXME: Add decimal support when the issue (https://github.com/pola-rs/polars/issues/6698) is solved
+            raise ValueError("`decimal` differ from '.' is not supported for 'csv' format")
         columns, new_columns = (columns, None) if has_header else (usecols, columns)
         return pl.read_csv(path, has_header=has_header, columns=columns, new_columns=new_columns, separator=sep,
                            skip_rows=skiprows, encoding=encoding, **kwargs).to_pandas()
     raise ValueError(f"Unknown format `{format}`, available formats are ('fwf', 'csv')")
 
 
-def dump_dataframe(path, df, format="fwf", has_header=False, float_precision=2, decimal=".", min_width=None,
-                   **kwargs):
+def dump_dataframe(file, df, has_header=False, format="fwf", float_precision=2, decimal=".", min_width=None, **kwargs):
     """Save a provided `pd.DataFrame` to a file. See :func:`TraceContainer.dump_headers` for arguments description."""
     if format == "fwf":
-        _dump_to_fwf(path, df, has_header=has_header, float_precision=float_precision, decimal=decimal,
+        _dump_to_fwf(file, df, has_header=has_header, float_precision=float_precision, decimal=decimal,
                      min_width=min_width)
     elif format == "csv":
         df = pl.from_pandas(df)
-        df.write_csv(path, has_header=has_header, float_precision=float_precision, **kwargs)
+        df.write_csv(file, has_header=has_header, float_precision=float_precision, **kwargs)
     else:
         raise ValueError(f"Unknown format `{format}`, available formats are ('fwf', 'csv')")
 

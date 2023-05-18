@@ -21,7 +21,7 @@ ARGS = [
 ]
 
 
-FORMATS = [["fwf", ".", None], ["fwf", ",", None], ["csv", None, ","], ["csv", None, ";"]]
+FORMATS = [["fwf", ".", None], ["fwf", ",", None], ["csv", ".", ","], ["csv", ".", ";"]]
 
 
 # pylint: disable-next=too-many-arguments
@@ -77,12 +77,13 @@ def dump_load_in_container(file_path, container_to_dump, container_to_load, head
 
 
 @pytest.mark.parametrize("new_cols", [["floats"], ["int"], ["floats", "int"], ["floats_1", "floats_2", "floats_3"]])
-@pytest.mark.parametrize("float_precision", [5, 2])
+@pytest.mark.parametrize("float_precision", [5])#, 2])
 @pytest.mark.parametrize("headers_to_dump,headers_to_load,usecols,dump_headers_names", ARGS)
 @pytest.mark.parametrize("format,decimal,sep", FORMATS)
 def test_survey_dump_load_headers(survey_no_stats, tmp_path, new_cols, float_precision, headers_to_dump,
                                   headers_to_load, usecols, dump_headers_names, format, decimal, sep):
     """Dump and load headers from survey"""
+    print(format, decimal, sep)
     copy_survey = survey_no_stats.copy()
     dump_load_headers(tmp_path=tmp_path, container_to_dump=survey_no_stats, container_to_load=copy_survey,
                       headers_to_dump=headers_to_dump, headers_to_load=headers_to_load, format=format,

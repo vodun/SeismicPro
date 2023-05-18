@@ -13,7 +13,7 @@ import pandas as pd
 import polars as pl
 
 from .decorators import batch_method
-from .utils import to_list, get_cols, create_indexer, maybe_copy, read_dataframe, dump_dataframe
+from .utils import to_list, get_cols, create_indexer, maybe_copy, load_dataframe, dump_dataframe
 from .const import HDR_FIRST_BREAK
 
 
@@ -104,7 +104,7 @@ class TraceContainer:
 
         Returns
         -------
-        headers : pandas.DataFrame
+        headers : pandas.Series or pandas.DataFrame
             Headers values.
         """
         return get_cols(self.headers, cols)
@@ -282,9 +282,8 @@ class TraceContainer:
 
     @batch_method(target="for")
     # pylint: disable-next=too-many-arguments
-    def load_headers(self, path, headers_names=None, join_on=None, format="fwf", has_header=False, usecols=None,
-                     sep=',', skiprows=0, decimal=None, encoding="UTF-8", how="inner", inplace=False,
-                     **kwargs):
+    def load_headers(self, path, headers_names=None, has_header=False, usecols=None, join_on=None, how="inner",
+                     format="fwf", sep=',', skiprows=0, decimal=None, encoding="UTF-8", inplace=False, **kwargs):
         """Load headers from a file and join them to `self.headers`.
 
         Parameters:
@@ -294,32 +293,32 @@ class TraceContainer:
         headers_names : array-like of str, optional, defaults to None
             An array with column names to use as trace header names. If `has_header` is `True`, then `headers_names`
             specifies which columns will be loaded from the file.
-        join_on : str, array-like of str or None, optional, defaults to None
-            Column(s) based on which loaded headers will be joined to `self.headers`. If `None`, intersection of
-            headers from `headers_names` and `self.headers.columns` will be used.
-        format : "fwf" or "csv", optional, defaults to "fwf"
-            Format of the file with headers. Currently, the following options are supported:
-            * "fwf" - fixed-width format,
-            * "csv" - comma-separated values format.
         has_header : bool, optional, defaults to False
             Indicate if the first row of the file contains header names or not.
         usecols : array-like of int or None, optional, defaults to None
             Columns indices to be selected from the file. Unlike `pandas` loaders, it is allowed to use negative
             indices. Should be always passed in ascending order and have the same length as `headers_names` if both
             passed.
-        sep : str, defaults to ','
-            Separator used in the file. Used only for "csv" `format`.
-       skiprows : int, optional, defaults to 0
-            Number of rows to skip from the beginning of the file.
-        decimal : str, optional, defaults to None
-            Decimal point character. If not provided, it will be inferred from the file. Used only for "fwf" `format`.
-        encoding : str, optional, defaults to "UTF-8"
-            File encoding.
+        join_on : str, array-like of str or None, optional, defaults to None
+            Column(s) based on which loaded headers will be joined to `self.headers`. If `None`, intersection of
+            headers from `headers_names` and `self.headers.columns` will be used.
         how : "inner" or "left", optional, defaults to "inner"
             If "inner", intersection of traces from `self.headers` and trace headers from the loaded file will be used
             as new `self.headers`. If "left", all traces will be kept in `self.headers`. For traces that were missed in
             the loaded file, missing headers will be filled with `np.nan`.
             Whether to keep headers for traces that were missed in the loaded file.
+        format : "fwf" or "csv", optional, defaults to "fwf"
+            Format of the file with headers. Currently, the following options are supported:
+            * "fwf" - fixed-width format,
+            * "csv" - comma-separated values format.
+        sep : str, defaults to ','
+            Separator used in the file. Used only for "csv" `format`.
+        skiprows : int, optional, defaults to 0
+            Number of rows to skip from the beginning of the file.
+        decimal : str, optional, defaults to None
+            Decimal point character. If not provided, it will be inferred from the file. Used only for "fwf" `format`.
+        encoding : str, optional, defaults to "UTF-8"
+            File encoding.
         inplace : bool, optional, defaults to False
             Whether to load headers inplace or to a copy.
         **kwargs : misc, optional
@@ -339,32 +338,33 @@ class TraceContainer:
         """
         self = maybe_copy(self, inplace, ignore="headers") # pylint: disable=self-cls-assignment
 
-        loaded_headers = read_dataframe(path, columns=headers_names, format=format, has_header=has_header,
-                                        usecols=usecols, sep=sep, skiprows=skiprows, decimal=decimal,
+        loaded_headers = load_dataframe(path, columns=headers_names, has_header=has_header, usecols=usecols,
+                                        format=format, sep=sep, skiprows=skiprows, decimal=decimal,
                                         encoding=encoding, **kwargs)
         loaded_headers = pl.from_pandas(loaded_headers, nan_to_null=False)
 
         index_cols = self.headers.index.names  # pylint: disable=access-member-before-definition
-        headers = pl.from_pandas(self.headers.reset_index())  # pylint: disable=access-member-before-definition
+        headers = self.headers.copy(deep=False)  # pylint: disable=access-member-before-definition
+        headers.reset_index(inplace=True)
+        headers = pl.from_pandas(headers).with_row_count("row_index")
         # Use intersection of columns from file and self.headers as join columns by default
         if join_on is None:
             join_on = set(headers.columns) & set(loaded_headers.columns)
-        casts = [loaded_headers[column].cast(headers[column].dtype) for column in to_list(join_on)]
-        loaded_headers = loaded_headers.with_columns(*casts)
         if how not in ["inner", "left"]:
             raise ValueError(f"Argument `how` supports only 'inner' and 'left', but given `{how}`.")
-        joined_headers = headers.join(loaded_headers, on=join_on, how=how, suffix="_loaded")
-        self.headers = joined_headers.to_pandas().set_index(index_cols)  # pylint: disable=attribute-defined-outside-init
+        casts = [pl.col(column).cast(headers[column].dtype) for column in to_list(join_on)]
+        joined_headers = headers.join(loaded_headers.with_columns(*casts), on=join_on, how=how, suffix="_loaded")
+        self.headers = joined_headers.drop(columns="row_index").to_pandas().set_index(index_cols)  # pylint: disable=attribute-defined-outside-init
 
         if self.is_empty:
             warnings.warn("Empty headers after headers loading", RuntimeWarning)
         # Perform additional filter for traces that were deleted after file loading.
-        self._post_filter(headers["TRACE_SEQUENCE_FILE"].is_in(joined_headers["TRACE_SEQUENCE_FILE"]).to_numpy())
+        self._post_filter(headers["row_index"].is_in(joined_headers["row_index"]).to_numpy())
         return self
 
     @batch_method(target="for", use_lock=True)
-    def dump_headers(self, path, headers_names, format="fwf", dump_headers_names=False, float_precision=2, decimal='.',
-                     min_width=None, **kwargs):
+    def dump_headers(self, path, headers_names, dump_headers_names=False, format="fwf", append=False,
+                     float_precision=2, decimal='.', min_width=None, **kwargs):
         """Save the selected headers to a file.
 
         Parameters
@@ -373,10 +373,12 @@ class TraceContainer:
             A path to the output file.
         headers_names : str or array-like of str
             `self.headers` columns to be included in the output file.
-        format : "fwf" or "csv", optional, defaults to "fwf"
-            Output file format. If "fwf", use fixed-width format. If "csv", use comma-separated format.
         dump_headers_names : bool, optional, defaults to False
             Whether to include the headers names in the output file.
+        format : "fwf" or "csv", optional, defaults to "fwf"
+            Output file format. If "fwf", use fixed-width format. If "csv", use comma-separated format.
+        append : bool, optional, defaults to False
+            Whether to append dumped headers to the file or write them to an empty file.
         float_precision : int, optional, defaults to 2
             Number of decimal places to write.
         decimal : str, optional, defaults to '.'
@@ -397,8 +399,10 @@ class TraceContainer:
             If the `format` argument is not one of the supported formats ('fwf', 'csv').
         """
         df = self.get_headers(headers_names)
-        dump_dataframe(path=path, df=df, format=format, has_header=dump_headers_names, float_precision=float_precision,
-                       decimal=decimal, min_width=min_width, **kwargs)
+        mode = 'ab' if append else 'wb'
+        with open(path, mode) as file:
+            dump_dataframe(file=file, df=df, has_header=dump_headers_names, format=format,
+                           float_precision=float_precision, decimal=decimal, min_width=min_width, **kwargs)
         return self
 
     #------------------------------------------------------------------------#
@@ -407,7 +411,7 @@ class TraceContainer:
 
     @batch_method(target="for")
     def load_first_breaks(self, path, trace_id_headers=('FieldRecord', 'TraceNumber'),
-                          first_breaks_header=HDR_FIRST_BREAK, decimal=None, inplace=False, **kwargs):
+                          first_breaks_header=HDR_FIRST_BREAK, inplace=False, **kwargs):
         """Load times of first breaks from a file and save them to a new column in headers.
 
         Each line of the file stores the first break time for a trace in the last column. The combination of all but
@@ -423,8 +427,6 @@ class TraceContainer:
             Columns names from `self.headers`, whose values are stored in all but the last columns of the file.
         first_breaks_header : str, optional, defaults to 'FirstBreak'
             Column name in `self.headers` where loaded first break times will be stored.
-        decimal : str, defaults to None
-            Decimal point character. If not provided, it will be inferred from the file. Used only for "fwf" `format`.
         inplace : bool, optional, defaults to False
             Whether to load first break times inplace or to a survey copy.
         kwargs : misc, optional
@@ -436,8 +438,8 @@ class TraceContainer:
             A survey with loaded times of first breaks.
         """
         headers_names = to_list(trace_id_headers) + [first_breaks_header]
-        return self.load_headers(path=path, headers_names=headers_names, join_on=trace_id_headers, decimal=decimal,
-                                 inplace=inplace, **kwargs)
+        return self.load_headers(path=path, headers_names=headers_names, join_on=trace_id_headers, inplace=inplace,
+                                 **kwargs)
 
     @batch_method(target="for", use_lock=True)
     def dump_first_breaks(self, path, trace_id_headers=('FieldRecord', 'TraceNumber'),
