@@ -80,7 +80,7 @@ def calculate_stacking_velocity(spectrum, init=None, bounds=None, relative_margi
     hyperbola for each timestamp. It is used to correct the arrival times of reflection events in the traces for their
     varying offsets prior to stacking.
 
-    If calculated by velocity spectrum, stacking velocity must meet the following conditions:
+    If calculated by velocity spectrum, stacking velocity should generally meet the following conditions:
     1. It should be monotonically increasing,
     2. Its gradient should be bounded above to avoid excessive gather stretching after NMO correction,
     3. It should pass through local energy maxima on the velocity spectrum.
