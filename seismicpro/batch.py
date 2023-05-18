@@ -171,6 +171,7 @@ class SeismicBatch(Batch):
             A component of instances to evaluate the field on. Each of them must have well-defined coordinates.
         dst : src
             A component's name to store the result in.
+
         Returns
         -------
         self : SeismicBatch
