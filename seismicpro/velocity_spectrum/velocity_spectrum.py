@@ -363,6 +363,8 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
             stacking_velocity = stacking_velocity(self.coords)
         if velocities is None:
             velocities = self.get_velocity_range(stacking_velocity, relative_margin, velocity_step)
+        else:
+            velocities = np.sort(velocities)
 
         self.velocities = velocities  # m/s
         self.stacking_velocity = stacking_velocity
@@ -522,8 +524,8 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
             adjacent velocities at `max_offset`. Used to create graph nodes and calculate their velocities for each
             time.
         max_n_skips : int, optional, defaults to 2
-            Defines the maximum number of subsequent times to skip to still be able to connect two nodes of the graph
-            with an edge.
+            Defines the maximum number of intermediate times between two nodes of the graph. Greater values increase
+            computational costs, but tend to produce smoother stacking velocity.
 
         Returns
         -------

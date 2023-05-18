@@ -119,8 +119,8 @@ def calculate_stacking_velocity(spectrum, init=None, bounds=None, relative_margi
         The maximum difference in arrival time of two hodographs starting at the same zero-offset time and two adjacent
         velocities at `max_offset`. Used to create graph nodes and calculate their velocities for each time.
     max_n_skips : int, optional, defaults to 2
-        Defines the maximum number of subsequent times to skip to still be able to connect two nodes of the graph with
-        an edge.
+        Defines the maximum number of intermediate times between two nodes of the graph. Greater values increase
+        computational costs, but tend to produce smoother stacking velocity.
 
     Returns
     -------
@@ -128,6 +128,12 @@ def calculate_stacking_velocity(spectrum, init=None, bounds=None, relative_margi
         Times for which stacking velocities were picked. Measured in milliseconds.
     velocities : 1d np.ndarray
         Picked stacking velocities. Matches the length of `times`. Measured in meters/seconds.
+    bounds_times : 1d np.ndarray
+        Times for which velocity bounds were estimated. Measured in milliseconds.
+    min_velocity_bound : 1d np.ndarray
+        Minimum velocity bound. Matches the length of `bounds_times`. Measured in meters/seconds.
+    max_velocity_bound : 1d np.ndarray
+        Maximum velocity bound. Matches the length of `bounds_times`. Measured in meters/seconds.
     """
     spectrum_data = spectrum.velocity_spectrum.max() - spectrum.velocity_spectrum
     spectrum_times = np.asarray(spectrum.times, dtype=np.float32)
@@ -143,16 +149,14 @@ def calculate_stacking_velocity(spectrum, init=None, bounds=None, relative_margi
     if bounds is not None:
         min_vel_bound = bounds[0](node_times)
         max_vel_bound = bounds[1](node_times)
+        if (min_vel_bound > max_vel_bound).any():
+            raise ValueError("Left velocity bound cannot be greater than the right one")
     else:
         center_vel = init(node_times)
         min_vel_bound = center_vel * (1 - relative_margin)
         max_vel_bound = center_vel * (1 + relative_margin)
-    min_spectrum_velocity = spectrum_velocities.min()
-    max_spectrum_velocity = spectrum_velocities.max()
-    min_vel_bound = np.clip(min_vel_bound, min_spectrum_velocity, max_spectrum_velocity)
-    max_vel_bound = np.clip(max_vel_bound, min_spectrum_velocity, max_spectrum_velocity)
-    min_vel_bound = np.minimum(min_vel_bound, max_vel_bound)
-    max_vel_bound = np.maximum(min_vel_bound, max_vel_bound)
+    min_vel_bound = np.clip(min_vel_bound, spectrum_velocities[0], spectrum_velocities[-1])
+    max_vel_bound = np.clip(max_vel_bound, spectrum_velocities[0], spectrum_velocities[-1])
 
     # Estimate node velocities for each time
     final_hodograph_time_max = np.sqrt(node_times**2 + (max_offset * 1000 / min_vel_bound)**2)  # ms
@@ -205,4 +209,4 @@ def calculate_stacking_velocity(spectrum, init=None, bounds=None, relative_margi
     vels_ix = path - node_biases[times_ix]
     times = node_times[times_ix]
     velocities = np.array([node_velocities[tix][vix] for tix, vix in zip(times_ix, vels_ix)])
-    return times, velocities
+    return times, velocities, node_times, min_vel_bound, max_vel_bound
