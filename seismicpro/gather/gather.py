@@ -483,11 +483,14 @@ class Gather(TraceContainer, SamplesContainer):
         if use_global:
             if not self.survey.has_stats:
                 raise ValueError('Global statistics were not calculated, call `Survey.collect_stats` first.')
-            mean = np.atleast_2d(self.survey.mean).astype(self.data.dtype)
-            std = np.atleast_2d(self.survey.std).astype(self.data.dtype)
+            mean = np.atleast_2d(np.array(self.survey.mean))
+            std = np.atleast_2d(np.array(self.survey.std))
+        elif not tracewise:
+            mean = np.atleast_2d(np.array(np.mean(self.data), dtype=self.data.dtype))
+            std = np.atleast_2d(np.array(np.std(self.data), dtype=self.data.dtype))
         else:
             mean, std = None, None
-        self.data = normalization.scale_standard(self.data, mean, std, tracewise, np.float32(eps))
+        self.data = normalization.scale_standard(self.data, mean, std, np.float32(eps))
         return self
 
     @batch_method(target='for')

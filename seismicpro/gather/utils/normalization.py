@@ -32,7 +32,7 @@ def clip_inplace(data, data_min, data_max):
 
 
 @njit(nogil=True)
-def scale_standard(data, mean, std, tracewise, eps):
+def scale_standard(data, mean, std, eps):
     r"""Scale `data` using the following formula:
 
     :math:`S = \frac{data - mean}{std + eps}`
@@ -45,8 +45,6 @@ def scale_standard(data, mean, std, tracewise, eps):
         Global mean value. If provided, must be broadcastable to `data.shape`.
     std : np.ndarray of `data.dtype` or None
         Global standard deviation. If provided, must be broadcastable to `data.shape`.
-    tracewise : bool
-        If `True`, mean and std are calculated for each trace independently, otherwise for the entire gather.
     eps : float
         A constant to be added to the denominator to avoid division by zero.
 
@@ -57,15 +55,14 @@ def scale_standard(data, mean, std, tracewise, eps):
     """
     if mean is None and std is None:
         n_traces, trace_len = data.shape
-        if tracewise:
-            mean = np.empty((n_traces, 1), dtype=data.dtype)
-            std = np.empty((n_traces, 1), dtype=data.dtype)
-            for i in range(n_traces):
-                mean[i] = np.sum(data[i]) / (trace_len)
-                std[i] = np.sqrt((np.sum((data[i] - mean[i])**2) / trace_len))
-        else:
-            mean = np.atleast_2d(np.asarray(np.mean(data), dtype=data.dtype))
-            std = np.atleast_2d(np.asarray(np.std(data), dtype=data.dtype))
+        mean = np.empty((n_traces, 1), dtype=data.dtype)
+        std = np.empty((n_traces, 1), dtype=data.dtype)
+        for i in range(n_traces):
+            mean[i] = np.sum(data[i]) / (trace_len)
+            std[i] = np.sqrt((np.sum((data[i] - mean[i])**2) / trace_len))
+    # else:
+    #     mean = np.atleast_2d(mean).astype(data.dtype)
+    #     std = np.atleast_2d(std).astype(data.dtype)
     return (data - mean) / (std + eps)
 
 @njit(nogil=True)
