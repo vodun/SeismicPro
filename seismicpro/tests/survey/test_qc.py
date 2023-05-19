@@ -3,7 +3,7 @@
 import pytest
 import numpy as np
 
-from seismicpro import Survey, Gather, Muter
+from seismicpro import Survey, Muter
 from seismicpro.refractor_velocity import RefractorVelocity
 from seismicpro.survey.metrics import (DeadTrace, TraceAbsMean, TraceMaxAbs, MaxClipsLen, MaxConstLen, Spikes,
                                        Autocorrelation, WindowRMS, AdaptiveWindowRMS, DEFAULT_TRACEWISE_METRICS)

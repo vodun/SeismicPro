@@ -5,8 +5,6 @@ from concurrent.futures import Future, Executor
 
 import numpy as np
 
-from numba import njit
-
 
 def to_list(obj):
     """Cast an object to a list. Almost identical to `list(obj)` for 1-D objects, except for `str`, which won't be

@@ -676,7 +676,7 @@ class WindowRMS(BaseWindowRMSMetric):
         If `self.threshold` is None, the average RMS for the passed values will be showed."""
         metric_value = np.sqrt(metric_values[:, 0] / metric_values[:, 1])
         if self.threshold is None:
-            description = f"Mean traces RMS computed in a window with a range" + separator
+            description = "Mean traces RMS computed in a window with a range" + separator
             description += f"{f' {self.offsets}m in offsets and {self.times}ms in times:':<{line_width}}"
             return description + f"{np.nanmean(metric_value):<.3f}"
         return super().describe(metric_value, line_width=line_width, separator=separator)
