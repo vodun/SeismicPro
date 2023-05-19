@@ -636,21 +636,20 @@ class RefractorVelocityField(SpatialField):
         FieldPlot(self, **kwargs).plot()
 
     @staticmethod
-    def _calc_metrics(metrics, survey, field, gather_indices_chunk, coords_chunk, first_breaks_col, correct_uphole):
+    def _calc_metrics(metrics, survey, field, gather_indices_chunk, coords_chunk):
         """Calculate metrics for a given gather index and refractor velocity."""
         refractor_velocities = field(coords_chunk)
         results = []
         for idx, rv in zip(gather_indices_chunk, refractor_velocities):
             gather = survey.get_gather(idx)
-            gather_results = [metric(gather, refractor_velocity=rv,
-                                     first_breaks_col=first_breaks_col, correct_uphole=correct_uphole)
-                              for metric in metrics]
+            gather_results = [metric(gather, refractor_velocity=rv) for metric in metrics]
             results.append(gather_results)
         return results
 
     #pylint: disable-next=invalid-name
     def qc(self, metrics=None, survey=None, first_breaks_col=HDR_FIRST_BREAK, correct_uphole=None,
            n_workers=None, bar=True, chunk_size=250):
+
         """Perform quality control of the first breaks given the near-surface velocity model.
         By default, the following metrics are calculated:
         * The first break outliers metric. A first break time is considered to be an outlier if it differs from the
@@ -665,8 +664,8 @@ class RefractorVelocityField(SpatialField):
         ----------
         survey : Survey
             Survey to load traces from.
-        metrics : instance or subclass of RefractorVelocityMetric of list of them, optional.
-            Defaults to those defined in `~metrics.REFRACTOR_VELOCITY_QC_METRICS`.
+        metrics : instance or subclass of :class:`~metrics.RefractorVelocityMetric` of list of them, optional.
+            Metrics to calculate. Defaults to those defined in `~metrics.REFRACTOR_VELOCITY_QC_METRICS`.
         first_breaks_col : str, optional, defaults to :const:`~const.HDR_FIRST_BREAK`
             Column name from `survey.headers` where times of first break are stored.
         correct_uphole : bool, optional
@@ -687,11 +686,14 @@ class RefractorVelocityField(SpatialField):
         """
         if survey is None:
             if not self.has_survey:
-                raise ValueError("Survey must be passed if the field is not linked with a survey.")
+                raise ValueError("`survey` must be passed if the field is not linked with a survey.")
             survey = self.survey
 
         metrics = REFRACTOR_VELOCITY_QC_METRICS if metrics is None else metrics
         metrics_instances, is_single_metric = initialize_metrics(metrics, metric_class=RefractorVelocityMetric)
+        # context = {"first_breaks_col": first_breaks_col, "correct_uphole": correct_uphole}
+        for metric in metrics_instances:
+            metric.set_defaults(first_breaks_col=first_breaks_col, correct_uphole=correct_uphole)
 
         coords_cols = to_list(get_coords_cols(survey.indexed_by))
         gather_change_ix = np.where(~survey.headers.index.duplicated(keep="first"))[0]
@@ -712,17 +714,13 @@ class RefractorVelocityField(SpatialField):
                     gathers_indices_chunk = survey.indices[i * chunk_size : (i + 1) * chunk_size]
                     coords_chunk = gather_coords[i * chunk_size : (i + 1) * chunk_size]
                     future = pool.submit(self._calc_metrics, metrics_instances, survey, self, gathers_indices_chunk,
-                                         coords_chunk, first_breaks_col, correct_uphole)
+                                         coords_chunk)
                     future.add_done_callback(lambda fut: pbar.update(len(fut.result())))
                     futures.append(future)
         results = sum([future.result() for future in futures], [])
 
-        # index_cols = to_list(survey.indexed_by)
-        # index = None if coords_cols == index_cols else survey.indices
         metrics_maps = []
-        context = {"survey": survey, "field": self,
-                   "first_breaks_col": first_breaks_col, "correct_uphole": correct_uphole}
-        metrics_instances = [metric.provide_context(**context) for metric in metrics_instances]
+        metrics_instances = [metric.provide_context(survey=survey, field=self) for metric in metrics_instances]
         metrics_maps = [metric.construct_map(gather_coords, metric_values, index=survey.indices)
                         for metric, metric_values in zip(metrics_instances, zip(*results))]
         if is_single_metric:
