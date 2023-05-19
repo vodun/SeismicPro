@@ -99,14 +99,13 @@ class TestFilterMetrics:
     def test_filter_metrics(self, stat_segy, header_index, metric, threshold, inplace):
         """Check that `filter_by_metric` properly updates survey `headers`."""
         _ = self
-        path, trace_data = stat_segy
+        path, _ = stat_segy
         metric_name = metric.__name__
         survey = Survey(path, header_index=header_index, header_cols="offset")
 
         traces_pos = survey.headers.reset_index()["TRACE_SEQUENCE_FILE"].values - 1
         sorted_ixs = np.argsort(traces_pos)
-        trace_data = trace_data[sorted_ixs]
-        gather = Gather(survey.headers.iloc[sorted_ixs], trace_data, survey.samples, survey)
+        gather = survey.load_gather(survey.headers.iloc[sorted_ixs])
 
         survey.qc(metrics=metric, bar=False)
         survey_filtered = survey.filter_by_metric(metric_name=metric_name, threshold=threshold, inplace=inplace)

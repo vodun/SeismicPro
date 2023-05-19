@@ -42,7 +42,7 @@ def gen_random_traces_some_dead(n_traces, n_samples):
     return traces
 
 
-@pytest.fixture(params=[gen_random_traces, gen_random_traces_some_dead])
+@pytest.fixture(params=[gen_random_traces, gen_random_traces_some_dead], scope="module")
 def stat_segy(tmp_path_factory, request):
     """Return a path to a SEG-Y file and its trace data to estimate its statistics."""
     n_traces = 16
