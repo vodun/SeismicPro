@@ -668,25 +668,24 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         n_velocities = math.ceil((max_velocity - min_velocity) / velocity_step) + 1
         velocities = (min_velocity + velocity_step * np.arange(n_velocities)).astype(np.float32)
 
-        # Convert bounds to their indices in the array of velocities
+        # Convert bounds to their indices in the array of velocities and construct a binary mask that stores True
+        # values for (time, velocity) pairs for which spectrum should be calculated
         left_bound_ix = np.empty(len(left_bound), dtype=np.int32)
         right_bound_ix = np.empty(len(right_bound), dtype=np.int32)
+        spectrum_mask = np.zeros((gather_data.shape[1], len(velocities)), dtype=np.bool_)
         for i in prange(len(left_bound_ix)):
             left_bound_ix[i] = np.argmin(np.abs(left_bound[i] - velocities))
             right_bound_ix[i] = np.argmin(np.abs(right_bound[i] - velocities))
-        min_bound_ix = np.min(left_bound_ix)
-        max_bound_ix = np.max(right_bound_ix)
-        velocities = velocities[min_bound_ix : max_bound_ix + 1]
-        left_bound_ix -= min_bound_ix
-        right_bound_ix -= min_bound_ix
+            spectrum_mask[i, left_bound_ix[i] : right_bound_ix[i] + 1] = True
 
         # Calculate only necessary part of the vertical velocity spectrum
         velocity_spectrum = np.zeros((gather_data.shape[1], len(velocities)), dtype=np.float32)
-        for i in prange(velocity_spectrum.shape[1]):
-            t_min_ix = np.where(right_bound_ix >= i)[0]
-            t_min_ix = 0 if len(t_min_ix) == 0 else t_min_ix[0]
-            t_max_ix = np.where(left_bound_ix <= i)[0]
-            t_max_ix = len(times) - 1 if len(t_max_ix) == 0 else t_max_ix[-1]
+        for i in prange(len(velocities)):
+            t_ix = np.where(spectrum_mask[:, i])[0]
+            if len(t_ix) == 0:
+                continue
+            t_min_ix = t_ix[0]
+            t_max_ix = t_ix[-1]
 
             spectrum_func(coherency_func=coherency_func, gather_data=gather_data, times=times, offsets=offsets,
                           velocity=velocities[i] / 1000, sample_interval=sample_interval, delay=delay,
