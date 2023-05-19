@@ -353,7 +353,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         else:
             velocities = np.sort(velocities)
 
-        self.velocities = np.array(velocities).astype(np.float32)  # m/s
+        self.velocities = np.asarray(velocities, dtype=np.float32)  # m/s
         self.stacking_velocity = stacking_velocity
         self.relative_margin = relative_margin
 
