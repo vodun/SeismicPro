@@ -32,7 +32,7 @@ setup(
         'polars[pyarrow]>=0.17.5',
         'scikit-learn>=0.23.2',
         'opencv_python>=4.5.1',
-        'networkx>=2.5',
+        'rustworkx>=0.12.1',
         'segyio>=1.9.5',
         'segfast>=1.0.0',
         'tqdm>=4.56.0',

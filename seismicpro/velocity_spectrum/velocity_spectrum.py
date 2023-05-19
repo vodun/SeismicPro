@@ -12,8 +12,8 @@ import matplotlib.pyplot as plt
 from .utils import coherency_funcs
 from .interactive_plot import VelocitySpectrumPlot
 from ..decorators import batch_method, plotter
-from ..stacking_velocity import StackingVelocity, calculate_stacking_velocity
-from ..utils import add_colorbar, set_ticks, set_text_formatting
+from ..stacking_velocity import StackingVelocity, StackingVelocityField
+from ..utils import add_colorbar, set_ticks, set_text_formatting, get_first_defined
 from ..gather.utils import correction
 from ..const import DEFAULT_STACKING_VELOCITY
 
@@ -34,7 +34,8 @@ COHERENCY_FUNCS = {
 
 class BaseVelocitySpectrum:
     """Base class for vertical velocity spectrum calculation.
-    Implements general computation logic and visualization method.
+
+    Implements general computation logic and a method for spectrum visualization.
 
     Parameters
     ----------
@@ -46,10 +47,9 @@ class BaseVelocitySpectrum:
     mode: str, defaults to `semblance`
         The coherency measure. See the `COHERENCY_FUNCS` for available options.
     max_stretch_factor : float, defaults to np.inf
-        Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
-        This mute is applied after nmo correction for each provided velocity and before coherency calculation.
-        The lower the value, the stronger the mute. In case np.inf(default) no mute is applied.
-        Reasonably good value is 0.65.
+        Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction. This
+        mute is applied after nmo correction for each provided velocity and before coherency calculation. The lower the
+        value, the stronger the mute. In case np.inf (default) no mute is applied. Reasonably good value is 0.65.
 
     Attributes
     ----------
@@ -59,7 +59,7 @@ class BaseVelocitySpectrum:
         Half of the temporal window size for smoothing the velocity spectrum. Measured in samples.
     coherency_func : callable
         The function that estimates the coherency measure for hodograph.
-    max_stretch_factor: float
+    max_stretch_factor : float
         Max allowable factor for stretch muter.
     """
 
@@ -105,6 +105,19 @@ class BaseVelocitySpectrum:
         _ = time_ix, velocity_ix
         raise NotImplementedError
 
+    def get_velocity_range(self, stacking_velocity, relative_margin, velocity_step):
+        """Return an array of stacking velocities for spectrum calculation:
+        1. First `stacking_velocity` is evaluated for gather times to estimate the velocity range being examined.
+        2. Then the range is additionally extended by `relative_margin` * 100% in both directions.
+        3. The resulting velocities are then evenly sampled from this range with a step of `velocity_step`.
+        """
+        interpolated_velocities = stacking_velocity(self.times)
+        min_velocity = np.min(interpolated_velocities) * (1 - relative_margin)
+        max_velocity = np.max(interpolated_velocities) * (1 + relative_margin)
+        n_velocities = math.ceil((max_velocity - min_velocity) / velocity_step) + 1
+        max_velocity = min_velocity + (n_velocities - 1) * velocity_step
+        return np.linspace(min_velocity, max_velocity, n_velocities, dtype=np.float32)
+
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def calc_single_velocity_spectrum(coherency_func, gather_data, times, offsets, velocity, sample_interval,
@@ -133,7 +146,7 @@ class BaseVelocitySpectrum:
             Time index in `times` array to stop calculating velocity spectrum at. Measured in samples.
         max_stretch_factor : float, defaults to np.inf
             Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
-            The lower the value, the stronger the mute. In case np.inf(default) no mute is applied.
+            The lower the value, the stronger the mute. In case np.inf (default) no mute is applied.
             Reasonably good value is 0.65.
         out : np.array, optional
             The buffer to store result in. If not provided, allocate new array.
@@ -232,7 +245,7 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     Velocity spectrum is a measure for hodograph coherency. The higher the values of velocity spectrum are, the more
     coherent the signal is along a hyperbolic trajectory over the entire spread length of the gather.
 
-    Velocity spectrum instance can be created either directly by passing source gather (and optional parameters like
+    Velocity spectrum instance can be created either directly by passing source gather (and optional parameters such as
     velocity range, window size, coherency measure and a factor for stretch mute) to its `__init__` or by calling
     :func:`~Gather.calculate_vertical_velocity_spectrum` method (recommended way).
 
@@ -240,13 +253,12 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     :math:`VS(k, v) = \frac{\sum^{k+N/2}_{i=k-N/2} numerator(i, v)}
                            {\sum^{k+N/2}_{i=k-N/2} denominator(i, v)},
     where:
-
      - VS - velocity spectrum value for starting time index `k` and velocity `v`,
      - N - temporal window size,
      - numerator(i, v) - numerator of the coherency measure,
-     - denominator(i, v) - denominator of the coherency measure,
+     - denominator(i, v) - denominator of the coherency measure.
 
-    For different coherency measures the numerator and denominator calculated as follows:
+    For different coherency measures the numerator and denominator are calculated as follows:
 
     - Stacked Amplitude, "S":
         numerator(i, v) = abs(sum^{M-1}_{j=0} f_{j}(i, v))
@@ -274,17 +286,17 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     :math:`l_j` - offset of the `j`-th trace,
     :math:`v` - velocity value.
 
-    See the COHERENCY_FUNCS for the full list available coherency measures.
+    See the COHERENCY_FUNCS for the full list of available coherency measures.
 
-    The resulting matrix :math:`VS(k, v)` has shape (trace_length, n_velocities) and contains vertical velocity
-    spectrum values based on hyperbolas with each combination of the starting point :math:`k` and velocity :math:`v`.
+    The resulting matrix :math:`VS(k, v)` has shape (n_times, n_velocities) and contains vertical velocity spectrum
+    values based on hyperbolas with each combination of the starting point :math:`k` and velocity :math:`v`.
 
     The algorithm for velocity spectrum calculation looks as follows:
-    For each velocity from given velocity range:
+    For each velocity from the given velocity range:
         1. Calculate NMO-corrected gather.
         2. Estimate numerator and denominator for given coherency measure for each timestamp.
-        3. Get the velocity spectrum values as the division of rolling sums in a temporal windows of numerator and
-           denominator.
+        3. Get the values of velocity spectrum as a ratio of rolling sums of numerator and denominator in temporal
+           windows of a given size.
 
     Examples
     --------
@@ -298,10 +310,21 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     gather : Gather
         Seismic gather to calculate velocity spectrum for.
     velocities : 1d np.ndarray, optional, defaults to None
-        Range of velocity values for which velocity spectrum is calculated. Measured in meters/seconds.
-        If not provided, the velocity range is inferred from const.DEFAULT_STACKING_VELOCITY evaluated for gather times
-        and then additionally extended by 20%. Spectrum velocities are evenly sampled from this range with a step of
-        100 m/s.
+        An array of stacking velocities to calculate the velocity spectrum for. Measured in meters/seconds. If not
+        provided, `stacking_velocity` is evaluated for gather times to estimate the velocity range being examined.
+        The resulting velocities are then evenly sampled from this range being additionally extended by
+        `relative_margin` * 100% in both directions with a step of `velocity_step`.
+    stacking_velocity : StackingVelocity or StackingVelocityField, optional, defaults to DEFAULT_STACKING_VELOCITY
+        Stacking velocity around which vertical velocity spectrum is calculated if `velocities` are not given.
+        `StackingVelocity` instance is used directly. If `StackingVelocityField` instance is passed, a
+        `StackingVelocity` corresponding to gather coordinates is fetched from it.
+    relative_margin : float, optional, defaults to 0.2
+        Relative velocity margin to additionally extend the velocity range obtained from `stacking_velocity`: an
+        interval [`min_velocity`, `max_velocity`] is mapped to [(1 - `relative_margin`) * `min_velocity`,
+        (1 + `relative_margin`) * `max_velocity`].
+    velocity_step : float, optional, defaults to 50
+        A step between two adjacent velocities for which vertical velocity spectrum is calculated if `velocities` are
+        not passed. Measured in meters/seconds.
     window_size : int, optional, defaults to 50
         Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother the
         resulting velocity spectrum will be but to the detriment of small details. Measured in milliseconds.
@@ -327,18 +350,26 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     half_win_size_samples : int
         Half of the temporal window size for smoothing the vertical velocity spectrum. Measured in samples.
     velocity_spectrum : 2d np.ndarray
-        Array with calculated vertical velocity spectrum values.
-    max_stretch_factor: float
+        An array with calculated vertical velocity spectrum values.
+    max_stretch_factor : float
         Max allowable factor for stretch muter.
     """
-    def __init__(self, gather, velocities=None, window_size=50, mode='semblance', max_stretch_factor=np.inf):
+    def __init__(self, gather, velocities=None, stacking_velocity=None, relative_margin=0.2, velocity_step=50,
+                 window_size=50, mode='semblance', max_stretch_factor=np.inf):
         super().__init__(gather, window_size, mode, max_stretch_factor)
-        if velocities is not None:
-            self.velocities = velocities  # m/s
+        if stacking_velocity is None:
+            stacking_velocity = DEFAULT_STACKING_VELOCITY
+        if isinstance(stacking_velocity, StackingVelocityField):
+            stacking_velocity = stacking_velocity(self.coords)
+        if velocities is None:
+            velocities = self.get_velocity_range(stacking_velocity, relative_margin, velocity_step)
         else:
-            self.velocities = np.arange(DEFAULT_STACKING_VELOCITY(gather.times[0]) * 0.8,
-                                        DEFAULT_STACKING_VELOCITY(gather.times[-1]) * 1.2,
-                                        100)
+            velocities = np.sort(velocities)
+
+        self.velocities = velocities  # m/s
+        self.stacking_velocity = stacking_velocity
+        self.relative_margin = relative_margin
+
         velocities_ms = self.velocities / 1000  # from m/s to m/ms
         kwargs = {"spectrum_func": self.calc_single_velocity_spectrum, "coherency_func": self.coherency_func,
                   "gather_data": self.gather.data, "times": self.times, "offsets": self.offsets,
@@ -453,11 +484,13 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
         """
         if title is None:
             title = f"Vertical Velocity Spectrum \n Coherency func: {self.coherency_func.__name__}"
+        if isinstance(stacking_velocity, StackingVelocityField):
+            stacking_velocity = stacking_velocity(self.coords)
         return super().plot(stacking_velocity=stacking_velocity, interactive=interactive, title=title, **kwargs)
 
-    @batch_method(target="for", copy_src=False)
-    def calculate_stacking_velocity(self, start_velocity_range=(1400, 1800), end_velocity_range=(2500, 5000),
-                                    max_acceleration=None, n_times=25, n_velocities=25):
+    @batch_method(target="for", args_to_unpack="init", copy_src=False)
+    def calculate_stacking_velocity(self, init=None, bounds=None, relative_margin=None, acceleration_bounds="auto",
+                                    times_step=100, max_offset=5000, hodograph_correction_step=25, max_n_skips=2):
         """Calculate stacking velocity by vertical velocity spectrum.
 
         Notes
@@ -467,39 +500,50 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
 
         Parameters
         ----------
-        start_velocity_range : tuple with 2 elements
-            Valid range for stacking velocity for the first timestamp. Both velocities are measured in meters/seconds.
-        end_velocity_range : tuple with 2 elements
-            Valid range for stacking velocity for the last timestamp. Both velocities are measured in meters/seconds.
-        max_acceleration : None or float, defaults to None
-            Maximal acceleration allowed for the stacking velocity function. If `None`, equals to
-            2 * (mean(end_velocity_range) - mean(start_velocity_range)) / total_time. Measured in meters/seconds^2.
-        n_times : int, defaults to 25
-            The number of evenly spaced points to split time range into to generate graph edges.
-        n_velocities : int, defaults to 25
-            The number of evenly spaced points to split velocity range into for each time to generate graph edges.
+        init : StackingVelocity or str, optional
+            A rough estimate of the stacking velocity being picked. Used to calculate `bounds` as
+            [`init` * (1 - `relative_margin`), `init` * (1 + `relative_margin`)] if they are not given.
+            May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
+            If not given, `self.stacking_velocity` is used.
+        bounds : array-like of two StackingVelocity, optional
+            Left and right bounds of an area for stacking velocity picking. If not given, `init` must be passed.
+        relative_margin : positive float, optional
+            A fraction of stacking velocities defined by `init` used to estimate `bounds` if they are not given.
+            If not given, `self.relative_margin` is used.
+        acceleration_bounds : tuple of two positive floats or "auto" or None, optional
+            Minimal and maximal acceleration allowed for the stacking velocity function. If "auto", equals to the range
+            of accelerations of stacking velocities in `bounds` extended by 50% in both directions. If `None`, only
+            ensures that picked stacking velocity is monotonically increasing. Measured in meters/seconds^2.
+        times_step : float, optional, defaults to 100
+            A difference between two adjacent times defining graph nodes.
+        max_offset : float, optional, defaults to 5000
+            An offset for hodograph time estimation. Used to create graph nodes and calculate their velocities for each
+            time.
+        hodograph_correction_step : float, optional, defaults to 25
+            The maximum difference in arrival time of two hodographs starting at the same zero-offset time and two
+            adjacent velocities at `max_offset`. Used to create graph nodes and calculate their velocities for each
+            time.
+        max_n_skips : int, optional, defaults to 2
+            Defines the maximum number of intermediate times between two nodes of the graph. Greater values increase
+            computational costs, but tend to produce smoother stacking velocity.
 
         Returns
         -------
         stacking_velocity : StackingVelocity
             Calculated stacking velocity.
-
-        Raises
-        ------
-        ValueError
-            If no stacking velocity was found for given parameters.
         """
-        times, velocities, _ = calculate_stacking_velocity(self.velocity_spectrum, self.times, self.velocities,
-                                                           start_velocity_range, end_velocity_range, max_acceleration,
-                                                           n_times, n_velocities)
-        return StackingVelocity(times, velocities, coords=self.coords)
+        kwargs = {"init": get_first_defined(init, self.stacking_velocity), "bounds": bounds,
+                  "relative_margin": get_first_defined(relative_margin, self.relative_margin),
+                  "acceleration_bounds": acceleration_bounds, "times_step": times_step, "max_offset": max_offset,
+                  "hodograph_correction_step": hodograph_correction_step, "max_n_skips": max_n_skips}
+        return StackingVelocity.from_vertical_velocity_spectrum(self, **kwargs)
 
 
 class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     """A class for residual vertical velocity spectrum calculation and processing.
 
-    Residual velocity spectrum is hodograph coherency measure for a CDP gather along picked stacking velocity. The
-    method of its computation for given time and velocity completely coincides with the calculation of
+    Residual velocity spectrum is a hodograph coherency measure for a CDP gather along picked stacking velocity. The
+    method of its computation for a given time and velocity completely coincides with the calculation of
     :class:`~VerticalVelocitySpectrum`, however, residual velocity spectrum is computed in a small area around given
     stacking velocity, thus allowing for additional optimizations.
 
@@ -507,42 +551,46 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     `stacking_velocity(t)` * (1 +- `relative_margin`).
 
     Since the length of this velocity range varies for different timestamps, the residual velocity spectrum values are
-    interpolated to obtain a rectangular matrix of size (trace_length, max(right_boundary - left_boundary)), where
+    interpolated to obtain a rectangular matrix of size (`n_times`, max(right_boundary - left_boundary)), where
     `left_boundary` and `right_boundary` are arrays of left and right boundaries for all timestamps respectively.
 
     Thus the residual velocity spectrum is a function of time and relative velocity margin. Zero margin line
     corresponds to the given stacking velocity and generally should pass through local velocity spectrum maxima.
 
     Residual velocity spectrum instance can be created either directly by passing gather, stacking velocity and other
-    arguments to its init or by calling :func:`~Gather.calculate_residual_velocity_spectrum` method (recommended way).
+    arguments to its `__init__` or by calling :func:`~Gather.calculate_residual_velocity_spectrum` method (recommended
+    way).
 
     Examples
     --------
-    First let's sample a CDP gather and sort it by offset:
+    First let's sample a CDP gather from a survey:
     >>> survey = Survey(path, header_index=["INLINE_3D", "CROSSLINE_3D"], header_cols="offset")
     >>> gather = survey.sample_gather()
 
-    Now let's automatically calculate stacking velocity by gather velocity spectrum:
+    Now let's calculate stacking velocity by velocity spectrum of the gather:
     >>> velocity_spectrum = gather.calculate_vertical_velocity_spectrum()
     >>> velocity = velocity_spectrum.calculate_stacking_velocity()
 
     Residual velocity spectrum for the gather and calculated stacking velocity can be obtained as follows:
-    >>> residual_spectrum = gather.calculate_residual_velocity_spectrum(velocity, n_velocities=100)
+    >>> residual_spectrum = gather.calculate_residual_velocity_spectrum(velocity)
 
     Parameters
     ----------
     gather : Gather
         Seismic gather to calculate residual velocity spectrum for.
-    stacking_velocity : StackingVelocity
-        Stacking velocity around which residual velocity spectrum is calculated.
-    n_velocities : int, optional, defaults to 140
-        The number of velocities to compute residual velocity spectrum for.
-    window_size : int, optional, defaults to 50
-        Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother
-        the resulting velocity spectrum will be but to the detriment of small details. Measured in milliseconds.
+    stacking_velocity : StackingVelocity or StackingVelocityField
+        Stacking velocity around which residual velocity spectrum is calculated. `StackingVelocity` instance is used
+        directly. If `StackingVelocityField` instance is passed, a `StackingVelocity` corresponding to gather
+        coordinates is fetched from it.
     relative_margin : float, optional, defaults to 0.2
-        Relative velocity margin, that determines the velocity range for velocity spectrum calculation
-        for each time `t` as `stacking_velocity(t)` * (1 +- `relative_margin`).
+        Relative velocity margin, that determines the velocity range for velocity spectrum calculation for each time
+        `t` as `stacking_velocity(t)` * (1 +- `relative_margin`).
+    velocity_step : float, optional, defaults to 50
+        A step between two adjacent velocities for which residual velocity spectrum is calculated. Measured in
+        meters/seconds.
+    window_size : int, optional, defaults to 50
+        Temporal window size used for velocity spectrum calculation. The higher the `window_size` is, the smoother the
+        resulting velocity spectrum will be but to the detriment of small details. Measured in milliseconds.
     mode: str, optional, defaults to 'semblance'
         The measure for estimating hodograph coherency.
         The available options are:
@@ -567,25 +615,23 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     stacking_velocity : StackingVelocity
         Stacking velocity around which residual velocity spectrum was calculated.
     relative_margin : float, optional, defaults to 0.2
-         Relative velocity margin, that determines the velocity range for velocity spectrum calculation for each time.
+        Relative velocity margin, that determines the velocity range for velocity spectrum calculation for each time.
     velocity_spectrum : 2d np.ndarray
-         Array with calculated residual vertical velocity velocity_spectrum values.
+        An array with calculated residual vertical velocity spectrum values.
     max_stretch_factor: float
         Max allowable factor for stretch muter.
     """
-    def __init__(self, gather, stacking_velocity, n_velocities=140, window_size=50, relative_margin=0.2,
+    def __init__(self, gather, stacking_velocity, relative_margin=0.2, velocity_step=50, window_size=50,
                  mode='semblance', max_stretch_factor=np.inf):
         super().__init__(gather, window_size, mode, max_stretch_factor)
+        if isinstance(stacking_velocity, StackingVelocityField):
+            stacking_velocity = stacking_velocity(self.coords)
+        self.velocities = self.get_velocity_range(stacking_velocity, relative_margin, velocity_step)  # m/s
         self.stacking_velocity = stacking_velocity
         self.relative_margin = relative_margin
 
-        interpolated_velocities = stacking_velocity(self.times)
-        self.velocities = np.linspace(np.min(interpolated_velocities) * (1 - relative_margin),
-                                      np.max(interpolated_velocities) * (1 + relative_margin),
-                                      n_velocities, dtype=np.float32)
-        velocities_ms = self.velocities / 1000  # from m/s to m/ms
-
         left_bound_ix, right_bound_ix = self._calc_velocity_bounds()
+        velocities_ms = self.velocities / 1000  # from m/s to m/ms
         kwargs = {"spectrum_func": self.calc_single_velocity_spectrum, "coherency_func": self.coherency_func,
                   "gather_data": self.gather.data, "times": self.times, "offsets": self.offsets,
                   "velocities": velocities_ms, "left_bound_ix": left_bound_ix, "right_bound_ix": right_bound_ix,
