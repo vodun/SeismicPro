@@ -61,9 +61,13 @@ class StackingVelocity(VFUNC):
         An interpolator returning velocity value by given time.
     coords : Coordinates or None
         Spatial coordinates of the stacking velocity.
+    bounds : list of two StackingVelocity or None
+        Left and right bounds of an area for stacking velocity picking. Defined only if the stacking velocity was
+        created using `from_vertical_velocity_spectrum`.
     """
     def __init__(self, times, velocities, coords=None):
         super().__init__(times, velocities, coords=coords)
+        self.bounds = None
 
     @property
     def times(self):
@@ -159,8 +163,8 @@ class StackingVelocity(VFUNC):
             adjacent velocities at `max_offset`. Used to create graph nodes and calculate their velocities for each
             time.
         max_n_skips : int, optional, defaults to 2
-            Defines the maximum number of subsequent times to skip to still be able to connect two nodes of the graph
-            with an edge.
+            Defines the maximum number of intermediate times between two nodes of the graph. Greater values increase
+            computational costs, but tend to produce smoother stacking velocity.
 
         Returns
         -------
@@ -183,8 +187,13 @@ class StackingVelocity(VFUNC):
         kwargs = {"init": init, "bounds": bounds, "relative_margin": relative_margin,
                   "acceleration_bounds": acceleration_bounds, "times_step": times_step, "max_offset": max_offset,
                   "hodograph_correction_step": hodograph_correction_step, "max_n_skips": max_n_skips}
-        times, velocities = calculate_stacking_velocity(spectrum, **kwargs)
-        return cls(times, velocities, coords=spectrum.coords)
+        stacking_velocity_params = calculate_stacking_velocity(spectrum, **kwargs)
+        times, velocities, bounds_times, min_velocity_bound, max_velocity_bound = stacking_velocity_params
+        coords = spectrum.coords  # Evaluate only once
+        stacking_velocity = cls(times, velocities, coords=coords)
+        stacking_velocity.bounds = [cls(bounds_times, min_velocity_bound, coords=coords),
+                                    cls(bounds_times, max_velocity_bound, coords=coords)]
+        return stacking_velocity
 
     def __call__(self, times):
         """Return stacking velocities for given `times`.
