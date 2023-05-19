@@ -171,10 +171,10 @@ class TraceContainer:
         # Convert np.ndarray/pd.Series/pd.DataFrame outputs from `func` to a 2d array
         return pd.DataFrame(res).to_numpy()
 
-    def _post_filter(self, mask):
-        """Implement extra filtering logic of concrete subclass attributes if some of them should also be filtered
+    def _post_index(self, key):
+        """Implement extra indexing logic of concrete subclass attributes if some of them should also be indexed
         besides `headers`."""
-        _ = mask
+        _ = key
         return
 
     @batch_method(target="for")
@@ -231,7 +231,7 @@ class TraceContainer:
         self.headers = self.headers.loc[mask].copy()  # pylint: disable=attribute-defined-outside-init
         if self.is_empty:
             warnings.warn("Empty headers after filtering", RuntimeWarning)
-        self._post_filter(mask)
+        self._post_index(mask)
         return self
 
     @batch_method(target="for")
@@ -346,6 +346,8 @@ class TraceContainer:
         index_cols = self.headers.index.names  # pylint: disable=access-member-before-definition
         headers = self.headers.copy(deep=False)  # pylint: disable=access-member-before-definition
         headers.reset_index(inplace=True)
+        # Save traces positions to remove traces that were deleted after join from other trace related attributes like
+        # `data` in Gather.
         headers = pl.from_pandas(headers).with_row_count("row_index")
         # Use intersection of columns from file and self.headers as join columns by default
         if join_on is None:
@@ -359,7 +361,7 @@ class TraceContainer:
         if self.is_empty:
             warnings.warn("Empty headers after headers loading", RuntimeWarning)
         # Perform additional filter for traces that were deleted after file loading.
-        self._post_filter(headers["row_index"].is_in(joined_headers["row_index"]).to_numpy())
+        self._post_index(joined_headers["row_index"].to_numpy())
         return self
 
     @batch_method(target="for", use_lock=True)

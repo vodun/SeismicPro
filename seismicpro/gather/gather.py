@@ -271,9 +271,9 @@ class Gather(TraceContainer, SamplesContainer):
         """An interface for `self.__getitem__` method."""
         return self[args if len(args) > 1 else args[0]]
 
-    def _post_filter(self, mask):
-        """Remove traces from gather data that correspond to filtered headers after `Gather.filter`."""
-        self.data = self.data[mask]
+    def _post_index(self, key):
+        """Index gather data by provided `key`."""
+        self.data = self.data[key]
 
     # Target set to `for` to avoid race condition when the same trace appears in two gathers (ex. supergathers)
     @batch_method(target='for', use_lock=True)
