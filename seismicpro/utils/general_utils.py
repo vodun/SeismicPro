@@ -86,12 +86,6 @@ def get_cols(df, cols):
     return np.column_stack(res)
 
 
-@njit(nogil=True)
-def isclose(x, y, atol=1e-5, rtol=1e-8):
-    """Numba implemetation of numpy.isclose."""
-    return np.less_equal(np.abs(x - y), atol + rtol * np.abs(y))
-
-
 class MissingModule:
     """Postpone raising missing module error for `module_name` until it is being actually accessed in code."""
     def __init__(self, module_name):

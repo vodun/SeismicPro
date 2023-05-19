@@ -155,7 +155,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     quantile_interpolator : scipy.interpolate.interp1d or None
         Interpolator of trace values quantiles. `None` until trace statistics are calculated.
     qc_metrics : dict
-        Storage for tracewise metrics instances with metric's name as a key and metric's instance as a value.
+        A mapping from a name of a calculated tracewise QC metric to the corresponding metric instance.
+        Empty until `qc` method is called.
     has_inferred_binning : bool
         Whether properties of survey binning have been inferred. `True` if `INLINE_3D` and `CROSSLINE_3D` trace headers
         are loaded on survey instantiation or `infer_binning` method is explicitly called.
@@ -360,13 +361,10 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     def qc_summary(self):
         """str: Brief report about calculated metrics."""
         # Use separator with 8 spaces to preserve the same length of leading whitespaces for dedent used in `self.info`
-        summary = [metric.describe(self[metric.header_cols], separator="\n" + " " * 8)
-                   for metric in self.qc_metrics.values()]
-        if not summary:
+        if not self.qc_metrics:
             raise ValueError("Metrics were not calculated, call `Survey.qc` first.")
-        msg = """
-        Tracewise QC summary:
-        """ + "\n        ".join(summary)
+        summary = [metric.describe(self[metric.header_cols]) for metric in self.qc_metrics.values()]
+        msg = "Tracewise QC summary:\n" + "\n".join(summary)
         return dedent(msg).strip()
 
     @GatherContainer.headers.setter
@@ -1305,16 +1303,15 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         * The maximum number of consecutive values clipped with either minimum or maximum trace amplitude,
         * The maximum number of consecutive identical amplitudes.
 
-        The quality control procedure is performed in parallel threads in chunks of size no more than `chunk_size`.
-        For each trace, the metric is calculated independently and the result is stored in the `self.headers` in a
-        column with name `metrics.header_cols`. The only exception is the metrics that cannot be calculated
-        independently by traces, such as window-based metrics. These metrics store some intermediate results in more
-        than one column. For them, the actual metric value will be computed during the metric map construction in
-        `self.construct_qc_map`.
+        The metrics are calculated in parallel threads each processing no more than `chunk_size` traces. The resulting
+        values are stored in `self.headers` under the name defined by `metric.header_cols` which usually matches the
+        name of the metric class.
 
-        For example, the metric that computes window-based RMS - :class:`~metric.WindowRMS` or
-        :class:`~metric.AdaptiveWindowRMS` - saves results in two columns: first one with the sum of squares of
-        amplitudes and second is the number of amplitudes in the window for each trace.
+        Some metrics, however, store not their values but some intermediate results which will be aggregated into the
+        actual metric value upon `construct_qc_map` call. For example, metrics that compute window-based RMS amplitudes
+        create two columns in `headers`: one with the sum of squared amplitudes and another with the number of
+        amplitudes in the window for each trace. This allows constructing RMS maps aggregated by different types of
+        gathers (e.g. sources or receivers) without metric recalculation.
 
         Examples
         --------
@@ -1346,6 +1343,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             cores.
         bar : bool, optional, defaults to True
             Whether to show a progress bar.
+        overwrite : bool, optional, defaults to False
+            Whether to rewrite metrics that were previously calculated or raise an exception.
         verbose : bool, optional, defaults to False
             Whether to print QC results.
 
@@ -1572,8 +1571,8 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         A ratio of any two RMS metrics may be calculated by passing their names separated by `/` in `metric_names`,
         which allows displaying more complex metrics such as signal-to-noise ratio by gather. By default, RMS
         amplitudes are first calculated for each gather defined by `by` and then used to calculate the ratio. If
-        `tracewice` flag is set to `True` (see examples below), RMS ratio is calculated independently for each trace
-        and then aggregated by gathers.
+        `tracewice` flag is set to `True` (see examples below), RMS amplitudes or ratios are first independently
+        calculated for each trace and then aggregated by gathers.
 
         Examples
         --------
@@ -1592,12 +1591,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
         Construct a signal-to-noise ratio map by shots:
         >>> ratio_qc_map = survey.construct_qc_maps(metric_names="SignalWindowRMS/NoiseWindowRMS", by="shot")
 
-        Construct a map of metric with name `SignalWindowRMS` and additional argument `tracewise` for
-        `signal_rms.construct_map` method by shots.
+        Calculate signal RMS values for each trace and then aggregate them by shots:
         >>> tracewise_qc_map = survey.construct_qc_maps(metric_names={"metric": "SignalWindowRMS", "tracewise":True},
                                                         by="shot")
 
-        Plot a map of the first created tracewise metric:
+        Plot the map of the first metric:
         >>> qc_map.plot()
 
         The map allows for interactive plotting: a gather type defined by `by` with a tracewise metric value on top of

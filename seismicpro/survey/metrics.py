@@ -11,7 +11,7 @@ To define your own metric, you need to inherit a new class from either `Tracewis
   release GIL as early as possible. Try not to use `get_values` at all, or only use it to calculate the part that can't
   be done without releasing the GIL. The main part should be implemented in `numba_get_values` with njit decorator and
   flag `nogil=True`.
-* Redefine `description` method, which describes what traces were detected by the metric.
+* Redefine `description` property, which returns a string description of the traces the metric is supposed to detected.
 * Set a `threshold` class attribute to a number above or below which the trace will be considered bad. If an
   `is_lower_better` class attribute is `True`, the values greater or equal to the `threshold` will be considered bad
   and lower or equal otherwise.
@@ -22,8 +22,8 @@ To define your own metric, you need to inherit a new class from either `Tracewis
 * Optionally redefine `plot` method which will be used to plot gather with tracewise metric on top when a metric map is
   clicked in interactive mode. It should accept an instance of `matplotlib.axes.Axes` to plot on, `coords` and `index`
   for gather that will be plotted, all arguments defined in `self.get_views` and kwargs for gather.plot. By default the
-  method plots the gather with tracewise metric on top and a red mask on top of the gather plot, highlighted bad parts
-  of the gather according to the metric.
+  method plots the gather with tracewise metric values on top. All traces considered as bad by the metric are colored
+  red on the gather plot.
 
 If you want the created metric to be calculated by :func:`~survey.qc` method by default, it should also be appended to
 a `DEFAULT_TRACEWISE_METRICS` list.
@@ -38,7 +38,7 @@ from numba import njit
 from matplotlib import patches
 
 from ..metrics import Metric
-from ..utils import times_to_indices, isclose
+from ..utils import times_to_indices
 
 # Ignore all warnings related to empty slices or dividing by zero
 warnings.simplefilter("ignore", category=RuntimeWarning)
@@ -94,15 +94,14 @@ class TracewiseMetric(SurveyAttribute):
         traces detected by the metric."""
         return NotImplementedError
 
-    def describe(self, metric_values, line_width=55, separator="\n"):
+    def describe(self, metric_values, line_width=60, separator="\n"):
         """Provide a description about the number of bad values for the passed metric values in a string format. Each
         line in the resulting string will not exceed `line_width` and will be separated by `separator`."""
         bin_values = self.binarize(metric_values)
         # Process multiline descriptions and set the distance from the last line to the result to `line_width` symbols
         desc_list = wrap(self.description, width=line_width-1)
-        last_line = f"{desc_list[-1]+':':<{line_width}}"
-        description = separator.join(desc_list[:-1]) + separator + last_line if len(desc_list) > 1 else last_line
-        return f"{description}{bin_values.sum()} ({100 * bin_values.mean():.3f}%)"
+        desc_list[-1] = f"{desc_list[-1]+':':<{line_width}}{bin_values.sum()} ({100 * bin_values.mean():.3f}%)"
+        return separator.join(desc_list)
 
     def preprocess(self, gather):
         """Preprocess gather before either calling `self.get_values` method to calculate metric or to plot the gather.
@@ -139,7 +138,7 @@ class TracewiseMetric(SurveyAttribute):
         return values if values.ndim == 1 else agg_fn(values, axis=1)
 
     def binarize(self, values, threshold=None):
-        """Binarize a given `values` based on the provided threshold.
+        """Binarize given `values` by the provided threshold.
 
         Parameters
         ----------
@@ -150,7 +149,7 @@ class TracewiseMetric(SurveyAttribute):
             If a single number and `self.is_lower_better` is `True`, `values` greater or equal than the `threshold`
             will be treated as bad and marked as `True`, otherwise, if `self.is_lower_better` is `False`, values lower
             or equal than the `threshold` will be treated as bad and marked as `True`.
-            If array-like, two numbers indicate the boundaries within which the metric values are treated as `False`,
+            If array-like, two numbers indicate the boundaries within which the metric values are marked as `False`,
             outside inclusive - as `True`.
             If `None`, `self.threshold` will be used.
 
@@ -279,7 +278,7 @@ class DeadTrace(TracewiseMetric):
     def numba_get_values(traces):
         res = np.empty_like(traces[:, 0])
         for i in range(traces.shape[0]):
-            res[i] = isclose(max(traces[i]), min(traces[i]))
+            res[i] = np.isclose(max(traces[i]), min(traces[i]))
         return res
 
     def get_views(self, sort_by=None, threshold=None, top_y_ax_scale=None, **kwargs):
@@ -355,7 +354,7 @@ class MaxClipsLen(TracewiseMetric):
     @njit(nogil=True)
     def numba_get_values(traces):
         def _update_counters(sample, value, counter, container):
-            if isclose(sample, value):
+            if np.isclose(sample, value):
                 counter += 1
             else:
                 if counter > 1:
@@ -404,7 +403,7 @@ class MaxConstLen(TracewiseMetric):
             trace = traces[i]
             counter = 1
             for j in range(1, trace.shape[0]):  # pylint: disable=consider-using-enumerate
-                if isclose(trace[j], trace[j - 1]):
+                if np.isclose(trace[j], trace[j - 1]):
                     counter += 1
                 else:
                     if counter > 1:
@@ -544,7 +543,9 @@ class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
     def _get_threshold_description(self):
         """String description of the threshold for Window RMS metrics."""
         if isinstance(self.threshold, (int, float, np.number)):
-            return ("greater or equal then" if self.is_lower_better else "less or equal then") + f" {self.threshold}"
+            msg = ("greater then or equal to" if self.is_lower_better else "less then or equal to") +\
+                   f" {self.threshold}"
+            return msg
         return f"between {self.threshold[0]} and {self.threshold[1]}"
 
     @property
@@ -597,7 +598,7 @@ class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
 
     def plot(self, ax, coords, index, threshold=None, top_y_ax_scale=None, bad_only=False, color="lime", **kwargs):  # pylint: disable=arguments-renamed
         """Plot the gather sorted by offset with tracewise indicator on the top of the gather plot. Any metric related
-        information might be displayed over the gather plot using `self.add_metric_on_plot`."""
+        information might be displayed over the gather plot using `self.add_window_on_plot`."""
         threshold = self.threshold if threshold is None else threshold
         top_y_ax_scale = self.top_y_ax_scale if top_y_ax_scale is None else top_y_ax_scale
         _ = coords
@@ -614,9 +615,12 @@ class BaseWindowRMSMetric(TracewiseMetric):  # pylint: disable=abstract-method
         if threshold is not None:
             self._plot_threshold(ax=top_ax, threshold=threshold)
         top_ax.set_yscale(top_y_ax_scale)
-        self.add_metric_on_plot(ax=ax, gather=gather, color=color)
+        self.add_window_on_plot(ax=ax, gather=gather, color=color)
+        if len(ax.get_legend_handles_labels()[0]):
+            # Define legend position to speed up plotting for huge gathers
+            ax.legend(loc='upper right')
 
-    def add_metric_on_plot(self, ax, gather, color=None):
+    def add_window_on_plot(self, ax, gather, color=None):
         """Plot any additional metric related graphs over the gather plot."""
         _ = self, ax, gather, color
 
@@ -662,17 +666,18 @@ class WindowRMS(BaseWindowRMSMetric):
     @property
     def description(self):
         """String description of the tracewise metric."""
-        desc = self._get_threshold_description()
-        return f"Traces with RMS {desc} computed in a window by offsets {self.offsets} and times {self.times}"
+        msg = f"Traces with RMS {self._get_threshold_description()} computed in a window with a range {self.offsets}m"\
+              f" in offsets and {self.times}ms in times"
+        return msg
 
-    def describe(self, metric_values, line_width=55, separator="\n"):
+    def describe(self, metric_values, line_width=60, separator="\n"):
         """Provide a description about the number of bad values for the passed metric values in a string format. Each
         line in the resulting string will not exceed `line_width` and will be separated by `separator`.
         If `self.threshold` is None, the average RMS for the passed values will be showed."""
         metric_value = np.sqrt(metric_values[:, 0] / metric_values[:, 1])
         if self.threshold is None:
-            description = "Mean of traces RMS in a window by" + separator
-            description += f"{f'offsets {self.offsets} and times {self.times}:':<{line_width}}"
+            description = f"Mean traces RMS computed in a window with a range" + separator
+            description += f"{f' {self.offsets}m in offsets and {self.times}ms in times:':<{line_width}}"
             return description + f"{np.nanmean(metric_value):<.3f}"
         return super().describe(metric_value, line_width=line_width, separator=separator)
 
@@ -706,14 +711,15 @@ class WindowRMS(BaseWindowRMSMetric):
         nums[window_ixs] = window_nums
         return squares, nums
 
-    def add_metric_on_plot(self, ax, gather, color="lime", legend=None):
+    def add_window_on_plot(self, ax, gather, color="lime", legend=None):
         """Plot a rectangle path over the gather plot in a place where RMS was computed."""
         times = self._get_time_ixs(self.times, gather.samples)
 
         offs_ind = np.nonzero((gather.offsets >= self.offsets[0]) & (gather.offsets <= self.offsets[1]))[0]
         if len(offs_ind) > 0:
             n_rec = (offs_ind[0], times[0]), len(offs_ind), (times[1] - times[0])
-            ax.add_patch(patches.Rectangle(*n_rec, linewidth=2, edgecolor=color, facecolor='none', label=legend))
+            ax.add_patch(patches.Rectangle(*n_rec, linewidth=2, color=color, facecolor='none', label=legend,
+                                           alpha=0.5))
 
 
 class AdaptiveWindowRMS(BaseWindowRMSMetric):
@@ -753,17 +759,20 @@ class AdaptiveWindowRMS(BaseWindowRMSMetric):
     @property
     def description(self):
         """String description of the tracewise metric."""
-        msg = f"Traces with RMS computed along RV with shift {self.shift} and window size {self.window_size} "
+        direction = "below" if self.shift > 0 else "above"
+        msg = f"Traces with RMS {self._get_threshold_description()} computed in a {self.window_size} ms window around"\
+              f" RV shifted {direction} by {abs(self.shift)} ms "
         return msg + self._get_threshold_description()
 
-    def describe(self, metric_values, line_width=55, separator="\n"):
+    def describe(self, metric_values, line_width=60, separator="\n"):
         """Provide a description about the number of bad values for the passed metric values in a string format. Each
         line in the resulting string will not exceed `line_width` and will be separated by `separator`.
         If `self.threshold` is None, the average RMS for the passed values will be showed."""
         metric_value = np.sqrt(metric_values[:, 0] / metric_values[:, 1])
         if self.threshold is None:
-            description = f"Mean of traces RMS computed along a RV with shift {self.shift}" + separator
-            description += f"{f'and window size {self.window_size}:':<{line_width}}"
+            direction =  "below" if self.shift > 0 else "above"
+            description = f"Mean of traces RMS computed in a {self.window_size} ms window"
+            description += separator + f"{f'around RV shifted {direction} by {abs(self.shift)} ms:':<{line_width}}"
             return description + f"{np.nanmean(metric_value):<.3f}"
         return super().describe(metric_value, line_width=line_width, separator=separator)
 
@@ -793,15 +802,12 @@ class AdaptiveWindowRMS(BaseWindowRMSMetric):
         end_ixs = times_to_indices(end_times, samples, round=True).astype(np.int32)
         return start_ixs, end_ixs
 
-    def add_metric_on_plot(self, ax, gather, color="lime", legend=None):
+    def add_window_on_plot(self, ax, gather, color="lime", legend=None):
         """Plot two parallel lines over the gather plot along the window where RMS was computed."""
         fbp_times = self.refractor_velocity(gather.offsets)
         indices = self._get_indices(self.window_size, self.shift, gather.samples, fbp_times, times_to_indices)
-        indices = np.where(np.asarray(indices) == 0, np.nan, indices)
-        indices = np.where(np.asarray(indices) == np.nanmax(indices), np.nan, indices)
-
-        ax.plot(np.arange(gather.n_traces), indices[0], color=color, label=legend)
-        ax.plot(np.arange(gather.n_traces), indices[1], color=color)
+        indices = np.where(indices[0] == indices[1], np.nan, indices)
+        ax.fill_between(np.arange(gather.n_traces), indices[0], indices[1], color=color, label=legend, alpha=0.5)
 
 
 class MetricsRatio(TracewiseMetric):  # pylint: disable=abstract-method
@@ -911,10 +917,12 @@ class MetricsRatio(TracewiseMetric):  # pylint: disable=abstract-method
             self._plot_threshold(ax=top_ax, threshold=threshold)
         top_ax.set_yscale(top_y_ax_scale)
 
-        self.numerator.add_metric_on_plot(ax=ax, gather=gather, color="lime", legend=f"{self.numerator.name} window")
-        self.denominator.add_metric_on_plot(ax=ax, gather=gather, color="magenta",
-                                          legend=f"{self.denominator.name} window")
-        ax.legend(loc='upper right')
+        self.numerator.add_window_on_plot(ax=ax, gather=gather, color="lime", legend=f"{self.numerator.name} window")
+        self.denominator.add_window_on_plot(ax=ax, gather=gather, color="magenta",
+                                            legend=f"{self.denominator.name} window")
+        if len(ax.get_legend_handles_labels()[0]):
+            # Define legend position to speed up plotting for huge gathers
+            ax.legend(loc='upper right')
 
     def get_views(self, threshold=None, top_y_ax_scale=None, **kwargs):
         """Return two plotters of the metric views. Each view plots a gather sorted by `offset` with a metric values
