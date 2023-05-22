@@ -1,5 +1,5 @@
 """Implements metrics for quality control of first breaks given the near-surface velocity model."""
-from math import ceil, floor
+from math import ceil
 from functools import partial
 import numpy as np
 from numba import njit
@@ -8,14 +8,15 @@ from scipy.signal import hilbert
 from ..gather.utils.normalization import scale_maxabs
 from ..gather.utils.correction import get_hodograph
 from ..metrics import Metric
-from ..utils import get_first_defined, to_list
+from ..utils import get_first_defined
 
 
 class RefractorVelocityMetric(Metric):
     """Base metric class for quality control of refractor velocity field.
     Implements the following logic: `calc` method returns iterable of tracewise metric values,
     then `__call__` is used for gatherwise metric aggregation.
-    `plot_gather` view is adjustable for plotting metric values on top of gather plot.
+    Default views are `plot_gather` and `plot_refracted_velocity`. 
+    `plot_gather` is parametrized for plotting metric values on top and above the gather plot.
     Parameters needed for metric calculation and view plotting should be set as attributes, e.g. `first_breaks_col`.
     """
 
@@ -28,22 +29,19 @@ class RefractorVelocityMetric(Metric):
         self.max_offset = None
         self.first_breaks_col = first_breaks_col
         self.correct_uphole = correct_uphole
-    
+
     def set_defaults(self, **kwargs):
         """Process metric evaluation context."""
-        for attr in kwargs:
+        for attr, attr_value in kwargs.items():
             if getattr(self, attr, None) is None:
-                setattr(self, attr, kwargs[attr])
+                setattr(self, attr, attr_value)
 
     def bind_context(self, metric_map, survey, field):
-        """Process metric map evaluation context."""
+        """Process interactive plot evaluation context."""
         _ = metric_map
         self.survey = survey
         self.field = field
         self.max_offset = survey["offset"].max()
-        if self.correct_uphole is None:
-            self.correct_uphole = ("SourceUpholeTime" in self.survey.available_headers
-                                    and self.field.is_uphole_corrected)
 
     def calc(self, *args, **kwargs):
         """Calculate the metric. Must be overridden in child classes."""
@@ -63,28 +61,21 @@ class RefractorVelocityMetric(Metric):
     def plot_gather(self, coords, ax, index, sort_by=None, threshold=None, mask=True, top_header=True, **kwargs):
         """Base view for gather plotting. Plot the gather by its index in bounded survey and its first breaks.
         By default also recalculates metric in order to display `top_header` with metric values above gather traces
-        and mark traces with metric greater than threshold. 
-        Threshold is either acquired from `mask_kwargs` key of `kwargs` if given, 
-        or metric's colorbar margin if defined, or simply by mean value.
+        and masks traces with metric greater than threshold. 
+        Threshold is either acquired from `threshold` argument if given, metric's colorbar margin if defined,
+        or simply by mean metric value.
 
         Parameters
         ----------
         sort_by : str or iterable of str, optional.
             Headers names to sort the gather by.
         threshold : int or float, optional, defaults to None
-            A value to use as a threshold for binarizing the input `values`.
-            If a single number and `self.is_lower_better` is `True`, metric values greater or equal than the `threshold`
-            will be treated as bad and marked as `True`, otherwise, if `self.is_lower_better` is `False`, metric values lower
-            or equal than the `threshold` will be treated as bad and marked as `True`.
-            If array-like, two numbers indicate the boundaries within which the metric values are treated as `False`,
+            A value to use as a threshold for binarizing the metric values. If `self.is_lower_better` is `True`,
+            metric values greater or equal than the `threshold` will be treated as bad and vice versa.
         mask : bool, optional, defaults to True.
-            Whether to plot mask defined by metric values on top of the gather plot.
+            Whether to mask traces according to `threshold` on top of the gather plot.
         top_header : bool, optional, defaults to True.
             Whether to show a header with metric values above the gather plot.
-        mode : "seismogram", "wiggle" or "hist", optional, defaults to "wiggle"
-            A type of the gather representation to display, see `gather.plot`.
-        event_headers : event_headers : str, array-like or dict, optional, defaults to `self.first_breaks_col`
-             Headers, whose values will be displayed over the gather plot, see `gather.plot`.
         kwargs : misc, optional.
             Additional keyword arguments to `gather.plot`
         """
@@ -165,10 +156,7 @@ class FirstBreaksOutliers(RefractorVelocityMetric):
         """
         rv_times = refractor_velocity(gather["offset"])
         picking_times = gather[self.first_breaks_col]
-        correct_uphole = (self.correct_uphole if self.correct_uphole is not None
-                          else ("SourceUpholeTime" in gather.available_headers
-                                and refractor_velocity.is_uphole_corrected))
-        if correct_uphole:
+        if self.correct_uphole:
             picking_times = picking_times + gather["SourceUpholeTime"]
         return self._calc(rv_times, picking_times, self.threshold_times)
 
@@ -233,7 +221,7 @@ class FirstBreaksPhases(RefractorVelocityMetric):
     def __init__(self, target="max", **kwargs):
         if isinstance(target, str):
             if target not in {"max", "min", "transition"}:
-                raise KeyError("target should be one of {'max', 'min', 'transition'} or float.")
+                raise KeyError("`target` should be one of {'max', 'min', 'transition'} or float.")
             target = {"max": 0, "min": np.pi, "transition": np.pi / 2}[target]
         self.target = target
         super().__init__(**kwargs)
@@ -261,8 +249,7 @@ class FirstBreaksPhases(RefractorVelocityMetric):
             angles = np.where(angles > self.target - np.pi, angles, angles + (2 * np.pi))
         else:
             angles = np.where(angles < self.target + np.pi, angles, angles - (2 * np.pi))
-        res = angles - self.target
-        return res
+        return angles - self.target
 
     def __call__(self, *args, **kwargs):
         """Return mean absolute deviation of the signal phase from target value in the moment of first break
@@ -270,7 +257,7 @@ class FirstBreaksPhases(RefractorVelocityMetric):
         deltas = self.calc(*args, **kwargs)
         return np.mean(np.abs(deltas))
 
-    def plot_gather(self, coords, ax, index, sort_by=None, mask=True, top_header=True, threshold=None, **kwargs):
+    def plot_gather(self, coords, ax, index, sort_by=None, threshold=None, mask=True, top_header=True, **kwargs):
         """Plot the gather with phase values at first break times above the seismogram
         and highlight traces whose metric value differs from the target more than 90 degrees.
         """
@@ -285,7 +272,7 @@ class FirstBreaksPhases(RefractorVelocityMetric):
                 plotting_kwargs["top_header"] = metric_values
             if mask:
                 metric_values = np.abs(metric_values)
-                mask_threshold = get_first_defined(threshold, self.vmax)
+                mask_threshold = get_first_defined(threshold, self.vmax, metric_values.mean())
                 plotting_kwargs["masks"] = {"masks": metric_values, "threshold": mask_threshold}
         plotting_kwargs.update(kwargs)
         gather.plot(ax=ax, **plotting_kwargs)
@@ -309,9 +296,9 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
     def __init__(self, window_size=40, **kwargs):
         self.window_size = window_size
         super().__init__(**kwargs)
-    
+
     def get_views(self, sort_by=None, threshold=None, **kwargs):
-        """Return plotters of the metric views and add kwargs for `plot_gather_window` for interactive map plotting."""
+        """Return plotters of the metric views and parse `plot_gather_window` kwargs for interactive map plotting."""
         views_list = [partial(self.plot_gather_window, sort_by=sort_by, threshold=threshold),
                       partial(self.plot_mean_hodograph)]
         return views_list, kwargs
@@ -362,15 +349,14 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
             Window correlation with mean hodograph for each trace in the gather.
         """
         _ = refractor_velocity
-        traces_windows = self._make_windows(gather[self.first_breaks_col], gather.data, gather["offset"], 
+        traces_windows = self._make_windows(gather[self.first_breaks_col], gather.data, gather["offset"],
                                             self.window_size, gather.sample_interval)
-        res = self._calc(traces_windows)
-        return res
+        return self._calc(traces_windows)
 
-    def plot_gather_window(self, coords, ax, index, sort_by=None, threshold=None, mask=True, 
+    def plot_gather_window(self, coords, ax, index, sort_by=None, threshold=None, mask=True,
                            top_header=True, **kwargs):
-        """Plot traces around first break times in winow_size orbit
-        and highlight ones negatively correlated with mean hodograph.
+        """Plot traces around first break times in winow_size orbit and highlight ones negatively correlated
+        with mean hodograph.
         """
         _ = coords
         gather = self.survey.get_gather(index)
@@ -382,8 +368,8 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
             if top_header:
                 kwargs["top_header"] = metric_values
             if mask:
-                mask_threshold = get_first_defined(threshold, 0)
-                plotting_kwargs["masks"] = {"masks": metric_values * -1, "threshold": mask_threshold}
+                mask_threshold = get_first_defined(threshold, self.vmin, metric_values.mean())
+                plotting_kwargs["masks"] = {"masks": metric_values * -1, "threshold": mask_threshold * -1}
         traces_windows = self._make_windows(gather[self.first_breaks_col], gather.data, gather["offset"],
                                             self.window_size, gather.sample_interval)
         gather.data = traces_windows
@@ -398,14 +384,14 @@ class FirstBreaksCorrelations(RefractorVelocityMetric):
         traces_windows = self._make_windows(gather[self.first_breaks_col], gather.data, gather["offset"],
                                             self.window_size, gather.sample_interval)
         mean_hodograph = traces_windows.mean(axis=0)
-        mean_hodograph_centered = ((mean_hodograph - mean_hodograph.mean()) / mean_hodograph.std()).reshape(1, -1)
-        gather.data = mean_hodograph_centered
+        mean_hodograph_scaled = ((mean_hodograph - mean_hodograph.mean()) / mean_hodograph.std()).reshape(1, -1)
+        gather.data = mean_hodograph_scaled
 
         gather.plot(mode="wiggle", ax=ax, **kwargs)
         ax.set_xlabel("Amplitude")
         ax.set_xticks(ticks=[-1, 0, 1])
         fb_time_mean = np.mean(gather[self.first_breaks_col], dtype=np.int32)
-        ax.set_yticks(ticks=np.arange(self.window_size // gather.sample_interval + 1), 
+        ax.set_yticks(ticks=np.arange(self.window_size // gather.sample_interval + 1),
                       labels=np.arange((fb_time_mean - self.window_size // 2),
                                        (fb_time_mean + self.window_size // 2 + 1),
                                         gather.sample_interval, dtype=np.int32))

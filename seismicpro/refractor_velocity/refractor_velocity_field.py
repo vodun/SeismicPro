@@ -649,7 +649,6 @@ class RefractorVelocityField(SpatialField):
     #pylint: disable-next=invalid-name
     def qc(self, metrics=None, survey=None, first_breaks_col=HDR_FIRST_BREAK, correct_uphole=None,
            n_workers=None, bar=True, chunk_size=250):
-
         """Perform quality control of the first breaks given the near-surface velocity model.
         By default, the following metrics are calculated:
         * The first break outliers metric. A first break time is considered to be an outlier if it differs from the
@@ -691,7 +690,8 @@ class RefractorVelocityField(SpatialField):
 
         metrics = REFRACTOR_VELOCITY_QC_METRICS if metrics is None else metrics
         metrics_instances, is_single_metric = initialize_metrics(metrics, metric_class=RefractorVelocityMetric)
-        # context = {"first_breaks_col": first_breaks_col, "correct_uphole": correct_uphole}
+        if correct_uphole is None:
+            correct_uphole = "SourceUpholeTime" in survey.available_headers and self.is_uphole_corrected
         for metric in metrics_instances:
             metric.set_defaults(first_breaks_col=first_breaks_col, correct_uphole=correct_uphole)
 
