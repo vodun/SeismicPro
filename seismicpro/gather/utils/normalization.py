@@ -60,9 +60,6 @@ def scale_standard(data, mean, std, eps):
         for i in range(n_traces):
             mean[i] = np.sum(data[i]) / (trace_len)
             std[i] = np.sqrt((np.sum((data[i] - mean[i])**2) / trace_len))
-    # else:
-    #     mean = np.atleast_2d(mean).astype(data.dtype)
-    #     std = np.atleast_2d(std).astype(data.dtype)
     return (data - mean) / (std + eps)
 
 @njit(nogil=True)
@@ -121,7 +118,7 @@ def scale_maxabs(data, min_value, max_value, q_min, q_max, clip, eps):
     if min_value is None and max_value is None:
         q = np.array([q_min, q_max], dtype=np.float32)
         min_value, max_value = get_quantile(data, q)
-    # min_value, max_value = np.asarray(min_value), np.asarray(max_value)
+    min_value, max_value = np.asarray(min_value), np.asarray(max_value)
     max_abs = np.maximum(np.abs(min_value), np.abs(max_value))
     max_abs += eps
     # Use np.atleast_2d(array).T to make the array 2-dimensional by adding dummy trailing axes
@@ -165,7 +162,7 @@ def scale_minmax(data, min_value, max_value, q_min, q_max, clip, eps):
     if min_value is None and max_value is None:
         q = np.array([q_min, q_max], dtype=np.float32)
         min_value, max_value = get_quantile(data, q)
-        # min_value, max_value = np.asarray(quantiles[0]), np.asarray(quantiles[1])
+    min_value, max_value = np.asarray(min_value), np.asarray(max_value)
     # Use np.atleast_2d(array).T to make the array 2-dimensional by adding dummy trailing axes
     # for further broadcasting to work tracewise
     min_value = np.atleast_2d(min_value).T

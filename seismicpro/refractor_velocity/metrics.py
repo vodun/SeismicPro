@@ -187,7 +187,7 @@ class FirstBreaksAmplitudes(RefractorVelocityMetric):
                                    clip=False, eps=1e-10)
         return get_hodograph(gather_data, offsets, picking_times, sample_interval, interpolate=True, fill_value=0)
 
-    def calc(self, gather, refractor_velocity, ):
+    def calc(self, gather, refractor_velocity):
         """Return signal amplitudes at first break times.
 
         Parameters
@@ -431,7 +431,7 @@ class DivergencePoint(RefractorVelocityMetric):
     @staticmethod
     @njit(nogil=True)
     def _calc(times, rv_times, offsets, threshold_times, step):
-        """Calculate whether first break time is diverged from expected for each trace."""
+        """Calculate divergence offset for the gather."""
         outliers = np.abs(rv_times - times) > threshold_times
 
         sorted_offsets_idx = np.argsort(offsets)
@@ -451,8 +451,7 @@ class DivergencePoint(RefractorVelocityMetric):
         return div_offset
 
     def calc(self, gather, refractor_velocity):
-        """Return whether first break time is diverged from expected for each trace.
-        First break is named diverged if it is an outlier after the divergence offset.
+        """Calculate divergence offset for the gather.
 
         Parameters
         ----------
@@ -467,10 +466,7 @@ class DivergencePoint(RefractorVelocityMetric):
             Array indicating whether first break of each trace in the gather is diverged.
         """
         times = gather[self.first_breaks_col]
-        correct_uphole = (self.correct_uphole if self.correct_uphole is not None
-                          else ("SourceUpholeTime" in gather.available_headers
-                          and refractor_velocity.is_uphole_corrected))
-        if correct_uphole:
+        if self.correct_uphole:
             times = times + gather["SourceUpholeTime"]
         offsets = gather["offset"]
         rv_times = refractor_velocity(offsets)
@@ -503,7 +499,8 @@ class DivergencePoint(RefractorVelocityMetric):
         and threshold area used for metric calculation."""
         gather = self.survey.get_gather(index)
         rv = self.field(coords)
-        divergence_offset = self(gather=gather, refractor_velocity=rv)
+        divergence_offset = self._calc(gather[self.first_breaks_col], rv(gather['offset']),
+                                       gather["offset"], self.threshold_times, self.step)
         ax.axvline(x=divergence_offset, color="k", linestyle="--", label='divergence offset')
         title = f"Divergence point: {divergence_offset} m"
         kwargs["threshold_times"] = kwargs.pop("threshold_times", self.threshold_times)
