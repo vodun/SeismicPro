@@ -70,11 +70,12 @@ def test_gather_attrs(gather):
     slice(5, 5),  # Empty gather after indexing
     (slice(None), slice(0, 0)),  # Empty gather after indexing
 ])
-def test_gather_getitem_fails(gather, key):
+@pytest.mark.parametrize("method", ["__getitem__", "get_item"])
+def test_gather_getitem_fails(gather, method, key):
     """Check if gather indexing properly fails."""
+    get_item_method = getattr(gather, method)
     with pytest.raises((KeyError, ValueError)):
-        _ = gather[key]
-        _ = gather.getitem(key)
+        _ = get_item_method(key)
 
 
 @pytest.mark.parametrize("key", [
@@ -107,13 +108,13 @@ def test_gather_getitem_headers(gather, key):
     [(slice(None), slice(None)), slice(None), slice(None), SAMPLE_INTERVAL, DELAY, True],
     [(0, slice(None)), [0], slice(None), SAMPLE_INTERVAL, DELAY, True],
     [(0, 5), [0], slice(5, 6), SAMPLE_INTERVAL, DELAY + SAMPLE_INTERVAL * 5, True],
-    [([3, 2, 1], 100), [1, 2, 3], slice(100, 101), SAMPLE_INTERVAL, DELAY, False],
+    [([3, 2, 1], 100), [3, 2, 1], slice(100, 101), SAMPLE_INTERVAL, DELAY + SAMPLE_INTERVAL * 100, False],
     [(slice(3, 8), slice(100)), slice(3, 8), slice(100), SAMPLE_INTERVAL, DELAY, True],
     [(slice(5, 1, -2), slice(100, None)), slice(5, 1, -2), slice(100, None), SAMPLE_INTERVAL,
-     DELAY + 100 * SAMPLE_INTERVAL, True],
+     DELAY + 100 * SAMPLE_INTERVAL, False],
     [(slice(4, 5), slice(50, 100, 4)), slice(4, 5), slice(50, 100, 4), SAMPLE_INTERVAL * 4,
      DELAY + 50 * SAMPLE_INTERVAL, True],
-    [(6, slice(10, None, 2)), [6], slice(10, None), SAMPLE_INTERVAL * 2, DELAY + 10 * SAMPLE_INTERVAL, True],
+    [(6, slice(10, None, 2)), [6], slice(10, None, 2), SAMPLE_INTERVAL * 2, DELAY + 10 * SAMPLE_INTERVAL, True],
 ])
 @pytest.mark.parametrize("sort_by", [None, "offset"])
 def test_gather_getitem_gather(gather, key, trace_indexer, samples_indexer, sample_interval, delay, preserve_sort_by,
@@ -127,7 +128,8 @@ def test_gather_getitem_gather(gather, key, trace_indexer, samples_indexer, samp
                     sample_interval=sample_interval, survey=gather.survey, delay=delay)
     if preserve_sort_by:
         target.sort_by = gather.sort_by
-    assert_gathers_equal(result_getitem, result_get_item)
+    assert_gathers_equal(result_getitem, target)
+    assert_gathers_equal(result_get_item, target)
 
 
 @pytest.mark.parametrize("ignore, ignore_set", [
