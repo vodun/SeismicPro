@@ -118,7 +118,7 @@ def scale_maxabs(data, min_value, max_value, q_min, q_max, clip, eps):
     if min_value is None and max_value is None:
         q = np.array([q_min, q_max], dtype=np.float32)
         min_value, max_value = get_quantile(data, q)
-    min_value, max_value = np.asarray(min_value), np.asarray(max_value)
+        min_value, max_value = np.asarray(min_value), np.asarray(max_value)
     max_abs = np.maximum(np.abs(min_value), np.abs(max_value))
     max_abs += eps
     # Use np.atleast_2d(array).T to make the array 2-dimensional by adding dummy trailing axes
@@ -162,7 +162,7 @@ def scale_minmax(data, min_value, max_value, q_min, q_max, clip, eps):
     if min_value is None and max_value is None:
         q = np.array([q_min, q_max], dtype=np.float32)
         min_value, max_value = get_quantile(data, q)
-    min_value, max_value = np.asarray(min_value), np.asarray(max_value)
+        min_value, max_value = np.asarray(min_value), np.asarray(max_value)
     # Use np.atleast_2d(array).T to make the array 2-dimensional by adding dummy trailing axes
     # for further broadcasting to work tracewise
     min_value = np.atleast_2d(min_value).T
