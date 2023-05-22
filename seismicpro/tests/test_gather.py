@@ -1,25 +1,19 @@
 """Implementation of tests for Gather"""
 
 # pylint: disable=redefined-outer-name
-from itertools import product, combinations
-
 import pytest
 import numpy as np
 
-from seismicpro import Survey, Muter, StackingVelocity
+from seismicpro import Survey, Gather, Muter, StackingVelocity
 from seismicpro.utils import to_list
 from seismicpro.const import HDR_FIRST_BREAK
 
-
-# Constants
-ALL_ATTRS = ['data', 'headers', 'samples', 'sort_by', 'survey']
-COPY_IGNORE_ATTRS = ['data', 'headers', 'samples'] # Attrs that might not be copied during gather.copy
-NUMPY_ATTRS = ['data', 'samples']
+from .conftest import SAMPLE_INTERVAL, DELAY
 
 
 @pytest.fixture(scope='module')
 def survey(segy_path):
-    """Create gather"""
+    """Create a survey."""
     survey = Survey(segy_path, header_index=['INLINE_3D', 'CROSSLINE_3D'],
                     header_cols=['offset', 'FieldRecord'], validate=False)
     survey.remove_dead_traces(bar=False)
@@ -30,167 +24,135 @@ def survey(segy_path):
 
 @pytest.fixture(scope='function')
 def gather(survey):
-    """gather"""
+    """Load a gather."""
     return survey.get_gather((0, 0))
 
 
-def compare_gathers(first, second, drop_cols=None, check_types=True, same_survey=True):
-    """compare_gathers"""
-    first_attrs = first.__dict__
-    second_attrs = second.__dict__
-
-    assert len(set(first_attrs) & set(second_attrs)) == len(first_attrs)
-
+def assert_gathers_equal(first, second, drop_cols=None, same_survey=True):
+    """Check if two gathers are equal."""
     first_headers = first.headers.reset_index()
     second_headers = second.headers.reset_index()
     if drop_cols is not None:
         first_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
         second_headers.drop(columns=drop_cols, errors="ignore", inplace=True)
-
     assert len(first_headers) == len(second_headers)
     if len(first_headers) > 0:
         assert first_headers.equals(second_headers)
+        assert np.all(first_headers.dtypes == second_headers.dtypes)
 
     assert np.allclose(first.data, second.data)
+    assert first.data.dtype == second.data.dtype
     assert np.allclose(first.samples, second.samples)
-
-    if check_types:
-        for attr in NUMPY_ATTRS:
-            first_item = getattr(first, attr)
-            second_item = getattr(second, attr)
-            if first_item is None or second_item is None:
-                assert first_item is second_item
-            else:
-                assert first_item.dtype.type == second_item.dtype.type
-
-        assert np.all(first.headers.dtypes == second.headers.dtypes)
-        assert isinstance(first.sort_by, type(second.sort_by))
-
+    assert first.samples.dtype == second.samples.dtype
+    assert first.sample_interval == second.sample_interval
+    assert first.delay == second.delay
     assert first.sort_by == second.sort_by
     if same_survey:
         assert id(first.survey) == id(second.survey)
 
 
 def test_gather_attrs(gather):
-    """This test insist to recheck all tests if new attribute is added."""
-    attrs = gather.__dict__
-    for name, value in attrs.items():
-        assert name in ALL_ATTRS, f"Missing attribute {name} in gather tests."
-        if name in NUMPY_ATTRS:
-            assert type(value).__module__ == np.__name__, f"The {name} attribute is not related to numpy object and "\
-                                                           "must be deleted from NUMPY_ATTRS"
-        else:
-            assert type(value).__module__ != np.__name__, f"Missing attribute {name} in numpy related tests in gather"
+    """Check whether the gather stores only known attributes."""
+    expected_attrs = {"data", "headers", "samples", "sample_interval", "delay", "sort_by", "survey"}
+    unknown_attrs = gather.__dict__.keys() - expected_attrs
+    assert len(unknown_attrs) == 0, f"The gather contains unknown attributes {', '.join(unknown_attrs)}"
 
 
+@pytest.mark.parametrize("key", [
+    "UnknownHeader",  # Unknown header
+    ["offset", "AnotherUnknownHeader"],  # Selection of known and unknown headers
+    (slice(None), "HeaderName"),  # str in key
+    None,  # Adds dims
+    ([0, 1], None),  # Adds dims
+    (slice(5), slice(100), [1, 2, 3]),  # Too many indexers
+    (slice(5), [1, 2, 3]),  # Advanced indexing of samples axis
+    (slice(None), slice(200, 0, -2)),  # Negative step for samples axis
+    slice(5, 5),  # Empty gather after indexing
+    (slice(None), slice(0, 0)),  # Empty gather after indexing
+])
+@pytest.mark.parametrize("method", ["__getitem__", "get_item"])
+def test_gather_getitem_fails(gather, method, key):
+    """Check if gather indexing properly fails."""
+    get_item_method = getattr(gather, method)
+    with pytest.raises((KeyError, ValueError)):
+        _ = get_item_method(key)
 
-@pytest.mark.parametrize('key', ('offset', ['offset', 'FieldRecord']))
+
+@pytest.mark.parametrize("key", [
+    "offset",
+    ["offset", "FieldRecord"]
+])
 def test_gather_getitem_headers(gather, key):
-    """test_gather_getitem_headers"""
+    """Test selection of headers values."""
     result_getitem = gather[key]
     result_get_item = gather.get_item(key)
-    expected = gather.headers.reset_index()[key].values
+    expected = gather.headers.reset_index()[key].to_numpy()
 
-    assert np.allclose(result_getitem, result_get_item)
     assert np.allclose(result_getitem, expected)
     assert result_getitem.dtype == expected.dtype
+    assert np.allclose(result_get_item, expected)
+    assert result_get_item.dtype == expected.dtype
 
 
-simple_keys = [-1, 0, slice(None, 5, None), slice(None, -5, None)]
-array_keys = [(0, ), (0, 1), [0], [0, 4], [-1, 5]]
+@pytest.mark.parametrize("key, trace_indexer, samples_indexer, sample_interval, delay, preserve_sort_by", [
+    # Selecting only traces
+    [0, [0], slice(None), SAMPLE_INTERVAL, DELAY, True],
+    [-1, [-1], slice(None), SAMPLE_INTERVAL, DELAY, True],
+    [[1, 2, 5], [1, 2, 5], slice(None), SAMPLE_INTERVAL, DELAY, True],
+    [[5, 3, 1], [5, 3, 1], slice(None), SAMPLE_INTERVAL, DELAY, False],
+    [slice(None), slice(None), slice(None), SAMPLE_INTERVAL, DELAY, True],
+    [slice(None, None, 3), slice(None, None, 3), slice(None), SAMPLE_INTERVAL, DELAY, True],
+    [slice(100, 0, -2), slice(100, 0, -2), slice(None), SAMPLE_INTERVAL, DELAY, False],
 
-fail_keys = list(product([(0, ), (0, 1), [0], [0, 4], [-1, 5]], repeat=2))
-valid_keys = (simple_keys + array_keys + list(product(simple_keys, repeat=2))
-              + list(product(simple_keys, array_keys)) + list(product(array_keys, simple_keys)))
-
-@pytest.mark.parametrize('key', valid_keys)
-def test_gather_getitem_gathers(gather, key):
-    """test_gather_getitem_gathers"""
+    # Selecting both traces and samples
+    [(slice(None), slice(None)), slice(None), slice(None), SAMPLE_INTERVAL, DELAY, True],
+    [(0, slice(None)), [0], slice(None), SAMPLE_INTERVAL, DELAY, True],
+    [(0, 5), [0], slice(5, 6), SAMPLE_INTERVAL, DELAY + SAMPLE_INTERVAL * 5, True],
+    [([3, 2, 1], 100), [3, 2, 1], slice(100, 101), SAMPLE_INTERVAL, DELAY + SAMPLE_INTERVAL * 100, False],
+    [(slice(3, 8), slice(100)), slice(3, 8), slice(100), SAMPLE_INTERVAL, DELAY, True],
+    [(slice(5, 1, -2), slice(100, None)), slice(5, 1, -2), slice(100, None), SAMPLE_INTERVAL,
+     DELAY + 100 * SAMPLE_INTERVAL, False],
+    [(slice(4, 5), slice(50, 100, 4)), slice(4, 5), slice(50, 100, 4), SAMPLE_INTERVAL * 4,
+     DELAY + 50 * SAMPLE_INTERVAL, True],
+    [(6, slice(10, None, 2)), [6], slice(10, None, 2), SAMPLE_INTERVAL * 2, DELAY + 10 * SAMPLE_INTERVAL, True],
+])
+@pytest.mark.parametrize("sort_by", [None, "offset"])
+def test_gather_getitem_gather(gather, key, trace_indexer, samples_indexer, sample_interval, delay, preserve_sort_by,
+                               sort_by):
+    """Test selection of gather traces and samples."""
+    if sort_by is not None:
+        gather = gather.sort(by=sort_by)
     result_getitem = gather[key]
     result_get_item = gather.get_item(key)
-    expected_data = gather.data[key]
-
-    compare_gathers(result_getitem, result_get_item, check_types=True)
-    assert np.allclose(result_getitem.data.reshape(-1), expected_data.reshape(-1))
-    assert result_getitem.sort_by == result_get_item.sort_by == gather.sort_by
-
-    # Find a correct shape of data when numpy indexing works differently
-    keys = (key, ) if not isinstance(key, tuple) else key
-    if result_getitem.shape != expected_data.shape:
-        expected_shape = ()
-        for k, orig_shape in zip(keys, gather.shape):
-            if isinstance(k, int):
-                shape_comp = 1
-            elif isinstance(k, slice):
-                shape_comp = k.stop
-                shape_comp = orig_shape + shape_comp if shape_comp < 0 else shape_comp
-            else:
-                shape_comp = len(k)
-            expected_shape = expected_shape + (shape_comp, )
-
-        if len(expected_shape) < 2:
-            expected_shape = expected_shape + (gather.shape[1], )
-        assert result_getitem.shape == expected_shape, f"for the key {key} expected {result_getitem.shape} shape but "\
-                                                       f"received {expected_shape}"
-
-    assert result_getitem.data.shape[0] == len(result_getitem.headers)
-    assert result_getitem.data.shape[1] == len(result_getitem.samples)
-
-    # Check that the headers and samples contain  proper values
-    ## This is probably not the best way for the equality check..
-    keys = tuple(to_list(k) if not isinstance(k, slice) else k for k in keys)
-    keys = (keys[0], slice(None)) if len(keys) < 2 else keys
-    assert result_getitem.headers.equals(gather.headers.iloc[keys[0]])
-    assert np.allclose(result_getitem.samples, gather.samples[keys[1]])
+    target = Gather(headers=gather.headers.iloc[trace_indexer], data=gather.data[trace_indexer, samples_indexer],
+                    sample_interval=sample_interval, survey=gather.survey, delay=delay)
+    if preserve_sort_by:
+        target.sort_by = gather.sort_by
+    assert_gathers_equal(result_getitem, target)
+    assert_gathers_equal(result_get_item, target)
 
 
-@pytest.mark.parametrize('key', fail_keys)
-def test_gather_getitem_gather_fail(gather, key):
-    """test_gather_getitem_gathers"""
-    pytest.raises(ValueError, gather.__getitem__, key)
-    pytest.raises(ValueError, gather.get_item, key)
-
-
-@pytest.mark.parametrize('key', [[0, 3, 1]])
-def test_gather_getitem_sort_by(gather, key):
-    """test_gather_getitem_sort_by"""
-    result_getitem = gather[key]
-    assert result_getitem.sort_by is None
-
-
-@pytest.mark.parametrize('key, sample_interval', [
-    (slice(None), 2),
-    (slice(0, 8, 2), 4),
-    ([1, 2, 3], 2),
-    ([1, 3, 5], 4),
-    ([1, 2, 5], None),
-    (0, None),
+@pytest.mark.parametrize("ignore, ignore_set", [
+    [None, {"survey"}],
+    ["survey", {"survey"}],
+    ["data", {"survey", "data"}],
+    [("data", "headers"), {"survey", "data", "headers"}],
+    [{"headers", "samples"}, {"survey", "headers", "samples"}],
+    [["data", "headers", "samples"], {"survey", "data", "headers", "samples"}],
 ])
-def test_gather_getitem_sample_rate_changes(gather, key, sample_interval):
-    """test_gather_getitem_sample_rate_changes"""
-    result_getitem = gather[slice(None), key]
-    if sample_interval is not None:
-        assert result_getitem.sample_interval == sample_interval
-    else:
-        with pytest.raises(ValueError):
-            _ = result_getitem.sample_interval
+def test_gather_copy(gather, ignore, ignore_set):
+    """Test whether gather copy equals to the gather itself and avoids copying its survey and attributes listed in
+    `ignore`."""
+    gather_copy = gather.copy(ignore=ignore)
+    assert_gathers_equal(gather, gather_copy)
 
-
-ignore =  [None] + COPY_IGNORE_ATTRS + sum([list(combinations(COPY_IGNORE_ATTRS, r=i)) for i in range(1, 4)], [])
-@pytest.mark.parametrize('ignore', ignore)
-def test_gather_copy(gather, ignore):
-    """test_gather_copy"""
-    copy_gather = gather.copy(ignore=ignore)
-    ignore = [] if ignore is None else ignore
-    for attr in copy_gather.__dict__:
-        copy_id = id(getattr(copy_gather, attr))
+    for attr in ["data", "headers", "samples", "survey"]:
         orig_id = id(getattr(gather, attr))
-        if attr in COPY_IGNORE_ATTRS and attr not in ignore:
-            assert copy_id != orig_id
-        else:
+        copy_id = id(getattr(gather_copy, attr))
+        if attr in ignore_set:
             assert copy_id == orig_id
-
-    compare_gathers(copy_gather, gather, check_types=True)
+        else:
+            assert copy_id != orig_id
 
 
 @pytest.mark.parametrize('columns', ['offset', 'FieldRecord', 'col_1', ['col_1'], ['col_1', 'col_2']])

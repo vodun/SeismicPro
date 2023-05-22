@@ -3,8 +3,6 @@
 import numpy as np
 
 from .velocity_model import calculate_stacking_velocity
-from ..muter import Muter
-from ..decorators import batch_method
 from ..utils import to_list, VFUNC
 
 
@@ -196,23 +194,6 @@ class StackingVelocity(VFUNC):
         stacking_velocity.bounds = [cls(bounds_times, min_velocity_bound, coords=coords),
                                     cls(bounds_times, max_velocity_bound, coords=coords)]
         return stacking_velocity
-
-    @batch_method(target="for", copy_src=False)
-    def create_muter(self, max_stretch_factor=0.65):
-        """ Create a muter from a stacking velocity.
-        This muter is supposed to attenuate the effect of waveform stretching after the nmo correction.
-
-        Parameters
-        ----------
-        max_stretch_factor : float, defaults to 0.65
-            Maximum allowed stretch factor.
-
-        Returns
-        -------
-        self : Muter
-            Created muter.
-        """
-        return Muter.from_stacking_velocity(self, max_stretch_factor=max_stretch_factor)
 
     def __call__(self, times):
         """Return stacking velocities for given `times`.

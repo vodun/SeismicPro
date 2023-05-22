@@ -1,6 +1,7 @@
 """Implements Gather class that represents a group of seismic traces that share some common acquisition parameter"""
 
 import os
+import math
 import warnings
 from itertools import cycle
 from textwrap import dedent
@@ -18,7 +19,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from .cropped_gather import CroppedGather
 from .plot_corrections import NMOCorrectionPlot, LMOCorrectionPlot
 from .utils import correction, normalization, gain
-from .utils import convert_times_to_mask, convert_mask_to_pick, times_to_indices, mute_gather, make_origins
+from .utils import convert_times_to_mask, convert_mask_to_pick, mute_gather, make_origins
 from ..utils import (to_list, get_coords_cols, get_first_defined, set_ticks, format_subplot_yticklabels,
                      set_text_formatting, add_colorbar, piecewise_polynomial, Coordinates)
 from ..containers import TraceContainer, SamplesContainer
@@ -59,10 +60,12 @@ class Gather(TraceContainer, SamplesContainer):
         Headers of gather traces. Must be a subset of parent survey trace headers.
     data : 2d np.ndarray
         Trace data of the gather with (n_traces, n_samples) layout.
-    samples : 1d np.ndarray of floats
-        Recording time for each trace value. Measured in milliseconds.
+    sample_interval : float
+        Sample interval of seismic traces. Measured in milliseconds.
     survey : Survey
         A survey that generated the gather.
+    delay : float, optional, defaults to 0
+        Delay recording time of seismic traces. Measured in milliseconds.
 
     Attributes
     ----------
@@ -72,15 +75,25 @@ class Gather(TraceContainer, SamplesContainer):
         Trace data of the gather with (n_traces, n_samples) layout.
     samples : 1d np.ndarray of floats
         Recording time for each trace value. Measured in milliseconds.
+    sample_interval : float
+        Sample interval of seismic traces. Measured in milliseconds.
+    delay : float
+        Delay recording time of seismic traces. Measured in milliseconds.
     survey : Survey
         A survey that generated the gather.
     sort_by : None or str or list of str
         Headers that were used for gather sorting. If `None`, no sorting was performed.
     """
-    def __init__(self, headers, data, samples, survey):
+    def __init__(self, headers, data, sample_interval, survey, delay=0):
+        if sample_interval <= 0:
+            raise ValueError("Sample interval must be positive")
+        if delay < 0:
+            raise ValueError("Delay must be non-negative")
         self.headers = headers
         self.data = data
-        self.samples = samples
+        self.samples = self.create_samples(data.shape[1], sample_interval, delay)
+        self.sample_interval = sample_interval
+        self.delay = delay
         self.survey = survey
         self.sort_by = None
 
@@ -93,19 +106,6 @@ class Gather(TraceContainer, SamplesContainer):
         if len(indices) != 1:
             return None
         return indices[0]
-
-    @property
-    def sample_interval(self):
-        """"float: Sample interval of seismic traces. Measured in milliseconds."""
-        sample_interval = np.unique(np.diff(self.samples))
-        if len(sample_interval) == 1:
-            return sample_interval.item()
-        raise ValueError("sample_interval is undefined since `samples` are irregular")
-
-    @property
-    def sample_rate(self):
-        """float: Sample rate of seismic traces. Measured in Hz."""
-        return 1000 / self.sample_interval
 
     @property
     def offsets(self):
@@ -132,14 +132,15 @@ class Gather(TraceContainer, SamplesContainer):
         return Coordinates(coords[0], names=coords_cols)
 
     def __getitem__(self, key):
-        """Either select gather headers values by their names or create a new `Gather` with specified traces and
+        """Either select values of gather headers by their names or create a new `Gather` with specified traces and
         samples depending on the key type.
 
         Notes
         -----
-        1. If the data after `__getitem__` is no longer sorted, `sort_by` attribute in the resulting `Gather` will be
-           set to `None`.
-        2. If headers selection is performed, the returned array will be 1d if a single header is selected and 2d
+        1. Only basic indexing and slicing is supported along the time axis in order to preserve constant sample rate.
+        2. If the traces are no longer sorted after `__getitem__`, `sort_by` attribute of the resulting `Gather` is set
+           to `None`.
+        3. If headers selection is performed, the returned array will be 1d if a single header is selected and 2d
            otherwise.
 
         Parameters
@@ -147,62 +148,69 @@ class Gather(TraceContainer, SamplesContainer):
         key : str, list of str, int, list, tuple, slice
             If str or list of str, gather headers to get as an `np.ndarray`. The returned array is 1d if a single
             header is selected and 2d otherwise.
-            Otherwise, indices of traces and samples to get. In this case, __getitem__ behavior almost coincides with
-            `np.ndarray` indexing and slicing except for cases, when resulting ndim is not preserved or joint
-            indexation of gather attributes becomes ambiguous (e.g. gather[[0, 1], [0, 1]]).
+            Otherwise, indices of traces and samples to get. In this case, `__getitem__` behavior almost coincides with
+            that of `np.ndarray`, except that only basic indexing and slicing is supported along the time axis in order
+            to preserve constant sample rate.
 
         Returns
         -------
         result : np.ndarray or Gather
-            Headers values or Gather with a specified subset of traces and samples.
+            Values of gather headers or a gather with the specified subset of traces and samples.
 
         Raises
         ------
         ValueError
-            If the resulting gather is empty, or data ndim has changed, or joint attribute indexation is ambiguous.
+            If the resulting gather is empty or the number of data dimensions has changed.
         """
         # If key is str or array of str, treat it as names of headers columns
         if all(isinstance(item, str) for item in to_list(key)):
             return super().__getitem__(key)
 
-        # Perform traces and samples selection
-        key = (key, ) if not isinstance(key, tuple) else key
-        key = key + (slice(None), ) if len(key) == 1 else key
-        indices = ()
-        for axis_indexer, axis_shape in zip(key, self.shape):
-            if isinstance(axis_indexer, (int, np.integer)):
-                # Convert negative array index to a corresponding positive one
-                axis_indexer %= axis_shape
-                # Switch from simple indexing to a slice to keep array dims
-                axis_indexer = slice(axis_indexer, axis_indexer+1)
-            elif isinstance(axis_indexer, tuple):
-                # Force advanced indexing for `samples`
-                axis_indexer = list(axis_indexer)
-            indices = indices + (axis_indexer, )
+        # Split key into indexers of traces and samples
+        key = (key,) if not isinstance(key, tuple) else key
+        key = key + (slice(None),) if len(key) == 1 else key
+        if len(key) != 2 or None in key:
+            raise KeyError("Data ndim must not change")
+        traces_indexer, samples_indexer = key
 
-        data = self.data[indices]
-        if data.ndim != 2:
-            raise ValueError("Data ndim is not preserved or joint indexation of gather attributes becomes ambiguous "
-                             "after indexation")
-        if data.size == 0:
+        def int_to_slice(ix, size):
+            """Convert an integer index to a slice to be further used for array indexing, that will return a view and
+            preserve the number of array dimensions."""
+            if ix < 0:
+                ix += size
+            if (ix < 0) or (ix > size - 1):
+                raise IndexError("gather index out of range")
+            return slice(ix, ix + 1)
+
+        # Cast samples indexer to a slice so that possible advanced indexing is performed only along traces axis
+        if isinstance(samples_indexer, (int, np.integer)):
+            samples_indexer = int_to_slice(samples_indexer, self.n_samples)
+        if not isinstance(samples_indexer, slice):
+            raise KeyError("Only basic indexing and slicing is supported along the time axis")
+        delay_ix, _, samples_step = samples_indexer.indices(self.n_samples)
+        if samples_step < 0:
+            raise ValueError("Negative step is not allowed for samples slicing")
+
+        # Cast a single trace indexer to a slice
+        if isinstance(traces_indexer, (int, np.integer)):
+            traces_indexer = int_to_slice(traces_indexer, self.n_traces)
+
+        # Index data and make it C-contiguous since otherwise some numba functions may fail
+        data = np.require(self.data[traces_indexer, samples_indexer], requirements="C")
+        if data.size == 0:  # e.g. after empty slicing
             raise ValueError("Empty gather after indexation")
+        headers = self.headers.iloc[traces_indexer]
+        sample_interval = self.sample_interval * samples_step
+        gather = Gather(headers, data, sample_interval, delay=self.samples[delay_ix], survey=self.survey)
 
-        # Set indexed data attribute. Make it C-contiguous since otherwise some numba functions may fail
-        new_self = self.copy(ignore=['data', 'headers', 'samples'])
-        new_self.data = np.ascontiguousarray(data, dtype=self.data.dtype)
-
-        # The two-element `indices` tuple describes indices of traces and samples to be obtained respectively
-        new_self.headers = self.headers.iloc[indices[0]]
-        new_self.samples = self.samples[indices[1]]
-
-        # If the gather was sorted, verify that getitem does not break sorting
-        if new_self.sort_by is not None:
-            if isinstance(indices[0], slice):
-                if indices[0].step is not None and indices[0].step < 0: # Slice with negative step breaks sorting
-                    new_self.sort_by = None
-            elif (np.diff(indices[0]) < 0).any(): # Decreasing sequence of indices breaks sorting
-                new_self.sort_by = None
-        return new_self
+        # Preserve gather sorting if needed
+        if self.sort_by is not None:
+            if isinstance(traces_indexer, slice):
+                if traces_indexer.step is None or traces_indexer.step > 0:
+                    gather.sort_by = self.sort_by
+            elif (np.diff(traces_indexer) >= 0).all():
+                gather.sort_by = self.sort_by
+        return gather
 
     def __str__(self):
         """Print gather metadata including information about its survey, headers and traces."""
@@ -266,10 +274,10 @@ class Gather(TraceContainer, SamplesContainer):
         ignore = set() if ignore is None else set(to_list(ignore))
         return super().copy(ignore | {"survey"})
 
-    @batch_method(target='for')
+    @batch_method(target="for", copy_src=False)
     def get_item(self, *args):
-        """An interface for `self.__getitem__` method."""
-        return self[args if len(args) > 1 else args[0]]
+        """A pipeline interface for `self.__getitem__` method."""
+        return self[args if len(args) > 1 else args[0]].copy()
 
     def _post_index(self, key):
         """Index gather data by provided `key`."""
@@ -621,17 +629,18 @@ class Gather(TraceContainer, SamplesContainer):
         gather : Gather
             A new `Gather` with calculated first breaks mask in its `data` attribute.
         """
-        mask = convert_times_to_mask(times=self[first_breaks_col], samples=self.samples).astype(np.int32)
+        mask = convert_times_to_mask(times=self[first_breaks_col], n_samples=self.n_samples,
+                                     sample_interval=self.sample_interval, delay=self.delay)
         gather = self.copy(ignore='data')
-        gather.data = mask
+        gather.data = mask.astype(np.float32)
         return gather
 
     @batch_method(target='threads', args_to_unpack='save_to')
     def mask_to_pick(self, threshold=0.5, first_breaks_col=HDR_FIRST_BREAK, save_to=None):
         """Convert a first break mask saved in `data` into times of first arrivals.
 
-        For a given trace each value of the mask represents the probability that the corresponding index is greater
-        than the index of the first break.
+        For a given trace each value of the mask represents the probability that the corresponding time sample follows
+        the first break.
 
         Notes
         -----
@@ -655,7 +664,8 @@ class Gather(TraceContainer, SamplesContainer):
         self : Gather
             A gather with first break times in headers column defined by `first_breaks_col`.
         """
-        picking_times = convert_mask_to_pick(mask=self.data, samples=self.samples, threshold=threshold)
+        picking_times = convert_mask_to_pick(mask=self.data, threshold=threshold, sample_interval=self.sample_interval,
+                                             delay=self.delay)
         self[first_breaks_col] = picking_times
         if save_to is not None:
             save_to[first_breaks_col] = picking_times
@@ -751,8 +761,8 @@ class Gather(TraceContainer, SamplesContainer):
             muter = muter(self.coords)
         if not isinstance(muter, Muter):
             raise ValueError("muter must be of Muter or MuterField type")
-        self.data = mute_gather(gather_data=self.data, muting_times=muter(self.offsets), samples=self.samples,
-                                fill_value=fill_value)
+        self.data = mute_gather(gather_data=self.data, muting_times=muter(self.offsets),
+                                sample_interval=self.sample_interval, delay=self.delay, fill_value=fill_value)
         return self
 
     #------------------------------------------------------------------------#
@@ -932,7 +942,7 @@ class Gather(TraceContainer, SamplesContainer):
             correct_uphole = "SourceUpholeTime" in self.available_headers and refractor_velocity.is_uphole_corrected
         if correct_uphole:
             trace_delays += self["SourceUpholeTime"]
-        trace_delays_samples = times_to_indices(trace_delays, self.samples, round=True).astype(int)
+        trace_delays_samples = np.rint(trace_delays / self.sample_interval).astype(np.int32)
         self.data = correction.apply_lmo(self.data, trace_delays_samples, fill_value)
         if event_headers is not None:
             self[to_list(event_headers)] += trace_delays.reshape(-1, 1)
@@ -954,11 +964,11 @@ class Gather(TraceContainer, SamplesContainer):
             fetched from it. If `int` or `float` then constant-velocity correction is performed.
             May be `str` if called in a pipeline: in this case it defines a component with stacking velocities to use.
         mute_crossover: bool, optional, defaults to False
-            Whether to mute areas where the time reversal occurred after nmo corrections.
+            Whether to mute areas where time reversal occurred after NMO correction.
         max_stretch_factor : float, optional, defaults to np.inf
-            Max allowable factor for the muter that attenuates the effect of waveform stretching after nmo correction.
-            The lower the value, the stronger the mute. In case np.inf (default) no mute is applied.
-            Reasonably good value is 0.65
+            Maximum allowable factor for the muter that attenuates the effect of waveform stretching after NMO
+            correction. The lower the value, the stronger the mute. In case np.inf (default) no mute is applied.
+            Reasonably good value is 0.65.
         fill_value : float, optional, defaults to np.nan
             Value used to fill the amplitudes outside the gather bounds after moveout.
 
@@ -980,8 +990,8 @@ class Gather(TraceContainer, SamplesContainer):
             raise ValueError("stacking_velocity must be of int, float, StackingVelocity or StackingVelocityField type")
 
         velocities_ms = stacking_velocity(self.times) / 1000  # from m/s to m/ms
-        self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms,
-                                         self.sample_interval, mute_crossover, max_stretch_factor, fill_value)
+        self.data = correction.apply_nmo(self.data, self.times, self.offsets, velocities_ms, self.sample_interval,
+                                         self.delay, mute_crossover, max_stretch_factor, fill_value)
         return self
 
     #------------------------------------------------------------------------#
@@ -1166,6 +1176,8 @@ class Gather(TraceContainer, SamplesContainer):
             Resampled gather.
         """
         current_sample_interval = self.sample_interval
+        if current_sample_interval == new_sample_interval:
+            return self
 
         # Anti-aliasing filter is optionally applied during downsampling to avoid frequency aliasing
         if enable_anti_aliasing and new_sample_interval > current_sample_interval:
@@ -1175,7 +1187,8 @@ class Gather(TraceContainer, SamplesContainer):
             filter_size = int(40 * new_sample_interval / current_sample_interval)
             self.bandpass_filter(high=0.9*nyquist_frequency, filter_size=filter_size, window="hann")
 
-        new_samples = np.arange(self.samples[0], self.samples[-1] + 1e-6, new_sample_interval, self.samples.dtype)
+        new_n_samples = math.floor((self.samples[-1] - self.samples[0]) / new_sample_interval) + 1
+        new_samples = self.create_samples(new_n_samples, new_sample_interval, self.delay)
 
         if isinstance(kind, int):
             data_resampled = piecewise_polynomial(new_samples, self.samples, self.data, kind)
@@ -1183,6 +1196,7 @@ class Gather(TraceContainer, SamplesContainer):
             data_resampled = scipy.interpolate.interp1d(self.samples, self.data, kind=kind)(new_samples)
 
         self.data = data_resampled
+        self.sample_interval = new_sample_interval
         self.samples = new_samples
         return self
 
@@ -1653,7 +1667,7 @@ class Gather(TraceContainer, SamplesContainer):
             header = kwargs.pop("headers")
             label = kwargs.pop("label", header)
             process_outliers = kwargs.pop("process_outliers", "none")
-            y_coords = times_to_indices(self[header], self.samples, round=False)
+            y_coords = self.times_to_indices(self[header])
             if process_outliers == "clip":
                 y_coords = np.clip(y_coords, 0, self.n_samples - 1)
             elif process_outliers == "discard":
