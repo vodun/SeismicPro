@@ -102,6 +102,13 @@ class BaseVelocitySpectrum(SamplesContainer):
         _ = time_ix, velocity_ix
         raise NotImplementedError
 
+    def get_time_knots(self, stacking_velocity):
+        """Return a sorted array of `stacking_velocity` times, that lie within the time range used for spectrum
+        calculation. The first and the last spectrum times are always included."""
+        valid_times_mask = (stacking_velocity.times > self.times[0]) & (stacking_velocity.times < self.times[-1])
+        valid_times = np.sort(stacking_velocity.times[valid_times_mask])
+        return np.concatenate([[self.times[0]], valid_times, [self.times[-1]]])
+
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
     def calc_single_velocity_spectrum(coherency_func, gather_data, times, offsets, velocity, sample_interval, delay,
@@ -165,7 +172,7 @@ class BaseVelocitySpectrum(SamplesContainer):
         return out
 
     def _plot(self, title=None, x_label=None, x_ticklabels=None, x_ticker=None, y_ticklabels=None, y_ticker=None,
-              grid=False, stacking_times_ix=None, stacking_velocities_ix=None, colorbar=True,
+              grid=False, stacking_velocity_ix=None, velocity_bounds_ix=None, colorbar=True,
               clip_threshold_quantile=0.99, n_levels=10, ax=None, **kwargs):
         """Plot vertical velocity spectrum and, optionally, stacking velocity.
 
@@ -185,10 +192,11 @@ class BaseVelocitySpectrum(SamplesContainer):
             Parameters for ticks and ticklabels formatting for the y-axis; see `.utils.set_ticks` for more details.
         grid : bool, optional, defaults to False
             Specifies whether to draw a grid on the plot.
-        stacking_times_ix : 1d np.ndarray, optional
-            Time indices of calculated stacking velocities to show on the plot.
-        stacking_velocities_ix : 1d np.ndarray, optional
-            Velocity indices of calculated stacking velocities to show on the plot.
+        stacking_velocity_ix : tuple of two 1d np.ndarray, optional
+            Indices of times and velocities of a stacking velocity to show on the plot.
+        velocity_bounds_ix : tuple of three 1d np.ndarray, optional
+            Indices of times and velocities of left and right bounds. An area between these bounds will be highlighted
+            on the plot.
         colorbar : bool or dict, optional, defaults to True
             Whether to add a colorbar to the right of the velocity spectrum plot.
             If `dict`, defines extra keyword arguments for `matplotlib.figure.Figure.colorbar`.
@@ -211,13 +219,10 @@ class BaseVelocitySpectrum(SamplesContainer):
         add_colorbar(ax, img, colorbar, y_ticker=y_ticker)
         ax.set_title(**{"label": None, **title})
 
-        if stacking_velocities_ix is not None and stacking_times_ix is not None:
-            marker_kwargs = {}
-            # Change markers of stacking velocity points if they are far enough apart
-            if np.all(self.sample_interval * np.diff(stacking_times_ix[1:-1]) >= 50):
-                marker_kwargs = {"marker": "o", "markevery": slice(1, -1)}
-            ax.plot(stacking_velocities_ix, stacking_times_ix, c='#fafcc2', linewidth=2.5, **marker_kwargs)
-
+        if stacking_velocity_ix is not None:
+            ax.plot(*stacking_velocity_ix, c='#fafcc2', linewidth=2.5, marker="o", markevery=slice(1, -1))
+        if velocity_bounds_ix is not None:
+            ax.fill_betweenx(*velocity_bounds_ix, color="white", alpha=0.2)
         if grid:
             ax.grid(c='k')
 
@@ -341,12 +346,12 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     ----------
     gather : Gather
         Seismic gather for which velocity spectrum calculation was called.
+    velocity_spectrum : 2d np.ndarray
+        An array with calculated vertical velocity spectrum values.
     velocities : 1d np.ndarray
         Range of velocity values for which vertical velocity spectrum was calculated. Measured in meters/seconds.
     half_win_size_samples : int
         Half of the temporal window size for smoothing the vertical velocity spectrum. Measured in samples.
-    velocity_spectrum : 2d np.ndarray
-        An array with calculated vertical velocity spectrum values.
     max_stretch_factor : float
         Maximum allowable factor for stretch muter.
     """
@@ -373,6 +378,11 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
                   "half_win_size_samples": self.half_win_size_samples, "max_stretch_factor": max_stretch_factor,
                   "interpolate": interpolate}
         self.velocity_spectrum = self._calc_spectrum_numba(**kwargs)
+
+    @property
+    def n_velocities(self):
+        """int: The number of velocities the spectrum was calculated for."""
+        return len(self.velocities)
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
@@ -418,40 +428,49 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
         velocity spectrum."""
-        if (time_ix < 0) or (time_ix >= len(self.times)):
-            time = None
-        else:
-            time = np.interp(time_ix, np.arange(len(self.times)), self.times)
+        time = None
+        if 0 <= time_ix <= self.n_times - 1:
+            time = self.delay + self.sample_interval * time_ix
 
-        if (velocity_ix < 0) or (velocity_ix >= len(self.velocities)):
-            velocity = None
-        else:
-            velocity = np.interp(velocity_ix, np.arange(len(self.velocities)), self.velocities)
-            velocity /= 1000  # from m/s to m/ms
+        velocity = None
+        if 0 <= velocity_ix <= self.n_velocities - 1:
+            velocity = np.interp(velocity_ix, np.arange(self.n_velocities), self.velocities) / 1000  # from m/s to m/ms
 
         return time, velocity
 
-    def _plot(self, stacking_velocity=None, *, title=None, x_ticker=None, y_ticker=None, grid=False, colorbar=True,
-              ax=None, **kwargs):
+    def _plot(self, stacking_velocity=None, *, plot_bounds=True, title=None, x_ticker=None, y_ticker=None, grid=False,
+              colorbar=True, ax=None, **kwargs):
         """Plot vertical velocity spectrum."""
         # Add a stacking velocity line on the plot
-        stacking_times_ix, stacking_velocities_ix = None, None
+        stacking_velocity_ix = None
+        velocity_bounds_ix = None
         if stacking_velocity is not None:
-            valid_times_mask = (stacking_velocity.times > self.times[0]) & (stacking_velocity.times < self.times[-1])
-            valid_times = np.sort(stacking_velocity.times[valid_times_mask])
-            stacking_times = np.concatenate([[self.times[0]], valid_times, [self.times[-1]]])
+            stacking_times = self.get_time_knots(stacking_velocity)
             stacking_velocities = stacking_velocity(stacking_times)
-            stacking_times_ix = (stacking_times - self.delay) / self.sample_interval
-            stacking_velocities_ix = np.interp(stacking_velocities, self.velocities, np.arange(len(self.velocities)))
+            stacking_times_ix = self.times_to_indices(stacking_times)
+            stacking_velocities_ix = np.interp(stacking_velocities, self.velocities, np.arange(self.n_velocities))
+            stacking_velocity_ix = (stacking_times_ix, stacking_velocities_ix)
+
+            if plot_bounds and stacking_velocity.bounds is not None:
+                left_bound, right_bound = stacking_velocity.bounds
+                left_times = self.get_time_knots(left_bound)
+                right_times = self.get_time_knots(right_bound)
+                bounds_times = np.unique(np.concatenate([left_times, right_times]))
+                left_velocities = left_bound(bounds_times)
+                right_velocities = right_bound(bounds_times)
+                bounds_times_ix = self.times_to_indices(bounds_times)
+                left_velocities_ix = np.interp(left_velocities, self.velocities, np.arange(self.n_velocities))
+                right_velocities_ix = np.interp(right_velocities, self.velocities, np.arange(self.n_velocities))
+                velocity_bounds_ix = (bounds_times_ix, left_velocities_ix, right_velocities_ix)
 
         super()._plot(title=title, x_label="Velocity, m/s", x_ticklabels=self.velocities,
                       x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax, grid=grid,
-                      stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
+                      stacking_velocity_ix=stacking_velocity_ix, velocity_bounds_ix=velocity_bounds_ix,
                       colorbar=colorbar, **kwargs)
         return self
 
     @plotter(figsize=(10, 9), args_to_unpack="stacking_velocity")
-    def plot(self, stacking_velocity=None, *, title=None, interactive=False, **kwargs):
+    def plot(self, stacking_velocity=None, *, plot_bounds=True, title=None, interactive=False, **kwargs):
         """Plot vertical velocity spectrum.
 
         Parameters
@@ -460,6 +479,8 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
             Stacking velocity to plot if given. If its times are sampled less than once every 50 ms, each point will be
             highlighted with a circle.
             May be `str` if plotted in a pipeline: in this case it defines a component with stacking velocities to use.
+        plot_bounds : bool, optional, defaults to True
+            Whether to display bound used for stacking velocity calculation if they exist.
         title : str, optional
             Plot title. If not provided, equals to stacked lines "Vertical Velocity Spectrum" and coherency func name.
         x_ticker : dict, optional, defaults to None
@@ -499,7 +520,8 @@ class VerticalVelocitySpectrum(BaseVelocitySpectrum):
             title = f"Vertical Velocity Spectrum \n Coherency func: {self.coherency_func.__name__}"
         if isinstance(stacking_velocity, StackingVelocityField):
             stacking_velocity = stacking_velocity(self.coords)
-        return super().plot(stacking_velocity=stacking_velocity, interactive=interactive, title=title, **kwargs)
+        return super().plot(stacking_velocity=stacking_velocity, plot_bounds=plot_bounds, interactive=interactive,
+                            title=title, **kwargs)
 
     @batch_method(target="for", args_to_unpack="init", copy_src=False)
     def calculate_stacking_velocity(self, init=None, bounds=None, relative_margin=None, acceleration_bounds="auto",
@@ -625,14 +647,18 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     ----------
     gather : Gather
         Seismic gather for which residual velocity spectrum calculation was called.
-    half_win_size_samples : int
-        Half of the temporal window size for smoothing the velocity spectrum. Measured in samples.
     stacking_velocity : StackingVelocity
         Stacking velocity around which residual velocity spectrum was calculated.
-    relative_margin : float, optional, defaults to 0.2
-        Relative velocity margin, that determines the velocity range for velocity spectrum calculation for each time.
     velocity_spectrum : 2d np.ndarray
         An array with calculated residual vertical velocity spectrum values.
+    margins : 1d np.ndarray
+        An array of velocity margins the spectrum was calculated for.
+    margin_step : float
+        A step between each two adjacent margins.
+    relative_margin : float, optional, defaults to 0.2
+        Relative velocity margin, that determines the velocity range for velocity spectrum calculation for each time.
+    half_win_size_samples : int
+        Half of the temporal window size for smoothing the velocity spectrum. Measured in samples.
     max_stretch_factor: float
         Maximum allowable factor for stretch muter.
     """
@@ -652,6 +678,13 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
                   "half_win_size_samples": self.half_win_size_samples, "max_stretch_factor": max_stretch_factor,
                   "interpolate": interpolate}
         self.velocity_spectrum = self._calc_spectrum_numba(**kwargs)
+        self.margins, self.margin_step = np.linspace(-self.relative_margin, self.relative_margin, self.n_margins,
+                                                     retstep=True)
+
+    @property
+    def n_margins(self):
+        """int: The number of velocity margins the spectrum was calculated for."""
+        return self.velocity_spectrum.shape[1]
 
     @staticmethod
     @njit(nogil=True, fastmath=True, parallel=True)
@@ -721,39 +754,47 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
     def get_time_velocity_by_indices(self, time_ix, velocity_ix):
         """Get time (in milliseconds) and velocity (in kilometers/seconds) by their indices (possibly non-integer) in
         residual velocity spectrum."""
-        if (time_ix < 0) or (time_ix >= len(self.times)):
+        if (time_ix < 0) or (time_ix > self.n_times - 1):
             return None, None
-        time = np.interp(time_ix, np.arange(len(self.times)), self.times)
-        center_velocity = self.stacking_velocity(time) / 1000  # from m/s to m/ms
+        time = self.delay + self.sample_interval * time_ix
 
-        if (velocity_ix < 0) or (velocity_ix >= self.velocity_spectrum.shape[1]):
+        if (velocity_ix < 0) or (velocity_ix > self.n_margins - 1):
             return time, None
-        margin = self.relative_margin * (2 * velocity_ix / (self.velocity_spectrum.shape[1] - 1) - 1)
-        return time, center_velocity * (1 + margin)
+        margin = -self.relative_margin + velocity_ix * self.margin_step
+        velocity = self.stacking_velocity(time) * (1 + margin) / 1000  # from m/s to m/ms
+        return time, velocity
 
-    def _plot(self, *, title=None, x_ticker=None, y_ticker=None, grid=False, colorbar=True, ax=None, **kwargs):
+    def _plot(self, *, acceptable_margin=None, title=None, x_ticker=None, y_ticker=None, grid=False, colorbar=True,
+              ax=None, **kwargs):
         """Plot residual vertical velocity spectrum."""
-        valid_times_mask = ((self.stacking_velocity.times > self.times[0]) &
-                            (self.stacking_velocity.times < self.times[-1]))
-        valid_times = np.sort(self.stacking_velocity.times[valid_times_mask])
-        stacking_times = np.concatenate([[self.times[0]], valid_times, [self.times[-1]]])
-        stacking_times_ix = (stacking_times - self.delay) / self.sample_interval
-        stacking_velocities_ix = np.full_like(stacking_times_ix, (self.velocity_spectrum.shape[1] - 1) / 2)
+        stacking_times_ix = self.times_to_indices(self.get_time_knots(self.stacking_velocity))
+        stacking_velocities_ix = np.full_like(stacking_times_ix, (self.n_margins - 1) / 2)
+        stacking_velocity_ix = (stacking_times_ix, stacking_velocities_ix)
 
-        x_ticklabels = np.linspace(-self.relative_margin, self.relative_margin, self.velocity_spectrum.shape[1]) * 100
-        super()._plot(title=title, x_label="Relative velocity margin, %",
-                      x_ticklabels=x_ticklabels, x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax,
-                      grid=grid, stacking_times_ix=stacking_times_ix, stacking_velocities_ix=stacking_velocities_ix,
+        velocity_bounds_ix = None
+        if acceptable_margin is not None:
+            bounds = [-acceptable_margin, acceptable_margin]
+            left_ix, right_ix = np.interp(bounds, self.margins, np.arange(self.n_margins))
+            velocity_bounds_ix = ([self.times[0], self.times[-1]], left_ix, right_ix)
+
+        super()._plot(title=title, x_label="Relative velocity margin, %", x_ticklabels=self.margins * 100,
+                      x_ticker=x_ticker, y_ticklabels=self.times, y_ticker=y_ticker, ax=ax, grid=grid,
+                      stacking_velocity_ix=stacking_velocity_ix, velocity_bounds_ix=velocity_bounds_ix,
                       colorbar=colorbar, **kwargs)
         return self
 
     @plotter(figsize=(10, 9))
-    def plot(self, *, title=None, interactive=False, **kwargs):
+    def plot(self, *, acceptable_margin=None, title=None, interactive=False, **kwargs):
         """Plot residual vertical velocity spectrum. The plot always has a vertical line in the middle, representing
         the stacking velocity it was calculated for.
 
         Parameters
         ----------
+        acceptable_margin : bool, optional
+            Defines the size of an area around central stacking velocity that will be highlighted on the spectrum plot.
+            May be used for visual quality control of stacking velocity picking by setting this value low enough and
+            checking that local maximas of velocity spectrum corresponding to primaries lie inside the highlighted
+            area.
         title : str, optional
             Plot title. If not provided, equals to stacked lines "Residual Velocity Spectrum" and coherency func name.
         x_ticker : dict, optional, defaults to None
@@ -791,4 +832,4 @@ class ResidualVelocitySpectrum(BaseVelocitySpectrum):
         """
         if title is None:
             title = f"Residual Velocity Spectrum \n Coherency func: {self.coherency_func.__name__}"
-        return super().plot(interactive=interactive, title=title, **kwargs)
+        return super().plot(interactive=interactive, acceptable_margin=acceptable_margin, title=title, **kwargs)
