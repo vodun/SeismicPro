@@ -540,6 +540,7 @@ class Gather(TraceContainer, SamplesContainer):
         """
         if use_global:
             min_value, max_value = self.survey.get_quantile([q_min, q_max])
+            min_value, max_value = np.atleast_1d(min_value), np.atleast_1d(max_value)
         elif not tracewise:
             min_value, max_value = self.get_quantile([q_min, q_max], tracewise=False)
         else:
@@ -591,7 +592,7 @@ class Gather(TraceContainer, SamplesContainer):
         """
         if use_global:
             min_value, max_value = self.survey.get_quantile([q_min, q_max])
-            # min_value, max_value = np.atleast_1d(min_value), np.atleast_1d(max_value)
+            min_value, max_value = np.atleast_1d(min_value), np.atleast_1d(max_value)
         elif not tracewise:
             min_value, max_value = self.get_quantile([q_min, q_max], tracewise=False)
         else:
