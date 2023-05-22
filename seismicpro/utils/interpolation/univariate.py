@@ -63,61 +63,30 @@ class interp1d:
 
 
 @njit(nogil=True)
-def times_to_indices(times, samples, round=False):
-    """Convert `times` to their indices in the increasing `samples` array. If some value of `times` is not present
-    in `samples`, its index is linearly interpolated or extrapolated by the other indices of `samples`.
-
-    Parameters
-    ----------
-    times : 1d np.ndarray of floats
-        Time values to convert to indices.
-    samples : 1d np.ndarray of floats
-        Recording time for each trace value.
-    round : bool, optional, defaults to False
-        If `True`, round the obtained float indices to the nearest integer. Values exactly halfway between two adjacent
-        integers are rounded to the nearest even one.
-
-    Returns
-    -------
-    indices : 1d np.ndarray
-        Array with positions of `times` in `samples`.
-
-    Raises
-    ------
-    ValueError
-        If `samples` is not increasing.
-    """
-    for i in range(len(samples) - 1):
-        if samples[i+1] <= samples[i]:
-            raise ValueError('The `samples` array must be increasing.')
-    return _times_to_indices(times=times, samples=samples, round=round)
-
-
-@njit(nogil=True)
-def _times_to_indices(times, samples, round):
+def times_to_indices(times, samples):
+    """Convert `times` to their indices in the increasing `samples` array. If some value of `times` is not present in
+    `samples`, its index is linearly interpolated or extrapolated by the other indices of `samples`."""
     left_slope = 1 / (samples[1] - samples[0])
     right_slope = 1 / (samples[-1] - samples[-2])
-    float_position = interpolate(times, samples, np.arange(len(samples), dtype=np.float32), left_slope, right_slope)
-    return np.rint(float_position) if round else float_position
+    return interpolate(times, samples, np.arange(len(samples), dtype=np.float32), left_slope, right_slope)
 
 
 @njit(nogil=True)
 def calculate_basis_polynomials(x_new, x, n):
     """ Calculate the values of basis polynomials for Lagrange interpolation. """
-
     # Shift x to the zero, shift x_new accordingly. This does not affect interpolation
-    x_new -= x.min()
-    x -= x.min()
+    x_min = x.min()
+    x_new = x_new - x_min
+    x = x - x_min
 
     N = n + 1
     polynomials = np.ones((len(x_new), N))
 
     # For given point, n + 1 neighbor samples are required to construct polynomial, find the index of the leftmost one
     if N % 2 == 1:
-        leftmost_indices = np.rint(_times_to_indices(x_new , x, False)) - N // 2
+        leftmost_indices = np.rint(times_to_indices(x_new, x)) - N // 2
     else:
-        leftmost_indices = np.ceil(_times_to_indices(x_new , x, False)) - N // 2
-
+        leftmost_indices = np.ceil(times_to_indices(x_new, x)) - N // 2
     indices = leftmost_indices.reshape(-1, 1) + np.arange(N)
     sign = np.sign(indices + 1e-3)
 
@@ -130,7 +99,7 @@ def calculate_basis_polynomials(x_new, x, n):
         times[i] = x[ind]
 
     # Reflect times accordingly
-    times = np.where(div % 2, x.max() - times,  times)
+    times = np.where(div % 2, x.max() - times, times)
     times = (times + x.max() * div) * sign
 
     for i, (time, it) in enumerate(zip(times, x_new)):
