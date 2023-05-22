@@ -543,6 +543,7 @@ class Gather(TraceContainer, SamplesContainer):
             min_value, max_value = np.atleast_1d(min_value), np.atleast_1d(max_value)
         elif not tracewise:
             min_value, max_value = self.get_quantile([q_min, q_max], tracewise=False)
+            min_value, max_value = np.atleast_1d(min_value), np.atleast_1d(max_value)
         else:
             min_value, max_value = None, None
         self.data = normalization.scale_maxabs(self.data, min_value, max_value, q_min, q_max,
@@ -595,6 +596,7 @@ class Gather(TraceContainer, SamplesContainer):
             min_value, max_value = np.atleast_1d(min_value), np.atleast_1d(max_value)
         elif not tracewise:
             min_value, max_value = self.get_quantile([q_min, q_max], tracewise=False)
+             min_value, max_value = np.atleast_1d(min_value), np.atleast_1d(max_value)
         else:
             min_value, max_value = None, None
         self.data = normalization.scale_minmax(self.data, min_value, max_value, q_min, q_max,
