@@ -360,12 +360,11 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
     @property
     def qc_summary(self):
         """str: Brief report about calculated metrics."""
-        # Use separator with 8 spaces to preserve the same length of leading whitespaces for dedent used in `self.info`
         if not self.qc_metrics:
             raise ValueError("Metrics were not calculated, call `Survey.qc` first.")
         summary = [metric.describe(self[metric.header_cols]) for metric in self.qc_metrics.values()]
         msg = "Tracewise QC summary:\n" + "\n".join(summary)
-        return dedent(msg).strip()
+        return msg
 
     @GatherContainer.headers.setter
     def headers(self, headers):
@@ -1162,7 +1161,7 @@ class Survey(GatherContainer, SamplesContainer):  # pylint: disable=too-many-ins
             Survey with no dead traces.
         """
         self = maybe_copy(self, inplace)  # pylint: disable=self-cls-assignment
-        if header_name is None and "DeadTrace" not in self.headers:
+        if header_name is None:
             header_name = DeadTrace.__name__
             if header_name not in self.headers:
                 self.qc(DeadTrace, chunk_size=chunk_size, n_workers=n_workers, bar=bar)

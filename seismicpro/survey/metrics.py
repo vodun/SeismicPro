@@ -94,14 +94,14 @@ class TracewiseMetric(SurveyAttribute):
         traces detected by the metric."""
         return NotImplementedError
 
-    def describe(self, metric_values, line_width=60, separator="\n"):
+    def describe(self, metric_values, line_width=60):
         """Provide a description about the number of bad values for the passed metric values in a string format. Each
-        line in the resulting string will not exceed `line_width` and will be separated by `separator`."""
+        line in the resulting string will not exceed `line_width`."""
         bin_values = self.binarize(metric_values)
         # Process multiline descriptions and set the distance from the last line to the result to `line_width` symbols
         desc_list = wrap(self.description, width=line_width-1)
         desc_list[-1] = f"{desc_list[-1]+':':<{line_width}}{bin_values.sum()} ({100 * bin_values.mean():.3f}%)"
-        return separator.join(desc_list)
+        return '\n'.join(desc_list)
 
     def preprocess(self, gather):
         """Preprocess gather before either calling `self.get_values` method to calculate metric or to plot the gather.
@@ -666,20 +666,20 @@ class WindowRMS(BaseWindowRMSMetric):
     @property
     def description(self):
         """String description of the tracewise metric."""
-        msg = f"Traces with RMS {self._get_threshold_description()} computed in a window with a range {self.offsets}m"\
-              f" in offsets and {self.times}ms in times"
+        msg = f"Traces with RMS {self._get_threshold_description()} computed in a window within a range "\
+              f"{self.offsets}m in offsets and {self.times}ms in times"
         return msg
 
-    def describe(self, metric_values, line_width=60, separator="\n"):
+    def describe(self, metric_values, line_width=60):
         """Provide a description about the number of bad values for the passed metric values in a string format. Each
-        line in the resulting string will not exceed `line_width` and will be separated by `separator`.
-        If `self.threshold` is None, the average RMS for the passed values will be showed."""
+        line in the resulting string will not exceed `line_width`. If `self.threshold` is None, the average RMS for
+        the passed values will be showed."""
         metric_value = np.sqrt(metric_values[:, 0] / metric_values[:, 1])
         if self.threshold is None:
-            description = "Mean traces RMS computed in a window with a range" + separator
-            description += f"{f' {self.offsets}m in offsets and {self.times}ms in times:':<{line_width}}"
+            description = "Mean traces RMS computed in a window within a range \n"
+            description += f"{f'{self.offsets}m in offsets and {self.times}ms in times:':<{line_width}}"
             return description + f"{np.nanmean(metric_value):<.3f}"
-        return super().describe(metric_value, line_width=line_width, separator=separator)
+        return super().describe(metric_value, line_width=line_width)
 
     def get_values(self, gather):
         return self.numba_get_values(gather.data, gather.samples, gather.offsets, self.times, self.offsets,
@@ -764,17 +764,17 @@ class AdaptiveWindowRMS(BaseWindowRMSMetric):
               f" RV shifted {direction} by {abs(self.shift)} ms "
         return msg + self._get_threshold_description()
 
-    def describe(self, metric_values, line_width=60, separator="\n"):
+    def describe(self, metric_values, line_width=60):
         """Provide a description about the number of bad values for the passed metric values in a string format. Each
-        line in the resulting string will not exceed `line_width` and will be separated by `separator`.
-        If `self.threshold` is None, the average RMS for the passed values will be showed."""
+        line in the resulting string will not exceed `line_width`. If `self.threshold` is None, the average RMS for
+        the passed values will be showed."""
         metric_value = np.sqrt(metric_values[:, 0] / metric_values[:, 1])
         if self.threshold is None:
             direction =  "below" if self.shift > 0 else "above"
-            description = f"Mean of traces RMS computed in a {self.window_size} ms window"
-            description += separator + f"{f'around RV shifted {direction} by {abs(self.shift)} ms:':<{line_width}}"
+            description = f"Mean of traces RMS computed in a {self.window_size} ms window \n"
+            description += f"{f'around RV shifted {direction} by {abs(self.shift)} ms:':<{line_width}}"
             return description + f"{np.nanmean(metric_value):<.3f}"
-        return super().describe(metric_value, line_width=line_width, separator=separator)
+        return super().describe(metric_value, line_width=line_width)
 
     def get_values(self, gather):
         fbp_times = self.refractor_velocity(gather.offsets)

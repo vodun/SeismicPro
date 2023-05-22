@@ -114,8 +114,8 @@ class TestFilterMetrics:
         n_bad = metric_instance.binarize(metric_instance(gather), threshold=threshold).sum()
 
         # Validate that only bad traces were removed from the survey
-        assert gather.n_traces - n_bad == survey_filtered.headers.shape[0]
-        assert all(~metric_instance.binarize(survey_filtered[metric_instance.header_cols]))
+        assert gather.n_traces - n_bad == survey_filtered.n_traces
+        assert not metric_instance.binarize(survey_filtered[metric_instance.header_cols]).any()
         assert_survey_processed_inplace(survey, survey_filtered, inplace)
 
     def test_remove_dead_traces(self, stat_segy, header_index, inplace):
