@@ -43,24 +43,32 @@ def create_edges_between_layers(spectrum_data, start_time, start_time_ix, start_
 
 
 @njit(nogil=True, parallel=True)
-def create_edges(spectrum_data, node_times, node_times_ix, node_velocities, node_velocities_ix, node_biases,
+def create_edges(spectrum_data, layer_times, layer_times_ix, layer_velocities, layer_velocities_ix, layer_biases,
                  max_n_skips, acceleration_bounds):
     """Return edges of a graph for stacking velocity computation with their weights."""
-    edges = [[(1, 1, -1.0)] for _ in range((max_n_skips + 1) * (len(node_times_ix) - 1))]
+    layer_velocities = np.split(layer_velocities, layer_biases[1:] - 1)
+    layer_velocities_ix = np.split(layer_velocities_ix, layer_biases[1:] - 1)
+
+    edges = [[(1, 1, -1.0)] for _ in range((max_n_skips + 1) * (len(layer_times_ix) - 1))]
     for ix in prange(len(edges)):  # pylint: disable=not-an-iterable
         i = ix // (max_n_skips + 1)
         j = i + 1 + ix % (max_n_skips + 1)
-        if j >= len(node_times_ix):
+        if j >= len(layer_times_ix):
             continue
-        edges[ix] = create_edges_between_layers(spectrum_data, node_times[i], node_times_ix[i], node_velocities[i],
-                                                node_velocities_ix[i], node_biases[i], node_times[j], node_times_ix[j],
-                                                node_velocities[j], node_velocities_ix[j], node_biases[j],
-                                                acceleration_bounds)
-    edges = [layer_edges for layer_edges in edges if (len(layer_edges) > 1) or (layer_edges[0][-1] > 0)]
-    edges.append([(0, i + 1, 0.0) for i in range(len(node_velocities_ix[0]))])
-    edges.append([(node_biases[-1] + i, node_biases[-1] + len(node_velocities_ix[-1]), 0.0)
-                  for i in range(len(node_velocities_ix[-1]))])
-    return edges
+        edges[ix] = create_edges_between_layers(spectrum_data, layer_times[i], layer_times_ix[i], layer_velocities[i],
+                                                layer_velocities_ix[i], layer_biases[i], layer_times[j],
+                                                layer_times_ix[j], layer_velocities[j], layer_velocities_ix[j],
+                                                layer_biases[j], acceleration_bounds)
+    edges = [layer_edges for layer_edges in edges if (len(layer_edges) > 1) or (layer_edges[0][-1] >= 0)]
+
+    # Connect start node to all nodes of the first layer
+    start_node = 0
+    edges.append([(start_node, i + 1, 0.0) for i in range(len(layer_velocities_ix[0]))])
+
+    # Connect all nodes of the last layer to the end node
+    end_node = layer_biases[-1] + len(layer_velocities_ix[-1])
+    edges.append([(layer_biases[-1] + i, end_node, 0.0) for i in range(len(layer_velocities_ix[-1]))])
+    return edges, start_node, end_node
 
 
 # pylint: disable-next=too-many-statements
@@ -72,7 +80,7 @@ def calculate_stacking_velocity(spectrum, init=None, bounds=None, relative_margi
     hyperbola for each timestamp. It is used to correct the arrival times of reflection events in the traces for their
     varying offsets prior to stacking.
 
-    If calculated by velocity spectrum, stacking velocity must meet the following conditions:
+    If calculated by velocity spectrum, stacking velocity should generally meet the following conditions:
     1. It should be monotonically increasing,
     2. Its gradient should be bounded above to avoid excessive gather stretching after NMO correction,
     3. It should pass through local energy maxima on the velocity spectrum.
@@ -119,8 +127,8 @@ def calculate_stacking_velocity(spectrum, init=None, bounds=None, relative_margi
         The maximum difference in arrival time of two hodographs starting at the same zero-offset time and two adjacent
         velocities at `max_offset`. Used to create graph nodes and calculate their velocities for each time.
     max_n_skips : int, optional, defaults to 2
-        Defines the maximum number of subsequent times to skip to still be able to connect two nodes of the graph with
-        an edge.
+        Defines the maximum number of intermediate times between two nodes of the graph. Greater values increase
+        computational costs, but tend to produce smoother stacking velocity.
 
     Returns
     -------
@@ -128,6 +136,12 @@ def calculate_stacking_velocity(spectrum, init=None, bounds=None, relative_margi
         Times for which stacking velocities were picked. Measured in milliseconds.
     velocities : 1d np.ndarray
         Picked stacking velocities. Matches the length of `times`. Measured in meters/seconds.
+    bounds_times : 1d np.ndarray
+        Times for which velocity bounds were estimated. Measured in milliseconds.
+    min_velocity_bound : 1d np.ndarray
+        Minimum velocity bound. Matches the length of `bounds_times`. Measured in meters/seconds.
+    max_velocity_bound : 1d np.ndarray
+        Maximum velocity bound. Matches the length of `bounds_times`. Measured in meters/seconds.
     """
     spectrum_data = spectrum.velocity_spectrum.max() - spectrum.velocity_spectrum
     spectrum_times = np.asarray(spectrum.times, dtype=np.float32)
@@ -135,63 +149,61 @@ def calculate_stacking_velocity(spectrum, init=None, bounds=None, relative_margi
 
     # Calculate times of graph nodes
     times_step_samples = int(times_step // spectrum.sample_interval)
-    node_times_ix = np.arange(0, len(spectrum_times), times_step_samples)
-    node_times_ix[-1] = len(spectrum_times) - 1
-    node_times = spectrum_times[node_times_ix]
+    layer_times_ix = np.arange(0, len(spectrum_times), times_step_samples)
+    layer_times_ix[-1] = len(spectrum_times) - 1
+    layer_times = spectrum_times[layer_times_ix]
 
     # Estimate velocity bounds for each time where nodes are placed
     if bounds is not None:
-        min_vel_bound = bounds[0](node_times)
-        max_vel_bound = bounds[1](node_times)
+        min_velocity_bound = bounds[0](layer_times)
+        max_velocity_bound = bounds[1](layer_times)
+        if (min_velocity_bound > max_velocity_bound).any():
+            raise ValueError("Minimum velocity bound cannot be greater than the maximum one")
     else:
-        center_vel = init(node_times)
-        min_vel_bound = center_vel * (1 - relative_margin)
-        max_vel_bound = center_vel * (1 + relative_margin)
-    min_spectrum_velocity = spectrum_velocities.min()
-    max_spectrum_velocity = spectrum_velocities.max()
-    min_vel_bound = np.clip(min_vel_bound, min_spectrum_velocity, max_spectrum_velocity)
-    max_vel_bound = np.clip(max_vel_bound, min_spectrum_velocity, max_spectrum_velocity)
-    min_vel_bound = np.minimum(min_vel_bound, max_vel_bound)
-    max_vel_bound = np.maximum(min_vel_bound, max_vel_bound)
-
-    # Estimate node velocities for each time
-    final_hodograph_time_max = np.sqrt(node_times**2 + (max_offset * 1000 / min_vel_bound)**2)  # ms
-    final_hodograph_time_min = np.sqrt(node_times**2 + (max_offset * 1000 / max_vel_bound)**2)  # ms
-    spectrum_velocity_indices = np.arange(len(spectrum_velocities))
-    node_velocities = []
-    node_velocities_ix = []
-    for time, start, end in zip(node_times, final_hodograph_time_min, final_hodograph_time_max):
-        n_vels = int((end - start) // hodograph_correction_step) + 1
-        vels = np.sqrt(max_offset**2 * 1000**2 / (np.linspace(start, end, n_vels)[::-1]**2 - time**2))
-        vels_ix = np.interp(vels, spectrum_velocities, spectrum_velocity_indices)
-        node_velocities.append(vels)
-        node_velocities_ix.append(vels_ix)
-    node_velocities = tuple(node_velocities)
-    node_velocities_ix = tuple(node_velocities_ix)
+        center_vel = init(layer_times)
+        min_velocity_bound = center_vel * (1 - relative_margin)
+        max_velocity_bound = center_vel * (1 + relative_margin)
+    min_velocity_bound = np.clip(min_velocity_bound, spectrum_velocities[0], spectrum_velocities[-1])
+    max_velocity_bound = np.clip(max_velocity_bound, spectrum_velocities[0], spectrum_velocities[-1])
 
     # Calculate allowed acceleration bounds
     if acceleration_bounds is None:
         acceleration_bounds = [0, np.inf]
     elif acceleration_bounds == "auto":
-        dt = np.diff(node_times) / 1000
-        min_vel_accelerations = np.diff(min_vel_bound) / dt
-        max_vel_accelerations = np.diff(max_vel_bound) / dt
-        min_acceleration = min(min_vel_accelerations.min(), max_vel_accelerations.min())
-        max_acceleration = max(min_vel_accelerations.max(), max_vel_accelerations.max())
-        acceleration_bounds = [min_acceleration * 0.5, max_acceleration * 1.5]
+        dt = np.diff(layer_times) / 1000
+        min_velocity_accelerations = np.diff(min_velocity_bound) / dt
+        max_velocity_accelerations = np.diff(max_velocity_bound) / dt
+        min_acceleration = min(min_velocity_accelerations.min(), max_velocity_accelerations.min())
+        max_acceleration = max(min_velocity_accelerations.max(), max_velocity_accelerations.max())
+        acceleration_bounds = [min_acceleration * (1 - 0.5 * np.sign(min_acceleration)),
+                               max_acceleration * (1 + 0.5 * np.sign(max_acceleration))]
     acceleration_bounds = np.array(acceleration_bounds, dtype=np.float32)
     if len(acceleration_bounds) != 2:
         raise ValueError("acceleration_bounds must be an array-like with 2 elements")
     if acceleration_bounds[1] <= acceleration_bounds[0]:
         raise ValueError("Upper acceleration bound must greater than the lower one")
 
+    # Estimate node velocities for each time
+    min_correction_time = np.sqrt(layer_times**2 + (max_offset * 1000 / max_velocity_bound)**2)  # ms
+    max_correction_time = np.sqrt(layer_times**2 + (max_offset * 1000 / min_velocity_bound)**2)  # ms
+    spectrum_velocity_indices = np.arange(len(spectrum_velocities))
+    layer_velocities = []
+    layer_velocities_ix = []
+    for time, min_corr, max_corr in zip(layer_times, min_correction_time, max_correction_time):
+        n_vels = int((max_corr - min_corr) // hodograph_correction_step) + 1
+        layer_vels = np.sqrt(max_offset**2 * 1000**2 / (np.linspace(min_corr, max_corr, n_vels)[::-1]**2 - time**2))
+        layer_vels_ix = np.interp(layer_vels, spectrum_velocities, spectrum_velocity_indices)
+        layer_velocities.append(layer_vels)
+        layer_velocities_ix.append(layer_vels_ix)
+
+    # Calculate edges of the graph. Concat layer_velocities and layer_velocities_ix and split them back inside
+    # create_edges to make numba work
+    layer_biases = np.cumsum([1] + [len(node_vels) for node_vels in layer_velocities[:-1]])
+    edges, start_node, end_node = create_edges(spectrum_data, layer_times, layer_times_ix,
+                                               np.concatenate(layer_velocities), np.concatenate(layer_velocities_ix),
+                                               layer_biases, max_n_skips, acceleration_bounds)
+
     # Create a graph and find the path with maximal velocity spectrum sum along it
-    n_nodes = 2 + sum(len(node_vels) for node_vels in node_velocities)
-    start_node = 0
-    end_node = n_nodes - 1
-    node_biases = np.cumsum([1] + [len(node_vels) for node_vels in node_velocities[:-1]])
-    edges = create_edges(spectrum_data, node_times, node_times_ix, node_velocities, node_velocities_ix, node_biases,
-                         max_n_skips, acceleration_bounds)
     graph = rx.PyDiGraph()
     for layer_edges in edges:
         graph.extend_from_weighted_edge_list(layer_edges)
@@ -201,8 +213,8 @@ def calculate_stacking_velocity(spectrum, init=None, bounds=None, relative_margi
     path = np.array(paths_dict[end_node], dtype=np.int32)[1:-1]
 
     # Convert the path to arrays of times and stacking velocities
-    times_ix = np.searchsorted(node_biases, path, side="right") - 1
-    vels_ix = path - node_biases[times_ix]
-    times = node_times[times_ix]
-    velocities = np.array([node_velocities[tix][vix] for tix, vix in zip(times_ix, vels_ix)])
-    return times, velocities
+    times_ix = np.searchsorted(layer_biases, path, side="right") - 1
+    velocities_ix = path - layer_biases[times_ix]
+    times = layer_times[times_ix]
+    velocities = np.array([layer_velocities[tix][vix] for tix, vix in zip(times_ix, velocities_ix)])
+    return times, velocities, layer_times, min_velocity_bound, max_velocity_bound

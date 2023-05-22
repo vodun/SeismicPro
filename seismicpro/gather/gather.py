@@ -1,6 +1,7 @@
 """Implements Gather class that represents a group of seismic traces that share some common acquisition parameter"""
 
 import os
+import math
 import warnings
 from itertools import cycle
 from textwrap import dedent
@@ -1240,7 +1241,7 @@ class Gather(TraceContainer, SamplesContainer):
             filter_size = int(40 * new_sample_interval / current_sample_interval)
             self.bandpass_filter(high=0.9*nyquist_frequency, filter_size=filter_size, window="hann")
 
-        new_n_samples = int((self.samples[-1] - self.samples[0]) // new_sample_interval) + 1
+        new_n_samples = math.floor((self.samples[-1] - self.samples[0]) / new_sample_interval) + 1
         new_samples = self.create_samples(new_n_samples, new_sample_interval, self.delay)
 
         if isinstance(kind, int):
