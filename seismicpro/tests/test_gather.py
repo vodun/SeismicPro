@@ -70,11 +70,12 @@ def test_gather_attrs(gather):
     slice(5, 5),  # Empty gather after indexing
     (slice(None), slice(0, 0)),  # Empty gather after indexing
 ])
-def test_gather_getitem_fails(gather, key):
+@pytest.mark.parametrize("method", ["__getitem__", "get_item"])
+def test_gather_getitem_fails(gather, method, key):
     """Check if gather indexing properly fails."""
+    get_item_method = getattr(gather, method)
     with pytest.raises((KeyError, ValueError)):
-        _ = gather[key]
-        _ = gather.getitem(key)
+        _ = get_item_method(key)
 
 
 @pytest.mark.parametrize("key", [
